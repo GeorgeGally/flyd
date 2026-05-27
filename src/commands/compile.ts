@@ -38,9 +38,10 @@ export async function runCompile(opts: { force?: boolean; model?: string } = {})
   const articles = parseArticles(response);
 
   for (const { filename, content } of articles) {
-    const dest = join(KNOWLEDGE_DIR, "concepts", filename);
+    const base = filename.replace(/^concepts\//, "");
+    const dest = join(KNOWLEDGE_DIR, "concepts", base);
     writeFileSync(dest, content, "utf8");
-    console.log(`  wrote concepts/${filename}`);
+    console.log(`  wrote concepts/${base}`);
   }
 
   const now = new Date().toISOString();
