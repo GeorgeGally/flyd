@@ -15,7 +15,7 @@ program
 program
   .command("setup")
   .description("Show setup status — API key configuration")
-  .action(runSetup);
+  .action(() => runSetup());
 
 program
   .command("capture <text>")
