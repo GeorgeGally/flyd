@@ -3,7 +3,7 @@ import { join } from "path";
 import { RAW_DIR } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 
-export function runCapture(text: string): void {
+export async function runCapture(text: string): Promise<void> {
   mkdirSync(RAW_DIR, { recursive: true });
 
   const now = new Date();

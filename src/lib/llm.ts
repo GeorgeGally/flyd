@@ -13,6 +13,7 @@ async function queryOpenAI(prompt: string, model: string): Promise<string> {
     max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });
+  if (!res.choices.length) throw new Error("OpenAI returned empty choices");
   return res.choices[0].message.content ?? "";
 }
 
@@ -24,5 +25,6 @@ async function queryAnthropic(prompt: string, model: string): Promise<string> {
     max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });
+  if (!res.content.length) throw new Error("Anthropic returned empty content");
   return res.content[0].type === "text" ? res.content[0].text : "";
 }

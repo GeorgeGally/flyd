@@ -21,7 +21,7 @@ program
   .command("capture <text>")
   .description("Capture raw text and compile knowledge")
   .action(async (text: string) => {
-    runCapture(text);
+    await runCapture(text);
     await runCompile();
   });
 

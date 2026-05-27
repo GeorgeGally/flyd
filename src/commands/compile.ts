@@ -111,10 +111,24 @@ ${rawSections.join("\n\n---\n\n")}`;
 
 function parseArticles(response: string): ConceptArticle[] {
   const match = response.match(/\[[\s\S]*\]/);
-  if (!match) return [];
+  if (!match) {
+    console.error("compile: LLM response contained no JSON array");
+    return [];
+  }
   try {
-    return JSON.parse(match[0]) as ConceptArticle[];
-  } catch {
+    const parsed = JSON.parse(match[0]);
+    if (!Array.isArray(parsed)) {
+      console.error("compile: LLM response was not an array");
+      return [];
+    }
+    return parsed.filter(
+      (a): a is ConceptArticle =>
+        typeof a === "object" && a !== null &&
+        typeof a.filename === "string" &&
+        typeof a.content === "string"
+    );
+  } catch (err) {
+    console.error("compile: failed to parse LLM response:", err);
     return [];
   }
 }
