@@ -1,16 +1,20 @@
 {
-  "name": "flyd",
+  "name": "@radarboy/flyd",
   "version": "0.1.0",
   "description": "flyd — personal memory CLI",
   "bin": {
     "flyd": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/postbuild.mjs",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run lint && npm run build"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "commander": "^12.0.0",
     "openai": "^4.0.0",
@@ -24,5 +28,10 @@
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GeorgeGally/flyd.git"
+  },
+  "license": "MIT"
 }
