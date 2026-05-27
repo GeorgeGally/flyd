@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { runSetup } from "./commands/setup.js";
 import { runCapture } from "./commands/capture.js";
 import { runAsk } from "./commands/ask.js";
+import { runCompile } from "./commands/compile.js";
 
 const program = new Command();
 
@@ -18,8 +19,18 @@ program
 
 program
   .command("capture <text>")
-  .description("Capture raw text to Floyd")
-  .action(runCapture);
+  .description("Capture raw text and compile knowledge")
+  .action(async (text: string) => {
+    runCapture(text);
+    await runCompile();
+  });
+
+program
+  .command("compile")
+  .description("Compile raw captures into knowledge wiki")
+  .option("--force", "recompile all files")
+  .option("--model <model>", "LLM model")
+  .action((opts: { force?: boolean; model?: string }) => runCompile(opts));
 
 program
   .command("ask <question>")
