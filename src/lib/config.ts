@@ -4,8 +4,11 @@ import { join } from "path";
 
 export const FLYD_DIR = join(homedir(), ".flyd");
 export const RAW_DIR = join(FLYD_DIR, "raw");
-export const KNOWLEDGE_DIR = join(FLYD_DIR, "knowledge");
 export const CONFIG_PATH = join(FLYD_DIR, "config.json");
+export const WIKI_DIR = join(FLYD_DIR, "wiki");
+export const PROPOSED_DIR = join(FLYD_DIR, "proposed");
+export const CONTEXT_DIR = join(FLYD_DIR, "context");
+export const DISPUTES_DIR = join(FLYD_DIR, "disputes");
 
 interface FlydConfig {
   OPENAI_API_KEY?: string;
