@@ -1,10 +1,14 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { execSync } from "child_process";
 import { RAW_DIR, WIKI_DIR, hasApiKey, defaultModel } from "../lib/config.js";
 import { mkdirSync } from "fs";
 import { loadState, saveState, fileHash } from "../lib/state.js";
 import { runHostDistill } from "../lib/host.js";
 import { reviewWithMom, reviewWithGeorge, applyDecision } from "../lib/governor.js";
+import { runCompileContext } from "./compile-context.js";
+import { runDedup } from "./dedup.js";
+import { rebuildGraph } from "../lib/graph.js";
 
 export async function runPromote(opts: { force?: boolean; model?: string } = {}): Promise<void> {
   const model = opts.model ?? defaultModel();
@@ -86,7 +90,35 @@ export async function runPromote(opts: { force?: boolean; model?: string } = {})
     saveState(state);
   }
 
+  await runCompileContext();
+  reindexQmd();
+
+  console.log("  dedup...");
+  await runDedup({ fix: true });
+
+  console.log("  graph rebuild...");
+  rebuildGraph();
+
   console.log("done");
+}
+
+function reindexQmd(): void {
+  try {
+    execSync("qmd update", { stdio: "pipe" });
+  } catch {
+    // qmd not installed or index update failed — non-fatal
+  }
+  try {
+    execSync("qmd models list", { stdio: "pipe" });
+  } catch {
+    // models not downloaded — skip embed, user must run manually
+    return;
+  }
+  try {
+    execSync("qmd embed", { stdio: "pipe" });
+  } catch {
+    // embed failed — non-fatal
+  }
 }
 
 function ensureWikiDirs(): void {
