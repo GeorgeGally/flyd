@@ -38,6 +38,8 @@ export const CONTEXT_DIR = join(FLYD_DIR, "context");
 export const SYNTHESIS_STATE_PATH = join(FLYD_DIR, "synthesis-state.json");
 export const INTERESTS_PATH = join(FLYD_DIR, "interests.json");
 export const INTERESTS_STATE_PATH = join(FLYD_DIR, "interests-state.json");
+export const REVIEW_STATE_PATH = join(FLYD_DIR, "review-state.json");
+export const CRYSTALLIZE_STATE_PATH = join(FLYD_DIR, "crystallize-state.json");
 export const SKILLS_DIR = join(process.cwd(), ".opencode", "skills");
 
 interface FlydConfig {

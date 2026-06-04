@@ -54,7 +54,7 @@ const OBSIDIAN_CONFIG = {
   "graph.json": {
     "collapse-filter": false,
     "search": "",
-    "showTags": true,
+    "showTags": false,
     "showAttachments": false,
     "hideUnresolved": false,
     "showOrphans": true,
@@ -100,6 +100,7 @@ Flyd wiki conventions. Read by human and LLM.
 | people/ | person | Contacts, collaborators, mentors |
 | constraints/ | constraint | Behavioral rules, non-negotiables |
 | topics/ | topic | Knowledge — concepts, entities, insights |
+| flyd/ | flyd | Flyd tool internals — commands, architecture, workflows |
 
 ## Frontmatter fields
 

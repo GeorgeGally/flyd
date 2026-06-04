@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyEntry = Record<string, any>;
 import { runSetup } from "./commands/setup.js";
 import { runCapture } from "./commands/capture.js";
 import { runAsk } from "./commands/ask.js";
@@ -8,8 +10,11 @@ import { runCompileContext } from "./commands/compile-context.js";
 import { runDedup } from "./commands/dedup.js";
 import { runGraph } from "./commands/graph.js";
 import { runConsolidate } from "./commands/consolidate.js";
+import { runReview } from "./commands/review.js";
+import { runQuiz } from "./commands/quiz.js";
 import { runCheck } from "./commands/check.js";
 import { runCorrect } from "./commands/correct.js";
+import { runDaemon, stopDaemon, daemonStatus } from "./commands/daemon.js";
 import { runDistill } from "./commands/distill.js";
 import { runInterests } from "./commands/interests.js";
 import { runResearch } from "./commands/research.js";
@@ -49,8 +54,9 @@ program
   .command("ask <question>")
   .description("Ask Floyd — synthesis from raw captures")
   .option("--model <model>", "LLM model")
-  .action((question: string, opts: { model?: string }) =>
-    runAsk(question, opts.model)
+  .option("--librarian", "Run librarian evidence evaluation before synthesis")
+  .action((question: string, opts: { model?: string; librarian?: boolean }) =>
+    runAsk(question, opts.model, opts)
   );
 
 program
@@ -94,7 +100,24 @@ program
   .description("Run self-healing: dedup, staleness check, contradiction detection")
   .option("--fix", "apply fixes for dedup (same as dedup --fix)")
   .option("--contradictions", "run contradiction detection (LLM)")
-  .action((opts: { fix?: boolean; contradictions?: boolean }) => runConsolidate(opts));
+  .option("--evolve-graph", "extract entities and triples from capture body text to enrich knowledge graph")
+  .option("--evolve", "autonomous wiki crystallization — extract durable knowledge from recent captures")
+  .option("--dry-run", "show proposed actions without executing (use with --evolve)")
+  .action((opts: { fix?: boolean; contradictions?: boolean; evolveGraph?: boolean; evolve?: boolean; dryRun?: boolean }) => runConsolidate(opts));
+
+program
+  .command("review")
+  .description("Spaced repetition review — recall and rate knowledge items")
+  .option("-g, --generate", "generate review items from captures")
+  .option("-l, --limit <n>", "max items to review", parseInt)
+  .action((opts: { generate?: boolean; limit?: number }) => runReview(opts));
+
+program
+  .command("quiz")
+  .description("Active recall quiz — test knowledge from review items")
+  .option("-l, --limit <n>", "number of questions", parseInt)
+  .option("-m, --mode <mode>", "qa or cloze (default: qa)")
+  .action((opts: { limit?: number; mode?: string }) => runQuiz({ limit: opts.limit, mode: opts.mode as "qa" | "cloze" | undefined }));
 
 program
   .command("check")
@@ -163,6 +186,59 @@ program
   .action((topic: string, opts: { model?: string }) =>
     runCompound(topic, opts.model)
   );
+
+program
+  .command("daemon")
+  .description("Background consolidation daemon — watches for changes and auto-processes")
+  .argument("[action]", "start (default), stop, or status")
+  .action(async (action?: string) => {
+    const a = action ?? "start";
+    if (a === "stop") {
+      stopDaemon();
+    } else if (a === "status") {
+      daemonStatus();
+    } else {
+      await runDaemon();
+    }
+  });
+
+program
+  .command("librarian <question>")
+  .description("Evaluate evidence coverage for a question without synthesis")
+  .action(async (question: string) => {
+    const { extractKeywords, searchWiki, buildRawEntries, mergeEntries, QMD_RAW_COLLECTION } = await import("./lib/retrieval.js");
+    const { search } = await import("./lib/qmd.js");
+    const { scoreEvidence, corroborate, estimateSufficiency, formatLibrarianSummary } = await import("./lib/librarian.js");
+    const { getInterestKeywords } = await import("./lib/interests.js");
+
+    const keywords = extractKeywords(question);
+    const interestBoost = getInterestKeywords(question);
+    const searchQuery = interestBoost ? `${question} ${interestBoost}` : question;
+    const rawResults = await search(searchQuery, QMD_RAW_COLLECTION);
+    const rawEntries = buildRawEntries(rawResults, keywords);
+    const wikiEntries = searchWiki(searchQuery, keywords);
+    const entries: AnyEntry[] = mergeEntries(rawEntries, wikiEntries);
+
+    if (!entries.length) {
+      console.log("no captures found");
+      return;
+    }
+
+    const evidenceEntries = entries.map((e: AnyEntry) => ({
+      path: e.path,
+      body: e.body,
+      source: e.source as "raw" | "wiki",
+      score: e.score,
+      metadata: e.metadata,
+      staleness: e.staleness,
+    }));
+
+    let scored = evidenceEntries.map((e) => scoreEvidence(e as never, keywords, question));
+    scored = corroborate(scored);
+    const sufficiency = estimateSufficiency(scored, question);
+
+    console.log(formatLibrarianSummary(scored, sufficiency));
+  });
 
 program
   .command("optimize-skill <name>")

@@ -3,7 +3,8 @@ import { join } from "path";
 import { WIKI_DIR, RAW_DIR, CONTEXT_DIR, defaultModel } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
-import { getGraphStats, rebuildGraph } from "../lib/graph.js";
+import { getGraphStats, rebuildGraph, enrichGraph } from "../lib/graph.js";
+import { runCrystallize } from "../lib/crystallize.js";
 import { runDedup } from "./dedup.js";
 import { walkWikiFiles } from "../lib/wiki.js";
 import { updateRaw, embedRaw } from "../lib/qmd.js";
@@ -148,7 +149,7 @@ function checkRawStaleness(): { stale: number; total: number; entries: string[] 
   return { stale: stale.length, total: files.length, entries: stale };
 }
 
-export async function runConsolidate(opts: { fix?: boolean; contradictions?: boolean } = {}): Promise<void> {
+export async function runConsolidate(opts: { fix?: boolean; contradictions?: boolean; evolveGraph?: boolean; evolve?: boolean; dryRun?: boolean } = {}): Promise<void> {
   console.log("flyd consolidate\n");
 
   const rawCount = existsSync(RAW_DIR)
@@ -221,7 +222,18 @@ export async function runConsolidate(opts: { fix?: boolean; contradictions?: boo
   console.log("\n7. graph rebuild...");
   rebuildGraph();
   const stats = getGraphStats();
-  console.log(`  graph: ${stats.entities} entities, ${stats.edges} edges`);
+  console.log(`  graph: ${stats.entities} entities, ${stats.edges} edges (${stats.bodyEdges} body-derived, ${stats.frontmatterEdges} frontmatter)`);
+
+  if (opts.evolveGraph) {
+    console.log("\n8. graph enrichment (body-text extraction)...");
+    const { triplesAdded, entitiesFound } = await enrichGraph();
+    console.log(`  ${triplesAdded} new triples from body text, ${entitiesFound} entities`);
+  }
+
+  if (opts.evolve) {
+    console.log("\n9. wiki crystallization...");
+    await runCrystallize({ dryRun: opts.dryRun ?? false });
+  }
 
   console.log("\ndone.");
 }

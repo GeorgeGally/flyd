@@ -154,7 +154,7 @@ Analyze the captures and respond with a JSON plan:
 
 {
   "newPages": [
-    { "path": "topics/slug.md", "title": "Page Title", "body": "markdown content with [[wiki links]]", "tags": ["tag1", "tag2"] }
+    { "path": "folder/slug.md", "title": "Page Title", "body": "markdown content with [[wiki links]]", "tags": ["tag1", "tag2"] }
   ],
   "updatedPages": [
     { "path": "existing/path.md", "body": "full new markdown content replacing the old page" }
@@ -167,13 +167,40 @@ Analyze the captures and respond with a JSON plan:
   ]
 }
 
-Rules:
-- Only create pages for genuinely new knowledge. Skip noise and trivial chat.
-- If a capture's topic already has a wiki page, update the existing page instead of creating a new one.
-- Use the "topics/" folder for knowledge. Identity types use existing folders.
-- Each page body must include [[wiki links]] to related pages (Obsidian format).
-- If no meaningful knowledge in captures, return empty arrays.
+## Folder routing
+
+Route content to the folder that best matches the captures:
+
+| Content type | Folder | Examples |
+|---|---|---|
+| Flyd tool — commands, internals, architecture, compound-engineering, pipelines | flyd/ | flyd/compound-engineering.md |
+| Client work, products, companies — postraction, tastemaker, bridgestone, cowsite, radarboy (the company), news*, workspace*, editor-controller* | projects/{name}/ | projects/postraction/, projects/tastemaker/ |
+| Radarboy3000 artist portfolio — creative works, art installations | projects/radarboy3000/ | projects/radarboy3000/twitter-tv.md |
+| Standalone projects with 1 page only | projects/ | projects/reaktiv.md |
+| Work history — roles, companies, dates, career milestones | career/ | career/radarboy-media-lab.md |
+| Education — degrees, certifications, courses | education/ | education/creative-tech-degree.md |
+| Awards — recognition, achievements, competition wins | awards/ | awards/cyber-lions-2023.md |
+| Testimonials — endorsements, recommendations, client reviews | testimonials/ | testimonials/client-feedback.md |
+| Skills — technical and soft skills, proficiencies | skills/ | skills/ruby-on-rails.md |
+| Behavioral rules, constraints, non-negotiables | constraints/ | constraints/no-weekend-work.md |
+| Individuals — collaborators, clients, radarboy the person (not the company or artist), george gally | people/ | people/george-gally.md |
+| General concepts that genuinely don't fit above | topics/ | topics/facts.md |
+
+## Linking rules
+
+- Only cross-link pages within the SAME project or folder.
+- NEVER link a flyd tool page to a project page. Flyd is a tool, not part of any project.
+- NEVER write "Recent projects include..." or similar across-domain conflation.
+- NEVER use #hashtag syntax in body text. Tags go in frontmatter YAML only.
+- Only add [[wiki links]] when the source captures genuinely connect two pages.
+- Each page should link to at least one sibling page if it shares a project prefix.
+
+## Rules
 - Max 5 new pages and 3 updates per batch.
+- Check career/, education/, awards/, testimonials/, skills/ for match first — many captures contain identity data that should be routed there.
+- Only create pages for genuinely new knowledge. Skip noise and trivial chat.
+- If a capture belongs to an existing page, update it instead of creating a new one.
+- If no meaningful knowledge in captures, return empty arrays.
 
 Respond ONLY with the JSON object, no other text.`;
 
