@@ -1,18 +1,49 @@
 import { homedir } from "os";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { join, basename } from "path";
+import { execSync } from "child_process";
 
-export const FLYD_DIR = join(homedir(), ".flyd");
+function resolveFlydDir(): string {
+  const cwdLocal = join(process.cwd(), ".flyd");
+  if (existsSync(cwdLocal)) return cwdLocal;
+  return join(homedir(), ".flyd");
+}
+
+function detectProject(): { name: string; path: string } {
+  const cwd = process.cwd();
+  try {
+    const url = execSync("git remote get-url origin", { stdio: "pipe", encoding: "utf8", timeout: 3000 }).trim();
+    if (url) {
+      const ghMatch = url.match(/(?:github\.com[:/])([^\/]+\/[^\/]+?)(?:\.git)?$/);
+      if (ghMatch) return { name: ghMatch[1], path: cwd };
+
+      const genericMatch = url.match(/[:/]([^\/]+\/[^\/]+?)(?:\.git)?$/);
+      if (genericMatch) return { name: genericMatch[1], path: cwd };
+
+      const repoMatch = url.match(/([^\/]+?)(?:\.git)?$/);
+      if (repoMatch) return { name: repoMatch[1], path: cwd };
+    }
+  } catch {}
+  return { name: basename(cwd), path: cwd };
+}
+
+export const FLYD_DIR = resolveFlydDir();
+export const PROJECT = detectProject();
 export const RAW_DIR = join(FLYD_DIR, "raw");
+export const CACHE_DIR = join(FLYD_DIR, "cache");
 export const CONFIG_PATH = join(FLYD_DIR, "config.json");
+export const PLANS_DIR = join(FLYD_DIR, "plans");
 export const WIKI_DIR = join(FLYD_DIR, "wiki");
-export const PROPOSED_DIR = join(FLYD_DIR, "proposed");
 export const CONTEXT_DIR = join(FLYD_DIR, "context");
-export const DISPUTES_DIR = join(FLYD_DIR, "disputes");
+export const SYNTHESIS_STATE_PATH = join(FLYD_DIR, "synthesis-state.json");
+export const INTERESTS_PATH = join(FLYD_DIR, "interests.json");
+export const INTERESTS_STATE_PATH = join(FLYD_DIR, "interests-state.json");
+export const SKILLS_DIR = join(process.cwd(), ".opencode", "skills");
 
 interface FlydConfig {
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  GITHUB_TOKEN?: string;
   FLYD_MODEL?: string;
 }
 

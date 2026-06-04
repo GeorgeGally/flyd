@@ -1,7 +1,9 @@
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join } from "path";
-import { WIKI_DIR } from "./config.js";
-import { parse, type ParsedMarkdown } from "./frontmatter.js";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from "fs";
+import { join, dirname } from "path";
+import { createHash, randomUUID } from "crypto";
+import { WIKI_DIR, defaultModel } from "./config.js";
+import { parse, serialize, type ParsedMarkdown } from "./frontmatter.js";
+import { query } from "./llm.js";
 
 export const WIKI_FOLDERS: Record<string, string> = {
   skill: "skills",
@@ -12,6 +14,7 @@ export const WIKI_FOLDERS: Record<string, string> = {
   project: "projects",
   person: "people",
   constraint: "constraints",
+  topic: "topics",
 };
 
 export interface MemoryMatch {
@@ -39,11 +42,180 @@ export function walkWikiFiles(): string[] {
         entry.isFile() &&
         entry.name.endsWith(".md") &&
         entry.name !== "rejected.md" &&
-        entry.name !== "index.md"
+        entry.name !== "index.md" &&
+        entry.name !== "log.md" &&
+        entry.name !== "schema.md"
       ) {
         results.push(full);
       }
     }
   }
   return results.sort();
+}
+
+export function wikiExists(): boolean {
+  return existsSync(join(WIKI_DIR, "index.md"));
+}
+
+function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
+}
+
+export function writeWikiPage(path: string, content: string): void {
+  const fullPath = join(WIKI_DIR, path);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  const tmpPath = fullPath + ".tmp." + randomUUID().slice(0, 8);
+  writeFileSync(tmpPath, content, "utf8");
+  renameSync(tmpPath, fullPath);
+}
+
+export function appendLog(entry: { type: string; title: string; body?: string; affected?: string[] }): void {
+  if (!wikiExists()) return;
+  const logPath = join(WIKI_DIR, "log.md");
+  const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const lines = [`## [${ts}] ${entry.type} | ${entry.title}`];
+  if (entry.body) lines.push(entry.body);
+  if (entry.affected?.length) lines.push(`affected: ${entry.affected.join(", ")}`);
+  lines.push("");
+  const existing = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+  writeFileSync(logPath, existing + lines.join("\n"), "utf8");
+}
+
+export function createTopicPage(opts: {
+  slug: string;
+  title: string;
+  body: string;
+  tags: string[];
+  source: string;
+  confidence: string;
+}): string {
+  const ts = new Date().toISOString().split("T")[0];
+  return serialize(
+    {
+      type: "topic",
+      source: opts.source,
+      confidence: opts.confidence,
+      tags: opts.tags,
+      aliases: [opts.title.toLowerCase()],
+      created: ts,
+      updated: ts,
+    },
+    `# ${opts.title}\n\n${opts.body}`
+  );
+}
+
+interface IndexCache {
+  [path: string]: { hash: string; summary: string };
+}
+
+export async function generateIndex(): Promise<string> {
+  if (!wikiExists()) {
+    return "wiki is empty — run `flyd wiki init` or `flyd consolidate` to initialize.";
+  }
+
+  const files = walkWikiFiles();
+  if (!files.length) {
+    return "wiki has no pages yet — use `flyd ingest <source>` to add knowledge.";
+  }
+
+  const cachePath = join(WIKI_DIR, "meta", "index-cache.json");
+  let cache: IndexCache = {};
+  try {
+    if (existsSync(cachePath)) cache = JSON.parse(readFileSync(cachePath, "utf8"));
+  } catch {}
+
+  const byType: Record<string, Array<{ rel: string; summary: string; updated: string }>> = {};
+
+  for (const file of files) {
+    const content = readFileSync(file, "utf8");
+    const h = hashContent(content);
+    const rel = file.replace(WIKI_DIR + "/", "");
+    const parsed = parse(content);
+    const folder = rel.split("/")[0] || "unknown";
+    const updated = String(parsed.metadata.updated ?? parsed.metadata.created ?? "");
+
+    if (cache[rel]?.hash === h) {
+      if (!byType[folder]) byType[folder] = [];
+      byType[folder].push({ rel, summary: cache[rel].summary, updated });
+      continue;
+    }
+
+    const bodyExcerpt = parsed.body.slice(0, 500);
+    let summary = "";
+    try {
+      const prompt = `Summarize this wiki page in one sentence (under 120 chars):\n\n${bodyExcerpt}`;
+      summary = await query(prompt, defaultModel());
+      summary = summary.replace(/^["']|["']$/g, "").trim();
+      if (summary.length > 150) summary = summary.slice(0, 147) + "...";
+    } catch {
+      summary = bodyExcerpt.replace(/\n/g, " ").slice(0, 120);
+    }
+
+    cache[rel] = { hash: h, summary };
+
+    if (!byType[folder]) byType[folder] = [];
+    byType[folder].push({ rel, summary, updated });
+  }
+
+  mkdirSync(join(WIKI_DIR, "meta"), { recursive: true });
+  writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
+
+  const lines = ["# Wiki Index", `Generated: ${new Date().toISOString().split("T")[0]}`, ""];
+  for (const [folder, pages] of Object.entries(byType).sort()) {
+    if (!pages.length) continue;
+    lines.push(`## ${folder} (${pages.length})`);
+    for (const p of pages) {
+      const date = p.updated ? ` (${p.updated})` : "";
+      lines.push(`- [${p.rel}](${p.rel}) — ${p.summary}${date}`);
+    }
+    lines.push("");
+  }
+
+  const indexContent = lines.join("\n");
+  writeFileSync(join(WIKI_DIR, "index.md"), indexContent, "utf8");
+  return indexContent;
+}
+
+export interface IngestPlan {
+  newPages: Array<{ path: string; title: string; body: string; tags: string[] }>;
+  updatedPages: Array<{ path: string; body: string }>;
+  contradictions: Array<{ a: string; b: string; claim: string }>;
+  crossLinks: Array<{ from: string; to: string; type: string }>;
+  skippedCaptures: number;
+}
+
+interface IngestState {
+  created: string[];
+  modified: Array<{ path: string; backup: string }>;
+  timestamp: string;
+}
+
+const INGEST_STATE_PATH = join(WIKI_DIR, "meta", "last-ingest.json");
+
+export function saveIngestState(plan: IngestPlan): void {
+  const created = plan.newPages.map((p) => p.path);
+  const modified: Array<{ path: string; backup: string }> = [];
+  for (const u of plan.updatedPages) {
+    const fullPath = join(WIKI_DIR, u.path);
+    if (existsSync(fullPath)) {
+      modified.push({ path: u.path, backup: readFileSync(fullPath, "utf8") });
+    }
+  }
+  const state: IngestState = { created, modified, timestamp: new Date().toISOString() };
+  mkdirSync(dirname(INGEST_STATE_PATH), { recursive: true });
+  writeFileSync(INGEST_STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+}
+
+export function revertLastIngest(): boolean {
+  if (!existsSync(INGEST_STATE_PATH)) return false;
+  const state: IngestState = JSON.parse(readFileSync(INGEST_STATE_PATH, "utf8"));
+  for (const p of state.created) {
+    const fullPath = join(WIKI_DIR, p);
+    try { rmSync(fullPath, { force: true }); } catch {}
+  }
+  for (const m of state.modified) {
+    const fullPath = join(WIKI_DIR, m.path);
+    try { writeFileSync(fullPath, m.backup, "utf8"); } catch {}
+  }
+  return true;
 }

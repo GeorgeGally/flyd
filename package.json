@@ -2,6 +2,7 @@
   "name": "@radarboy/flyd",
   "version": "0.1.0",
   "description": "flyd — personal memory CLI",
+  "type": "module",
   "bin": {
     "flyd": "./dist/index.js"
   },
@@ -16,9 +17,10 @@
     "dist"
   ],
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "@tobilu/qmd": "^2.5.3",
     "commander": "^12.0.0",
-    "openai": "^4.0.0",
-    "@anthropic-ai/sdk": "^0.40.0"
+    "openai": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
