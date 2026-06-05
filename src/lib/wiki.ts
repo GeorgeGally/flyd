@@ -16,6 +16,10 @@ export const WIKI_FOLDERS: Record<string, string> = {
   constraint: "constraints",
   topic: "topics",
   flyd: "flyd",
+  event: "events",
+  belief: "beliefs",
+  goal: "goals",
+  question: "questions",
 };
 
 export interface MemoryMatch {

@@ -6,6 +6,13 @@ import { extractInterests } from "../lib/interests.js";
 import { suggestLinksForCapture, writeLinksToCapture, findNewCapturesSince } from "../lib/linking.js";
 import { appendToGraph } from "../lib/graph.js";
 import { wikiExists } from "../lib/wiki.js";
+import { parse, serialize } from "../lib/frontmatter.js";
+import { enrichCaptureLocal, enrichCaptureWithLLM } from "../lib/entity-extractor.js";
+import type { EventMetadata } from "../lib/schema.js";
+import { computeAttention, formatAttentionReport, generateNudges, writeNudges, loadCaptureDocs } from "../lib/attention.js";
+import { loadGoals, computeTension, formatTensionReport } from "../lib/tension.js";
+import { generateQuestions, investigateQuestion, getRelevantDocsForQuestion, writeCuriosityLog, type CuriosityQuestion } from "../lib/curiosity.js";
+import { isBudgetExceeded, getDailySpend } from "../lib/budget.js";
 
 const PID_PATH = join(FLYD_DIR, "daemon.pid");
 const STATE_PATH = join(FLYD_DIR, "daemon-state.json");
@@ -109,6 +116,80 @@ async function runIncremental(state: DaemonState): Promise<DaemonState> {
   return state;
 }
 
+const ATTN_INTERVAL = 4 * 60 * 60 * 1000;
+const TENSION_INTERVAL = 24 * 60 * 60 * 1000;
+const CURIOSITY_INTERVAL = 24 * 60 * 60 * 1000;
+
+let lastAttention = 0;
+let lastTension = 0;
+let lastCuriosity = 0;
+
+async function runProactiveCycle(forceAll = false): Promise<void> {
+  const now = Date.now();
+  const spend = getDailySpend();
+  const budgetOk = !isBudgetExceeded();
+
+  if (forceAll || (now - lastAttention) >= ATTN_INTERVAL) {
+    try {
+      const docs = loadCaptureDocs();
+      const signals = computeAttention(docs);
+      const report = formatAttentionReport(signals);
+      if (existsSync(WIKI_DIR)) writeFileSync(join(WIKI_DIR, "attention-report.md"), report, "utf8");
+      const nudges = generateNudges(signals);
+      if (nudges.length) writeNudges(nudges);
+      lastAttention = now;
+    } catch {}
+  }
+
+  if (budgetOk && (forceAll || (now - lastTension) >= TENSION_INTERVAL)) {
+    try {
+      const goals = loadGoals();
+      if (goals.length > 0) {
+        const docs = loadCaptureDocs();
+        const scores = computeTension(goals, docs);
+        if (existsSync(WIKI_DIR)) writeFileSync(join(WIKI_DIR, "tension-report.md"), formatTensionReport(scores), "utf8");
+        lastTension = now;
+      }
+    } catch {}
+  }
+
+  if (budgetOk && (forceAll || (now - lastCuriosity) >= CURIOSITY_INTERVAL)) {
+    try {
+      const docs = loadCaptureDocs();
+      const attention = computeAttention(docs);
+      const goals = loadGoals();
+      const tension = goals.length > 0 ? computeTension(goals, docs) : [];
+      const qTexts = await generateQuestions(attention, tension);
+      if (qTexts.length > 0) {
+        const questions: CuriosityQuestion[] = [];
+        const qNow = new Date().toISOString().replace("T", " ").slice(0, 19);
+        for (let i = 0; i < qTexts.length; i++) {
+          const rd = getRelevantDocsForQuestion(qTexts[i], docs);
+          if (rd.length > 0) {
+            try {
+              const inv = await investigateQuestion(qTexts[i], rd);
+              questions.push({
+                id: `daemon-q-${Date.now()}-${i}`,
+                question: qTexts[i],
+                generatedAt: qNow,
+                source: "attention",
+                investigated: true,
+                findings: inv.findings,
+                missingEvidence: inv.missingEvidence ?? undefined,
+                relevantPages: rd.map((d) => d.path),
+              });
+            } catch {
+              questions.push({ id: `daemon-q-${Date.now()}-${i}`, question: qTexts[i], generatedAt: qNow, source: "attention", investigated: false });
+            }
+          }
+        }
+        if (questions.length) writeCuriosityLog(questions);
+      }
+      lastCuriosity = now;
+    } catch {}
+  }
+}
+
 export async function runDaemon(): Promise<void> {
   if (isRunning()) {
     const pid = readFileSync(PID_PATH, "utf8").trim();
@@ -155,6 +236,7 @@ export async function runDaemon(): Promise<void> {
     try {
       const newState = loadState();
       await runIncremental(newState);
+      await runProactiveCycle();
     } catch (err) {
       console.error("daemon poll error:", err instanceof Error ? err.message : String(err));
     } finally {
@@ -239,4 +321,95 @@ export function daemonStatus(): void {
       console.log("  stale PID file present — run 'flyd daemon stop' to clean up");
     }
   }
+}
+
+const BACKFILL_STATE_PATH = join(FLYD_DIR, "backfill-state.json");
+
+interface BackfillState {
+  processed: number;
+  total: number;
+  enriched: number;
+  skipped: number;
+  errors: number;
+  lastPath: string;
+}
+
+function loadBackfillState(): BackfillState {
+  if (!existsSync(BACKFILL_STATE_PATH)) {
+    return { processed: 0, total: 0, enriched: 0, skipped: 0, errors: 0, lastPath: "" };
+  }
+  try {
+    return JSON.parse(readFileSync(BACKFILL_STATE_PATH, "utf8"));
+  } catch {
+    return { processed: 0, total: 0, enriched: 0, skipped: 0, errors: 0, lastPath: "" };
+  }
+}
+
+function saveBackfillState(state: BackfillState): void {
+  mkdirSync(FLYD_DIR, { recursive: true });
+  writeFileSync(BACKFILL_STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+}
+
+export async function runBackfill(): Promise<void> {
+  if (!existsSync(RAW_DIR)) {
+    console.log("no raw captures found");
+    return;
+  }
+
+  const captureFiles: string[] = [];
+  const stack = [RAW_DIR];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.isFile() && entry.name.endsWith(".md")) captureFiles.push(full.replace(RAW_DIR + "/", ""));
+    }
+  }
+
+  if (!captureFiles.length) {
+    console.log("no capture files found");
+    return;
+  }
+
+  const state = loadBackfillState();
+  state.total = captureFiles.length;
+  console.log(`backfill: ${captureFiles.length} captures`);
+
+  let i = 0;
+  for (const relPath of captureFiles) {
+    i++;
+    if (relPath <= state.lastPath) continue;
+    const fullPath = join(RAW_DIR, relPath);
+    try {
+      const content = readFileSync(fullPath, "utf8");
+      const parsed = parse(content);
+      if (parsed.metadata.event_type || parsed.metadata.signal) { state.skipped++; state.lastPath = relPath; continue; }
+      if (parsed.body.length < 50) { state.skipped++; state.lastPath = relPath; continue; }
+
+      let eventMeta: EventMetadata = enrichCaptureLocal(parsed.body);
+      if (parsed.body.length > 200) {
+        try { eventMeta = await enrichCaptureWithLLM(parsed.body); } catch {}
+      }
+
+      const updatedMeta = { ...parsed.metadata };
+      if (eventMeta.event_type) updatedMeta.event_type = eventMeta.event_type;
+      if (eventMeta.signal) updatedMeta.signal = eventMeta.signal;
+      if (eventMeta.participants?.length) updatedMeta.participants = eventMeta.participants;
+      if (eventMeta.outcome) updatedMeta.outcome = eventMeta.outcome;
+      if (eventMeta.topics?.length) updatedMeta.topics = eventMeta.topics;
+
+      writeFileSync(fullPath, serialize(updatedMeta, parsed.body), "utf8");
+      state.enriched++;
+      state.lastPath = relPath;
+
+      if (i % 50 === 0) {
+        process.stdout.write(`\r  ${i}/${captureFiles.length} (${state.enriched} enriched, ${state.skipped} skipped)`);
+        saveBackfillState(state);
+      }
+    } catch { state.errors++; state.lastPath = relPath; }
+  }
+
+  console.log(`\nbackfill: ${state.enriched} enriched, ${state.skipped} skipped, ${state.errors} errors`);
+  saveBackfillState(state);
 }

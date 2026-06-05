@@ -14,7 +14,10 @@ import { runReview } from "./commands/review.js";
 import { runQuiz } from "./commands/quiz.js";
 import { runCheck } from "./commands/check.js";
 import { runCorrect } from "./commands/correct.js";
-import { runDaemon, stopDaemon, daemonStatus } from "./commands/daemon.js";
+import { runDaemon, stopDaemon, daemonStatus, runBackfill } from "./commands/daemon.js";
+import { runAttention } from "./commands/attention.js";
+import { runGoal, runGoalList, runGoalUpdate, runTension } from "./commands/tension.js";
+import { runCuriosity } from "./commands/curiosity.js";
 import { runDistill } from "./commands/distill.js";
 import { runInterests } from "./commands/interests.js";
 import { runResearch } from "./commands/research.js";
@@ -190,16 +193,56 @@ program
 program
   .command("daemon")
   .description("Background consolidation daemon — watches for changes and auto-processes")
-  .argument("[action]", "start (default), stop, or status")
+  .argument("[action]", "start (default), stop, status, or backfill")
   .action(async (action?: string) => {
     const a = action ?? "start";
     if (a === "stop") {
       stopDaemon();
     } else if (a === "status") {
       daemonStatus();
+    } else if (a === "backfill") {
+      await runBackfill();
     } else {
       await runDaemon();
     }
+  });
+
+program
+  .command("attention")
+  .description("Scan captures for attention signals and generate report")
+  .action(async () => {
+    await runAttention();
+  });
+
+program
+  .command("goal <title>")
+  .description("Create or list goals (without args, lists all goals)")
+  .argument("[action]", "list or update")
+  .argument("[slug]", "goal slug for update")
+  .argument("[status]", "new status (active, paused, achieved, abandoned)")
+  .option("--deadline <date>", "deadline date (YYYY-MM-DD)")
+  .action(async (title: string, action?: string, slug?: string, status?: string, opts?: { deadline?: string }) => {
+    if (title === "list" || title === "ls") {
+      await runGoalList();
+    } else if (title === "update" && slug && status) {
+      await runGoalUpdate(slug, status);
+    } else {
+      await runGoal(title, opts?.deadline);
+    }
+  });
+
+program
+  .command("tension")
+  .description("Compute tension scores for all tracked goals")
+  .action(async () => {
+    await runTension();
+  });
+
+program
+  .command("curiosity")
+  .description("Generate questions and investigate patterns in captured data")
+  .action(async () => {
+    await runCuriosity();
   });
 
 program

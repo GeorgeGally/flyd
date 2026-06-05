@@ -8,6 +8,11 @@ export const DEFAULT_HALF_LIVES: Record<string, number> = {
   working: 90,
   raw: 60,
   episodic: 30,
+  event: 30,
+  observation: 60,
+  decision: 90,
+  belief: 180,
+  goal: 90,
 };
 
 export function decayedValue(
@@ -22,9 +27,13 @@ export function decayedValue(
 }
 
 export function getHalfLife(metadata: Record<string, unknown>): number {
-  const rawType = String(metadata.type ?? "raw");
-  const halfLifeKey = rawType in DEFAULT_HALF_LIVES ? rawType : "raw";
-  return DEFAULT_HALF_LIVES[halfLifeKey];
+  const rawType = String(metadata.type ?? "");
+  if (rawType in DEFAULT_HALF_LIVES) return DEFAULT_HALF_LIVES[rawType];
+
+  const eventType = String(metadata.event_type ?? "");
+  if (eventType in DEFAULT_HALF_LIVES) return DEFAULT_HALF_LIVES[eventType];
+
+  return DEFAULT_HALF_LIVES["raw"];
 }
 
 export function estimateDaysSince(path: string): number {
