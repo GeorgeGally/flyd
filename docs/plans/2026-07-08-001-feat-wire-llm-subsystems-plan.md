@@ -1,7 +1,7 @@
 ---
 title: Wire real LLM calls into intelligence subsystems
 type: feat
-status: active
+status: completed
 date: 2026-07-08
 ---
 
