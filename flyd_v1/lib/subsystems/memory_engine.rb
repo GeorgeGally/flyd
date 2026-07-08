@@ -69,7 +69,8 @@ module Subsystems
       lines = [ "## Project Context" ]
       items.each do |item|
         type = item.is_a?(Decision) ? "Decision" : "Belief"
-        lines << "- [#{type}] #{item.content.truncate(200)}"
+        text = item.respond_to?(:content) ? item.content : item.statement
+        lines << "- [#{type}] #{text.truncate(200)}"
       end
       lines.join("\n")
     end
