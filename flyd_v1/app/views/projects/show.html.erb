@@ -1,0 +1,110 @@
+<%= content_for :title, "#{@project.name} — Flyd" %>
+
+<div class="max-w-3xl">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-900">Here's where we are</h2>
+      <p class="text-sm text-gray-500 mt-1"><%= @project.name %></p>
+    </div>
+    <div class="flex items-center gap-2">
+      <%= link_to "Edit", edit_project_path(@project), class: "px-3 py-1.5 text-sm rounded-md border border-gray-300 hover:border-gray-400" %>
+      <% if @project.archived? %>
+        <%= button_to "Reactivate", reactivate_project_path(@project), method: :post, class: "px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700" %>
+      <% else %>
+        <%= button_to "Archive", archive_project_path(@project), method: :post, class: "px-3 py-1.5 text-sm rounded-md border border-gray-300 hover:border-gray-400 text-gray-600" %>
+      <% end %>
+      <%= button_to "Delete", project_path(@project), method: :delete, class: "px-3 py-1.5 text-sm rounded-md bg-red-50 text-red-600 hover:bg-red-100", data: { turbo_confirm: "Delete this project and all its data?" }, form: { class: "inline" } %>
+    </div>
+  </div>
+
+  <% if @project.archived? %>
+    <div class="p-3 mb-6 rounded-md bg-yellow-50 border border-yellow-200">
+      <p class="text-sm text-yellow-800">This project is archived.</p>
+    </div>
+  <% end %>
+
+  <% if @project.description.present? %>
+    <p class="text-gray-600 mb-6"><%= @project.description %></p>
+  <% end %>
+
+  <% if @conversation = @project.active_conversation %>
+    <div class="mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider">Current Conversation</h3>
+        <%= link_to "Continue →", project_conversation_path(@project, @conversation), class: "text-sm text-blue-600 hover:text-blue-800" %>
+      </div>
+      <div class="rounded-lg border border-gray-200 p-4">
+        <% @conversation.messages.ordered.last(3).each do |msg| %>
+          <div class="mb-2 last:mb-0">
+            <span class="text-xs text-gray-400"><%= msg.role == "user" ? "You" : "Flyd" %></span>
+            <p class="text-sm text-gray-700"><%= truncate(msg.content, length: 200) %></p>
+          </div>
+        <% end %>
+        <% if @conversation.messages.none? %>
+          <p class="text-sm text-gray-500">No messages yet. Start the conversation!</p>
+        <% end %>
+      </div>
+    </div>
+  <% else %>
+    <div class="mb-6 rounded-lg border border-dashed border-gray-300 p-6 text-center">
+      <h3 class="text-lg font-medium text-gray-700 mb-2">Start your first conversation</h3>
+      <p class="text-sm text-gray-500 mb-4">Ask a question, describe a problem, or share what you're working on.</p>
+      <%= link_to "New Conversation", project_conversations_path(@project), data: { turbo_method: :post }, class: "inline-flex items-center px-4 py-2 rounded-md bg-gray-900 text-white text-sm hover:bg-gray-800" %>
+    </div>
+  <% end %>
+
+  <% recent_decisions = @project.decisions.by_recency.limit(3) %>
+  <% if recent_decisions.any? %>
+    <div class="mb-6">
+      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Recent Decisions</h3>
+      <div class="space-y-2">
+        <% recent_decisions.each do |decision| %>
+          <div class="rounded-lg border border-gray-200 p-3">
+            <p class="text-sm text-gray-700"><%= decision.content %></p>
+            <p class="text-xs text-gray-400 mt-1"><%= time_ago_in_words(decision.created_at) %> ago</p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <% if recent_decisions.empty? && !@project.active_conversation %>
+    <div class="rounded-lg border border-gray-200 p-6 text-center">
+      <% if @project.root_path.present? %>
+        <p class="text-sm text-gray-500 mb-3">Import existing captures from <%= @project.root_path %></p>
+        <%= link_to "Import Captures", project_path(@project), class: "text-sm text-blue-600 hover:text-blue-800" %>
+      <% else %>
+        <p class="text-sm text-gray-400">Set a root path in project settings to auto-link captures from your filesystem.</p>
+      <% end %>
+    </div>
+  <% end %>
+
+  <% all_conversations = @project.conversations.ordered %>
+  <% if all_conversations.any? %>
+    <div>
+      <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Conversation History</h3>
+      <div class="space-y-2">
+        <% all_conversations.each do |conv| %>
+          <div class="rounded-lg border border-gray-200 p-3 flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-900">
+                  <%= conv.messages.ordered.first&.content&.truncate(60) || "New conversation" %>
+                </span>
+                <% if conv.active? %>
+                  <span class="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700">Active</span>
+                <% else %>
+                  <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-500">Archived</span>
+                <% end %>
+              </div>
+              <p class="text-xs text-gray-400 mt-1">
+                <%= pluralize(conv.messages.count, "message") %> · <%= time_ago_in_words(conv.created_at) %> ago
+              </p>
+            </div>
+            <%= link_to "Open", project_conversation_path(@project, conv), class: "px-3 py-1 text-xs rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200" %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>
