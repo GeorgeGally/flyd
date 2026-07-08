@@ -1,0 +1,18 @@
+shared: &shared
+  data_directory: <%= ENV.fetch("FLYD_DIR", File.join(Dir.home, ".flyd")) %>
+  raw_directory: <%= File.join(ENV.fetch("FLYD_DIR", File.join(Dir.home, ".flyd")), "raw") %>
+  llm_provider: <%= ENV.fetch("FLYD_LLM_PROVIDER", "openai") %>
+  default_model: <%= ENV.fetch("FLYD_DEFAULT_MODEL", "gpt-4.1-nano") %>
+  extraction_model: <%= ENV.fetch("FLYD_EXTRACTION_MODEL", "gpt-4.1-nano") %>
+  qmd_sidecar_url: <%= ENV.fetch("QMD_SIDECAR_URL", "http://localhost:9393") %>
+  backup_directory: <%= ENV.fetch("FLYD_BACKUP_DIR", File.join(Dir.home, ".flyd", "backups")) %>
+  backup_passphrase: <%= ENV["FLYD_BACKUP_PASSPHRASE"] %>
+
+development:
+  <<: *shared
+
+test:
+  <<: *shared
+
+production:
+  <<: *shared
