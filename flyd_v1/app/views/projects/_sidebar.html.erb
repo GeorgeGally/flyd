@@ -1,0 +1,30 @@
+<nav class="flex-1 overflow-y-auto p-2">
+  <div class="flex items-center justify-between px-2 py-1 mb-1">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Projects</span>
+    <%= link_to "New", new_project_path, class: "text-xs text-blue-600 hover:text-blue-800" %>
+  </div>
+
+  <% @active_projects.each do |project| %>
+    <%= link_to project_path(project), class: "flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-gray-200 group" do %>
+      <span class="flex-1 truncate text-gray-900"><%= project.name %></span>
+      <% if project.last_activity_at %>
+        <span class="text-xs text-gray-400"><%= time_ago_in_words(project.last_activity_at) %></span>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <% if @active_projects.empty? %>
+    <p class="px-2 py-1 text-sm text-gray-400">No projects yet</p>
+  <% end %>
+
+  <% if @archived_projects&.any? %>
+    <div class="mt-4">
+      <span class="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Archived</span>
+      <% @archived_projects.each do |project| %>
+        <%= link_to project_path(project), class: "flex items-center px-2 py-1 rounded text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-200" do %>
+          <span class="flex-1 truncate"><%= project.name %></span>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+</nav>

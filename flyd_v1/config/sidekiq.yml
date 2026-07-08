@@ -1,0 +1,17 @@
+:scheduler:
+  :schedule:
+    belief_synthesis:
+      cron: "0 * * * *"
+      class: BeliefSynthesisJob
+      queue: default
+      description: "Synthesize beliefs from recent decisions"
+    capture_watcher:
+      cron: "*/5 * * * *"
+      class: CaptureWatcherJob
+      queue: default
+      description: "Import new auto-capture files"
+    backup:
+      cron: "0 3 * * *"
+      class: BackupJob
+      queue: default
+      description: "Encrypted database backup"
