@@ -1,6 +1,9 @@
 Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
 
+  resource :surface, only: :show
+  resources :intents, only: :create
+
   resources :projects do
     member do
       post :archive
@@ -13,7 +16,7 @@ Rails.application.routes.draw do
     end
   end
 
-  root "projects#index"
+  root "surfaces#show"
 
   resource :settings, only: [:show, :update]
 end
