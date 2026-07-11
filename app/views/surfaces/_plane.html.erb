@@ -1,0 +1,47 @@
+<% project_ids = surface.items.flat_map(&:context_refs).filter_map do |ref|
+     type = ref["type"] || ref[:type]
+     id = ref["id"] || ref[:id]
+     id if type == "project"
+   end.uniq %>
+<% surface_projects = Project.where(id: project_ids).index_by(&:id) %>
+
+<section id="surface_plane"
+         class="relative mt-14 grid flex-1 gap-5 md:grid-cols-12"
+         data-surface-target="plane"
+         data-surface-id="<%= surface.id %>"
+         data-surface-intention="<%= surface.current_intention %>">
+  <% surface.items.each do |item| %>
+    <% dominant = item.item_key == surface.focus_item_id %>
+    <% project_ref = item.context_refs.find { |ref| (ref["type"] || ref[:type]) == "project" } %>
+    <% project_id = project_ref && (project_ref["id"] || project_ref[:id]) %>
+    <% context_project = surface_projects[project_id.to_i] if project_id %>
+    <article class="surface-item transition-all duration-500 <%= dominant ? 'md:col-span-8' : 'md:col-span-4' %>"
+             data-surface-target="item"
+             data-depth="<%= item.depth %>"
+             data-renderer="<%= item.renderer %>">
+      <div class="flex h-full min-h-52 flex-col justify-between border-t border-gray-950 py-5 <%= dominant ? 'md:min-h-96' : '' %>">
+        <div>
+          <div class="mb-8 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+            <span><%= item.intent %></span>
+            <% if context_project %><span><%= context_project.name %></span><% end %>
+          </div>
+          <h2 class="max-w-3xl text-2xl font-medium leading-tight md:text-4xl"><%= item.title %></h2>
+          <p class="mt-5 max-w-2xl text-sm leading-6 text-gray-600 md:text-base"><%= truncate(item.summary, length: dominant ? 360 : 180) %></p>
+        </div>
+        <% if context_project && item.actions.any? %>
+          <div class="mt-10 flex gap-4 text-xs">
+            <% item.actions.each do |action| %>
+              <% action_id = action["id"] || action[:id] %>
+              <% action_label = action["label"] || action[:label] %>
+              <% if action_id == "discuss" %>
+                <%= link_to action_label, root_path(project_id: context_project.id), class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+              <% else %>
+                <span class="text-gray-400"><%= action_label %></span>
+              <% end %>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </article>
+  <% end %>
+</section>
