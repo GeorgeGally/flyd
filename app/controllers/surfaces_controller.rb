@@ -8,17 +8,23 @@ class SurfacesController < ApplicationController
     @conversation = Conversation.includes(:messages, :project).find_by(id: params[:conversation_id])
     @surface = Surface.fallback!
     @preferred_project = Project.active.find_by(id: params[:project_id])
-    @surface_projects = Project.where(id: surface_project_ids).index_by(&:id)
+
+    prepare_next_surface
   end
 
   private
 
-  def surface_project_ids
-    @surface.items.flat_map(&:context_refs).filter_map do |ref|
-      type = ref["type"] || ref[:type]
-      id = ref["id"] || ref[:id]
-      id if type == "project"
-    end.uniq
+  def prepare_next_surface
+    snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)
+
+    if snapshot.nil? || !snapshot.fresh?
+      RefreshIntelligenceStateJob.enqueue
+    elsif @surface.stale? || @surface.metadata["fallback"]
+      ComposeSurfaceJob.enqueue(
+        reason: @surface.metadata["fallback"] ? "surface_missing" : "surface_stale",
+        active_conversation_id: @conversation&.id
+      )
+    end
   end
 
   def surface_enabled?
