@@ -4,12 +4,12 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
   Item = Data.define(:id, :kind, :intent, :renderer, :depth, :state, :title, :summary, :context_refs, :source_refs, :actions)
   Plan = Data.define(:generated_at, :understanding, :current_intention, :focus_item_id, :items)
 
-  test "persists, activates, and broadcasts a composed surface" do
+  test "persists, activates, and queues broadcast for a composed surface" do
     previous = Surface.fallback!
     plan = build_plan
 
     Flyd::Intelligence.stub(:compose_surface, plan) do
-      Turbo::StreamsChannel.stub(:broadcast_replace_to, true) do
+      assert_enqueued_with(job: BroadcastSurfaceJob) do
         ComposeSurfaceJob.perform_now(reason: "provider_refresh")
       end
     end
