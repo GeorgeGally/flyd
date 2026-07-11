@@ -1,73 +1,69 @@
 require "json"
-require "pathname"
 require "time"
 
 module IntelligenceState
   class CliProvider < Provider
+    PROVIDER = "flyd-cli"
     MAX_AGE = 15.minutes
     SUPPORTED_VERSION = "1.0"
-    REFRESH_LOCK_KEY = "intelligence_state:cli_refresh_enqueued"
-    REFRESH_LOCK_TTL = 2.minutes
 
-    def initialize(path: default_path, max_age: MAX_AGE, refresh: true)
-      @path = Pathname(path)
+    def initialize(max_age: MAX_AGE)
       @max_age = max_age
-      @refresh = refresh
     end
 
     def snapshot
-      enqueue_refresh if @refresh && refresh_required?
-      read_snapshot
+      record = IntelligenceSnapshot.latest_for(PROVIDER)
+      return unavailable_snapshot unless record
+
+      Snapshot.new(
+        source: record.provider,
+        generated_at: record.generated_at,
+        fresh: record.fresh?,
+        data: normalize(record.payload),
+        errors: Array(record.errors)
+      )
+    end
+
+    def persist!(payload)
+      validate!(payload)
+      generated_at = Time.iso8601(payload.fetch("generatedAt"))
+      digest = IntelligenceSnapshot.digest_for(payload)
+
+      record = IntelligenceSnapshot.find_or_initialize_by(provider: PROVIDER, state_digest: digest)
+      return [record, false] if record.persisted?
+
+      record.update!(
+        schema_version: payload.fetch("version"),
+        status: generated_at >= @max_age.ago ? "fresh" : "stale",
+        generated_at: generated_at,
+        received_at: Time.current,
+        fresh_until: generated_at + @max_age,
+        payload: payload,
+        errors: []
+      )
+
+      [record, true]
+    rescue JSON::ParserError, KeyError, ArgumentError => error
+      IntelligenceSnapshot.create!(
+        provider: PROVIDER,
+        schema_version: payload.is_a?(Hash) ? payload["version"].presence || "unknown" : "unknown",
+        status: "invalid",
+        generated_at: nil,
+        received_at: Time.current,
+        fresh_until: nil,
+        state_digest: IntelligenceSnapshot.digest_for({ error: error.message, received_at: Time.current.to_f }),
+        payload: payload.is_a?(Hash) ? payload : {},
+        errors: [error.message]
+      )
+      raise
     end
 
     private
 
-    def read_snapshot
-      return missing_snapshot unless @path.exist?
-
-      payload = JSON.parse(@path.read)
-      validate!(payload)
-      generated_at = Time.iso8601(payload.fetch("generatedAt"))
-
-      Snapshot.new(
-        source: payload.fetch("source"),
-        generated_at: generated_at,
-        fresh: generated_at >= @max_age.ago,
-        data: normalize(payload),
-        errors: generated_at >= @max_age.ago ? [] : ["Intelligence state is stale; refresh queued"]
-      )
-    rescue JSON::ParserError, KeyError, ArgumentError => error
-      Snapshot.new(source: "flyd-cli", generated_at: nil, fresh: false, data: {}, errors: [error.message])
-    end
-
-    def refresh_required?
-      return true unless @path.exist?
-
-      payload = JSON.parse(@path.read)
-      generated_at = Time.iso8601(payload.fetch("generatedAt"))
-      generated_at < @max_age.ago
-    rescue JSON::ParserError, KeyError, ArgumentError
-      true
-    end
-
-    def enqueue_refresh
-      return unless Rails.cache.write(REFRESH_LOCK_KEY, true, expires_in: REFRESH_LOCK_TTL, unless_exist: true)
-
-      RefreshIntelligenceStateJob.perform_later
-    rescue ActiveJob::EnqueueError => error
-      Rails.cache.delete(REFRESH_LOCK_KEY)
-      Rails.logger.warn("Could not enqueue intelligence state refresh: #{error.message}")
-    end
-
-    def default_path
-      config = Rails.application.config_for(:flyd)
-      config.fetch(:intelligence_state_path, File.join(config.fetch(:data_directory), "intelligence-state.json"))
-    end
-
     def validate!(payload)
       version = payload.fetch("version")
       raise ArgumentError, "Unsupported intelligence state version: #{version}" unless version == SUPPORTED_VERSION
-      raise ArgumentError, "Invalid intelligence state source" unless payload.fetch("source") == "flyd-cli"
+      raise ArgumentError, "Invalid intelligence state source" unless payload.fetch("source") == PROVIDER
     end
 
     def normalize(payload)
@@ -82,13 +78,13 @@ module IntelligenceState
       }
     end
 
-    def missing_snapshot
+    def unavailable_snapshot
       Snapshot.new(
-        source: "flyd-cli",
+        source: PROVIDER,
         generated_at: nil,
         fresh: false,
         data: {},
-        errors: ["Intelligence state unavailable; refresh queued"]
+        errors: ["No persisted intelligence snapshot is available"]
       )
     end
   end
