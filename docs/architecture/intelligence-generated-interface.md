@@ -11,7 +11,7 @@ Projects, conversations, messages, decisions, beliefs, behaviours, events, goals
 
 ## Core boundary
 
-The root surface must be composed through `Flyd::Intelligence`.
+The root surface must be composed through `Flyd::Intelligence`, persisted, validated, and activated before it becomes visible.
 
 Flyd receives a snapshot of the current world, including active interaction, memory, project context, recent decisions, beliefs, messages, goals, tensions, curiosity, nudges, reports, events, and available capabilities. Flyd synthesizes that state and returns:
 
@@ -48,9 +48,26 @@ Rails consumes this contract through `IntelligenceState::Provider`. `Intelligenc
 
 Provider output is evidence supplied to Flyd. It never directly determines a surface object.
 
+## Persisted surface lifecycle
+
+`Surface` and `SurfaceItem` are durable semantic presentation records.
+
+A surface moves through:
+
+```text
+draft → active → superseded
+             ↘ expired
+
+draft → invalid
+```
+
+Only one surface may be active. Activation is transactional: the previous active surface is superseded only when the replacement draft is valid and contains its declared focus item. Invalid drafts never replace the current experience.
+
+The request path performs no model composition. `GET /` loads the active persisted surface and creates a deterministic fallback only when no active surface exists.
+
 ## Constraints
 
-- The root experience renders a Flyd-composed `Surface` when the generated-surface feature is enabled.
+- The root experience renders the current persisted Flyd-composed `Surface` when the generated-surface feature is enabled.
 - A project, decision, belief, message, goal, signal, or other record never becomes a visible object merely because it exists.
 - It is valid for Flyd to synthesize many records into one scene, create no scene, or choose a different representation entirely.
 - Projects are context references. They appear only for provenance, correction, or explicit system navigation.
@@ -63,12 +80,12 @@ Provider output is evidence supplied to Flyd. It never directly determines a sur
 - Motion communicates semantic changes through expansion, compression, recession, and return. It must be reversible.
 - Invalid or unavailable intelligence output falls back to a calm universal input, never to a ranked database feed.
 - Missing or stale provider state must be explicit in the snapshot rather than silently ignored.
-- Provider refresh work must not block the surface request path.
+- Provider refresh work and surface composition must not block the surface request path.
 
 ## Current implementation boundary
 
-`Flyd::Intelligence` composes a surface synchronously using the configured LLM over a bounded Rails snapshot plus all registered intelligence-state providers. Its output is validated against a constrained semantic schema before rendering. `Surface::Planner` remains only as a compatibility delegate and contains no ranking or decision logic.
+The persisted surface domain, transactional activation lifecycle, deterministic fallback, and database-only request path are implemented. `Surfaces::PersistPlan` stores a semantic Flyd plan as a draft ready for later validation and activation.
 
-Surface persistence, lifecycle, caching, multimodal input, artifact renderers, and richer semantic relationships remain future work.
+Background surface composition, automatic stale-surface refresh, live replacement, shared provider persistence, world-state compilation, multimodal input, artifact renderers, and richer semantic relationships remain future work.
 
 Legacy project and conversation routes remain available as fallback and diagnostic views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
