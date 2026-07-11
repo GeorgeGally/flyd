@@ -1,0 +1,63 @@
+<%= content_for :title, "Flyd" %>
+
+<div class="min-h-screen bg-white text-gray-950" data-controller="surface">
+  <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-6 md:px-10 md:py-8">
+    <header class="flex items-center justify-between">
+      <%= link_to "flyd", root_path, class: "text-sm font-semibold tracking-tight" %>
+      <%= link_to "Projects", projects_path, class: "text-xs text-gray-400 hover:text-gray-900" %>
+    </header>
+
+    <section class="mt-14 md:mt-20" data-surface-target="intent">
+      <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
+        <div class="border-b border-gray-300 transition-all duration-300 focus-within:border-gray-950 focus-within:pb-5">
+          <%= form.text_area :text,
+            rows: 1,
+            placeholder: "Ask, tell, show…",
+            aria: { label: "Tell Flyd what is happening" },
+            class: "block w-full resize-none border-0 bg-transparent px-0 py-3 text-2xl font-normal leading-tight placeholder:text-gray-300 focus:outline-none focus:ring-0 md:text-4xl",
+            data: { action: "focus->surface#focusIntent input->surface#resizeIntent", surface_target: "input" } %>
+          <div class="flex items-center justify-between pt-3 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100">
+            <span class="text-xs text-gray-400">Flyd will infer the context.</span>
+            <%= form.submit "Send", class: "cursor-pointer rounded-full bg-gray-950 px-4 py-2 text-xs font-medium text-white" %>
+          </div>
+        </div>
+      <% end %>
+    </section>
+
+    <section class="relative mt-14 grid flex-1 gap-5 md:grid-cols-12" data-surface-target="plane">
+      <% @surface.items.each_with_index do |item, index| %>
+        <% dominant = item.id == @surface.focus_item_id %>
+        <article
+          class="surface-item transition-all duration-500 <%= dominant ? 'md:col-span-8' : 'md:col-span-4' %>"
+          data-surface-target="item"
+          data-project-id="<%= item.project&.id %>"
+          data-depth="<%= item.depth %>">
+          <div class="flex h-full min-h-52 flex-col justify-between border-t border-gray-950 py-5 <%= dominant ? 'md:min-h-96' : '' %>">
+            <div>
+              <div class="mb-8 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                <span><%= item.intent %></span>
+                <% if item.project %>
+                  <span><%= item.project.name %></span>
+                <% end %>
+              </div>
+              <h2 class="max-w-3xl text-2xl font-medium leading-tight md:text-4xl"><%= item.title %></h2>
+              <p class="mt-5 max-w-2xl text-sm leading-6 text-gray-600 md:text-base"><%= truncate(item.summary, length: dominant ? 360 : 180) %></p>
+            </div>
+
+            <div class="mt-10 flex items-center gap-4 text-xs">
+              <% if item.project %>
+                <% conversation = item.project.active_conversation %>
+                <% if conversation %>
+                  <%= link_to "Discuss", project_conversation_path(item.project, conversation), class: "font-medium text-gray-950 underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+                <% else %>
+                  <%= link_to "Discuss", project_conversations_path(item.project), data: { turbo_method: :post }, class: "font-medium text-gray-950 underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+                <% end %>
+                <%= link_to "Context", project_path(item.project), class: "text-gray-400 hover:text-gray-950" %>
+              <% end %>
+            </div>
+          </div>
+        </article>
+      <% end %>
+    </section>
+  </div>
+</div>
