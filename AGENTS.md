@@ -10,7 +10,8 @@ Guardrails:
 
 - Do not introduce project-first or conversation-first primary navigation.
 - Do not make stored records visible merely because they exist.
-- Homepage work must flow through `Flyd::Intelligence`.
+- Homepage work must flow through persisted `Surface` records composed by `Flyd::Intelligence`.
+- `GET /` must never call an LLM or execute provider refresh work synchronously.
 - Retrieval, scoring, rules, and validation may support Flyd; they must not replace Flyd's judgment about what the user should experience.
 - External or legacy intelligence sources must implement `IntelligenceState::Provider`.
 - Provider output is evidence supplied to Flyd, never direct UI instructions.
@@ -54,6 +55,9 @@ cd cli && npm run export-state -- --stdout
 ## Key Files
 
 - `docs/architecture/intelligence-generated-interface.md` — product architecture and interface contract
+- `app/models/surface.rb` — persisted surface lifecycle and activation
+- `app/models/surface_item.rb` — persisted semantic presentation objects
+- `app/services/surfaces/persist_plan.rb` — stores Flyd plans as drafts
 - `app/services/flyd/intelligence.rb` — Flyd's surface-composition boundary
 - `app/services/intelligence_state/provider.rb` — provider contract
 - `app/services/intelligence_state/cli_provider.rb` — non-blocking versioned CLI adapter
@@ -69,5 +73,6 @@ cd cli && npm run export-state -- --stdout
 ## Known Issues
 
 - QMD sidecar (`qmd-sidecar/`) does not exist — search-dependent features return empty
-- Surface composition is synchronous and not yet cached or persisted
+- Background surface composition and live surface replacement are not implemented yet
+- Stale active surfaces remain visible until the next composition pipeline is added
 - The current context resolver still assumes project-shaped persistence after interpretation
