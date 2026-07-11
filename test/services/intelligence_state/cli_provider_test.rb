@@ -16,15 +16,16 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
   test "does not create a duplicate snapshot for unchanged state" do
     provider = IntelligenceState::CliProvider.new
     state = payload(generated_at: Time.current)
+    refreshed_at = 1.minute.from_now
 
     first, first_changed = provider.persist!(state)
-    second, second_changed = provider.persist!(state.merge("generatedAt" => 1.minute.from_now.iso8601))
+    second, second_changed = provider.persist!(state.merge("generatedAt" => refreshed_at.iso8601))
 
     assert first_changed
     assert_not second_changed
     assert_equal first, second
     assert_equal 1, IntelligenceSnapshot.where(provider: "flyd-cli").count
-    assert_equal 1.minute.from_now.to_i, second.generated_at.to_i
+    assert_equal refreshed_at.to_i, second.generated_at.to_i
   end
 
   test "returns unavailable state when no snapshot exists" do
