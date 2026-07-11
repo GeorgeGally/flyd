@@ -21,6 +21,22 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     assert_equal "provider_refresh", active.metadata["composition_reason"]
   end
 
+  test "coalesces a later trigger instead of dropping it" do
+    cache = ActiveSupport::Cache::MemoryStore.new
+
+    Rails.stub(:cache, cache) do
+      assert ComposeSurfaceJob.enqueue(reason: "new_intent", active_conversation_id: 1)
+      assert_not ComposeSurfaceJob.enqueue(reason: "assistant_response", active_conversation_id: 1)
+
+      pending = cache.read(ComposeSurfaceJob::PENDING_KEY)
+      assert_equal "assistant_response", pending["reason"]
+
+      assert_enqueued_with(job: ComposeSurfaceJob) do
+        ComposeSurfaceJob.finish_and_enqueue_pending
+      end
+    end
+  end
+
   test "failed composition preserves the current active surface" do
     current = Surface.fallback!
     job = ComposeSurfaceJob.new
