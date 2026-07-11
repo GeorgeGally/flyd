@@ -98,4 +98,12 @@ class Surface < ApplicationRecord
   def active?
     status == "active"
   end
+
+  def invalidate!(reason: nil)
+    update!(status: "invalid", metadata: metadata.merge("invalid_reason" => reason).compact)
+  end
+
+  def expire!
+    update!(status: "expired", valid_until: [valid_until, Time.current].compact.min)
+  end
 end
