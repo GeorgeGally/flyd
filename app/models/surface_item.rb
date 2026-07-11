@@ -15,8 +15,4 @@ class SurfaceItem < ApplicationRecord
   validates :depth, inclusion: { in: DEPTHS }
   validates :state, inclusion: { in: STATES }
   validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
-
-  def id
-    item_key
-  end
 end
