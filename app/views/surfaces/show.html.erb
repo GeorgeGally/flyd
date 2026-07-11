@@ -1,6 +1,8 @@
 <%= content_for :title, "Flyd" %>
 
-<div class="min-h-screen bg-white text-gray-950" data-controller="surface">
+<div class="min-h-screen bg-white text-gray-950"
+     data-controller="surface<%= ' chat' if @conversation %>"
+     <% if @conversation %>data-chat-conversation-id-value="<%= @conversation.id %>"<% end %>>
   <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-6 md:px-10 md:py-8">
     <header class="flex items-center justify-between">
       <%= link_to "flyd", root_path, class: "text-sm font-semibold tracking-tight" %>
@@ -8,35 +10,34 @@
     </header>
 
     <section class="mt-14 md:mt-20" data-surface-target="intent">
-      <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
-        <%= form.hidden_field :project_id, value: @preferred_project&.id if @preferred_project %>
-        <div class="border-b border-gray-300 transition-all duration-300 focus-within:border-gray-950 focus-within:pb-5">
-          <%= form.text_area :text,
-            rows: 1,
-            placeholder: "Ask, tell, show…",
-            aria: { label: "Tell Flyd what is happening" },
-            class: "block w-full resize-none border-0 bg-transparent px-0 py-3 text-2xl font-normal leading-tight placeholder:text-gray-300 focus:outline-none focus:ring-0 md:text-4xl",
-            data: { action: "focus->surface#focusIntent blur->surface#releaseIntent input->surface#resizeIntent keydown.esc->surface#releaseIntent", surface_target: "input" } %>
-          <div class="flex items-center justify-between pt-3 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100">
-            <span class="text-xs text-gray-400"><%= @preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will infer the context." %></span>
-            <%= form.submit "Send", class: "cursor-pointer rounded-full bg-gray-950 px-4 py-2 text-xs font-medium text-white" %>
-          </div>
-        </div>
+      <% if @conversation %>
+        <%= form_with url: project_conversation_messages_path(@conversation.project, @conversation), scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
+          <%= render "surfaces/intent_field", form: form, field_name: :content, context_label: "Context: #{@conversation.project.name}", chat: true %>
+        <% end %>
+      <% else %>
+        <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
+          <%= form.hidden_field :project_id, value: @preferred_project.id if @preferred_project %>
+          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will infer the context."), chat: false %>
+        <% end %>
       <% end %>
 
       <% if @conversation %>
-        <div class="mt-8 max-w-3xl border-l border-gray-200 pl-5" data-surface-target="conversation">
+        <div class="mt-8 max-w-3xl border-l border-gray-200 pl-5">
           <div class="mb-5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
             <span><%= @conversation.project.name %></span>
             <%= link_to "Full history", project_conversation_path(@conversation.project, @conversation), class: "hover:text-gray-900" %>
           </div>
-          <div class="flex flex-col gap-5">
+          <div class="flex flex-col gap-5" data-chat-target="messages">
             <% @conversation.messages.order(created_at: :desc).limit(8).each do |message| %>
               <div>
                 <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400"><%= message.role %></div>
                 <div class="text-sm leading-6 text-gray-800"><%= message.role == "assistant" ? markdown(message.content) : simple_format(message.content) %></div>
               </div>
             <% end %>
+            <div class="hidden" data-chat-target="streamingMessage">
+              <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400">assistant</div>
+              <div class="text-sm leading-6 text-gray-800" data-chat-target="streamingContent"></div>
+            </div>
           </div>
         </div>
       <% end %>
