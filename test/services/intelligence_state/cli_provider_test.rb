@@ -18,7 +18,7 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
         recentEvents: []
       }.to_json)
 
-      snapshot = IntelligenceState::CliProvider.new(path: path).snapshot
+      snapshot = IntelligenceState::CliProvider.new(path: path, refresh: false).snapshot
 
       assert snapshot.fresh
       assert_empty snapshot.errors
@@ -27,7 +27,7 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
   end
 
   test "returns an explicit unavailable snapshot when state is missing" do
-    snapshot = IntelligenceState::CliProvider.new(path: "/missing/intelligence-state.json").snapshot
+    snapshot = IntelligenceState::CliProvider.new(path: "/missing/intelligence-state.json", refresh: false).snapshot
 
     assert_not snapshot.fresh
     assert_empty snapshot.data
