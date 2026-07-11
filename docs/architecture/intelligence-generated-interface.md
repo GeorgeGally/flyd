@@ -44,7 +44,7 @@ writes `~/.flyd/intelligence-state.json` using schema version `1.0`. The export 
 - reports and plans
 - recent captured events
 
-Rails consumes this contract through `IntelligenceState::Provider`. `IntelligenceState::CliProvider` validates version, freshness, source, and shape, and refreshes the CLI export automatically when it is missing or stale. `IntelligenceState::Registry` allows future providers to participate without changing `Flyd::Intelligence`.
+Rails consumes this contract through `IntelligenceState::Provider`. `IntelligenceState::CliProvider` validates version, freshness, source, and shape. When state is missing or stale, it returns the available snapshot immediately and queues `RefreshIntelligenceStateJob`; request rendering never waits for the CLI process. A short cache lock prevents refresh storms. `IntelligenceState::Registry` allows future providers to participate without changing `Flyd::Intelligence`.
 
 Provider output is evidence supplied to Flyd. It never directly determines a surface object.
 
@@ -63,6 +63,7 @@ Provider output is evidence supplied to Flyd. It never directly determines a sur
 - Motion communicates semantic changes through expansion, compression, recession, and return. It must be reversible.
 - Invalid or unavailable intelligence output falls back to a calm universal input, never to a ranked database feed.
 - Missing or stale provider state must be explicit in the snapshot rather than silently ignored.
+- Provider refresh work must not block the surface request path.
 
 ## Current implementation boundary
 
