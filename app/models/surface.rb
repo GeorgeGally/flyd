@@ -8,7 +8,6 @@ class Surface < ApplicationRecord
 
   validates :status, inclusion: { in: STATUSES }
   validates :composition_version, presence: true
-  validates :focus_item_key, inclusion: { in: ->(surface) { surface.surface_items.map(&:item_key) } }, allow_nil: true, if: :persisted?
 
   scope :active, -> { where(status: "active") }
   scope :newest_first, -> { order(generated_at: :desc, created_at: :desc) }
@@ -32,6 +31,9 @@ class Surface < ApplicationRecord
         raise ActiveRecord::RecordInvalid, surface unless surface.valid?
         raise ArgumentError, "Only draft surfaces can be activated" unless surface.status == "draft"
         raise ArgumentError, "Surface must contain at least one item" if surface.surface_items.empty?
+        if surface.focus_item_key.present? && !surface.surface_items.exists?(item_key: surface.focus_item_key)
+          raise ArgumentError, "Focus item must belong to the surface"
+        end
 
         previous = lock.where(status: "active").first
         previous&.update!(status: "superseded")
