@@ -16,8 +16,8 @@ class RefreshIntelligenceStateJob < ApplicationJob
     Rails.cache.delete(LOCK_KEY)
   end
 
-  def self.enqueue(force: false)
-    return false unless force || Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
+  def self.enqueue
+    return false unless Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
 
     perform_later
     true
