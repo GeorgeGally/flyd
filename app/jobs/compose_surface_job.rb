@@ -12,9 +12,7 @@ class ComposeSurfaceJob < ApplicationJob
     finish_and_enqueue_pending
   end
 
-  def self.enqueue(reason:, active_conversation_id: nil, force: false)
-    Rails.cache.delete(LOCK_KEY) if force
-
+  def self.enqueue(reason:, active_conversation_id: nil)
     unless Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
       Rails.cache.write(
         PENDING_KEY,
