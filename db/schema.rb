@@ -10,8 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_07_152924) do
-  # These are extensions that must be enabled in order to support this database
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_100000) do
   enable_extension "pg_catalog.plpgsql"
 
   create_table "behaviours", force: :cascade do |t|
@@ -136,6 +135,49 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_07_152924) do
     t.index ["name"], name: "index_projects_on_name", unique: true
   end
 
+  create_table "surface_items", force: :cascade do |t|
+    t.bigint "surface_id", null: false
+    t.string "item_key", null: false
+    t.string "kind", null: false
+    t.string "intent", null: false
+    t.string "renderer", null: false
+    t.string "depth", default: "middle", null: false
+    t.string "state", default: "presented", null: false
+    t.string "title", null: false
+    t.text "summary"
+    t.integer "position", default: 0, null: false
+    t.jsonb "context_refs", default: [], null: false
+    t.jsonb "source_refs", default: [], null: false
+    t.jsonb "actions", default: [], null: false
+    t.jsonb "relationships", default: [], null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["surface_id", "item_key"], name: "index_surface_items_on_surface_id_and_item_key", unique: true
+    t.index ["surface_id", "position"], name: "index_surface_items_on_surface_id_and_position"
+    t.index ["surface_id"], name: "index_surface_items_on_surface_id"
+  end
+
+  create_table "surfaces", force: :cascade do |t|
+    t.string "status", default: "draft", null: false
+    t.text "understanding"
+    t.text "current_intention"
+    t.string "focus_item_key"
+    t.datetime "generated_at"
+    t.datetime "valid_until"
+    t.string "source_state_digest"
+    t.string "composition_version", default: "1", null: false
+    t.bigint "previous_surface_id"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["previous_surface_id"], name: "index_surfaces_on_previous_surface_id"
+    t.index ["source_state_digest"], name: "index_surfaces_on_source_state_digest"
+    t.index ["status"], name: "index_surfaces_on_status"
+    t.index ["status"], name: "index_surfaces_one_active", unique: true, where: "((status)::text = 'active'::text)"
+    t.index ["valid_until"], name: "index_surfaces_on_valid_until"
+  end
+
   add_foreign_key "behaviours", "projects"
   add_foreign_key "beliefs", "projects"
   add_foreign_key "builds", "conversations"
@@ -145,4 +187,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_07_152924) do
   add_foreign_key "decisions", "messages", column: "source_message_id"
   add_foreign_key "decisions", "projects"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "surface_items", "surfaces"
+  add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
 end
