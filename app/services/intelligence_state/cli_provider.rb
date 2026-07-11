@@ -12,15 +12,22 @@ module IntelligenceState
     end
 
     def snapshot
-      record = IntelligenceSnapshot.latest_for(PROVIDER)
-      return unavailable_snapshot unless record
+      usable = IntelligenceSnapshot.latest_for(PROVIDER)
+      latest = IntelligenceSnapshot.latest_record_for(PROVIDER)
+      return unavailable_snapshot unless usable
+
+      errors = if latest && latest.id != usable.id && !latest.status.in?(IntelligenceSnapshot::USABLE_STATUSES)
+        Array(latest.errors)
+      else
+        Array(usable.errors)
+      end
 
       Snapshot.new(
-        source: record.provider,
-        generated_at: record.generated_at,
-        fresh: record.fresh?,
-        data: normalize(record.payload),
-        errors: Array(record.errors)
+        source: usable.provider,
+        generated_at: usable.generated_at,
+        fresh: usable.fresh?,
+        data: normalize(usable.payload),
+        errors: errors
       )
     end
 
@@ -82,12 +89,13 @@ module IntelligenceState
     end
 
     def unavailable_snapshot
+      latest = IntelligenceSnapshot.latest_record_for(PROVIDER)
       Snapshot.new(
         source: PROVIDER,
         generated_at: nil,
         fresh: false,
         data: {},
-        errors: ["No persisted intelligence snapshot is available"]
+        errors: latest ? Array(latest.errors) : ["No persisted intelligence snapshot is available"]
       )
     end
   end
