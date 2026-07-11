@@ -23,15 +23,31 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
 
   test "failed composition preserves the current active surface" do
     current = Surface.fallback!
+    job = ComposeSurfaceJob.new
 
     Flyd::Intelligence.stub(:compose_surface, ->(*) { raise Llm::Chat::Error, "offline" }) do
       assert_raises(Llm::Chat::Error) do
-        ComposeSurfaceJob.perform_now(reason: "surface_stale")
+        job.perform(reason: "surface_stale")
       end
     end
 
     assert_equal current, Surface.current
     assert current.reload.active?
+  end
+
+  test "non-retryable failures are persisted without replacing the active surface" do
+    current = Surface.fallback!
+    job = ComposeSurfaceJob.new
+
+    Flyd::Intelligence.stub(:compose_surface, ->(*) { raise RuntimeError, "unexpected" }) do
+      assert_raises(RuntimeError) do
+        job.perform(reason: "manual_refresh")
+      end
+    end
+
+    failure = Surface.where(status: "invalid").newest_first.first
+    assert_equal "unexpected", failure.metadata["invalid_reason"]
+    assert_equal current, Surface.current
   end
 
   private
