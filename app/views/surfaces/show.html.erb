@@ -9,6 +9,7 @@
 
     <section class="mt-14 md:mt-20" data-surface-target="intent">
       <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
+        <%= form.hidden_field :project_id, value: @preferred_project&.id if @preferred_project %>
         <div class="border-b border-gray-300 transition-all duration-300 focus-within:border-gray-950 focus-within:pb-5">
           <%= form.text_area :text,
             rows: 1,
@@ -17,7 +18,7 @@
             class: "block w-full resize-none border-0 bg-transparent px-0 py-3 text-2xl font-normal leading-tight placeholder:text-gray-300 focus:outline-none focus:ring-0 md:text-4xl",
             data: { action: "focus->surface#focusIntent blur->surface#releaseIntent input->surface#resizeIntent keydown.esc->surface#releaseIntent", surface_target: "input" } %>
           <div class="flex items-center justify-between pt-3 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100">
-            <span class="text-xs text-gray-400">Flyd will infer the context.</span>
+            <span class="text-xs text-gray-400"><%= @preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will infer the context." %></span>
             <%= form.submit "Send", class: "cursor-pointer rounded-full bg-gray-950 px-4 py-2 text-xs font-medium text-white" %>
           </div>
         </div>
