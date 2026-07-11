@@ -1,5 +1,10 @@
 :scheduler:
   :schedule:
+    intelligence_refresh:
+      cron: "*/5 * * * *"
+      class: ScheduleIntelligenceRefreshJob
+      queue: default
+      description: "Refresh provider evidence and prepare the next Flyd surface"
     belief_synthesis:
       cron: "0 * * * *"
       class: BeliefSynthesisJob
