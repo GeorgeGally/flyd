@@ -1,58 +1,62 @@
 require "test_helper"
-require "tmpdir"
 
 class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
-  include ActiveJob::TestHelper
+  test "persists and reads the versioned CLI intelligence state contract" do
+    provider = IntelligenceState::CliProvider.new
+    record, changed = provider.persist!(payload(generated_at: Time.current))
+    snapshot = provider.snapshot
 
-  test "loads the versioned CLI intelligence state contract" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "intelligence-state.json")
-      File.write(path, {
-        version: "1.0",
-        generatedAt: Time.current.iso8601,
-        source: "flyd-cli",
-        goals: [{ slug: "ship-flyd", title: "Ship Flyd" }],
-        tensions: [],
-        signals: [],
-        curiosity: [],
-        nudges: [],
-        reports: [],
-        recentEvents: []
-      }.to_json)
-
-      snapshot = IntelligenceState::CliProvider.new(path: path, refresh: false).snapshot
-
-      assert snapshot.fresh
-      assert_empty snapshot.errors
-      assert_equal "ship-flyd", snapshot.data[:goals].first["slug"]
-    end
+    assert changed
+    assert record.persisted?
+    assert snapshot.fresh
+    assert_empty snapshot.errors
+    assert_equal "ship-flyd", snapshot.data[:goals].first["slug"]
   end
 
-  test "returns an explicit unavailable snapshot when state is missing" do
-    snapshot = IntelligenceState::CliProvider.new(path: "/missing/intelligence-state.json", refresh: false).snapshot
+  test "does not create a duplicate snapshot for unchanged state" do
+    provider = IntelligenceState::CliProvider.new
+    state = payload(generated_at: Time.current)
+
+    first, first_changed = provider.persist!(state)
+    second, second_changed = provider.persist!(state)
+
+    assert first_changed
+    assert_not second_changed
+    assert_equal first, second
+    assert_equal 1, IntelligenceSnapshot.where(provider: "flyd-cli").count
+  end
+
+  test "returns unavailable state when no snapshot exists" do
+    snapshot = IntelligenceState::CliProvider.new.snapshot
 
     assert_not snapshot.fresh
     assert_empty snapshot.data
-    assert_match(/unavailable/, snapshot.errors.first)
+    assert_match(/No persisted/, snapshot.errors.first)
   end
 
-  test "queues a refresh without blocking when state is stale" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "intelligence-state.json")
-      File.write(path, {
-        version: "1.0",
-        generatedAt: 1.hour.ago.iso8601,
-        source: "flyd-cli",
-        goals: [], tensions: [], signals: [], curiosity: [], nudges: [], reports: [], recentEvents: []
-      }.to_json)
+  test "marks old provider state stale" do
+    provider = IntelligenceState::CliProvider.new
+    provider.persist!(payload(generated_at: 1.hour.ago))
 
-      Rails.cache.stub(:write, true) do
-        assert_enqueued_with(job: RefreshIntelligenceStateJob) do
-          snapshot = IntelligenceState::CliProvider.new(path: path).snapshot
-          assert_not snapshot.fresh
-          assert_match(/refresh queued/, snapshot.errors.first)
-        end
-      end
-    end
+    snapshot = provider.snapshot
+
+    assert_not snapshot.fresh
+  end
+
+  private
+
+  def payload(generated_at:)
+    {
+      "version" => "1.0",
+      "generatedAt" => generated_at.iso8601,
+      "source" => "flyd-cli",
+      "goals" => [{ "slug" => "ship-flyd", "title" => "Ship Flyd" }],
+      "tensions" => [],
+      "signals" => [],
+      "curiosity" => [],
+      "nudges" => [],
+      "reports" => [],
+      "recentEvents" => []
+    }
   end
 end
