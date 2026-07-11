@@ -18,12 +18,13 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     state = payload(generated_at: Time.current)
 
     first, first_changed = provider.persist!(state)
-    second, second_changed = provider.persist!(state)
+    second, second_changed = provider.persist!(state.merge("generatedAt" => 1.minute.from_now.iso8601))
 
     assert first_changed
     assert_not second_changed
     assert_equal first, second
     assert_equal 1, IntelligenceSnapshot.where(provider: "flyd-cli").count
+    assert_equal 1.minute.from_now.to_i, second.generated_at.to_i
   end
 
   test "returns unavailable state when no snapshot exists" do
@@ -41,6 +42,18 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     snapshot = provider.snapshot
 
     assert_not snapshot.fresh
+  end
+
+  test "retains usable evidence while exposing a later refresh failure" do
+    provider = IntelligenceState::CliProvider.new
+    provider.persist!(payload(generated_at: Time.current))
+    provider.record_failure!(RuntimeError.new("export unavailable"))
+
+    snapshot = provider.snapshot
+
+    assert snapshot.fresh
+    assert_equal "ship-flyd", snapshot.data[:goals].first["slug"]
+    assert_equal ["export unavailable"], snapshot.errors
   end
 
   private
