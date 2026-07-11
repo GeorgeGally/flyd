@@ -5,5 +5,7 @@ class DecisionExtractionJob < ApplicationJob
     conversation = Conversation.find(conversation_id)
     engine = Subsystems::MemoryEngine.new(conversation.project)
     engine.extract_decisions(conversation)
+
+    ComposeSurfaceJob.enqueue(reason: "memory_update", active_conversation_id: conversation.id)
   end
 end
