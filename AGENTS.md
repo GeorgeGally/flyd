@@ -43,7 +43,7 @@ flyd/                    # Rails 8 + Hotwire intelligence surface
 bin/rails server                     # Start dev server
 bin/rails test                       # Run Rails tests
 bin/rails test:all                   # Include system tests
-bundle exec sidekiq                  # Start job processor
+bundle exec sidekiq                  # Start job processor and intelligence refreshes
 
 cd cli && npm test                   # Run CLI tests
 cd cli && npm run dev                # Run CLI directly
@@ -56,8 +56,9 @@ cd cli && npm run export-state -- --stdout
 - `docs/architecture/intelligence-generated-interface.md` — product architecture and interface contract
 - `app/services/flyd/intelligence.rb` — Flyd's surface-composition boundary
 - `app/services/intelligence_state/provider.rb` — provider contract
-- `app/services/intelligence_state/cli_provider.rb` — versioned CLI adapter and automatic refresh
+- `app/services/intelligence_state/cli_provider.rb` — non-blocking versioned CLI adapter
 - `app/services/intelligence_state/registry.rb` — provider aggregation
+- `app/jobs/refresh_intelligence_state_job.rb` — background CLI state refresh
 - `cli/src/export-state.ts` — CLI state producer
 - `app/services/context_resolver.rb` — temporary context-routing support
 - `app/services/surface/planner.rb` — compatibility delegate only; contains no intelligence
@@ -69,5 +70,4 @@ cd cli && npm run export-state -- --stdout
 
 - QMD sidecar (`qmd-sidecar/`) does not exist — search-dependent features return empty
 - Surface composition is synchronous and not yet cached or persisted
-- CLI export refresh currently shells out to npm and should move to a background refresh process
 - The current context resolver still assumes project-shaped persistence after interpretation
