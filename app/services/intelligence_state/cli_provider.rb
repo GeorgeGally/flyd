@@ -27,10 +27,9 @@ module IntelligenceState
     def persist!(payload)
       validate!(payload)
       generated_at = Time.iso8601(payload.fetch("generatedAt"))
-      digest = IntelligenceSnapshot.digest_for(payload)
-
+      digest = IntelligenceSnapshot.digest_for(payload.except("generatedAt"))
       record = IntelligenceSnapshot.find_or_initialize_by(provider: PROVIDER, state_digest: digest)
-      return [record, false] if record.persisted?
+      changed = !record.persisted?
 
       record.update!(
         schema_version: payload.fetch("version"),
@@ -42,7 +41,7 @@ module IntelligenceState
         errors: []
       )
 
-      [record, true]
+      [record, changed]
     rescue JSON::ParserError, KeyError, ArgumentError => error
       IntelligenceSnapshot.create!(
         provider: PROVIDER,
