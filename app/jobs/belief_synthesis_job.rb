@@ -6,11 +6,11 @@ class BeliefSynthesisJob < ApplicationJob
     changed = false
 
     projects.find_each do |project|
-      engine = Subsystems::BeliefEngine.new(project)
       recent_decisions = project.decisions.where(extracted_at: 1.day.ago..Time.current)
-      before_count = project.beliefs.count
-      engine.synthesize(recent_decisions)
-      changed ||= project.beliefs.count != before_count
+      next unless recent_decisions.exists?
+
+      Subsystems::BeliefEngine.new(project).synthesize(recent_decisions)
+      changed = true
     end
 
     ComposeSurfaceJob.enqueue(reason: "belief_update") if changed
