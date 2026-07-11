@@ -25,13 +25,14 @@ class LlmStreamingJob < ApplicationJob
       return
     end
 
-    conversation.messages.create!(
+    assistant_message = conversation.messages.create!(
       role: "assistant",
       content: full_response,
       tokens_count: provider.count_tokens(full_response)
     )
 
-    ChatChannel.broadcast_to(conversation, { done: true, message_id: conversation.messages.last.id })
+    ChatChannel.broadcast_to(conversation, { done: true, message_id: assistant_message.id })
+    ComposeSurfaceJob.enqueue(reason: "assistant_response", active_conversation_id: conversation.id)
   end
 
   private
