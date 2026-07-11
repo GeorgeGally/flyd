@@ -1,16 +1,29 @@
 require "json"
+require "open3"
+require "pathname"
+require "time"
+require "timeout"
 
 module IntelligenceState
   class CliProvider < Provider
     MAX_AGE = 15.minutes
     SUPPORTED_VERSION = "1.0"
+    REFRESH_TIMEOUT = 20.seconds
 
-    def initialize(path: default_path, max_age: MAX_AGE)
+    def initialize(path: default_path, max_age: MAX_AGE, refresh: true)
       @path = Pathname(path)
       @max_age = max_age
+      @refresh = refresh
     end
 
     def snapshot
+      refresh_state if @refresh && refresh_required?
+      read_snapshot
+    end
+
+    private
+
+    def read_snapshot
       return missing_snapshot unless @path.exist?
 
       payload = JSON.parse(@path.read)
@@ -28,7 +41,31 @@ module IntelligenceState
       Snapshot.new(source: "flyd-cli", generated_at: nil, fresh: false, data: {}, errors: [error.message])
     end
 
-    private
+    def refresh_required?
+      return true unless @path.exist?
+
+      payload = JSON.parse(@path.read)
+      generated_at = Time.iso8601(payload.fetch("generatedAt"))
+      generated_at < @max_age.ago
+    rescue JSON::ParserError, KeyError, ArgumentError
+      true
+    end
+
+    def refresh_state
+      cli_dir = Rails.root.join("cli")
+      return unless cli_dir.join("package.json").exist?
+
+      Timeout.timeout(REFRESH_TIMEOUT) do
+        _stdout, stderr, status = Open3.capture3(
+          "npm", "--prefix", cli_dir.to_s, "run", "export-state", "--silent"
+        )
+        Rails.logger.warn("CLI intelligence state refresh failed: #{stderr}") unless status.success?
+      end
+    rescue Timeout::Error
+      Rails.logger.warn("CLI intelligence state refresh timed out")
+    rescue Errno::ENOENT => error
+      Rails.logger.warn("CLI intelligence state refresh unavailable: #{error.message}")
+    end
 
     def default_path
       config = Rails.application.config_for(:flyd)
