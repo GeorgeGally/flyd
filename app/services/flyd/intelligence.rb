@@ -13,14 +13,15 @@ module Flyd
     ALLOWED_DEPTHS = %w[foreground middle background receded].freeze
     ALLOWED_KINDS = %w[scene insight decision question conversation artifact build reminder status notification].freeze
 
-    def self.compose_surface(active_conversation: nil)
-      new(active_conversation:).compose_surface
+    def self.compose_surface(active_conversation: nil, fallback: true)
+      new(active_conversation:, fallback:).compose_surface
     end
 
-    def initialize(active_conversation: nil, chat: Llm::Chat.new, state_provider: IntelligenceState::Registry)
+    def initialize(active_conversation: nil, chat: Llm::Chat.new, state_provider: IntelligenceState::Registry, fallback: true)
       @active_conversation = active_conversation
       @chat = chat
       @state_provider = state_provider
+      @fallback = fallback
     end
 
     def compose_surface
@@ -28,6 +29,8 @@ module Flyd
       build_surface(parse_json(response))
     rescue Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError => error
       Rails.logger.warn("Flyd surface composition failed: #{error.message}")
+      raise unless @fallback
+
       fallback_surface
     end
 
@@ -58,10 +61,10 @@ module Flyd
         {
           "understanding": "your concise synthesis of the current situation",
           "current_intention": "what Flyd is trying to accomplish now",
-          "focus_item_id": "stable-id-or-null",
+          "focus_item_id": "semantic item id or null",
           "items": [
             {
-              "id": "stable semantic id",
+              "id": "new stable semantic item id",
               "kind": "scene|insight|decision|question|conversation|artifact|build|reminder|status|notification",
               "intent": "inform|ask|decide|discuss|build|investigate|monitor|remind|review|celebrate",
               "title": "human editorial title",
@@ -75,7 +78,7 @@ module Flyd
           ]
         }
 
-        Maximum three visible items. Use source_refs for provenance, not as the organizing principle. Never invent IDs that are not present in the state snapshot. Do not include private reasoning.
+        Maximum three visible items. Item ids may be newly created semantic ids. Context and source references must use ids present in the state snapshot. Use source_refs for provenance, not as the organizing principle. Do not include private reasoning.
       PROMPT
     end
 
