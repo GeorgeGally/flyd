@@ -27,24 +27,26 @@ Rules, retrieval, scoring, and validation may support this operation. They must 
 
 The TypeScript CLI is a producer behind a versioned interface, not a separate intelligence product.
 
-Running:
+The compiled exporter can emit JSON to stdout:
 
 ```bash
-cd cli
-npm run export-state
+node cli/dist/export-state.js --stdout
 ```
 
-writes `~/.flyd/intelligence-state.json` using schema version `1.0`. The export contains:
+Manual file export remains available through `npm run export-state`, but Rails does not use the file as application transport.
 
-- active goals
-- computed tensions
-- attention signals as evidence
-- curiosity questions and findings
-- nudges
-- reports and plans
-- recent captured events
+`RefreshIntelligenceStateJob` executes the exporter in a background worker, validates the payload through `IntelligenceState::CliProvider`, and persists it as an `IntelligenceSnapshot` in PostgreSQL. Web and worker processes therefore share the same canonical provider state.
 
-Rails consumes this contract through `IntelligenceState::Provider`. `IntelligenceState::CliProvider` validates version, freshness, source, and shape. When state is missing or stale, it returns the available snapshot immediately and queues `RefreshIntelligenceStateJob`; request rendering never waits for the CLI process. A short cache lock prevents refresh storms. `IntelligenceState::Registry` allows future providers to participate without changing `Flyd::Intelligence`.
+Snapshots store:
+
+- provider and schema version
+- generated and received timestamps
+- freshness
+- a content digest
+- payload
+- provider errors
+
+Unchanged content refreshes freshness without triggering unnecessary composition. Changed content queues a new surface composition. Failed refreshes are persisted separately while the most recent usable evidence remains available with explicit health errors.
 
 Provider output is evidence supplied to Flyd. It never directly determines a surface object.
 
@@ -65,6 +67,26 @@ Only one surface may be active. Activation is transactional: the previous active
 
 The request path performs no model composition. `GET /` loads the active persisted surface and creates a deterministic fallback only when no active surface exists.
 
+## Background composition and live replacement
+
+`ComposeSurfaceJob` is triggered by:
+
+- changed provider state
+- a missing or stale active surface
+- a new user intent
+- a completed assistant response
+
+The job:
+
+1. asks `Flyd::Intelligence` to compose a semantic plan
+2. persists the plan as a draft
+3. activates it transactionally
+4. queues `BroadcastSurfaceJob`
+
+Retryable composition failures retain the existing active surface. Exhausted and non-retryable failures are stored as invalid surfaces for diagnostics. Broadcasting retries independently so a transient Action Cable failure never causes duplicate composition or activation.
+
+The browser subscribes to `flyd_surface` and replaces only `#surface_plane`, preserving the universal input and active conversation shell.
+
 ## Constraints
 
 - The root experience renders the current persisted Flyd-composed `Surface` when the generated-surface feature is enabled.
@@ -79,13 +101,33 @@ The request path performs no model composition. `GET /` loads the active persist
 - The surface may contain one dominant scene, several related objects, a conversation, or only the intent entry point.
 - Motion communicates semantic changes through expansion, compression, recession, and return. It must be reversible.
 - Invalid or unavailable intelligence output falls back to a calm universal input, never to a ranked database feed.
-- Missing or stale provider state must be explicit in the snapshot rather than silently ignored.
-- Provider refresh work and surface composition must not block the surface request path.
+- Missing or stale provider state must be explicit rather than silently ignored.
+- Provider refresh, model composition, persistence, and broadcast work must not block the surface request path.
 
 ## Current implementation boundary
 
-The persisted surface domain, transactional activation lifecycle, deterministic fallback, and database-only request path are implemented. `Surfaces::PersistPlan` stores a semantic Flyd plan as a draft ready for later validation and activation.
+Implemented:
 
-Background surface composition, automatic stale-surface refresh, live replacement, shared provider persistence, world-state compilation, multimodal input, artifact renderers, and richer semantic relationships remain future work.
+- persisted surfaces and surface items
+- transactional activation and history
+- deterministic fallback
+- background provider refresh
+- PostgreSQL-backed shared intelligence snapshots
+- background Flyd composition
+- stale and missing-surface triggers
+- live Turbo Stream replacement
+- independent broadcast retries
+- durable provider and composition failure records
+- production CLI compilation in the Docker image
+
+Still outside this slice:
+
+- bounded world-state compilation
+- strict source-reference validation
+- renderer and action registries
+- persisted universal intents
+- context correction and multi-context interaction
+- full scene resolution, collapse, and resurfacing
+- multimodal input and artifact renderers
 
 Legacy project and conversation routes remain available as fallback and diagnostic views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
