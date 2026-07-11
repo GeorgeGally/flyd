@@ -5,25 +5,43 @@ Accepted.
 
 ## Principle
 
-**The interface is the intelligence expressed.**
+**Flyd is the intelligence. The interface is the intelligence expressed.**
 
-Flyd's primary interface is generated from attention and context. Projects, conversations, messages, decisions, beliefs, and behaviours are persistence and reasoning structures. They must not become primary navigation merely because they exist in the database.
+Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, and reports are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
+
+## Core boundary
+
+The root surface must be composed through `Flyd::Intelligence`.
+
+Flyd receives a snapshot of the current world, including active interaction, memory, project context, recent decisions, beliefs, messages, and available capabilities. Flyd synthesizes that state and returns:
+
+- its concise understanding of what is happening
+- its current intention toward the user
+- a semantic surface composition
+- relationships to supporting contexts and evidence
+- available actions
+
+Rules, retrieval, scoring, and validation may support this operation. They must not replace Flyd's judgment by turning stored records directly into UI.
 
 ## Constraints
 
-- The root experience renders a semantic `Surface` when the generated-surface feature is enabled.
-- Projects are inferred context. They appear only for correction, provenance, or explicit system navigation.
-- Conversation is a renderer within the surface. It is not the application shell.
+- The root experience renders a Flyd-composed `Surface` when the generated-surface feature is enabled.
+- A project, decision, belief, message, or other record never becomes a visible object merely because it exists.
+- It is valid for Flyd to synthesize several records into one scene, create no scene, or choose a different representation entirely.
+- Projects are context references. They appear only for provenance, correction, or explicit system navigation.
+- Conversation is one renderer within the surface. It is not the application shell.
 - Conversation grows beneath the universal input, with the newest exchange closest to the input anchor.
 - The universal intent entry point is modality-agnostic. Text ships first; audio, files, images, clipboard, and screen input can be added later.
-- Intelligence decides what appears, why it appears, its prominence, and available actions.
-- Renderers present semantic objects. They do not rank relevance.
-- The surface may contain one dominant scene, several supporting objects, or only the intent entry point.
-- Motion communicates relevance through expansion, compression, recession, and return. It must be reversible.
-- Low-confidence context guesses must not be written into project memory. Ambiguous input is held in a neutral Inbox context.
+- Flyd decides what appears, why it appears, its prominence, relationships, and available actions.
+- Renderers present a semantic plan. They do not determine relevance or intention.
+- The surface may contain one dominant scene, several related objects, a conversation, or only the intent entry point.
+- Motion communicates semantic changes through expansion, compression, recession, and return. It must be reversible.
+- Invalid or unavailable intelligence output falls back to a calm universal input, never to a ranked database feed.
 
-## Initial boundary
+## Current implementation boundary
 
-The first Rails implementation uses deterministic planning over semantic decision and belief candidates. It establishes a stable provider boundary so the proactive TypeScript intelligence can later contribute events, attention, tension, curiosity, goals, and nudges without making the interface dependent on the CLI's storage format.
+`Flyd::Intelligence` currently composes a surface synchronously using the configured LLM over a bounded Rails state snapshot. Its output is validated against a constrained semantic schema before rendering. `Surface::Planner` remains only as a compatibility delegate and contains no ranking or decision logic.
+
+The proactive TypeScript intelligence is not yet included in the state snapshot. Surface persistence, lifecycle, caching, multimodal input, artifact renderers, and richer relationships remain future work.
 
 Legacy project and conversation routes remain available as fallback and diagnostic views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
