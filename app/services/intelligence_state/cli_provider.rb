@@ -1,14 +1,13 @@
 require "json"
-require "open3"
 require "pathname"
 require "time"
-require "timeout"
 
 module IntelligenceState
   class CliProvider < Provider
     MAX_AGE = 15.minutes
     SUPPORTED_VERSION = "1.0"
-    REFRESH_TIMEOUT = 20.seconds
+    REFRESH_LOCK_KEY = "intelligence_state:cli_refresh_enqueued"
+    REFRESH_LOCK_TTL = 2.minutes
 
     def initialize(path: default_path, max_age: MAX_AGE, refresh: true)
       @path = Pathname(path)
@@ -17,7 +16,7 @@ module IntelligenceState
     end
 
     def snapshot
-      refresh_state if @refresh && refresh_required?
+      enqueue_refresh if @refresh && refresh_required?
       read_snapshot
     end
 
@@ -35,7 +34,7 @@ module IntelligenceState
         generated_at: generated_at,
         fresh: generated_at >= @max_age.ago,
         data: normalize(payload),
-        errors: []
+        errors: generated_at >= @max_age.ago ? [] : ["Intelligence state is stale; refresh queued"]
       )
     rescue JSON::ParserError, KeyError, ArgumentError => error
       Snapshot.new(source: "flyd-cli", generated_at: nil, fresh: false, data: {}, errors: [error.message])
@@ -51,20 +50,13 @@ module IntelligenceState
       true
     end
 
-    def refresh_state
-      cli_dir = Rails.root.join("cli")
-      return unless cli_dir.join("package.json").exist?
+    def enqueue_refresh
+      return unless Rails.cache.write(REFRESH_LOCK_KEY, true, expires_in: REFRESH_LOCK_TTL, unless_exist: true)
 
-      Timeout.timeout(REFRESH_TIMEOUT) do
-        _stdout, stderr, status = Open3.capture3(
-          "npm", "--prefix", cli_dir.to_s, "run", "export-state", "--silent"
-        )
-        Rails.logger.warn("CLI intelligence state refresh failed: #{stderr}") unless status.success?
-      end
-    rescue Timeout::Error
-      Rails.logger.warn("CLI intelligence state refresh timed out")
-    rescue Errno::ENOENT => error
-      Rails.logger.warn("CLI intelligence state refresh unavailable: #{error.message}")
+      RefreshIntelligenceStateJob.perform_later
+    rescue ActiveJob::EnqueueError => error
+      Rails.cache.delete(REFRESH_LOCK_KEY)
+      Rails.logger.warn("Could not enqueue intelligence state refresh: #{error.message}")
     end
 
     def default_path
@@ -96,7 +88,7 @@ module IntelligenceState
         generated_at: nil,
         fresh: false,
         data: {},
-        errors: ["Intelligence state file not found at #{@path}"]
+        errors: ["Intelligence state unavailable; refresh queued"]
       )
     end
   end
