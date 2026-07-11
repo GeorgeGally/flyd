@@ -27,8 +27,8 @@
             <span><%= @conversation.project.name %></span>
             <%= link_to "Full history", project_conversation_path(@conversation.project, @conversation), class: "hover:text-gray-900" %>
           </div>
-          <div class="flex flex-col gap-5" data-chat-target="messages">
-            <% @conversation.messages.order(created_at: :desc).limit(8).each do |message| %>
+          <div class="flex flex-col-reverse gap-5" data-chat-target="messages">
+            <% @conversation.messages.order(created_at: :desc).limit(8).reverse.each do |message| %>
               <div>
                 <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400"><%= message.role %></div>
                 <div class="text-sm leading-6 text-gray-800"><%= message.role == "assistant" ? markdown(message.content) : simple_format(message.content) %></div>
