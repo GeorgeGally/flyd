@@ -7,12 +7,15 @@ shared: &shared
   qmd_sidecar_url: <%= ENV.fetch("QMD_SIDECAR_URL", "http://localhost:9393") %>
   backup_directory: <%= ENV.fetch("FLYD_BACKUP_DIR", File.join(Dir.home, ".flyd", "backups")) %>
   backup_passphrase: <%= ENV["FLYD_BACKUP_PASSPHRASE"] %>
+  generated_surface_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_GENERATED_SURFACE", "false")) %>
 
 development:
   <<: *shared
+  generated_surface_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_GENERATED_SURFACE", "true")) %>
 
 test:
   <<: *shared
+  generated_surface_enabled: true
 
 production:
   <<: *shared
