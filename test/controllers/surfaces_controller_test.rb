@@ -1,10 +1,27 @@
 require "test_helper"
 
 class SurfacesControllerTest < ActionDispatch::IntegrationTest
-  test "root renders the intelligence surface without project navigation" do
-    Project.create!(name: "Flyd", description: "Personal intelligence")
+  setup do
+    @surface = Flyd::Intelligence::Surface.new(
+      generated_at: Time.current,
+      understanding: "A calm default surface",
+      current_intention: "Remain available",
+      focus_item_id: "continue",
+      items: [
+        Flyd::Intelligence::SurfaceItem.new(
+          id: "continue", kind: "scene", intent: "discuss",
+          title: "What deserves your attention?", summary: "Tell Flyd what is happening.",
+          renderer: "hero_scene", depth: "foreground", state: "presented",
+          context_refs: [], source_refs: [], actions: []
+        )
+      ]
+    )
+  end
 
-    get root_url
+  test "root renders the intelligence surface without project navigation" do
+    Flyd::Intelligence.stub(:compose_surface, @surface) do
+      get root_url
+    end
 
     assert_response :success
     assert_select "textarea[placeholder='Ask, tell, show…']"
@@ -16,7 +33,9 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     conversation = Conversation.start!(project)
     conversation.messages.create!(role: "user", content: "Keep this on the surface")
 
-    get root_url(conversation_id: conversation.id)
+    Flyd::Intelligence.stub(:compose_surface, @surface) do
+      get root_url(conversation_id: conversation.id)
+    end
 
     assert_response :success
     assert_select "[data-chat-conversation-id-value='#{conversation.id}']"
