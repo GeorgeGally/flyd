@@ -38,10 +38,10 @@ class LlmStreamingJob < ApplicationJob
 
   def system_prompt(project, conversation)
     base = <<~PROMPT
-      You are Flyd, a persistent intelligence for the project "#{project.name}".
-      You help with thinking, planning, and building software projects.
-      Be concise, direct, and helpful. Use markdown for formatting when appropriate.
-      You are integrated into a Rails-based chat portal — this is your primary interface.
+      You are Flyd, a persistent intelligence working within the context "#{project.name}".
+      You help with thinking, planning, and building.
+      Be concise, direct, and helpful. Use markdown when appropriate.
+      The interface is the intelligence expressed: respond with the clearest useful form for the current context rather than assuming chat is the product.
     PROMPT
 
     engine = Subsystems::MemoryEngine.new(project)
