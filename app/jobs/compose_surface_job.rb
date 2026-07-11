@@ -46,7 +46,7 @@ class ComposeSurfaceJob < ApplicationJob
     draft.update!(metadata: draft.metadata.merge("composition_reason" => reason))
     surface = Surface.activate!(draft)
 
-    broadcast(surface)
+    BroadcastSurfaceJob.perform_later(surface.id)
     Rails.cache.delete(LOCK_KEY)
   rescue *RETRYABLE_ERRORS => error
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
@@ -59,18 +59,5 @@ class ComposeSurfaceJob < ApplicationJob
     end
     Rails.cache.delete(LOCK_KEY)
     raise
-  end
-
-  private
-
-  def broadcast(surface)
-    Turbo::StreamsChannel.broadcast_replace_to(
-      "flyd_surface",
-      target: "surface_plane",
-      partial: "surfaces/plane",
-      locals: { surface: surface }
-    )
-  rescue StandardError => error
-    Rails.logger.warn("Surface #{surface.id} activated but broadcast failed: #{error.message}")
   end
 end
