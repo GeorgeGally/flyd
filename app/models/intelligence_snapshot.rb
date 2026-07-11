@@ -16,6 +16,10 @@ class IntelligenceSnapshot < ApplicationRecord
       usable.where(provider: provider).newest_first.first
     end
 
+    def latest_record_for(provider)
+      where(provider: provider).newest_first.first
+    end
+
     def digest_for(payload)
       Digest::SHA256.hexdigest(JSON.generate(canonicalize(payload)))
     end
