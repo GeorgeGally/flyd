@@ -5,7 +5,9 @@ class ComposeSurfaceJob < ApplicationJob
   LOCK_TTL = 5.minutes
   RETRYABLE_ERRORS = [Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError].freeze
 
-  retry_on(*RETRYABLE_ERRORS, wait: :exponentially_longer, attempts: 3) do |_job, _error|
+  retry_on(*RETRYABLE_ERRORS, wait: :exponentially_longer, attempts: 3) do |job, error|
+    reason = job.arguments.first.is_a?(Hash) ? (job.arguments.first["reason"] || job.arguments.first[:reason]) : nil
+    record_failure!(error, reason: reason)
     Rails.cache.delete(LOCK_KEY)
   end
 
@@ -17,6 +19,19 @@ class ComposeSurfaceJob < ApplicationJob
   rescue ActiveJob::EnqueueError
     Rails.cache.delete(LOCK_KEY)
     raise
+  end
+
+  def self.record_failure!(error, reason: nil)
+    Surface.create!(
+      status: "invalid",
+      composition_version: "flyd-1",
+      generated_at: Time.current,
+      metadata: {
+        "composition_reason" => reason,
+        "invalid_reason" => error.message,
+        "error_class" => error.class.name
+      }.compact
+    )
   end
 
   def perform(reason:, active_conversation_id: nil)
@@ -37,7 +52,11 @@ class ComposeSurfaceJob < ApplicationJob
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
     raise
   rescue StandardError => error
-    draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
+    if draft&.persisted? && draft.status == "draft"
+      draft.invalidate!(reason: error.message)
+    else
+      self.class.record_failure!(error, reason: reason)
+    end
     Rails.cache.delete(LOCK_KEY)
     raise
   end
