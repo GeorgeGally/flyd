@@ -8,17 +8,31 @@ class RefreshIntelligenceStateJob < ApplicationJob
   queue_as :default
 
   TIMEOUT = 30.seconds
+  LOCK_KEY = "intelligence_state:refresh_enqueued"
+  LOCK_TTL = 5.minutes
 
   retry_on Timeout::Error, ExportError, wait: :exponentially_longer, attempts: 3
+
+  def self.enqueue(force: false)
+    return false unless force || Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
+
+    perform_later
+    true
+  rescue ActiveJob::EnqueueError
+    Rails.cache.delete(LOCK_KEY)
+    raise
+  end
 
   def perform
     stdout = run_exporter
     payload = JSON.parse(stdout)
     _snapshot, changed = IntelligenceState::CliProvider.new.persist!(payload)
 
-    ComposeSurfaceJob.perform_later(reason: "provider_refresh") if changed
+    ComposeSurfaceJob.enqueue(reason: "provider_refresh") if changed
   rescue JSON::ParserError => error
     raise ExportError, "CLI intelligence state returned invalid JSON: #{error.message}"
+  ensure
+    Rails.cache.delete(LOCK_KEY)
   end
 
   private
