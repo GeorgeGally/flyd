@@ -29,8 +29,12 @@ class RefreshIntelligenceStateJob < ApplicationJob
     stdout = run_exporter
     payload = JSON.parse(stdout)
     _snapshot, changed = IntelligenceState::CliProvider.new.persist!(payload)
+    surface = Surface.current
 
-    ComposeSurfaceJob.enqueue(reason: "provider_refresh") if changed
+    if changed || surface.nil? || surface.stale? || surface.metadata["fallback"]
+      ComposeSurfaceJob.enqueue(reason: changed ? "provider_refresh" : "surface_refresh")
+    end
+
     Rails.cache.delete(LOCK_KEY)
   rescue JSON::ParserError => error
     raise ExportError, "CLI intelligence state returned invalid JSON: #{error.message}"
