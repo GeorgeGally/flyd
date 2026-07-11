@@ -6,7 +6,7 @@ class SurfacesController < ApplicationController
     end
 
     @conversation = Conversation.includes(:messages, :project).find_by(id: params[:conversation_id])
-    @surface = Flyd::Intelligence.compose_surface(active_conversation: @conversation)
+    @surface = Surface.fallback!
     @preferred_project = Project.active.find_by(id: params[:project_id])
     @surface_projects = Project.where(id: surface_project_ids).index_by(&:id)
   end
@@ -15,7 +15,9 @@ class SurfacesController < ApplicationController
 
   def surface_project_ids
     @surface.items.flat_map(&:context_refs).filter_map do |ref|
-      ref[:id] if ref[:type] == "project"
+      type = ref["type"] || ref[:type]
+      id = ref["id"] || ref[:id]
+      id if type == "project"
     end.uniq
   end
 
