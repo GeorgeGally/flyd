@@ -11,7 +11,8 @@ class RefreshIntelligenceStateJob < ApplicationJob
   LOCK_KEY = "intelligence_state:refresh_enqueued"
   LOCK_TTL = 5.minutes
 
-  retry_on Timeout::Error, ExportError, wait: :exponentially_longer, attempts: 3 do |_job, _error|
+  retry_on Timeout::Error, ExportError, wait: :exponentially_longer, attempts: 3 do |_job, error|
+    IntelligenceState::CliProvider.new.record_failure!(error)
     Rails.cache.delete(LOCK_KEY)
   end
 
