@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_12_100000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
   enable_extension "pg_catalog.plpgsql"
 
   create_table "behaviours", force: :cascade do |t|
@@ -98,6 +98,24 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_100000) do
     t.index ["extracted_at"], name: "index_decisions_on_extracted_at"
     t.index ["project_id"], name: "index_decisions_on_project_id"
     t.index ["source_message_id"], name: "index_decisions_on_source_message_id"
+  end
+
+  create_table "intelligence_snapshots", force: :cascade do |t|
+    t.string "provider", null: false
+    t.string "schema_version", null: false
+    t.string "status", default: "fresh", null: false
+    t.datetime "generated_at"
+    t.datetime "received_at", null: false
+    t.datetime "fresh_until"
+    t.string "state_digest", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.jsonb "errors", default: [], null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["fresh_until"], name: "index_intelligence_snapshots_on_fresh_until"
+    t.index ["provider", "created_at"], name: "index_intelligence_snapshots_on_provider_and_created_at"
+    t.index ["provider", "state_digest"], name: "index_intelligence_snapshots_on_provider_and_state_digest", unique: true
+    t.index ["status"], name: "index_intelligence_snapshots_on_status"
   end
 
   create_table "memory_edges", force: :cascade do |t|
