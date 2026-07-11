@@ -43,10 +43,15 @@ module IntelligenceState
 
       [record, changed]
     rescue JSON::ParserError, KeyError, ArgumentError => error
+      record_failure!(error, payload: payload, status: "invalid")
+      raise
+    end
+
+    def record_failure!(error, payload: {}, status: "unavailable")
       IntelligenceSnapshot.create!(
         provider: PROVIDER,
-        schema_version: payload.is_a?(Hash) ? payload["version"].presence || "unknown" : "unknown",
-        status: "invalid",
+        schema_version: payload.is_a?(Hash) ? payload["version"].presence || SUPPORTED_VERSION : SUPPORTED_VERSION,
+        status: status,
         generated_at: nil,
         received_at: Time.current,
         fresh_until: nil,
@@ -54,7 +59,6 @@ module IntelligenceState
         payload: payload.is_a?(Hash) ? payload : {},
         errors: [error.message]
       )
-      raise
     end
 
     private
