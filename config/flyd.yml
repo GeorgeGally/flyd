@@ -1,7 +1,6 @@
 shared: &shared
   data_directory: <%= ENV.fetch("FLYD_DIR", File.join(Dir.home, ".flyd")) %>
   raw_directory: <%= File.join(ENV.fetch("FLYD_DIR", File.join(Dir.home, ".flyd")), "raw") %>
-  intelligence_state_path: <%= ENV.fetch("FLYD_INTELLIGENCE_STATE_PATH", File.join(ENV.fetch("FLYD_DIR", File.join(Dir.home, ".flyd")), "intelligence-state.json")) %>
   llm_provider: <%= ENV.fetch("FLYD_LLM_PROVIDER", "openai") %>
   default_model: <%= ENV.fetch("FLYD_DEFAULT_MODEL", "gpt-4o-mini") %>
   extraction_model: <%= ENV.fetch("FLYD_EXTRACTION_MODEL", "gpt-4o-mini") %>
