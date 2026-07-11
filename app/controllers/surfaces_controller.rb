@@ -7,11 +7,12 @@ class SurfacesController < ApplicationController
 
     @surface = Surface::Planner.call
     @conversation = Conversation.includes(:messages, :project).find_by(id: params[:conversation_id])
+    @preferred_project = Project.active.find_by(id: params[:project_id])
   end
 
   private
 
   def surface_enabled?
-    Rails.application.config_for(:flyd).fetch("generated_surface_enabled", false)
+    Rails.application.config_for(:flyd).fetch(:generated_surface_enabled, false)
   end
 end
