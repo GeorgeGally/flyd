@@ -10,6 +10,7 @@ class IntentsController < ApplicationController
 
     LlmStreamingJob.perform_later(conversation.id, message.content)
     DecisionExtractionJob.perform_later(conversation.id) if conversation.messages.count % 5 == 0
+    ComposeSurfaceJob.enqueue(reason: "new_intent", active_conversation_id: conversation.id)
 
     redirect_to root_path(conversation_id: conversation.id), notice: context_notice(resolution, project)
   end
