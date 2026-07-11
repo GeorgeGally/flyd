@@ -1,7 +1,11 @@
 require "test_helper"
 
 class SurfacesControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
   setup do
+    Rails.cache.delete(ComposeSurfaceJob::LOCK_KEY)
+    Rails.cache.delete(RefreshIntelligenceStateJob::LOCK_KEY)
     Surface.delete_all
     @surface = Surface.fallback!
   end
@@ -17,6 +21,24 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_select "aside", count: 0
   end
 
+  test "missing provider state queues refresh without blocking" do
+    assert_enqueued_with(job: RefreshIntelligenceStateJob) do
+      get root_url
+    end
+
+    assert_response :success
+  end
+
+  test "fresh provider state queues fallback surface composition" do
+    IntelligenceState::CliProvider.new.persist!(provider_payload)
+
+    assert_enqueued_with(job: ComposeSurfaceJob) do
+      get root_url
+    end
+
+    assert_response :success
+  end
+
   test "surface can embed an active conversation" do
     project = Project.create!(name: "Flyd")
     conversation = Conversation.start!(project)
@@ -27,5 +49,22 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "[data-chat-conversation-id-value='#{conversation.id}']"
     assert_select "form[action='#{project_conversation_messages_path(project, conversation)}']"
+  end
+
+  private
+
+  def provider_payload
+    {
+      "version" => "1.0",
+      "generatedAt" => Time.current.iso8601,
+      "source" => "flyd-cli",
+      "goals" => [],
+      "tensions" => [],
+      "signals" => [],
+      "curiosity" => [],
+      "nudges" => [],
+      "reports" => [],
+      "recentEvents" => []
+    }
   end
 end
