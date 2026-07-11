@@ -4,16 +4,17 @@
 
 **The interface is the intelligence expressed.**
 
-The default experience is an intelligence-generated `Surface`. Projects, conversations, messages, decisions, beliefs, and behaviours are internal context and persistence models.
+Flyd is the intelligence. The default experience is an intelligence-generated `Surface`. Projects, conversations, messages, decisions, beliefs, and behaviours are evidence and persistence structures, not the product.
 
 Guardrails:
 
 - Do not introduce project-first or conversation-first primary navigation.
 - Do not make database entities visible merely because they exist.
-- Homepage work must flow through `Surface::Planner` or its successor.
-- Chat is a renderer within a surface, never the application shell.
-- Global input must resolve context automatically. Project selection is a correction mechanism.
-- Layout semantics belong to intelligence planning; renderers only present them.
+- Homepage work must flow through `Flyd::Intelligence`.
+- Retrieval, scoring, rules, and validation may support Flyd; they must not replace Flyd's judgment about what the user should experience.
+- Chat is one renderer within a surface, never the application shell.
+- Global input should be interpreted before context is persisted. Project selection is a correction mechanism, not a prerequisite for thought.
+- Layout semantics belong to Flyd's surface composition; renderers only present the plan.
 - New modalities must enter through the universal intent model rather than separate product modes.
 
 See `docs/architecture/intelligence-generated-interface.md`.
@@ -49,15 +50,17 @@ cd cli && npm run dev  # Run CLI directly
 ## Key Files
 
 - `docs/architecture/intelligence-generated-interface.md` — product architecture and UI constraints
-- `app/services/surface/planner.rb` — semantic surface planning
-- `app/services/context_resolver.rb` — automatic context inference
-- `config/flyd.yml` — app configuration (models, directories, backup)
-- `lib/llm/provider.rb` — LLM provider abstraction (OpenAI/Anthropic)
-- `lib/subsystems/` — MemoryEngine, BeliefEngine, BehaviourEngine
-- `app/jobs/` — Sidekiq background jobs (streaming, extraction, synthesis, builds)
+- `app/services/flyd/intelligence.rb` — Flyd's surface-composition boundary
+- `app/services/context_resolver.rb` — temporary context-routing support
+- `app/services/surface/planner.rb` — compatibility delegate only; contains no intelligence
+- `config/flyd.yml` — app configuration
+- `lib/llm/provider.rb` — LLM provider abstraction
+- `lib/subsystems/` — memory, belief, and behaviour evidence systems
+- `app/jobs/` — background jobs for streaming, extraction, synthesis, and builds
 
 ## Known Issues
 
 - QMD sidecar (`qmd-sidecar/`) does not exist — search-dependent features return empty
-- Proactive CLI intelligence is not yet connected to the Rails surface planner
-- LLM extraction, synthesis, and builds use `Llm::Chat` which calls the configured extraction model
+- Proactive CLI intelligence is not yet included in the Rails state snapshot
+- Surface composition is synchronous and not yet cached or persisted
+- The current context resolver still assumes project-shaped persistence after interpretation
