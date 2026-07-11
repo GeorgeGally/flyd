@@ -15,20 +15,26 @@
     <%= javascript_importmap_tags %>
   </head>
 
-  <body class="h-screen flex overflow-hidden bg-white">
-    <aside class="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
-      <div class="p-4 border-b border-gray-200">
-        <h1 class="text-lg font-semibold text-gray-900">
-          <%= link_to "Flyd", root_path, class: "hover:text-gray-600" %>
-        </h1>
-      </div>
-      <%= render "projects/sidebar" %>
-    </aside>
+  <% if controller_name == "surfaces" %>
+    <body class="min-h-screen bg-white">
+      <%= yield %>
+    </body>
+  <% else %>
+    <body class="h-screen flex overflow-hidden bg-white">
+      <aside class="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
+        <div class="p-4 border-b border-gray-200">
+          <h1 class="text-lg font-semibold text-gray-900">
+            <%= link_to "Flyd", root_path, class: "hover:text-gray-600" %>
+          </h1>
+        </div>
+        <%= render "projects/sidebar" %>
+      </aside>
 
-    <main class="flex-1 flex flex-col overflow-hidden">
-      <div class="flex-1 overflow-y-auto p-6">
-        <%= yield %>
-      </div>
-    </main>
-  </body>
+      <main class="flex-1 flex flex-col overflow-hidden">
+        <div class="flex-1 overflow-y-auto p-6">
+          <%= yield %>
+        </div>
+      </main>
+    </body>
+  <% end %>
 </html>
