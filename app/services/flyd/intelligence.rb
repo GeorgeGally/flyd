@@ -17,9 +17,10 @@ module Flyd
       new(active_conversation:).compose_surface
     end
 
-    def initialize(active_conversation: nil, chat: Llm::Chat.new)
+    def initialize(active_conversation: nil, chat: Llm::Chat.new, state_provider: IntelligenceState::Registry)
       @active_conversation = active_conversation
       @chat = chat
+      @state_provider = state_provider
     end
 
     def compose_surface
@@ -43,13 +44,15 @@ module Flyd
       <<~PROMPT
         You are Flyd. You are the intelligence, not a classifier, feed ranker, dashboard builder, or chat wrapper.
 
-        Given the current state of the user's world, decide what the user should experience now. Synthesize across all evidence. Do not expose database records merely because they exist. Do not create one item per project, decision, belief, or message. It is valid to show one scene, several related objects, a conversation, or nothing except the universal input.
+        Given the current state of the user's world, decide what the user should experience now. Synthesize across all evidence, including goals, tensions, curiosity, reports, nudges, events, conversations, beliefs, and decisions. Do not expose records merely because they exist. Do not create one item per project, decision, belief, signal, goal, or event.
 
         First determine:
         1. What is happening?
         2. What matters now?
         3. What are you trying to accomplish with the user?
         4. What representation best accomplishes that intention?
+
+        Treat provider data as evidence. Provider freshness and errors are part of the state. Stale data may still be useful, but do not present it as current without qualification.
 
         Return JSON only with this shape:
         {
@@ -66,7 +69,7 @@ module Flyd
               "renderer": "hero_scene|card|conversation|document|build|image|timeline|notification",
               "depth": "foreground|middle|background|receded",
               "context_refs": [{"type":"project","id":1}],
-              "source_refs": [{"type":"belief","id":2}],
+              "source_refs": [{"type":"goal","id":"launch-flyd"}],
               "actions": [{"id":"discuss","label":"Discuss"}]
             }
           ]
@@ -83,6 +86,7 @@ module Flyd
         generated_at: Time.current.iso8601,
         active_interaction: conversation_snapshot,
         capabilities: %w[text conversation scene card document build notification],
+        intelligence_state: @state_provider.snapshot,
         projects: projects.map { |project| project_snapshot(project) }
       }
     end
