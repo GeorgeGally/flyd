@@ -31,6 +31,7 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
       pending = cache.read(ComposeSurfaceJob::PENDING_KEY)
       assert_equal "assistant_response", pending["reason"]
 
+      clear_enqueued_jobs
       assert_enqueued_with(job: ComposeSurfaceJob) do
         ComposeSurfaceJob.finish_and_enqueue_pending
       end
