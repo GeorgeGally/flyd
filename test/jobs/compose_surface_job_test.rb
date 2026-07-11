@@ -1,0 +1,62 @@
+require "test_helper"
+
+class ComposeSurfaceJobTest < ActiveJob::TestCase
+  Item = Data.define(:id, :kind, :intent, :renderer, :depth, :state, :title, :summary, :context_refs, :source_refs, :actions)
+  Plan = Data.define(:generated_at, :understanding, :current_intention, :focus_item_id, :items)
+
+  test "persists, activates, and broadcasts a composed surface" do
+    previous = Surface.fallback!
+    plan = build_plan
+
+    Flyd::Intelligence.stub(:compose_surface, plan) do
+      Turbo::StreamsChannel.stub(:broadcast_replace_to, true) do
+        ComposeSurfaceJob.perform_now(reason: "provider_refresh")
+      end
+    end
+
+    active = Surface.current
+    assert_not_equal previous, active
+    assert_equal "superseded", previous.reload.status
+    assert_equal "Prepared next scene", active.surface_items.first.title
+    assert_equal "provider_refresh", active.metadata["composition_reason"]
+  end
+
+  test "failed composition preserves the current active surface" do
+    current = Surface.fallback!
+
+    Flyd::Intelligence.stub(:compose_surface, ->(*) { raise Llm::Chat::Error, "offline" }) do
+      assert_raises(Llm::Chat::Error) do
+        ComposeSurfaceJob.perform_now(reason: "surface_stale")
+      end
+    end
+
+    assert_equal current, Surface.current
+    assert current.reload.active?
+  end
+
+  private
+
+  def build_plan
+    Plan.new(
+      generated_at: Time.current,
+      understanding: "A changed state needs attention.",
+      current_intention: "Present the next scene.",
+      focus_item_id: "next-scene",
+      items: [
+        Item.new(
+          id: "next-scene",
+          kind: "scene",
+          intent: "inform",
+          renderer: "hero_scene",
+          depth: "foreground",
+          state: "presented",
+          title: "Prepared next scene",
+          summary: "Flyd prepared this asynchronously.",
+          context_refs: [],
+          source_refs: [],
+          actions: []
+        )
+      ]
+    )
+  end
+end
