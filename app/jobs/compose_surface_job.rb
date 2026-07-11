@@ -2,22 +2,32 @@ class ComposeSurfaceJob < ApplicationJob
   queue_as :default
 
   LOCK_KEY = "surface:composition_enqueued"
+  PENDING_KEY = "surface:composition_pending"
   LOCK_TTL = 5.minutes
   RETRYABLE_ERRORS = [Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError].freeze
 
   retry_on(*RETRYABLE_ERRORS, wait: :exponentially_longer, attempts: 3) do |job, error|
     reason = job.arguments.first.is_a?(Hash) ? (job.arguments.first["reason"] || job.arguments.first[:reason]) : nil
     record_failure!(error, reason: reason)
-    Rails.cache.delete(LOCK_KEY)
+    finish_and_enqueue_pending
   end
 
   def self.enqueue(reason:, active_conversation_id: nil, force: false)
-    return false unless force || Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
+    Rails.cache.delete(LOCK_KEY) if force
+
+    unless Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
+      Rails.cache.write(
+        PENDING_KEY,
+        { "reason" => reason, "active_conversation_id" => active_conversation_id },
+        expires_in: LOCK_TTL * 2
+      )
+      return false
+    end
 
     perform_later(reason: reason, active_conversation_id: active_conversation_id)
     true
   rescue ActiveJob::EnqueueError
-    Rails.cache.delete(LOCK_KEY)
+    finish_and_enqueue_pending
     raise
   end
 
@@ -34,6 +44,18 @@ class ComposeSurfaceJob < ApplicationJob
     )
   end
 
+  def self.finish_and_enqueue_pending
+    Rails.cache.delete(LOCK_KEY)
+    pending = Rails.cache.read(PENDING_KEY)
+    Rails.cache.delete(PENDING_KEY)
+    return unless pending
+
+    enqueue(
+      reason: pending["reason"] || pending[:reason] || "coalesced_update",
+      active_conversation_id: pending["active_conversation_id"] || pending[:active_conversation_id]
+    )
+  end
+
   def perform(reason:, active_conversation_id: nil)
     conversation = Conversation.includes(:messages, :project).find_by(id: active_conversation_id)
     plan = Flyd::Intelligence.compose_surface(active_conversation: conversation, fallback: false)
@@ -47,7 +69,7 @@ class ComposeSurfaceJob < ApplicationJob
     surface = Surface.activate!(draft)
 
     BroadcastSurfaceJob.perform_later(surface.id)
-    Rails.cache.delete(LOCK_KEY)
+    self.class.finish_and_enqueue_pending
   rescue *RETRYABLE_ERRORS => error
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
     raise
@@ -57,7 +79,7 @@ class ComposeSurfaceJob < ApplicationJob
     else
       self.class.record_failure!(error, reason: reason)
     end
-    Rails.cache.delete(LOCK_KEY)
+    self.class.finish_and_enqueue_pending
     raise
   end
 end
