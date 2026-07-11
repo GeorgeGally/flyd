@@ -7,5 +7,7 @@ class CaptureWatcherJob < ApplicationJob
     importer = Flyd::Importer.new
     result = importer.import!
     Rails.logger.info("CaptureWatcherJob: imported #{result[:imported]}, skipped #{result[:skipped]}")
+
+    RefreshIntelligenceStateJob.enqueue if result[:imported].to_i.positive?
   end
 end
