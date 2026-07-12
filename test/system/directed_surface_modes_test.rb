@@ -43,7 +43,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_text "Which fixed shell"
     click_on "Investigate"
 
-    assert_text "CURRENT WORK · INTERFACE RESEARCH"
+    assert_selector "form[action$='/messages']"
     conversation = scene.reload.conversation
     assert conversation.present?
     assert_equal context, conversation.context
@@ -90,7 +90,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_text "WHAT CHANGES"
     click_on "Review action"
 
-    assert_text "OpenCode execution"
+    assert_text "OPENCODE EXECUTION"
     assert_text "Confirm build"
     build = Build.order(:created_at).last
     assert_current_path build_path(build)
