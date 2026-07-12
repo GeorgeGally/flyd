@@ -6,17 +6,17 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
   end
 
   test "bounds, deduplicates, and registers evidence references" do
-    provider = FakeProvider.new(
+    provider = FakeProvider.new({
       providers: [{
         source: "test",
         fresh: true,
         errors: [],
         data: {
-          goals: [evidence("goal:ship"), evidence("goal:ship")],
+          goals: [ evidence("goal:ship"), evidence("goal:ship") ],
           reports: Array.new(20) { |index| evidence("report:#{index}", type: "report", body: "x" * 2_000) }
         }
       }]
-    )
+    })
 
     result = Flyd::WorldStateCompiler.call(state_provider: provider, budget: 5_000)
     goals = result.state.dig(:provider_state, :providers, 0, :data, :goals)
@@ -35,7 +35,7 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
 
     result = Flyd::WorldStateCompiler.call(
       active_intent: intent,
-      state_provider: FakeProvider.new(providers: [])
+      state_provider: FakeProvider.new({ providers: [] })
     )
 
     assert_equal intent.id, result.state.dig(:active_intent, :id)
