@@ -62,6 +62,7 @@ module Builds
           "title" => @scene.title,
           "desired_outcome" => @scene.desired_outcome
         },
+        "memory" => Subsystems::MemoryEngine.new(@project).relevant_context(@conversation),
         "conversation" => {
           "id" => @conversation.id,
           "summary" => @conversation.summary,
