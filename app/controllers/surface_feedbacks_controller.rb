@@ -17,6 +17,7 @@ class SurfaceFeedbacksController < ApplicationController
     )
 
     apply_lifecycle(item, feedback.signal)
+    Surfaces::LearnFromFeedback.call(feedback)
     ComposeSurfaceJob.enqueue(reason: "surface_#{feedback.signal}")
 
     redirect_to root_path, notice: feedback.signal.humanize
