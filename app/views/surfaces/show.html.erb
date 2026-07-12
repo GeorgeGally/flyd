@@ -40,6 +40,15 @@
               <%= submit_tag "No project", class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
             <% end %>
           </div>
+
+          <details class="mt-5 text-sm">
+            <summary class="cursor-pointer text-gray-500 hover:text-gray-950">Create a temporary context</summary>
+            <%= form_with url: intent_contexts_path(@intent), scope: :context, method: :post, class: "mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" do |form| %>
+              <%= form.text_field :name, required: true, placeholder: "Context name", class: "border-b border-gray-300 bg-transparent px-0 py-2 focus:border-gray-950 focus:outline-none" %>
+              <%= form.submit "Create", class: "rounded-full bg-gray-950 px-4 py-2 text-xs font-medium text-white" %>
+              <%= form.text_area :description, rows: 2, placeholder: "What is this context?", class: "border-b border-gray-200 bg-transparent px-0 py-2 text-sm focus:border-gray-950 focus:outline-none sm:col-span-2" %>
+            <% end %>
+          </details>
         </div>
       <% end %>
 
