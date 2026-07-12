@@ -149,7 +149,7 @@ class SurfaceItemActionsController < ApplicationController
       return owner if owner
     end
 
-    return item.scene.project if item.scene&.project&.active?
+    return item.scene.project if item.scene&.project && !item.scene.project.archived?
     return item.scene.context if item.scene&.context&.status == "active"
 
     Context.create!(
