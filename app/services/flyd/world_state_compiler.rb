@@ -85,8 +85,18 @@ module Flyd
         confidence: item["confidence"],
         generated_at: item["generatedAt"] || item["generated_at"],
         evidence_refs: Array(item["evidenceRefs"] || item["evidence_refs"]),
-        content: item["content"].to_h
+        content: compact_content(item["content"].to_h)
       }
+    end
+
+    def compact_content(content)
+      content.transform_values do |value|
+        case value
+        when String then value.truncate(1_000)
+        when Array then value.first(20)
+        else value
+        end
+      end
     end
 
     def project_snapshots
@@ -197,30 +207,43 @@ module Flyd
     end
 
     def enforce_budget(state)
-      return state if JSON.generate(state).length <= @budget
+      return state if within_budget?(state)
 
       mutable = state.deep_dup
       providers = mutable.dig(:provider_state, :providers) || []
       providers.each do |provider|
         provider[:data].each do |key, items|
-          while items.length > 3 && JSON.generate(mutable).length > @budget
+          while items.length > 1 && !within_budget?(mutable)
             dropped = items.pop
             @dropped << "provider:#{provider[:source]}:#{key}:#{dropped[:id]}"
           end
         end
       end
 
-      while mutable[:projects].length > 3 && JSON.generate(mutable).length > @budget
+      while mutable[:projects].length > 1 && !within_budget?(mutable)
         dropped = mutable[:projects].pop
         @dropped << "project:#{dropped[:id]}"
       end
 
-      while mutable[:recent_feedback].length > 8 && JSON.generate(mutable).length > @budget
-        mutable[:recent_feedback].pop
+      mutable[:recent_feedback].pop while mutable[:recent_feedback].length > 4 && !within_budget?(mutable)
+      mutable[:context_corrections].pop while mutable[:context_corrections].length > 4 && !within_budget?(mutable)
+      mutable[:active_interaction]&.dig(:messages)&.shift while mutable[:active_interaction]&.dig(:messages)&.length.to_i > 2 && !within_budget?(mutable)
+
+      providers.each do |provider|
+        provider[:data].each_value do |items|
+          items.each do |item|
+            break if within_budget?(mutable)
+
+            item[:content] = item[:content].transform_values { |value| value.is_a?(String) ? value.truncate(300) : value }
+          end
+        end
       end
 
-      mutable[:active_interaction]&.dig(:messages)&.shift while mutable[:active_interaction]&.dig(:messages)&.length.to_i > 4 && JSON.generate(mutable).length > @budget
       mutable
+    end
+
+    def within_budget?(state)
+      JSON.generate(state).length <= @budget
     end
 
     def register(type, id)
