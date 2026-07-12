@@ -14,7 +14,7 @@ class RefreshIntelligenceStateJobTest < ActiveJob::TestCase
     snapshot = IntelligenceSnapshot.latest_for("flyd-cli")
     assert snapshot.present?
     assert_equal "fresh", snapshot.status
-    assert_equal "ship-flyd", snapshot.payload["goals"].first["slug"]
+    assert_equal "ship-flyd", snapshot.payload["goals"].first.dig("content", "slug")
   end
 
   test "unchanged CLI state does not recompose a healthy active surface" do
@@ -77,7 +77,18 @@ class RefreshIntelligenceStateJobTest < ActiveJob::TestCase
       "version" => "1.0",
       "generatedAt" => generated_at.iso8601,
       "source" => "flyd-cli",
-      "goals" => [{ "slug" => "ship-flyd" }],
+      "goals" => [
+        {
+          "id" => "goal:ship-flyd",
+          "type" => "goal",
+          "source" => "test",
+          "epistemicStatus" => "user_confirmed",
+          "confidence" => 0.9,
+          "generatedAt" => generated_at.iso8601,
+          "evidenceRefs" => [],
+          "content" => { "slug" => "ship-flyd" }
+        }
+      ],
       "tensions" => [],
       "signals" => [],
       "curiosity" => [],
