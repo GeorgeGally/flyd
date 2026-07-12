@@ -14,7 +14,7 @@ class MultimodalIntentsControllerTest < ActionDispatch::IntegrationTest
       original_filename: "note.txt"
     )
 
-    assert_difference([ "Intent.count", "IntentAttachment.count" ], 1) do
+    assert_difference([ "Intent.count", "IntentAttachment.count", "ActiveStorage::Blob.count" ], 1) do
       post intents_path, params: { intent: { text: "", files: [ upload ] } }
     end
 
@@ -24,6 +24,9 @@ class MultimodalIntentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "The interface is the intelligence expressed.", attachment.extracted_text
     assert_equal "note.txt", attachment.filename
     assert attachment.expires_at > 89.days.from_now
+    assert attachment.file.attached?
+    assert_nil attachment.data
+    assert_equal "The interface is the intelligence expressed.", attachment.file.download
   end
 
   test "ingests clipboard content with the same retention boundary" do
@@ -34,6 +37,7 @@ class MultimodalIntentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "clipboard", intent.modality
     assert_equal "A thought spanning the whole system", attachment.extracted_text
     assert attachment.expires_at > 89.days.from_now
+    assert_not attachment.file.attached?
     assert_not Project.exists?(name: "Inbox")
   end
 
@@ -44,7 +48,7 @@ class MultimodalIntentsControllerTest < ActionDispatch::IntegrationTest
       original_filename: "unsafe.svg"
     )
 
-    assert_no_difference([ "Intent.count", "IntentAttachment.count" ]) do
+    assert_no_difference([ "Intent.count", "IntentAttachment.count", "ActiveStorage::Blob.count" ]) do
       post intents_path, params: { intent: { files: [ upload ] } }
     end
 
@@ -57,7 +61,7 @@ class MultimodalIntentsControllerTest < ActionDispatch::IntegrationTest
     second = Rack::Test::UploadedFile.new(StringIO.new("same"), "text/plain", original_filename: "two.txt")
 
     assert_difference("Intent.count", 1) do
-      assert_difference("IntentAttachment.count", 1) do
+      assert_difference([ "IntentAttachment.count", "ActiveStorage::Blob.count" ], 1) do
         post intents_path, params: { intent: { files: [ first, second ] } }
       end
     end
