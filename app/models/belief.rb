@@ -16,6 +16,15 @@ class Belief < ApplicationRecord
     project ? :project_decision : :cross_project_belief
   end
 
+  def depends_on_any?(decision_ids)
+    (Array(source_decision_ids).map(&:to_i) & Array(decision_ids).map(&:to_i)).any?
+  end
+
+  def remove_sources!(decision_ids)
+    remaining = Array(source_decision_ids).map(&:to_i) - Array(decision_ids).map(&:to_i)
+    update!(source_decision_ids: remaining, status: remaining.empty? ? "superseded" : "challenged")
+  end
+
   def challenge!
     update!(status: "challenged")
   end
