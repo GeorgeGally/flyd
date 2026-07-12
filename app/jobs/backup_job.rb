@@ -42,10 +42,17 @@ class BackupJob < ApplicationJob
   private
 
   def dump_database(db_config, output_path)
-    _stdout, stderr, status = Open3.capture3(
-      { "PGPASSFILE" => "/dev/null" },
-      "pg_dump", "--file", output_path, db_config.database
-    )
+    config = db_config.configuration_hash.symbolize_keys
+    environment = {
+      "PGPASSFILE" => "/dev/null",
+      "PGDATABASE" => config[:database],
+      "PGHOST" => config[:host],
+      "PGPORT" => config[:port],
+      "PGUSER" => config[:username],
+      "PGPASSWORD" => config[:password]
+    }.compact.transform_values(&:to_s)
+
+    _stdout, stderr, status = Open3.capture3(environment, "pg_dump", "--file", output_path)
     return if status.success?
 
     FileUtils.rm_f(output_path)
