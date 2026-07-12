@@ -1,33 +1,39 @@
 class BuildsController < ApplicationController
-  before_action :set_project
-  before_action :set_conversation
+  before_action :set_project_and_conversation, only: :create
+  before_action :set_build, only: [ :show, :confirm ]
 
   def create
-    if @project.builds.where(status: %w[pending preparing running]).exists?
-      redirect_to project_conversation_path(@project, @conversation), alert: "A build is already in progress."
-      return
-    end
-
-    build = @project.builds.create!(
+    build = Builds::Propose.call(
+      project: @project,
       conversation: @conversation,
-      status: "pending"
+      scene: @conversation.primary_scene
     )
-
-    OpencodeBuildJob.perform_later(build.id)
-    redirect_to project_conversation_path(@project, @conversation), notice: "Build started."
+    redirect_to build_path(build), notice: build.proposed? ? "Review the build before it runs." : "This work already has an active build."
+  rescue ArgumentError => error
+    redirect_to root_path(conversation_id: @conversation.id), alert: error.message
   end
 
   def show
-    @build = @project.builds.find(params[:id])
+  end
+
+  def confirm
+    if @build.proposed?
+      @build.confirm!
+      OpencodeBuildJob.perform_later(@build.id)
+      redirect_to build_path(@build), notice: "Build confirmed and queued."
+    else
+      redirect_to build_path(@build), alert: "This build can no longer be confirmed."
+    end
   end
 
   private
 
-  def set_project
+  def set_project_and_conversation
     @project = Project.find(params[:project_id])
+    @conversation = @project.conversations.find(params[:conversation_id])
   end
 
-  def set_conversation
-    @conversation = @project.conversations.find(params[:conversation_id])
+  def set_build
+    @build = Build.includes(:project, :conversation, :scene, :artifact).find(params[:id])
   end
 end
