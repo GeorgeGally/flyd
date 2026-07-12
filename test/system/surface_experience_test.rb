@@ -54,7 +54,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_text "DECISION"
     assert_text "Dynamic director"
     assert_no_text "An older conversation"
-    assert_equal "decision", find("[data-surface-mode]")[:"data-surface-mode"]
+    assert_equal "decision", find("#surface_plane")[:"data-surface-mode"]
     assert page.evaluate_script("document.querySelector('#surface_plane').compareDocumentPosition(document.querySelector('[data-surface-target=\"intent\"]')) & Node.DOCUMENT_POSITION_FOLLOWING")
 
     click_on "Choose", match: :first
