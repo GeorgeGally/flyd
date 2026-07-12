@@ -29,6 +29,8 @@ class OpencodeBuildJob < ApplicationJob
 
   def approved_context(build)
     snapshot = build.context_snapshot.to_h
+    return live_context(build) if snapshot.blank?
+
     project = snapshot["project"].to_h
     scene = snapshot["scene"].to_h
     conversation = snapshot["conversation"].to_h
@@ -45,6 +47,33 @@ class OpencodeBuildJob < ApplicationJob
       #{snapshot["memory"]}
 
       Approved conversation snapshot:
+      #{messages}
+    CONTEXT
+  end
+
+  # Compatibility boundary for older callers and tests. Confirmed builds still use
+  # the immutable approved snapshot; legacy builds without one receive live context.
+  def build_context(build)
+    approved_context(build)
+  end
+
+  def live_context(build)
+    messages = build.conversation.visible_messages.last(10).map do |message|
+      "#{message.role}: #{message.content}"
+    end.join("\n")
+    memory = Subsystems::MemoryEngine.new(build.project).relevant_context(build.conversation)
+
+    <<~CONTEXT
+      Project: #{build.project.name}
+      Root path: #{build.project.root_path.presence || "N/A"}
+
+      Scene: #{build.scene&.title || build.conversation.summary}
+      Desired outcome: #{build.scene&.desired_outcome || build.instructions}
+
+      Live memory context:
+      #{memory}
+
+      Live conversation context:
       #{messages}
     CONTEXT
   end
