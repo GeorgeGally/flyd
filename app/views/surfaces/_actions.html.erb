@@ -5,7 +5,7 @@
       <% label = action["label"] || action[:label] || action_id.to_s.humanize %>
       <% payload = action["payload"] || action[:payload] || {} %>
       <% case action_id %>
-      <% when "discuss", "answer", "build" %>
+      <% when "discuss", "answer", "investigate", "build", "choose" %>
         <%= button_to label, surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: payload }, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
       <% when "dismiss", "resolve" %>
         <%= button_to label, surface_item_feedbacks_path(item), method: :post, params: { signal: action_id, payload: payload }, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
