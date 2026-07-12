@@ -14,6 +14,14 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
 
   test "Flyd chooses and composes the interface required by the situation" do
     project = Project.create!(name: "Flyd", description: "Personal intelligence")
+    Scene.create!(
+      scene_key: "interface-drift",
+      kind: "decision",
+      status: "active",
+      title: "What should become the primary interface?",
+      summary: "Choose whether Flyd directs the surface or remains a conversation shell.",
+      project: project
+    )
     response = {
       understanding: "The implementation has drifted back toward chat-first interaction.",
       current_intention: "Put the architectural choice directly on screen.",
@@ -71,7 +79,8 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal "interface-drift", surface.focus_item_id
     assert_equal "decision_scene", surface.items.first.renderer
     assert_equal "ship-flyd", sent_state.dig("provider_state", "providers", 0, "data", "goals", 0, "content", "slug")
-    assert_equal "quiet", sent_state.dig("interface_direction", "suggested_mode")
+    assert_equal "decision", sent_state.dig("interface_direction", "suggested_mode")
+    assert_equal "interface-drift", sent_state.dig("interface_direction", "suggested_focus_scene_key")
     assert_equal "Make the choice itself the interface.", sent_state.dig("interface_direction", "grammars", "decision", "purpose")
   end
 
