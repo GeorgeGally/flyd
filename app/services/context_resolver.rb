@@ -43,7 +43,7 @@ class ContextResolver
 
     best = ranked.first
     runner_up = ranked.second
-    margin = best.score - runner_up.to_f.then { |value| runner_up ? runner_up.score : 0.0 }
+    margin = best.score - (runner_up&.score || 0.0)
     confidence = confidence_for(best.score, margin)
     uniquely_strong = best.score >= MIN_SCORE && margin >= MIN_MARGIN && confidence >= AUTO_ROUTE_THRESHOLD
 
