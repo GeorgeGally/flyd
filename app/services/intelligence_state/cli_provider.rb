@@ -27,6 +27,8 @@ module IntelligenceState
 
       Snapshot.new(
         source: usable.provider,
+        snapshot_id: usable.id,
+        state_digest: usable.state_digest,
         generated_at: usable.generated_at,
         fresh: usable.fresh?,
         data: normalize(usable.payload),
@@ -115,6 +117,8 @@ module IntelligenceState
       latest = IntelligenceSnapshot.latest_record_for(PROVIDER)
       Snapshot.new(
         source: PROVIDER,
+        snapshot_id: nil,
+        state_digest: nil,
         generated_at: nil,
         fresh: false,
         data: {},
