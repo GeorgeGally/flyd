@@ -127,9 +127,13 @@ module Intents
       start_index = messages.index(message)
       return unless start_index
 
-      segment = messages.drop(start_index).take_while.with_index do |candidate, index|
-        index.zero? || candidate.role != "user"
+      segment = []
+      messages.drop(start_index).each_with_index do |candidate, index|
+        break if index.positive? && candidate.role == "user"
+
+        segment << candidate
       end
+
       segment.each do |candidate|
         candidate.update!(
           metadata: candidate.metadata.merge(
