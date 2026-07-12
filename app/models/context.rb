@@ -3,6 +3,8 @@ class Context < ApplicationRecord
   STATUSES = %w[active resolved expired archived].freeze
 
   has_many :conversations, dependent: :destroy
+  has_many :scenes, dependent: :nullify
+  has_many :artifacts, dependent: :nullify
 
   validates :name, presence: true
   validates :kind, inclusion: { in: KINDS }
