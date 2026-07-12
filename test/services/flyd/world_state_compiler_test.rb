@@ -20,7 +20,7 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
       }]
     })
 
-    result = Flyd::WorldStateCompiler.call(state_provider: provider, budget: 5_000)
+    result = Flyd::WorldStateCompiler.call(state_provider: provider, budget: 2_500)
     goals = result.state.dig(:provider_state, :providers, 0, :data, :goals)
     retained_refs = result.state.dig(:provider_state, :providers).flat_map do |entry|
       entry[:data].values.flatten.map { |item| "#{item[:type]}:#{item[:id]}" }
@@ -29,7 +29,7 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     assert_equal 1, goals.length
     assert_includes result.reference_registry, "goal:goal:ship"
     assert_equal retained_refs.sort, result.reference_registry.grep(/^(goal|report):/).sort
-    assert_operator JSON.generate(result.state).length, :<=, 5_000
+    assert_operator JSON.generate(result.state).length, :<=, 2_500
     assert result.diagnostics[:dropped].any?
   end
 
