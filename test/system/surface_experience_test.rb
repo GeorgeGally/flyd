@@ -3,6 +3,7 @@ require "base64"
 
 class SurfaceExperienceTest < ApplicationSystemTestCase
   setup do
+    SurfaceItem.delete_all
     Surface.delete_all
     Rails.cache.clear
   end
