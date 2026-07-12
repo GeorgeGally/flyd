@@ -10,6 +10,8 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     assert record.persisted?
     assert snapshot.fresh
     assert_empty snapshot.errors
+    assert_equal record.id, snapshot.snapshot_id
+    assert_equal record.state_digest, snapshot.state_digest
     assert_equal "ship-flyd", snapshot.data[:goals].first.dig("content", "slug")
   end
 
@@ -32,6 +34,8 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     snapshot = IntelligenceState::CliProvider.new.snapshot
 
     assert_not snapshot.fresh
+    assert_nil snapshot.snapshot_id
+    assert_nil snapshot.state_digest
     assert_empty snapshot.data
     assert_match(/No persisted/, snapshot.errors.first)
   end
@@ -45,12 +49,14 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
 
   test "retains usable evidence while exposing a later refresh failure" do
     provider = IntelligenceState::CliProvider.new
-    provider.persist!(payload(generated_at: Time.current))
+    usable, = provider.persist!(payload(generated_at: Time.current))
     provider.record_failure!(RuntimeError.new("export unavailable"))
 
     snapshot = provider.snapshot
 
     assert snapshot.fresh
+    assert_equal usable.id, snapshot.snapshot_id
+    assert_equal usable.state_digest, snapshot.state_digest
     assert_equal "ship-flyd", snapshot.data[:goals].first.dig("content", "slug")
     assert_equal [ "export unavailable" ], snapshot.errors
   end
