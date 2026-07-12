@@ -6,6 +6,7 @@ module Flyd
     MAX_ITEMS = 3
     MAX_TITLE = 180
     MAX_SUMMARY = 2_000
+    MAX_METADATA_CHARACTERS = 20_000
     ALLOWED_BEHAVIOURS = %w[join yield recede leave replace collapse return].freeze
     ALLOWED_MODES = %w[idle interaction decision build monitoring].freeze
 
@@ -25,7 +26,9 @@ module Flyd
       mode = @payload["surface_mode"].presence || "idle"
       @errors << "Unsupported surface mode: #{mode}" unless ALLOWED_MODES.include?(mode)
 
-      items = Array(@payload["items"]).first(MAX_ITEMS).map { |item| validate_item(item) }
+      raw_items = Array(@payload["items"])
+      @errors << "Surface supports at most #{MAX_ITEMS} items" if raw_items.length > MAX_ITEMS
+      items = raw_items.first(MAX_ITEMS).map { |item| validate_item(item) }
       @errors << "Surface requires at least one item" if items.empty?
       ids = items.map { |item| item.fetch("id") }
       @errors << "Surface item ids must be unique" unless ids.uniq.length == ids.length
@@ -64,6 +67,9 @@ module Flyd
       @errors << "Unsupported renderer: #{renderer} for #{kind}" unless SurfaceRenderers::Registry.supported?(renderer, kind: kind)
       @errors << "Unsupported depth: #{item["depth"]}" unless SurfaceItem::DEPTHS.include?(item["depth"].to_s)
 
+      context_refs = valid_refs(item["context_refs"], allowed_types: %w[project context])
+      source_refs = valid_refs(item["source_refs"])
+
       {
         "id" => id,
         "kind" => kind,
@@ -73,29 +79,71 @@ module Flyd
         "renderer" => renderer,
         "depth" => item["depth"].to_s,
         "state" => "presented",
-        "context_refs" => valid_refs(item["context_refs"]),
-        "source_refs" => valid_refs(item["source_refs"]),
+        "context_refs" => context_refs,
+        "source_refs" => source_refs,
         "actions" => valid_actions(item["actions"]),
-        "metadata" => item["metadata"].to_h
+        "metadata" => valid_metadata(renderer, item["metadata"], source_refs)
       }
     end
 
-    def valid_refs(refs)
-      Array(refs).map do |ref|
+    def valid_refs(refs, allowed_types: nil)
+      Array(refs).first(20).map do |ref|
         ref = ref.to_h.deep_stringify_keys
-        key = "#{ref["type"]}:#{ref["id"]}"
+        type = ref["type"].to_s
+        identifier = ref["id"]
+        key = "#{type}:#{identifier}"
+        @errors << "Reference type is required" if type.blank?
+        @errors << "Reference id is required for #{type}" if identifier.blank?
+        @errors << "Unsupported context reference type: #{type}" if allowed_types && !allowed_types.include?(type)
         @errors << "Unknown reference: #{key}" unless @reference_registry.include?(key)
-        { "type" => ref["type"].to_s, "id" => ref["id"] }
+        { "type" => type, "id" => identifier }
       end
     end
 
     def valid_actions(actions)
-      Array(actions).map do |action|
+      Array(actions).first(5).map do |action|
         action = action.to_h.deep_stringify_keys
         id = action["id"].to_s
         @errors << "Unsupported action: #{id}" unless SurfaceActions::Registry.supported?(id)
-        { "id" => id, "label" => action["label"].presence || id.humanize, "payload" => action["payload"].to_h }
+        payload = begin
+          SurfaceActions::Registry.sanitize_payload(id, action["payload"], reference_registry: @reference_registry)
+        rescue ArgumentError => error
+          @errors << error.message
+          {}
+        end
+        {
+          "id" => id,
+          "label" => (action["label"].presence || id.humanize).to_s.truncate(80),
+          "payload" => payload
+        }
       end
+    end
+
+    def valid_metadata(renderer, metadata, source_refs)
+      metadata = metadata.to_h.deep_stringify_keys
+      sanitized = case renderer
+      when "code"
+        { "language" => metadata["language"].to_s.truncate(40) }.compact_blank
+      when "data_table"
+        columns = Array(metadata["columns"]).first(12).map { |column| column.to_s.truncate(80) }
+        rows = Array(metadata["rows"]).first(50).map do |row|
+          Array(row).first(columns.length).map { |value| value.to_s.truncate(500) }
+        end
+        { "columns" => columns, "rows" => rows }
+      when "media"
+        media_type = metadata["media_type"].to_s
+        attachment_id = metadata["attachment_id"]
+        @errors << "Unsupported media type: #{media_type}" unless %w[image audio file].include?(media_type)
+        source_keys = source_refs.map { |ref| "#{ref["type"]}:#{ref["id"]}" }
+        attachment_key = "intent_attachment:#{attachment_id}"
+        @errors << "Media attachment must be an explicit source reference" unless source_keys.include?(attachment_key)
+        { "media_type" => media_type, "attachment_id" => attachment_id }
+      else
+        {}
+      end
+
+      @errors << "Renderer metadata is too large" if JSON.generate(sanitized).length > MAX_METADATA_CHARACTERS
+      sanitized
     end
 
     def validate_relationship(relationship, ids)
