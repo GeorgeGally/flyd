@@ -6,10 +6,11 @@ class LlmStreamingJob < ApplicationJob
   def perform(conversation_id, _user_message_content)
     conversation = Conversation.find(conversation_id)
 
-    messages = conversation.messages.ordered.map do |message|
+    visible_messages = conversation.messages.ordered.reject(&:context_superseded?)
+    messages = visible_messages.map do |message|
       { role: message.role, content: message.content }
     end
-    messages.unshift({ role: "system", content: system_prompt(conversation) })
+    messages.unshift({ role: "system", content: system_prompt(conversation, visible_messages) })
 
     provider = Llm::Provider.for(Flyd::KeyLoader.default_model)
     full_response = provider.stream(messages) do |token|
@@ -37,7 +38,7 @@ class LlmStreamingJob < ApplicationJob
 
   private
 
-  def system_prompt(conversation)
+  def system_prompt(conversation, visible_messages)
     owner = conversation.owner
     base = <<~PROMPT
       You are Flyd, a persistent intelligence working within the context "#{conversation.owner_name}".
@@ -48,7 +49,7 @@ class LlmStreamingJob < ApplicationJob
 
     if owner.is_a?(Project)
       base = Subsystems::MemoryEngine.new(owner).inject_context_into_prompt(base)
-      last_user_message = conversation.messages.ordered.where(role: "user").last
+      last_user_message = visible_messages.reverse.find { |message| message.role == "user" }
       steps = Subsystems::BehaviourEngine.new(owner).inject_behaviour_steps(last_user_message.content) if last_user_message
       if steps
         base += "\n\n## Detected Behaviour Pattern\nThis conversation matches a known pattern. Suggested steps:\n#{steps.map { |step| "#{step[:step]}. #{step[:action]}" }.join("\n")}\n"
