@@ -7,10 +7,11 @@ class Intent < ApplicationRecord
   belongs_to :conversation, optional: true
 
   has_many :context_corrections, dependent: :destroy
+  has_many :intent_attachments, dependent: :destroy
 
-  validates :input_text, presence: true
   validates :status, inclusion: { in: STATUSES }
   validates :modality, inclusion: { in: MODALITIES }
+  validate :has_input
 
   scope :unresolved, -> { where.not(status: %w[resolved failed]) }
 
@@ -20,5 +21,14 @@ class Intent < ApplicationRecord
 
   def fail!(error)
     update!(status: "failed", metadata: metadata.merge("error" => error.message, "error_class" => error.class.name))
+  end
+
+  private
+
+  def has_input
+    return if input_text.present? || intent_attachments.loaded? && intent_attachments.any?
+    return if attachments.present?
+
+    errors.add(:base, "Intent requires text or an attachment")
   end
 end
