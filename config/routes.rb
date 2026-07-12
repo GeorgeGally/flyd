@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   resource :surface, only: :show
   resources :intents, only: :create do
     resources :context_corrections, only: :create
+    resources :contexts, only: :create
   end
 
   resources :surface_items, only: [] do
