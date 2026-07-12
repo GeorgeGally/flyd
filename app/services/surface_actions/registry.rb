@@ -3,6 +3,8 @@ module SurfaceActions
     ACTIONS = {
       "discuss" => { method: :post, route: :discuss },
       "answer" => { method: :post, route: :answer },
+      "choose" => { method: :post, route: :choose },
+      "investigate" => { method: :post, route: :investigate },
       "build" => { method: :post, route: :build },
       "dismiss" => { method: :post, route: :feedback },
       "resolve" => { method: :post, route: :feedback },
@@ -38,6 +40,17 @@ module SurfaceActions
             { "type" => type, "id" => identifier }
           end
           { "contexts" => contexts }
+        when "choose"
+          option_id = payload["option_id"].to_s.truncate(80)
+          option_label = payload["option_label"].to_s.truncate(180)
+          raise ArgumentError, "Decision choice requires an option id and label" if option_id.blank? || option_label.blank?
+
+          { "option_id" => option_id, "option_label" => option_label }
+        when "investigate"
+          question = payload["question"].to_s.truncate(1_000)
+          raise ArgumentError, "Investigation requires a question" if question.blank?
+
+          { "question" => question }
         when "build"
           { "instructions" => payload["instructions"].to_s.truncate(4_000) }.compact_blank
         when "dismiss", "resolve"
