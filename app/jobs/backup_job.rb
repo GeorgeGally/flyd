@@ -1,5 +1,7 @@
+require "fileutils"
 require "open3"
 require "tempfile"
+require "tmpdir"
 
 class BackupJob < ApplicationJob
   queue_as :default
@@ -11,45 +13,69 @@ class BackupJob < ApplicationJob
     FileUtils.mkdir_p(backup_dir)
 
     timestamp = Time.current.strftime("%Y%m%d-%H%M%S")
-    filename = File.join(backup_dir, "flyd-backup-#{timestamp}.sql.gz.enc")
+    filename = File.join(backup_dir, "flyd-backup-#{timestamp}.tar.gz.gpg")
     passphrase = Rails.configuration.flyd[:backup_passphrase]
-
-    if passphrase.blank?
-      return log_result(false, filename, "FLYD_BACKUP_PASSPHRASE not set")
-    end
+    return log_result(false, filename, "FLYD_BACKUP_PASSPHRASE not set") if passphrase.blank?
 
     db_config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: "primary")
     return log_result(false, filename, "No primary database config") unless db_config
 
-    stdout, stderr, status = Open3.capture3(
-      { "PGPASSFILE" => "/dev/null" },
-      "pg_dump", db_config.database
-    )
+    Dir.mktmpdir("flyd-backup") do |working_dir|
+      database_path = File.join(working_dir, "database.sql")
+      return log_result(false, filename, dump_database(db_config, database_path)) unless File.exist?(database_path)
 
-    unless status.success?
-      return log_result(false, filename, "pg_dump failed: #{stderr}")
+      Tempfile.create([ "flyd-backup", ".tar.gz" ]) do |archive|
+        archive.close
+        archive_error = create_archive(archive.path, working_dir)
+        return log_result(false, filename, archive_error) if archive_error
+
+        encryption_error = encrypt_archive(archive.path, filename, passphrase)
+        return log_result(false, filename, encryption_error) if encryption_error
+      end
     end
 
-    stdout2 = stderr2 = status2 = nil
-    Tempfile.create("gpg-passphrase") do |pf|
-      pf.write(passphrase)
-      pf.flush
-      stdout2, stderr2, status2 = Open3.capture3(
-        { "GPG_TTY" => "/dev/null" },
-        "gpg", "--batch", "--yes", "--passphrase-file", pf.path, "-c",
-        stdin_data: stdout
-      )
-    end
-
-    if status2.success?
-      File.write(filename, stdout2)
-      log_result(true, filename, nil)
-    else
-      log_result(false, filename, "gpg failed: #{stderr2}")
-    end
+    log_result(true, filename, nil)
   end
 
   private
+
+  def dump_database(db_config, output_path)
+    _stdout, stderr, status = Open3.capture3(
+      { "PGPASSFILE" => "/dev/null" },
+      "pg_dump", "--file", output_path, db_config.database
+    )
+    return if status.success?
+
+    FileUtils.rm_f(output_path)
+    "pg_dump failed: #{stderr}"
+  end
+
+  def create_archive(archive_path, working_dir)
+    command = [ "tar", "-czf", archive_path, "-C", working_dir, "database.sql" ]
+    storage_root = Pathname.new(ENV.fetch("ACTIVE_STORAGE_ROOT", Rails.root.join("storage").to_s))
+    if storage_root.directory?
+      command.concat([ "-C", storage_root.dirname.to_s, storage_root.basename.to_s ])
+    end
+
+    _stdout, stderr, status = Open3.capture3(*command)
+    status.success? ? nil : "archive failed: #{stderr}"
+  end
+
+  def encrypt_archive(archive_path, output_path, passphrase)
+    Tempfile.create("gpg-passphrase") do |passphrase_file|
+      passphrase_file.write(passphrase)
+      passphrase_file.flush
+      _stdout, stderr, status = Open3.capture3(
+        { "GPG_TTY" => "/dev/null" },
+        "gpg", "--batch", "--yes", "--passphrase-file", passphrase_file.path,
+        "--output", output_path, "--symmetric", archive_path
+      )
+      return if status.success?
+
+      FileUtils.rm_f(output_path)
+      "gpg failed: #{stderr}"
+    end
+  end
 
   def log_result(success, filename, error)
     if success
