@@ -10,7 +10,8 @@ class BroadcastSurfaceJob < ApplicationJob
       "flyd_surface",
       target: "surface_plane",
       partial: "surfaces/plane",
-      locals: { surface: surface }
+      locals: { surface: surface },
+      method: :morph
     )
   end
 end
