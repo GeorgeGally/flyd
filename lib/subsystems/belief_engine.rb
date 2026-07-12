@@ -8,6 +8,7 @@ module Subsystems
       groups = group_decisions(new_decisions)
       groups.each do |topic, decisions|
         belief = find_or_create_belief(topic, decisions)
+        merge_sources!(belief, decisions)
         belief.reinforce! if belief.persisted?
       end
     end
@@ -30,7 +31,7 @@ module Subsystems
     private
 
     def group_decisions(decisions)
-      decisions.group_by { |d| extract_topic(d.content) }
+      decisions.group_by { |decision| extract_topic(decision.content) }
     end
 
     def extract_topic(content)
@@ -60,8 +61,14 @@ module Subsystems
       @project.beliefs.create!(
         statement: statement.truncate(500),
         confidence: 0.3,
-        status: "active"
+        status: "active",
+        source_decision_ids: decisions.map(&:id)
       )
+    end
+
+    def merge_sources!(belief, decisions)
+      merged = (Array(belief.source_decision_ids).map(&:to_i) + decisions.map(&:id)).uniq
+      belief.update!(source_decision_ids: merged) if merged != Array(belief.source_decision_ids).map(&:to_i)
     end
 
     def potentially_contradicts?(belief_statement, decision_content)
