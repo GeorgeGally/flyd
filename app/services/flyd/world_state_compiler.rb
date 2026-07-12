@@ -16,13 +16,11 @@ module Flyd
       @active_intent = active_intent
       @budget = budget
       @state_provider = state_provider
-      @references = {}
       @seen_evidence = {}
-      @dropped = []
     end
 
     def call
-      state = {
+      unbounded_state = {
         generated_at: Time.current.iso8601,
         active_intent: intent_snapshot,
         active_interaction: conversation_snapshot,
@@ -34,14 +32,15 @@ module Flyd
         capabilities: SurfaceActions::Registry.ids,
         renderers: SurfaceRenderers::Registry.ids
       }
+      budgeted = StateBudget.call(state: unbounded_state, budget: @budget)
+      state = budgeted.state
 
-      state = enforce_budget(state)
       Result.new(
         state: state,
-        reference_registry: @references.keys,
+        reference_registry: ReferenceRegistry.call(state),
         diagnostics: {
           input_characters: JSON.generate(state).length,
-          dropped: @dropped,
+          dropped: budgeted.dropped,
           budget: @budget
         }
       )
@@ -57,6 +56,8 @@ module Flyd
         end
         {
           source: provider[:source],
+          snapshot_id: provider[:snapshot_id],
+          state_digest: provider[:state_digest],
           generated_at: provider[:generated_at],
           fresh: provider[:fresh],
           errors: Array(provider[:errors]),
@@ -76,7 +77,6 @@ module Flyd
       return if @seen_evidence[key]
 
       @seen_evidence[key] = true
-      register(type, id)
       {
         id: id,
         type: type,
@@ -100,15 +100,13 @@ module Flyd
     end
 
     def project_snapshots
-      Project.active.includes(:decisions, :beliefs, conversations: :messages).order(updated_at: :desc).limit(MAX_PROJECTS).map do |project|
-        register("project", project.id)
+      Project.active.includes(:decisions, :beliefs).order(updated_at: :desc).limit(MAX_PROJECTS).map do |project|
         {
           id: project.id,
           name: project.name,
           description: project.description.to_s.truncate(500),
           updated_at: project.updated_at&.iso8601,
           decisions: project.decisions.sort_by(&:created_at).last(MAX_MEMORIES_PER_PROJECT).map do |decision|
-            register("decision", decision.id)
             {
               id: decision.id,
               content: decision.content.to_s.truncate(500),
@@ -117,7 +115,6 @@ module Flyd
             }
           end,
           beliefs: project.beliefs.sort_by(&:updated_at).last(MAX_MEMORIES_PER_PROJECT).map do |belief|
-            register("belief", belief.id)
             {
               id: belief.id,
               statement: belief.statement.to_s.truncate(500),
@@ -133,13 +130,13 @@ module Flyd
     def conversation_snapshot
       return unless @active_conversation
 
-      register("conversation", @active_conversation.id)
       {
         id: @active_conversation.id,
         project_id: @active_conversation.project_id,
+        context_id: @active_conversation.context_id,
+        owner_name: @active_conversation.owner_name,
         summary: @active_conversation.summary,
         messages: @active_conversation.messages.ordered.last(10).map do |message|
-          register("message", message.id)
           { id: message.id, role: message.role, content: message.content.to_s.truncate(700) }
         end
       }
@@ -148,7 +145,6 @@ module Flyd
     def intent_snapshot
       return unless @active_intent
 
-      register("intent", @active_intent.id)
       {
         id: @active_intent.id,
         text: @active_intent.input_text.to_s.truncate(1_500),
@@ -164,14 +160,12 @@ module Flyd
       surface = Surface.current
       return unless surface
 
-      register("surface", surface.id)
       {
         id: surface.id,
         understanding: surface.understanding.to_s.truncate(600),
         current_intention: surface.current_intention.to_s.truncate(400),
         generated_at: surface.generated_at&.iso8601,
         items: surface.items.first(3).map do |item|
-          register("surface_item", item.item_key)
           {
             id: item.item_key,
             kind: item.kind,
@@ -204,50 +198,6 @@ module Flyd
           created_at: feedback.created_at.iso8601
         }
       end
-    end
-
-    def enforce_budget(state)
-      return state if within_budget?(state)
-
-      mutable = state.deep_dup
-      providers = mutable.dig(:provider_state, :providers) || []
-      providers.each do |provider|
-        provider[:data].each do |key, items|
-          while items.length > 1 && !within_budget?(mutable)
-            dropped = items.pop
-            @dropped << "provider:#{provider[:source]}:#{key}:#{dropped[:id]}"
-          end
-        end
-      end
-
-      while mutable[:projects].length > 1 && !within_budget?(mutable)
-        dropped = mutable[:projects].pop
-        @dropped << "project:#{dropped[:id]}"
-      end
-
-      mutable[:recent_feedback].pop while mutable[:recent_feedback].length > 4 && !within_budget?(mutable)
-      mutable[:context_corrections].pop while mutable[:context_corrections].length > 4 && !within_budget?(mutable)
-      mutable[:active_interaction]&.dig(:messages)&.shift while mutable[:active_interaction]&.dig(:messages)&.length.to_i > 2 && !within_budget?(mutable)
-
-      providers.each do |provider|
-        provider[:data].each_value do |items|
-          items.each do |item|
-            break if within_budget?(mutable)
-
-            item[:content] = item[:content].transform_values { |value| value.is_a?(String) ? value.truncate(300) : value }
-          end
-        end
-      end
-
-      mutable
-    end
-
-    def within_budget?(state)
-      JSON.generate(state).length <= @budget
-    end
-
-    def register(type, id)
-      @references["#{type}:#{id}"] = true
     end
   end
 end
