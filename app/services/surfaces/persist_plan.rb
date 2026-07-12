@@ -97,7 +97,8 @@ module Surfaces
       return unless @active_conversation
       return @active_conversation if project && @active_conversation.project_id == project.id
       return @active_conversation if context && @active_conversation.context_id == context.id
-      return @active_conversation if item.renderer == "conversation"
+
+      @active_conversation if item.renderer == "conversation"
     end
 
     def intent_for(item)
@@ -108,6 +109,7 @@ module Surfaces
 
     def scene_kind(item)
       return "build" if item.intent == "build"
+      return "investigation" if item.intent == "investigate"
 
       {
         "question" => "question",
