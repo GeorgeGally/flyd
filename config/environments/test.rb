@@ -6,6 +6,7 @@ Rails.application.configure do
   config.consider_all_requests_local = true
   config.cache_store = :memory_store
   config.active_job.queue_adapter = :test
+  config.active_storage.service = :test
   config.action_dispatch.show_exceptions = :rescuable
   config.action_controller.allow_forgery_protection = false
   config.active_support.deprecation = :stderr
