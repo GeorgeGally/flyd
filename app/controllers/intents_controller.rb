@@ -7,7 +7,7 @@ class IntentsController < ApplicationController
 
     intent = Intent.transaction do
       intent = Intent.create!(
-        input_text: text.presence || clipboard,
+        input_text: text.presence || clipboard.presence || "",
         modality: inferred_modality(text:, clipboard:, uploads:),
         origin_surface: Surface.current,
         attachments: uploads.map { |upload| { "filename" => upload.original_filename, "content_type" => upload.content_type } },
