@@ -1,0 +1,46 @@
+<%= content_for :title, "Build — Flyd" %>
+
+<div class="mx-auto max-w-3xl py-12">
+  <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">OpenCode execution</div>
+  <h1 class="mt-4 text-4xl font-medium tracking-tight"><%= @build.scene&.title.presence || "Build proposal" %></h1>
+  <p class="mt-4 text-sm leading-6 text-gray-600"><%= @build.confirmation_summary %></p>
+
+  <dl class="mt-10 grid gap-6 border-y border-gray-200 py-6 text-sm sm:grid-cols-2">
+    <div>
+      <dt class="text-xs uppercase tracking-[0.14em] text-gray-400">Project</dt>
+      <dd class="mt-2"><%= @build.project.name %></dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-[0.14em] text-gray-400">Working directory</dt>
+      <dd class="mt-2 break-all"><%= @build.project.root_path.presence || Dir.home %></dd>
+    </div>
+    <div class="sm:col-span-2">
+      <dt class="text-xs uppercase tracking-[0.14em] text-gray-400">Instructions</dt>
+      <dd class="mt-2 whitespace-pre-wrap leading-6"><%= @build.instructions %></dd>
+    </div>
+  </dl>
+
+  <% if @build.proposed? %>
+    <div class="mt-8 flex items-center gap-4">
+      <%= button_to "Confirm build", confirm_build_path(@build), method: :post, class: "rounded-full bg-gray-950 px-5 py-3 text-sm font-medium text-white" %>
+      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "text-sm underline decoration-gray-300 underline-offset-4" %>
+    </div>
+  <% elsif @build.running? %>
+    <div class="mt-8">
+      <p class="text-sm font-medium">Build in progress</p>
+      <p class="mt-2 text-sm text-gray-500">Flyd will return the outcome to the scene and conversation.</p>
+      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "mt-4 inline-block text-sm underline decoration-gray-300 underline-offset-4" %>
+    </div>
+  <% elsif @build.artifact %>
+    <div class="mt-8">
+      <p class="text-sm font-medium"><%= @build.status.humanize %></p>
+      <p class="mt-2 text-sm text-gray-600"><%= @build.outcome_summary %></p>
+      <%= link_to "Open result", artifact_path(@build.artifact), class: "mt-4 inline-block text-sm underline decoration-gray-300 underline-offset-4" %>
+    </div>
+  <% else %>
+    <div class="mt-8">
+      <p class="text-sm font-medium"><%= @build.status.humanize %></p>
+      <p class="mt-2 text-sm text-gray-600"><%= @build.outcome_summary %></p>
+    </div>
+  <% end %>
+</div>
