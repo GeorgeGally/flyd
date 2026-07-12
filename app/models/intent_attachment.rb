@@ -8,6 +8,7 @@ class IntentAttachment < ApplicationRecord
   TEXT_TYPES = %w[text/plain text/markdown text/csv application/json application/xml text/xml].freeze
 
   belongs_to :intent
+  has_one_attached :file
 
   validates :modality, inclusion: { in: MODALITIES }
   validates :byte_size, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: MAX_BYTES }
@@ -22,5 +23,15 @@ class IntentAttachment < ApplicationRecord
 
   def safe_inline?
     content_type.in?(SAFE_INLINE_TYPES)
+  end
+
+  def stored_data
+    return file.download if file.attached?
+
+    data.presence || extracted_text.to_s.b
+  end
+
+  def purge_storage!
+    file.purge if file.attached?
   end
 end
