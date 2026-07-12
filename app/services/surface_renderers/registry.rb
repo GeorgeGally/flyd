@@ -1,0 +1,26 @@
+module SurfaceRenderers
+  class Registry
+    RENDERERS = {
+      "hero_scene" => { partial: "surfaces/renderers/hero_scene", kinds: %w[scene insight decision question] },
+      "supporting_card" => { partial: "surfaces/renderers/supporting_card", kinds: %w[scene insight decision question reminder status] },
+      "conversation" => { partial: "surfaces/renderers/conversation", kinds: %w[conversation question] },
+      "document" => { partial: "surfaces/renderers/document", kinds: %w[artifact insight decision] },
+      "notification" => { partial: "surfaces/renderers/notification", kinds: %w[notification reminder status] }
+    }.freeze
+
+    class << self
+      def ids
+        RENDERERS.keys
+      end
+
+      def supported?(id, kind: nil)
+        definition = RENDERERS[id.to_s]
+        definition.present? && (kind.nil? || definition[:kinds].include?(kind.to_s))
+      end
+
+      def fetch(id)
+        RENDERERS.fetch(id.to_s)
+      end
+    end
+  end
+end
