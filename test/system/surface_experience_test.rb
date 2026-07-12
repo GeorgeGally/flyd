@@ -32,9 +32,11 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     fill_in "What is this context?", with: "Resolve the interaction model without creating a project."
     click_on "Create"
 
-    assert_text "Context: Interface sprint"
-    assert_equal "Interface sprint", intent.reload.conversation.context.name
-    assert_nil intent.conversation.project
+    conversation = intent.reload.conversation
+    assert_text "INTERFACE SPRINT"
+    assert_selector "form[action='#{conversation_messages_path(conversation)}']"
+    assert_equal "Interface sprint", conversation.context.name
+    assert_nil conversation.project
   end
 
   test "dismissed scenes leave the plane immediately without waiting for composition" do
