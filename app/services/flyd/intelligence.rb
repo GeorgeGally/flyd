@@ -34,6 +34,7 @@ module Flyd
         state_provider: @state_provider
       )
       compiled = WorldStateExtensions.call(compiled: compiled, active_intent: @active_intent)
+      compiled = apply_interface_direction(compiled)
       response = @chat.call!(messages(compiled.state))
       payload = parse_json(response)
       validated = SurfacePlanValidator.call(payload: payload, reference_registry: compiled.reference_registry)
@@ -52,6 +53,22 @@ module Flyd
     end
 
     private
+
+    def apply_interface_direction(compiled)
+      directed = compiled.state.merge(interface_direction: InterfaceDirector.call(compiled.state))
+      budget = compiled.diagnostics[:budget] || WorldStateExtensions::MAX_TOTAL_CHARACTERS
+      budgeted = StateBudget.call(state: directed, budget: budget)
+      state = budgeted.state
+
+      WorldStateCompiler::Result.new(
+        state: state,
+        reference_registry: ReferenceRegistry.call(state),
+        diagnostics: compiled.diagnostics.merge(
+          input_characters: JSON.generate(state).length,
+          dropped: Array(compiled.diagnostics[:dropped]) + budgeted.dropped
+        )
+      )
+    end
 
     def provider_snapshots(state)
       Array(state.dig(:provider_state, :providers)).map do |provider|
@@ -73,35 +90,50 @@ module Flyd
 
     def system_prompt
       <<~PROMPT
-        You are Flyd. You are the intelligence, not a classifier, feed ranker, dashboard builder, or chat wrapper.
+        You are Flyd. You are the intelligence and the director of the interface—not a classifier, feed ranker, dashboard builder, or chat wrapper.
 
-        Decide what the user should experience now. Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, reports, conversations, media attachments, contexts, and feedback are evidence, not UI objects.
+        First decide what kind of moment this is. Then generate the precise interface needed to resolve it. Do not default to reopening the last conversation. Continuity is evidence, not the product.
 
-        Learned surface preferences are soft evidence from outcomes. Use them only when they improve the current experience. Never mechanically rank or suppress meaning because of them.
+        The supplied interface_direction contains a suggested mode, alternatives, and strict interface grammars. You may choose a different candidate when the evidence supports it, but you must obey the grammar for the mode you choose.
+
+        Available modes:
+        - quiet: almost nothing; no manufactured urgency.
+        - conversation: dialogue is genuinely the best next move.
+        - decision: the choice itself becomes the screen.
+        - investigation: show what is known, what is uncertain, and the next question.
+        - action: show proposed work, likely impact, and the confirmation boundary.
+        - monitoring: show a changing condition and what would make it actionable.
+
+        Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, scenes, artifacts, builds, reports, conversations, media attachments, contexts, and feedback are evidence—not UI objects.
+
+        Learned surface preferences are soft evidence from outcomes. Use them only when they improve the present experience. Never mechanically rank or suppress meaning because of them.
 
         Return JSON only:
         {
           "understanding": "concise synthesis",
           "current_intention": "what Flyd is trying to accomplish",
-          "surface_mode": "idle|interaction|decision|build|monitoring",
-          "focus_item_id": "a semantic item id or null",
+          "surface_mode": "quiet|conversation|decision|investigation|action|monitoring",
+          "focus_item_id": "semantic item id",
           "items": [{
-            "id": "new semantic id",
+            "id": "reuse a durable scene_key when continuing existing work; otherwise create a stable semantic id",
             "kind": "scene|insight|decision|question|conversation|artifact|reminder|status|notification",
-            "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate",
+            "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate|build",
             "title": "editorial title",
             "summary": "synthesized content",
-            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media",
+            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene",
             "depth": "foreground|middle|background|receded",
             "context_refs": [{"type":"project|context","id":1}],
-            "source_refs": [{"type":"goal|intent_attachment","id":"goal:abc"}],
-            "actions": [{"id":"discuss","label":"Discuss","payload":{}}],
+            "source_refs": [{"type":"scene|artifact|build|goal|intent_attachment","id":"exact id from state"}],
+            "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context","label":"Action label","payload":{}}],
             "metadata": {
-              "language": "optional code language",
-              "columns": ["optional", "table", "columns"],
-              "rows": [["optional", "table", "rows"]],
-              "media_type": "image|audio|file",
-              "attachment_id": 1
+              "options": [{"id":"option-id","label":"Choice","description":"consequence"}],
+              "recommendation": "optional recommendation",
+              "known": ["known fact"],
+              "unknown": ["important uncertainty"],
+              "next_question": "question Flyd should investigate",
+              "proposed_action": "work Flyd is ready to perform",
+              "impact": "what changes if confirmed",
+              "readiness": "ready|blocked|running"
             }
           }],
           "relationships": [{
@@ -112,7 +144,15 @@ module Flyd
           }]
         }
 
-        Maximum three items. Item ids are created by you. Context and source references must use exact ids present in the supplied state. Only use the listed renderers and capabilities. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
+        Grammar requirements:
+        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option.
+        - investigation: focus renderer investigation_scene, known/unknown evidence, a next_question, and an investigate action.
+        - action: focus renderer action_scene and a build action. Never imply execution before confirmation.
+        - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
+        - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
+        - monitoring: at most two items and a precise trigger for future action.
+
+        Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
     end
 
@@ -156,9 +196,9 @@ module Flyd
 
     def fallback_surface
       item = SurfaceItem.new(
-        id: "continue", kind: "scene", intent: "discuss",
+        id: "quiet:available", kind: "scene", intent: "discuss",
         title: "What deserves your attention?",
-        summary: "Tell Flyd what is happening. The surface will reorganize around the context.",
+        summary: "Flyd is available, but nothing has earned the screen yet.",
         renderer: "hero_scene", depth: "foreground", state: "presented",
         context_refs: [], source_refs: [], actions: [], relationships: [], metadata: {}
       )
@@ -166,8 +206,8 @@ module Flyd
       Surface.new(
         generated_at: Time.current,
         understanding: "Flyd could not compose a contextual surface.",
-        current_intention: "Remain available without pretending records are intelligence.",
-        surface_mode: "idle",
+        current_intention: "Remain available without fabricating relevance.",
+        surface_mode: "quiet",
         focus_item_id: item.id,
         items: [ item ],
         relationships: []
