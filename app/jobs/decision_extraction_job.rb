@@ -3,6 +3,8 @@ class DecisionExtractionJob < ApplicationJob
 
   def perform(conversation_id)
     conversation = Conversation.find(conversation_id)
+    return unless conversation.project
+
     engine = Subsystems::MemoryEngine.new(conversation.project)
     engine.extract_decisions(conversation)
 
