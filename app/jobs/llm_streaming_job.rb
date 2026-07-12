@@ -6,23 +6,14 @@ class LlmStreamingJob < ApplicationJob
   def perform(conversation_id, _user_message_content)
     conversation = Conversation.find(conversation_id)
 
-    messages = conversation.messages.ordered.map do |msg|
-      { role: msg.role, content: msg.content }
+    messages = conversation.messages.ordered.map do |message|
+      { role: message.role, content: message.content }
     end
-
     messages.unshift({ role: "system", content: system_prompt(conversation.project, conversation) })
 
     provider = Llm::Provider.for(Flyd::KeyLoader.default_model)
-    full_response = ""
-
-    begin
-      full_response = provider.stream(messages) do |token|
-        ChatChannel.broadcast_to(conversation, { token: token })
-      end
-    rescue => e
-      Rails.logger.error("LlmStreamingJob failed: #{e.message}")
-      ChatChannel.broadcast_to(conversation, { token: "\n\nError: #{e.message}. Check your API key and try again." })
-      return
+    full_response = provider.stream(messages) do |token|
+      ChatChannel.broadcast_to(conversation, { token: token })
     end
 
     assistant_message = conversation.messages.create!(
@@ -32,7 +23,16 @@ class LlmStreamingJob < ApplicationJob
     )
 
     ChatChannel.broadcast_to(conversation, { done: true, message_id: assistant_message.id })
-    ComposeSurfaceJob.enqueue(reason: "assistant_response", active_conversation_id: conversation.id)
+    intent = Intent.where(conversation: conversation).order(created_at: :desc).first
+    ComposeSurfaceJob.enqueue(
+      reason: "assistant_response",
+      active_conversation_id: conversation.id,
+      active_intent_id: intent&.id
+    )
+  rescue StandardError => error
+    Rails.logger.error("LlmStreamingJob failed: #{error.message}")
+    ChatChannel.broadcast_to(conversation, { token: "\n\nError: #{error.message}. Check your API key and try again." }) if conversation
+    raise
   end
 
   private
@@ -45,13 +45,11 @@ class LlmStreamingJob < ApplicationJob
       The interface is the intelligence expressed: respond with the clearest useful form for the current context rather than assuming chat is the product.
     PROMPT
 
-    engine = Subsystems::MemoryEngine.new(project)
-    base = engine.inject_context_into_prompt(base)
-
-    beh_engine = Subsystems::BehaviourEngine.new(project)
-    last_user_msg = conversation.messages.ordered.where(role: "user").last
-    if last_user_msg && (steps = beh_engine.inject_behaviour_steps(last_user_msg.content))
-      base += "\n\n## Detected Behaviour Pattern\nThis conversation matches a known pattern. Suggested steps:\n#{steps.map { |s| "#{s[:step]}. #{s[:action]}" }.join("\n")}\n"
+    base = Subsystems::MemoryEngine.new(project).inject_context_into_prompt(base)
+    last_user_message = conversation.messages.ordered.where(role: "user").last
+    steps = Subsystems::BehaviourEngine.new(project).inject_behaviour_steps(last_user_message.content) if last_user_message
+    if steps
+      base += "\n\n## Detected Behaviour Pattern\nThis conversation matches a known pattern. Suggested steps:\n#{steps.map { |step| "#{step[:step]}. #{step[:action]}" }.join("\n")}\n"
     end
 
     base
