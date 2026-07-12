@@ -20,7 +20,9 @@ class IntentsController < ApplicationController
         content_type: "text/plain",
         byte_size: clipboard.bytesize,
         checksum: Digest::SHA256.hexdigest(clipboard),
-        extracted_text: clipboard
+        extracted_text: clipboard,
+        expires_at: 90.days.from_now,
+        metadata: { "source" => "clipboard" }
       ) if clipboard.present?
       intent
     end
