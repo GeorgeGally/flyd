@@ -2,6 +2,7 @@
 import { createHash } from "crypto";
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
 import { basename, join, relative } from "path";
+import { pathToFileURL } from "url";
 import { FLYD_DIR, WIKI_DIR, PLANS_DIR } from "./lib/config.js";
 import { loadCaptureDocs, computeAttention } from "./lib/attention.js";
 import { loadGoals, computeTension } from "./lib/tension.js";
@@ -175,14 +176,30 @@ export function buildIntelligenceState(): IntelligenceState {
   };
 }
 
-const state = buildIntelligenceState();
-const json = JSON.stringify(state, null, 2);
+export function serializeIntelligenceState(state: IntelligenceState): string {
+  return JSON.stringify(state, null, 2);
+}
 
-if (process.argv.includes("--stdout")) {
-  process.stdout.write(`${json}\n`);
-} else {
-  const temporaryPath = `${INTELLIGENCE_STATE_PATH}.tmp`;
-  writeFileSync(temporaryPath, json, "utf8");
-  renameSync(temporaryPath, INTELLIGENCE_STATE_PATH);
+export function writeIntelligenceState(state: IntelligenceState, outputPath = INTELLIGENCE_STATE_PATH): void {
+  const temporaryPath = `${outputPath}.tmp`;
+  writeFileSync(temporaryPath, serializeIntelligenceState(state), "utf8");
+  renameSync(temporaryPath, outputPath);
+}
+
+export function runExport(args = process.argv): void {
+  const state = buildIntelligenceState();
+  const json = serializeIntelligenceState(state);
+
+  if (args.includes("--stdout")) {
+    process.stdout.write(`${json}\n`);
+    return;
+  }
+
+  writeIntelligenceState(state);
   process.stdout.write(`${INTELLIGENCE_STATE_PATH}\n`);
+}
+
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
+  runExport();
 }
