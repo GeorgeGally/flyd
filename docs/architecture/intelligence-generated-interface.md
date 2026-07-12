@@ -1,19 +1,21 @@
 # Intelligence-Generated Interface
 
 ## Status
+
 Accepted and implemented as the primary Flyd architecture.
 
 ## Principle
 
 **Flyd is the intelligence. The interface is the intelligence expressed.**
 
-Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, and provider signals are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
+Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, media, contexts, and provider signals are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
 
 ## Runtime architecture
 
 ```text
 provider evidence + Rails memory + active intent + prior surface + feedback
 → Flyd::WorldStateCompiler
+→ Flyd::WorldStateExtensions
 → Flyd::Intelligence
 → Flyd::SurfacePlanValidator
 → persisted draft Surface
@@ -57,7 +59,14 @@ Unchanged evidence refreshes freshness without unnecessary composition. Failed r
 - recent surface feedback
 - executable capabilities and renderers
 
-It applies hard collection and character budgets and records dropped evidence diagnostically. The compiler prepares evidence; it does not decide what should appear.
+`Flyd::WorldStateExtensions` adds:
+
+- text extracted from active intent attachments
+- image, audio, file, clipboard, and screen evidence metadata
+- active temporary contexts
+- learned presentation preferences
+
+Both layers apply hard character and collection budgets and record dropped evidence diagnostically. They prepare evidence; they do not decide what should appear.
 
 ## Composition contract
 
@@ -84,6 +93,11 @@ Implemented renderers:
 - `conversation`
 - `document`
 - `notification`
+- `code`
+- `data_table`
+- `media`
+
+The media renderer presents stored image, audio, and file evidence. The code and table renderers present structured artifacts rather than forcing them into prose cards.
 
 Implemented action contracts include discussion, answering, approval, rejection, dismissal, resolution, source inspection, context correction, and artifact opening. Only registered actions may be emitted or rendered.
 
@@ -99,24 +113,26 @@ Semantic relationships drive spatial behaviour:
 
 Motion is derived from meaning rather than item array position.
 
-## Universal intent
+## Universal and multimodal intent
 
 Input is persisted first as an `Intent` before any project context is assigned.
 
 ```text
-raw input
-→ Intent
+text / clipboard / file / image / audio / screen
+→ Intent + IntentAttachment evidence
 → InterpretIntentJob
 → context candidates or accepted contexts
 → interaction/conversation where needed
 → surface recomposition
 ```
 
-An intent may have no project, one project, or several context references. Ambiguous input remains unresolved and visible for correction; it is never stored in a fake Inbox project.
+Attachments are size-limited, checksummed, stored durably, and interpreted asynchronously. Textual formats contribute extracted text. Binary media remains source evidence available to Flyd and media renderers.
 
-`ContextCorrection` records original and corrected contexts and feeds future world-state composition.
+An intent may have no project, one project, a temporary context, or several context references. Ambiguous input remains unresolved and visible for correction; it is never stored in a fake Inbox project.
 
-## Scene lifecycle
+`ContextCorrection` records original and corrected contexts and feeds future world-state composition. Users may create temporary non-project contexts directly from the clarification surface. Temporary contexts expire unless retained through continued use.
+
+## Scene lifecycle and learning
 
 `SurfaceFeedback` records opened, ignored, discussed, dismissed, resolved, corrected, useful, and not-useful signals.
 
@@ -128,7 +144,7 @@ Scenes may be:
 - superseded by a later surface
 - resurfaced by Flyd when new evidence makes them relevant
 
-Feedback is evidence for Flyd, not a direct ranking formula.
+`SurfacePreference` learns decayed renderer, kind, intent, context-type, and source-type tendencies from outcomes. These preferences return to Flyd as soft evidence. They never directly rank, hide, or emit interface objects.
 
 ## Persistence and diagnostics
 
@@ -152,7 +168,8 @@ Surface preparation is triggered by:
 - scheduled provider refresh
 - changed evidence
 - missing or stale surfaces
-- new intents
+- new intents and attachments
+- temporary context creation
 - context corrections
 - assistant responses
 - decision extraction
@@ -164,12 +181,12 @@ Composition triggers are coalesced rather than dropped. Broadcast delivery retri
 
 ## Remaining extension points
 
-The architecture supports but does not yet fully implement:
+The next extensions are:
 
-- audio, image, file, clipboard, and screen ingestion
-- richer artifact-specific renderers
-- non-project temporary context creation UI
-- semantic retrieval beyond the current bounded recency/context compiler
-- explicit resurfacing controls and long-term feedback learning models
+- native microphone, camera, clipboard, and screen-capture controls rather than upload fields alone
+- transcription and vision extraction providers for binary audio and images
+- semantic retrieval beyond bounded recency and active context
+- explicit resurfacing controls and richer longitudinal learning
+- artifact editing and execution workflows beyond presentation
 
 Legacy project and conversation routes remain diagnostic/fallback views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
