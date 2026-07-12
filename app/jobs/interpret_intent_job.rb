@@ -9,9 +9,8 @@ class InterpretIntentJob < ApplicationJob
     interpretation_text = effective_text(intent)
 
     resolution = ContextResolver.call(text: interpretation_text, preferred_project_id: preferred_project_id)
-    candidates = context_candidates(resolution)
     intent.update!(
-      context_candidates: candidates,
+      context_candidates: context_candidates(resolution),
       interpretation: {
         "confidence" => resolution.confidence,
         "reason" => resolution.reason,
@@ -20,8 +19,8 @@ class InterpretIntentJob < ApplicationJob
       }
     )
 
-    if resolution.project && !resolution.requires_confirmation
-      accept_in_project(intent, resolution.project, interpretation_text)
+    if resolution.owner && !resolution.requires_confirmation
+      accept_in_owner(intent, resolution.owner, interpretation_text)
     else
       intent.update!(status: "clarification_required", resolved_contexts: [])
       ComposeSurfaceJob.enqueue(reason: "intent_clarification", active_intent_id: intent.id)
@@ -41,28 +40,29 @@ class InterpretIntentJob < ApplicationJob
   end
 
   def context_candidates(resolution)
-    return [] unless resolution.project
-
-    [{
-      "type" => "project",
-      "id" => resolution.project.id,
-      "name" => resolution.project.name,
-      "confidence" => resolution.confidence,
-      "reason" => resolution.reason
-    }]
+    Array(resolution.candidates).map do |candidate|
+      {
+        "type" => candidate.type,
+        "id" => candidate.record.id,
+        "name" => candidate.record.name,
+        "confidence" => candidate == resolution.candidates.first ? resolution.confidence : nil,
+        "reason" => resolution.reason
+      }.compact
+    end
   end
 
-  def accept_in_project(intent, project, interpretation_text)
-    conversation = project.active_conversation || Conversation.start!(project, summary: interpretation_text.truncate(120))
+  def accept_in_owner(intent, owner, interpretation_text)
+    conversation = Conversation.active_for(owner).first || Conversation.start!(owner, summary: interpretation_text.truncate(120))
     message = conversation.messages.create!(role: "user", content: interpretation_text)
+    context_type = owner.is_a?(Project) ? "project" : "context"
     intent.update!(
       status: "accepted",
       conversation: conversation,
-      resolved_contexts: [{ "type" => "project", "id" => project.id, "name" => project.name }]
+      resolved_contexts: [{ "type" => context_type, "id" => owner.id, "name" => owner.name }]
     )
 
     LlmStreamingJob.perform_later(conversation.id, message.content)
-    DecisionExtractionJob.perform_later(conversation.id) if conversation.messages.count % 5 == 0
+    DecisionExtractionJob.perform_later(conversation.id) if owner.is_a?(Project) && conversation.messages.count % 5 == 0
     ComposeSurfaceJob.enqueue(reason: "new_intent", active_conversation_id: conversation.id, active_intent_id: intent.id)
   end
 end
