@@ -19,10 +19,10 @@ module IntelligenceState
       latest = IntelligenceSnapshot.latest_record_for(PROVIDER)
       return unavailable_snapshot unless usable
 
-      errors = if latest && latest.id != usable.id && !latest.status.in?(IntelligenceSnapshot::USABLE_STATUSES)
-        Array(latest.errors)
+      provider_errors = if latest && latest.id != usable.id && !latest.status.in?(IntelligenceSnapshot::USABLE_STATUSES)
+        Array(latest.provider_errors)
       else
-        Array(usable.errors)
+        Array(usable.provider_errors)
       end
 
       Snapshot.new(
@@ -30,7 +30,7 @@ module IntelligenceState
         generated_at: usable.generated_at,
         fresh: usable.fresh?,
         data: normalize(usable.payload),
-        errors: errors
+        errors: provider_errors
       )
     end
 
@@ -48,7 +48,7 @@ module IntelligenceState
         received_at: Time.current,
         fresh_until: generated_at + @max_age,
         payload: payload,
-        errors: []
+        provider_errors: []
       )
 
       [ record, changed ]
@@ -67,7 +67,7 @@ module IntelligenceState
         fresh_until: nil,
         state_digest: IntelligenceSnapshot.digest_for({ error: error.message, received_at: Time.current.to_f }),
         payload: payload.is_a?(Hash) ? payload : {},
-        errors: [ error.message ]
+        provider_errors: [ error.message ]
       )
     end
 
@@ -118,7 +118,7 @@ module IntelligenceState
         generated_at: nil,
         fresh: false,
         data: {},
-        errors: latest ? Array(latest.errors) : [ "No persisted intelligence snapshot is available" ]
+        errors: latest ? Array(latest.provider_errors) : [ "No persisted intelligence snapshot is available" ]
       )
     end
   end
