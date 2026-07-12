@@ -5,12 +5,15 @@ module SurfaceRenderers
       "supporting_card" => { partial: "surfaces/renderers/supporting_card", kinds: %w[scene insight decision question reminder status] },
       "conversation" => { partial: "surfaces/renderers/conversation", kinds: %w[conversation question] },
       "document" => { partial: "surfaces/renderers/document", kinds: %w[artifact insight decision] },
-      "notification" => { partial: "surfaces/renderers/notification", kinds: %w[notification reminder status] }
+      "notification" => { partial: "surfaces/renderers/notification", kinds: %w[notification reminder status] },
+      "code" => { partial: "surfaces/renderers/code", kinds: %w[artifact insight] },
+      "data_table" => { partial: "surfaces/renderers/data_table", kinds: %w[artifact insight status] },
+      "media" => { partial: "surfaces/renderers/media", kinds: %w[artifact insight] }
     }.freeze
     LEGACY_ALIASES = {
       "card" => "supporting_card",
       "build" => "document",
-      "image" => "supporting_card",
+      "image" => "media",
       "timeline" => "supporting_card"
     }.freeze
 
