@@ -2,10 +2,13 @@ module Flyd
   class WorldStateCompiler
     Result = Data.define(:state, :reference_registry, :diagnostics)
 
-    DEFAULT_BUDGET = 24_000
+    DEFAULT_BUDGET = 28_000
     MAX_PROVIDER_ITEMS = 12
     MAX_PROJECTS = 8
     MAX_MEMORIES_PER_PROJECT = 5
+    MAX_SCENES = 12
+    MAX_ARTIFACTS = 10
+    MAX_BUILDS = 10
 
     def self.call(active_conversation: nil, active_intent: nil, budget: DEFAULT_BUDGET, state_provider: IntelligenceState::Registry)
       new(active_conversation:, active_intent:, budget:, state_provider:).call
@@ -22,10 +25,14 @@ module Flyd
     def call
       unbounded_state = {
         generated_at: Time.current.iso8601,
+        current_work: current_work_snapshot,
         active_intent: intent_snapshot,
         active_interaction: conversation_snapshot,
         previous_surface: surface_snapshot,
         provider_state: provider_snapshot,
+        scenes: scene_snapshots,
+        artifacts: artifact_snapshots,
+        builds: build_snapshots,
         projects: project_snapshots,
         context_corrections: correction_snapshots,
         recent_feedback: feedback_snapshots,
@@ -47,6 +54,85 @@ module Flyd
     end
 
     private
+
+    def current_work_snapshot
+      scene = @active_conversation&.primary_scene || Scene.continue_scene
+      return unless scene
+
+      {
+        id: scene.id,
+        scene_key: scene.scene_key,
+        kind: scene.kind,
+        status: scene.status,
+        title: scene.title,
+        summary: scene.summary.to_s.truncate(1_000),
+        desired_outcome: scene.desired_outcome.to_s.truncate(1_000),
+        resolution_summary: scene.resolution_summary.to_s.truncate(1_000),
+        project_id: scene.project_id,
+        context_id: scene.context_id,
+        conversation_id: scene.conversation_id,
+        resolved_artifact_id: scene.resolved_artifact_id,
+        updated_at: scene.updated_at&.iso8601
+      }
+    end
+
+    def scene_snapshots
+      Scene.recent.limit(MAX_SCENES).map do |scene|
+        {
+          id: scene.id,
+          scene_key: scene.scene_key,
+          kind: scene.kind,
+          status: scene.status,
+          title: scene.title,
+          summary: scene.summary.to_s.truncate(700),
+          desired_outcome: scene.desired_outcome.to_s.truncate(700),
+          resolution_summary: scene.resolution_summary.to_s.truncate(700),
+          project_id: scene.project_id,
+          context_id: scene.context_id,
+          conversation_id: scene.conversation_id,
+          resolved_artifact_id: scene.resolved_artifact_id,
+          last_presented_at: scene.last_presented_at&.iso8601,
+          updated_at: scene.updated_at&.iso8601
+        }
+      end
+    end
+
+    def artifact_snapshots
+      Artifact.recent.limit(MAX_ARTIFACTS).map do |artifact|
+        {
+          id: artifact.id,
+          scene_id: artifact.scene_id,
+          kind: artifact.kind,
+          status: artifact.status,
+          title: artifact.title,
+          content: artifact.content.to_s.truncate(1_000),
+          project_id: artifact.project_id,
+          context_id: artifact.context_id,
+          conversation_id: artifact.conversation_id,
+          build_id: artifact.build_id,
+          created_at: artifact.created_at&.iso8601
+        }
+      end
+    end
+
+    def build_snapshots
+      Build.order(updated_at: :desc).limit(MAX_BUILDS).map do |build|
+        {
+          id: build.id,
+          scene_id: build.scene_id,
+          artifact_id: build.artifact_id,
+          project_id: build.project_id,
+          conversation_id: build.conversation_id,
+          status: build.status,
+          instructions: build.instructions.to_s.truncate(1_000),
+          confirmation_summary: build.confirmation_summary.to_s.truncate(500),
+          outcome_summary: build.outcome_summary.to_s.truncate(1_000),
+          confirmed_at: build.confirmed_at&.iso8601,
+          completed_at: build.completed_at&.iso8601,
+          updated_at: build.updated_at&.iso8601
+        }
+      end
+    end
 
     def provider_snapshot
       snapshot = @state_provider.snapshot.deep_symbolize_keys
@@ -137,6 +223,7 @@ module Flyd
         id: @active_conversation.id,
         project_id: @active_conversation.project_id,
         context_id: @active_conversation.context_id,
+        scene_id: @active_conversation.primary_scene&.id,
         owner_name: @active_conversation.owner_name,
         summary: @active_conversation.summary,
         messages: visible_messages.map do |message|
@@ -153,6 +240,7 @@ module Flyd
         text: @active_intent.input_text.to_s.truncate(1_500),
         modality: @active_intent.modality,
         status: @active_intent.status,
+        interpretation: @active_intent.interpretation,
         context_candidates: @active_intent.context_candidates,
         resolved_contexts: @active_intent.resolved_contexts,
         requested_capability: @active_intent.requested_capability
@@ -171,6 +259,7 @@ module Flyd
         items: surface.items.first(3).map do |item|
           {
             id: item.item_key,
+            scene_id: item.scene_id,
             kind: item.kind,
             title: item.title,
             state: item.state,
@@ -197,6 +286,7 @@ module Flyd
         {
           surface_id: feedback.surface_id,
           item_key: feedback.surface_item&.item_key,
+          scene_id: feedback.surface_item&.scene_id,
           signal: feedback.signal,
           created_at: feedback.created_at.iso8601
         }
