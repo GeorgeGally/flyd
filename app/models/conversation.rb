@@ -5,6 +5,8 @@ class Conversation < ApplicationRecord
   has_many :superseded_conversations, class_name: "Conversation", foreign_key: :superseded_by_conversation_id, dependent: :nullify, inverse_of: :superseded_by_conversation
   has_many :messages, dependent: :destroy
   has_many :decisions, dependent: :destroy
+  has_many :scenes, dependent: :nullify
+  has_many :artifacts, dependent: :nullify
 
   scope :active_for, ->(owner) do
     case owner
@@ -14,6 +16,7 @@ class Conversation < ApplicationRecord
     end
   end
   scope :ordered, -> { order(updated_at: :desc) }
+  scope :continuable, -> { where(active: true, status: "active").order(updated_at: :desc) }
 
   validates :status, inclusion: { in: %w[active archived superseded] }
   validate :has_exactly_one_context_owner
@@ -37,6 +40,10 @@ class Conversation < ApplicationRecord
 
   def visible_messages
     messages.ordered.reject(&:context_superseded?)
+  end
+
+  def continuable?
+    active? && status == "active" && visible_messages.any?
   end
 
   def supersede_by!(replacement)
