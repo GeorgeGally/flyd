@@ -3,6 +3,8 @@ class Belief < ApplicationRecord
 
   belongs_to :project, optional: true
 
+  before_validation :set_default_status
+
   validates :statement, presence: true
   validates :confidence, numericality: { in: 0.0..1.0 }
   validates :status, inclusion: { in: %w[active challenged superseded] }
@@ -20,5 +22,11 @@ class Belief < ApplicationRecord
 
   def supersede!
     update!(status: "superseded")
+  end
+
+  private
+
+  def set_default_status
+    self.status ||= "active"
   end
 end
