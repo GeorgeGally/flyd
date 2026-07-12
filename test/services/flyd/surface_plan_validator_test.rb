@@ -36,6 +36,18 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/Unsupported action/, error.message)
   end
 
+  test "rejects a mode that the current situation does not justify" do
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(
+        payload: valid_payload,
+        reference_registry: [ "project:1", "goal:goal:ship" ],
+        allowed_modes: [ "quiet", "conversation" ]
+      )
+    end
+
+    assert_match(/not justified by the current situation/, error.message)
+  end
+
   test "decision mode requires a decision interface with real choices" do
     payload = valid_payload
     payload[:items].first[:actions] = [{ id: "discuss", label: "Discuss" }]
