@@ -12,8 +12,9 @@
 
     <section class="mt-14 md:mt-20" data-surface-target="intent">
       <% if @conversation %>
-        <%= form_with url: project_conversation_messages_path(@conversation.project, @conversation), scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
-          <%= render "surfaces/intent_field", form: form, field_name: :content, context_label: "Context: #{@conversation.project.name}", chat: true %>
+        <% message_path = @conversation.project ? project_conversation_messages_path(@conversation.project, @conversation) : conversation_messages_path(@conversation) %>
+        <%= form_with url: message_path, scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
+          <%= render "surfaces/intent_field", form: form, field_name: :content, context_label: "Context: #{@conversation.owner_name}", chat: true %>
         <% end %>
       <% else %>
         <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
@@ -36,8 +37,8 @@
               <% end %>
             <% end %>
             <%= form_with url: intent_context_corrections_path(@intent), method: :post do %>
-              <%= hidden_field_tag :reason, "No project context" %>
-              <%= submit_tag "No project", class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
+              <%= hidden_field_tag :reason, "No persistent context" %>
+              <%= submit_tag "No persistent context", class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
             <% end %>
           </div>
 
@@ -55,8 +56,9 @@
       <% if @conversation %>
         <div class="mt-8 max-w-3xl border-l border-gray-200 pl-5">
           <div class="mb-5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
-            <span><%= @conversation.project.name %></span>
-            <%= link_to "Full history", project_conversation_path(@conversation.project, @conversation), class: "hover:text-gray-900" %>
+            <span><%= @conversation.owner_name %></span>
+            <% history_path = @conversation.project ? project_conversation_path(@conversation.project, @conversation) : conversation_path(@conversation) %>
+            <%= link_to "Full history", history_path, class: "hover:text-gray-900" %>
           </div>
           <div class="flex flex-col-reverse gap-5" data-chat-target="messages">
             <% @conversation.messages.order(created_at: :desc).limit(8).reverse.each do |message| %>
