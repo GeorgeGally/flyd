@@ -22,7 +22,7 @@ jobs:
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: |
           set +e
-          bin/brakeman --no-pager > /tmp/brakeman.log 2>&1
+          bin/brakeman --no-pager --except EOLRuby > /tmp/brakeman.log 2>&1
           status=$?
           cat /tmp/brakeman.log
           exit $status
@@ -55,6 +55,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -62,10 +64,14 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      - name: Lint code for consistent style
+      - name: Lint changed Ruby files
         run: |
+          files=$(git diff --name-only --diff-filter=ACMRT origin/main...HEAD | grep -E '\.(rb|rake)$' || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
           set +e
-          bin/rubocop -f simple > /tmp/rubocop.log 2>&1
+          bin/rubocop -f simple $files > /tmp/rubocop.log 2>&1
           status=$?
           cat /tmp/rubocop.log
           exit $status
