@@ -31,7 +31,7 @@ class IntelligenceSnapshotTest < ActiveSupport::TestCase
       status: "unavailable",
       received_at: Time.current,
       state_digest: "failure",
-      errors: ["offline"]
+      provider_errors: [ "offline" ]
     )
 
     assert_equal usable, IntelligenceSnapshot.latest_for("flyd-cli")
