@@ -10,10 +10,10 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 
 WORKDIR /rails
 
-# Node is required at runtime by RefreshIntelligenceStateJob, which executes the
-# compiled TypeScript intelligence-state exporter.
+# Node is required at runtime by RefreshIntelligenceStateJob. PostgreSQL and GPG
+# clients support encrypted backups of database and multimodal evidence.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 nodejs npm postgresql-client && \
+    apt-get install --no-install-recommends -y curl gnupg libjemalloc2 nodejs npm postgresql-client && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 ENV RAILS_ENV="production" \
