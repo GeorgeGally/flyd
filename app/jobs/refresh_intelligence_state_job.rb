@@ -27,8 +27,7 @@ class RefreshIntelligenceStateJob < ApplicationJob
   end
 
   def perform
-    stdout = run_exporter
-    payload = JSON.parse(stdout)
+    payload = JSON.parse(run_exporter)
     _snapshot, changed = IntelligenceState::CliProvider.new.persist!(payload)
     surface = Surface.current
 
@@ -49,24 +48,25 @@ class RefreshIntelligenceStateJob < ApplicationJob
   private
 
   def run_exporter
-    cli_dir = Rails.root.join("cli")
-    compiled_exporter = cli_dir.join("dist", "export-state.js")
-
-    command = if compiled_exporter.exist?
-      ["node", compiled_exporter.to_s, "--stdout"]
-    elsif Rails.env.production?
-      raise ExportError, "Compiled CLI exporter missing at #{compiled_exporter}"
-    else
-      ["npm", "--prefix", cli_dir.to_s, "run", "export-state", "--silent", "--", "--stdout"]
-    end
+    command = exporter_command
 
     Timeout.timeout(TIMEOUT) do
-      stdout, stderr, status = Open3.capture3(*command)
+      stdout, stderr, status = Open3.capture3(*command, chdir: Rails.root.to_s)
       raise ExportError, "CLI intelligence state export failed: #{stderr.presence || stdout}" unless status.success?
 
       stdout
     end
   rescue Errno::ENOENT => error
     raise ExportError, "CLI intelligence exporter unavailable: #{error.message}"
+  end
+
+  def exporter_command
+    if Rails.root.join("cli/dist/export-state.js").exist?
+      [ "node", "cli/dist/export-state.js", "--stdout" ]
+    elsif Rails.env.production?
+      raise ExportError, "Compiled CLI exporter missing at cli/dist/export-state.js"
+    else
+      [ "npm", "--prefix", "cli", "run", "export-state", "--silent", "--", "--stdout" ]
+    end
   end
 end
