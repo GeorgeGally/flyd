@@ -111,6 +111,7 @@ module Flyd
               id: decision.id,
               content: decision.content.to_s.truncate(500),
               confidence: decision.confidence,
+              source_message_id: decision.source_message_id,
               created_at: decision.created_at&.iso8601
             }
           end,
@@ -120,6 +121,7 @@ module Flyd
               statement: belief.statement.to_s.truncate(500),
               confidence: belief.confidence,
               status: belief.status,
+              source_decision_ids: belief.source_decision_ids,
               updated_at: belief.updated_at&.iso8601
             }
           end
@@ -130,13 +132,14 @@ module Flyd
     def conversation_snapshot
       return unless @active_conversation
 
+      visible_messages = @active_conversation.messages.ordered.reject(&:context_superseded?).last(10)
       {
         id: @active_conversation.id,
         project_id: @active_conversation.project_id,
         context_id: @active_conversation.context_id,
         owner_name: @active_conversation.owner_name,
         summary: @active_conversation.summary,
-        messages: @active_conversation.messages.ordered.last(10).map do |message|
+        messages: visible_messages.map do |message|
           { id: message.id, role: message.role, content: message.content.to_s.truncate(700) }
         end
       }
