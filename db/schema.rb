@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
   enable_extension "pg_catalog.plpgsql"
 
   create_table "behaviours", force: :cascade do |t|
@@ -70,6 +70,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
     t.index ["source_file"], name: "index_capture_imports_on_source_file"
   end
 
+  create_table "context_corrections", force: :cascade do |t|
+    t.bigint "intent_id"
+    t.bigint "surface_item_id"
+    t.jsonb "original_contexts", default: [], null: false
+    t.jsonb "corrected_contexts", default: [], null: false
+    t.text "reason"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["intent_id"], name: "index_context_corrections_on_intent_id"
+    t.index ["surface_item_id"], name: "index_context_corrections_on_surface_item_id"
+  end
+
   create_table "conversations", force: :cascade do |t|
     t.bigint "project_id", null: false
     t.string "status", default: "active"
@@ -118,6 +130,28 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
     t.index ["status"], name: "index_intelligence_snapshots_on_status"
   end
 
+  create_table "intents", force: :cascade do |t|
+    t.text "input_text", null: false
+    t.string "modality", default: "text", null: false
+    t.string "status", default: "received", null: false
+    t.jsonb "attachments", default: [], null: false
+    t.jsonb "interpretation", default: {}, null: false
+    t.jsonb "context_candidates", default: [], null: false
+    t.jsonb "resolved_contexts", default: [], null: false
+    t.string "requested_capability"
+    t.bigint "origin_surface_id"
+    t.bigint "result_surface_id"
+    t.bigint "conversation_id"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id"], name: "index_intents_on_conversation_id"
+    t.index ["created_at"], name: "index_intents_on_created_at"
+    t.index ["origin_surface_id"], name: "index_intents_on_origin_surface_id"
+    t.index ["result_surface_id"], name: "index_intents_on_result_surface_id"
+    t.index ["status"], name: "index_intents_on_status"
+  end
+
   create_table "memory_edges", force: :cascade do |t|
     t.string "source_type", null: false
     t.integer "source_id", null: false
@@ -151,6 +185,37 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
     t.datetime "updated_at", null: false
     t.index ["archived_at"], name: "index_projects_on_archived_at"
     t.index ["name"], name: "index_projects_on_name", unique: true
+  end
+
+  create_table "surface_composition_logs", force: :cascade do |t|
+    t.bigint "surface_id"
+    t.string "reason"
+    t.string "state_digest"
+    t.string "model"
+    t.integer "input_characters"
+    t.integer "output_characters"
+    t.integer "latency_ms"
+    t.string "status", null: false
+    t.jsonb "provider_health", default: [], null: false
+    t.jsonb "validation_errors", default: [], null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_surface_composition_logs_on_created_at"
+    t.index ["status"], name: "index_surface_composition_logs_on_status"
+    t.index ["surface_id"], name: "index_surface_composition_logs_on_surface_id"
+  end
+
+  create_table "surface_feedbacks", force: :cascade do |t|
+    t.bigint "surface_id", null: false
+    t.bigint "surface_item_id"
+    t.string "signal", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["surface_id", "signal"], name: "index_surface_feedbacks_on_surface_id_and_signal"
+    t.index ["surface_id"], name: "index_surface_feedbacks_on_surface_id"
+    t.index ["surface_item_id"], name: "index_surface_feedbacks_on_surface_item_id"
   end
 
   create_table "surface_items", force: :cascade do |t|
@@ -200,11 +265,19 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_110000) do
   add_foreign_key "beliefs", "projects"
   add_foreign_key "builds", "conversations"
   add_foreign_key "builds", "projects"
+  add_foreign_key "context_corrections", "intents"
+  add_foreign_key "context_corrections", "surface_items"
   add_foreign_key "conversations", "projects"
   add_foreign_key "decisions", "conversations"
   add_foreign_key "decisions", "messages", column: "source_message_id"
   add_foreign_key "decisions", "projects"
+  add_foreign_key "intents", "conversations"
+  add_foreign_key "intents", "surfaces", column: "origin_surface_id"
+  add_foreign_key "intents", "surfaces", column: "result_surface_id"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "surface_composition_logs", "surfaces"
+  add_foreign_key "surface_feedbacks", "surface_items"
+  add_foreign_key "surface_feedbacks", "surfaces"
   add_foreign_key "surface_items", "surfaces"
   add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
 end
