@@ -19,24 +19,22 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
       current_intention: "Help George decide the next architectural correction.",
       surface_mode: "decision",
       focus_item_id: "interface-drift",
-      items: [
-        {
-          id: "interface-drift",
-          kind: "scene",
-          intent: "decide",
-          title: "The interface has become the product again",
-          summary: "The surface should be generated from Flyd's whole understanding, not directly from stored records.",
-          renderer: "hero_scene",
-          depth: "foreground",
-          context_refs: [{ type: "project", id: project.id }],
-          source_refs: [{ type: "goal", id: "goal:ship-flyd" }],
-          actions: [{ id: "discuss", label: "Discuss" }]
-        }
-      ],
+      items: [{
+        id: "interface-drift",
+        kind: "scene",
+        intent: "decide",
+        title: "The interface has become the product again",
+        summary: "The surface should be generated from Flyd's whole understanding, not directly from stored records.",
+        renderer: "hero_scene",
+        depth: "foreground",
+        context_refs: [{ type: "project", id: project.id }],
+        source_refs: [{ type: "goal", id: "goal:ship-flyd" }],
+        actions: [{ id: "discuss", label: "Discuss" }]
+      }],
       relationships: []
     }.to_json
     chat = FakeChat.new(response)
-    provider = FakeStateProvider.new(
+    provider = FakeStateProvider.new({
       providers: [{
         source: "flyd-cli",
         fresh: true,
@@ -54,7 +52,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
           }]
         }
       }]
-    )
+    })
 
     surface = Flyd::Intelligence.new(chat: chat, state_provider: provider).compose_surface
     sent_state = JSON.parse(chat.received_messages.last[:content])
@@ -66,7 +64,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
   end
 
   test "falls back without ranking database records when composition fails" do
-    provider = FakeStateProvider.new(providers: [])
+    provider = FakeStateProvider.new({ providers: [] })
     surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
 
     assert_equal "continue", surface.focus_item_id
