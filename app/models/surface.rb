@@ -5,6 +5,10 @@ class Surface < ApplicationRecord
   belongs_to :previous_surface, class_name: "Surface", optional: true
   has_many :next_surfaces, class_name: "Surface", foreign_key: :previous_surface_id, dependent: :nullify, inverse_of: :previous_surface
   has_many :surface_items, -> { order(:position, :id) }, dependent: :destroy, inverse_of: :surface
+  has_many :surface_feedbacks, dependent: :destroy
+  has_many :surface_composition_logs, dependent: :nullify
+  has_many :originating_intents, class_name: "Intent", foreign_key: :origin_surface_id, dependent: :nullify, inverse_of: :origin_surface
+  has_many :resulting_intents, class_name: "Intent", foreign_key: :result_surface_id, dependent: :nullify, inverse_of: :result_surface
 
   validates :status, inclusion: { in: STATUSES }
   validates :composition_version, presence: true
@@ -64,7 +68,7 @@ class Surface < ApplicationRecord
         generated_at: Time.current,
         valid_until: DEFAULT_VALIDITY.from_now,
         composition_version: "fallback-1",
-        metadata: { "fallback" => true }
+        metadata: { "fallback" => true, "surface_mode" => "idle" }
       )
 
       surface.surface_items.create!(
@@ -104,6 +108,6 @@ class Surface < ApplicationRecord
   end
 
   def expire!
-    update!(status: "expired", valid_until: [valid_until, Time.current].compact.min)
+    update!(status: "expired", valid_until: [ valid_until, Time.current ].compact.min)
   end
 end
