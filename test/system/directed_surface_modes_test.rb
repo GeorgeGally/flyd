@@ -38,8 +38,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     visit root_path
 
     assert_text "INVESTIGATION"
-    assert_text "What we know"
-    assert_text "What is still uncertain"
+    assert_text "WHAT WE KNOW"
+    assert_text "WHAT IS STILL UNCERTAIN"
     assert_text "Which fixed shell"
     click_on "Investigate"
 
@@ -85,8 +85,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     visit root_path
 
     assert_text "READY TO ACT"
-    assert_text "What Flyd will do"
-    assert_text "What changes"
+    assert_text "WHAT FLYD WILL DO"
+    assert_text "WHAT CHANGES"
     click_on "Review action"
 
     build = Build.order(:created_at).last
