@@ -12,14 +12,18 @@ module Intents
     def call
       owner = resolve_owner
       old_conversation = @intent.conversation
+      old_message = source_message(old_conversation)
+      affected_decisions = decisions_for(old_message)
 
       if owner.nil?
-        archive_unowned_conversation(old_conversation)
+        remove_project_memory!(affected_decisions)
+        supersede_source_message!(old_message, replacement: nil)
+        retire_if_empty!(old_conversation, replacement: nil)
         @intent.update!(
           status: "accepted",
           conversation: nil,
           resolved_contexts: [],
-          metadata: append_history(old_conversation, nil)
+          metadata: append_history(old_conversation, nil, old_message, nil)
         )
         return nil
       end
@@ -30,18 +34,27 @@ module Intents
       end
 
       new_conversation = Conversation.start!(owner, summary: effective_text.truncate(120))
-      message = new_conversation.messages.create!(role: "user", content: effective_text)
-      reassign_project_decisions(old_conversation, new_conversation, message) if owner.is_a?(Project)
-      old_conversation&.supersede_by!(new_conversation)
+      new_message = new_conversation.messages.create!(role: "user", content: effective_text)
+
+      if owner.is_a?(Project)
+        move_project_memory!(affected_decisions, new_conversation, new_message)
+      else
+        remove_project_memory!(affected_decisions)
+      end
+
+      supersede_source_message!(old_message, replacement: new_message)
+      retire_if_empty!(old_conversation, replacement: new_conversation)
 
       @intent.update!(
         status: "accepted",
         conversation: new_conversation,
         resolved_contexts: @corrected_contexts,
-        metadata: append_history(old_conversation, new_conversation)
+        metadata: append_history(old_conversation, new_conversation, old_message, new_message)
+          .merge("source_message_id" => new_message.id)
       )
 
-      LlmStreamingJob.perform_later(new_conversation.id, message.content)
+      LlmStreamingJob.perform_later(new_conversation.id, new_message.content)
+      BeliefSynthesisJob.perform_later(new_conversation.project_id) if new_conversation.project_id && affected_decisions.any?
       new_conversation
     end
 
@@ -64,27 +77,78 @@ module Intents
       parts.compact_blank.join("\n\n").presence || "#{@intent.modality} attachment requiring interpretation"
     end
 
-    def reassign_project_decisions(old_conversation, new_conversation, source_message)
-      return unless old_conversation
+    def source_message(conversation)
+      message_id = @intent.metadata["source_message_id"]
+      return Message.find_by(id: message_id, conversation: conversation) if message_id.present?
 
-      old_conversation.decisions.update_all(
+      conversation&.messages&.where(role: "user")&.order(created_at: :desc)&.first
+    end
+
+    def decisions_for(message)
+      return Decision.none unless message
+
+      Decision.where(source_message: message)
+    end
+
+    def move_project_memory!(decisions, new_conversation, new_message)
+      decision_ids = decisions.pluck(:id)
+      return if decision_ids.empty?
+
+      challenge_dependent_beliefs!(decisions.first.project, decision_ids)
+      decisions.update_all(
         conversation_id: new_conversation.id,
         project_id: new_conversation.project_id,
-        source_message_id: source_message.id,
+        source_message_id: new_message.id,
         updated_at: Time.current
       )
     end
 
-    def archive_unowned_conversation(conversation)
-      conversation&.archive! if conversation&.active?
+    def remove_project_memory!(decisions)
+      decision_ids = decisions.pluck(:id)
+      return if decision_ids.empty?
+
+      project = decisions.first.project
+      challenge_dependent_beliefs!(project, decision_ids)
+      decisions.destroy_all
     end
 
-    def append_history(old_conversation, new_conversation)
+    def challenge_dependent_beliefs!(project, decision_ids)
+      return unless project
+
+      project.beliefs.find_each do |belief|
+        belief.remove_sources!(decision_ids) if belief.depends_on_any?(decision_ids)
+      end
+    end
+
+    def supersede_source_message!(message, replacement:)
+      return unless message
+
+      message.update!(
+        metadata: message.metadata.merge(
+          "context_superseded" => true,
+          "replacement_message_id" => replacement&.id,
+          "context_corrected_at" => Time.current.iso8601
+        )
+      )
+    end
+
+    def retire_if_empty!(conversation, replacement:)
+      return unless conversation
+
+      remaining_user_messages = conversation.messages.where(role: "user").reject(&:context_superseded?)
+      return if remaining_user_messages.any?
+
+      replacement ? conversation.supersede_by!(replacement) : conversation.archive!
+    end
+
+    def append_history(old_conversation, new_conversation, old_message, new_message)
       history = Array(@intent.metadata["context_correction_history"])
       history << {
         "corrected_at" => Time.current.iso8601,
         "from_conversation_id" => old_conversation&.id,
         "to_conversation_id" => new_conversation&.id,
+        "from_message_id" => old_message&.id,
+        "to_message_id" => new_message&.id,
         "contexts" => @corrected_contexts
       }
       @intent.metadata.merge("context_correction_history" => history.last(20))
