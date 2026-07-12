@@ -5,10 +5,12 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     def snapshot = payload
   end
 
-  test "bounds, deduplicates, and registers evidence references" do
+  test "bounds, deduplicates, and registers only retained evidence" do
     provider = FakeProvider.new({
       providers: [{
         source: "test",
+        snapshot_id: 7,
+        state_digest: "provider-digest",
         fresh: true,
         errors: [],
         data: {
@@ -20,10 +22,14 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
 
     result = Flyd::WorldStateCompiler.call(state_provider: provider, budget: 5_000)
     goals = result.state.dig(:provider_state, :providers, 0, :data, :goals)
+    retained_refs = result.state.dig(:provider_state, :providers).flat_map do |entry|
+      entry[:data].values.flatten.map { |item| "#{item[:type]}:#{item[:id]}" }
+    end
 
     assert_equal 1, goals.length
     assert_includes result.reference_registry, "goal:goal:ship"
-    assert_operator JSON.generate(result.state).length, :<=, 5_500
+    assert_equal retained_refs.sort, result.reference_registry.grep(/^(goal|report):/).sort
+    assert_operator JSON.generate(result.state).length, :<=, 5_000
     assert result.diagnostics[:dropped].any?
   end
 
