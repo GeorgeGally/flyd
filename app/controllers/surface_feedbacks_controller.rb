@@ -8,7 +8,8 @@ class SurfaceFeedbacksController < ApplicationController
 
   def create
     item = SurfaceItem.find(params[:surface_item_id])
-    signal = SIGNAL_MAP.fetch(params.require(:signal), params.require(:signal))
+    requested_signal = params.require(:signal)
+    signal = SIGNAL_MAP.fetch(requested_signal, requested_signal)
     feedback = item.surface_feedbacks.create!(
       surface: item.surface,
       signal: signal,
@@ -39,6 +40,7 @@ class SurfaceFeedbacksController < ApplicationController
   end
 
   def permitted_payload
-    params.fetch(:payload, {}).permit!.to_h
+    payload = params[:payload]
+    payload.respond_to?(:permit!) ? payload.permit!.to_h : payload.to_h
   end
 end
