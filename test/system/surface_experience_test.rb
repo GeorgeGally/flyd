@@ -32,6 +32,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     fill_in "What is this context?", with: "Resolve the interaction model without creating a project."
     click_on "Create"
 
+    assert_text "Created context: Interface sprint"
     context = Context.find_by!(name: "Interface sprint")
     conversation = Conversation.active_for(context).first!
     assert_text "INTERFACE SPRINT"
