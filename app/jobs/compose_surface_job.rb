@@ -9,6 +9,7 @@ class ComposeSurfaceJob < ApplicationJob
     JSON::ParserError,
     KeyError,
     ArgumentError,
+    Flyd::StateBudget::BudgetExceeded,
     Flyd::SurfacePlanValidator::ValidationError
   ].freeze
 
@@ -60,17 +61,24 @@ class ComposeSurfaceJob < ApplicationJob
   end
 
   def perform(reason:, active_conversation_id: nil, active_intent_id: nil)
-    conversation = Conversation.includes(:messages, :project).find_by(id: active_conversation_id)
+    conversation = Conversation.includes(:messages, :project, :context).find_by(id: active_conversation_id)
     intent = Intent.find_by(id: active_intent_id)
     intelligence = Flyd::Intelligence.new(active_conversation: conversation, active_intent: intent, fallback: false)
     plan = intelligence.compose_surface
-    digest = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)&.state_digest
-    draft = Surfaces::PersistPlan.call(plan: plan, source_state_digest: digest, composition_version: "flyd-2")
-    draft.update!(metadata: draft.metadata.merge("composition_reason" => reason, "surface_mode" => plan.surface_mode))
+    digest = intelligence.diagnostics.fetch(:state_digest)
+    provider_snapshots = intelligence.diagnostics[:provider_snapshots] || []
+    draft = Surfaces::PersistPlan.call(plan: plan, source_state_digest: digest, composition_version: "flyd-3")
+    draft.update!(
+      metadata: draft.metadata.merge(
+        "composition_reason" => reason,
+        "surface_mode" => plan.surface_mode,
+        "provider_snapshots" => provider_snapshots
+      )
+    )
     surface = Surface.activate!(draft)
     intent.resolve!(surface: surface) if intent && intent.status != "clarification_required"
 
-    SurfaceCompositionLog.create!(
+    log = SurfaceCompositionLog.create!(
       surface: surface,
       reason: reason,
       state_digest: digest,
@@ -78,11 +86,11 @@ class ComposeSurfaceJob < ApplicationJob
       input_characters: intelligence.diagnostics[:input_characters],
       output_characters: intelligence.diagnostics[:output_characters],
       latency_ms: intelligence.diagnostics[:latency_ms],
-      provider_health: IntelligenceState::Registry.snapshot[:providers] || [],
+      provider_health: provider_snapshots,
       metadata: { "dropped" => intelligence.diagnostics[:dropped] || [] }
     )
 
-    BroadcastSurfaceJob.perform_later(surface.id)
+    enqueue_broadcast(surface, log)
     self.class.finish_and_enqueue_pending
   rescue *RETRYABLE_ERRORS => error
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
@@ -92,5 +100,14 @@ class ComposeSurfaceJob < ApplicationJob
     self.class.record_failure!(error, reason: reason)
     self.class.finish_and_enqueue_pending
     raise
+  end
+
+  private
+
+  def enqueue_broadcast(surface, log)
+    BroadcastSurfaceJob.perform_later(surface.id)
+  rescue ActiveJob::EnqueueError => error
+    log.update!(metadata: log.metadata.merge("broadcast_enqueue_error" => error.message))
+    Rails.logger.error("Surface #{surface.id} activated but broadcast enqueue failed: #{error.message}")
   end
 end
