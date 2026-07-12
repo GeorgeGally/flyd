@@ -4,25 +4,33 @@ class ComposeSurfaceJob < ApplicationJob
   LOCK_KEY = "surface:composition_enqueued"
   PENDING_KEY = "surface:composition_pending"
   LOCK_TTL = 5.minutes
-  RETRYABLE_ERRORS = [Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError].freeze
+  RETRYABLE_ERRORS = [
+    Llm::Chat::Error,
+    JSON::ParserError,
+    KeyError,
+    ArgumentError,
+    Flyd::SurfacePlanValidator::ValidationError
+  ].freeze
 
   retry_on(*RETRYABLE_ERRORS, wait: :exponentially_longer, attempts: 3) do |job, error|
-    reason = job.arguments.first.is_a?(Hash) ? (job.arguments.first["reason"] || job.arguments.first[:reason]) : nil
-    record_failure!(error, reason: reason)
+    arguments = job.arguments.first.is_a?(Hash) ? job.arguments.first : {}
+    record_failure!(error, reason: arguments["reason"] || arguments[:reason])
     finish_and_enqueue_pending
   end
 
-  def self.enqueue(reason:, active_conversation_id: nil)
+  def self.enqueue(reason:, active_conversation_id: nil, active_intent_id: nil)
+    payload = {
+      "reason" => reason,
+      "active_conversation_id" => active_conversation_id,
+      "active_intent_id" => active_intent_id
+    }
+
     unless Rails.cache.write(LOCK_KEY, true, expires_in: LOCK_TTL, unless_exist: true)
-      Rails.cache.write(
-        PENDING_KEY,
-        { "reason" => reason, "active_conversation_id" => active_conversation_id },
-        expires_in: LOCK_TTL * 2
-      )
+      Rails.cache.write(PENDING_KEY, payload, expires_in: LOCK_TTL * 2)
       return false
     end
 
-    perform_later(reason: reason, active_conversation_id: active_conversation_id)
+    perform_later(**payload.symbolize_keys)
     true
   rescue ActiveJob::EnqueueError
     finish_and_enqueue_pending
@@ -30,15 +38,11 @@ class ComposeSurfaceJob < ApplicationJob
   end
 
   def self.record_failure!(error, reason: nil)
-    Surface.create!(
-      status: "invalid",
-      composition_version: "flyd-1",
-      generated_at: Time.current,
-      metadata: {
-        "composition_reason" => reason,
-        "invalid_reason" => error.message,
-        "error_class" => error.class.name
-      }.compact
+    SurfaceCompositionLog.create!(
+      reason: reason,
+      status: "failed",
+      validation_errors: [ error.message ],
+      metadata: { "error_class" => error.class.name }
     )
   end
 
@@ -50,21 +54,33 @@ class ComposeSurfaceJob < ApplicationJob
 
     enqueue(
       reason: pending["reason"] || pending[:reason] || "coalesced_update",
-      active_conversation_id: pending["active_conversation_id"] || pending[:active_conversation_id]
+      active_conversation_id: pending["active_conversation_id"] || pending[:active_conversation_id],
+      active_intent_id: pending["active_intent_id"] || pending[:active_intent_id]
     )
   end
 
-  def perform(reason:, active_conversation_id: nil)
+  def perform(reason:, active_conversation_id: nil, active_intent_id: nil)
     conversation = Conversation.includes(:messages, :project).find_by(id: active_conversation_id)
-    plan = Flyd::Intelligence.compose_surface(active_conversation: conversation, fallback: false)
+    intent = Intent.find_by(id: active_intent_id)
+    intelligence = Flyd::Intelligence.new(active_conversation: conversation, active_intent: intent, fallback: false)
+    plan = intelligence.compose_surface
     digest = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)&.state_digest
-    draft = Surfaces::PersistPlan.call(
-      plan: plan,
-      source_state_digest: digest,
-      composition_version: "flyd-1"
-    )
-    draft.update!(metadata: draft.metadata.merge("composition_reason" => reason))
+    draft = Surfaces::PersistPlan.call(plan: plan, source_state_digest: digest, composition_version: "flyd-2")
+    draft.update!(metadata: draft.metadata.merge("composition_reason" => reason, "surface_mode" => plan.surface_mode))
     surface = Surface.activate!(draft)
+    intent&.resolve!(surface: surface) if intent.status != "clarification_required"
+
+    SurfaceCompositionLog.create!(
+      surface: surface,
+      reason: reason,
+      state_digest: digest,
+      status: "succeeded",
+      input_characters: intelligence.diagnostics[:input_characters],
+      output_characters: intelligence.diagnostics[:output_characters],
+      latency_ms: intelligence.diagnostics[:latency_ms],
+      provider_health: IntelligenceState::Registry.snapshot[:providers] || [],
+      metadata: { "dropped" => intelligence.diagnostics[:dropped] || [] }
+    )
 
     BroadcastSurfaceJob.perform_later(surface.id)
     self.class.finish_and_enqueue_pending
@@ -72,11 +88,8 @@ class ComposeSurfaceJob < ApplicationJob
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
     raise
   rescue StandardError => error
-    if draft&.persisted? && draft.status == "draft"
-      draft.invalidate!(reason: error.message)
-    else
-      self.class.record_failure!(error, reason: reason)
-    end
+    draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"
+    self.class.record_failure!(error, reason: reason)
     self.class.finish_and_enqueue_pending
     raise
   end
