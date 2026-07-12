@@ -7,7 +7,7 @@ if defined?(Sidekiq::Cron) && schedule_file.exist?
 
     if schedule
       Sidekiq::Cron::Job.load_from_hash(schedule)
-      Rails.logger.info "Loaded #{schedule.keys.length} sidekiq-cron jobs: #{schedule.keys.join(", ")}" 
+      Rails.logger.info "Loaded #{schedule.keys.length} sidekiq-cron jobs: #{schedule.keys.join(", ")}"
     end
   end
 end
