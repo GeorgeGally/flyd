@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flyd.local/schemas/intelligence-state.schema.json",
+  "title": "Flyd Intelligence State",
+  "type": "object",
+  "required": ["version", "generatedAt", "source", "goals", "tensions", "signals", "curiosity", "nudges", "reports", "recentEvents"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "flyd-cli" },
+    "goals": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "tensions": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "signals": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "curiosity": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "nudges": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "reports": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "recentEvents": { "type": "array", "items": { "$ref": "#/$defs/evidence" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["id", "type", "source", "epistemicStatus", "confidence", "generatedAt", "evidenceRefs", "content"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "epistemicStatus": {
+          "enum": ["observation", "user_confirmed", "inferred", "heuristic", "llm_generated", "contradicted", "superseded"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "generatedAt": { "type": ["string", "null"] },
+        "updatedAt": { "type": ["string", "null"] },
+        "evidenceRefs": { "type": "array", "items": { "type": "string" } },
+        "content": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
