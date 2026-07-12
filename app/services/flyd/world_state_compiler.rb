@@ -17,6 +17,7 @@ module Flyd
       @budget = budget
       @state_provider = state_provider
       @references = {}
+      @seen_evidence = {}
       @dropped = []
     end
 
@@ -29,6 +30,7 @@ module Flyd
         provider_state: provider_snapshot,
         projects: project_snapshots,
         context_corrections: correction_snapshots,
+        recent_feedback: feedback_snapshots,
         capabilities: SurfaceActions::Registry.ids,
         renderers: SurfaceRenderers::Registry.ids
       }
@@ -70,6 +72,10 @@ module Flyd
       type = item["type"]
       return unless id.present? && type.present?
 
+      key = "#{type}:#{id}"
+      return if @seen_evidence[key]
+
+      @seen_evidence[key] = true
       register(type, id)
       {
         id: id,
@@ -156,7 +162,14 @@ module Flyd
         generated_at: surface.generated_at&.iso8601,
         items: surface.items.first(3).map do |item|
           register("surface_item", item.item_key)
-          { id: item.item_key, kind: item.kind, title: item.title, state: item.state }
+          {
+            id: item.item_key,
+            kind: item.kind,
+            title: item.title,
+            state: item.state,
+            context_refs: item.context_refs,
+            source_refs: item.source_refs
+          }
         end
       }
     end
@@ -168,6 +181,17 @@ module Flyd
           corrected_contexts: correction.corrected_contexts,
           reason: correction.reason,
           created_at: correction.created_at.iso8601
+        }
+      end
+    end
+
+    def feedback_snapshots
+      SurfaceFeedback.order(created_at: :desc).limit(20).map do |feedback|
+        {
+          surface_id: feedback.surface_id,
+          item_key: feedback.surface_item&.item_key,
+          signal: feedback.signal,
+          created_at: feedback.created_at.iso8601
         }
       end
     end
@@ -189,6 +213,10 @@ module Flyd
       while mutable[:projects].length > 3 && JSON.generate(mutable).length > @budget
         dropped = mutable[:projects].pop
         @dropped << "project:#{dropped[:id]}"
+      end
+
+      while mutable[:recent_feedback].length > 8 && JSON.generate(mutable).length > @budget
+        mutable[:recent_feedback].pop
       end
 
       mutable[:active_interaction]&.dig(:messages)&.shift while mutable[:active_interaction]&.dig(:messages)&.length.to_i > 4 && JSON.generate(mutable).length > @budget
