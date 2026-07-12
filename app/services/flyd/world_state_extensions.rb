@@ -9,35 +9,33 @@ module Flyd
     def initialize(compiled:, active_intent:)
       @compiled = compiled
       @active_intent = active_intent
-      @dropped = []
     end
 
     def call
-      state = @compiled.state.deep_dup
-      references = @compiled.reference_registry.dup
+      extended_state = @compiled.state.deep_dup
+      extended_state[:active_intent_evidence] = attachment_state
+      extended_state[:temporary_contexts] = context_state
+      extended_state[:learned_surface_preferences] = preference_state
 
-      state[:active_intent_evidence] = attachment_state(references)
-      state[:temporary_contexts] = context_state(references)
-      state[:learned_surface_preferences] = preference_state
-      enforce_budget(state)
-
+      budgeted = StateBudget.call(state: extended_state, budget: MAX_TOTAL_CHARACTERS)
+      state = budgeted.state
       WorldStateCompiler::Result.new(
         state: state,
-        reference_registry: references,
+        reference_registry: ReferenceRegistry.call(state),
         diagnostics: @compiled.diagnostics.merge(
           input_characters: JSON.generate(state).length,
-          dropped: Array(@compiled.diagnostics[:dropped]) + @dropped
+          dropped: Array(@compiled.diagnostics[:dropped]) + budgeted.dropped,
+          budget: MAX_TOTAL_CHARACTERS
         )
       )
     end
 
     private
 
-    def attachment_state(references)
+    def attachment_state
       return [] unless @active_intent
 
-      @active_intent.intent_attachments.first(5).map do |attachment|
-        references << "intent_attachment:#{attachment.id}"
+      @active_intent.intent_attachments.where("expires_at IS NULL OR expires_at > ?", Time.current).limit(5).map do |attachment|
         {
           id: attachment.id,
           modality: attachment.modality,
@@ -50,9 +48,8 @@ module Flyd
       end
     end
 
-    def context_state(references)
+    def context_state
       Context.active.order(updated_at: :desc).limit(12).map do |context|
-        references << "context:#{context.id}"
         {
           id: context.id,
           name: context.name,
@@ -74,27 +71,6 @@ module Flyd
           last_observed_at: preference.last_observed_at&.iso8601
         }
       end
-    end
-
-    def enforce_budget(state)
-      state[:learned_surface_preferences].pop while over_budget?(state) && state[:learned_surface_preferences].any?
-      while over_budget?(state) && state[:temporary_contexts].length > 3
-        dropped = state[:temporary_contexts].pop
-        @dropped << "context:#{dropped[:id]}"
-      end
-      while over_budget?(state) && state[:active_intent_evidence].length > 1
-        dropped = state[:active_intent_evidence].pop
-        @dropped << "intent_attachment:#{dropped[:id]}"
-      end
-      state[:active_intent_evidence].each do |evidence|
-        break unless over_budget?(state)
-
-        evidence[:extracted_text] = evidence[:extracted_text].to_s.truncate(500)
-      end
-    end
-
-    def over_budget?(state)
-      JSON.generate(state).length > MAX_TOTAL_CHARACTERS
     end
   end
 end
