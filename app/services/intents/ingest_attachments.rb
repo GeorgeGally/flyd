@@ -44,17 +44,24 @@ module Intents
         existing = @intent.intent_attachments.find_by(checksum: checksum)
         next existing if existing
 
-        @intent.intent_attachments.create!(
+        attachment = @intent.intent_attachments.create!(
           modality: modality_for(content_type),
           filename: filename,
           content_type: content_type,
           byte_size: data.bytesize,
           checksum: checksum,
-          data: data,
+          data: nil,
           extracted_text: extract_text(data, content_type),
           expires_at: 90.days.from_now,
-          metadata: { "declared_content_type" => upload.content_type.to_s }
+          metadata: { "declared_content_type" => upload.content_type.to_s, "storage" => "active_storage" }
         )
+        attachment.file.attach(
+          io: StringIO.new(data),
+          filename: filename,
+          content_type: content_type,
+          identify: false
+        )
+        attachment
       ensure
         upload.rewind if upload.respond_to?(:rewind)
       end
