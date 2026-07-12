@@ -33,6 +33,7 @@ module Flyd
         active_intent: @active_intent,
         state_provider: @state_provider
       )
+      compiled = WorldStateExtensions.call(compiled: compiled, active_intent: @active_intent)
       response = @chat.call!(messages(compiled.state))
       payload = parse_json(response)
       validated = SurfacePlanValidator.call(payload: payload, reference_registry: compiled.reference_registry)
@@ -61,7 +62,9 @@ module Flyd
       <<~PROMPT
         You are Flyd. You are the intelligence, not a classifier, feed ranker, dashboard builder, or chat wrapper.
 
-        Decide what the user should experience now. Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, reports, and conversations are evidence, not UI objects.
+        Decide what the user should experience now. Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, reports, conversations, media attachments, contexts, and feedback are evidence, not UI objects.
+
+        Learned surface preferences are soft evidence from outcomes. Use them only when they improve the current experience. Never mechanically rank or suppress meaning because of them.
 
         Return JSON only:
         {
@@ -75,11 +78,18 @@ module Flyd
             "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate",
             "title": "editorial title",
             "summary": "synthesized content",
-            "renderer": "hero_scene|supporting_card|conversation|document|notification",
+            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media",
             "depth": "foreground|middle|background|receded",
-            "context_refs": [{"type":"project","id":1}],
-            "source_refs": [{"type":"goal","id":"goal:abc"}],
-            "actions": [{"id":"discuss","label":"Discuss","payload":{}}]
+            "context_refs": [{"type":"project|context","id":1}],
+            "source_refs": [{"type":"goal|intent_attachment","id":"goal:abc"}],
+            "actions": [{"id":"discuss","label":"Discuss","payload":{}}],
+            "metadata": {
+              "language": "optional code language",
+              "columns": ["optional", "table", "columns"],
+              "rows": [["optional", "table", "rows"]],
+              "media_type": "image|audio|file",
+              "attachment_id": 1
+            }
           }],
           "relationships": [{
             "from": "semantic-item-id",
