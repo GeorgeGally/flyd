@@ -7,6 +7,10 @@ Rails.application.routes.draw do
     resources :contexts, only: :create
   end
   resources :intent_attachments, only: :show
+  resources :artifacts, only: :show
+  resources :builds, only: :show do
+    post :confirm, on: :member
+  end
 
   resources :surface_items, only: [] do
     post "actions/:action_id", to: "surface_item_actions#create", as: :action
@@ -27,7 +31,7 @@ Rails.application.routes.draw do
 
     resources :conversations, only: [ :show, :create, :destroy ] do
       resources :messages, only: [ :create ]
-      resources :builds, only: [ :create, :show ]
+      resources :builds, only: :create
     end
   end
 
