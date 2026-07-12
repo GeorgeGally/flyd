@@ -47,5 +47,61 @@ class AddScenesArtifactsAndConfirmedBuilds < ActiveRecord::Migration[8.0]
     add_column :builds, :instructions, :text
     add_column :builds, :confirmation_summary, :text
     add_column :builds, :confirmed_at, :datetime
+
+    reversible do |direction|
+      direction.up do
+        execute <<~SQL
+          INSERT INTO scenes (
+            scene_key, kind, status, title, summary, desired_outcome,
+            project_id, context_id, conversation_id, last_presented_at,
+            metadata, created_at, updated_at
+          )
+          SELECT
+            'conversation:' || conversations.id,
+            'conversation',
+            'active',
+            COALESCE(NULLIF(conversations.summary, ''), 'Continue current work'),
+            conversations.summary,
+            conversations.summary,
+            conversations.project_id,
+            conversations.context_id,
+            conversations.id,
+            conversations.updated_at,
+            '{}'::jsonb,
+            conversations.created_at,
+            conversations.updated_at
+          FROM conversations
+          WHERE conversations.active = TRUE
+          ON CONFLICT (scene_key) DO NOTHING
+        SQL
+
+        execute <<~SQL
+          INSERT INTO scenes (
+            scene_key, kind, status, title, summary, last_presented_at,
+            metadata, created_at, updated_at
+          )
+          SELECT DISTINCT ON (surface_items.item_key)
+            surface_items.item_key,
+            CASE WHEN surface_items.kind = 'conversation' THEN 'conversation' ELSE 'work' END,
+            CASE WHEN surface_items.state = 'dismissed' THEN 'dismissed' ELSE 'active' END,
+            surface_items.title,
+            surface_items.summary,
+            surface_items.updated_at,
+            '{}'::jsonb,
+            surface_items.created_at,
+            surface_items.updated_at
+          FROM surface_items
+          ORDER BY surface_items.item_key, surface_items.updated_at DESC
+          ON CONFLICT (scene_key) DO NOTHING
+        SQL
+
+        execute <<~SQL
+          UPDATE surface_items
+          SET scene_id = scenes.id
+          FROM scenes
+          WHERE scenes.scene_key = surface_items.item_key
+        SQL
+      end
+    end
   end
 end
