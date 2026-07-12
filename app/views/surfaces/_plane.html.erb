@@ -1,4 +1,5 @@
-<% project_ids = surface.items.flat_map(&:context_refs).filter_map do |ref|
+<% visible_items = surface.items.reject { |item| %w[dismissed collapsed].include?(item.state) } %>
+<% project_ids = visible_items.flat_map(&:context_refs).filter_map do |ref|
      type = ref["type"] || ref[:type]
      id = ref["id"] || ref[:id]
      id if type == "project"
@@ -6,24 +7,37 @@
 <% surface_projects = Project.where(id: project_ids).index_by(&:id) %>
 
 <section id="surface_plane"
-         class="relative mt-14 grid flex-1 gap-5 md:grid-cols-12"
+         class="relative mt-14 min-h-[60vh] flex-1"
          data-surface-target="plane"
          data-surface-id="<%= surface.id %>"
+         data-surface-focus-key="<%= surface.focus_item_id %>"
          data-surface-intention="<%= surface.current_intention %>">
-  <% surface.items.each do |item| %>
+  <% visible_items.each_with_index do |item, position| %>
     <% dominant = item.item_key == surface.focus_item_id %>
     <% project_ref = item.context_refs.find { |ref| (ref["type"] || ref[:type]) == "project" } %>
     <% project_id = project_ref && (project_ref["id"] || project_ref[:id]) %>
     <% context_project = surface_projects[project_id.to_i] if project_id %>
     <% renderer = SurfaceRenderers::Registry.fetch(item.renderer) %>
-    <% behaviours = item.relationships.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
+    <% outgoing = item.relationships.select { |relationship| (relationship["from"] || relationship[:from]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
+    <% incoming = item.relationships.select { |relationship| (relationship["to"] || relationship[:to]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
+    <% semantic_dom_id = "surface_semantic_#{Digest::SHA256.hexdigest(item.item_key.to_s)[0, 16]}" %>
+    <% placement = if dominant
+         "relative z-20 w-full md:w-[68%]"
+       elsif position == 1
+         "relative z-10 mt-10 w-full md:absolute md:right-0 md:top-6 md:mt-0 md:w-[31%]"
+       else
+         "relative z-0 mt-10 w-full md:absolute md:right-[8%] md:top-[55%] md:mt-0 md:w-[28%]"
+       end %>
 
-    <article class="surface-item transition-all duration-500 <%= dominant ? 'md:col-span-8' : 'md:col-span-4' %>"
+    <article id="<%= semantic_dom_id %>"
+             class="surface-item <%= placement %> transition-all duration-700 ease-out"
              data-surface-target="item"
              data-item-key="<%= item.item_key %>"
              data-depth="<%= item.depth %>"
+             data-state="<%= item.state %>"
              data-renderer="<%= item.renderer %>"
-             data-behaviours="<%= behaviours.join(' ') %>">
+             data-outgoing-behaviours="<%= outgoing.join(' ') %>"
+             data-incoming-behaviours="<%= incoming.join(' ') %>">
       <%= render renderer[:partial], item: item, context_project: context_project, dominant: dominant %>
     </article>
   <% end %>
