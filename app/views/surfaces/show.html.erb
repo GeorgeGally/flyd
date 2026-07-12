@@ -1,16 +1,26 @@
 <%= content_for :title, "Flyd" %>
 <%= turbo_stream_from "flyd_surface" %>
+<% surface_mode = (@surface.metadata["surface_mode"].presence || "quiet").to_s %>
+<% directed_mode = %w[decision investigation action monitoring].include?(surface_mode) %>
 
 <div class="min-h-screen bg-white text-gray-950"
      data-controller="surface<%= ' chat' if @conversation %>"
+     data-surface-mode="<%= surface_mode %>"
      <% if @conversation %>data-chat-conversation-id-value="<%= @conversation.id %>"<% end %>>
   <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-6 md:px-10 md:py-8">
     <header class="flex items-center justify-between">
       <%= link_to "flyd", root_path, class: "text-sm font-semibold tracking-tight" %>
-      <%= link_to "System", projects_path, class: "text-[10px] uppercase tracking-[0.18em] text-gray-300 hover:text-gray-700" %>
+      <div class="flex items-center gap-5">
+        <% unless surface_mode == "quiet" %><span class="text-[10px] uppercase tracking-[0.18em] text-gray-300"><%= surface_mode %></span><% end %>
+        <%= link_to "System", projects_path, class: "text-[10px] uppercase tracking-[0.18em] text-gray-300 hover:text-gray-700" %>
+      </div>
     </header>
 
-    <section class="mt-14 md:mt-20" data-surface-target="intent">
+    <% if directed_mode %>
+      <%= render "surfaces/plane", surface: @surface, active_conversation: nil %>
+    <% end %>
+
+    <section class="<%= directed_mode ? 'mt-auto border-t border-gray-100 pt-5' : 'mt-14 md:mt-20' %>" data-surface-target="intent">
       <% if @conversation %>
         <% message_path = @conversation.project ? project_conversation_messages_path(@conversation.project, @conversation) : conversation_messages_path(@conversation) %>
         <%= form_with url: message_path, scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
@@ -20,7 +30,7 @@
         <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
           <%= form.hidden_field :project_id, value: @preferred_project.id if @preferred_project %>
           <%= form.hidden_field :modality, value: "text" %>
-          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will understand the outcome before assigning context."), chat: false %>
+          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (directed_mode ? "Respond, redirect, or introduce new evidence." : (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will understand the outcome before assigning context.")), chat: false %>
         <% end %>
       <% end %>
 
@@ -54,6 +64,8 @@
       <% end %>
     </section>
 
-    <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
+    <% unless directed_mode %>
+      <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
+    <% end %>
   </div>
 </div>
