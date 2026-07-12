@@ -1,7 +1,20 @@
 class ContextResolver
-  AUTO_ROUTE_THRESHOLD = 0.80
+  AUTO_ROUTE_THRESHOLD = 0.84
+  MIN_SCORE = 5.0
+  MIN_MARGIN = 2.0
+  STOP_WORDS = %w[
+    the and for with from this that have has had into about what when where why how
+    are was were will would should could can just like need want make made fix use
+    our your their its not but all any some more less very then than also across
+  ].freeze
 
-  Result = Data.define(:project, :confidence, :reason, :requires_confirmation)
+  Result = Struct.new(:project, :context, :confidence, :reason, :requires_confirmation, :candidates, keyword_init: true) do
+    def owner
+      project || context
+    end
+  end
+
+  Candidate = Data.define(:type, :record, :score)
 
   def self.call(text:, preferred_project_id: nil)
     new(text:, preferred_project_id:).call
@@ -14,46 +27,90 @@ class ContextResolver
 
   def call
     preferred = Project.active.find_by(id: @preferred_project_id)
-    return Result.new(project: preferred, confidence: 1.0, reason: "active surface context", requires_confirmation: false) if preferred
-
-    projects = Project.active.includes(:decisions, :beliefs).to_a
-    return Result.new(project: nil, confidence: 0.0, reason: "no active projects", requires_confirmation: false) if projects.empty?
-
-    project, raw_score = projects.map { |candidate| [candidate, score(candidate)] }.max_by(&:last)
-    confidence = confidence_for(raw_score)
-
-    if confidence < AUTO_ROUTE_THRESHOLD
+    if preferred
       return Result.new(
-        project: nil,
-        confidence: confidence,
-        reason: "context was ambiguous",
-        requires_confirmation: true
+        project: preferred,
+        context: nil,
+        confidence: 1.0,
+        reason: "explicit active surface context",
+        requires_confirmation: false,
+        candidates: [ Candidate.new(type: "project", record: preferred, score: 100.0) ]
       )
     end
 
+    ranked = rank_candidates
+    return empty_result if ranked.empty?
+
+    best = ranked.first
+    runner_up = ranked.second
+    margin = best.score - runner_up.to_f.then { |value| runner_up ? runner_up.score : 0.0 }
+    confidence = confidence_for(best.score, margin)
+    uniquely_strong = best.score >= MIN_SCORE && margin >= MIN_MARGIN && confidence >= AUTO_ROUTE_THRESHOLD
+
     Result.new(
-      project: project,
+      project: best.type == "project" ? best.record : nil,
+      context: best.type == "context" ? best.record : nil,
       confidence: confidence,
-      reason: "matched project name, description, and remembered context",
-      requires_confirmation: false
+      reason: uniquely_strong ? "uniquely matched named and remembered context" : "context was ambiguous or insufficiently distinct",
+      requires_confirmation: !uniquely_strong,
+      candidates: ranked.first(3)
     )
   end
 
   private
 
-  def score(project)
-    recent_decisions = project.decisions.sort_by(&:created_at).last(5).map(&:content)
-    recent_beliefs = project.beliefs.sort_by(&:updated_at).last(5).map(&:statement)
-    haystack = [project.name, project.description, recent_decisions, recent_beliefs].flatten.compact.join(" ").downcase
-
-    terms = @text.downcase.scan(/[a-z0-9]{3,}/).uniq
-    exact_name_bonus = project.name.present? && @text.downcase.include?(project.name.downcase) ? 4 : 0
-    exact_name_bonus + terms.count { |term| haystack.match?(/\b#{Regexp.escape(term)}\b/) }
+  def empty_result
+    Result.new(
+      project: nil,
+      context: nil,
+      confidence: 0.0,
+      reason: "no active contexts",
+      requires_confirmation: true,
+      candidates: []
+    )
   end
 
-  def confidence_for(raw_score)
-    return 0.0 if raw_score.zero?
+  def rank_candidates
+    project_candidates = Project.active.includes(:decisions, :beliefs).map do |project|
+      Candidate.new(type: "project", record: project, score: project_score(project))
+    end
+    context_candidates = Context.active.map do |context|
+      Candidate.new(type: "context", record: context, score: record_score(context.name, context.description))
+    end
 
-    [0.60 + (raw_score * 0.07), 0.96].min
+    (project_candidates + context_candidates).select { |candidate| candidate.score.positive? }.sort_by { |candidate| -candidate.score }
+  end
+
+  def project_score(project)
+    recent_decisions = project.decisions.sort_by(&:created_at).last(5).map(&:content)
+    recent_beliefs = project.beliefs.sort_by(&:updated_at).last(5).map(&:statement)
+    record_score(project.name, project.description, recent_decisions, recent_beliefs)
+  end
+
+  def record_score(name, *supporting_text)
+    normalized_name = normalize(name)
+    name_terms = terms(normalized_name)
+    support_terms = terms(supporting_text.flatten.compact.join(" "))
+    input_terms = terms(@text)
+    exact_name = normalized_name.present? && @text.downcase.match?(/(?:\A|\b)#{Regexp.escape(normalized_name)}(?:\b|\z)/)
+
+    score = exact_name ? 6.0 : 0.0
+    score += (input_terms & name_terms).length * 2.5
+    score += (input_terms & support_terms).length * 0.75
+    score
+  end
+
+  def terms(value)
+    normalize(value).scan(/[a-z0-9]{3,}/).reject { |term| STOP_WORDS.include?(term) }.uniq
+  end
+
+  def normalize(value)
+    value.to_s.downcase.gsub(/[^a-z0-9\s-]/, " ").squish
+  end
+
+  def confidence_for(score, margin)
+    return 0.0 if score.zero?
+
+    [ 0.55 + (score * 0.045) + ([ margin, 5.0 ].min * 0.035), 0.97 ].min
   end
 end
