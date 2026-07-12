@@ -37,6 +37,7 @@ env:
     - RAILS_MASTER_KEY
   clear:
     ACTIVE_STORAGE_ROOT: /rails/storage
+    REDIS_URL: redis://flyd_v1-redis:6379/0
 
     # Set number of cores available to the application on each server (default: 1).
     # WEB_CONCURRENCY: 2
@@ -82,24 +83,12 @@ builder:
 # ssh:
 #   user: app
 
-# Use accessory services (secrets come from .kamal/secrets).
-# accessories:
-#   db:
-#     image: mysql:8.0
-#     host: 192.168.0.2
-#     port: "127.0.0.1:3306:3306"
-#     env:
-#       clear:
-#         MYSQL_ROOT_HOST: '%'
-#       secret:
-#         - MYSQL_ROOT_PASSWORD
-#     files:
-#       - config/mysql/production.cnf:/etc/mysql/my.cnf
-#     directories:
-#       - data:/var/lib/mysql
-#   redis:
-#     image: redis:7.0
-#     host: 192.168.0.2
-#     port: 6379
-#     directories:
-#       - data:/data
+# Redis backs Sidekiq, composition trigger coalescing, and the production cache.
+accessories:
+  redis:
+    image: redis:7.2-alpine
+    host: 192.168.0.1
+    port: "127.0.0.1:6379:6379"
+    cmd: redis-server --appendonly yes
+    directories:
+      - data:/data
