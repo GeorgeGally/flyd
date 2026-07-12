@@ -1,5 +1,5 @@
 module IntelligenceState
-  Snapshot = Data.define(:source, :generated_at, :fresh, :data, :errors)
+  Snapshot = Data.define(:source, :snapshot_id, :state_digest, :generated_at, :fresh, :data, :errors)
 
   class Provider
     def snapshot
