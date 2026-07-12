@@ -40,7 +40,13 @@ class SurfaceFeedbacksController < ApplicationController
   end
 
   def permitted_payload
-    payload = params[:payload]
-    payload.respond_to?(:permit!) ? payload.permit!.to_h : payload.to_h
+    params.fetch(:payload, {}).permit(
+      :reason,
+      :value,
+      :note,
+      :artifact_id,
+      contexts: [],
+      source_refs: []
+    ).to_h
   end
 end
