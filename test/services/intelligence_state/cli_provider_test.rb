@@ -10,7 +10,7 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     assert record.persisted?
     assert snapshot.fresh
     assert_empty snapshot.errors
-    assert_equal "ship-flyd", snapshot.data[:goals].first["slug"]
+    assert_equal "ship-flyd", snapshot.data[:goals].first.dig("content", "slug")
   end
 
   test "does not create a duplicate snapshot for unchanged state" do
@@ -40,9 +40,7 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     provider = IntelligenceState::CliProvider.new
     provider.persist!(payload(generated_at: 1.hour.ago))
 
-    snapshot = provider.snapshot
-
-    assert_not snapshot.fresh
+    assert_not provider.snapshot.fresh
   end
 
   test "retains usable evidence while exposing a later refresh failure" do
@@ -53,8 +51,8 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     snapshot = provider.snapshot
 
     assert snapshot.fresh
-    assert_equal "ship-flyd", snapshot.data[:goals].first["slug"]
-    assert_equal ["export unavailable"], snapshot.errors
+    assert_equal "ship-flyd", snapshot.data[:goals].first.dig("content", "slug")
+    assert_equal [ "export unavailable" ], snapshot.errors
   end
 
   private
@@ -64,13 +62,26 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
       "version" => "1.0",
       "generatedAt" => generated_at.iso8601,
       "source" => "flyd-cli",
-      "goals" => [{ "slug" => "ship-flyd", "title" => "Ship Flyd" }],
+      "goals" => [ evidence("goal", "goal:ship-flyd", { "slug" => "ship-flyd", "title" => "Ship Flyd" }) ],
       "tensions" => [],
       "signals" => [],
       "curiosity" => [],
       "nudges" => [],
       "reports" => [],
       "recentEvents" => []
+    }
+  end
+
+  def evidence(type, id, content)
+    {
+      "id" => id,
+      "type" => type,
+      "source" => "test",
+      "epistemicStatus" => "user_confirmed",
+      "confidence" => 0.9,
+      "generatedAt" => Time.current.iso8601,
+      "evidenceRefs" => [],
+      "content" => content
     }
   end
 end
