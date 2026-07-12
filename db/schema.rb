@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_12_150000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_160000) do
   enable_extension "pg_catalog.plpgsql"
 
   create_table "behaviours", force: :cascade do |t|
@@ -37,6 +37,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_150000) do
     t.datetime "last_used_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.jsonb "source_decision_ids", default: [], null: false
     t.index ["project_id"], name: "index_beliefs_on_project_id"
   end
 
