@@ -11,35 +11,12 @@ module Subsystems
       format_context(items)
     end
 
-    def extract_decisions(conversation, message_range: 5)
-      recent_messages = conversation.messages.ordered.reject(&:context_superseded?).last(message_range)
-      source_message = recent_messages.reverse.find { |message| message.role == "user" }
-      recent = recent_messages.map(&:content).join("\n")
-      return if recent.blank? || source_message.nil?
+    def extract_decisions(conversation, message_range: 10)
+      visible_messages = conversation.messages.ordered.reject(&:context_superseded?).last(message_range)
+      decision_segments(visible_messages).each do |source_message, segment|
+        next if source_message.metadata["decision_extraction_completed_at"].present?
 
-      prompt = <<~PROMPT
-        Analyze this conversation and extract any decisions or conclusions made.
-        For each decision, return ONLY a JSON array of objects with a "content" field.
-        If no decisions were made, return an empty array: []
-
-        Conversation:
-        #{recent}
-      PROMPT
-
-      begin
-        response = call_llm(prompt)
-        decisions = parse_decisions(response)
-        decisions.each do |decision|
-          @project.decisions.create!(
-            conversation: conversation,
-            source_message: source_message,
-            content: decision["content"],
-            extracted_at: Time.current,
-            confidence: 0.6
-          )
-        end
-      rescue StandardError => error
-        Rails.logger.warn("Decision extraction failed: #{error.message}")
+        extract_segment_decisions(conversation, source_message, segment)
       end
     end
 
@@ -52,6 +29,62 @@ module Subsystems
     end
 
     private
+
+    def decision_segments(messages)
+      segments = []
+      current_source = nil
+      current_messages = []
+
+      messages.each do |message|
+        if message.role == "user"
+          segments << [ current_source, current_messages ] if current_source
+          current_source = message
+          current_messages = [ message ]
+        elsif current_source
+          current_messages << message
+        end
+      end
+      segments << [ current_source, current_messages ] if current_source
+      segments
+    end
+
+    def extract_segment_decisions(conversation, source_message, segment)
+      transcript = segment.map { |message| "#{message.role}: #{message.content}" }.join("\n")
+      return mark_extraction_complete!(source_message) if transcript.blank?
+
+      prompt = <<~PROMPT
+        Analyze this single user-response segment and extract decisions or conclusions made in it.
+        Return ONLY a JSON array of objects with a "content" field.
+        If no decisions were made, return an empty array: []
+
+        Segment:
+        #{transcript}
+      PROMPT
+
+      response = call_llm(prompt)
+      parse_decisions(response).each do |decision|
+        content = decision["content"].to_s.strip
+        next if content.blank?
+        next if @project.decisions.exists?(source_message: source_message, content: content)
+
+        @project.decisions.create!(
+          conversation: conversation,
+          source_message: source_message,
+          content: content,
+          extracted_at: Time.current,
+          confidence: 0.6
+        )
+      end
+      mark_extraction_complete!(source_message)
+    rescue StandardError => error
+      Rails.logger.warn("Decision extraction failed for message #{source_message.id}: #{error.message}")
+    end
+
+    def mark_extraction_complete!(message)
+      message.update!(
+        metadata: message.metadata.merge("decision_extraction_completed_at" => Time.current.iso8601)
+      )
+    end
 
     def fetch_context_items
       decisions = @project.decisions.by_recency.limit(5).to_a
@@ -82,7 +115,7 @@ module Subsystems
     def call_llm(prompt)
       chat = Llm::Chat.new
       chat.call([
-        { role: "system", content: "You extract decisions made in software team conversations. Return ONLY a JSON array of objects with a 'content' field for each decision. If no decisions were made, return: []" },
+        { role: "system", content: "You extract decisions made in one user-response segment. Return ONLY a JSON array of objects with a 'content' field. If no decisions were made, return: []" },
         { role: "user", content: prompt }
       ])
     rescue Llm::Chat::Error => error
