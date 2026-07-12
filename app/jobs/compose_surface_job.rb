@@ -67,12 +67,19 @@ class ComposeSurfaceJob < ApplicationJob
     plan = intelligence.compose_surface
     digest = intelligence.diagnostics.fetch(:state_digest)
     provider_snapshots = intelligence.diagnostics[:provider_snapshots] || []
-    draft = Surfaces::PersistPlan.call(plan: plan, source_state_digest: digest, composition_version: "flyd-3")
+    draft = Surfaces::PersistPlan.call(
+      plan: plan,
+      source_state_digest: digest,
+      composition_version: "flyd-4",
+      active_conversation: conversation,
+      active_intent: intent
+    )
     draft.update!(
       metadata: draft.metadata.merge(
         "composition_reason" => reason,
         "surface_mode" => plan.surface_mode,
-        "provider_snapshots" => provider_snapshots
+        "provider_snapshots" => provider_snapshots,
+        "active_conversation_id" => conversation&.id
       )
     )
     surface = Surface.activate!(draft)
