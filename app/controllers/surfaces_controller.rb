@@ -19,6 +19,7 @@ class SurfacesController < ApplicationController
     explicit = Conversation.includes(:messages, :project, :context).find_by(id: params[:conversation_id])
     return explicit if explicit
     return @intent.conversation if @intent&.conversation
+    return unless conversation_mode?
 
     remembered_id = @surface.metadata["active_conversation_id"]
     remembered = Conversation.includes(:messages, :project, :context).find_by(id: remembered_id)
@@ -30,15 +31,20 @@ class SurfacesController < ApplicationController
     Conversation.continuable.includes(:messages, :project, :context).detect(&:continuable?)
   end
 
+  def conversation_mode?
+    %w[conversation interaction].include?(@surface.metadata["surface_mode"].to_s)
+  end
+
   def prepare_next_surface
     snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)
     RefreshIntelligenceStateJob.enqueue if snapshot.nil? || !snapshot.fresh?
 
-    continuation_changed = @conversation && @surface.metadata["active_conversation_id"].to_i != @conversation.id
-    return unless @surface.stale? || @surface.metadata["fallback"] || continuation_changed
+    explicit_interaction = params[:conversation_id].present? || @intent&.conversation_id.present?
+    interaction_changed = explicit_interaction && @conversation && @surface.metadata["active_conversation_id"].to_i != @conversation.id
+    return unless @surface.stale? || @surface.metadata["fallback"] || interaction_changed
 
     ComposeSurfaceJob.enqueue(
-      reason: continuation_changed ? "continue_active_work" : (@surface.metadata["fallback"] ? "surface_missing" : "surface_stale"),
+      reason: interaction_changed ? "explicit_interaction" : (@surface.metadata["fallback"] ? "surface_missing" : "surface_stale"),
       active_conversation_id: @conversation&.id,
       active_intent_id: @intent&.id
     )
