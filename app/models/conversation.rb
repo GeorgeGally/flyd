@@ -35,6 +35,10 @@ class Conversation < ApplicationRecord
     owner&.name || "Global"
   end
 
+  def visible_messages
+    messages.ordered.reject(&:context_superseded?)
+  end
+
   def supersede_by!(replacement)
     update!(active: false, status: "superseded", superseded_by_conversation: replacement)
   end
