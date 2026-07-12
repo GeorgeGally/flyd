@@ -19,6 +19,8 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     assert_equal "superseded", previous.reload.status
     assert_equal "Prepared next scene", active.surface_items.first.title
     assert_equal "provider_refresh", active.metadata["composition_reason"]
+    assert_equal "compiled-state", active.source_state_digest
+    assert_equal 42, active.metadata.dig("provider_snapshots", 0, "snapshot_id")
     assert_equal "succeeded", SurfaceCompositionLog.last.status
   end
 
@@ -37,6 +39,21 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
         ComposeSurfaceJob.finish_and_enqueue_pending
       end
     end
+  end
+
+  test "broadcast enqueue failure does not turn successful composition into failure" do
+    intelligence = fake_intelligence(build_plan)
+
+    Flyd::Intelligence.stub(:new, intelligence) do
+      BroadcastSurfaceJob.stub(:perform_later, ->(*) { raise ActiveJob::EnqueueError, "queue unavailable" }) do
+        ComposeSurfaceJob.perform_now(reason: "provider_refresh")
+      end
+    end
+
+    log = SurfaceCompositionLog.order(:created_at).last
+    assert_equal "succeeded", log.status
+    assert_equal "queue unavailable", log.metadata["broadcast_enqueue_error"]
+    assert Surface.current.active?
   end
 
   test "failed composition preserves the current active surface" do
@@ -76,7 +93,14 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     Object.new.tap do |intelligence|
       intelligence.define_singleton_method(:compose_surface) { plan }
       intelligence.define_singleton_method(:diagnostics) do
-        { input_characters: 100, output_characters: 80, latency_ms: 12, dropped: [] }
+        {
+          state_digest: "compiled-state",
+          provider_snapshots: [{ "source" => "flyd-cli", "snapshot_id" => 42, "state_digest" => "provider-state", "fresh" => true }],
+          input_characters: 100,
+          output_characters: 80,
+          latency_ms: 12,
+          dropped: []
+        }
       end
     end
   end
