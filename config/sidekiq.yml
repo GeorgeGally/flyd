@@ -5,6 +5,11 @@
       class: ScheduleIntelligenceRefreshJob
       queue: default
       description: "Refresh provider evidence and prepare the next Flyd surface"
+    attachment_cleanup:
+      cron: "17 2 * * *"
+      class: PurgeExpiredIntentAttachmentsJob
+      queue: default
+      description: "Remove expired intent media that is not retained as scene provenance"
     belief_synthesis:
       cron: "0 * * * *"
       class: BeliefSynthesisJob
