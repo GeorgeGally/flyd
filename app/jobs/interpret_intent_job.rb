@@ -58,7 +58,8 @@ class InterpretIntentJob < ApplicationJob
     intent.update!(
       status: "accepted",
       conversation: conversation,
-      resolved_contexts: [{ "type" => context_type, "id" => owner.id, "name" => owner.name }]
+      resolved_contexts: [{ "type" => context_type, "id" => owner.id, "name" => owner.name }],
+      metadata: intent.metadata.merge("source_message_id" => message.id)
     )
 
     LlmStreamingJob.perform_later(conversation.id, message.content)
