@@ -9,7 +9,7 @@ class LlmStreamingJob < ApplicationJob
     messages = conversation.messages.ordered.map do |message|
       { role: message.role, content: message.content }
     end
-    messages.unshift({ role: "system", content: system_prompt(conversation.project, conversation) })
+    messages.unshift({ role: "system", content: system_prompt(conversation) })
 
     provider = Llm::Provider.for(Flyd::KeyLoader.default_model)
     full_response = provider.stream(messages) do |token|
@@ -37,19 +37,24 @@ class LlmStreamingJob < ApplicationJob
 
   private
 
-  def system_prompt(project, conversation)
+  def system_prompt(conversation)
+    owner = conversation.owner
     base = <<~PROMPT
-      You are Flyd, a persistent intelligence working within the context "#{project.name}".
+      You are Flyd, a persistent intelligence working within the context "#{conversation.owner_name}".
       You help with thinking, planning, and building.
       Be concise, direct, and helpful. Use markdown when appropriate.
       The interface is the intelligence expressed: respond with the clearest useful form for the current context rather than assuming chat is the product.
     PROMPT
 
-    base = Subsystems::MemoryEngine.new(project).inject_context_into_prompt(base)
-    last_user_message = conversation.messages.ordered.where(role: "user").last
-    steps = Subsystems::BehaviourEngine.new(project).inject_behaviour_steps(last_user_message.content) if last_user_message
-    if steps
-      base += "\n\n## Detected Behaviour Pattern\nThis conversation matches a known pattern. Suggested steps:\n#{steps.map { |step| "#{step[:step]}. #{step[:action]}" }.join("\n")}\n"
+    if owner.is_a?(Project)
+      base = Subsystems::MemoryEngine.new(owner).inject_context_into_prompt(base)
+      last_user_message = conversation.messages.ordered.where(role: "user").last
+      steps = Subsystems::BehaviourEngine.new(owner).inject_behaviour_steps(last_user_message.content) if last_user_message
+      if steps
+        base += "\n\n## Detected Behaviour Pattern\nThis conversation matches a known pattern. Suggested steps:\n#{steps.map { |step| "#{step[:step]}. #{step[:action]}" }.join("\n")}\n"
+      end
+    elsif owner.is_a?(Context) && owner.description.present?
+      base += "\n\n## Context\n#{owner.description}\n"
     end
 
     base
