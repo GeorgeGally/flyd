@@ -3,8 +3,7 @@ module SurfaceActions
     ACTIONS = {
       "discuss" => { method: :post, route: :discuss },
       "answer" => { method: :post, route: :answer },
-      "approve" => { method: :post, route: :feedback },
-      "reject" => { method: :post, route: :feedback },
+      "build" => { method: :post, route: :build },
       "dismiss" => { method: :post, route: :feedback },
       "resolve" => { method: :post, route: :feedback },
       "inspect_sources" => { method: :get, route: :sources },
@@ -39,10 +38,12 @@ module SurfaceActions
             { "type" => type, "id" => identifier }
           end
           { "contexts" => contexts }
-        when "approve", "reject", "dismiss", "resolve"
+        when "build"
+          { "instructions" => payload["instructions"].to_s.truncate(4_000) }.compact_blank
+        when "dismiss", "resolve"
           {
             "reason" => payload["reason"].to_s.truncate(300),
-            "note" => payload["note"].to_s.truncate(500)
+            "note" => payload["note"].to_s.truncate(1_000)
           }.compact_blank
         else
           {}
