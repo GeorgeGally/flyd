@@ -61,7 +61,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "[data-chat-conversation-id-value='#{conversation.id}']"
     assert_select "form[action='#{conversation_messages_path(conversation)}']"
-    assert_select "span", text: context.name
+    assert_select "span", text: /Current work · Interface sprint/
   end
 
   test "dismissed and collapsed scene items are not rendered" do
