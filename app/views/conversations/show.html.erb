@@ -19,12 +19,13 @@
     </div>
   </div>
 
+  <% visible_messages = @conversation.visible_messages %>
   <div class="flex-1 overflow-y-auto mb-4" data-chat-target="messages">
-    <% if @conversation.messages.any? %>
-      <% @conversation.messages.ordered.each do |message| %>
+    <% if visible_messages.any? %>
+      <% visible_messages.each do |message| %>
         <div class="flex <%= message.role == 'user' ? 'justify-end' : 'justify-start' %> mb-4">
           <div class="max-w-[80%] rounded-lg px-4 py-2 text-sm <%= message.role == 'user' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900' %>">
-            <% if message.role == 'assistant' %>
+            <% if message.role == "assistant" %>
               <%= markdown(message.content) %>
             <% else %>
               <p><%= message.content %></p>
