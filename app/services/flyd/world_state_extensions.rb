@@ -1,5 +1,7 @@
 module Flyd
   class WorldStateExtensions
+    MAX_TOTAL_CHARACTERS = 32_000
+
     def self.call(compiled:, active_intent: nil)
       new(compiled:, active_intent:).call
     end
@@ -7,6 +9,7 @@ module Flyd
     def initialize(compiled:, active_intent:)
       @compiled = compiled
       @active_intent = active_intent
+      @dropped = []
     end
 
     def call
@@ -16,11 +19,15 @@ module Flyd
       state[:active_intent_evidence] = attachment_state(references)
       state[:temporary_contexts] = context_state(references)
       state[:learned_surface_preferences] = preference_state
+      enforce_budget(state)
 
       WorldStateCompiler::Result.new(
         state: state,
         reference_registry: references,
-        diagnostics: @compiled.diagnostics.merge(input_characters: JSON.generate(state).length)
+        diagnostics: @compiled.diagnostics.merge(
+          input_characters: JSON.generate(state).length,
+          dropped: Array(@compiled.diagnostics[:dropped]) + @dropped
+        )
       )
     end
 
@@ -29,7 +36,7 @@ module Flyd
     def attachment_state(references)
       return [] unless @active_intent
 
-      @active_intent.intent_attachments.map do |attachment|
+      @active_intent.intent_attachments.first(5).map do |attachment|
         references << "intent_attachment:#{attachment.id}"
         {
           id: attachment.id,
@@ -37,7 +44,7 @@ module Flyd
           filename: attachment.filename,
           content_type: attachment.content_type,
           byte_size: attachment.byte_size,
-          extracted_text: attachment.extracted_text.to_s.truncate(4_000),
+          extracted_text: attachment.extracted_text.to_s.truncate(2_000),
           metadata: attachment.metadata
         }
       end
@@ -67,6 +74,27 @@ module Flyd
           last_observed_at: preference.last_observed_at&.iso8601
         }
       end
+    end
+
+    def enforce_budget(state)
+      state[:learned_surface_preferences].pop while over_budget?(state) && state[:learned_surface_preferences].any?
+      while over_budget?(state) && state[:temporary_contexts].length > 3
+        dropped = state[:temporary_contexts].pop
+        @dropped << "context:#{dropped[:id]}"
+      end
+      while over_budget?(state) && state[:active_intent_evidence].length > 1
+        dropped = state[:active_intent_evidence].pop
+        @dropped << "intent_attachment:#{dropped[:id]}"
+      end
+      state[:active_intent_evidence].each do |evidence|
+        break unless over_budget?(state)
+
+        evidence[:extracted_text] = evidence[:extracted_text].to_s.truncate(500)
+      end
+    end
+
+    def over_budget?(state)
+      JSON.generate(state).length > MAX_TOTAL_CHARACTERS
     end
   end
 end
