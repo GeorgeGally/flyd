@@ -8,9 +8,19 @@ class PurgeExpiredIntentAttachmentsJob < ApplicationJob
       id if type == "intent_attachment"
     end.map(&:to_i).uniq
 
-    IntentAttachment.expired.where.not(id: protected_ids).find_each do |attachment|
+    IntentAttachment.expired.find_each do |attachment|
       attachment.purge_storage!
-      attachment.destroy!
+      if protected_ids.include?(attachment.id)
+        attachment.update!(
+          data: nil,
+          metadata: attachment.metadata.merge(
+            "storage_purged_at" => Time.current.iso8601,
+            "retained_for_provenance" => true
+          )
+        )
+      else
+        attachment.destroy!
+      end
     end
   end
 end
