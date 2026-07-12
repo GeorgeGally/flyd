@@ -7,6 +7,12 @@ module SurfaceRenderers
       "document" => { partial: "surfaces/renderers/document", kinds: %w[artifact insight decision] },
       "notification" => { partial: "surfaces/renderers/notification", kinds: %w[notification reminder status] }
     }.freeze
+    LEGACY_ALIASES = {
+      "card" => "supporting_card",
+      "build" => "document",
+      "image" => "supporting_card",
+      "timeline" => "supporting_card"
+    }.freeze
 
     class << self
       def ids
@@ -19,7 +25,7 @@ module SurfaceRenderers
       end
 
       def fetch(id)
-        RENDERERS.fetch(id.to_s)
+        RENDERERS.fetch(LEGACY_ALIASES.fetch(id.to_s, id.to_s), RENDERERS.fetch("supporting_card"))
       end
     end
   end
