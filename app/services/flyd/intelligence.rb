@@ -4,30 +4,44 @@ module Flyd
   class Intelligence
     SurfaceItem = Data.define(
       :id, :kind, :intent, :title, :summary, :renderer, :depth,
-      :state, :context_refs, :source_refs, :actions
+      :state, :context_refs, :source_refs, :actions, :relationships, :metadata
     )
-    Surface = Data.define(:generated_at, :understanding, :current_intention, :focus_item_id, :items)
+    Surface = Data.define(
+      :generated_at, :understanding, :current_intention, :surface_mode,
+      :focus_item_id, :items, :relationships
+    )
 
-    ALLOWED_INTENTS = %w[inform ask decide discuss build investigate monitor remind review celebrate].freeze
-    ALLOWED_RENDERERS = %w[hero_scene card conversation document build image timeline notification].freeze
-    ALLOWED_DEPTHS = %w[foreground middle background receded].freeze
-    ALLOWED_KINDS = %w[scene insight decision question conversation artifact build reminder status notification].freeze
+    attr_reader :diagnostics
 
-    def self.compose_surface(active_conversation: nil, fallback: true)
-      new(active_conversation:, fallback:).compose_surface
+    def self.compose_surface(active_conversation: nil, active_intent: nil, fallback: true)
+      new(active_conversation:, active_intent:, fallback:).compose_surface
     end
 
-    def initialize(active_conversation: nil, chat: Llm::Chat.new, state_provider: IntelligenceState::Registry, fallback: true)
+    def initialize(active_conversation: nil, active_intent: nil, chat: Llm::Chat.new, state_provider: IntelligenceState::Registry, fallback: true)
       @active_conversation = active_conversation
+      @active_intent = active_intent
       @chat = chat
       @state_provider = state_provider
       @fallback = fallback
+      @diagnostics = {}
     end
 
     def compose_surface
-      response = @chat.call!(messages)
-      build_surface(parse_json(response))
-    rescue Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError => error
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      compiled = WorldStateCompiler.call(
+        active_conversation: @active_conversation,
+        active_intent: @active_intent,
+        state_provider: @state_provider
+      )
+      response = @chat.call!(messages(compiled.state))
+      payload = parse_json(response)
+      validated = SurfacePlanValidator.call(payload: payload, reference_registry: compiled.reference_registry)
+      @diagnostics = compiled.diagnostics.merge(
+        output_characters: response.to_s.length,
+        latency_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round
+      )
+      build_surface(validated)
+    rescue Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError, SurfacePlanValidator::ValidationError => error
       Rails.logger.warn("Flyd surface composition failed: #{error.message}")
       raise unless @fallback
 
@@ -36,10 +50,10 @@ module Flyd
 
     private
 
-    def messages
+    def messages(state)
       [
         { role: "system", content: system_prompt },
-        { role: "user", content: JSON.generate(state_snapshot) }
+        { role: "user", content: JSON.generate(state) }
       ]
     end
 
@@ -47,82 +61,36 @@ module Flyd
       <<~PROMPT
         You are Flyd. You are the intelligence, not a classifier, feed ranker, dashboard builder, or chat wrapper.
 
-        Given the current state of the user's world, decide what the user should experience now. Synthesize across all evidence, including goals, tensions, curiosity, reports, nudges, events, conversations, beliefs, and decisions. Do not expose records merely because they exist. Do not create one item per project, decision, belief, signal, goal, or event.
+        Decide what the user should experience now. Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, reports, and conversations are evidence, not UI objects.
 
-        First determine:
-        1. What is happening?
-        2. What matters now?
-        3. What are you trying to accomplish with the user?
-        4. What representation best accomplishes that intention?
-
-        Treat provider data as evidence. Provider freshness and errors are part of the state. Stale data may still be useful, but do not present it as current without qualification.
-
-        Return JSON only with this shape:
+        Return JSON only:
         {
-          "understanding": "your concise synthesis of the current situation",
-          "current_intention": "what Flyd is trying to accomplish now",
-          "focus_item_id": "semantic item id or null",
-          "items": [
-            {
-              "id": "new stable semantic item id",
-              "kind": "scene|insight|decision|question|conversation|artifact|build|reminder|status|notification",
-              "intent": "inform|ask|decide|discuss|build|investigate|monitor|remind|review|celebrate",
-              "title": "human editorial title",
-              "summary": "synthesized content, not a database label",
-              "renderer": "hero_scene|card|conversation|document|build|image|timeline|notification",
-              "depth": "foreground|middle|background|receded",
-              "context_refs": [{"type":"project","id":1}],
-              "source_refs": [{"type":"goal","id":"launch-flyd"}],
-              "actions": [{"id":"discuss","label":"Discuss"}]
-            }
-          ]
+          "understanding": "concise synthesis",
+          "current_intention": "what Flyd is trying to accomplish",
+          "surface_mode": "idle|interaction|decision|build|monitoring",
+          "focus_item_id": "a semantic item id or null",
+          "items": [{
+            "id": "new semantic id",
+            "kind": "scene|insight|decision|question|conversation|artifact|reminder|status|notification",
+            "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate",
+            "title": "editorial title",
+            "summary": "synthesized content",
+            "renderer": "hero_scene|supporting_card|conversation|document|notification",
+            "depth": "foreground|middle|background|receded",
+            "context_refs": [{"type":"project","id":1}],
+            "source_refs": [{"type":"goal","id":"goal:abc"}],
+            "actions": [{"id":"discuss","label":"Discuss","payload":{}}]
+          }],
+          "relationships": [{
+            "from": "semantic-item-id",
+            "to": "semantic-item-id",
+            "behaviour": "join|yield|recede|leave|replace|collapse|return",
+            "reason": "brief semantic reason"
+          }]
         }
 
-        Maximum three visible items. Item ids may be newly created semantic ids. Context and source references must use ids present in the state snapshot. Use source_refs for provenance, not as the organizing principle. Do not include private reasoning.
+        Maximum three items. Item ids are created by you. Context and source references must use exact ids present in the supplied state. Only use the listed renderers and capabilities. Do not include private reasoning.
       PROMPT
-    end
-
-    def state_snapshot
-      projects = Project.active.includes(:decisions, :beliefs, conversations: :messages).order(updated_at: :desc).limit(12)
-
-      {
-        generated_at: Time.current.iso8601,
-        active_interaction: conversation_snapshot,
-        capabilities: %w[text conversation scene card document build notification],
-        intelligence_state: @state_provider.snapshot,
-        projects: projects.map { |project| project_snapshot(project) }
-      }
-    end
-
-    def project_snapshot(project)
-      {
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        updated_at: project.updated_at&.iso8601,
-        decisions: project.decisions.sort_by(&:created_at).last(8).map do |decision|
-          { id: decision.id, content: decision.content, confidence: decision.confidence, created_at: decision.created_at&.iso8601 }
-        end,
-        beliefs: project.beliefs.sort_by(&:updated_at).last(8).map do |belief|
-          { id: belief.id, statement: belief.statement, confidence: belief.confidence, status: belief.status, updated_at: belief.updated_at&.iso8601 }
-        end,
-        recent_messages: project.conversations.flat_map(&:messages).sort_by(&:created_at).last(10).map do |message|
-          { id: message.id, role: message.role, content: message.content.to_s.truncate(600), created_at: message.created_at&.iso8601 }
-        end
-      }
-    end
-
-    def conversation_snapshot
-      return nil unless @active_conversation
-
-      {
-        id: @active_conversation.id,
-        project_id: @active_conversation.project_id,
-        summary: @active_conversation.summary,
-        messages: @active_conversation.messages.ordered.last(12).map do |message|
-          { id: message.id, role: message.role, content: message.content.to_s.truncate(800) }
-        end
-      }
     end
 
     def parse_json(response)
@@ -132,53 +100,35 @@ module Flyd
     end
 
     def build_surface(payload)
-      items = Array(payload.fetch("items")).first(3).map { |item| build_item(item) }
-      focus_id = payload["focus_item_id"]
-      focus_id = items.first&.id unless items.any? { |item| item.id == focus_id }
+      relationships = Array(payload.fetch("relationships"))
+      items = Array(payload.fetch("items")).map do |item|
+        item_relationships = relationships.select { |relationship| relationship["from"] == item["id"] || relationship["to"] == item["id"] }
+        SurfaceItem.new(
+          id: item.fetch("id"),
+          kind: item.fetch("kind"),
+          intent: item.fetch("intent"),
+          title: item.fetch("title"),
+          summary: item.fetch("summary"),
+          renderer: item.fetch("renderer"),
+          depth: item.fetch("depth"),
+          state: item.fetch("state"),
+          context_refs: item.fetch("context_refs"),
+          source_refs: item.fetch("source_refs"),
+          actions: item.fetch("actions"),
+          relationships: item_relationships,
+          metadata: item.fetch("metadata")
+        )
+      end
 
       Surface.new(
         generated_at: Time.current,
-        understanding: payload.fetch("understanding").to_s,
-        current_intention: payload.fetch("current_intention").to_s,
-        focus_item_id: focus_id,
-        items: items
+        understanding: payload.fetch("understanding"),
+        current_intention: payload.fetch("current_intention"),
+        surface_mode: payload.fetch("surface_mode"),
+        focus_item_id: payload.fetch("focus_item_id"),
+        items: items,
+        relationships: relationships
       )
-    end
-
-    def build_item(item)
-      kind = allowed!(item.fetch("kind"), ALLOWED_KINDS, "kind")
-      intent = allowed!(item.fetch("intent"), ALLOWED_INTENTS, "intent")
-      renderer = allowed!(item.fetch("renderer"), ALLOWED_RENDERERS, "renderer")
-      depth = allowed!(item.fetch("depth"), ALLOWED_DEPTHS, "depth")
-
-      SurfaceItem.new(
-        id: item.fetch("id").to_s,
-        kind:, intent:,
-        title: item.fetch("title").to_s,
-        summary: item.fetch("summary").to_s,
-        renderer:, depth:, state: "presented",
-        context_refs: valid_refs(item["context_refs"]),
-        source_refs: valid_refs(item["source_refs"]),
-        actions: Array(item["actions"]).filter_map { |action| valid_action(action) }
-      )
-    end
-
-    def allowed!(value, allowed, field)
-      value = value.to_s
-      raise ArgumentError, "Invalid #{field}: #{value}" unless allowed.include?(value)
-      value
-    end
-
-    def valid_refs(refs)
-      Array(refs).filter_map do |ref|
-        next unless ref.is_a?(Hash) && ref["type"].present? && ref["id"].present?
-        { type: ref["type"].to_s, id: ref["id"] }
-      end
-    end
-
-    def valid_action(action)
-      return unless action.is_a?(Hash) && action["id"].present? && action["label"].present?
-      { id: action["id"].to_s, label: action["label"].to_s }
     end
 
     def fallback_surface
@@ -187,15 +137,17 @@ module Flyd
         title: "What deserves your attention?",
         summary: "Tell Flyd what is happening. The surface will reorganize around the context.",
         renderer: "hero_scene", depth: "foreground", state: "presented",
-        context_refs: [], source_refs: [], actions: []
+        context_refs: [], source_refs: [], actions: [], relationships: [], metadata: {}
       )
 
       Surface.new(
         generated_at: Time.current,
         understanding: "Flyd could not compose a contextual surface.",
         current_intention: "Remain available without pretending records are intelligence.",
+        surface_mode: "idle",
         focus_item_id: item.id,
-        items: [item]
+        items: [ item ],
+        relationships: []
       )
     end
   end
