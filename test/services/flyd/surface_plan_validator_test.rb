@@ -35,6 +35,45 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/Unsupported action/, error.message)
   end
 
+  test "media metadata must bind to an explicit retained attachment source" do
+    payload = valid_payload
+    item = payload[:items].first
+    item[:kind] = "artifact"
+    item[:renderer] = "media"
+    item[:metadata] = { media_type: "image", attachment_id: 99 }
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: [ "project:1", "goal:goal:ship", "intent_attachment:99" ]
+      )
+    end
+
+    assert_match(/explicit source reference/, error.message)
+
+    item[:source_refs] << { type: "intent_attachment", id: 99 }
+    result = Flyd::SurfacePlanValidator.call(
+      payload: payload,
+      reference_registry: [ "project:1", "goal:goal:ship", "intent_attachment:99" ]
+    )
+    assert_equal 99, result["items"].first.dig("metadata", "attachment_id")
+  end
+
+  test "context-correction payloads may reference only compiled contexts" do
+    payload = valid_payload
+    payload[:items].first[:actions] = [{
+      id: "correct_context",
+      label: "Correct",
+      payload: { contexts: [{ type: "project", id: 999 }] }
+    }]
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
+    end
+
+    assert_match(/Unknown correction context/, error.message)
+  end
+
   private
 
   def valid_payload
