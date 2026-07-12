@@ -5,7 +5,7 @@ export default class extends Controller {
 
   focusIntent() {
     this.element.dataset.intentActive = "true"
-    this.applyFocusedLayout(true)
+    this.applySemanticLayout(true)
   }
 
   releaseIntent(event) {
@@ -13,7 +13,7 @@ export default class extends Controller {
     window.setTimeout(() => {
       if (!this.intentTarget.contains(document.activeElement)) {
         delete this.element.dataset.intentActive
-        this.applyFocusedLayout(false)
+        this.applySemanticLayout(false)
       }
     }, 0)
   }
@@ -24,14 +24,21 @@ export default class extends Controller {
     input.style.height = `${Math.min(input.scrollHeight, 260)}px`
   }
 
-  applyFocusedLayout(active) {
-    this.itemTargets.forEach((item, index) => {
-      item.classList.toggle("md:col-span-7", active && index === 0)
-      item.classList.toggle("md:col-span-3", active && index > 0)
-      item.classList.toggle("opacity-45", active && index > 1)
-      item.classList.toggle("translate-x-3", active && index > 0)
-      item.classList.toggle("md:col-span-8", !active && index === 0)
-      item.classList.toggle("md:col-span-4", !active && index > 0)
+  applySemanticLayout(active) {
+    this.itemTargets.forEach((item) => {
+      const behaviours = (item.dataset.behaviours || "").split(" ")
+      const depth = item.dataset.depth
+      const yields = behaviours.includes("yield") || behaviours.includes("recede") || depth === "background" || depth === "receded"
+      const joins = behaviours.includes("join") || depth === "foreground"
+      const leaves = behaviours.includes("leave")
+
+      item.classList.toggle("md:col-span-7", active && joins)
+      item.classList.toggle("md:col-span-3", active && yields)
+      item.classList.toggle("opacity-40", active && yields)
+      item.classList.toggle("translate-x-3", active && yields)
+      item.classList.toggle("pointer-events-none", active && leaves)
+      item.classList.toggle("opacity-0", active && leaves)
+      item.classList.toggle("blur-[1px]", active && depth === "receded")
     })
   }
 }
