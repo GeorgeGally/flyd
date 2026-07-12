@@ -12,12 +12,35 @@ class Subsystems::MemoryEngineTest < ActiveSupport::TestCase
 
     @conversation.messages.create!(role: "user", content: "Let's use PostgreSQL")
     @conversation.messages.create!(role: "assistant", content: "Agreed, PostgreSQL is the right choice")
-    @conversation.messages.create!(role: "user", content: "We'll use uuid primary keys")
+    source_message = @conversation.messages.create!(role: "user", content: "We'll use uuid primary keys")
 
     @engine.extract_decisions(@conversation, message_range: 5)
     assert @project.decisions.count >= 1
     assert @project.decisions.first.content.present?
     assert @project.decisions.first.extracted_at.present?
+    assert_equal source_message, @project.decisions.first.source_message
+  end
+
+  test "extract_decisions ignores superseded message segments" do
+    superseded = @conversation.messages.create!(
+      role: "user",
+      content: "Use the wrong database",
+      metadata: { "context_superseded" => true }
+    )
+    @conversation.messages.create!(
+      role: "assistant",
+      content: "Wrong response",
+      metadata: { "context_superseded" => true }
+    )
+    current = @conversation.messages.create!(role: "user", content: "Use PostgreSQL")
+
+    @engine.stub(:call_llm, '[{"content":"Use PostgreSQL"}]') do
+      @engine.extract_decisions(@conversation)
+    end
+
+    decision = @project.decisions.last
+    assert_equal current, decision.source_message
+    assert_not_equal superseded, decision.source_message
   end
 
   test "relevant_context formats project decisions" do
