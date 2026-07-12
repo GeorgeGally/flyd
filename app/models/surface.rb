@@ -75,8 +75,8 @@ class Surface < ApplicationRecord
         focus_item_key: "continue",
         generated_at: Time.current,
         valid_until: DEFAULT_VALIDITY.from_now,
-        composition_version: "fallback-2",
-        metadata: { "fallback" => true, "surface_mode" => "idle" }
+        composition_version: "fallback-3",
+        metadata: { "fallback" => true, "surface_mode" => "quiet" }
       )
 
       surface.surface_items.create!(
