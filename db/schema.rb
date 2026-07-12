@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -40,6 +40,28 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
     t.bigint "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "artifacts", force: :cascade do |t|
+    t.bigint "scene_id", null: false
+    t.bigint "project_id"
+    t.bigint "context_id"
+    t.bigint "conversation_id"
+    t.bigint "build_id"
+    t.string "kind", null: false
+    t.string "status", default: "ready", null: false
+    t.string "title", null: false
+    t.text "content"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["build_id"], name: "index_artifacts_on_build_id"
+    t.index ["context_id"], name: "index_artifacts_on_context_id"
+    t.index ["conversation_id"], name: "index_artifacts_on_conversation_id"
+    t.index ["kind", "status"], name: "index_artifacts_on_kind_and_status"
+    t.index ["project_id"], name: "index_artifacts_on_project_id"
+    t.index ["scene_id", "created_at"], name: "index_artifacts_on_scene_id_and_created_at"
+    t.index ["scene_id"], name: "index_artifacts_on_scene_id"
   end
 
   create_table "behaviours", force: :cascade do |t|
@@ -81,8 +103,17 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
     t.datetime "completed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "scene_id"
+    t.bigint "artifact_id"
+    t.bigint "requested_by_surface_item_id"
+    t.text "instructions"
+    t.text "confirmation_summary"
+    t.datetime "confirmed_at"
+    t.index ["artifact_id"], name: "index_builds_on_artifact_id"
     t.index ["conversation_id"], name: "index_builds_on_conversation_id"
     t.index ["project_id"], name: "index_builds_on_project_id"
+    t.index ["requested_by_surface_item_id"], name: "index_builds_on_requested_by_surface_item_id"
+    t.index ["scene_id"], name: "index_builds_on_scene_id"
   end
 
   create_table "capture_imports", force: :cascade do |t|
@@ -256,6 +287,33 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
     t.index ["name"], name: "index_projects_on_name", unique: true
   end
 
+  create_table "scenes", force: :cascade do |t|
+    t.string "scene_key", null: false
+    t.string "kind", default: "work", null: false
+    t.string "status", default: "active", null: false
+    t.string "title", null: false
+    t.text "summary"
+    t.text "desired_outcome"
+    t.text "resolution_summary"
+    t.bigint "project_id"
+    t.bigint "context_id"
+    t.bigint "conversation_id"
+    t.bigint "intent_id"
+    t.datetime "last_presented_at"
+    t.datetime "resolved_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "resolved_artifact_id"
+    t.index ["context_id"], name: "index_scenes_on_context_id"
+    t.index ["conversation_id"], name: "index_scenes_on_conversation_id"
+    t.index ["intent_id"], name: "index_scenes_on_intent_id"
+    t.index ["project_id"], name: "index_scenes_on_project_id"
+    t.index ["resolved_artifact_id"], name: "index_scenes_on_resolved_artifact_id"
+    t.index ["scene_key"], name: "index_scenes_on_scene_key", unique: true
+    t.index ["status", "updated_at"], name: "index_scenes_on_status_and_updated_at"
+  end
+
   create_table "surface_composition_logs", force: :cascade do |t|
     t.bigint "surface_id"
     t.string "reason"
@@ -305,6 +363,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "scene_id"
+    t.index ["scene_id"], name: "index_surface_items_on_scene_id"
     t.index ["surface_id", "item_key"], name: "index_surface_items_on_surface_id_and_item_key", unique: true
     t.index ["surface_id", "position"], name: "index_surface_items_on_surface_id_and_position"
     t.index ["surface_id"], name: "index_surface_items_on_surface_id"
@@ -346,10 +406,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "artifacts", "builds"
+  add_foreign_key "artifacts", "contexts"
+  add_foreign_key "artifacts", "conversations"
+  add_foreign_key "artifacts", "projects"
+  add_foreign_key "artifacts", "scenes"
   add_foreign_key "behaviours", "projects"
   add_foreign_key "beliefs", "projects"
+  add_foreign_key "builds", "artifacts"
   add_foreign_key "builds", "conversations"
   add_foreign_key "builds", "projects"
+  add_foreign_key "builds", "scenes"
+  add_foreign_key "builds", "surface_items", column: "requested_by_surface_item_id"
   add_foreign_key "context_corrections", "intents"
   add_foreign_key "context_corrections", "surface_items"
   add_foreign_key "conversations", "contexts"
@@ -363,9 +431,15 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_170000) do
   add_foreign_key "intents", "surfaces", column: "origin_surface_id"
   add_foreign_key "intents", "surfaces", column: "result_surface_id"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "scenes", "artifacts", column: "resolved_artifact_id"
+  add_foreign_key "scenes", "contexts"
+  add_foreign_key "scenes", "conversations"
+  add_foreign_key "scenes", "intents"
+  add_foreign_key "scenes", "projects"
   add_foreign_key "surface_composition_logs", "surfaces"
   add_foreign_key "surface_feedbacks", "surface_items"
   add_foreign_key "surface_feedbacks", "surfaces"
+  add_foreign_key "surface_items", "scenes"
   add_foreign_key "surface_items", "surfaces"
   add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
 end
