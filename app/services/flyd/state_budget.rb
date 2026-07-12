@@ -2,6 +2,8 @@ module Flyd
   class StateBudget
     BudgetExceeded = Class.new(StandardError)
     Result = Data.define(:state, :dropped)
+    Candidate = Data.define(:path, :array, :depth)
+    PROTECTED_ARRAY_KEYS = %w[capabilities renderers providers].freeze
 
     def self.call(state:, budget:)
       new(state:, budget:).call
@@ -22,11 +24,11 @@ module Flyd
       end
 
       until within_budget?
-        path, array = largest_prunable_array(@state)
-        break unless array
+        candidate = deepest_prunable_array(@state)
+        break unless candidate
 
-        removed = array.pop
-        @dropped << "#{path}:#{identifier_for(removed)}"
+        removed = candidate.array.pop
+        @dropped << "#{candidate.path}:#{identifier_for(removed)}"
       end
 
       raise BudgetExceeded, "Compiled world state exceeds #{@budget} characters" unless within_budget?
@@ -55,20 +57,29 @@ module Flyd
       end
     end
 
-    def largest_prunable_array(value, path = "state", candidates = [])
+    def deepest_prunable_array(value, path = "state", depth = 0, candidates = [])
       case value
       when Hash
         value.each do |key, nested|
-          next if %i[capabilities renderers].include?(key.to_sym)
-
-          largest_prunable_array(nested, "#{path}.#{key}", candidates)
+          deepest_prunable_array(nested, "#{path}.#{key}", depth + 1, candidates)
         end
       when Array
-        candidates << [ path, value ] if value.any?
-        value.each_with_index { |nested, index| largest_prunable_array(nested, "#{path}[#{index}]", candidates) }
+        value.each_with_index do |nested, index|
+          deepest_prunable_array(nested, "#{path}[#{index}]", depth + 1, candidates)
+        end
+        candidates << Candidate.new(path: path, array: value, depth: depth) if prunable?(path, value)
       end
 
-      candidates.max_by { |_candidate_path, array| JSON.generate(array.last).length }
+      candidates.max_by do |candidate|
+        [ candidate.depth, JSON.generate(candidate.array.last).length ]
+      end
+    end
+
+    def prunable?(path, array)
+      return false if array.empty?
+
+      key = path.split(".").last.to_s.sub(/\[\d+\]\z/, "")
+      !PROTECTED_ARRAY_KEYS.include?(key)
     end
 
     def identifier_for(value)
