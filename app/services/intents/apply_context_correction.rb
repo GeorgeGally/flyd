@@ -31,7 +31,7 @@ module Intents
 
       new_conversation = Conversation.start!(owner, summary: effective_text.truncate(120))
       message = new_conversation.messages.create!(role: "user", content: effective_text)
-      reassign_project_decisions(old_conversation, new_conversation) if owner.is_a?(Project)
+      reassign_project_decisions(old_conversation, new_conversation, message) if owner.is_a?(Project)
       old_conversation&.supersede_by!(new_conversation)
 
       @intent.update!(
@@ -64,12 +64,13 @@ module Intents
       parts.compact_blank.join("\n\n").presence || "#{@intent.modality} attachment requiring interpretation"
     end
 
-    def reassign_project_decisions(old_conversation, new_conversation)
+    def reassign_project_decisions(old_conversation, new_conversation, source_message)
       return unless old_conversation
 
       old_conversation.decisions.update_all(
         conversation_id: new_conversation.id,
         project_id: new_conversation.project_id,
+        source_message_id: source_message.id,
         updated_at: Time.current
       )
     end
