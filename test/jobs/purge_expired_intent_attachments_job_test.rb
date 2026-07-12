@@ -12,8 +12,9 @@ class PurgeExpiredIntentAttachmentsJobTest < ActiveJob::TestCase
     assert_not ActiveStorage::Blob.exists?(blob_id)
   end
 
-  test "retains expired media still referenced by a surface scene" do
+  test "retains referenced provenance while purging expired media bytes" do
     attachment = stored_attachment(expires_at: 1.minute.ago, checksum: "protected")
+    blob_id = attachment.file.blob.id
     surface = Surface.fallback!
     surface.items.first.update!(source_refs: [{ "type" => "intent_attachment", "id" => attachment.id }])
 
@@ -21,7 +22,11 @@ class PurgeExpiredIntentAttachmentsJobTest < ActiveJob::TestCase
       PurgeExpiredIntentAttachmentsJob.perform_now
     end
 
-    assert attachment.reload.file.attached?
+    attachment.reload
+    assert_not attachment.file.attached?
+    assert_not ActiveStorage::Blob.exists?(blob_id)
+    assert attachment.metadata["retained_for_provenance"]
+    assert attachment.metadata["storage_purged_at"].present?
   end
 
   private
