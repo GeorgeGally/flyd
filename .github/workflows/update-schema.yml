@@ -1,0 +1,52 @@
+name: Update generated schema
+
+on:
+  push:
+    branches: [ agent/intelligence-surface ]
+
+permissions:
+  contents: write
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flyd_v1_test
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready -U postgres -d flyd_v1_test" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/flyd_v1_test
+      SECRET_KEY_BASE: test-secret-key-base
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/intelligence-surface
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
+
+      - name: Generate schema from all migrations
+        run: bin/rails db:drop db:create db:migrate
+
+      - name: Commit generated schema when changed
+        run: |
+          if git diff --quiet -- db/schema.rb; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/schema.rb
+          git commit -m "db: regenerate schema through scenes and artifacts"
+          git push origin HEAD:agent/intelligence-surface
