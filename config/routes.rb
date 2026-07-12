@@ -6,6 +6,7 @@ Rails.application.routes.draw do
     resources :context_corrections, only: :create
     resources :contexts, only: :create
   end
+  resources :intent_attachments, only: :show
 
   resources :surface_items, only: [] do
     post "actions/:action_id", to: "surface_item_actions#create", as: :action
