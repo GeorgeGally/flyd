@@ -18,7 +18,7 @@ class Surface < ApplicationRecord
 
   class << self
     def current
-      active.includes(:surface_items).newest_first.first
+      active.includes(surface_items: :scene).newest_first.first
     end
 
     def fallback!
@@ -60,6 +60,14 @@ class Surface < ApplicationRecord
     end
 
     def create_fallback!
+      scene = Scene.find_or_create_by!(scene_key: "continue") do |record|
+        record.kind = "work"
+        record.status = "active"
+        record.title = "What deserves your attention?"
+        record.summary = "Tell Flyd what is happening. The surface will reorganize around the context."
+      end
+      scene.update!(last_presented_at: Time.current)
+
       surface = create!(
         status: "draft",
         understanding: "Flyd is ready but has not prepared a contextual surface yet.",
@@ -67,19 +75,20 @@ class Surface < ApplicationRecord
         focus_item_key: "continue",
         generated_at: Time.current,
         valid_until: DEFAULT_VALIDITY.from_now,
-        composition_version: "fallback-1",
+        composition_version: "fallback-2",
         metadata: { "fallback" => true, "surface_mode" => "idle" }
       )
 
       surface.surface_items.create!(
+        scene: scene,
         item_key: "continue",
         kind: "scene",
         intent: "discuss",
         renderer: "hero_scene",
         depth: "foreground",
         state: "presented",
-        title: "What deserves your attention?",
-        summary: "Tell Flyd what is happening. The surface will reorganize around the context.",
+        title: scene.title,
+        summary: scene.summary,
         position: 0
       )
 
