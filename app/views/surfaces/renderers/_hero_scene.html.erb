@@ -1,0 +1,11 @@
+<div class="flex h-full min-h-72 flex-col justify-between border-t border-gray-950 py-6 md:min-h-96">
+  <div>
+    <div class="mb-10 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+      <span><%= item.intent %></span>
+      <% if context_project %><span><%= context_project.name %></span><% end %>
+    </div>
+    <h2 class="max-w-4xl text-3xl font-medium leading-[1.05] md:text-6xl"><%= item.title %></h2>
+    <p class="mt-7 max-w-2xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
+  </div>
+  <%= render "surfaces/actions", item: item, context_project: context_project %>
+</div>
