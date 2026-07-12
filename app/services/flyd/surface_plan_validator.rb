@@ -1,3 +1,5 @@
+require "set"
+
 module Flyd
   class SurfacePlanValidator
     ValidationError = Class.new(StandardError)
@@ -5,6 +7,7 @@ module Flyd
     MAX_TITLE = 180
     MAX_SUMMARY = 2_000
     ALLOWED_BEHAVIOURS = %w[join yield recede leave replace collapse return].freeze
+    ALLOWED_MODES = %w[idle interaction decision build monitoring].freeze
 
     def self.call(payload:, reference_registry:)
       new(payload:, reference_registry:).call
@@ -17,20 +20,26 @@ module Flyd
     end
 
     def call
+      understanding = required_text("understanding", 1_000)
+      current_intention = required_text("current_intention", 600)
+      mode = @payload["surface_mode"].presence || "idle"
+      @errors << "Unsupported surface mode: #{mode}" unless ALLOWED_MODES.include?(mode)
+
       items = Array(@payload["items"]).first(MAX_ITEMS).map { |item| validate_item(item) }
+      @errors << "Surface requires at least one item" if items.empty?
       ids = items.map { |item| item.fetch("id") }
       @errors << "Surface item ids must be unique" unless ids.uniq.length == ids.length
 
       focus = @payload["focus_item_id"]
       @errors << "Focus item does not exist" if focus.present? && !ids.include?(focus.to_s)
 
-      relationships = Array(@payload["relationships"]).filter_map { |relationship| validate_relationship(relationship, ids) }
+      relationships = Array(@payload["relationships"]).map { |relationship| validate_relationship(relationship, ids) }
       raise ValidationError, @errors.join("; ") if @errors.any?
 
       {
-        "understanding" => required_text("understanding", 1_000),
-        "current_intention" => required_text("current_intention", 600),
-        "surface_mode" => @payload["surface_mode"].presence || "idle",
+        "understanding" => understanding,
+        "current_intention" => current_intention,
+        "surface_mode" => mode,
         "focus_item_id" => focus.presence || ids.first,
         "items" => items,
         "relationships" => relationships
@@ -44,7 +53,12 @@ module Flyd
       id = item["id"].to_s
       kind = item["kind"].to_s
       renderer = item["renderer"].to_s
+      title = item["title"].to_s
+      summary = item["summary"].to_s
+
       @errors << "Item id is required" if id.blank?
+      @errors << "Item title is required for #{id}" if title.blank?
+      @errors << "Item summary is required for #{id}" if summary.blank?
       @errors << "Unsupported kind: #{kind}" unless SurfaceItem::KINDS.include?(kind)
       @errors << "Unsupported intent: #{item["intent"]}" unless SurfaceItem::INTENTS.include?(item["intent"].to_s)
       @errors << "Unsupported renderer: #{renderer} for #{kind}" unless SurfaceRenderers::Registry.supported?(renderer, kind: kind)
@@ -54,8 +68,8 @@ module Flyd
         "id" => id,
         "kind" => kind,
         "intent" => item["intent"].to_s,
-        "title" => item["title"].to_s.truncate(MAX_TITLE),
-        "summary" => item["summary"].to_s.truncate(MAX_SUMMARY),
+        "title" => title.truncate(MAX_TITLE),
+        "summary" => summary.truncate(MAX_SUMMARY),
         "renderer" => renderer,
         "depth" => item["depth"].to_s,
         "state" => "presented",
@@ -67,25 +81,19 @@ module Flyd
     end
 
     def valid_refs(refs)
-      Array(refs).filter_map do |ref|
+      Array(refs).map do |ref|
         ref = ref.to_h.deep_stringify_keys
         key = "#{ref["type"]}:#{ref["id"]}"
-        unless @reference_registry.include?(key)
-          @errors << "Unknown reference: #{key}"
-          next
-        end
+        @errors << "Unknown reference: #{key}" unless @reference_registry.include?(key)
         { "type" => ref["type"].to_s, "id" => ref["id"] }
       end
     end
 
     def valid_actions(actions)
-      Array(actions).filter_map do |action|
+      Array(actions).map do |action|
         action = action.to_h.deep_stringify_keys
         id = action["id"].to_s
-        unless SurfaceActions::Registry.supported?(id)
-          @errors << "Unsupported action: #{id}"
-          next
-        end
+        @errors << "Unsupported action: #{id}" unless SurfaceActions::Registry.supported?(id)
         { "id" => id, "label" => action["label"].presence || id.humanize, "payload" => action["payload"].to_h }
       end
     end
