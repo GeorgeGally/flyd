@@ -14,13 +14,13 @@
       <% if @conversation %>
         <% message_path = @conversation.project ? project_conversation_messages_path(@conversation.project, @conversation) : conversation_messages_path(@conversation) %>
         <%= form_with url: message_path, scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
-          <%= render "surfaces/intent_field", form: form, field_name: :content, context_label: "Context: #{@conversation.owner_name}", chat: true %>
+          <%= render "surfaces/intent_field", form: form, field_name: :content, context_label: "Continuing #{@conversation.owner_name}", chat: true %>
         <% end %>
       <% else %>
         <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
           <%= form.hidden_field :project_id, value: @preferred_project.id if @preferred_project %>
           <%= form.hidden_field :modality, value: "text" %>
-          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will infer the context."), chat: false %>
+          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will understand the outcome before assigning context."), chat: false %>
         <% end %>
       <% end %>
 
@@ -52,30 +52,8 @@
           </details>
         </div>
       <% end %>
-
-      <% if @conversation %>
-        <div class="mt-8 max-w-3xl border-l border-gray-200 pl-5">
-          <div class="mb-5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
-            <span><%= @conversation.owner_name %></span>
-            <% history_path = @conversation.project ? project_conversation_path(@conversation.project, @conversation) : conversation_path(@conversation) %>
-            <%= link_to "Full history", history_path, class: "hover:text-gray-900" %>
-          </div>
-          <div class="flex flex-col-reverse gap-5" data-chat-target="messages">
-            <% @conversation.visible_messages.last(8).each do |message| %>
-              <div>
-                <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400"><%= message.role %></div>
-                <div class="text-sm leading-6 text-gray-800"><%= message.role == "assistant" ? markdown(message.content) : simple_format(message.content) %></div>
-              </div>
-            <% end %>
-            <div class="hidden" data-chat-target="streamingMessage">
-              <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400">assistant</div>
-              <div class="text-sm leading-6 text-gray-800" data-chat-target="streamingContent"></div>
-            </div>
-          </div>
-        </div>
-      <% end %>
     </section>
 
-    <%= render "surfaces/plane", surface: @surface %>
+    <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
   </div>
 </div>
