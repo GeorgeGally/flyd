@@ -32,10 +32,11 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     fill_in "What is this context?", with: "Resolve the interaction model without creating a project."
     click_on "Create"
 
-    conversation = intent.reload.conversation
+    context = Context.find_by!(name: "Interface sprint")
+    conversation = Conversation.active_for(context).first!
     assert_text "INTERFACE SPRINT"
     assert_selector "form[action='#{conversation_messages_path(conversation)}']"
-    assert_equal "Interface sprint", conversation.context.name
+    assert_equal conversation, intent.reload.conversation
     assert_nil conversation.project
   end
 
