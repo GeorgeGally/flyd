@@ -1,5 +1,5 @@
 class Message < ApplicationRecord
-  belongs_to :conversation
+  belongs_to :conversation, touch: true
 
   validates :role, presence: true, inclusion: { in: %w[user assistant system] }
 
