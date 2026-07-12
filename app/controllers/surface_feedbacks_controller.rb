@@ -1,7 +1,14 @@
 class SurfaceFeedbacksController < ApplicationController
+  SIGNAL_MAP = {
+    "dismiss" => "dismissed",
+    "resolve" => "resolved",
+    "approve" => "resolved",
+    "reject" => "dismissed"
+  }.freeze
+
   def create
     item = SurfaceItem.find(params[:surface_item_id])
-    signal = params.require(:signal)
+    signal = SIGNAL_MAP.fetch(params.require(:signal), params.require(:signal))
     feedback = item.surface_feedbacks.create!(
       surface: item.surface,
       signal: signal,
@@ -18,22 +25,17 @@ class SurfaceFeedbacksController < ApplicationController
 
   def apply_lifecycle(item, signal)
     case signal
-    when "dismissed", "reject"
+    when "dismissed"
       item.update!(state: "dismissed")
-    when "resolved", "approve"
-      item.update!(state: "resolved")
-      collapse_resolution(item)
-    end
-  end
-
-  def collapse_resolution(item)
-    item.update!(
-      state: "collapsed",
-      metadata: item.metadata.merge(
-        "collapsed_at" => Time.current.iso8601,
-        "collapsed_summary" => item.summary
+    when "resolved"
+      item.update!(
+        state: "collapsed",
+        metadata: item.metadata.merge(
+          "collapsed_at" => Time.current.iso8601,
+          "collapsed_summary" => item.summary
+        )
       )
-    )
+    end
   end
 
   def permitted_payload
