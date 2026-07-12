@@ -16,10 +16,14 @@ class ContextsController < ApplicationController
       corrected_contexts: [ reference ],
       reason: "Created temporary context"
     )
-    intent.update!(resolved_contexts: [ reference ], status: "accepted")
-    ComposeSurfaceJob.enqueue(reason: "temporary_context_created", active_intent_id: intent.id)
+    conversation = Intents::ApplyContextCorrection.call(intent: intent, corrected_contexts: [ reference ])
+    ComposeSurfaceJob.enqueue(
+      reason: "temporary_context_created",
+      active_intent_id: intent.id,
+      active_conversation_id: conversation&.id
+    )
 
-    redirect_to root_path(intent_id: intent.id), notice: "Created context: #{context.name}"
+    redirect_to root_path(intent_id: intent.id, conversation_id: conversation&.id), notice: "Created context: #{context.name}"
   end
 
   private
