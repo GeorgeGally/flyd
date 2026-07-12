@@ -1,14 +1,14 @@
 require "test_helper"
 
 class ComposeSurfaceJobTest < ActiveJob::TestCase
-  Item = Data.define(:id, :kind, :intent, :renderer, :depth, :state, :title, :summary, :context_refs, :source_refs, :actions)
-  Plan = Data.define(:generated_at, :understanding, :current_intention, :focus_item_id, :items)
+  Item = Data.define(:id, :kind, :intent, :renderer, :depth, :state, :title, :summary, :context_refs, :source_refs, :actions, :relationships, :metadata)
+  Plan = Data.define(:generated_at, :understanding, :current_intention, :surface_mode, :focus_item_id, :items, :relationships)
 
-  test "persists, activates, and queues broadcast for a composed surface" do
+  test "persists, activates, logs, and queues broadcast for a composed surface" do
     previous = Surface.fallback!
-    plan = build_plan
+    intelligence = fake_intelligence(build_plan)
 
-    Flyd::Intelligence.stub(:compose_surface, plan) do
+    Flyd::Intelligence.stub(:new, intelligence) do
       assert_enqueued_with(job: BroadcastSurfaceJob) do
         ComposeSurfaceJob.perform_now(reason: "provider_refresh")
       end
@@ -19,6 +19,7 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     assert_equal "superseded", previous.reload.status
     assert_equal "Prepared next scene", active.surface_items.first.title
     assert_equal "provider_refresh", active.metadata["composition_reason"]
+    assert_equal "succeeded", SurfaceCompositionLog.last.status
   end
 
   test "coalesces a later trigger instead of dropping it" do
@@ -40,11 +41,12 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
 
   test "failed composition preserves the current active surface" do
     current = Surface.fallback!
-    job = ComposeSurfaceJob.new
+    intelligence = Object.new
+    intelligence.define_singleton_method(:compose_surface) { raise Llm::Chat::Error, "offline" }
 
-    Flyd::Intelligence.stub(:compose_surface, ->(*) { raise Llm::Chat::Error, "offline" }) do
+    Flyd::Intelligence.stub(:new, intelligence) do
       assert_raises(Llm::Chat::Error) do
-        job.perform(reason: "surface_stale")
+        ComposeSurfaceJob.new.perform(reason: "surface_stale")
       end
     end
 
@@ -52,28 +54,39 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     assert current.reload.active?
   end
 
-  test "non-retryable failures are persisted without replacing the active surface" do
+  test "non-retryable failures are logged without replacing the active surface" do
     current = Surface.fallback!
-    job = ComposeSurfaceJob.new
+    intelligence = Object.new
+    intelligence.define_singleton_method(:compose_surface) { raise RuntimeError, "unexpected" }
 
-    Flyd::Intelligence.stub(:compose_surface, ->(*) { raise RuntimeError, "unexpected" }) do
+    Flyd::Intelligence.stub(:new, intelligence) do
       assert_raises(RuntimeError) do
-        job.perform(reason: "manual_refresh")
+        ComposeSurfaceJob.new.perform(reason: "manual_refresh")
       end
     end
 
-    failure = Surface.where(status: "invalid").newest_first.first
-    assert_equal "unexpected", failure.metadata["invalid_reason"]
+    failure = SurfaceCompositionLog.order(:created_at).last
+    assert_equal "unexpected", failure.validation_errors.first
     assert_equal current, Surface.current
   end
 
   private
+
+  def fake_intelligence(plan)
+    Object.new.tap do |intelligence|
+      intelligence.define_singleton_method(:compose_surface) { plan }
+      intelligence.define_singleton_method(:diagnostics) do
+        { input_characters: 100, output_characters: 80, latency_ms: 12, dropped: [] }
+      end
+    end
+  end
 
   def build_plan
     Plan.new(
       generated_at: Time.current,
       understanding: "A changed state needs attention.",
       current_intention: "Present the next scene.",
+      surface_mode: "interaction",
       focus_item_id: "next-scene",
       items: [
         Item.new(
@@ -87,9 +100,12 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
           summary: "Flyd prepared this asynchronously.",
           context_refs: [],
           source_refs: [],
-          actions: []
+          actions: [],
+          relationships: [],
+          metadata: {}
         )
-      ]
+      ],
+      relationships: []
     )
   end
 end
