@@ -8,11 +8,14 @@ module SurfaceRenderers
       "notification" => { partial: "surfaces/renderers/notification", kinds: %w[notification reminder status] },
       "code" => { partial: "surfaces/renderers/code", kinds: %w[artifact insight] },
       "data_table" => { partial: "surfaces/renderers/data_table", kinds: %w[artifact insight status] },
-      "media" => { partial: "surfaces/renderers/media", kinds: %w[artifact insight] }
+      "media" => { partial: "surfaces/renderers/media", kinds: %w[artifact insight] },
+      "decision_scene" => { partial: "surfaces/renderers/decision_scene", kinds: %w[decision question] },
+      "investigation_scene" => { partial: "surfaces/renderers/investigation_scene", kinds: %w[question insight scene] },
+      "action_scene" => { partial: "surfaces/renderers/action_scene", kinds: %w[scene artifact status] }
     }.freeze
     LEGACY_ALIASES = {
       "card" => "supporting_card",
-      "build" => "document",
+      "build" => "action_scene",
       "image" => "media",
       "timeline" => "supporting_card"
     }.freeze
