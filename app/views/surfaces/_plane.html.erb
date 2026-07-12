@@ -1,4 +1,10 @@
 <% visible_items = surface.items.reject { |item| %w[dismissed collapsed].include?(item.state) } %>
+<% conversation_scene = active_conversation&.scenes&.order(updated_at: :desc)&.first %>
+<% if active_conversation %>
+  <% visible_items = visible_items.reject { |item| item.renderer == "conversation" || item.scene_id == conversation_scene&.id }.first(2) %>
+<% else %>
+  <% visible_items = visible_items.first(3) %>
+<% end %>
 <% project_ids = visible_items.flat_map(&:context_refs).filter_map do |ref|
      type = ref["type"] || ref[:type]
      id = ref["id"] || ref[:id]
@@ -10,10 +16,24 @@
          class="relative mt-14 min-h-[60vh] flex-1"
          data-surface-target="plane"
          data-surface-id="<%= surface.id %>"
-         data-surface-focus-key="<%= surface.focus_item_id %>"
+         data-surface-focus-key="<%= active_conversation ? "conversation:#{active_conversation.id}" : surface.focus_item_id %>"
          data-surface-intention="<%= surface.current_intention %>">
+  <% if active_conversation %>
+    <article id="surface_semantic_conversation_<%= active_conversation.id %>"
+             class="surface-item relative z-20 w-full transition-all duration-700 ease-out md:w-[68%]"
+             data-surface-target="item"
+             data-item-key="conversation:<%= active_conversation.id %>"
+             data-depth="foreground"
+             data-state="presented"
+             data-renderer="conversation"
+             data-outgoing-behaviours=""
+             data-incoming-behaviours="join">
+      <%= render "surfaces/active_conversation", conversation: active_conversation, scene: conversation_scene %>
+    </article>
+  <% end %>
+
   <% visible_items.each_with_index do |item, position| %>
-    <% dominant = item.item_key == surface.focus_item_id %>
+    <% dominant = !active_conversation && item.item_key == surface.focus_item_id %>
     <% project_ref = item.context_refs.find { |ref| (ref["type"] || ref[:type]) == "project" } %>
     <% project_id = project_ref && (project_ref["id"] || project_ref[:id]) %>
     <% context_project = surface_projects[project_id.to_i] if project_id %>
@@ -23,7 +43,7 @@
     <% semantic_dom_id = "surface_semantic_#{Digest::SHA256.hexdigest(item.item_key.to_s)[0, 16]}" %>
     <% placement = if dominant
          "relative z-20 w-full md:w-[68%]"
-       elsif position == 1
+       elsif active_conversation || position == 1
          "relative z-10 mt-10 w-full md:absolute md:right-0 md:top-6 md:mt-0 md:w-[31%]"
        else
          "relative z-0 mt-10 w-full md:absolute md:right-[8%] md:top-[55%] md:mt-0 md:w-[28%]"
