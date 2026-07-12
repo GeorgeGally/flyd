@@ -12,14 +12,16 @@ module Subsystems
     end
 
     def extract_decisions(conversation, message_range: 5)
-      recent = conversation.messages.ordered.last(message_range).map(&:content).join("\n")
-      return if recent.blank?
+      recent_messages = conversation.messages.ordered.reject(&:context_superseded?).last(message_range)
+      source_message = recent_messages.reverse.find { |message| message.role == "user" }
+      recent = recent_messages.map(&:content).join("\n")
+      return if recent.blank? || source_message.nil?
 
       prompt = <<~PROMPT
         Analyze this conversation and extract any decisions or conclusions made.
         For each decision, return ONLY a JSON array of objects with a "content" field.
         If no decisions were made, return an empty array: []
-        
+
         Conversation:
         #{recent}
       PROMPT
@@ -27,16 +29,17 @@ module Subsystems
       begin
         response = call_llm(prompt)
         decisions = parse_decisions(response)
-        decisions.each do |d|
+        decisions.each do |decision|
           @project.decisions.create!(
             conversation: conversation,
-            content: d["content"],
+            source_message: source_message,
+            content: decision["content"],
             extracted_at: Time.current,
             confidence: 0.6
           )
         end
-      rescue StandardError => e
-        Rails.logger.warn("Decision extraction failed: #{e.message}")
+      rescue StandardError => error
+        Rails.logger.warn("Decision extraction failed: #{error.message}")
       end
     end
 
@@ -58,6 +61,7 @@ module Subsystems
 
     def fetch_beliefs
       return [] unless defined?(Belief)
+
       Belief.where(project: @project).or(Belief.where(project: nil)).order(updated_at: :desc).limit(3).to_a
     rescue NameError
       []
@@ -81,8 +85,8 @@ module Subsystems
         { role: "system", content: "You extract decisions made in software team conversations. Return ONLY a JSON array of objects with a 'content' field for each decision. If no decisions were made, return: []" },
         { role: "user", content: prompt }
       ])
-    rescue Llm::Chat::Error => e
-      Rails.logger.warn("Decision extraction LLM call failed: #{e.message}")
+    rescue Llm::Chat::Error => error
+      Rails.logger.warn("Decision extraction LLM call failed: #{error.message}")
       "[]"
     end
 
