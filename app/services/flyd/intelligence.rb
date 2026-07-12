@@ -38,11 +38,13 @@ module Flyd
       payload = parse_json(response)
       validated = SurfacePlanValidator.call(payload: payload, reference_registry: compiled.reference_registry)
       @diagnostics = compiled.diagnostics.merge(
+        state_digest: IntelligenceSnapshot.digest_for(compiled.state.except(:generated_at)),
+        provider_snapshots: provider_snapshots(compiled.state),
         output_characters: response.to_s.length,
         latency_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round
       )
       build_surface(validated)
-    rescue Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError, SurfacePlanValidator::ValidationError => error
+    rescue Llm::Chat::Error, JSON::ParserError, KeyError, ArgumentError, StateBudget::BudgetExceeded, SurfacePlanValidator::ValidationError => error
       Rails.logger.warn("Flyd surface composition failed: #{error.message}")
       raise unless @fallback
 
@@ -50,6 +52,17 @@ module Flyd
     end
 
     private
+
+    def provider_snapshots(state)
+      Array(state.dig(:provider_state, :providers)).map do |provider|
+        {
+          "source" => provider[:source],
+          "snapshot_id" => provider[:snapshot_id],
+          "state_digest" => provider[:state_digest],
+          "fresh" => provider[:fresh]
+        }
+      end
+    end
 
     def messages(state)
       [
@@ -99,7 +112,7 @@ module Flyd
           }]
         }
 
-        Maximum three items. Item ids are created by you. Context and source references must use exact ids present in the supplied state. Only use the listed renderers and capabilities. Do not include private reasoning.
+        Maximum three items. Item ids are created by you. Context and source references must use exact ids present in the supplied state. Only use the listed renderers and capabilities. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
     end
 
