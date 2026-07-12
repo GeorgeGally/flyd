@@ -160,7 +160,7 @@ jobs:
           FLYD_GENERATED_SURFACE: "true"
         run: |
           set +e
-          bin/rails db:test:prepare test test:system > /tmp/rails-test.log 2>&1
+          bin/rails db:drop db:create db:migrate test test:system > /tmp/rails-test.log 2>&1
           status=$?
           cat /tmp/rails-test.log
           exit $status
