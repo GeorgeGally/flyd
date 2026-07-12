@@ -68,7 +68,7 @@ class ComposeSurfaceJob < ApplicationJob
     draft = Surfaces::PersistPlan.call(plan: plan, source_state_digest: digest, composition_version: "flyd-2")
     draft.update!(metadata: draft.metadata.merge("composition_reason" => reason, "surface_mode" => plan.surface_mode))
     surface = Surface.activate!(draft)
-    intent&.resolve!(surface: surface) if intent.status != "clarification_required"
+    intent.resolve!(surface: surface) if intent && intent.status != "clarification_required"
 
     SurfaceCompositionLog.create!(
       surface: surface,
