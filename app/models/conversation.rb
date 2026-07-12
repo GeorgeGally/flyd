@@ -26,7 +26,19 @@ class Conversation < ApplicationRecord
       active_for(owner).update_all(active: false)
       attributes = { active: true, status: "active", summary: summary }
       attributes[owner.is_a?(Project) ? :project : :context] = owner
-      create!(attributes)
+      conversation = create!(attributes)
+      conversation.scenes.create!(
+        scene_key: "conversation:#{conversation.id}",
+        kind: "conversation",
+        status: "active",
+        title: summary.presence || "Continue #{owner.name}",
+        summary: summary,
+        desired_outcome: summary,
+        project: owner.is_a?(Project) ? owner : nil,
+        context: owner.is_a?(Context) ? owner : nil,
+        last_presented_at: Time.current
+      )
+      conversation
     end
   end
 
@@ -44,6 +56,10 @@ class Conversation < ApplicationRecord
 
   def continuable?
     active? && status == "active" && visible_messages.any?
+  end
+
+  def primary_scene
+    scenes.active.order(updated_at: :desc).first || scenes.order(updated_at: :desc).first
   end
 
   def supersede_by!(replacement)
