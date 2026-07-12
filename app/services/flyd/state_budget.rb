@@ -3,7 +3,7 @@ module Flyd
     BudgetExceeded = Class.new(StandardError)
     Result = Data.define(:state, :dropped)
     Candidate = Data.define(:path, :array, :depth)
-    PROTECTED_ARRAY_KEYS = %w[capabilities renderers providers].freeze
+    PROTECTED_ARRAY_KEYS = %w[capabilities renderers providers candidates].freeze
 
     def self.call(state:, budget:)
       new(state:, budget:).call
