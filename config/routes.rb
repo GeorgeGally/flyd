@@ -15,6 +15,10 @@ Rails.application.routes.draw do
     get :sources, to: "surface_item_sources#show"
   end
 
+  resources :conversations, only: :show do
+    resources :messages, only: :create
+  end
+
   resources :projects do
     member do
       post :archive
