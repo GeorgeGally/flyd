@@ -21,13 +21,14 @@ module Flyd
       "build" => 3
     }.freeze
 
-    def self.call(payload:, reference_registry:)
-      new(payload:, reference_registry:).call
+    def self.call(payload:, reference_registry:, allowed_modes: nil)
+      new(payload:, reference_registry:, allowed_modes:).call
     end
 
-    def initialize(payload:, reference_registry:)
+    def initialize(payload:, reference_registry:, allowed_modes:)
       @payload = payload.deep_stringify_keys
       @reference_registry = reference_registry.to_set
+      @allowed_modes = Array(allowed_modes).map { |mode| normalized_mode(mode) }.to_set
       @errors = []
     end
 
@@ -36,6 +37,9 @@ module Flyd
       current_intention = required_text("current_intention", 600)
       mode = normalized_mode(@payload["surface_mode"].presence || "quiet")
       @errors << "Unsupported surface mode: #{mode}" unless ALLOWED_MODES.include?(mode)
+      if @allowed_modes.any? && !@allowed_modes.include?(mode)
+        @errors << "Surface mode #{mode} is not justified by the current situation"
+      end
 
       raw_items = Array(@payload["items"])
       limit = MODE_LIMITS.fetch(mode, MAX_ITEMS)
