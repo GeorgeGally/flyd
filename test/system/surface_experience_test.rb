@@ -59,7 +59,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
 
     click_on "Choose", match: :first
 
-    assert_text "Decision recorded"
+    assert_no_text scene.title
     assert_equal "resolved", scene.reload.status
     assert_equal "Dynamic director", scene.resolved_artifact.content
   end
