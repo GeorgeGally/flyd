@@ -7,25 +7,27 @@ class SurfaceItemActionsController < ApplicationController
     case action_id
     when "discuss", "answer"
       conversation = conversation_for(item)
-      SurfaceFeedback.create!(surface: item.surface, surface_item: item, signal: "discussed")
+      feedback = SurfaceFeedback.create!(surface: item.surface, surface_item: item, signal: "discussed")
+      Surfaces::LearnFromFeedback.call(feedback)
       redirect_to root_path(conversation_id: conversation.id)
     else
-      redirect_to root_path, alert: "Action is not available yet."
+      redirect_to root_path, alert: "Action is not available."
     end
   end
 
   private
 
   def conversation_for(item)
-    project_id = item.context_refs.filter_map do |reference|
-      type = reference["type"] || reference[:type]
-      id = reference["id"] || reference[:id]
-      id if type == "project"
-    end.first
+    reference = Array(item.context_refs).find do |candidate|
+      %w[project context].include?(candidate["type"] || candidate[:type])
+    end
+    raise ActiveRecord::RecordNotFound, "No interaction context is available" unless reference
 
-    project = Project.active.find_by(id: project_id)
-    raise ActiveRecord::RecordNotFound, "No project context is available" unless project
+    type = reference["type"] || reference[:type]
+    id = reference["id"] || reference[:id]
+    owner = type == "project" ? Project.active.find_by(id: id) : Context.active.find_by(id: id)
+    raise ActiveRecord::RecordNotFound, "The interaction context is no longer active" unless owner
 
-    project.active_conversation || Conversation.start!(project, summary: item.title.truncate(120))
+    Conversation.active_for(owner).first || Conversation.start!(owner, summary: item.title.truncate(120))
   end
 end
