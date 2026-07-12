@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_12_150000) do
   enable_extension "pg_catalog.plpgsql"
 
   create_table "behaviours", force: :cascade do |t|
@@ -82,16 +82,35 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
     t.index ["surface_item_id"], name: "index_context_corrections_on_surface_item_id"
   end
 
+  create_table "contexts", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "kind", default: "temporary", null: false
+    t.text "description"
+    t.string "status", default: "active", null: false
+    t.datetime "expires_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_contexts_on_expires_at"
+    t.index ["kind", "name"], name: "index_contexts_on_kind_and_name"
+    t.index ["status"], name: "index_contexts_on_status"
+  end
+
   create_table "conversations", force: :cascade do |t|
-    t.bigint "project_id", null: false
+    t.bigint "project_id"
     t.string "status", default: "active"
     t.text "summary"
     t.boolean "active", default: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "context_id"
+    t.bigint "superseded_by_conversation_id"
+    t.index ["context_id"], name: "idx_conversations_one_active_per_context", unique: true, where: "(active = true)"
+    t.index ["context_id"], name: "index_conversations_on_context_id"
     t.index ["project_id", "active"], name: "index_conversations_on_project_id_and_active"
     t.index ["project_id"], name: "idx_conversations_one_active_per_project", unique: true, where: "(active = true)"
     t.index ["project_id"], name: "index_conversations_on_project_id"
+    t.index ["superseded_by_conversation_id"], name: "index_conversations_on_superseded_by_conversation_id"
   end
 
   create_table "decisions", force: :cascade do |t|
@@ -121,13 +140,33 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
     t.datetime "fresh_until"
     t.string "state_digest", null: false
     t.jsonb "payload", default: {}, null: false
-    t.jsonb "errors", default: [], null: false
+    t.jsonb "provider_errors", default: [], null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["fresh_until"], name: "index_intelligence_snapshots_on_fresh_until"
     t.index ["provider", "created_at"], name: "index_intelligence_snapshots_on_provider_and_created_at"
     t.index ["provider", "state_digest"], name: "index_intelligence_snapshots_on_provider_and_state_digest", unique: true
     t.index ["status"], name: "index_intelligence_snapshots_on_status"
+  end
+
+  create_table "intent_attachments", force: :cascade do |t|
+    t.bigint "intent_id", null: false
+    t.string "modality", null: false
+    t.string "filename"
+    t.string "content_type"
+    t.bigint "byte_size", default: 0, null: false
+    t.string "checksum"
+    t.binary "data"
+    t.text "extracted_text"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.datetime "expires_at"
+    t.index ["checksum"], name: "index_intent_attachments_on_checksum"
+    t.index ["expires_at"], name: "index_intent_attachments_on_expires_at"
+    t.index ["intent_id", "checksum"], name: "index_intent_attachments_on_intent_id_and_checksum", unique: true
+    t.index ["intent_id"], name: "index_intent_attachments_on_intent_id"
+    t.index ["modality"], name: "index_intent_attachments_on_modality"
   end
 
   create_table "intents", force: :cascade do |t|
@@ -241,6 +280,20 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
     t.index ["surface_id"], name: "index_surface_items_on_surface_id"
   end
 
+  create_table "surface_preferences", force: :cascade do |t|
+    t.string "dimension", null: false
+    t.string "value", null: false
+    t.float "weight", default: 0.0, null: false
+    t.integer "positive_count", default: 0, null: false
+    t.integer "negative_count", default: 0, null: false
+    t.datetime "last_observed_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["dimension", "value"], name: "index_surface_preferences_on_dimension_and_value", unique: true
+    t.index ["weight"], name: "index_surface_preferences_on_weight"
+  end
+
   create_table "surfaces", force: :cascade do |t|
     t.string "status", default: "draft", null: false
     t.text "understanding"
@@ -267,10 +320,13 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_12_120000) do
   add_foreign_key "builds", "projects"
   add_foreign_key "context_corrections", "intents"
   add_foreign_key "context_corrections", "surface_items"
+  add_foreign_key "conversations", "contexts"
+  add_foreign_key "conversations", "conversations", column: "superseded_by_conversation_id"
   add_foreign_key "conversations", "projects"
   add_foreign_key "decisions", "conversations"
   add_foreign_key "decisions", "messages", column: "source_message_id"
   add_foreign_key "decisions", "projects"
+  add_foreign_key "intent_attachments", "intents"
   add_foreign_key "intents", "conversations"
   add_foreign_key "intents", "surfaces", column: "origin_surface_id"
   add_foreign_key "intents", "surfaces", column: "result_surface_id"
