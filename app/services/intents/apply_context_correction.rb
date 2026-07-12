@@ -14,16 +14,17 @@ module Intents
       old_conversation = @intent.conversation
       old_message = source_message(old_conversation)
       affected_decisions = decisions_for(old_message)
+      affected_decision_ids = affected_decisions.pluck(:id)
 
       if owner.nil?
-        remove_project_memory!(affected_decisions)
-        supersede_source_message!(old_message, replacement: nil)
+        remove_project_memory!(affected_decisions, affected_decision_ids)
+        supersede_message_segment!(old_message, replacement: nil)
         retire_if_empty!(old_conversation, replacement: nil)
         @intent.update!(
           status: "accepted",
           conversation: nil,
           resolved_contexts: [],
-          metadata: append_history(old_conversation, nil, old_message, nil)
+          metadata: append_history(old_conversation, nil, old_message, nil).except("source_message_id")
         )
         return nil
       end
@@ -37,12 +38,12 @@ module Intents
       new_message = new_conversation.messages.create!(role: "user", content: effective_text)
 
       if owner.is_a?(Project)
-        move_project_memory!(affected_decisions, new_conversation, new_message)
+        move_project_memory!(affected_decisions, affected_decision_ids, new_conversation, new_message)
       else
-        remove_project_memory!(affected_decisions)
+        remove_project_memory!(affected_decisions, affected_decision_ids)
       end
 
-      supersede_source_message!(old_message, replacement: new_message)
+      supersede_message_segment!(old_message, replacement: new_message)
       retire_if_empty!(old_conversation, replacement: new_conversation)
 
       @intent.update!(
@@ -54,7 +55,9 @@ module Intents
       )
 
       LlmStreamingJob.perform_later(new_conversation.id, new_message.content)
-      BeliefSynthesisJob.perform_later(new_conversation.project_id) if new_conversation.project_id && affected_decisions.any?
+      if new_conversation.project_id && affected_decision_ids.any?
+        BeliefSynthesisJob.perform_later(new_conversation.project_id, decision_ids: affected_decision_ids)
+      end
       new_conversation
     end
 
@@ -90,8 +93,7 @@ module Intents
       Decision.where(source_message: message)
     end
 
-    def move_project_memory!(decisions, new_conversation, new_message)
-      decision_ids = decisions.pluck(:id)
+    def move_project_memory!(decisions, decision_ids, new_conversation, new_message)
       return if decision_ids.empty?
 
       challenge_dependent_beliefs!(decisions.first.project, decision_ids)
@@ -103,12 +105,10 @@ module Intents
       )
     end
 
-    def remove_project_memory!(decisions)
-      decision_ids = decisions.pluck(:id)
+    def remove_project_memory!(decisions, decision_ids)
       return if decision_ids.empty?
 
-      project = decisions.first.project
-      challenge_dependent_beliefs!(project, decision_ids)
+      challenge_dependent_beliefs!(decisions.first.project, decision_ids)
       decisions.destroy_all
     end
 
@@ -120,16 +120,25 @@ module Intents
       end
     end
 
-    def supersede_source_message!(message, replacement:)
+    def supersede_message_segment!(message, replacement:)
       return unless message
 
-      message.update!(
-        metadata: message.metadata.merge(
-          "context_superseded" => true,
-          "replacement_message_id" => replacement&.id,
-          "context_corrected_at" => Time.current.iso8601
+      messages = message.conversation.messages.ordered.to_a
+      start_index = messages.index(message)
+      return unless start_index
+
+      segment = messages.drop(start_index).take_while.with_index do |candidate, index|
+        index.zero? || candidate.role != "user"
+      end
+      segment.each do |candidate|
+        candidate.update!(
+          metadata: candidate.metadata.merge(
+            "context_superseded" => true,
+            "replacement_message_id" => candidate == message ? replacement&.id : nil,
+            "context_corrected_at" => Time.current.iso8601
+          ).compact
         )
-      )
+      end
     end
 
     def retire_if_empty!(conversation, replacement:)
