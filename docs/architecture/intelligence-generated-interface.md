@@ -8,147 +8,212 @@ Accepted and implemented as the primary Flyd architecture.
 
 **Flyd is the intelligence. The interface is the intelligence expressed.**
 
-Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, media, contexts, and provider signals are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
+Projects, temporary contexts, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, attachments, provider signals, corrections, and feedback are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
+
+The TypeScript CLI is an evidence producer. It is not a second intelligence, an attention engine, or a user-facing product boundary.
 
 ## Runtime architecture
 
 ```text
-provider evidence + Rails memory + active intent + prior surface + feedback
+provider evidence + Rails memory + active intent + active interaction
++ prior surface + corrections + feedback + learned preferences
 → Flyd::WorldStateCompiler
 → Flyd::WorldStateExtensions
+→ exact state budget + final-state reference registry
 → Flyd::Intelligence
 → Flyd::SurfacePlanValidator
 → persisted draft Surface
 → transactional activation
-→ live surface replacement
+→ keyed Turbo morph
+→ actions, corrections, memory, and outcomes return as evidence
 ```
 
-`GET /` performs no model composition or provider execution. It renders the current persisted surface immediately and only schedules stale work.
+`GET /` performs no model composition and executes no provider. It renders the current persisted surface immediately. Missing or stale provider state schedules refresh, but never blocks Flyd from composing with Rails memory and explicit provider-health evidence.
 
 ## Intelligence-state interface
 
-The TypeScript CLI is an evidence producer behind schema version `1.0`, not a separate intelligence product.
+The CLI exports schema version `1.0`:
 
 ```bash
 node cli/dist/export-state.js --stdout
 ```
 
-The contract is defined in `schemas/intelligence-state.schema.json`. Every exported unit carries:
+The contract is defined in `schemas/intelligence-state.schema.json`. Every evidence unit carries:
 
-- stable identity and evidence type
-- source
-- epistemic status
-- confidence
-- generated timestamp
-- evidence references
-- structured content
+- stable identity and type;
+- source;
+- epistemic status;
+- confidence;
+- generated timestamp;
+- evidence references;
+- structured content.
 
-Reports and plans are discovered recursively. Paths are portable and relative to `FLYD_DIR`. Manual file export uses a temporary file and atomic rename. Rails ingests stdout through `RefreshIntelligenceStateJob`, validates the contract, and persists shared `IntelligenceSnapshot` records in PostgreSQL.
+Reports and plans are discovered recursively. Paths are portable relative to `FLYD_DIR`. File export uses a temporary file and atomic rename. Rails validates CLI output and persists shared `IntelligenceSnapshot` records in PostgreSQL.
 
-Unchanged evidence refreshes freshness without unnecessary composition. Failed refreshes are recorded while the newest usable evidence remains available with explicit health errors.
+Unchanged semantic evidence refreshes freshness without creating another snapshot. Failed refreshes record provider errors while preserving the newest usable snapshot. Each provider envelope supplied to Flyd includes the exact snapshot ID and digest used for composition.
 
-## Bounded world state
+## Bounded world state and provenance
 
-`Flyd::WorldStateCompiler` normalizes and deduplicates provider evidence, then combines it with:
+`Flyd::WorldStateCompiler` combines:
 
-- the active universal intent
-- the active conversation when one exists
-- relevant project decisions and beliefs
-- the current surface
-- context corrections
-- recent surface feedback
-- executable capabilities and renderers
+- provider evidence and provider health;
+- the active universal intent;
+- the active project- or context-owned interaction;
+- relevant project decisions and beliefs;
+- the current surface;
+- context corrections;
+- recent surface feedback;
+- executable actions and renderers.
 
 `Flyd::WorldStateExtensions` adds:
 
-- text extracted from active intent attachments
-- image, audio, file, clipboard, and screen evidence metadata
-- active temporary contexts
-- learned presentation preferences
+- extracted text and metadata from active intent attachments;
+- active temporary contexts;
+- learned presentation preferences.
 
-Both layers apply hard character and collection budgets and record dropped evidence diagnostically. They prepare evidence; they do not decide what should appear.
+`Flyd::StateBudget` recursively truncates and prunes deepest evidence before structural provider envelopes. It either returns serialized state within the exact character budget or fails closed. The valid-reference registry is derived only from the final pruned state, so Flyd cannot reference evidence it was not actually shown.
 
-## Composition contract
+The semantic state digest excludes observation time. Identical evidence therefore produces the same identity. A surface stores:
 
-Flyd may create new semantic surface-item IDs. Context and source references must resolve to IDs in the compiled world state.
+- the full semantic state digest;
+- the exact provider snapshot IDs and digests;
+- the evidence drops and provider health used during composition.
+
+Source inspection resolves provider evidence against those exact snapshots rather than whichever snapshot happens to be current later.
+
+## Flyd judgment and plan validation
+
+`Flyd::Intelligence` is the only judgment boundary. It synthesizes what the user should experience now and emits at most three semantic items. It does not generate HTML, CSS, coordinates, arbitrary controllers, or private reasoning.
+
+Flyd may create new semantic item IDs. Context and source references must use exact IDs present in the compiled state.
 
 `Flyd::SurfacePlanValidator` rejects:
 
-- hallucinated references
-- unsupported renderers
-- unsupported actions
-- invalid item kinds, intents, depths, and modes
-- duplicate semantic IDs
-- missing focus items
-- invalid relationship endpoints or behaviours
+- hallucinated or pruned references;
+- unsupported renderers or actions;
+- incompatible renderer/kind combinations;
+- invalid kinds, intentions, depths, modes, relationships, or focus IDs;
+- duplicate semantic IDs;
+- empty surfaces;
+- arbitrary renderer metadata;
+- arbitrary action payloads;
+- media metadata not bound to an explicit validated attachment source;
+- context-correction payloads that were not present in the compiled state.
 
-Invalid output never replaces the current active surface.
+Invalid plans never displace the current active surface.
 
-## Renderer and action registries
+## Renderers, actions, and spatial semantics
 
 Implemented renderers:
 
-- `hero_scene`
-- `supporting_card`
-- `conversation`
-- `document`
-- `notification`
-- `code`
-- `data_table`
-- `media`
+- `hero_scene`;
+- `supporting_card`;
+- `conversation`;
+- `document`;
+- `notification`;
+- `code`;
+- `data_table`;
+- `media`.
 
-The media renderer presents stored image, audio, and file evidence. The code and table renderers present structured artifacts rather than forcing them into prose cards.
+Implemented executable actions:
 
-Implemented action contracts include discussion, answering, approval, rejection, dismissal, resolution, source inspection, context correction, and artifact opening. Only registered actions may be emitted or rendered.
+- discuss;
+- answer;
+- approve;
+- reject;
+- dismiss;
+- resolve;
+- inspect sources;
+- correct context.
 
-Semantic relationships drive spatial behaviour:
+Only registered and implemented actions may be emitted or rendered.
 
-- join
-- yield
-- recede
-- leave
-- replace
-- collapse
-- return
+Semantic relationships are directional:
 
-Motion is derived from meaning rather than item array position.
+- join;
+- yield;
+- recede;
+- leave;
+- replace;
+- collapse;
+- return.
 
-## Universal and multimodal intent
+The surface is a continuous positioned plane rather than a dashboard grid. Stimulus derives deterministic displacement, depth, opacity, blur, scale, collapse, replacement, and return behaviour from item depth and incoming/outgoing relationships. Turbo morphs the plane by stable semantic item identity, preserving continuity across surfaces.
 
-Input is persisted first as an `Intent` before any project context is assigned.
+Dismissed and collapsed items leave the rendered plane immediately. Their lifecycle does not depend on a later successful model composition.
+
+## Universal, multimodal intent
+
+Input is persisted as an `Intent` before context is assigned:
 
 ```text
-text / clipboard / file / image / audio / screen
+text / clipboard / file / image / audio / future screen capture
 → Intent + IntentAttachment evidence
 → InterpretIntentJob
-→ context candidates or accepted contexts
-→ interaction/conversation where needed
+→ strong unique context, clarification candidates, or no persistent context
+→ project- or temporary-context-owned conversation when interaction is needed
 → surface recomposition
 ```
 
-Attachments are size-limited, checksummed, stored durably, and interpreted asynchronously. Textual formats contribute extracted text. Binary media remains source evidence available to Flyd and media renderers.
+Automatic context routing requires a strong unique match with word-boundary matching, stopword filtering, minimum evidence, and a top-two score margin. Ambiguous input remains unresolved. It is never written into the most recently active project or a fabricated Inbox/General project.
 
-An intent may have no project, one project, a temporary context, or several context references. Ambiguous input remains unresolved and visible for correction; it is never stored in a fake Inbox project.
+Temporary contexts are first-class interaction owners. A conversation belongs to exactly one project or one context. Temporary-context discussions use the same streaming and surface interaction path without requiring a hidden project.
 
-`ContextCorrection` records original and corrected contexts and feeds future world-state composition. Users may create temporary non-project contexts directly from the clarification surface. Temporary contexts expire unless retained through continued use.
+## Context correction and memory provenance
 
-## Scene lifecycle and learning
+Context correction validates authoritative project/context records before persistence.
 
-`SurfaceFeedback` records opened, ignored, discussed, dismissed, resolved, corrected, useful, and not-useful signals.
+The provenance chain is explicit:
 
-Scenes may be:
+```text
+Intent
+→ source user Message
+→ Decisions extracted from that user-response segment
+→ Beliefs carrying source_decision_ids
+```
 
-- dismissed
-- resolved
-- collapsed into durable summary metadata
-- superseded by a later surface
-- resurfaced by Flyd when new evidence makes them relevant
+Decision extraction processes each user-response segment independently, ignores context-superseded segments, records the source message, marks completed extraction, and avoids duplicate decisions for the same source.
 
-`SurfacePreference` learns decayed renderer, kind, intent, context-type, and source-type tendencies from outcomes. These preferences return to Flyd as soft evidence. They never directly rank, hide, or emit interface objects.
+When an accepted intent is corrected:
+
+- a new interaction is created in the corrected project/context when needed;
+- only the corrected user message and its following assistant-response segment are superseded;
+- only decisions derived from that source message move or are removed;
+- dependent beliefs remove those decision sources and become challenged or superseded as appropriate;
+- unrelated messages, decisions, beliefs, and intents in the original conversation remain intact;
+- the original conversation is retired only when no visible user work remains;
+- correction lineage is retained on the intent.
+
+Superseded message segments are excluded from model prompts, world state, conversation history, and the live surface.
+
+## Multimodal evidence storage and retention
+
+`IntentAttachment` retains semantic evidence metadata, checksum, extracted text, MIME type, size, provenance, and expiry. New binary uploads are stored through Active Storage rather than PostgreSQL byte columns.
+
+Ingestion enforces:
+
+- five-file maximum;
+- 10 MB per file;
+- 25 MB total;
+- server-side MIME detection through Marcel;
+- a restricted type allowlist;
+- checksum deduplication within an intent;
+- bounded text extraction;
+- 90-day default expiry.
+
+Media delivery uses private no-store responses, `nosniff`, a restrictive content-security policy, and a safe inline-type allowlist. Unsafe or general files are forced to download. Legacy database bytes remain readable only as a migration fallback.
+
+Expired unreferenced attachment records and bytes are deleted. Expired attachments still referenced by a scene retain provenance metadata while their binary storage is purged.
+
+## Scene feedback and soft learning
+
+`SurfaceFeedback` records opened, ignored, discussed, dismissed, resolved, corrected, useful, and not-useful outcomes.
+
+`SurfacePreference` learns decayed tendencies across renderer, kind, intention, context type, and source type. Preferences return to Flyd as soft evidence. They never directly rank, hide, emit, or suppress scenes.
 
 ## Persistence and diagnostics
 
-`Surface` and `SurfaceItem` are durable semantic presentation records.
+`Surface` lifecycle:
 
 ```text
 draft → active → superseded
@@ -157,36 +222,59 @@ draft → active → superseded
 draft → invalid
 ```
 
-Only one surface may be active. Activation is transactional and preserves previous-surface lineage.
+Only one surface may be active. Activation is transactional and preserves lineage.
 
-`SurfaceCompositionLog` records reason, state digest, provider health, input/output size, latency, validation failures, and compiler drops without storing private chain-of-thought.
+`SurfaceCompositionLog` records:
 
-## Background preparation
+- reason;
+- semantic state digest;
+- provider health and exact snapshot identities;
+- input/output size;
+- latency;
+- validation failures;
+- dropped evidence;
+- broadcast enqueue errors separately from successful composition.
 
-Surface preparation is triggered by:
+No private chain-of-thought is stored.
 
-- scheduled provider refresh
-- changed evidence
-- missing or stale surfaces
-- new intents and attachments
-- temporary context creation
-- context corrections
-- assistant responses
-- decision extraction
-- belief synthesis
-- scene feedback
-- newly imported captures
+## Background preparation and deployment
 
-Composition triggers are coalesced rather than dropped. Broadcast delivery retries independently from composition.
+Surface preparation is triggered by scheduled refresh, changed evidence, stale/missing surfaces, intents, attachments, temporary context creation, corrections, assistant responses, decision extraction, belief synthesis, feedback, and imported captures.
+
+Triggers are coalesced rather than dropped. Broadcast delivery retries independently.
+
+Production separates responsibilities:
+
+- web containers render prepared state;
+- a Sidekiq job role refreshes evidence, interprets intents, composes surfaces, synthesizes memory, purges expired media, and broadcasts updates;
+- Redis backs Sidekiq, production caching, and trigger coalescing;
+- Active Storage lives on a persistent mounted volume shared by web and workers;
+- the production image includes Node, PostgreSQL client, and GPG;
+- encrypted backups archive both the configured PostgreSQL database and the Active Storage directory.
+
+## Validation contract
+
+CI verifies:
+
+- Brakeman;
+- RuboCop on changed Ruby files;
+- JavaScript dependency audit;
+- CLI typecheck, tests, and production build;
+- PostgreSQL schema loading;
+- full migration-chain execution;
+- byte-for-byte schema parity after migrations;
+- Rails unit/integration tests;
+- real-browser system tests for the generated surface, context interaction, lifecycle, media, and legacy diagnostic project flows.
 
 ## Remaining extension points
 
-The next extensions are:
+The architecture intentionally leaves these as later product work:
 
-- native microphone, camera, clipboard, and screen-capture controls rather than upload fields alone
-- transcription and vision extraction providers for binary audio and images
-- semantic retrieval beyond bounded recency and active context
-- explicit resurfacing controls and richer longitudinal learning
-- artifact editing and execution workflows beyond presentation
+- native microphone, camera, clipboard, and screen-capture controls;
+- transcription and vision extraction providers for binary media;
+- semantic retrieval beyond bounded recency and active context;
+- richer artifact editing and execution;
+- explicit resurfacing controls and deeper longitudinal learning;
+- continued visual refinement of the final spatial language.
 
-Legacy project and conversation routes remain diagnostic/fallback views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
+Legacy project and conversation routes remain diagnostic/fallback views. Production rollout remains controlled by `FLYD_GENERATED_SURFACE`.
