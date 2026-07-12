@@ -1,0 +1,33 @@
+<section class="min-h-[58vh] py-4 md:py-8">
+  <div class="flex items-center justify-between gap-4 text-[10px] uppercase tracking-[0.22em] text-gray-400">
+    <span>Ready to act</span>
+    <span><%= item.metadata["readiness"].presence || "ready" %></span>
+  </div>
+
+  <h2 class="mt-6 max-w-5xl text-4xl font-medium leading-[1.02] tracking-tight md:text-7xl"><%= item.title %></h2>
+  <p class="mt-7 max-w-3xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
+
+  <div class="mt-12 grid gap-10 border-y border-gray-200 py-8 md:grid-cols-2">
+    <section>
+      <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">What Flyd will do</div>
+      <p class="mt-4 text-xl font-medium leading-snug md:text-3xl"><%= item.metadata["proposed_action"] %></p>
+    </section>
+    <section>
+      <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">What changes</div>
+      <p class="mt-4 text-sm leading-7 text-gray-600"><%= item.metadata["impact"].presence || "Flyd will return the result to this scene and update what happens next." %></p>
+    </section>
+  </div>
+
+  <div class="mt-8 flex flex-wrap items-center gap-4 text-xs">
+    <% item.actions.each do |action| %>
+      <% action_id = action["id"] || action[:id] %>
+      <% if action_id == "build" %>
+        <%= button_to action["label"] || "Review action", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "rounded-full bg-gray-950 px-5 py-2.5 font-medium text-white" %>
+      <% elsif action_id == "discuss" %>
+        <%= button_to action["label"] || "Discuss first", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "rounded-full border border-gray-300 px-5 py-2.5 font-medium hover:border-gray-950" %>
+      <% elsif action_id == "dismiss" %>
+        <%= button_to action["label"] || "Not now", surface_item_feedbacks_path(item), method: :post, params: { signal: "dismiss" }, class: "px-2 py-2.5 text-gray-500 hover:text-gray-950" %>
+      <% end %>
+    <% end %>
+  </div>
+</section>
