@@ -1,5 +1,6 @@
 require "fileutils"
 require "open3"
+require "pathname"
 require "tempfile"
 require "tmpdir"
 
@@ -22,7 +23,8 @@ class BackupJob < ApplicationJob
 
     Dir.mktmpdir("flyd-backup") do |working_dir|
       database_path = File.join(working_dir, "database.sql")
-      return log_result(false, filename, dump_database(db_config, database_path)) unless File.exist?(database_path)
+      database_error = dump_database(db_config, database_path)
+      return log_result(false, filename, database_error) if database_error
 
       Tempfile.create([ "flyd-backup", ".tar.gz" ]) do |archive|
         archive.close
