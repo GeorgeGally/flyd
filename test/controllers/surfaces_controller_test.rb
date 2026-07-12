@@ -21,11 +21,11 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_select "aside", count: 0
   end
 
-  test "missing provider state queues refresh without blocking" do
-    assert_enqueued_with(job: RefreshIntelligenceStateJob) do
-      get root_url
-    end
+  test "missing provider state queues refresh and degraded composition without blocking" do
+    get root_url
 
+    assert_enqueued_jobs 1, only: RefreshIntelligenceStateJob
+    assert_enqueued_jobs 1, only: ComposeSurfaceJob
     assert_response :success
   end
 
@@ -39,7 +39,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "surface can embed an active conversation" do
+  test "surface can embed a project conversation" do
     project = Project.create!(name: "Flyd")
     conversation = Conversation.start!(project)
     conversation.messages.create!(role: "user", content: "Keep this on the surface")
@@ -49,6 +49,29 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "[data-chat-conversation-id-value='#{conversation.id}']"
     assert_select "form[action='#{project_conversation_messages_path(project, conversation)}']"
+  end
+
+  test "surface can embed a temporary-context conversation" do
+    context = Context.create!(name: "Interface sprint")
+    conversation = Conversation.start!(context)
+    conversation.messages.create!(role: "user", content: "Keep this temporary context active")
+
+    get root_url(conversation_id: conversation.id)
+
+    assert_response :success
+    assert_select "[data-chat-conversation-id-value='#{conversation.id}']"
+    assert_select "form[action='#{conversation_messages_path(conversation)}']"
+    assert_select "span", text: context.name
+  end
+
+  test "dismissed and collapsed scene items are not rendered" do
+    item = @surface.items.first
+    item.update!(state: "dismissed")
+
+    get root_url
+
+    assert_response :success
+    assert_select "[data-item-key='#{item.item_key}']", count: 0
   end
 
   private
