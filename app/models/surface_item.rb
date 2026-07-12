@@ -1,11 +1,13 @@
 class SurfaceItem < ApplicationRecord
-  KINDS = %w[scene insight decision question conversation artifact build reminder status notification].freeze
-  INTENTS = %w[inform ask decide discuss build investigate monitor remind review celebrate].freeze
-  RENDERERS = %w[hero_scene card conversation document build image timeline notification].freeze
+  KINDS = %w[scene insight decision question conversation artifact reminder status notification].freeze
+  INTENTS = %w[inform ask decide discuss investigate monitor remind review celebrate].freeze
+  RENDERERS = %w[hero_scene supporting_card conversation document notification].freeze
   DEPTHS = %w[foreground middle background receded].freeze
   STATES = %w[presented focused receded resolved dismissed collapsed].freeze
 
   belongs_to :surface, inverse_of: :surface_items
+  has_many :context_corrections, dependent: :destroy
+  has_many :surface_feedbacks, dependent: :destroy
 
   validates :item_key, :title, presence: true
   validates :item_key, uniqueness: { scope: :surface_id }
