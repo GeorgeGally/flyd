@@ -18,8 +18,29 @@
       <% else %>
         <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
           <%= form.hidden_field :project_id, value: @preferred_project.id if @preferred_project %>
+          <%= form.hidden_field :modality, value: "text" %>
           <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will infer the context."), chat: false %>
         <% end %>
+      <% end %>
+
+      <% if @intent&.status == "clarification_required" %>
+        <div class="mt-6 max-w-3xl border-t border-gray-200 pt-5">
+          <p class="text-sm text-gray-700">This may relate to:</p>
+          <div class="mt-3 flex flex-wrap gap-3 text-xs">
+            <% @intent.context_candidates.each do |candidate| %>
+              <%= form_with url: intent_context_corrections_path(@intent), method: :post do %>
+                <%= hidden_field_tag "corrected_contexts[][type]", candidate["type"] %>
+                <%= hidden_field_tag "corrected_contexts[][id]", candidate["id"] %>
+                <%= hidden_field_tag "corrected_contexts[][name]", candidate["name"] %>
+                <%= submit_tag candidate["name"], class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
+              <% end %>
+            <% end %>
+            <%= form_with url: intent_context_corrections_path(@intent), method: :post do %>
+              <%= hidden_field_tag :reason, "No project context" %>
+              <%= submit_tag "No project", class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
+            <% end %>
+          </div>
+        </div>
       <% end %>
 
       <% if @conversation %>
