@@ -1,60 +1,138 @@
 # Intelligence-Generated Interface
 
 ## Status
-Accepted.
+Accepted and implemented as the primary Flyd architecture.
 
 ## Principle
 
 **Flyd is the intelligence. The interface is the intelligence expressed.**
 
-Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, and reports are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
+Projects, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, and provider signals are evidence and persistence structures. They inform Flyd. They do not determine the interface directly.
 
-## Core boundary
+## Runtime architecture
 
-The root surface must be composed through `Flyd::Intelligence`, persisted, validated, and activated before it becomes visible.
+```text
+provider evidence + Rails memory + active intent + prior surface + feedback
+→ Flyd::WorldStateCompiler
+→ Flyd::Intelligence
+→ Flyd::SurfacePlanValidator
+→ persisted draft Surface
+→ transactional activation
+→ live surface replacement
+```
 
-Flyd receives a snapshot of the current world, including active interaction, memory, project context, recent decisions, beliefs, messages, goals, tensions, curiosity, nudges, reports, events, and available capabilities. Flyd synthesizes that state and returns:
-
-- its concise understanding of what is happening
-- its current intention toward the user
-- a semantic surface composition
-- relationships to supporting contexts and evidence
-- available actions
-
-Rules, retrieval, scoring, and validation may support this operation. They must not replace Flyd's judgment by turning stored records directly into UI.
+`GET /` performs no model composition or provider execution. It renders the current persisted surface immediately and only schedules stale work.
 
 ## Intelligence-state interface
 
-The TypeScript CLI is a producer behind a versioned interface, not a separate intelligence product.
-
-The compiled exporter can emit JSON to stdout:
+The TypeScript CLI is an evidence producer behind schema version `1.0`, not a separate intelligence product.
 
 ```bash
 node cli/dist/export-state.js --stdout
 ```
 
-Manual file export remains available through `npm run export-state`, but Rails does not use the file as application transport.
+The contract is defined in `schemas/intelligence-state.schema.json`. Every exported unit carries:
 
-`RefreshIntelligenceStateJob` executes the exporter in a background worker, validates the payload through `IntelligenceState::CliProvider`, and persists it as an `IntelligenceSnapshot` in PostgreSQL. Web and worker processes therefore share the same canonical provider state.
+- stable identity and evidence type
+- source
+- epistemic status
+- confidence
+- generated timestamp
+- evidence references
+- structured content
 
-Snapshots store:
+Reports and plans are discovered recursively. Paths are portable and relative to `FLYD_DIR`. Manual file export uses a temporary file and atomic rename. Rails ingests stdout through `RefreshIntelligenceStateJob`, validates the contract, and persists shared `IntelligenceSnapshot` records in PostgreSQL.
 
-- provider and schema version
-- generated and received timestamps
-- freshness
-- a content digest
-- payload
-- provider errors
+Unchanged evidence refreshes freshness without unnecessary composition. Failed refreshes are recorded while the newest usable evidence remains available with explicit health errors.
 
-Unchanged content refreshes freshness without triggering unnecessary composition. Changed content queues a new surface composition. Failed refreshes are persisted separately while the most recent usable evidence remains available with explicit health errors.
+## Bounded world state
 
-Provider output is evidence supplied to Flyd. It never directly determines a surface object.
+`Flyd::WorldStateCompiler` normalizes and deduplicates provider evidence, then combines it with:
 
-## Persisted surface lifecycle
+- the active universal intent
+- the active conversation when one exists
+- relevant project decisions and beliefs
+- the current surface
+- context corrections
+- recent surface feedback
+- executable capabilities and renderers
+
+It applies hard collection and character budgets and records dropped evidence diagnostically. The compiler prepares evidence; it does not decide what should appear.
+
+## Composition contract
+
+Flyd may create new semantic surface-item IDs. Context and source references must resolve to IDs in the compiled world state.
+
+`Flyd::SurfacePlanValidator` rejects:
+
+- hallucinated references
+- unsupported renderers
+- unsupported actions
+- invalid item kinds, intents, depths, and modes
+- duplicate semantic IDs
+- missing focus items
+- invalid relationship endpoints or behaviours
+
+Invalid output never replaces the current active surface.
+
+## Renderer and action registries
+
+Implemented renderers:
+
+- `hero_scene`
+- `supporting_card`
+- `conversation`
+- `document`
+- `notification`
+
+Implemented action contracts include discussion, answering, approval, rejection, dismissal, resolution, source inspection, context correction, and artifact opening. Only registered actions may be emitted or rendered.
+
+Semantic relationships drive spatial behaviour:
+
+- join
+- yield
+- recede
+- leave
+- replace
+- collapse
+- return
+
+Motion is derived from meaning rather than item array position.
+
+## Universal intent
+
+Input is persisted first as an `Intent` before any project context is assigned.
+
+```text
+raw input
+→ Intent
+→ InterpretIntentJob
+→ context candidates or accepted contexts
+→ interaction/conversation where needed
+→ surface recomposition
+```
+
+An intent may have no project, one project, or several context references. Ambiguous input remains unresolved and visible for correction; it is never stored in a fake Inbox project.
+
+`ContextCorrection` records original and corrected contexts and feeds future world-state composition.
+
+## Scene lifecycle
+
+`SurfaceFeedback` records opened, ignored, discussed, dismissed, resolved, corrected, useful, and not-useful signals.
+
+Scenes may be:
+
+- dismissed
+- resolved
+- collapsed into durable summary metadata
+- superseded by a later surface
+- resurfaced by Flyd when new evidence makes them relevant
+
+Feedback is evidence for Flyd, not a direct ranking formula.
+
+## Persistence and diagnostics
 
 `Surface` and `SurfaceItem` are durable semantic presentation records.
-
-A surface moves through:
 
 ```text
 draft → active → superseded
@@ -63,71 +141,35 @@ draft → active → superseded
 draft → invalid
 ```
 
-Only one surface may be active. Activation is transactional: the previous active surface is superseded only when the replacement draft is valid and contains its declared focus item. Invalid drafts never replace the current experience.
+Only one surface may be active. Activation is transactional and preserves previous-surface lineage.
 
-The request path performs no model composition. `GET /` loads the active persisted surface and creates a deterministic fallback only when no active surface exists.
+`SurfaceCompositionLog` records reason, state digest, provider health, input/output size, latency, validation failures, and compiler drops without storing private chain-of-thought.
 
-## Background composition and live replacement
+## Background preparation
 
-`ComposeSurfaceJob` is triggered by:
+Surface preparation is triggered by:
 
-- changed provider state
-- a missing or stale active surface
-- a new user intent
-- a completed assistant response
+- scheduled provider refresh
+- changed evidence
+- missing or stale surfaces
+- new intents
+- context corrections
+- assistant responses
+- decision extraction
+- belief synthesis
+- scene feedback
+- newly imported captures
 
-The job:
+Composition triggers are coalesced rather than dropped. Broadcast delivery retries independently from composition.
 
-1. asks `Flyd::Intelligence` to compose a semantic plan
-2. persists the plan as a draft
-3. activates it transactionally
-4. queues `BroadcastSurfaceJob`
+## Remaining extension points
 
-Retryable composition failures retain the existing active surface. Exhausted and non-retryable failures are stored as invalid surfaces for diagnostics. Broadcasting retries independently so a transient Action Cable failure never causes duplicate composition or activation.
+The architecture supports but does not yet fully implement:
 
-The browser subscribes to `flyd_surface` and replaces only `#surface_plane`, preserving the universal input and active conversation shell.
+- audio, image, file, clipboard, and screen ingestion
+- richer artifact-specific renderers
+- non-project temporary context creation UI
+- semantic retrieval beyond the current bounded recency/context compiler
+- explicit resurfacing controls and long-term feedback learning models
 
-## Constraints
-
-- The root experience renders the current persisted Flyd-composed `Surface` when the generated-surface feature is enabled.
-- A project, decision, belief, message, goal, signal, or other record never becomes a visible object merely because it exists.
-- It is valid for Flyd to synthesize many records into one scene, create no scene, or choose a different representation entirely.
-- Projects are context references. They appear only for provenance, correction, or explicit system navigation.
-- Conversation is one renderer within the surface. It is not the application shell.
-- Conversation grows beneath the universal input, with the newest exchange closest to the input anchor.
-- The universal intent entry point is modality-agnostic. Text ships first; audio, files, images, clipboard, and screen input can be added later.
-- Flyd decides what appears, why it appears, its prominence, relationships, and available actions.
-- Renderers present a semantic plan. They do not determine relevance or intention.
-- The surface may contain one dominant scene, several related objects, a conversation, or only the intent entry point.
-- Motion communicates semantic changes through expansion, compression, recession, and return. It must be reversible.
-- Invalid or unavailable intelligence output falls back to a calm universal input, never to a ranked database feed.
-- Missing or stale provider state must be explicit rather than silently ignored.
-- Provider refresh, model composition, persistence, and broadcast work must not block the surface request path.
-
-## Current implementation boundary
-
-Implemented:
-
-- persisted surfaces and surface items
-- transactional activation and history
-- deterministic fallback
-- background provider refresh
-- PostgreSQL-backed shared intelligence snapshots
-- background Flyd composition
-- stale and missing-surface triggers
-- live Turbo Stream replacement
-- independent broadcast retries
-- durable provider and composition failure records
-- production CLI compilation in the Docker image
-
-Still outside this slice:
-
-- bounded world-state compilation
-- strict source-reference validation
-- renderer and action registries
-- persisted universal intents
-- context correction and multi-context interaction
-- full scene resolution, collapse, and resurfacing
-- multimodal input and artifact renderers
-
-Legacy project and conversation routes remain available as fallback and diagnostic views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
+Legacy project and conversation routes remain diagnostic/fallback views. Production rollout is controlled by `FLYD_GENERATED_SURFACE`.
