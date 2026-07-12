@@ -4,7 +4,7 @@ module IntelligenceState
       new.snapshot
     end
 
-    def initialize(providers: [CliProvider.new])
+    def initialize(providers: [ CliProvider.new ])
       @providers = providers
     end
 
@@ -14,6 +14,8 @@ module IntelligenceState
         providers: snapshots.map do |snapshot|
           {
             source: snapshot.source,
+            snapshot_id: snapshot.snapshot_id,
+            state_digest: snapshot.state_digest,
             generated_at: snapshot.generated_at&.iso8601,
             fresh: snapshot.fresh,
             errors: snapshot.errors,
