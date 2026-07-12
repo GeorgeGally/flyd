@@ -37,7 +37,12 @@ module Flyd
       compiled = apply_interface_direction(compiled)
       response = @chat.call!(messages(compiled.state))
       payload = parse_json(response)
-      validated = SurfacePlanValidator.call(payload: payload, reference_registry: compiled.reference_registry)
+      allowed_modes = Array(compiled.state.dig(:interface_direction, :candidates)).map { |candidate| candidate[:mode] }
+      validated = SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: compiled.reference_registry,
+        allowed_modes: allowed_modes
+      )
       @diagnostics = compiled.diagnostics.merge(
         state_digest: IntelligenceSnapshot.digest_for(compiled.state.except(:generated_at)),
         provider_snapshots: provider_snapshots(compiled.state),
