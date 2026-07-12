@@ -12,11 +12,12 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     def snapshot = payload
   end
 
-  test "Flyd composes a synthesized surface from canonical intelligence state" do
+  test "Flyd composes a synthesized surface from bounded canonical intelligence state" do
     project = Project.create!(name: "Flyd", description: "Personal intelligence")
     response = {
       understanding: "The implementation has drifted back toward chat-first interaction.",
       current_intention: "Help George decide the next architectural correction.",
+      surface_mode: "decision",
       focus_item_id: "interface-drift",
       items: [
         {
@@ -28,14 +29,31 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
           renderer: "hero_scene",
           depth: "foreground",
           context_refs: [{ type: "project", id: project.id }],
-          source_refs: [{ type: "goal", id: "ship-flyd" }],
+          source_refs: [{ type: "goal", id: "goal:ship-flyd" }],
           actions: [{ id: "discuss", label: "Discuss" }]
         }
-      ]
+      ],
+      relationships: []
     }.to_json
     chat = FakeChat.new(response)
     provider = FakeStateProvider.new(
-      providers: [{ source: "flyd-cli", fresh: true, data: { goals: [{ slug: "ship-flyd" }] } }]
+      providers: [{
+        source: "flyd-cli",
+        fresh: true,
+        errors: [],
+        data: {
+          goals: [{
+            id: "goal:ship-flyd",
+            type: "goal",
+            source: "test",
+            epistemicStatus: "user_confirmed",
+            confidence: 0.9,
+            generatedAt: Time.current.iso8601,
+            evidenceRefs: [],
+            content: { slug: "ship-flyd" }
+          }]
+        }
+      }]
     )
 
     surface = Flyd::Intelligence.new(chat: chat, state_provider: provider).compose_surface
@@ -43,8 +61,8 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
 
     assert_equal "interface-drift", surface.focus_item_id
     assert_equal "Help George decide the next architectural correction.", surface.current_intention
-    assert_equal "ship-flyd", sent_state.dig("intelligence_state", "providers", 0, "data", "goals", 0, "slug")
-    assert_equal [{ type: "goal", id: "ship-flyd" }], surface.items.first.source_refs
+    assert_equal "ship-flyd", sent_state.dig("provider_state", "providers", 0, "data", "goals", 0, "content", "slug")
+    assert_equal [{ "type" => "goal", "id" => "goal:ship-flyd" }], surface.items.first.source_refs
   end
 
   test "falls back without ranking database records when composition fails" do
