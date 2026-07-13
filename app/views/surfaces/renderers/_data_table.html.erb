@@ -1,0 +1,32 @@
+<article class="overflow-hidden border-y border-gray-200 py-5">
+  <div class="mb-5 flex items-end justify-between gap-4">
+    <div>
+      <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">Data</div>
+      <h3 class="mt-2 text-2xl font-medium"><%= item.title %></h3>
+    </div>
+  </div>
+
+  <% columns = Array(item.metadata["columns"]) %>
+  <% rows = Array(item.metadata["rows"]) %>
+  <% if columns.any? && rows.any? %>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr class="border-b border-gray-300 text-[10px] uppercase tracking-[0.14em] text-gray-400">
+            <% columns.each do |column| %><th class="px-3 py-2 font-medium"><%= column %></th><% end %>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.first(50).each do |row| %>
+            <tr class="border-b border-gray-100">
+              <% Array(row).first(columns.length).each do |value| %><td class="px-3 py-3 align-top"><%= value %></td><% end %>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <p class="text-sm leading-6 text-gray-600"><%= item.summary %></p>
+  <% end %>
+  <%= render "surfaces/actions", item: item, context_project: context_project %>
+</article>

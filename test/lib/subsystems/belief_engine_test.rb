@@ -7,7 +7,7 @@ class Subsystems::BeliefEngineTest < ActiveSupport::TestCase
     @engine = Subsystems::BeliefEngine.new(@project)
   end
 
-  test "synthesize creates beliefs from decisions" do
+  test "synthesize creates beliefs with decision provenance" do
     d1 = @project.decisions.create!(
       conversation: @conversation,
       content: "Use PostgreSQL for primary database",
@@ -20,8 +20,10 @@ class Subsystems::BeliefEngineTest < ActiveSupport::TestCase
     )
 
     @engine.synthesize([ d1, d2 ])
-    assert @project.beliefs.count >= 1
-    assert @project.beliefs.first.statement.present?
+    belief = @project.beliefs.first
+    assert belief.present?
+    assert belief.statement.present?
+    assert_equal [ d1.id, d2.id ].sort, belief.source_decision_ids.map(&:to_i).sort
   end
 
   test "compute_attention returns active beliefs sorted by confidence" do

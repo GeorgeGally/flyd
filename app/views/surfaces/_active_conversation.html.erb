@@ -1,0 +1,31 @@
+<div class="border-l border-gray-300 pl-6 py-2">
+  <div class="mb-5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+    <span>Current work · <%= conversation.owner_name %></span>
+    <% history_path = conversation.project ? project_conversation_path(conversation.project, conversation) : conversation_path(conversation) %>
+    <%= link_to "Full history", history_path, class: "hover:text-gray-900" %>
+  </div>
+
+  <h2 class="max-w-3xl text-3xl font-medium tracking-tight md:text-5xl"><%= scene&.title.presence || conversation.summary.presence || "Continue where we left off" %></h2>
+  <% if scene&.desired_outcome.present? %>
+    <p class="mt-4 max-w-2xl text-sm leading-6 text-gray-500"><%= scene.desired_outcome %></p>
+  <% end %>
+
+  <div class="mt-8 max-w-3xl space-y-6" data-chat-target="messages">
+    <% conversation.visible_messages.last(8).each do |message| %>
+      <div class="<%= message.role == 'user' ? 'pl-8' : '' %>">
+        <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400"><%= message.role %></div>
+        <div class="text-sm leading-6 text-gray-800"><%= message.role == "assistant" ? markdown(message.content) : simple_format(message.content) %></div>
+      </div>
+    <% end %>
+    <div class="hidden" data-chat-target="streamingMessage">
+      <div class="mb-1 text-[10px] uppercase tracking-[0.15em] text-gray-400">assistant</div>
+      <div class="text-sm leading-6 text-gray-800" data-chat-target="streamingContent"></div>
+    </div>
+  </div>
+
+  <% if conversation.project %>
+    <div class="mt-8 flex items-center gap-4 text-xs">
+      <%= button_to "Build", project_conversation_builds_path(conversation.project, conversation), method: :post, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+    </div>
+  <% end %>
+</div>

@@ -1,21 +1,80 @@
 class Conversation < ApplicationRecord
-  belongs_to :project
+  belongs_to :project, optional: true
+  belongs_to :context, optional: true
+  belongs_to :superseded_by_conversation, class_name: "Conversation", optional: true
+  has_many :superseded_conversations, class_name: "Conversation", foreign_key: :superseded_by_conversation_id, dependent: :nullify, inverse_of: :superseded_by_conversation
   has_many :messages, dependent: :destroy
   has_many :decisions, dependent: :destroy
+  has_many :scenes, dependent: :nullify
+  has_many :artifacts, dependent: :nullify
 
-  scope :active_for, ->(project) { where(project: project, active: true) }
-  scope :ordered, -> { order(updated_at: :desc) }
-
-  validates :status, inclusion: { in: %w[active archived] }
-
-  def self.start!(project, summary: nil)
-    transaction do
-      active_for(project).update_all(active: false)
-      create!(project: project, active: true, status: "active", summary: summary)
+  scope :active_for, ->(owner) do
+    case owner
+    when Project then where(project: owner, context: nil, active: true)
+    when Context then where(context: owner, project: nil, active: true)
+    else none
     end
+  end
+  scope :ordered, -> { order(updated_at: :desc) }
+  scope :continuable, -> { where(active: true, status: "active").order(updated_at: :desc) }
+
+  validates :status, inclusion: { in: %w[active archived superseded] }
+  validate :has_exactly_one_context_owner
+
+  def self.start!(owner, summary: nil)
+    transaction do
+      active_for(owner).update_all(active: false)
+      attributes = { active: true, status: "active", summary: summary }
+      attributes[owner.is_a?(Project) ? :project : :context] = owner
+      conversation = create!(attributes)
+      conversation.scenes.create!(
+        scene_key: "conversation:#{conversation.id}",
+        kind: "conversation",
+        status: "active",
+        title: summary.presence || "Continue #{owner.name}",
+        summary: summary,
+        desired_outcome: summary,
+        project: owner.is_a?(Project) ? owner : nil,
+        context: owner.is_a?(Context) ? owner : nil,
+        last_presented_at: Time.current
+      )
+      conversation
+    end
+  end
+
+  def owner
+    project || context
+  end
+
+  def owner_name
+    owner&.name || "Global"
+  end
+
+  def visible_messages
+    messages.ordered.reject(&:context_superseded?)
+  end
+
+  def continuable?
+    active? && status == "active" && visible_messages.any?
+  end
+
+  def primary_scene
+    scenes.active.order(updated_at: :desc).first || scenes.order(updated_at: :desc).first
+  end
+
+  def supersede_by!(replacement)
+    update!(active: false, status: "superseded", superseded_by_conversation: replacement)
   end
 
   def archive!
     update!(active: false, status: "archived")
+  end
+
+  private
+
+  def has_exactly_one_context_owner
+    return if project.present? ^ context.present?
+
+    errors.add(:base, "Conversation must belong to exactly one project or context")
   end
 end

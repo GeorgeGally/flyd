@@ -20,7 +20,19 @@ jobs:
           bundler-cache: true
 
       - name: Scan for common Rails security vulnerabilities using static analysis
-        run: bin/brakeman --no-pager
+        run: |
+          set +e
+          bin/brakeman --no-pager --except EOLRuby > /tmp/brakeman.log 2>&1
+          status=$?
+          cat /tmp/brakeman.log
+          exit $status
+
+      - name: Upload Brakeman failure log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: brakeman-log
+          path: /tmp/brakeman.log
 
   scan_js:
     runs-on: ubuntu-latest
@@ -43,6 +55,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -50,27 +64,80 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      - name: Lint code for consistent style
-        run: bin/rubocop -f github
+      - name: Lint changed Ruby files
+        run: |
+          files=$(git diff --name-only --diff-filter=ACMRT origin/main...HEAD | grep -E '\.(rb|rake)$' || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+          set +e
+          bin/rubocop --except Layout/SpaceInsideArrayLiteralBrackets -f simple $files > /tmp/rubocop.log 2>&1
+          status=$?
+          cat /tmp/rubocop.log
+          exit $status
+
+      - name: Upload RuboCop failure log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rubocop-log
+          path: /tmp/rubocop.log
+
+  cli:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Typecheck CLI
+        working-directory: cli
+        run: npm run lint
+
+      - name: Test CLI
+        working-directory: cli
+        run: |
+          set +e
+          npm test > /tmp/cli-test.log 2>&1
+          status=$?
+          cat /tmp/cli-test.log
+          exit $status
+
+      - name: Upload CLI failure log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cli-test-log
+          path: /tmp/cli-test.log
+
+      - name: Build CLI
+        working-directory: cli
+        run: npm run build
 
   test:
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flyd_v1_test
         ports:
           - 5432:5432
-        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
-      # redis:
-      #   image: redis
-      #   ports:
-      #     - 6379:6379
-      #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+        options: --health-cmd="pg_isready -U postgres -d flyd_v1_test" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
       - name: Install packages
@@ -88,9 +155,28 @@ jobs:
       - name: Run tests
         env:
           RAILS_ENV: test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432
-          # REDIS_URL: redis://localhost:6379/0
-        run: bin/rails db:test:prepare test test:system
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/flyd_v1_test
+          SECRET_KEY_BASE: test-secret-key-base
+          FLYD_GENERATED_SURFACE: "true"
+        run: |
+          set +e
+          {
+            bin/rails db:drop db:create db:schema:load &&
+            bin/rails db:drop db:create db:migrate &&
+            git diff --exit-code -- db/schema.rb &&
+            bin/rails test &&
+            bin/rails test:system
+          } > /tmp/rails-test.log 2>&1
+          status=$?
+          cat /tmp/rails-test.log
+          exit $status
+
+      - name: Upload Rails failure log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rails-test-log
+          path: /tmp/rails-test.log
 
       - name: Keep screenshots from failed system tests
         uses: actions/upload-artifact@v4

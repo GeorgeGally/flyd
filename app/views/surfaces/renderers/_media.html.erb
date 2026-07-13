@@ -1,0 +1,21 @@
+<article class="overflow-hidden border-y border-gray-200 py-5">
+  <% attachment = IntentAttachment.available.find_by(id: item.metadata["attachment_id"]) %>
+  <div class="mb-4 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+    <span><%= item.metadata["media_type"].presence || "media" %></span>
+    <% if attachment %><span><%= attachment.filename %></span><% end %>
+  </div>
+
+  <% if attachment&.content_type.to_s.start_with?("image/") && attachment.safe_inline? %>
+    <%= image_tag intent_attachment_path(attachment), alt: item.title, class: "max-h-[65vh] w-full object-contain object-left" %>
+  <% elsif attachment&.content_type.to_s.start_with?("audio/") && attachment.safe_inline? %>
+    <audio controls class="w-full"><source src="<%= intent_attachment_path(attachment) %>" type="<%= attachment.content_type %>"></audio>
+  <% elsif attachment %>
+    <%= link_to attachment.filename.presence || "Open attachment", intent_attachment_path(attachment), class: "inline-block rounded-full border border-gray-300 px-4 py-2 text-sm hover:border-gray-950" %>
+  <% else %>
+    <p class="text-sm text-gray-400">This source is no longer available.</p>
+  <% end %>
+
+  <h3 class="mt-6 text-2xl font-medium"><%= item.title %></h3>
+  <p class="mt-3 max-w-2xl text-sm leading-6 text-gray-600"><%= item.summary %></p>
+  <%= render "surfaces/actions", item: item, context_project: context_project %>
+</article>

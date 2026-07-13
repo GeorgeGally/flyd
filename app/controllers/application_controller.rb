@@ -7,8 +7,10 @@ class ApplicationController < ActionController::Base
   private
 
   def check_api_keys
+    return if Rails.env.test?
     return if controller_name == "settings"
     return if Flyd::KeyLoader.get("OPENAI_API_KEY") || Flyd::KeyLoader.get("ANTHROPIC_API_KEY")
+
     redirect_to settings_path
   end
 

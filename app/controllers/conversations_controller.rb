@@ -1,8 +1,10 @@
 class ConversationsController < ApplicationController
-  before_action :set_project
+  before_action :set_project, only: [ :create, :destroy ]
 
   def show
-    @conversation = @project.conversations.find(params[:id])
+    @conversation = Conversation.find(params[:id])
+    @project = @conversation.project
+    @context = @conversation.context
   end
 
   def create

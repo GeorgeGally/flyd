@@ -1,0 +1,38 @@
+<section class="min-h-[58vh] py-4 md:py-8">
+  <div class="text-[10px] uppercase tracking-[0.22em] text-gray-400">Decision</div>
+  <h2 class="mt-6 max-w-5xl text-4xl font-medium leading-[1.02] tracking-tight md:text-7xl"><%= item.title %></h2>
+  <p class="mt-7 max-w-3xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
+
+  <% if item.metadata["recommendation"].present? %>
+    <p class="mt-8 max-w-3xl border-l border-gray-950 pl-5 text-sm leading-6"><span class="font-medium">Flyd’s read:</span> <%= item.metadata["recommendation"] %></p>
+  <% end %>
+
+  <div class="mt-12 divide-y divide-gray-200 border-y border-gray-200">
+    <% Array(item.metadata["options"]).each_with_index do |option, index| %>
+      <% action = item.actions.find { |candidate| (candidate["id"] || candidate[:id]) == "choose" && (candidate.dig("payload", "option_id") || candidate.dig(:payload, :option_id)).to_s == option["id"].to_s } %>
+      <div class="grid gap-4 py-6 md:grid-cols-[3rem_1fr_auto] md:items-center">
+        <div class="text-xs text-gray-300"><%= format("%02d", index + 1) %></div>
+        <div>
+          <h3 class="text-xl font-medium md:text-2xl"><%= option["label"] %></h3>
+          <% if option["description"].present? %><p class="mt-2 max-w-2xl text-sm leading-6 text-gray-500"><%= option["description"] %></p><% end %>
+        </div>
+        <% if action %>
+          <%= button_to "Choose", surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: action["payload"] }, class: "rounded-full border border-gray-300 px-5 py-2 text-xs font-medium hover:border-gray-950" %>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="mt-7 flex flex-wrap gap-5 text-xs">
+    <% item.actions.reject { |action| (action["id"] || action[:id]) == "choose" }.each do |action| %>
+      <% action_id = action["id"] || action[:id] %>
+      <% if %w[discuss dismiss].include?(action_id) %>
+        <% if action_id == "dismiss" %>
+          <%= button_to action["label"] || "Not now", surface_item_feedbacks_path(item), method: :post, params: { signal: "dismiss" }, class: "underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+        <% else %>
+          <%= button_to action["label"] || "Discuss", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+</section>

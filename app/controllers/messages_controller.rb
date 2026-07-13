@@ -7,17 +7,17 @@ class MessagesController < ApplicationController
       LlmStreamingJob.perform_later(@conversation.id, @message.content)
 
       if @conversation.messages.count % 5 == 0
-        DecisionExtractionJob.perform_later(@conversation.id)
+        DecisionExtractionJob.perform_later(@conversation.id) if @conversation.project
       end
 
       respond_to do |format|
         format.json { head :created }
-        format.html { redirect_to project_conversation_path(@conversation.project, @conversation) }
+        format.html { redirect_to conversation_location(@conversation) }
       end
     else
       respond_to do |format|
         format.json { render json: { errors: @message.errors.full_messages }, status: :unprocessable_entity }
-        format.html { redirect_to project_conversation_path(@conversation.project, @conversation), alert: @message.errors.full_messages.to_sentence }
+        format.html { redirect_to conversation_location(@conversation), alert: @message.errors.full_messages.to_sentence }
       end
     end
   end
@@ -26,6 +26,10 @@ class MessagesController < ApplicationController
 
   def set_conversation
     @conversation = Conversation.find(params[:conversation_id])
+  end
+
+  def conversation_location(conversation)
+    conversation.project ? project_conversation_path(conversation.project, conversation) : conversation_path(conversation)
   end
 
   def message_params

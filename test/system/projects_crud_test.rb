@@ -2,7 +2,7 @@ require "application_system_test_case"
 
 class ProjectsCrudTest < ApplicationSystemTestCase
   test "create project" do
-    visit root_path
+    visit projects_path
     click_on "Create Project"
     assert_selector "h2", text: "New Project"
 
@@ -19,7 +19,7 @@ class ProjectsCrudTest < ApplicationSystemTestCase
     Project.create!(name: "Alpha")
     Project.create!(name: "Beta")
 
-    visit root_path
+    visit projects_path
     within "aside" do
       assert_text "Alpha"
       assert_text "Beta"
@@ -68,7 +68,7 @@ class ProjectsCrudTest < ApplicationSystemTestCase
 
   test "empty state shows guidance" do
     Project.delete_all
-    visit root_path
+    visit projects_path
     assert_text "No projects yet"
     assert_text "Create your first project"
   end

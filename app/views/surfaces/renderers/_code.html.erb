@@ -1,0 +1,8 @@
+<article class="overflow-hidden border border-gray-200 bg-gray-950 text-gray-100">
+  <header class="flex items-center justify-between border-b border-white/10 px-4 py-3 text-[10px] uppercase tracking-[0.18em] text-gray-400">
+    <span><%= item.title %></span>
+    <span><%= item.metadata["language"].presence || "code" %></span>
+  </header>
+  <pre class="overflow-x-auto p-5 text-xs leading-6"><code><%= item.summary %></code></pre>
+  <div class="px-4 pb-4"><%= render "surfaces/actions", item: item, context_project: context_project %></div>
+</article>

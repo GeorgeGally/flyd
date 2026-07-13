@@ -1,0 +1,19 @@
+<% if item.actions.any? %>
+  <div class="mt-8 flex flex-wrap gap-4 text-xs">
+    <% item.actions.each do |action| %>
+      <% action_id = action["id"] || action[:id] %>
+      <% label = action["label"] || action[:label] || action_id.to_s.humanize %>
+      <% payload = action["payload"] || action[:payload] || {} %>
+      <% case action_id %>
+      <% when "discuss", "answer", "investigate", "build", "choose" %>
+        <%= button_to label, surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: payload }, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+      <% when "dismiss", "resolve" %>
+        <%= button_to label, surface_item_feedbacks_path(item), method: :post, params: { signal: action_id, payload: payload }, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+      <% when "correct_context" %>
+        <%= button_to label, surface_item_context_corrections_path(item), method: :post, params: { corrected_contexts: payload["contexts"] || [] }, class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+      <% when "inspect_sources" %>
+        <%= link_to label, surface_item_sources_path(item), class: "font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+      <% end %>
+    <% end %>
+  </div>
+<% end %>

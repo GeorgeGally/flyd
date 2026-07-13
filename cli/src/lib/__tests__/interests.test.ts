@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from "fs";
+import { readFileSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
@@ -21,10 +21,13 @@ vi.mock("../../lib/config.js", async (importOriginal) => {
 });
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
   mkdirSync(testRawDir, { recursive: true });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   rmSync(testFlydDir, { recursive: true, force: true });
 });
 
@@ -32,7 +35,7 @@ function writeCapture(filename: string, body: string, project = "test-project", 
   const ts = timestamp ?? "2026-06-01 10:00:00";
   const content = [
     "---",
-    `source: cli`,
+    "source: cli",
     `project: ${project}`,
     `timestamp: ${ts}`,
     "---",
@@ -45,8 +48,7 @@ function writeCapture(filename: string, body: string, project = "test-project", 
 describe("extractInterests", () => {
   it("returns zeros when no captures exist", async () => {
     const { extractInterests } = await import("../interests.js");
-    const result = extractInterests();
-    expect(result).toEqual({ extracted: 0, updated: 0 });
+    expect(extractInterests()).toEqual({ extracted: 0, updated: 0 });
   });
 
   it("extracts interests from repeated terms", async () => {
@@ -54,14 +56,8 @@ describe("extractInterests", () => {
     writeCapture("1.md", "Working on Rust compiler optimizations this morning");
     writeCapture("2.md", "The Rust borrow checker is tricky but powerful", "test-project", "2026-06-01 11:00:00");
     writeCapture("3.md", "Published a blog post about Rust async patterns today", "test-project", "2026-06-01 12:00:00");
-
-    const result = extractInterests();
-    expect(result.extracted).toBeGreaterThanOrEqual(0);
-
-    // Re-extract with no new captures should return 0
-    const { extractInterests: extractAgain } = await import("../interests.js");
-    const second = extractAgain();
-    expect(second.extracted).toBe(0); // no new captures
+    expect(extractInterests().extracted).toBeGreaterThanOrEqual(0);
+    expect(extractInterests().extracted).toBe(0);
   });
 
   it("skips synthesis-type captures", async () => {
@@ -70,24 +66,19 @@ describe("extractInterests", () => {
     writeCapture("2.md", "More about Rust concurrency");
     writeCapture("3.md", "Rust vs C++ comparison");
     writeCapture("4.md", "synthesis output", "test-project", "2026-06-02 10:00:00");
-
-    const result = extractInterests();
-    // Should not crash — synthesis captures are skipped
-    expect(result.extracted).toBeGreaterThanOrEqual(0);
+    expect(extractInterests().extracted).toBeGreaterThanOrEqual(0);
   });
 
   it("updates existing interests on re-extraction", async () => {
     const { extractInterests } = await import("../interests.js");
-
     writeCapture("1.md", "Rust programming is fun");
     writeCapture("2.md", "Rust ownership model explained");
     writeCapture("3.md", "Rust async is great");
     extractInterests();
-
     writeCapture("4.md", "New Rust features in 2026", "test-project", "2026-06-03 10:00:00");
     const result = extractInterests();
     expect(result.updated).toBeGreaterThanOrEqual(0);
-    expect(result.extracted).toBe(0); // no new interests
+    expect(result.extracted).toBe(0);
   });
 });
 
@@ -98,9 +89,7 @@ describe("getMatchingInterests", () => {
     writeCapture("2.md", "React server components change everything");
     writeCapture("3.md", "JavaScript tooling keeps improving");
     extractInterests();
-
-    const matches = getMatchingInterests("What about Python?");
-    expect(matches).toEqual([]);
+    expect(getMatchingInterests("What about Python?")).toEqual([]);
   });
 
   it("matches topics in text", async () => {
@@ -109,17 +98,14 @@ describe("getMatchingInterests", () => {
     writeCapture("2.md", "Rust ownership rules");
     writeCapture("3.md", "Rust async patterns");
     extractInterests();
-
-    const matches = getMatchingInterests("Tell me about Rust");
-    expect(matches.some(m => m.topic.toLowerCase().includes("rust"))).toBe(true);
+    expect(getMatchingInterests("Tell me about Rust").some((match) => match.topic.toLowerCase().includes("rust"))).toBe(true);
   });
 });
 
 describe("getActiveInterests", () => {
   it("returns only non-stale interests", async () => {
     const { getActiveInterests } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "2026-06-01 10:00:00",
       global: [
@@ -127,37 +113,29 @@ describe("getActiveInterests", () => {
         { topic: "stale-topic", keywords: [], priority: "medium", auto_extracted: false, first_seen: "2026-01-01", last_active: "2026-01-01", capture_count: 3, staleness_days: 30 },
       ],
       projects: {},
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
-    const active = getActiveInterests();
-    expect(active.map(i => i.topic)).toEqual(["active-topic"]);
+    }), "utf8");
+    expect(getActiveInterests().map((interest) => interest.topic)).toEqual(["active-topic"]);
   });
 
   it("filters by project", async () => {
     const { getActiveInterests } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "2026-06-01 10:00:00",
       global: [
         { topic: "rust", keywords: [], priority: "high", auto_extracted: false, first_seen: "2026-06-01", last_active: "2026-06-01", capture_count: 5, staleness_days: 30 },
         { topic: "react", keywords: [], priority: "high", auto_extracted: false, first_seen: "2026-06-01", last_active: "2026-06-01", capture_count: 5, staleness_days: 30 },
       ],
-      projects: { "frontend": ["react"] },
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
-    const active = getActiveInterests("frontend");
-    expect(active.map(i => i.topic)).toEqual(["react"]);
+      projects: { frontend: ["react"] },
+    }), "utf8");
+    expect(getActiveInterests("frontend").map((interest) => interest.topic)).toEqual(["react"]);
   });
 });
 
 describe("getInterestStaleness", () => {
   it("returns stale and dormant interests", async () => {
     const { getInterestStaleness } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "2026-06-01 10:00:00",
       global: [
@@ -165,12 +143,10 @@ describe("getInterestStaleness", () => {
         { topic: "stale", keywords: [], priority: "medium", auto_extracted: false, first_seen: "2026-01-01", last_active: "2026-01-01", capture_count: 3, staleness_days: 30 },
       ],
       projects: {},
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
-    const { stale, dormant } = getInterestStaleness();
-    expect(stale.map(i => i.topic)).toContain("stale");
-    expect(stale.map(i => i.topic)).not.toContain("active");
+    }), "utf8");
+    const { stale } = getInterestStaleness();
+    expect(stale.map((interest) => interest.topic)).toContain("stale");
+    expect(stale.map((interest) => interest.topic)).not.toContain("active");
   });
 });
 
@@ -182,17 +158,14 @@ describe("getInterestKeywords", () => {
 
   it("returns concatenated keywords for matching interests", async () => {
     const { getInterestKeywords } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "2026-06-01 10:00:00",
       global: [
         { topic: "rust", keywords: ["ownership", "borrow"], priority: "high", auto_extracted: false, first_seen: "2026-06-01", last_active: "2026-06-01", capture_count: 5, staleness_days: 30 },
       ],
       projects: {},
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
+    }), "utf8");
     const keywords = getInterestKeywords("Tell me about Rust");
     expect(keywords).toContain("rust");
     expect(keywords).toContain("ownership");
@@ -202,17 +175,14 @@ describe("getInterestKeywords", () => {
 describe("listInterests", () => {
   it("removes an interest", async () => {
     const { listInterests } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "",
       global: [
         { topic: "rust", keywords: [], priority: "low", auto_extracted: true, first_seen: "2026-06-01", last_active: "2026-06-01", capture_count: 3, staleness_days: 30 },
       ],
       projects: {},
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
+    }), "utf8");
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     listInterests(undefined, { remove: "rust" });
     expect(consoleSpy).toHaveBeenCalledWith('removed interest "rust"');
@@ -221,17 +191,14 @@ describe("listInterests", () => {
 
   it("sets priority on an interest", async () => {
     const { listInterests } = await import("../interests.js");
-
-    const store = {
+    writeFileSync(testInterestsPath, JSON.stringify({
       version: 1,
       updated: "",
       global: [
         { topic: "rust", keywords: [], priority: "low", auto_extracted: true, first_seen: "2026-06-01", last_active: "2026-06-01", capture_count: 3, staleness_days: 30 },
       ],
       projects: {},
-    };
-    writeFileSync(testInterestsPath, JSON.stringify(store), "utf8");
-
+    }), "utf8");
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     listInterests(undefined, { priority: "rust high" });
     expect(consoleSpy).toHaveBeenCalledWith('set "rust" priority to high');
