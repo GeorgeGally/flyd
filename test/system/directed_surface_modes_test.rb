@@ -7,7 +7,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     Rails.cache.clear
   end
 
-  test "investigation exposes uncertainty and opens a focused inquiry" do
+  test "investigation exposes uncertainty in a working scene and opens a focused inquiry" do
     context = Context.create!(name: "Interface research", kind: "temporary")
     scene = Scene.create!(
       scene_key: "investigation:dynamic-interface",
@@ -37,9 +37,11 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     visit root_path
 
+    assert_selector "#surface_plane[data-surface-composition='working_scene']"
+    assert_selector ".surface-object[data-role='focus'] .working-scene"
     assert_text "INVESTIGATION"
     assert_text "WHAT WE KNOW"
-    assert_text "WHAT IS STILL UNCERTAIN"
+    assert_text "WHAT REMAINS UNCERTAIN"
     assert_text "Which fixed shell"
     click_on "Investigate"
 
@@ -52,7 +54,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_equal "discussed", item.surface_feedbacks.last.signal
   end
 
-  test "action mode stops at confirmation before execution" do
+  test "action mode uses a working scene and stops at confirmation before execution" do
     project = Project.create!(name: "Flyd", root_path: "/tmp/flyd")
     conversation = Conversation.start!(project, summary: "Build the dynamic director")
     scene = Scene.create!(
@@ -85,6 +87,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     visit root_path
 
+    assert_selector "#surface_plane[data-surface-composition='working_scene']"
+    assert_selector ".surface-object[data-role='focus'] .working-scene"
     assert_text "READY TO ACT"
     assert_text "WHAT FLYD WILL DO"
     assert_text "WHAT CHANGES"
@@ -96,6 +100,46 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_current_path build_path(build)
     assert build.proposed?
     assert_nil build.confirmed_at
+  end
+
+  test "decision mode renders an editorial comparison wall" do
+    context = Context.create!(name: "Poster direction", kind: "temporary")
+    scene = Scene.create!(
+      scene_key: "decision:poster-direction",
+      kind: "decision",
+      status: "active",
+      title: "Choose the stronger direction",
+      context: context
+    )
+    activate_surface(
+      scene: scene,
+      mode: "decision",
+      kind: "decision",
+      intent: "decide",
+      renderer: "decision_scene",
+      metadata: {
+        "recommendation" => "Use the darker direction.",
+        "options" => [
+          { "id" => "dark", "label" => "Darker poster", "description" => "Reads as an evening market." },
+          { "id" => "bright", "label" => "Bright poster", "description" => "Reads as a family fair." }
+        ]
+      },
+      actions: [
+        { "id" => "choose", "label" => "Choose darker", "payload" => { "option_id" => "dark" } },
+        { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } }
+      ],
+      context_refs: [{ "type" => "context", "id" => context.id }]
+    )
+
+    visit root_path
+
+    assert_selector "#surface_plane[data-surface-composition='comparison_wall']"
+    assert_selector ".surface-object[data-role='focus'] .decision-wall"
+    assert_selector ".decision-poster", count: 2
+    assert_selector ".decision-poster[data-recommended='true']", count: 1
+    assert_text "Use the darker direction."
+    assert_button "Accept"
+    assert_button "Choose"
   end
 
   private
