@@ -1,7 +1,7 @@
 <%= content_for :title, "Build — Flyd" %>
 
 <div class="mx-auto max-w-3xl py-12">
-  <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">OpenCode execution</div>
+  <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400"><%= @build.proposed? ? "Review before running" : "OpenCode execution" %></div>
   <h1 class="mt-4 text-4xl font-medium tracking-tight"><%= @build.scene&.title.presence || "Build proposal" %></h1>
   <p class="mt-4 text-sm leading-6 text-gray-600"><%= @build.confirmation_summary %></p>
 
@@ -25,6 +25,7 @@
       <%= button_to "Confirm build", confirm_build_path(@build), method: :post, class: "rounded-full bg-gray-950 px-5 py-3 text-sm font-medium text-white" %>
       <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "text-sm underline decoration-gray-300 underline-offset-4" %>
     </div>
+    <p class="mt-4 text-sm text-gray-500">Nothing has executed yet.</p>
   <% elsif @build.running? %>
     <div class="mt-8">
       <p class="text-sm font-medium">Build in progress</p>

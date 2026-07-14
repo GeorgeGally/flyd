@@ -40,15 +40,17 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     assert_selector "#surface_plane[data-surface-composition='working_scene']"
     assert_selector ".surface-object[data-role='focus'] .working-scene"
-    assert_text "INVESTIGATION"
-    assert_text "WHAT WE KNOW"
-    assert_text "WHAT REMAINS UNCERTAIN"
+    assert_selector ".editorial-object__eyebrow", text: /\AInvestigation\z/i
+    assert_selector ".editorial-object__eyebrow", text: /\AWhat we know\z/i
+    assert_selector ".editorial-object__eyebrow", text: /\AWhat remains uncertain\z/i
     assert_text "Which fixed shell"
     click_on "Investigate"
 
     assert_current_path root_path
     assert_text "Which fixed shell is suppressing the scene?"
-    assert Conversation.where(context: context).exists?
+    assert_selector "form[action$='/messages']"
+    conversation = Conversation.where(context: context).order(:created_at).last
+    assert_selector "form[action='#{conversation_messages_path(conversation)}']"
     assert_equal "discussed", item.surface_feedbacks.last.signal
   end
 
@@ -81,7 +83,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
           "payload" => {
             "project_id" => project.id,
             "conversation_id" => conversation.id,
-            "description" => "Implement the dynamic director and its tests."
+            "instructions" => "Implement the dynamic director and its tests."
           }
         }
       ],
@@ -92,15 +94,15 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     assert_selector "#surface_plane[data-surface-composition='working_scene']"
     assert_selector ".surface-object[data-role='focus'] .working-scene"
-    assert_text "READY TO ACT"
-    assert_text "WHAT FLYD WILL DO"
-    assert_text "WHAT CHANGES"
+    assert_selector ".editorial-object__eyebrow", text: /\AReady to act\z/i
+    assert_selector ".editorial-object__eyebrow", text: /\AWhat Flyd will do\z/i
+    assert_selector ".editorial-object__eyebrow", text: /\AWhat changes\z/i
     click_on "Review action"
 
-    build = item.reload.scene.builds.order(:created_at).last
-    assert_current_path confirm_build_path(build)
-    assert_text "Review before running"
+    assert_text(/Review before running/i)
     assert_text "Nothing has executed yet"
+    build = item.reload.scene.builds.order(:created_at).last
+    assert_current_path build_path(build)
     assert_equal "proposed", build.status
     assert_nil build.confirmed_at
   end

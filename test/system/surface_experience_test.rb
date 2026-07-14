@@ -57,7 +57,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_equal "decision", find("#surface_plane")[:"data-surface-mode"]
     assert page.evaluate_script("document.querySelector('#surface_plane').compareDocumentPosition(document.querySelector('[data-surface-target=\"intent\"]')) & Node.DOCUMENT_POSITION_FOLLOWING")
 
-    click_on "Choose", match: :first
+    click_on "Accept"
 
     assert_no_text scene.title
     assert_equal "resolved", scene.reload.status
