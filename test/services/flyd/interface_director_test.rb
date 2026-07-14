@@ -108,4 +108,47 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal "quiet", directive[:suggested_mode]
     assert_equal 1, directive.dig(:grammars, :quiet, :maximum_items)
   end
+
+  test "grounded personal knowledge earns discovery above quiet" do
+    directive = Flyd::InterfaceDirector.call(
+      builds: [],
+      provider_state: {
+        providers: [ {
+          data: {
+            reports: [ {
+              id: "report:memex",
+              type: "report",
+              epistemicStatus: "observation",
+              confidence: 0.8,
+              content: { title: "The memex", excerpt: "Associative trails anticipated hypertext." }
+            } ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "discovery", directive[:suggested_mode]
+    assert_equal [ "discovery", "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
+    assert_equal "discovery_scene", directive.dig(:grammars, :discovery, :focus_renderer)
+  end
+
+  test "ready work still outranks discovery" do
+    directive = Flyd::InterfaceDirector.call(
+      active_intent: { requested_capability: "build" },
+      builds: [],
+      provider_state: {
+        providers: [ {
+          data: {
+            reports: [ {
+              id: "report:memex", type: "report", epistemicStatus: "observation", confidence: 0.8,
+              content: { title: "The memex", excerpt: "Associative trails anticipated hypertext." }
+            } ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "action", directive[:suggested_mode]
+    assert_equal [ "action", "discovery", "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
+  end
 end

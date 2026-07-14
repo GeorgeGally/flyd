@@ -328,6 +328,53 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal "quiet", surface.surface_mode
     assert_equal "quiet:available", surface.focus_item_id
     assert_nil chat.received_messages
-    assert_equal "Nothing has earned the screen yet.", surface.understanding
+    assert_equal "Flyd is ready when you are.", surface.understanding
+  end
+
+
+  test "grounded archive knowledge composes a discovery instead of quiet" do
+    response = {
+      understanding: "A foundational idea in the archive directly connects to Flyd's current direction.",
+      current_intention: "Resurface a useful connection without manufacturing urgency.",
+      surface_mode: "discovery",
+      focus_item_id: "discovery:memex",
+      items: [ {
+        id: "discovery:memex",
+        kind: "insight",
+        intent: "inform",
+        title: "The memex was designed around associative trails",
+        summary: "Vannevar Bush described a personal system where linked trails mirror how memory moves between ideas.",
+        renderer: "discovery_scene",
+        depth: "foreground",
+        context_refs: [],
+        source_refs: [ { type: "report", id: "report:memex" } ],
+        actions: [ { id: "inspect_sources", label: "Open source", payload: {} } ],
+        metadata: {
+          why_it_matters: "Flyd's stage can make those associations actionable instead of merely searchable.",
+          source_label: "From your archive"
+        }
+      } ],
+      relationships: []
+    }.to_json
+    chat = FakeChat.new(response)
+    provider = FakeStateProvider.new({
+      providers: [ {
+        source: "flyd-cli",
+        fresh: true,
+        data: {
+          reports: [ {
+            id: "report:memex", type: "report", source: "cli.reports", epistemicStatus: "observation",
+            confidence: 0.8, generatedAt: nil, evidenceRefs: [],
+            content: { title: "The memex", excerpt: "Associative trails anticipated hypertext." }
+          } ]
+        }
+      } ]
+    })
+
+    surface = Flyd::Intelligence.new(chat: chat, state_provider: provider, fallback: false).compose_surface
+
+    assert_equal "discovery", surface.surface_mode
+    assert_equal "discovery_scene", surface.items.first.renderer
+    assert_equal [ { "type" => "report", "id" => "report:memex" } ], surface.items.first.source_refs
   end
 end

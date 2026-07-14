@@ -1,0 +1,17 @@
+<section class="discovery-scene">
+  <div class="discovery-scene__direction">
+    <div class="surface-label"><%= item.metadata["source_label"].presence || "Discovery" %></div>
+    <h2><%= item.title %></h2>
+    <%= render "surfaces/actions", item: item, context_project: context_project %>
+  </div>
+
+  <div class="discovery-scene__matter">
+    <p class="discovery-scene__summary"><%= item.summary %></p>
+    <% if item.metadata["why_it_matters"].present? %>
+      <div class="discovery-scene__connection">
+        <div class="surface-label">Why this surfaced</div>
+        <p><%= item.metadata["why_it_matters"] %></p>
+      </div>
+    <% end %>
+  </div>
+</section>

@@ -1,7 +1,10 @@
+require "set"
+
 module Flyd
   class EvidenceCandidates
     MAX_REFERENCES = 5
     MAX_EPHEMERAL_AGE = 14.days
+    MAX_ARCHIVE_DISCOVERY_AGE = 180.days
     EPHEMERAL_TYPES = %w[curiosity signal nudge event].freeze
     DISQUALIFIED_STATUSES = %w[contradicted superseded].freeze
 
@@ -17,7 +20,8 @@ module Flyd
       [
         build_candidate("decision", decision_evidence, "Blocked or high-tension evidence may require a choice", 0.76),
         build_candidate("investigation", investigation_evidence, "Explicit unanswered questions may require investigation", 0.72),
-        build_candidate("monitoring", monitoring_evidence, "Unresolved or outcome-bearing evidence may require monitoring", 0.68)
+        build_candidate("monitoring", monitoring_evidence, "Unresolved or outcome-bearing evidence may require monitoring", 0.68),
+        discovery_candidate
       ].compact
     end
 
@@ -35,18 +39,30 @@ module Flyd
       }
     end
 
+    def discovery_candidate
+      item = discovery_evidence.first
+      return unless item
+
+      {
+        mode: "discovery",
+        reason: "Grounded personal or current evidence is worth rediscovering",
+        confidence: 0.45,
+        evidence_refs: [ { type: item[:type].to_s, id: item[:id] } ]
+      }
+    end
+
     def decision_evidence
       collection(:tensions).select do |item|
         next false unless eligible?(item)
 
-        content = item[:content].to_h
+        content = evidence_content(item)
         content[:blockers].to_i.positive? || content[:tension].to_f >= 0.5
       end
     end
 
     def investigation_evidence
       collection(:curiosity).select do |item|
-        content = item[:content].to_h
+        content = evidence_content(item)
         eligible?(item) && content[:question].present? && missing_evidence(content).present?
       end
     end
@@ -57,15 +73,15 @@ module Flyd
 
     def unresolved_signals
       collection(:signals).select do |item|
-        content = item[:content].to_h
-        details = content[:details].to_h
+        content = evidence_content(item)
+        details = content[:details].to_h.deep_symbolize_keys
         eligible?(item) && (content[:unresolved].to_i.positive? || details[:unresolvedCount].to_i.positive?)
       end
     end
 
     def supported_nudges
       collection(:nudges).select do |item|
-        content = item[:content].to_h
+        content = evidence_content(item)
         eligible?(item) &&
           epistemic_status(item).in?(%w[observation user_confirmed]) &&
           item[:confidence].to_f >= 0.6 &&
@@ -75,8 +91,61 @@ module Flyd
 
     def outcome_events
       collection(:recent_events, :recentEvents).select do |item|
-        eligible?(item) && item.dig(:content, :outcome).present?
+        eligible?(item) && evidence_content(item)[:outcome].present?
       end
+    end
+
+    def discovery_evidence
+      items = collection(:discoveries) + collection(:recent_events, :recentEvents) + collection(:reports)
+      items.select do |item|
+        discoverable?(item) && !previously_shown?(item)
+      end.sort_by { |item| -discovery_score(item) }
+    end
+
+    def discoverable?(item)
+      return false if item[:id].blank? || item[:type].blank?
+      return false unless epistemic_status(item).in?(%w[observation user_confirmed])
+      return false if item[:confidence].to_f < 0.7
+
+      content = evidence_content(item)
+      return false if content.values_at(:title, :excerpt).compact_blank.empty?
+      return false if polluted_test_evidence?(content)
+      return true if item[:type].to_s.in?(%w[report discovery])
+
+      timestamp = evidence_timestamp(item)
+      timestamp.present? && timestamp >= MAX_ARCHIVE_DISCOVERY_AGE.ago
+    end
+
+    def discovery_score(item)
+      content = evidence_content(item)
+      title = content[:title].to_s
+      score = case item[:type].to_s
+      when "discovery" then 1_000
+      when "event" then 500
+      else 100
+      end
+      score += Array(content[:topics]).compact_blank.size * 12
+      score += 120 if title.match?(/research|finding|fact|insight/i)
+      score += 70 if title.match?(/concept|history|news/i)
+      score -= 100 if title.match?(/attention report|tension report|implementation plan|deep review|test/i)
+      score
+    end
+
+    def polluted_test_evidence?(content)
+      text = [ content[:title], content[:excerpt] ].compact.join(" ")
+      text.match?(/\Atest:/i) || text.match?(/hello from test suite/i) || text.match?(/(.)\1{12,}/)
+    end
+
+    def previously_shown?(item)
+      shown_references.include?("#{item[:type]}:#{item[:id]}")
+    end
+
+    def shown_references
+      @shown_references ||= Array(@state.dig(:previous_surface, :items)).flat_map do |surface_item|
+        Array(surface_item[:source_refs]).map do |reference|
+          "#{reference[:type]}:#{reference[:id]}"
+        end
+      end.to_set
     end
 
     def collection(*keys)
@@ -127,12 +196,16 @@ module Flyd
     end
 
     def evidence_timestamp(item)
-      content = item[:content].to_h
-      details = content[:details].to_h
+      content = evidence_content(item)
+      details = content[:details].to_h.deep_symbolize_keys
       raw = item[:generated_at] || item[:generatedAt] || content[:date] || details[:lastActivity] || details[:last_activity]
       Time.zone.parse(raw.to_s) if raw.present?
     rescue ArgumentError, TypeError
       nil
+    end
+
+    def evidence_content(item)
+      item[:content].to_h.deep_symbolize_keys
     end
   end
 end

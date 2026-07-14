@@ -1,6 +1,6 @@
 module Flyd
   class InterfaceDirector
-    MODES = %w[quiet conversation decision investigation action monitoring].freeze
+    MODES = %w[quiet conversation decision investigation action monitoring discovery].freeze
 
     def self.call(state)
       new(state).call
@@ -120,6 +120,11 @@ module Flyd
           purpose: "Show the changing condition and what would make it actionable.",
           focus_renderer: "notification",
           maximum_items: 2
+        },
+        discovery: {
+          purpose: "Resurface one grounded personal connection or fresh external discovery.",
+          focus_renderer: "discovery_scene",
+          maximum_items: 1
         }
       }
     end

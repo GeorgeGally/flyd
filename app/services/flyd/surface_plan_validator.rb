@@ -8,7 +8,7 @@ module Flyd
     MAX_SUMMARY = 2_000
     MAX_METADATA_CHARACTERS = 20_000
     ALLOWED_BEHAVIOURS = %w[join yield recede leave replace collapse return].freeze
-    ALLOWED_MODES = %w[quiet conversation decision investigation action monitoring idle interaction build].freeze
+    ALLOWED_MODES = %w[quiet conversation decision investigation action monitoring discovery idle interaction build].freeze
     MODE_LIMITS = {
       "quiet" => 1,
       "conversation" => 2,
@@ -16,6 +16,7 @@ module Flyd
       "investigation" => 3,
       "action" => 3,
       "monitoring" => 2,
+      "discovery" => 1,
       "idle" => 1,
       "interaction" => 2,
       "build" => 3
@@ -195,6 +196,11 @@ module Flyd
         @errors << "Action scene requires proposed work" if proposed_action.blank?
         @errors << "Unsupported action readiness: #{readiness}" unless %w[ready blocked running].include?(readiness)
         { "proposed_action" => proposed_action, "impact" => impact, "readiness" => readiness }
+      when "discovery_scene"
+        {
+          "why_it_matters" => metadata["why_it_matters"].to_s.truncate(700),
+          "source_label" => metadata["source_label"].to_s.truncate(120)
+        }.compact_blank
       else
         {}
       end
@@ -222,6 +228,9 @@ module Flyd
         @errors << "Action surface requires a build action" unless focus["actions"].any? { |action| action["id"] == "build" }
       when "monitoring"
         @errors << "Monitoring surface must focus a notification" unless focus["renderer"] == "notification"
+      when "discovery"
+        @errors << "Discovery surface must focus a discovery scene" unless focus["renderer"] == "discovery_scene"
+        @errors << "Discovery requires grounded source evidence" if focus["source_refs"].empty?
       end
     end
 

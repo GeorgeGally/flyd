@@ -35,6 +35,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     mobile_height = page.evaluate_script("document.scrollingElement.scrollHeight")
     click_button "Open Flyd input"
     assert_equal mobile_height, page.evaluate_script("document.scrollingElement.scrollHeight")
+    page.current_window.resize_to(1400, 900)
   end
 
   test "root presents the universal composer and prepared scene" do

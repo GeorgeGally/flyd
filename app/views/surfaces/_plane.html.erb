@@ -6,6 +6,7 @@
      "action" => "working-scene",
      "conversation" => "working-scene",
      "monitoring" => "editorial-focus",
+     "discovery" => "editorial-focus",
      "quiet" => "editorial-focus"
    }.fetch(surface_mode, "editorial-focus") %>
 <% conversation_scene = active_conversation&.scenes&.order(updated_at: :desc)&.first %>

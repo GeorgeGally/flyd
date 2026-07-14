@@ -104,6 +104,98 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_empty candidates
   end
 
+  test "derives a rotating discovery from grounded personal evidence" do
+    shown = evidence("report", "report:shown", { title: "Already shown", excerpt: "Old connection" })
+    fresh = evidence("report", "report:memex", {
+      title: "The memex and associative trails",
+      excerpt: "Vannevar Bush described linked personal knowledge in 1945."
+    })
+
+    candidates = Flyd::EvidenceCandidates.call(
+      previous_surface: {
+        items: [ { source_refs: [ { type: "report", id: "report:shown" } ] } ]
+      },
+      provider_state: {
+        providers: [ {
+          source: "flyd-cli",
+          fresh: true,
+          data: { reports: [ shown, fresh ] }
+        } ]
+      }
+    )
+
+    discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
+    assert_equal [ { type: "report", id: "report:memex" } ], discovery[:evidence_refs]
+    assert_match(/grounded/i, discovery[:reason])
+  end
+
+  test "does not turn ungrounded generated material into discovery" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          data: {
+            reports: [ evidence(
+              "report",
+              "report:generated",
+              { title: "A guess", excerpt: "Maybe this matters" },
+              epistemic_status: "llm_generated",
+              confidence: 0.9
+            ) ]
+          }
+        } ]
+      }
+    )
+
+    assert_empty candidates
+  end
+
+  test "reads serialized provider content with string keys" do
+    candidates = Flyd::EvidenceCandidates.call(
+      "provider_state" => {
+        "providers" => [ {
+          "data" => {
+            "recent_events" => [ {
+              "id" => "event:serialized",
+              "type" => "event",
+              "epistemic_status" => "observation",
+              "confidence" => 0.8,
+              "generated_at" => 30.days.ago.iso8601,
+              "content" => {
+                "excerpt" => "A stored observation with enough substance to become a useful rediscovery.",
+                "date" => 30.days.ago.iso8601
+              }
+            } ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "discovery", candidates.first[:mode]
+    assert_equal "event:serialized", candidates.first.dig(:evidence_refs, 0, :id)
+  end
+
+  test "rejects test pollution and prefers substantive archive discoveries" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          data: {
+            recent_events: [ evidence(
+              "event",
+              "event:test",
+              { excerpt: "test: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", date: 2.days.ago.iso8601 }
+            ) ],
+            reports: [
+              evidence("report", "report:status", { title: "Attention Report", excerpt: "A generated operational status table." }),
+              evidence("report", "report:research", { title: "Research Before Planning", excerpt: "Current community evidence should ground decisions before implementation begins." })
+            ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "report:research", candidates.first.dig(:evidence_refs, 0, :id)
+  end
+
   private
 
   def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])

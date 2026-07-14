@@ -11,7 +11,8 @@ module SurfaceRenderers
       "media" => { partial: "surfaces/renderers/media", kinds: %w[artifact insight] },
       "decision_scene" => { partial: "surfaces/renderers/decision_scene", kinds: %w[decision question] },
       "investigation_scene" => { partial: "surfaces/renderers/investigation_scene", kinds: %w[question insight scene] },
-      "action_scene" => { partial: "surfaces/renderers/action_scene", kinds: %w[scene artifact status] }
+      "action_scene" => { partial: "surfaces/renderers/action_scene", kinds: %w[scene artifact status] },
+      "discovery_scene" => { partial: "surfaces/renderers/discovery_scene", kinds: %w[insight artifact] }
     }.freeze
     LEGACY_ALIASES = {
       "card" => "supporting_card",

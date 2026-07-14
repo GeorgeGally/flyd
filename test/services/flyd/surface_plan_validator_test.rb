@@ -96,6 +96,29 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/must focus a notification/, error.message)
   end
 
+  test "discovery requires one grounded discovery scene" do
+    payload = valid_payload
+    payload[:surface_mode] = "discovery"
+    payload[:items].first.merge!(
+      kind: "insight",
+      intent: "inform",
+      renderer: "discovery_scene",
+      actions: [ { id: "inspect_sources", label: "Open source", payload: {} } ],
+      metadata: { why_it_matters: "This connects directly to Flyd's interface model.", source_label: "From your archive" }
+    )
+
+    result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
+
+    assert_equal "discovery", result["surface_mode"]
+    assert_equal "From your archive", result["items"].first.dig("metadata", "source_label")
+
+    payload[:items].first[:source_refs] = []
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
+    end
+    assert_match(/requires grounded source evidence/, error.message)
+  end
+
   test "media metadata must bind to an explicit retained attachment source" do
     payload = valid_payload
     payload[:surface_mode] = "monitoring"

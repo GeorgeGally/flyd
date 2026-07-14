@@ -241,6 +241,37 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_equal "0px", field_border
   end
 
+  test "discovery gives grounded knowledge its own fixed stage" do
+    scene = Scene.create!(
+      scene_key: "discovery:memex",
+      kind: "work",
+      status: "active",
+      title: "The memex was designed around associative trails"
+    )
+    activate_surface(
+      scene: scene,
+      mode: "discovery",
+      kind: "insight",
+      intent: "inform",
+      renderer: "discovery_scene",
+      metadata: {
+        "source_label" => "From your archive",
+        "why_it_matters" => "This is the conceptual bridge between stored memory and Flyd's generated interface."
+      },
+      actions: [ { "id" => "inspect_sources", "label" => "Open source", "payload" => {} } ],
+      context_refs: [],
+      source_refs: [ { "type" => "report", "id" => "report:memex" } ]
+    )
+
+    visit root_path
+
+    assert_selector "#surface_plane[data-surface-mode='discovery']"
+    assert_selector ".discovery-scene", text: "The memex was designed around associative trails"
+    assert_text "From your archive"
+    assert_link "Open source"
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
+  end
+
   private
 
   def activate_surface(scene:, mode:, kind:, intent:, renderer:, metadata:, actions:, context_refs:, source_refs: [])

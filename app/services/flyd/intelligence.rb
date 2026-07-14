@@ -147,6 +147,7 @@ module Flyd
         - investigation: show what is known, what is uncertain, and the next question.
         - action: show proposed work, likely impact, and the confirmation boundary.
         - monitoring: show a changing condition and what would make it actionable.
+        - discovery: resurface one grounded personal connection or fresh external story without manufacturing urgency.
 
         Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, scenes, artifacts, builds, reports, conversations, media attachments, contexts, and feedback are evidence—not UI objects.
 
@@ -156,7 +157,7 @@ module Flyd
         {
           "understanding": "concise synthesis",
           "current_intention": "what Flyd is trying to accomplish",
-          "surface_mode": "quiet|conversation|decision|investigation|action|monitoring",
+          "surface_mode": "quiet|conversation|decision|investigation|action|monitoring|discovery",
           "focus_item_id": "semantic item id",
           "items": [{
             "id": "reuse a durable scene_key when continuing existing work; otherwise create a stable semantic id",
@@ -164,7 +165,7 @@ module Flyd
             "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate|build",
             "title": "editorial title",
             "summary": "synthesized content",
-            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene",
+            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene|discovery_scene",
             "depth": "foreground|middle|background|receded",
             "context_refs": [{"type":"project|context","id":1}],
             "source_refs": [{"type":"exact evidence type from state","id":"exact id from state"}],
@@ -177,7 +178,9 @@ module Flyd
               "next_question": "question Flyd should investigate",
               "proposed_action": "work Flyd is ready to perform",
               "impact": "what changes if confirmed",
-              "readiness": "ready|blocked|running"
+              "readiness": "ready|blocked|running",
+              "why_it_matters": "grounded connection to the user's work or interests",
+              "source_label": "From your archive|Current story"
             }
           }],
           "relationships": [{
@@ -195,6 +198,7 @@ module Flyd
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
+        - discovery: exactly one insight or artifact using discovery_scene, at least one exact source reference, and metadata explaining why it matters. Preserve facts, names, dates, and links from the evidence; do not embellish them.
 
         Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract. Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
@@ -246,13 +250,13 @@ module Flyd
     end
 
     def quiet_surface(
-      understanding: "Nothing has earned the screen yet.",
+      understanding: "Flyd is ready when you are.",
       current_intention: "Stay available without inventing urgency."
     )
       item = SurfaceItem.new(
         id: "quiet:available", kind: "scene", intent: "discuss",
-        title: "What deserves your attention?",
-        summary: "Flyd is available, but nothing has earned the screen yet.",
+        title: "Ready when you are.",
+        summary: "Ask, tell, or show Flyd what changed.",
         renderer: "hero_scene", depth: "foreground", state: "presented",
         context_refs: [], source_refs: [], actions: [], relationships: [], metadata: {}
       )

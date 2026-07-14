@@ -437,6 +437,58 @@
     padding-top: 1rem;
   }
 
+  .discovery-scene {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: minmax(16rem, 0.78fr) minmax(0, 1.3fr);
+    gap: clamp(2.5rem, 7vw, 8rem);
+    overflow: hidden;
+  }
+
+  .discovery-scene__direction,
+  .discovery-scene__matter {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .discovery-scene__direction h2 {
+    margin-top: clamp(1.25rem, 3vh, 2.5rem);
+    overflow-wrap: anywhere;
+    font-size: clamp(2.6rem, 6.5cqi, 5.6rem);
+    font-weight: 500;
+    line-height: 0.98;
+  }
+
+  .discovery-scene__matter {
+    border-top: 1px solid var(--ink);
+    padding-top: clamp(1.25rem, 3vh, 2.5rem);
+  }
+
+  .discovery-scene__summary {
+    max-width: 44rem;
+    font-size: clamp(1.35rem, 3.2cqi, 2.4rem);
+    line-height: 1.22;
+  }
+
+  .discovery-scene__connection {
+    max-width: 34rem;
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+  }
+
+  .discovery-scene__connection p {
+    margin-top: 0.8rem;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+
   @container (max-width: 52rem) {
     .decision-field,
     .working-scene {
@@ -491,8 +543,7 @@
       font-size: clamp(1.65rem, 9vw, 2.5rem);
     }
 
-    .decision-field__thesis p,
-    .decision-field__thesis > div:nth-of-type(2) {
+    .decision-field__thesis p {
       display: none;
     }
 
@@ -532,6 +583,33 @@
     .working-scene__secondary p {
       font-size: 0.72rem;
       line-height: 1.25rem;
+    }
+
+    .discovery-scene {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1.08fr) minmax(10rem, 0.92fr);
+      gap: 1.25rem;
+    }
+
+    .discovery-scene__direction {
+      justify-content: end;
+    }
+
+    .discovery-scene__direction h2 {
+      margin-top: 0.75rem;
+      font-size: clamp(2rem, 11vw, 3.3rem);
+    }
+
+    .discovery-scene__matter {
+      justify-content: flex-start;
+    }
+
+    .discovery-scene__summary {
+      font-size: clamp(1.1rem, 5.8vw, 1.55rem);
+    }
+
+    .discovery-scene__connection {
+      margin-top: auto;
     }
 
     .flyd-intent-tray__inner {
