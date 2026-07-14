@@ -71,10 +71,14 @@ class Surface < ApplicationRecord
       scene = Scene.find_or_create_by!(scene_key: "continue") do |record|
         record.kind = "work"
         record.status = "active"
-        record.title = "What deserves your attention?"
-        record.summary = "Tell Flyd what is happening. The surface will reorganize around the context."
+        record.title = "Ready when you are."
+        record.summary = "Ask, tell, or show Flyd what changed."
       end
-      scene.update!(last_presented_at: Time.current)
+      scene.update!(
+        title: "Ready when you are.",
+        summary: "Ask, tell, or show Flyd what changed.",
+        last_presented_at: Time.current
+      )
 
       surface = create!(
         status: "draft",

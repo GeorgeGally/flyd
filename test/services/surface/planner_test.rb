@@ -259,6 +259,9 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     repair_request = chat.received_calls.second.last[:content]
     assert_includes repair_request, "Unsupported kind: curiosity"
     assert_includes repair_request, "Investigation requires a question"
+    repair_instruction = chat.received_calls.second.first[:content]
+    assert_includes repair_instruction, "Required surface mode: investigation"
+    assert_includes repair_instruction, "Do not choose an alternative mode"
   end
 
   test "raises when the single structural repair is still invalid" do

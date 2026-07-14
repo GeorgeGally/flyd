@@ -23,11 +23,13 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
     job = RefreshWebDiscoveryJob.new
     job.define_singleton_method(:client) { client }
     job.define_singleton_method(:cli_snapshot) { cli_snapshot }
+    compose_calls = []
 
-    assert_enqueued_jobs 1, only: ComposeSurfaceJob do
+    ComposeSurfaceJob.stub(:enqueue, ->(**arguments) { compose_calls << arguments }) do
       job.perform
     end
 
+    assert_equal [ { reason: "web_discovery_refresh" } ], compose_calls
     snapshot = IntelligenceState::WebDiscoveryProvider.new.snapshot
     evidence = snapshot.data[:discoveries].first
     assert_equal "discovery:hn:42", evidence["id"]

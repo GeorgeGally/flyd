@@ -18,7 +18,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_select "textarea[placeholder='Ask, tell, show…']"
-    assert_select "h2", text: "What deserves your attention?"
+    assert_select "h2", text: "Ready when you are."
     assert_select "aside", count: 0
   end
 
@@ -49,7 +49,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :success
-    assert_select "h2", text: "What deserves your attention?"
+    assert_select "h2", text: "Ready when you are."
   end
 
   test "surface can embed a project conversation" do

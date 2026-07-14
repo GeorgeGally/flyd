@@ -9,6 +9,8 @@ class SurfaceTest < ActiveSupport::TestCase
     assert_equal "continue", surface.focus_item_key
     assert_equal 1, surface.surface_items.count
     assert_equal surface, Surface.current
+    assert_equal "Ready when you are.", surface.items.first.title
+    assert_equal "Ask, tell, or show Flyd what changed.", surface.items.first.summary
   end
 
   test "activating a draft supersedes the previous active surface" do

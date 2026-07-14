@@ -48,6 +48,7 @@ module Flyd
       response = @chat.call!(messages(compiled.state))
       responses = [ response ]
       payload = parse_json(response)
+      payload = GroundDiscovery.call(payload: payload, state: compiled.state)
       allowed_modes = Array(compiled.state.dig(:interface_direction, :candidates)).map { |candidate| candidate[:mode] }
       validated = begin
         validate_payload(payload, compiled.reference_registry, allowed_modes)
@@ -55,6 +56,7 @@ module Flyd
         repair_response = @chat.call!(repair_messages(compiled.state, payload, error))
         responses << repair_response
         repaired_payload = parse_json(repair_response)
+        repaired_payload = GroundDiscovery.call(payload: repaired_payload, state: compiled.state)
         validate_payload(repaired_payload, compiled.reference_registry, allowed_modes)
       end
       @diagnostics = compiled.diagnostics.merge(
@@ -106,10 +108,16 @@ module Flyd
     end
 
     def repair_messages(state, payload, error)
+      required_mode = state.dig(:interface_direction, :suggested_mode).to_s
       [
         {
           role: "system",
-          content: "#{system_prompt}\nCorrect one structurally invalid surface plan. Preserve its meaning and evidence, change only what the validation errors require, and return the complete corrected JSON object."
+          content: <<~PROMPT
+            #{system_prompt}
+            Correct one structurally invalid surface plan and return the complete corrected JSON object.
+            Required surface mode: #{required_mode}.
+            Do not choose an alternative mode. Use the required mode's grammar and preserve its exact candidate evidence references.
+          PROMPT
         },
         {
           role: "user",

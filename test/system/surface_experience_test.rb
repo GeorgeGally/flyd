@@ -46,7 +46,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_button "Open Flyd input"
     click_button "Open Flyd input"
     assert_selector "textarea[placeholder='Ask, tell, show…']"
-    assert_text "What deserves your attention?"
+    assert_text "Ready when you are."
     assert_no_selector "aside"
   end
 
