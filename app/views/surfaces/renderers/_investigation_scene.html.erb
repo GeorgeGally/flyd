@@ -1,39 +1,44 @@
-<section class="min-h-[58vh] py-4 md:py-8">
-  <div class="text-[10px] uppercase tracking-[0.22em] text-gray-400">Investigation</div>
-  <h2 class="mt-6 max-w-5xl text-4xl font-medium leading-[1.02] tracking-tight md:text-7xl"><%= item.title %></h2>
-  <p class="mt-7 max-w-3xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
+<section class="editorial-object working-scene">
+  <div class="working-scene__primary">
+    <div>
+      <div class="editorial-object__eyebrow">Investigation</div>
+      <h2 class="mt-7 max-w-4xl text-4xl font-medium leading-[1.02] tracking-tight md:text-7xl"><%= item.title %></h2>
+      <p class="mt-7 max-w-2xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
+    </div>
 
-  <div class="mt-12 grid gap-10 md:grid-cols-2">
-    <section>
-      <div class="border-b border-gray-950 pb-3 text-[10px] uppercase tracking-[0.18em] text-gray-500">What we know</div>
-      <div class="divide-y divide-gray-100">
+    <div class="mt-12 max-w-4xl border-t border-gray-950 pt-6">
+      <div class="editorial-object__eyebrow">Next question</div>
+      <p class="mt-4 text-2xl font-medium leading-tight md:text-4xl"><%= item.metadata["next_question"] %></p>
+      <div class="mt-8 flex flex-wrap gap-4 text-xs">
+        <% item.actions.each do |action| %>
+          <% action_id = action["id"] || action[:id] %>
+          <% if action_id == "investigate" %>
+            <%= button_to action["label"] || "Investigate", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "bg-gray-950 px-5 py-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+          <% elsif action_id == "discuss" %>
+            <%= button_to action["label"] || "Think together", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "border border-gray-300 px-5 py-3 font-medium hover:border-gray-950 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <div class="working-scene__secondary">
+    <section class="editorial-panel">
+      <div class="editorial-object__eyebrow">What we know</div>
+      <div class="mt-4 divide-y divide-gray-200">
         <% Array(item.metadata["known"]).each do |fact| %>
           <p class="py-4 text-sm leading-6"><%= fact %></p>
         <% end %>
       </div>
     </section>
-    <section>
-      <div class="border-b border-gray-300 pb-3 text-[10px] uppercase tracking-[0.18em] text-gray-500">What is still uncertain</div>
-      <div class="divide-y divide-gray-100">
+
+    <section class="editorial-panel border-gray-300">
+      <div class="editorial-object__eyebrow">What remains uncertain</div>
+      <div class="mt-4 divide-y divide-gray-200">
         <% Array(item.metadata["unknown"]).each do |unknown| %>
           <p class="py-4 text-sm leading-6 text-gray-600"><%= unknown %></p>
         <% end %>
       </div>
     </section>
-  </div>
-
-  <div class="mt-12 max-w-4xl border-t border-gray-950 pt-6">
-    <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">Next question</div>
-    <p class="mt-3 text-2xl font-medium leading-tight md:text-4xl"><%= item.metadata["next_question"] %></p>
-    <div class="mt-7 flex flex-wrap gap-4 text-xs">
-      <% item.actions.each do |action| %>
-        <% action_id = action["id"] || action[:id] %>
-        <% if action_id == "investigate" %>
-          <%= button_to action["label"] || "Investigate", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "rounded-full bg-gray-950 px-5 py-2.5 font-medium text-white" %>
-        <% elsif action_id == "discuss" %>
-          <%= button_to action["label"] || "Think together", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "rounded-full border border-gray-300 px-5 py-2.5 font-medium hover:border-gray-950" %>
-        <% end %>
-      <% end %>
-    </div>
   </div>
 </section>
