@@ -75,10 +75,48 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_equal "What changed?", result["items"].first.dig("metadata", "next_question")
   end
 
+  test "monitoring mode requires a focused notification" do
+    payload = valid_payload
+    payload[:surface_mode] = "monitoring"
+    payload[:items].first.merge!(
+      kind: "notification",
+      intent: "monitor",
+      renderer: "notification",
+      actions: [],
+      metadata: {}
+    )
+
+    result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
+    assert_equal "monitoring", result["surface_mode"]
+
+    payload[:items].first[:renderer] = "hero_scene"
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
+    end
+    assert_match(/must focus a notification/, error.message)
+  end
+
   test "media metadata must bind to an explicit retained attachment source" do
     payload = valid_payload
     payload[:surface_mode] = "monitoring"
-    item = payload[:items].first
+    item = payload[:items].first.dup
+    payload[:focus_item_id] = "monitor:attachment"
+    payload[:items] = [
+      {
+        id: "monitor:attachment",
+        kind: "notification",
+        intent: "monitor",
+        title: "New attachment evidence",
+        summary: "An image is ready for inspection.",
+        renderer: "notification",
+        depth: "foreground",
+        context_refs: [{ type: "project", id: 1 }],
+        source_refs: [{ type: "goal", id: "goal:ship" }],
+        metadata: {},
+        actions: []
+      },
+      item
+    ]
     item[:kind] = "artifact"
     item[:intent] = "monitor"
     item[:renderer] = "media"
@@ -99,7 +137,7 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
       payload: payload,
       reference_registry: [ "project:1", "goal:goal:ship", "intent_attachment:99" ]
     )
-    assert_equal 99, result["items"].first.dig("metadata", "attachment_id")
+    assert_equal 99, result["items"].second.dig("metadata", "attachment_id")
   end
 
   test "context-correction payloads may reference only compiled contexts" do

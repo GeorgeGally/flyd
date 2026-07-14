@@ -10,6 +10,12 @@ module Intents
     end
 
     def call
+      ActiveRecord::Base.transaction { apply }
+    end
+
+    private
+
+    def apply
       owner = resolve_owner
       old_conversation = @intent.conversation
       old_message = source_message(old_conversation)
@@ -60,8 +66,6 @@ module Intents
       end
       new_conversation
     end
-
-    private
 
     def resolve_owner
       return if @corrected_contexts.empty?

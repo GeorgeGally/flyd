@@ -18,4 +18,10 @@ class SurfaceItem < ApplicationRecord
   validates :depth, inclusion: { in: DEPTHS }
   validates :state, inclusion: { in: STATES }
   validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+
+  def offers_action?(action_id)
+    Array(actions).any? do |action|
+      (action["id"] || action[:id]).to_s == action_id.to_s
+    end
+  end
 end

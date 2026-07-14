@@ -10,6 +10,7 @@ class SurfaceFeedbacksController < ApplicationController
     item = SurfaceItem.includes(:scene, :surface).find(params[:surface_item_id])
     requested_signal = params.require(:signal)
     signal = SIGNAL_MAP.fetch(requested_signal, requested_signal)
+    authorize_item_action!(item, signal)
     feedback = nil
 
     SurfaceItem.transaction do
@@ -29,6 +30,13 @@ class SurfaceFeedbacksController < ApplicationController
   end
 
   private
+
+  def authorize_item_action!(item, signal)
+    action_id = signal == "dismissed" ? "dismiss" : "resolve"
+    return if item.offers_action?(action_id)
+
+    raise ActionController::BadRequest, "Action is not available for this item."
+  end
 
   def apply_lifecycle(item, feedback)
     case feedback.signal

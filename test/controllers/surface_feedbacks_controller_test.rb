@@ -7,6 +7,8 @@ class SurfaceFeedbacksControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "dismisses a scene and stores feedback" do
+    @item.update!(actions: [{ "id" => "dismiss", "label" => "Dismiss", "payload" => {} }])
+
     assert_difference("SurfaceFeedback.count", 1) do
       post surface_item_feedbacks_path(@item), params: { signal: "dismiss" }
     end
@@ -17,6 +19,8 @@ class SurfaceFeedbacksControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "resolves and collapses a scene" do
+    @item.update!(actions: [{ "id" => "resolve", "label" => "Resolve", "payload" => {} }])
+
     post surface_item_feedbacks_path(@item), params: { signal: "resolve" }
 
     assert_equal "collapsed", @item.reload.state

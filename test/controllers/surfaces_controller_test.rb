@@ -39,6 +39,17 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "queue failure does not prevent the persisted surface from rendering" do
+    IntelligenceState::CliProvider.new.persist!(provider_payload)
+
+    ComposeSurfaceJob.stub(:enqueue, ->(**) { raise RedisClient::CannotConnectError, "queue unavailable" }) do
+      get root_url
+    end
+
+    assert_response :success
+    assert_select "h2", text: "What deserves your attention?"
+  end
+
   test "surface can embed a project conversation" do
     project = Project.create!(name: "Flyd")
     conversation = Conversation.start!(project)

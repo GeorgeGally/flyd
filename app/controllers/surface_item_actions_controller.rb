@@ -1,8 +1,12 @@
 class SurfaceItemActionsController < ApplicationController
+  DIRECT_ACTIONS = %w[discuss answer choose investigate build].freeze
+
   def create
     item = SurfaceItem.includes(:scene, :surface).find(params[:surface_item_id])
     action_id = params.require(:action_id)
-    raise ActionController::BadRequest, "Unsupported action" unless SurfaceActions::Registry.supported?(action_id)
+    unless DIRECT_ACTIONS.include?(action_id) && SurfaceActions::Registry.supported?(action_id) && item.offers_action?(action_id)
+      raise ArgumentError, "Action is not available for this item."
+    end
 
     case action_id
     when "discuss", "answer"

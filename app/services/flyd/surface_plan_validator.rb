@@ -214,6 +214,8 @@ module Flyd
       when "action"
         @errors << "Action surface must focus an action scene" unless focus["renderer"] == "action_scene"
         @errors << "Action surface requires a build action" unless focus["actions"].any? { |action| action["id"] == "build" }
+      when "monitoring"
+        @errors << "Monitoring surface must focus a notification" unless focus["renderer"] == "notification"
       end
     end
 
