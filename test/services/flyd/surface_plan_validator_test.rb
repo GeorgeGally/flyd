@@ -140,6 +140,28 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_equal 99, result["items"].second.dig("metadata", "attachment_id")
   end
 
+  test "decision option media must bind to explicit attachment sources" do
+    payload = valid_payload
+    payload[:items].first[:metadata][:options].first[:attachment_id] = 91
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: [ "project:1", "goal:goal:ship", "intent_attachment:91" ]
+      )
+    end
+
+    assert_match(/Decision option media must be an explicit source reference/, error.message)
+
+    payload[:items].first[:source_refs] << { type: "intent_attachment", id: 91 }
+    result = Flyd::SurfacePlanValidator.call(
+      payload: payload,
+      reference_registry: [ "project:1", "goal:goal:ship", "intent_attachment:91" ]
+    )
+
+    assert_equal 91, result["items"].first.dig("metadata", "options", 0, "attachment_id")
+  end
+
   test "context-correction payloads may reference only compiled contexts" do
     payload = valid_payload
     payload[:items].first[:actions] << {

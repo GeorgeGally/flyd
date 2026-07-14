@@ -161,13 +161,19 @@ module Flyd
         @errors << "Media attachment must be an explicit source reference" unless source_keys.include?(attachment_key)
         { "media_type" => media_type, "attachment_id" => attachment_id }
       when "decision_scene"
+        source_keys = source_refs.map { |ref| "#{ref["type"]}:#{ref["id"]}" }
         options = Array(metadata["options"]).first(4).map do |option|
           option = option.to_h.deep_stringify_keys
+          attachment_id = option["attachment_id"].presence
+          if attachment_id.present? && !source_keys.include?("intent_attachment:#{attachment_id}")
+            @errors << "Decision option media must be an explicit source reference"
+          end
           {
             "id" => option["id"].to_s.truncate(80),
             "label" => option["label"].to_s.truncate(180),
-            "description" => option["description"].to_s.truncate(500)
-          }
+            "description" => option["description"].to_s.truncate(500),
+            "attachment_id" => attachment_id
+          }.compact
         end
         @errors << "Decision scene requires 2-4 options" unless options.length.between?(2, 4)
         @errors << "Decision option ids and labels are required" if options.any? { |option| option["id"].blank? || option["label"].blank? }

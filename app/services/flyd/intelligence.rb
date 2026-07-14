@@ -170,7 +170,7 @@ module Flyd
             "source_refs": [{"type":"exact evidence type from state","id":"exact id from state"}],
             "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context","label":"Action label","payload":{}}],
             "metadata": {
-              "options": [{"id":"option-id","label":"Choice","description":"consequence"}],
+              "options": [{"id":"option-id","label":"Choice","description":"consequence","attachment_id":"optional exact intent attachment id"}],
               "recommendation": "optional recommendation; when present the recommended option must be first in options",
               "known": ["known fact"],
               "unknown": ["important uncertainty"],
@@ -189,7 +189,7 @@ module Flyd
         }
 
         Grammar requirements:
-        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis.
+        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis. When an option corresponds to supplied image evidence, bind its exact intent attachment id as attachment_id and include that same intent_attachment reference in source_refs so the real object becomes the interface.
         - investigation: focus kind must be question, insight, or scene; focus renderer investigation_scene; include known/unknown evidence and a next_question; investigate action payload must be {"question":"metadata.next_question"}.
         - action: focus renderer action_scene and a build action. Never imply execution before confirmation.
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.

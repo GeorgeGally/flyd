@@ -90,6 +90,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal "decision", sent_state.dig("interface_direction", "suggested_mode")
     assert_equal "interface-drift", sent_state.dig("interface_direction", "suggested_focus_scene_key")
     assert_equal "Make the choice itself the interface.", sent_state.dig("interface_direction", "grammars", "decision", "purpose")
+    assert_includes chat.received_messages.first[:content], '"attachment_id":"optional exact intent attachment id"'
   end
 
   test "provider evidence composes a directed surface without a prebuilt scene" do

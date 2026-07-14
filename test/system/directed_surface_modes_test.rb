@@ -186,6 +186,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
   end
 
   test "decision mode renders an unframed comparison field" do
+    dark = image_attachment("dark.png", "decision-dark")
+    bright = image_attachment("bright.png", "decision-bright")
     context = Context.create!(name: "Visual direction", kind: "temporary")
     scene = Scene.create!(
       scene_key: "decision:visual-direction",
@@ -203,8 +205,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       metadata: {
         "recommendation" => "Use the darker direction.",
         "options" => [
-          { "id" => "dark", "label" => "Darker direction", "description" => "Reads as an evening market." },
-          { "id" => "bright", "label" => "Bright direction", "description" => "Reads as a family fair." }
+          { "id" => "dark", "label" => "Darker direction", "description" => "Reads as an evening market.", "attachment_id" => dark.id },
+          { "id" => "bright", "label" => "Bright direction", "description" => "Reads as a family fair.", "attachment_id" => bright.id }
         ]
       },
       actions: [
@@ -212,7 +214,11 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
         { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } },
         { "id" => "discuss", "label" => "Talk it through", "payload" => {} }
       ],
-      context_refs: [ { "type" => "context", "id" => context.id } ]
+      context_refs: [ { "type" => "context", "id" => context.id } ],
+      source_refs: [
+        { "type" => "intent_attachment", "id" => dark.id },
+        { "type" => "intent_attachment", "id" => bright.id }
+      ]
     )
 
     visit root_path
@@ -223,6 +229,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_selector ".decision-option[data-recommended='true']", count: 1
     assert_selector ".decision-option[data-recommended='true']", text: "Darker direction"
     assert_selector ".decision-option[data-recommended='false']", text: "Bright direction"
+    assert_selector "img[src='#{intent_attachment_path(dark)}'][alt='Darker direction']"
+    assert_selector "img[src='#{intent_attachment_path(bright)}'][alt='Bright direction']"
     assert_text "Use the darker direction."
     assert_button "Talk it through"
     assert_button "Accept", count: 1
@@ -235,7 +243,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
   private
 
-  def activate_surface(scene:, mode:, kind:, intent:, renderer:, metadata:, actions:, context_refs:)
+  def activate_surface(scene:, mode:, kind:, intent:, renderer:, metadata:, actions:, context_refs:, source_refs: [])
     surface = Surface.create!(
       status: "draft",
       understanding: "A directed scene is warranted.",
@@ -257,10 +265,30 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       summary: scene.summary.presence || "The scene needs a directed interface.",
       position: 0,
       context_refs: context_refs,
+      source_refs: source_refs,
       metadata: metadata,
       actions: actions
     )
     Surface.activate!(surface)
     item
+  end
+
+  def image_attachment(filename, checksum)
+    intent = Intent.create!(input_text: "Compare #{filename}")
+    attachment = intent.intent_attachments.create!(
+      modality: "image",
+      filename: filename,
+      content_type: "image/png",
+      byte_size: 68,
+      checksum: checksum,
+      expires_at: 1.day.from_now
+    )
+    attachment.file.attach(
+      io: StringIO.new(Base64.decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4WQAAAAASUVORK5CYII=")),
+      filename: filename,
+      content_type: "image/png",
+      identify: false
+    )
+    attachment
   end
 end
