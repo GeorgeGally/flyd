@@ -1,6 +1,21 @@
 module Flyd
   class WorldStateCompiler
-    Result = Data.define(:state, :reference_registry, :diagnostics)
+    Result = Data.define(:state, :reference_registry, :diagnostics) do
+      def self.rebudget(state, budget:, diagnostics: {}, extra_diagnostics: {})
+        budgeted = StateBudget.call(state: state, budget: budget)
+        retained_state = budgeted.state
+
+        new(
+          state: retained_state,
+          reference_registry: ReferenceRegistry.call(retained_state),
+          diagnostics: diagnostics.merge(
+            input_characters: JSON.generate(retained_state).length,
+            dropped: Array(diagnostics[:dropped]) + budgeted.dropped,
+            budget: budget
+          ).merge(extra_diagnostics)
+        )
+      end
+    end
 
     DEFAULT_BUDGET = 28_000
     MAX_PROVIDER_ITEMS = 12
@@ -39,18 +54,7 @@ module Flyd
         capabilities: SurfaceActions::Registry.ids,
         renderers: SurfaceRenderers::Registry.ids
       }
-      budgeted = StateBudget.call(state: unbounded_state, budget: @budget)
-      state = budgeted.state
-
-      Result.new(
-        state: state,
-        reference_registry: ReferenceRegistry.call(state),
-        diagnostics: {
-          input_characters: JSON.generate(state).length,
-          dropped: budgeted.dropped,
-          budget: @budget
-        }
-      )
+      Result.rebudget(unbounded_state, budget: @budget)
     end
 
     private
@@ -186,13 +190,13 @@ module Flyd
     end
 
     def project_snapshots
-      Project.active.includes(:decisions, :beliefs).order(updated_at: :desc).limit(MAX_PROJECTS).map do |project|
+      Project.active.order(updated_at: :desc).limit(MAX_PROJECTS).map do |project|
         {
           id: project.id,
           name: project.name,
           description: project.description.to_s.truncate(500),
           updated_at: project.updated_at&.iso8601,
-          decisions: project.decisions.sort_by(&:created_at).last(MAX_MEMORIES_PER_PROJECT).map do |decision|
+          decisions: project.decisions.order(created_at: :desc).limit(MAX_MEMORIES_PER_PROJECT).reverse.map do |decision|
             {
               id: decision.id,
               content: decision.content.to_s.truncate(500),
@@ -201,7 +205,7 @@ module Flyd
               created_at: decision.created_at&.iso8601
             }
           end,
-          beliefs: project.beliefs.sort_by(&:updated_at).last(MAX_MEMORIES_PER_PROJECT).map do |belief|
+          beliefs: project.beliefs.order(updated_at: :desc).limit(MAX_MEMORIES_PER_PROJECT).reverse.map do |belief|
             {
               id: belief.id,
               statement: belief.statement.to_s.truncate(500),

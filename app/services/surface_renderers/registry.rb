@@ -25,6 +25,10 @@ module SurfaceRenderers
         RENDERERS.keys
       end
 
+      def kinds
+        RENDERERS.values.flat_map { |definition| definition[:kinds] }.uniq
+      end
+
       def supported?(id, kind: nil)
         definition = RENDERERS[id.to_s]
         definition.present? && (kind.nil? || definition[:kinds].include?(kind.to_s))

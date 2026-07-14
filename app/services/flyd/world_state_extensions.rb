@@ -17,16 +17,10 @@ module Flyd
       extended_state[:temporary_contexts] = context_state
       extended_state[:learned_surface_preferences] = preference_state
 
-      budgeted = StateBudget.call(state: extended_state, budget: MAX_TOTAL_CHARACTERS)
-      state = budgeted.state
-      WorldStateCompiler::Result.new(
-        state: state,
-        reference_registry: ReferenceRegistry.call(state),
-        diagnostics: @compiled.diagnostics.merge(
-          input_characters: JSON.generate(state).length,
-          dropped: Array(@compiled.diagnostics[:dropped]) + budgeted.dropped,
-          budget: MAX_TOTAL_CHARACTERS
-        )
+      WorldStateCompiler::Result.rebudget(
+        extended_state,
+        budget: MAX_TOTAL_CHARACTERS,
+        diagnostics: @compiled.diagnostics
       )
     end
 

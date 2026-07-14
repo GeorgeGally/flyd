@@ -71,7 +71,7 @@ jobs:
             exit 0
           fi
           set +e
-          bin/rubocop --except Layout/SpaceInsideArrayLiteralBrackets -f simple $files > /tmp/rubocop.log 2>&1
+          bin/rubocop -f simple $files > /tmp/rubocop.log 2>&1
           status=$?
           cat /tmp/rubocop.log
           exit $status

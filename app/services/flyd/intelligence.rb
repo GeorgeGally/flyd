@@ -66,16 +66,10 @@ module Flyd
     def apply_interface_direction(compiled)
       directed = compiled.state.merge(interface_direction: InterfaceDirector.call(compiled.state))
       budget = compiled.diagnostics[:budget] || WorldStateExtensions::MAX_TOTAL_CHARACTERS
-      budgeted = StateBudget.call(state: directed, budget: budget)
-      state = budgeted.state
-
-      WorldStateCompiler::Result.new(
-        state: state,
-        reference_registry: ReferenceRegistry.call(state),
-        diagnostics: compiled.diagnostics.merge(
-          input_characters: JSON.generate(state).length,
-          dropped: Array(compiled.diagnostics[:dropped]) + budgeted.dropped
-        )
+      WorldStateCompiler::Result.rebudget(
+        directed,
+        budget: budget,
+        diagnostics: compiled.diagnostics
       )
     end
 

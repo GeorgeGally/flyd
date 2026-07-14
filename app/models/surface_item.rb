@@ -1,7 +1,7 @@
 class SurfaceItem < ApplicationRecord
-  KINDS = %w[scene insight decision question conversation artifact reminder status notification].freeze
+  KINDS = SurfaceRenderers::Registry.kinds.freeze
   INTENTS = %w[inform ask decide discuss investigate monitor remind review celebrate build].freeze
-  RENDERERS = %w[hero_scene supporting_card conversation document notification code data_table media decision_scene investigation_scene action_scene].freeze
+  RENDERERS = SurfaceRenderers::Registry.ids.freeze
   DEPTHS = %w[foreground middle background receded].freeze
   STATES = %w[presented focused receded resolved dismissed collapsed].freeze
 
