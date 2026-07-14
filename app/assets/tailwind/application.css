@@ -20,6 +20,10 @@
     grid-template-columns: minmax(0, 1.65fr) minmax(14rem, 0.65fr);
   }
 
+  .surface-composition--working-scene.surface-composition--solo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .surface-object {
     container-type: inline-size;
     min-width: 0;

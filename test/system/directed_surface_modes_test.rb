@@ -44,6 +44,13 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_selector ".editorial-object__eyebrow", text: /\AWhat we know\z/i
     assert_selector ".editorial-object__eyebrow", text: /\AWhat remains uncertain\z/i
     assert_text "Which fixed shell"
+    plane_width = page.evaluate_script("document.querySelector('#surface_plane').getBoundingClientRect().width")
+    focus_width = page.evaluate_script("document.querySelector('.surface-object[data-role=\"focus\"]').getBoundingClientRect().width")
+    primary_left = page.evaluate_script("document.querySelector('.working-scene__primary').getBoundingClientRect().left")
+    secondary_left = page.evaluate_script("document.querySelector('.working-scene__secondary').getBoundingClientRect().left")
+
+    assert_operator focus_width, :>, plane_width * 0.9
+    assert_operator secondary_left, :>, primary_left
     click_on "Investigate"
 
     assert_current_path root_path
