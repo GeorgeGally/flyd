@@ -65,4 +65,67 @@ class Intents::ApplyContextCorrectionTest < ActiveSupport::TestCase
     assert_equal [ unrelated_decision.id ], belief.reload.source_decision_ids.map(&:to_i)
     assert_equal "challenged", belief.status
   end
+
+  test "rolls back the complete correction when a later step fails" do
+    wrong_project = Project.create!(name: "Wrong project")
+    correct_project = Project.create!(name: "Correct project")
+    conversation = Conversation.start!(wrong_project)
+    message = conversation.messages.create!(role: "user", content: "Move this intent")
+    intent = Intent.create!(
+      input_text: message.content,
+      status: "accepted",
+      conversation: conversation,
+      metadata: { "source_message_id" => message.id }
+    )
+    decision = wrong_project.decisions.create!(
+      conversation: conversation,
+      source_message: message,
+      content: "Move this decision",
+      extracted_at: Time.current
+    )
+
+    assert_no_difference(["Conversation.count", "Message.count"]) do
+      LlmStreamingJob.stub(:perform_later, ->(*) { raise ActiveJob::EnqueueError, "queue unavailable" }) do
+        assert_raises(ActiveJob::EnqueueError) do
+          Intents::ApplyContextCorrection.call(
+            intent: intent,
+            corrected_contexts: [{ "type" => "project", "id" => correct_project.id, "name" => correct_project.name }]
+          )
+        end
+      end
+    end
+
+    assert_equal conversation, intent.reload.conversation
+    assert_equal wrong_project, decision.reload.project
+    assert_not message.reload.context_superseded?
+  end
+
+  test "supersedes a wrong-project belief when all of its sources move" do
+    wrong_project = Project.create!(name: "Wrong project")
+    correct_project = Project.create!(name: "Correct project")
+    conversation = Conversation.start!(wrong_project)
+    message = conversation.messages.create!(role: "user", content: "Move this intent")
+    intent = Intent.create!(
+      input_text: message.content,
+      status: "accepted",
+      conversation: conversation,
+      metadata: { "source_message_id" => message.id }
+    )
+    decision = wrong_project.decisions.create!(
+      conversation: conversation,
+      source_message: message,
+      content: "Move this decision",
+      extracted_at: Time.current
+    )
+    belief = wrong_project.beliefs.create!(statement: "Wrongly attributed belief", confidence: 0.8, source_decision_ids: [decision.id])
+
+    Intents::ApplyContextCorrection.call(
+      intent: intent,
+      corrected_contexts: [{ "type" => "project", "id" => correct_project.id, "name" => correct_project.name }]
+    )
+
+    assert_equal "superseded", belief.reload.status
+    assert_empty belief.source_decision_ids
+    assert_equal wrong_project, belief.project
+  end
 end

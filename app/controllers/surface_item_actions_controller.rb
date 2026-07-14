@@ -32,50 +32,52 @@ class SurfaceItemActionsController < ApplicationController
   private
 
   def choose_option(item)
-    payload = action_payload
-    option_id = payload.fetch("option_id")
-    option_label = payload.fetch("option_label")
-    scene = item.scene || raise(ActiveRecord::RecordNotFound, "Decision scene is unavailable")
-    conversation = scene.conversation
+    Surface.with_transition_lock do
+      payload = action_payload
+      option_id = payload.fetch("option_id")
+      option_label = payload.fetch("option_label")
+      scene = item.scene || raise(ActiveRecord::RecordNotFound, "Decision scene is unavailable")
+      conversation = scene.conversation
 
-    artifact = Artifact.create!(
-      scene: scene,
-      project: scene.project,
-      context: scene.context,
-      conversation: conversation,
-      kind: "decision",
-      status: "ready",
-      title: item.title,
-      content: option_label,
-      metadata: {
-        "option_id" => option_id,
-        "surface_id" => item.surface_id,
-        "surface_item_id" => item.id
-      }
-    )
-
-    if conversation
-      message = conversation.messages.create!(
-        role: "user",
-        content: "Decision: #{option_label}",
-        metadata: { "decision_artifact_id" => artifact.id }
+      artifact = Artifact.create!(
+        scene: scene,
+        project: scene.project,
+        context: scene.context,
+        conversation: conversation,
+        kind: "decision",
+        status: "ready",
+        title: item.title,
+        content: option_label,
+        metadata: {
+          "option_id" => option_id,
+          "surface_id" => item.surface_id,
+          "surface_item_id" => item.id
+        }
       )
-      if conversation.project
-        Decision.create!(
-          conversation: conversation,
-          project: conversation.project,
-          source_message: message,
-          content: option_label,
-          confidence: 1.0,
-          extracted_at: Time.current
-        )
-      end
-    end
 
-    scene.resolve!(artifact: artifact, summary: option_label)
-    item.update!(state: "collapsed", metadata: item.metadata.merge("chosen_option_id" => option_id))
-    record_feedback(item, "resolved")
-    ComposeSurfaceJob.enqueue(reason: "decision_made")
+      if conversation
+        message = conversation.messages.create!(
+          role: "user",
+          content: "Decision: #{option_label}",
+          metadata: { "decision_artifact_id" => artifact.id }
+        )
+        if conversation.project
+          Decision.create!(
+            conversation: conversation,
+            project: conversation.project,
+            source_message: message,
+            content: option_label,
+            confidence: 1.0,
+            extracted_at: Time.current
+          )
+        end
+      end
+
+      scene.resolve!(artifact: artifact, summary: option_label)
+      item.update!(state: "collapsed", metadata: item.metadata.merge("chosen_option_id" => option_id))
+      record_feedback(item, "resolved")
+      ComposeSurfaceJob.enqueue(reason: "decision_made")
+    end
   end
 
   def begin_investigation(item)

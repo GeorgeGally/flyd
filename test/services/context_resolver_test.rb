@@ -23,6 +23,22 @@ class ContextResolverTest < ActiveSupport::TestCase
     assert result.requires_confirmation
   end
 
+  test "support history cannot auto-route without a project name match" do
+    project = Project.create!(name: "Flyd")
+    5.times do |index|
+      project.beliefs.create!(
+        statement: "PostgreSQL Redis queue interface deployment latency signal #{index}",
+        confidence: 0.8
+      )
+    end
+
+    result = ContextResolver.call(text: "PostgreSQL Redis queue interface deployment latency signal")
+
+    assert_equal project, result.project
+    assert result.requires_confirmation
+    assert_operator result.candidates.first.score, :<, ContextResolver::MIN_SCORE
+  end
+
   test "requires confirmation when top candidates are tied" do
     Project.create!(name: "Alpha", description: "Launch planning")
     Project.create!(name: "Beta", description: "Launch planning")

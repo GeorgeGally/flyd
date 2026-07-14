@@ -1,6 +1,7 @@
 class Surface < ApplicationRecord
   STATUSES = %w[draft active superseded invalid expired].freeze
   DEFAULT_VALIDITY = 30.minutes
+  TRANSITION_LOCK_NAME = "flyd:surface_transition"
 
   belongs_to :previous_surface, class_name: "Surface", optional: true
   has_many :next_surfaces, class_name: "Surface", foreign_key: :previous_surface_id, dependent: :nullify, inverse_of: :previous_surface
@@ -30,7 +31,7 @@ class Surface < ApplicationRecord
     end
 
     def activate!(surface)
-      transaction do
+      with_transition_lock do
         surface.lock!
         raise ActiveRecord::RecordInvalid, surface unless surface.valid?
         raise ArgumentError, "Only draft surfaces can be activated" unless surface.status == "draft"
@@ -50,6 +51,13 @@ class Surface < ApplicationRecord
         )
 
         surface
+      end
+    end
+
+    def with_transition_lock(&block)
+      transaction do
+        connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{connection.quote(TRANSITION_LOCK_NAME)}))")
+        block.call
       end
     end
 

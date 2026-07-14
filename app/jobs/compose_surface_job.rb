@@ -61,41 +61,46 @@ class ComposeSurfaceJob < ApplicationJob
   end
 
   def perform(reason:, active_conversation_id: nil, active_intent_id: nil)
+    draft = nil
+    surface = nil
+    log = nil
     conversation = Conversation.includes(:messages, :project, :context).find_by(id: active_conversation_id)
     intent = Intent.find_by(id: active_intent_id)
     intelligence = Flyd::Intelligence.new(active_conversation: conversation, active_intent: intent, fallback: false)
     plan = intelligence.compose_surface
     digest = intelligence.diagnostics.fetch(:state_digest)
     provider_snapshots = intelligence.diagnostics[:provider_snapshots] || []
-    draft = Surfaces::PersistPlan.call(
-      plan: plan,
-      source_state_digest: digest,
-      composition_version: "flyd-4",
-      active_conversation: conversation,
-      active_intent: intent
-    )
-    draft.update!(
-      metadata: draft.metadata.merge(
-        "composition_reason" => reason,
-        "surface_mode" => plan.surface_mode,
-        "provider_snapshots" => provider_snapshots,
-        "active_conversation_id" => conversation&.id
+    Surface.with_transition_lock do
+      draft = Surfaces::PersistPlan.call(
+        plan: plan,
+        source_state_digest: digest,
+        composition_version: "flyd-4",
+        active_conversation: conversation,
+        active_intent: intent
       )
-    )
-    surface = Surface.activate!(draft)
-    intent.resolve!(surface: surface) if intent && intent.status != "clarification_required"
+      draft.update!(
+        metadata: draft.metadata.merge(
+          "composition_reason" => reason,
+          "surface_mode" => plan.surface_mode,
+          "provider_snapshots" => provider_snapshots,
+          "active_conversation_id" => conversation&.id
+        )
+      )
+      surface = Surface.activate!(draft)
+      intent.resolve!(surface: surface) if intent && intent.status != "clarification_required"
 
-    log = SurfaceCompositionLog.create!(
-      surface: surface,
-      reason: reason,
-      state_digest: digest,
-      status: "succeeded",
-      input_characters: intelligence.diagnostics[:input_characters],
-      output_characters: intelligence.diagnostics[:output_characters],
-      latency_ms: intelligence.diagnostics[:latency_ms],
-      provider_health: provider_snapshots,
-      metadata: { "dropped" => intelligence.diagnostics[:dropped] || [] }
-    )
+      log = SurfaceCompositionLog.create!(
+        surface: surface,
+        reason: reason,
+        state_digest: digest,
+        status: "succeeded",
+        input_characters: intelligence.diagnostics[:input_characters],
+        output_characters: intelligence.diagnostics[:output_characters],
+        latency_ms: intelligence.diagnostics[:latency_ms],
+        provider_health: provider_snapshots,
+        metadata: { "dropped" => intelligence.diagnostics[:dropped] || [] }
+      )
+    end
 
     enqueue_broadcast(surface, log)
     self.class.finish_and_enqueue_pending

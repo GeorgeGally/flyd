@@ -4,7 +4,17 @@ export default class extends Controller {
   static targets = ["plane", "intent", "input", "item", "conversation"]
 
   connect() {
+    this.handleMorph = this.handleMorph.bind(this)
+    document.addEventListener("turbo:morph", this.handleMorph)
     this.applySemanticLayout(false)
+  }
+
+  disconnect() {
+    document.removeEventListener("turbo:morph", this.handleMorph)
+  }
+
+  handleMorph() {
+    this.applySemanticLayout(this.element.dataset.intentActive === "true")
   }
 
   focusIntent() {

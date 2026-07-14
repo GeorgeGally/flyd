@@ -71,7 +71,7 @@ class ContextResolver
   end
 
   def rank_candidates
-    project_candidates = Project.active.includes(:decisions, :beliefs).map do |project|
+    project_candidates = Project.active.map do |project|
       Candidate.new(type: "project", record: project, score: project_score(project))
     end
     context_candidates = Context.active.map do |context|
@@ -82,8 +82,8 @@ class ContextResolver
   end
 
   def project_score(project)
-    recent_decisions = project.decisions.sort_by(&:created_at).last(5).map(&:content)
-    recent_beliefs = project.beliefs.sort_by(&:updated_at).last(5).map(&:statement)
+    recent_decisions = project.decisions.order(created_at: :desc).limit(5).pluck(:content)
+    recent_beliefs = project.beliefs.order(updated_at: :desc).limit(5).pluck(:statement)
     record_score(project.name, project.description, recent_decisions, recent_beliefs)
   end
 
@@ -94,10 +94,13 @@ class ContextResolver
     input_terms = terms(@text)
     exact_name = normalized_name.present? && @text.downcase.match?(/(?:\A|\b)#{Regexp.escape(normalized_name)}(?:\b|\z)/)
 
+    name_matches = input_terms & name_terms
     score = exact_name ? 6.0 : 0.0
-    score += (input_terms & name_terms).length * 2.5
+    score += name_matches.length * 2.5
     score += (input_terms & support_terms).length * 0.75
-    score
+    return score if exact_name || name_matches.any?
+
+    [score, MIN_SCORE - 0.01].min
   end
 
   def terms(value)

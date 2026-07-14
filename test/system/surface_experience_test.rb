@@ -101,6 +101,39 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_equal "dismissed", item.reload.state
   end
 
+  test "semantic layout is restored after Turbo morphs the surface" do
+    focus = activate_surface(
+      title: "Primary decision",
+      renderer: "hero_scene",
+      surface_mode: "decision",
+      kind: "decision",
+      intent: "decide"
+    )
+    support = focus.surface.items.create!(
+      item_key: "supporting-signal",
+      kind: "status",
+      intent: "monitor",
+      renderer: "notification",
+      depth: "background",
+      state: "presented",
+      title: "Supporting signal",
+      summary: "Secondary evidence.",
+      position: 1
+    )
+
+    visit root_path
+    find("textarea[aria-label='Tell Flyd what is happening']").click
+    support_selector = "[data-item-key='#{support.item_key}']"
+    assert_selector "#{support_selector}.opacity-35"
+
+    page.execute_script(<<~JS)
+      document.querySelector(#{support_selector.to_json}).classList.remove("opacity-35")
+      document.dispatchEvent(new CustomEvent("turbo:morph"))
+    JS
+
+    assert_selector "#{support_selector}.opacity-35"
+  end
+
   test "media scenes render bytes from Active Storage" do
     intent = Intent.create!(input_text: "Show the image")
     attachment = intent.intent_attachments.create!(
