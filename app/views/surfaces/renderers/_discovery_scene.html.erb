@@ -1,8 +1,18 @@
+<% source = SurfaceSourceResolver.new(item.surface).resolve(item.source_refs.first || {}) %>
 <section class="discovery-scene">
   <div class="discovery-scene__direction">
     <div class="surface-label"><%= item.metadata["source_label"].presence || "Discovery" %></div>
     <h2><%= item.title %></h2>
-    <%= render "surfaces/actions", item: item, context_project: context_project %>
+    <div class="discovery-scene__actions">
+      <% if source.url.present? %>
+        <%= link_to "Read original", source.url, target: "_blank", rel: "noopener noreferrer" %>
+      <% end %>
+      <% if source.discussion_url.present? %>
+        <%= link_to "Discussion", source.discussion_url, target: "_blank", rel: "noopener noreferrer" %>
+      <% end %>
+      <%= render "surfaces/actions", item: item, context_project: context_project, actions: item.actions.reject { |action| (action["id"] || action[:id]) == "inspect_sources" } %>
+      <%= link_to "Evidence", surface_item_sources_path(item) %>
+    </div>
   </div>
 
   <div class="discovery-scene__matter">

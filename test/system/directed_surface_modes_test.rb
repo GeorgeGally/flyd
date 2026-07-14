@@ -268,7 +268,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_selector "#surface_plane[data-surface-mode='discovery']"
     assert_selector ".discovery-scene", text: "The memex was designed around associative trails"
     assert_text "From your archive"
-    assert_link "Open source"
+    assert_link "Evidence"
     assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
   end
 
