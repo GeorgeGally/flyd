@@ -101,6 +101,8 @@ module Flyd
 
         The supplied interface_direction contains a suggested mode, alternatives, and strict interface grammars. You may choose a different candidate when the evidence supports it, but you must obey the grammar for the mode you choose.
 
+        Quiet is valid only when no candidate evidence supports a concrete present situation. Inspect each candidate evidence_refs list, synthesize the referenced evidence into the interface, and preserve the exact references on the generated items. Candidate confidence is guidance, not a substitute for your judgment.
+
         Available modes:
         - quiet: almost nothing; no manufactured urgency.
         - conversation: dialogue is genuinely the best next move.
@@ -128,7 +130,7 @@ module Flyd
             "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene",
             "depth": "foreground|middle|background|receded",
             "context_refs": [{"type":"project|context","id":1}],
-            "source_refs": [{"type":"scene|artifact|build|goal|intent_attachment","id":"exact id from state"}],
+            "source_refs": [{"type":"exact evidence type from state","id":"exact id from state"}],
             "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context","label":"Action label","payload":{}}],
             "metadata": {
               "options": [{"id":"option-id","label":"Choice","description":"consequence"}],

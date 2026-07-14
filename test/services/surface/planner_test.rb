@@ -84,6 +84,86 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal "Make the choice itself the interface.", sent_state.dig("interface_direction", "grammars", "decision", "purpose")
   end
 
+  test "provider evidence composes a directed surface without a prebuilt scene" do
+    response = {
+      understanding: "Setup abandonment is unresolved and the current explanation lacks direct observations.",
+      current_intention: "Investigate the exact point where setup loses users.",
+      surface_mode: "investigation",
+      focus_item_id: "investigation:setup-abandonment",
+      items: [{
+        id: "investigation:setup-abandonment",
+        kind: "question",
+        intent: "investigate",
+        title: "Where does setup lose people?",
+        summary: "The current evidence points to broad choices, but no recent setup-session observations confirm the cause.",
+        renderer: "investigation_scene",
+        depth: "foreground",
+        context_refs: [],
+        source_refs: [
+          { type: "curiosity", id: "curiosity:adoption" },
+          { type: "signal", id: "signal:setup" }
+        ],
+        metadata: {
+          known: ["Users face a broad set of setup choices."],
+          unknown: ["The exact step where users abandon setup."],
+          next_question: "Which setup step has the highest abandonment rate?"
+        },
+        actions: [{
+          id: "investigate",
+          label: "Investigate setup sessions",
+          payload: { question: "Which setup step has the highest abandonment rate?" }
+        }]
+      }],
+      relationships: []
+    }.to_json
+    chat = FakeChat.new(response)
+    provider = FakeStateProvider.new({
+      providers: [{
+        source: "flyd-cli",
+        fresh: true,
+        errors: [],
+        data: {
+          curiosity: [{
+            id: "curiosity:adoption",
+            type: "curiosity",
+            source: "test",
+            epistemicStatus: "llm_generated",
+            confidence: 0.7,
+            generatedAt: Time.current.iso8601,
+            evidenceRefs: [],
+            content: {
+              question: "Why are users abandoning setup?",
+              missingEvidence: "Recent setup-session observations"
+            }
+          }],
+          signals: [{
+            id: "signal:setup",
+            type: "signal",
+            source: "test",
+            epistemicStatus: "heuristic",
+            confidence: 0.6,
+            generatedAt: Time.current.iso8601,
+            evidenceRefs: [],
+            content: { topic: "setup", unresolved: 2 }
+          }]
+        }
+      }]
+    })
+
+    surface = Flyd::Intelligence.new(chat: chat, state_provider: provider).compose_surface
+    sent_state = JSON.parse(chat.received_messages.last[:content])
+    system_prompt = chat.received_messages.first[:content]
+
+    assert_equal "investigation", surface.surface_mode
+    assert_equal "investigation_scene", surface.items.first.renderer
+    assert_equal ["curiosity", "signal"], surface.items.first.source_refs.map { |reference| reference["type"] }
+    assert_not_equal "quiet:available", surface.focus_item_id
+    assert_not_equal "What deserves your attention?", surface.items.first.title
+    assert_includes sent_state.dig("interface_direction", "candidates").map { |candidate| candidate["mode"] }, "investigation"
+    assert_includes system_prompt, "Quiet is valid only when no candidate evidence supports a concrete present situation."
+    assert_includes system_prompt, "candidate evidence_refs"
+  end
+
   test "falls back without ranking database records when composition fails" do
     provider = FakeStateProvider.new({ providers: [] })
     surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
