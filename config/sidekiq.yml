@@ -5,6 +5,11 @@
       class: ScheduleIntelligenceRefreshJob
       queue: default
       description: "Refresh provider evidence and prepare the next Flyd surface"
+    web_discovery_refresh:
+      cron: "17 * * * *"
+      class: RefreshWebDiscoveryJob
+      queue: default
+      description: "Refresh current stories for grounded Flyd discovery"
     attachment_cleanup:
       cron: "17 2 * * *"
       class: PurgeExpiredIntentAttachmentsJob

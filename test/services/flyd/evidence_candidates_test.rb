@@ -196,6 +196,26 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal "report:research", candidates.first.dig(:evidence_refs, 0, :id)
   end
 
+  test "does not present stale web news as current discovery" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "web-discovery",
+          fresh: false,
+          data: {
+            discoveries: [ evidence(
+              "discovery",
+              "discovery:hn:old",
+              { title: "Old story", excerpt: "This story is no longer current." }
+            ) ]
+          }
+        } ]
+      }
+    )
+
+    assert_empty candidates
+  end
+
   private
 
   def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])

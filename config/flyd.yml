@@ -8,6 +8,7 @@ shared: &shared
   backup_directory: <%= ENV.fetch("FLYD_BACKUP_DIR", File.join(Dir.home, ".flyd", "backups")) %>
   backup_passphrase: <%= ENV["FLYD_BACKUP_PASSPHRASE"] %>
   generated_surface_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_GENERATED_SURFACE", "false")) %>
+  web_discovery_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_WEB_DISCOVERY", "true")) %>
 
 development:
   <<: *shared

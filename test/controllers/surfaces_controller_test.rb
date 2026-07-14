@@ -6,6 +6,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
   setup do
     Rails.cache.delete(ComposeSurfaceJob::LOCK_KEY)
     Rails.cache.delete(RefreshIntelligenceStateJob::LOCK_KEY)
+    Rails.cache.delete(RefreshWebDiscoveryJob::LOCK_KEY) if defined?(RefreshWebDiscoveryJob::LOCK_KEY)
     Surface.delete_all
     @surface = Surface.fallback!
   end
@@ -25,6 +26,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     get root_url
 
     assert_enqueued_jobs 1, only: RefreshIntelligenceStateJob
+    assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob
     assert_enqueued_jobs 1, only: ComposeSurfaceJob
     assert_response :success
   end

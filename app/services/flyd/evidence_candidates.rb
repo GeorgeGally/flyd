@@ -96,7 +96,7 @@ module Flyd
     end
 
     def discovery_evidence
-      items = collection(:discoveries) + collection(:recent_events, :recentEvents) + collection(:reports)
+      items = fresh_collection(:discoveries) + collection(:recent_events, :recentEvents) + collection(:reports)
       items.select do |item|
         discoverable?(item) && !previously_shown?(item)
       end.sort_by { |item| -discovery_score(item) }
@@ -150,6 +150,13 @@ module Flyd
 
     def collection(*keys)
       providers.flat_map do |provider|
+        data = provider[:data].to_h
+        Array(keys.filter_map { |key| data[key] }.first)
+      end
+    end
+
+    def fresh_collection(*keys)
+      providers.select { |provider| provider[:fresh] }.flat_map do |provider|
         data = provider[:data].to_h
         Array(keys.filter_map { |key| data[key] }.first)
       end

@@ -40,6 +40,10 @@ class SurfacesController < ApplicationController
   def prepare_next_surface
     snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)
     enqueue_without_blocking { RefreshIntelligenceStateJob.enqueue } if snapshot.nil? || !snapshot.fresh?
+    web_snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::WebDiscoveryProvider::PROVIDER)
+    if web_discovery_enabled? && (web_snapshot.nil? || !web_snapshot.fresh?)
+      enqueue_without_blocking { RefreshWebDiscoveryJob.enqueue }
+    end
 
     explicit_interaction = params[:conversation_id].present? || @intent&.conversation_id.present?
     interaction_changed = explicit_interaction && @conversation && @surface.metadata["active_conversation_id"].to_i != @conversation.id
@@ -62,5 +66,9 @@ class SurfacesController < ApplicationController
 
   def surface_enabled?
     Rails.application.config_for(:flyd).fetch(:generated_surface_enabled, false)
+  end
+
+  def web_discovery_enabled?
+    Rails.application.config_for(:flyd).fetch(:web_discovery_enabled, true)
   end
 end
