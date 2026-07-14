@@ -27,7 +27,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
       current_intention: "Put the architectural choice directly on screen.",
       surface_mode: "decision",
       focus_item_id: "interface-drift",
-      items: [{
+      items: [ {
         id: "interface-drift",
         kind: "decision",
         intent: "decide",
@@ -35,8 +35,8 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
         summary: "Choose whether Flyd directs the surface or remains a conversation shell.",
         renderer: "decision_scene",
         depth: "foreground",
-        context_refs: [{ type: "project", id: project.id }],
-        source_refs: [{ type: "goal", id: "goal:ship-flyd" }],
+        context_refs: [ { type: "project", id: project.id } ],
+        source_refs: [ { type: "goal", id: "goal:ship-flyd" } ],
         metadata: {
           options: [
             { id: "director", label: "Dynamic director", description: "The interface changes around the situation." },
@@ -48,17 +48,17 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
           { id: "choose", label: "Choose dynamic director", payload: { option_id: "director", option_label: "Dynamic director" } },
           { id: "choose", label: "Choose conversation shell", payload: { option_id: "shell", option_label: "Conversation shell" } }
         ]
-      }],
+      } ],
       relationships: []
     }.to_json
     chat = FakeChat.new(response)
     provider = FakeStateProvider.new({
-      providers: [{
+      providers: [ {
         source: "flyd-cli",
         fresh: true,
         errors: [],
         data: {
-          goals: [{
+          goals: [ {
             id: "goal:ship-flyd",
             type: "goal",
             source: "test",
@@ -67,9 +67,9 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             generatedAt: Time.current.iso8601,
             evidenceRefs: [],
             content: { slug: "ship-flyd" }
-          }]
+          } ]
         }
-      }]
+      } ]
     })
 
     surface = Flyd::Intelligence.new(chat: chat, state_provider: provider).compose_surface
@@ -90,7 +90,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
       current_intention: "Investigate the exact point where setup loses users.",
       surface_mode: "investigation",
       focus_item_id: "investigation:setup-abandonment",
-      items: [{
+      items: [ {
         id: "investigation:setup-abandonment",
         kind: "question",
         intent: "investigate",
@@ -104,26 +104,26 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
           { type: "signal", id: "signal:setup" }
         ],
         metadata: {
-          known: ["Users face a broad set of setup choices."],
-          unknown: ["The exact step where users abandon setup."],
+          known: [ "Users face a broad set of setup choices." ],
+          unknown: [ "The exact step where users abandon setup." ],
           next_question: "Which setup step has the highest abandonment rate?"
         },
-        actions: [{
+        actions: [ {
           id: "investigate",
           label: "Investigate setup sessions",
           payload: { question: "Which setup step has the highest abandonment rate?" }
-        }]
-      }],
+        } ]
+      } ],
       relationships: []
     }.to_json
     chat = FakeChat.new(response)
     provider = FakeStateProvider.new({
-      providers: [{
+      providers: [ {
         source: "flyd-cli",
         fresh: true,
         errors: [],
         data: {
-          curiosity: [{
+          curiosity: [ {
             id: "curiosity:adoption",
             type: "curiosity",
             source: "test",
@@ -135,8 +135,8 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
               question: "Why are users abandoning setup?",
               missingEvidence: "Recent setup-session observations"
             }
-          }],
-          signals: [{
+          } ],
+          signals: [ {
             id: "signal:setup",
             type: "signal",
             source: "test",
@@ -145,9 +145,9 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             generatedAt: Time.current.iso8601,
             evidenceRefs: [],
             content: { topic: "setup", unresolved: 2 }
-          }]
+          } ]
         }
-      }]
+      } ]
     })
 
     surface = Flyd::Intelligence.new(chat: chat, state_provider: provider).compose_surface
@@ -156,7 +156,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
 
     assert_equal "investigation", surface.surface_mode
     assert_equal "investigation_scene", surface.items.first.renderer
-    assert_equal ["curiosity", "signal"], surface.items.first.source_refs.map { |reference| reference["type"] }
+    assert_equal [ "curiosity", "signal" ], surface.items.first.source_refs.map { |reference| reference["type"] }
     assert_not_equal "quiet:available", surface.focus_item_id
     assert_not_equal "What deserves your attention?", surface.items.first.title
     assert_includes sent_state.dig("interface_direction", "candidates").map { |candidate| candidate["mode"] }, "investigation"
