@@ -1,6 +1,6 @@
 <article class="overflow-hidden border-y border-gray-200 py-5">
   <% attachment = IntentAttachment.available.find_by(id: item.metadata["attachment_id"]) %>
-  <div class="mb-4 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-400">
+  <div class="mb-4 flex items-center justify-between text-xs text-gray-400">
     <span><%= item.metadata["media_type"].presence || "media" %></span>
     <% if attachment %><span><%= attachment.filename %></span><% end %>
   </div>

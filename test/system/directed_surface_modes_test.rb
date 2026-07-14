@@ -31,7 +31,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
           "id" => "investigate",
           "label" => "Investigate",
           "payload" => { "question" => "Which fixed shell is suppressing the scene?" }
-        }
+        },
+        { "id" => "inspect_sources", "label" => "Inspect evidence", "payload" => {} }
       ],
       context_refs: [ { "type" => "context", "id" => context.id } ]
     )
@@ -40,9 +41,10 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     assert_selector "#surface_plane[data-surface-composition='working_scene']"
     assert_selector ".surface-object[data-role='focus'] .working-scene"
-    assert_selector ".editorial-object__eyebrow", text: /\AInvestigation\z/i
-    assert_selector ".editorial-object__eyebrow", text: /\AWhat we know\z/i
-    assert_selector ".editorial-object__eyebrow", text: /\AWhat remains uncertain\z/i
+    assert_selector ".surface-label", text: /\AInvestigation\z/i
+    assert_selector ".surface-label", text: /\AWhat we know\z/i
+    assert_selector ".surface-label", text: /\AWhat remains uncertain\z/i
+    assert_link "Inspect evidence"
     assert_text "Which fixed shell"
     plane_width = page.evaluate_script("document.querySelector('#surface_plane').getBoundingClientRect().width")
     focus_width = page.evaluate_script("document.querySelector('.surface-object[data-role=\"focus\"]').getBoundingClientRect().width")
@@ -92,7 +94,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
             "conversation_id" => conversation.id,
             "instructions" => "Implement the dynamic director and its tests."
           }
-        }
+        },
+        { "id" => "dismiss", "label" => "Not now", "payload" => {} }
       ],
       context_refs: [ { "type" => "project", "id" => project.id } ]
     )
@@ -101,9 +104,10 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
 
     assert_selector "#surface_plane[data-surface-composition='working_scene']"
     assert_selector ".surface-object[data-role='focus'] .working-scene"
-    assert_selector ".editorial-object__eyebrow", text: /\AReady to act\z/i
-    assert_selector ".editorial-object__eyebrow", text: /\AWhat Flyd will do\z/i
-    assert_selector ".editorial-object__eyebrow", text: /\AWhat changes\z/i
+    assert_selector ".surface-label", text: /\AReady to act\z/i
+    assert_selector ".surface-label", text: /\AWhat Flyd will do\z/i
+    assert_selector ".surface-label", text: /\AWhat changes\z/i
+    assert_button "Not now"
     click_on "Review action"
 
     assert_text(/Review before running/i)
@@ -181,10 +185,10 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert support_title_fits
   end
 
-  test "decision mode renders an editorial comparison wall" do
-    context = Context.create!(name: "Poster direction", kind: "temporary")
+  test "decision mode renders an unframed comparison field" do
+    context = Context.create!(name: "Visual direction", kind: "temporary")
     scene = Scene.create!(
-      scene_key: "decision:poster-direction",
+      scene_key: "decision:visual-direction",
       kind: "decision",
       status: "active",
       title: "Choose the stronger direction",
@@ -199,13 +203,14 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       metadata: {
         "recommendation" => "Use the darker direction.",
         "options" => [
-          { "id" => "dark", "label" => "Darker poster", "description" => "Reads as an evening market." },
-          { "id" => "bright", "label" => "Bright poster", "description" => "Reads as a family fair." }
+          { "id" => "dark", "label" => "Darker direction", "description" => "Reads as an evening market." },
+          { "id" => "bright", "label" => "Bright direction", "description" => "Reads as a family fair." }
         ]
       },
       actions: [
         { "id" => "choose", "label" => "Choose darker", "payload" => { "option_id" => "dark" } },
-        { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } }
+        { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } },
+        { "id" => "discuss", "label" => "Talk it through", "payload" => {} }
       ],
       context_refs: [ { "type" => "context", "id" => context.id } ]
     )
@@ -213,14 +218,19 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     visit root_path
 
     assert_selector "#surface_plane[data-surface-composition='comparison_wall']"
-    assert_selector ".surface-object[data-role='focus'] .decision-wall"
-    assert_selector ".decision-poster", count: 2
-    assert_selector ".decision-poster[data-recommended='true']", count: 1
-    assert_selector ".decision-poster[data-recommended='true']", text: "Darker poster"
-    assert_selector ".decision-poster[data-recommended='false']", text: "Bright poster"
+    assert_selector ".surface-object[data-role='focus'] .decision-field"
+    assert_selector ".decision-option", count: 2
+    assert_selector ".decision-option[data-recommended='true']", count: 1
+    assert_selector ".decision-option[data-recommended='true']", text: "Darker direction"
+    assert_selector ".decision-option[data-recommended='false']", text: "Bright direction"
     assert_text "Use the darker direction."
+    assert_button "Talk it through"
     assert_button "Accept", count: 1
     assert_button "Choose", count: 1
+    option_shadow = page.evaluate_script("getComputedStyle(document.querySelector('.decision-option')).boxShadow")
+    field_border = page.evaluate_script("getComputedStyle(document.querySelector('.decision-field')).borderTopWidth")
+    assert_equal "none", option_shadow
+    assert_equal "0px", field_border
   end
 
   private

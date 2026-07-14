@@ -1,7 +1,7 @@
 <div class="max-w-xl rounded-full border border-gray-300 px-6 py-4">
   <div class="flex items-center justify-between gap-6">
     <div>
-      <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400"><%= item.intent %></div>
+      <div class="text-xs text-gray-400"><%= item.intent.humanize %></div>
       <p class="mt-1 text-sm font-medium"><%= item.title %></p>
     </div>
     <%= render "surfaces/actions", item: item, context_project: context_project %>

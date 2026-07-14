@@ -55,72 +55,54 @@
     opacity: 0.58;
   }
 
-  .editorial-object {
-    position: relative;
+  .directed-surface {
     min-height: clamp(24rem, 58vh, 44rem);
-    overflow: hidden;
-    border: 1px solid rgb(229 231 235);
-    background: rgb(250 249 246);
-    box-shadow: 0 0.75rem 2.5rem rgb(17 24 39 / 0.045);
   }
 
-  .editorial-object__eyebrow {
-    font-size: 0.625rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: rgb(156 163 175);
+  .surface-label {
+    font-size: 0.75rem;
+    letter-spacing: 0;
+    color: rgb(107 114 128);
   }
 
-  .decision-wall {
+  .decision-field {
     display: grid;
     grid-template-columns: minmax(13rem, 0.72fr) minmax(0, 1.8fr);
     min-height: clamp(30rem, 68vh, 48rem);
     gap: clamp(2rem, 5vw, 6rem);
-    padding: clamp(2rem, 5vw, 5.5rem);
+    padding-block: clamp(2rem, 5vw, 5.5rem);
   }
 
-  .decision-wall__thesis {
+  .decision-field__thesis {
     display: flex;
     min-width: 0;
     flex-direction: column;
     justify-content: center;
   }
 
-  .decision-wall__options {
+  .decision-field__options {
     display: grid;
     min-width: 0;
     grid-template-columns: repeat(var(--option-count, 2), minmax(0, 1fr));
-    align-items: center;
-    gap: clamp(1rem, 2.5vw, 2.5rem);
+    align-items: stretch;
+    border-block: 1px solid rgb(209 213 219);
   }
 
-  .decision-poster {
+  .decision-option {
     display: flex;
-    min-height: clamp(22rem, 50vh, 38rem);
+    min-height: clamp(20rem, 46vh, 34rem);
     flex-direction: column;
     justify-content: space-between;
-    border: 1px solid rgb(229 231 235);
-    background: rgb(255 255 255);
-    padding: clamp(1.25rem, 2.8vw, 2.5rem);
-    box-shadow: 0 0.75rem 2rem rgb(17 24 39 / 0.04);
-    transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease;
+    padding: clamp(1.5rem, 2.8vw, 2.75rem);
   }
 
-  .decision-poster:hover,
-  .decision-poster:focus-within {
-    transform: translateY(-0.25rem);
-    border-color: rgb(17 24 39);
-    box-shadow: 0 1rem 2.5rem rgb(17 24 39 / 0.08);
+  .decision-option + .decision-option {
+    border-left: 1px solid rgb(209 213 219);
   }
 
-  .decision-poster[data-recommended="true"] {
-    transform: translateY(-1rem);
-    border-color: rgb(17 24 39);
-  }
-
-  .decision-poster[data-recommended="true"]:hover,
-  .decision-poster[data-recommended="true"]:focus-within {
-    transform: translateY(-1.25rem);
+  .decision-option[data-recommended="true"] {
+    border-top: 3px solid rgb(252 211 77);
+    margin-top: -1px;
   }
 
   .working-scene {
@@ -128,7 +110,7 @@
     min-height: clamp(30rem, 68vh, 48rem);
     grid-template-columns: minmax(0, 1.12fr) minmax(15rem, 0.72fr);
     gap: clamp(2rem, 5vw, 6rem);
-    padding: clamp(2rem, 5vw, 5.5rem);
+    padding-block: clamp(2rem, 5vw, 5.5rem);
   }
 
   .working-scene__primary {
@@ -155,25 +137,26 @@
   }
 
   @container (max-width: 52rem) {
-    .decision-wall,
+    .decision-field,
     .working-scene {
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .decision-wall__thesis {
+    .decision-field__thesis {
       justify-content: flex-start;
     }
 
-    .decision-wall__options {
+    .decision-field__options {
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .decision-poster,
-    .decision-poster[data-recommended="true"],
-    .decision-poster[data-recommended="true"]:hover,
-    .decision-poster[data-recommended="true"]:focus-within {
-      min-height: 18rem;
-      transform: none;
+    .decision-option {
+      min-height: 16rem;
+    }
+
+    .decision-option + .decision-option {
+      border-top: 1px solid rgb(209 213 219);
+      border-left: 0;
     }
   }
 
@@ -191,8 +174,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .surface-object,
-    .decision-poster {
+    .surface-object {
       transition: none;
     }
   }

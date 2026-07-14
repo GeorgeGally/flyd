@@ -1,5 +1,5 @@
 <article class="max-w-3xl border-y border-gray-200 py-7">
-  <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">Document</div>
+  <div class="text-xs text-gray-400">Document</div>
   <h3 class="mt-4 text-3xl font-medium"><%= item.title %></h3>
   <div class="prose prose-sm mt-6 max-w-none text-gray-700"><%= simple_format(item.summary) %></div>
   <%= render "surfaces/actions", item: item, context_project: context_project %>

@@ -1,6 +1,7 @@
-<% if item.actions.any? %>
+<% rendered_actions = local_assigns.fetch(:actions, item.actions) %>
+<% if rendered_actions.any? %>
   <div class="mt-8 flex flex-wrap gap-4 text-xs">
-    <% item.actions.each do |action| %>
+    <% rendered_actions.each do |action| %>
       <% action_id = action["id"] || action[:id] %>
       <% label = action["label"] || action[:label] || action_id.to_s.humanize %>
       <% payload = action["payload"] || action[:payload] || {} %>

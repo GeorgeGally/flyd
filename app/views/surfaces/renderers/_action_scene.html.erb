@@ -1,40 +1,35 @@
-<section class="editorial-object working-scene">
+<section class="directed-surface working-scene">
   <div class="working-scene__primary">
     <div>
       <div class="flex items-center justify-between gap-4">
-        <span class="editorial-object__eyebrow">Ready to act</span>
-        <span class="editorial-object__eyebrow"><%= item.metadata["readiness"].presence || "ready" %></span>
+        <span class="surface-label">Ready to act</span>
+        <span class="surface-label"><%= item.metadata["readiness"].presence || "ready" %></span>
       </div>
-      <h2 class="working-scene__title mt-7 max-w-4xl font-medium leading-[1.02] tracking-tight"><%= item.title %></h2>
+      <h2 class="working-scene__title mt-7 max-w-4xl font-medium leading-[1.02]"><%= item.title %></h2>
       <p class="mt-7 max-w-2xl text-base leading-7 text-gray-600 md:text-lg"><%= item.summary %></p>
     </div>
 
     <div class="mt-12 max-w-4xl border-t border-gray-950 pt-6">
-      <div class="editorial-object__eyebrow">What Flyd will do</div>
+      <div class="surface-label">What Flyd will do</div>
       <p class="mt-4 text-2xl font-medium leading-tight md:text-4xl"><%= item.metadata["proposed_action"] %></p>
       <div class="mt-8 flex flex-wrap items-center gap-4 text-xs">
-        <% item.actions.each do |action| %>
+        <% item.actions.select { |action| (action["id"] || action[:id]) == "build" }.each do |action| %>
           <% action_id = action["id"] || action[:id] %>
-          <% if action_id == "build" %>
-            <%= button_to action["label"] || "Review action", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "bg-gray-950 px-5 py-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
-          <% elsif action_id == "discuss" %>
-            <%= button_to action["label"] || "Discuss first", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "border border-gray-300 px-5 py-3 font-medium hover:border-gray-950 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
-          <% elsif action_id == "dismiss" %>
-            <%= button_to action["label"] || "Not now", surface_item_feedbacks_path(item), method: :post, params: { signal: "dismiss" }, class: "px-2 py-3 text-gray-500 hover:text-gray-950" %>
-          <% end %>
+          <%= button_to action["label"] || "Review action", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "bg-gray-950 px-5 py-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
         <% end %>
       </div>
+      <%= render "surfaces/actions", item: item, context_project: context_project, actions: item.actions.reject { |action| (action["id"] || action[:id]) == "build" } %>
     </div>
   </div>
 
   <div class="working-scene__secondary">
     <section class="editorial-panel">
-      <div class="editorial-object__eyebrow">What changes</div>
+      <div class="surface-label">What changes</div>
       <p class="mt-5 text-lg leading-8 text-gray-700"><%= item.metadata["impact"].presence || "Flyd will return the result to this scene and update what happens next." %></p>
     </section>
 
     <section class="editorial-panel border-gray-300">
-      <div class="editorial-object__eyebrow">Confirmation boundary</div>
+      <div class="surface-label">Confirmation boundary</div>
       <p class="mt-5 text-sm leading-7 text-gray-600">The work remains a proposal until you review and explicitly confirm it.</p>
     </section>
   </div>

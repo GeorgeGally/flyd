@@ -1,7 +1,7 @@
 <article class="overflow-hidden border-y border-gray-200 py-5">
   <div class="mb-5 flex items-end justify-between gap-4">
     <div>
-      <div class="text-[10px] uppercase tracking-[0.18em] text-gray-400">Data</div>
+      <div class="text-xs text-gray-400">Data</div>
       <h3 class="mt-2 text-2xl font-medium"><%= item.title %></h3>
     </div>
   </div>
@@ -12,7 +12,7 @@
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-left text-sm">
         <thead>
-          <tr class="border-b border-gray-300 text-[10px] uppercase tracking-[0.14em] text-gray-400">
+          <tr class="border-b border-gray-300 text-xs text-gray-400">
             <% columns.each do |column| %><th class="px-3 py-2 font-medium"><%= column %></th><% end %>
           </tr>
         </thead>

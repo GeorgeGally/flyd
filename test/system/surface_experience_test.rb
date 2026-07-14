@@ -51,7 +51,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
 
     visit root_path
 
-    assert_text "DECISION"
+    assert_text "Decision"
     assert_text "Dynamic director"
     assert_no_text "An older conversation"
     assert_equal "decision", find("#surface_plane")[:"data-surface-mode"]
@@ -78,7 +78,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     fill_in "What is this context?", with: "Resolve the interaction model without creating a project."
     click_on "Create"
 
-    assert_text "INTERFACE SPRINT"
+    assert_text "Interface sprint"
     context = Context.find_by!(name: "Interface sprint")
     conversation = Conversation.active_for(context).first!
     assert_selector "form[action='#{conversation_messages_path(conversation)}']"
