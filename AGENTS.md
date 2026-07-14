@@ -1,5 +1,12 @@
 # flyd — agent reference
 
+## Repository workflow
+
+- `main` is the working branch and source of truth.
+- Do not leave completed work only on feature branches, PR branches, or temporary worktrees.
+- If a requested change exists off `main`, fast-forward or otherwise land it on `main` before reporting completion.
+- If local `main` is stale, dirty, or otherwise not the correct state, preserve any uncommitted work and make `main` match the correct source of truth.
+
 ## Product architecture
 
 **The interface is the intelligence expressed.**
