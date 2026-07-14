@@ -51,6 +51,10 @@ Every visible surface item is wrapped in a stable `surface-object` container wit
 
 Renderers own internal content. The composition layer owns placement and prominence.
 
+## Visual language
+
+Surface objects should read as editorial matter: posters, sheets, spreads, annotations, and working material. They use square geometry, restrained borders, minimal elevation, strong type hierarchy, and deliberate white space. Rounded SaaS cards, glass effects, decorative intelligence graphics, and equal-weight grids are outside the V1 language.
+
 ## Decision comparison wall
 
 A decision scene is rendered as:
