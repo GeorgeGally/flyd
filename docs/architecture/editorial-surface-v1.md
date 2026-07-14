@@ -57,7 +57,8 @@ A decision scene is rendered as:
 
 - a thesis column containing the recommendation, summary, and secondary actions;
 - an option field containing two to four poster-like option objects;
-- the recommended option receives editorial emphasis when `metadata.recommendation` identifies it or, in V1, defaults to the first option;
+- when Flyd recommends an option it must place that option first in `metadata.options`;
+- the first option receives the recommendation label and stronger editorial emphasis;
 - every option retains its executable `choose` action;
 - narrow containers collapse into a vertical sequence without changing semantics.
 
@@ -108,7 +109,7 @@ Motion is applied to the stable surface object. It must be reversible where sema
 
 ## Validation
 
-The current semantic validator remains unchanged in V1. Composition is derived from validated `surface_mode`, so unsupported composition values cannot enter persistence.
+The current semantic validator remains unchanged in V1. Composition is derived from validated `surface_mode`, so unsupported composition values cannot enter persistence. Recommendation emphasis is governed by the explicit first-option ordering instruction in the intelligence contract.
 
 ## Acceptance criteria
 
