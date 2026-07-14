@@ -1,6 +1,13 @@
 <% visible_items = surface.items.reject { |item| %w[dismissed collapsed].include?(item.state) } %>
 <% surface_mode = (surface.metadata["surface_mode"].presence || "quiet").to_s %>
-<% directed_mode = %w[decision investigation action monitoring].include?(surface_mode) %>
+<% composition = {
+     "decision" => "comparison-wall",
+     "investigation" => "working-scene",
+     "action" => "working-scene",
+     "conversation" => "working-scene",
+     "monitoring" => "editorial-focus",
+     "quiet" => "editorial-focus"
+   }.fetch(surface_mode, "editorial-focus") %>
 <% conversation_scene = active_conversation&.scenes&.order(updated_at: :desc)&.first %>
 <% if active_conversation %>
   <% visible_items = visible_items.reject { |item| item.renderer == "conversation" || item.scene_id == conversation_scene&.id }.first(2) %>
@@ -15,17 +22,20 @@
 <% surface_projects = Project.where(id: project_ids).index_by(&:id) %>
 
 <section id="surface_plane"
-         class="relative <%= directed_mode ? 'mt-8 min-h-[68vh]' : 'mt-14 min-h-[60vh]' %> flex-1"
+         class="surface-composition surface-composition--<%= composition %> mt-8 flex-1"
          data-surface-target="plane"
          data-surface-id="<%= surface.id %>"
          data-surface-mode="<%= surface_mode %>"
+         data-surface-composition="<%= composition.tr('-', '_') %>"
          data-surface-focus-key="<%= active_conversation ? "conversation:#{active_conversation.id}" : surface.focus_item_id %>"
          data-surface-intention="<%= surface.current_intention %>">
   <% if active_conversation %>
     <article id="surface_semantic_conversation_<%= active_conversation.id %>"
-             class="surface-item relative z-20 w-full transition-all duration-700 ease-out md:w-[68%]"
+             class="surface-item surface-object relative z-20 w-full"
              data-surface-target="item"
              data-item-key="conversation:<%= active_conversation.id %>"
+             data-host="surface"
+             data-role="focus"
              data-depth="foreground"
              data-state="presented"
              data-renderer="conversation"
@@ -37,6 +47,7 @@
 
   <% visible_items.each_with_index do |item, position| %>
     <% dominant = !active_conversation && item.item_key == surface.focus_item_id %>
+    <% role = dominant ? "focus" : "support" %>
     <% project_ref = item.context_refs.find { |ref| (ref["type"] || ref[:type]) == "project" } %>
     <% project_id = project_ref && (project_ref["id"] || project_ref[:id]) %>
     <% context_project = surface_projects[project_id.to_i] if project_id %>
@@ -44,22 +55,14 @@
     <% outgoing = item.relationships.select { |relationship| (relationship["from"] || relationship[:from]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
     <% incoming = item.relationships.select { |relationship| (relationship["to"] || relationship[:to]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
     <% semantic_dom_id = "surface_semantic_#{Digest::SHA256.hexdigest(item.item_key.to_s)[0, 16]}" %>
-    <% placement = if dominant && directed_mode
-         "relative z-20 w-full"
-       elsif dominant
-         "relative z-20 w-full md:w-[68%]"
-       elsif directed_mode
-         "relative z-0 mt-10 ml-auto w-full opacity-70 md:w-[28%]"
-       elsif active_conversation || position == 1
-         "relative z-10 mt-10 w-full md:absolute md:right-0 md:top-6 md:mt-0 md:w-[31%]"
-       else
-         "relative z-0 mt-10 w-full md:absolute md:right-[8%] md:top-[55%] md:mt-0 md:w-[28%]"
-       end %>
 
     <article id="<%= semantic_dom_id %>"
-             class="surface-item <%= placement %> transition-all duration-700 ease-out"
+             class="surface-item surface-object relative <%= role == 'focus' ? 'z-20' : 'z-0' %>"
              data-surface-target="item"
              data-item-key="<%= item.item_key %>"
+             data-host="surface"
+             data-role="<%= role %>"
+             data-position="<%= position %>"
              data-depth="<%= item.depth %>"
              data-state="<%= item.state %>"
              data-renderer="<%= item.renderer %>"
