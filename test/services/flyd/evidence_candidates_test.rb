@@ -246,11 +246,18 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
             source: "personal-context",
             fresh: true,
             data: {
-              activities: [ evidence("activity", "activity:flyd", {
-                title: "Continue flyd",
-                description: "Build the living discovery stage.",
-                updatedAt: 1.hour.ago.iso8601
-              }, confidence: 0.95) ],
+              activities: [
+                evidence("activity", "activity:flyd", {
+                  title: "Continue Flyd",
+                  description: "Build the living discovery stage.",
+                  updatedAt: 1.hour.ago.iso8601
+                }, confidence: 0.95),
+                evidence("activity", "activity:other", {
+                  title: "Continue another project",
+                  description: "A second recent project must not displace current news.",
+                  updatedAt: 2.hours.ago.iso8601
+                }, confidence: 0.95)
+              ],
               horoscopes: [ evidence("horoscope", "horoscope:aries:today", {
                 title: "Aries",
                 description: "Make room for a creative risk today.",
@@ -274,6 +281,43 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
 
     discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
     assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:1], discovery[:evidence_refs].pluck(:id)
+  end
+
+  test "keeps personal anchors while rotating previously shown discoveries" do
+    activity = evidence("activity", "activity:flyd", {
+      title: "Continue Flyd", description: "Build the living discovery stage.", updatedAt: 1.hour.ago.iso8601
+    }, confidence: 0.95)
+    horoscope = evidence("horoscope", "horoscope:aries:today", {
+      title: "Aries", description: "Make room for a creative risk today.", date: Date.current.iso8601
+    }, confidence: 0.9)
+    shown_story = evidence("discovery", "discovery:feed:shown", {
+      title: "Already shown", description: "This current story already occupied the living stage once today."
+    })
+    fresh_story = evidence("discovery", "discovery:feed:fresh", {
+      title: "A fresh current story", description: "This current story has not yet occupied the living stage today."
+    })
+
+    candidates = Flyd::EvidenceCandidates.call(
+      previous_surface: {
+        items: [ activity, horoscope, shown_story ].map do |item|
+          { source_refs: [ { type: item[:type], id: item[:id] } ] }
+        end
+      },
+      provider_state: {
+        providers: [ {
+          source: "personal-context",
+          fresh: true,
+          data: { activities: [ activity ], horoscopes: [ horoscope ] }
+        }, {
+          source: "web-discovery",
+          fresh: true,
+          data: { discoveries: [ shown_story, fresh_story ] }
+        } ]
+      }
+    )
+
+    discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
+    assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:fresh], discovery[:evidence_refs].pluck(:id)
   end
 
   private

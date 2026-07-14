@@ -104,10 +104,10 @@ module Flyd
     end
 
     def discovery_selection(items)
-      personal = %w[activity horoscope].filter_map do |type|
+      anchors = %w[activity horoscope discovery].filter_map do |type|
         items.find { |item| item[:type].to_s == type }
       end
-      (personal + (items - personal)).first(3)
+      (anchors + (items - anchors)).first(3)
     end
 
     def discoverable?(item)
@@ -148,6 +148,8 @@ module Flyd
     end
 
     def previously_shown?(item)
+      return false if item[:type].to_s.in?(%w[activity horoscope])
+
       shown_references.include?("#{item[:type]}:#{item[:id]}")
     end
 
