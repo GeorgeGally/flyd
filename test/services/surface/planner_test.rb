@@ -8,6 +8,14 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     end
   end
 
+  SequenceChat = Struct.new(:responses, :received_calls) do
+    def call!(messages)
+      self.received_calls ||= []
+      received_calls << messages
+      responses.shift
+    end
+  end
+
   FakeStateProvider = Struct.new(:payload) do
     def snapshot = payload
   end
@@ -162,6 +170,142 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_includes sent_state.dig("interface_direction", "candidates").map { |candidate| candidate["mode"] }, "investigation"
     assert_includes system_prompt, "Quiet is valid only when no candidate evidence supports a concrete present situation."
     assert_includes system_prompt, "candidate evidence_refs"
+    assert_includes system_prompt, 'investigate action payload must be {"question":"metadata.next_question"}'
+  end
+
+  test "repairs one structurally invalid directed surface" do
+    invalid_response = {
+      understanding: "The setup problem needs investigation.",
+      current_intention: "Find the abandonment point.",
+      surface_mode: "investigation",
+      focus_item_id: "curiosity:adoption",
+      items: [ {
+        id: "curiosity:adoption",
+        kind: "curiosity",
+        intent: "investigate",
+        title: "Where does setup lose people?",
+        summary: "Recent setup observations are missing.",
+        renderer: "investigation_scene",
+        depth: "foreground",
+        context_refs: [],
+        source_refs: [ { type: "curiosity", id: "curiosity:adoption" } ],
+        metadata: {
+          known: [ "Setup offers broad choices." ],
+          unknown: [ "The abandonment point." ],
+          next_question: "Which setup step loses users?"
+        },
+        actions: [ { id: "investigate", label: "Investigate", payload: {} } ]
+      } ],
+      relationships: []
+    }.to_json
+    corrected_response = {
+      understanding: "The setup problem needs investigation.",
+      current_intention: "Find the abandonment point.",
+      surface_mode: "investigation",
+      focus_item_id: "investigation:setup",
+      items: [ {
+        id: "investigation:setup",
+        kind: "question",
+        intent: "investigate",
+        title: "Where does setup lose people?",
+        summary: "Recent setup observations are missing.",
+        renderer: "investigation_scene",
+        depth: "foreground",
+        context_refs: [],
+        source_refs: [ { type: "curiosity", id: "curiosity:adoption" } ],
+        metadata: {
+          known: [ "Setup offers broad choices." ],
+          unknown: [ "The abandonment point." ],
+          next_question: "Which setup step loses users?"
+        },
+        actions: [ {
+          id: "investigate",
+          label: "Investigate",
+          payload: { question: "Which setup step loses users?" }
+        } ]
+      } ],
+      relationships: []
+    }.to_json
+    chat = SequenceChat.new([ invalid_response, corrected_response ])
+    provider = FakeStateProvider.new({
+      providers: [ {
+        source: "flyd-cli",
+        fresh: true,
+        errors: [],
+        data: {
+          curiosity: [ {
+            id: "curiosity:adoption",
+            type: "curiosity",
+            source: "test",
+            epistemicStatus: "llm_generated",
+            confidence: 0.7,
+            generatedAt: Time.current.iso8601,
+            evidenceRefs: [],
+            content: {
+              question: "Why are users abandoning setup?",
+              missingEvidence: "Recent setup-session observations"
+            }
+          } ]
+        }
+      } ]
+    })
+
+    surface = Flyd::Intelligence.new(chat: chat, state_provider: provider, fallback: false).compose_surface
+
+    assert_equal "investigation", surface.surface_mode
+    assert_equal "question", surface.items.first.kind
+    assert_equal 2, chat.received_calls.length
+    repair_request = chat.received_calls.second.last[:content]
+    assert_includes repair_request, "Unsupported kind: curiosity"
+    assert_includes repair_request, "Investigation requires a question"
+  end
+
+  test "raises when the single structural repair is still invalid" do
+    invalid_response = {
+      understanding: "A question exists.",
+      current_intention: "Investigate it.",
+      surface_mode: "investigation",
+      focus_item_id: "curiosity:adoption",
+      items: [ {
+        id: "curiosity:adoption",
+        kind: "curiosity",
+        intent: "investigate",
+        title: "What is happening?",
+        summary: "The evidence is incomplete.",
+        renderer: "investigation_scene",
+        depth: "foreground",
+        context_refs: [],
+        source_refs: [ { type: "curiosity", id: "curiosity:adoption" } ],
+        metadata: { known: [ "A symptom exists." ], unknown: [ "Its cause." ], next_question: "Why?" },
+        actions: [ { id: "investigate", label: "Investigate", payload: {} } ]
+      } ],
+      relationships: []
+    }.to_json
+    chat = SequenceChat.new([ invalid_response, invalid_response ])
+    provider = FakeStateProvider.new({
+      providers: [ {
+        source: "flyd-cli",
+        fresh: true,
+        errors: [],
+        data: {
+          curiosity: [ {
+            id: "curiosity:adoption",
+            type: "curiosity",
+            source: "test",
+            epistemicStatus: "llm_generated",
+            confidence: 0.7,
+            generatedAt: Time.current.iso8601,
+            evidenceRefs: [],
+            content: { question: "Why?", missingEvidence: "Direct observation" }
+          } ]
+        }
+      } ]
+    })
+
+    assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::Intelligence.new(chat: chat, state_provider: provider, fallback: false).compose_surface
+    end
+    assert_equal 2, chat.received_calls.length
   end
 
   test "falls back without ranking database records when composition fails" do

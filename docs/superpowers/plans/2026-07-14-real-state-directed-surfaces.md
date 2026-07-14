@@ -117,7 +117,11 @@ Expected: FAIL before the director integration because investigation is not just
 
 - [ ] **Step 3: Tighten the composer contract**
 
-Update the system prompt to state that quiet is valid only when no candidate evidence supports a concrete present situation. Tell Flyd to inspect each candidate's `evidence_refs`, synthesize across those references, and preserve exact references on generated items. Keep the final mode choice with Flyd and keep all current validator constraints.
+Update the system prompt to state that quiet is valid only when no candidate evidence supports a concrete present situation. Tell Flyd to inspect each candidate's `evidence_refs`, synthesize across those references, and preserve exact references on generated items. Spell out the permitted semantic kinds and required action payload for each directed mode. Keep the final mode choice with Flyd and keep all current validator constraints.
+
+- [ ] **Step 3a: Repair one structurally invalid plan without weakening validation**
+
+Add a sequential fake-chat test where the first investigation response uses a provider evidence type as its presentation kind and omits the investigate question. Assert that Flyd sends the validation errors back once, accepts a corrected second response, and still raises if the repair is invalid. Implement one bounded repair call inside `Flyd::Intelligence`; do not coerce or silently accept invalid output.
 
 - [ ] **Step 4: Run composition, validator, and director tests**
 

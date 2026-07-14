@@ -36,17 +36,21 @@ module Flyd
       compiled = WorldStateExtensions.call(compiled: compiled, active_intent: @active_intent)
       compiled = apply_interface_direction(compiled)
       response = @chat.call!(messages(compiled.state))
+      responses = [ response ]
       payload = parse_json(response)
       allowed_modes = Array(compiled.state.dig(:interface_direction, :candidates)).map { |candidate| candidate[:mode] }
-      validated = SurfacePlanValidator.call(
-        payload: payload,
-        reference_registry: compiled.reference_registry,
-        allowed_modes: allowed_modes
-      )
+      validated = begin
+        validate_payload(payload, compiled.reference_registry, allowed_modes)
+      rescue SurfacePlanValidator::ValidationError => error
+        repair_response = @chat.call!(repair_messages(compiled.state, payload, error))
+        responses << repair_response
+        repaired_payload = parse_json(repair_response)
+        validate_payload(repaired_payload, compiled.reference_registry, allowed_modes)
+      end
       @diagnostics = compiled.diagnostics.merge(
         state_digest: IntelligenceSnapshot.digest_for(compiled.state.except(:generated_at)),
         provider_snapshots: provider_snapshots(compiled.state),
-        output_characters: response.to_s.length,
+        output_characters: responses.sum { |value| value.to_s.length },
         latency_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round
       )
       build_surface(validated)
@@ -91,6 +95,31 @@ module Flyd
         { role: "system", content: system_prompt },
         { role: "user", content: JSON.generate(state) }
       ]
+    end
+
+    def repair_messages(state, payload, error)
+      [
+        {
+          role: "system",
+          content: "#{system_prompt}\nCorrect one structurally invalid surface plan. Preserve its meaning and evidence, change only what the validation errors require, and return the complete corrected JSON object."
+        },
+        {
+          role: "user",
+          content: JSON.generate(
+            state: state,
+            invalid_payload: payload,
+            validation_errors: error.message
+          )
+        }
+      ]
+    end
+
+    def validate_payload(payload, reference_registry, allowed_modes)
+      SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: reference_registry,
+        allowed_modes: allowed_modes
+      )
     end
 
     def system_prompt
@@ -153,13 +182,13 @@ module Flyd
 
         Grammar requirements:
         - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis.
-        - investigation: focus renderer investigation_scene, known/unknown evidence, a next_question, and an investigate action.
+        - investigation: focus kind must be question, insight, or scene; focus renderer investigation_scene; include known/unknown evidence and a next_question; investigate action payload must be {"question":"metadata.next_question"}.
         - action: focus renderer action_scene and a build action. Never imply execution before confirmation.
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
 
-        Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
+        Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract. Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
     end
 
