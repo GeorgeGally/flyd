@@ -20,6 +20,7 @@ class RefreshWebDiscoveryJob < ApplicationJob
 
   def perform
     selected = WebDiscovery::TopicProfile.new(cli_snapshot).select(client.fetch, limit: 8)
+    selected = selected.map { |story| story.merge(metadata_client.fetch(story.fetch(:url))) }
     _record, changed = provider.persist!(discoveries: selected.map { |story| evidence_for(story) })
     ComposeSurfaceJob.enqueue(reason: "web_discovery_refresh") if changed || Surface.current.nil? || Surface.current.stale?
     Rails.cache.delete(LOCK_KEY)
@@ -43,6 +44,10 @@ class RefreshWebDiscoveryJob < ApplicationJob
     @provider ||= IntelligenceState::WebDiscoveryProvider.new
   end
 
+  def metadata_client
+    @metadata_client ||= WebDiscovery::PageMetadata.new
+  end
+
   def evidence_for(story)
     {
       "id" => "discovery:hn:#{story.fetch(:id)}",
@@ -62,8 +67,11 @@ class RefreshWebDiscoveryJob < ApplicationJob
         "comments" => story[:comments],
         "publishedAt" => story.fetch(:published_at).iso8601,
         "matchedTopics" => story[:matched_topics],
-        "relevanceReason" => story[:relevance_reason]
-      }
+        "relevanceReason" => story[:relevance_reason],
+        "description" => story[:description],
+        "imageUrl" => story[:image_url],
+        "siteName" => story[:site_name]
+      }.compact
     }
   end
 end

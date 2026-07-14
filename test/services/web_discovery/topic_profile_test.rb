@@ -19,6 +19,29 @@ class WebDiscovery::TopicProfileTest < ActiveSupport::TestCase
 
     assert_equal [ 1, 2, 3 ], selected.map { |story| story[:id] }
     assert_equal [ "intelligence", "personal" ], selected.first[:matched_topics].sort
-    assert_equal "Serendipity from today's top stories", selected.last[:relevance_reason]
+    assert_equal "From today's top stories", selected.last[:relevance_reason]
+  end
+
+  test "does not flatten a meaningful phrase into a generic short-word match" do
+    snapshot = Struct.new(:data).new(
+      {
+        goals: [],
+        signals: [ { "content" => { "topic" => "generative art" } } ],
+        reports: [],
+        recent_events: [ { "content" => { "topics" => [ "art", "sound reactive" ] } } ]
+      }
+    )
+    stories = [
+      { id: 1, title: "Zero Knowledge Tolstoyan Art", score: 100 },
+      { id: 2, title: "A new tool for generative art", score: 20 },
+      { id: 3, title: "Sound reactive installations", score: 10 }
+    ]
+
+    selected = WebDiscovery::TopicProfile.new(snapshot).select(stories, limit: 3)
+
+    assert_equal [ 2, 3, 1 ], selected.map { |story| story[:id] }
+    assert_equal [ "generative art" ], selected.first[:matched_topics]
+    assert_equal [ "sound reactive" ], selected.second[:matched_topics]
+    assert_empty selected.last[:matched_topics]
   end
 end

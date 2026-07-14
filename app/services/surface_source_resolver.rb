@@ -1,7 +1,7 @@
 require "uri"
 
 class SurfaceSourceResolver
-  ResolvedSource = Data.define(:type, :id, :record, :url, :discussion_url)
+  ResolvedSource = Data.define(:type, :id, :record, :title, :url, :discussion_url, :description, :image_url, :site_name)
 
   LOCAL_MODELS = {
     "project" => Project,
@@ -36,8 +36,12 @@ class SurfaceSourceResolver
       type: type,
       id: id,
       record: record,
+      title: content["title"].to_s.presence,
       url: safe_url(content["url"]),
-      discussion_url: safe_url(content["discussionUrl"] || content["discussion_url"])
+      discussion_url: safe_url(content["discussionUrl"] || content["discussion_url"]),
+      description: resolved_description(content),
+      image_url: safe_url(content["imageUrl"] || content["image_url"]),
+      site_name: content["siteName"].presence || content["site_name"].presence
     )
   end
 
@@ -69,5 +73,15 @@ class SurfaceSourceResolver
     uri.to_s if uri.scheme.in?(%w[http https]) && uri.host.present?
   rescue URI::InvalidURIError
     nil
+  end
+
+  def resolved_description(content)
+    return content["description"].to_s.squish.truncate(1_000) if content["description"].present?
+
+    markdown = content["excerpt"].presence || content["summary"].presence
+    return unless markdown
+
+    html = Commonmarker.to_html(markdown.to_s, options: { render: { unsafe: false } })
+    ActionView::Base.full_sanitizer.sanitize(html).squish.truncate(1_000)
   end
 end

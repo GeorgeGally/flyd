@@ -17,6 +17,7 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
           score: 292,
           comments: 169,
           publishedAt: "2026-07-14T00:57:11Z",
+          description: "A precise walkthrough of reconstructing repository history from Git objects.",
           matchedTopics: [ "git" ],
           relevanceReason: "Matches your interests: git"
         }
@@ -25,7 +26,8 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
 
     item = result["items"].first
     assert_equal "The git history command", item["title"]
-    assert_equal "292 points · 169 comments · Published 14 Jul 2026", item["summary"]
+    assert_equal "A precise walkthrough of reconstructing repository history from Git objects.", item["summary"]
+    assert_equal "292 points · 169 comments · Published 14 Jul 2026", item.dig("metadata", "provenance")
     assert_equal "Matches your interests: git", item.dig("metadata", "why_it_matters")
     assert_equal "Current story · Hacker News", item.dig("metadata", "source_label")
   end

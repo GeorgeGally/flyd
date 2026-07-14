@@ -216,6 +216,28 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_empty candidates
   end
 
+  test "does not give the stage to a current headline without meaningful article content" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "web-discovery",
+          fresh: true,
+          data: {
+            discoveries: [
+              evidence("discovery", "discovery:hn:thin", { title: "A thin headline", description: "describe" }),
+              evidence("discovery", "discovery:hn:grounded", {
+                title: "A grounded current story",
+                description: "Scientists recovered up to 90% of lithium from used electric vehicle batteries."
+              })
+            ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "discovery:hn:grounded", candidates.first.dig(:evidence_refs, 0, :id)
+  end
+
   private
 
   def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])

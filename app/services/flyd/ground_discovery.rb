@@ -89,9 +89,10 @@ module Flyd
       facts << "#{content[:score].to_i} points" if content[:score].present?
       facts << "#{content[:comments].to_i} comments" if content[:comments].present?
       facts << "Published #{formatted_date(content[:publishedAt] || content[:published_at])}" if content[:publishedAt].present? || content[:published_at].present?
-      item["summary"] = facts.join(" · ").presence || "A current story selected from exact web evidence."
+      item["summary"] = content[:description].presence || content[:excerpt].presence || facts.join(" · ").presence || item["title"]
       item["metadata"]["source_label"] = [ "Current story", content[:sourceName] || content[:source_name] ].compact_blank.join(" · ")
-      reason = content[:relevanceReason] || content[:relevance_reason] || "Serendipity from current stories"
+      item["metadata"]["provenance"] = facts.join(" · ") if facts.any?
+      reason = content[:relevanceReason] || content[:relevance_reason] || "From current stories"
       item["metadata"]["why_it_matters"] = reason
       @payload["understanding"] = current_story_understanding(reason)
       @payload["current_intention"] = "Bring one relevant current discovery into view."
@@ -106,7 +107,7 @@ module Flyd
     end
 
     def current_story_understanding(reason)
-      detail = reason.to_s.sub(/\AMatches/, "matches").sub(/\ASerendipity/, "offers serendipity")
+      detail = reason.to_s.sub(/\AMatches/, "matches").sub(/\AFrom/, "comes from")
       "A current story #{detail}."
     end
 

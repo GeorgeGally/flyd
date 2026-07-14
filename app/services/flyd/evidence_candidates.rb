@@ -110,7 +110,8 @@ module Flyd
       content = evidence_content(item)
       return false if content.values_at(:title, :excerpt).compact_blank.empty?
       return false if polluted_test_evidence?(content)
-      return true if item[:type].to_s.in?(%w[report discovery])
+      return content[:description].to_s.length >= 40 if item[:type].to_s == "discovery"
+      return true if item[:type].to_s == "report"
 
       timestamp = evidence_timestamp(item)
       timestamp.present? && timestamp >= MAX_ARCHIVE_DISCOVERY_AGE.ago

@@ -104,13 +104,18 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
       intent: "inform",
       renderer: "discovery_scene",
       actions: [ { id: "inspect_sources", label: "Open source", payload: {} } ],
-      metadata: { why_it_matters: "This connects directly to Flyd's interface model.", source_label: "From your archive" }
+      metadata: {
+        why_it_matters: "This connects directly to Flyd's interface model.",
+        source_label: "From your archive",
+        provenance: "Published 14 Jul 2026"
+      }
     )
 
     result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
 
     assert_equal "discovery", result["surface_mode"]
     assert_equal "From your archive", result["items"].first.dig("metadata", "source_label")
+    assert_equal "Published 14 Jul 2026", result["items"].first.dig("metadata", "provenance")
 
     payload[:items].first[:source_refs] = []
     error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do

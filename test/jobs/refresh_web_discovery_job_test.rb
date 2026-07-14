@@ -20,9 +20,17 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
       { goals: [ { "content" => { "title" => "Build personal intelligence" } } ] }
     )
     client = Struct.new(:stories) { def fetch = stories }.new([ story ])
+    metadata_client = Struct.new(:result) do
+      def fetch(_url) = result
+    end.new({
+      description: "A concrete account of how personal intelligence interfaces work.",
+      image_url: "https://example.com/story.jpg",
+      site_name: "Example Journal"
+    })
     job = RefreshWebDiscoveryJob.new
     job.define_singleton_method(:client) { client }
     job.define_singleton_method(:cli_snapshot) { cli_snapshot }
+    job.define_singleton_method(:metadata_client) { metadata_client }
     compose_calls = []
 
     ComposeSurfaceJob.stub(:enqueue, ->(**arguments) { compose_calls << arguments }) do
@@ -35,6 +43,9 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
     assert_equal "discovery:hn:42", evidence["id"]
     assert_equal [ "intelligence", "personal" ], evidence.dig("content", "matchedTopics").sort
     assert_equal "https://example.com/story", evidence.dig("content", "url")
+    assert_equal "A concrete account of how personal intelligence interfaces work.", evidence.dig("content", "description")
+    assert_equal "https://example.com/story.jpg", evidence.dig("content", "imageUrl")
+    assert_equal "Example Journal", evidence.dig("content", "siteName")
   end
 
 

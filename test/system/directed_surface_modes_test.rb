@@ -242,13 +242,31 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
   end
 
   test "discovery gives grounded knowledge its own fixed stage" do
+    snapshot, = IntelligenceState::WebDiscoveryProvider.new.persist!(
+      discoveries: [ {
+        "id" => "discovery:hn:memex",
+        "type" => "discovery",
+        "source" => "web.hacker_news",
+        "epistemicStatus" => "observation",
+        "confidence" => 0.9,
+        "generatedAt" => Time.current.iso8601,
+        "evidenceRefs" => [],
+        "content" => {
+          "title" => "The memex was designed around associative trails",
+          "url" => "https://example.com/memex",
+          "description" => "A system for following connections through a personal archive.",
+          "imageUrl" => "https://example.com/memex.jpg",
+          "siteName" => "The Atlantic"
+        }
+      } ]
+    )
     scene = Scene.create!(
       scene_key: "discovery:memex",
       kind: "work",
       status: "active",
       title: "The memex was designed around associative trails"
     )
-    activate_surface(
+    item = activate_surface(
       scene: scene,
       mode: "discovery",
       kind: "insight",
@@ -260,13 +278,19 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       },
       actions: [ { "id" => "inspect_sources", "label" => "Open source", "payload" => {} } ],
       context_refs: [],
-      source_refs: [ { "type" => "report", "id" => "report:memex" } ]
+      source_refs: [ { "type" => "discovery", "id" => "discovery:hn:memex" } ]
     )
+    item.surface.update!(metadata: item.surface.metadata.merge(
+      "provider_snapshots" => [ { "source" => "web-discovery", "snapshot_id" => snapshot.id } ]
+    ))
 
     visit root_path
 
     assert_selector "#surface_plane[data-surface-mode='discovery']"
     assert_selector ".discovery-scene", text: "The memex was designed around associative trails"
+    assert_selector ".discovery-poster"
+    assert_selector ".discovery-poster img[src='https://example.com/memex.jpg']"
+    assert_selector ".discovery-poster", text: "A system for following connections through a personal archive."
     assert_text "From your archive"
     assert_link "Evidence"
     assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")

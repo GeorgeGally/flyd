@@ -27,25 +27,39 @@ module WebDiscovery
       matches = terms.select { |term| title.match?(/\b#{Regexp.escape(term)}\b/) }
       story.merge(
         matched_topics: matches,
-        relevance_reason: matches.any? ? "Matches your interests: #{matches.join(", ")}" : "Serendipity from today's top stories"
+        relevance_reason: matches.any? ? "Matches your interests: #{matches.join(", ")}" : "From today's top stories"
       )
     end
 
     def terms
-      @terms ||= source_text.flat_map { |value| tokenize(value) }.uniq.first(80)
+      @terms ||= source_terms.uniq.first(80)
     end
 
-    def source_text
+    def source_terms
       values = []
       Array(@data[:goals]).each do |item|
         content = item[:content].to_h.deep_symbolize_keys
-        values << content[:title]
-        values.concat(Array(content[:topics]))
+        values.concat(title_terms(content[:title]))
+        values.concat(Array(content[:topics]).flat_map { |topic| topic_terms(topic) })
       end
-      Array(@data[:signals]).each { |item| values << item.dig(:content, :topic) }
-      Array(@data[:reports]).each { |item| values << item.dig(:content, :title) }
-      Array(@data[:recent_events]).each { |item| values.concat(Array(item.dig(:content, :topics))) }
-      values.compact
+      Array(@data[:signals]).each { |item| values.concat(topic_terms(item.dig(:content, :topic))) }
+      Array(@data[:reports]).each { |item| values.concat(title_terms(item.dig(:content, :title))) }
+      Array(@data[:recent_events]).each do |item|
+        values.concat(Array(item.dig(:content, :topics)).flat_map { |topic| topic_terms(topic) })
+      end
+      values
+    end
+
+    def title_terms(value)
+      tokenize(value).select { |word| word.length >= 5 }
+    end
+
+    def topic_terms(value)
+      words = tokenize(value)
+      return [] if words.empty?
+      return words.select { |word| word.length >= 5 } if words.one?
+
+      [ words.join(" ") ]
     end
 
     def tokenize(value)

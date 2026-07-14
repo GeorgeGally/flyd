@@ -199,7 +199,8 @@ module Flyd
       when "discovery_scene"
         {
           "why_it_matters" => metadata["why_it_matters"].to_s.truncate(700),
-          "source_label" => metadata["source_label"].to_s.truncate(120)
+          "source_label" => metadata["source_label"].to_s.truncate(120),
+          "provenance" => metadata["provenance"].to_s.truncate(300)
         }.compact_blank
       else
         {}
