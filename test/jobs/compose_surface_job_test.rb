@@ -45,7 +45,7 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     intelligence = fake_intelligence(build_plan)
 
     Flyd::Intelligence.stub(:new, intelligence) do
-      BroadcastSurfaceJob.stub(:perform_later, ->(*) { raise ActiveJob::EnqueueError, "queue unavailable" }) do
+      BroadcastSurfaceJob.stub(:perform_later, ->(*) { raise RedisClient::CannotConnectError, "queue unavailable" }) do
         ComposeSurfaceJob.perform_now(reason: "provider_refresh")
       end
     end

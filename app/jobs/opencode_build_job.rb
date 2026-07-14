@@ -1,5 +1,8 @@
 class OpencodeBuildJob < ApplicationJob
   require "open3"
+  require "timeout"
+
+  EXECUTION_TIMEOUT = 30.minutes
 
   queue_as :default
 
@@ -49,12 +52,6 @@ class OpencodeBuildJob < ApplicationJob
       Approved conversation snapshot:
       #{messages}
     CONTEXT
-  end
-
-  # Compatibility boundary for older callers and tests. Confirmed builds still use
-  # the immutable approved snapshot; legacy builds without one receive live context.
-  def build_context(build)
-    approved_context(build)
   end
 
   def live_context(build)
@@ -151,7 +148,9 @@ class OpencodeBuildJob < ApplicationJob
       cmd = [ "opencode", "run", input, "-f", context_file, "--auto", "--format", "json" ]
       chdir = root_path.presence || Dir.home
 
-      stdout, stderr, status = Open3.capture3(*cmd, chdir: chdir)
+      stdout, stderr, status = Timeout.timeout(EXECUTION_TIMEOUT) do
+        Open3.capture3(*cmd, chdir: chdir)
+      end
 
       if status.success?
         output = parse_opencode_output(stdout)
@@ -160,6 +159,8 @@ class OpencodeBuildJob < ApplicationJob
         { success: false, error: stderr.presence || stdout }
       end
     end
+  rescue Timeout::Error
+    { success: false, error: "OpenCode execution timed out after #{EXECUTION_TIMEOUT.inspect}" }
   rescue StandardError => error
     { success: false, error: error.message }
   end

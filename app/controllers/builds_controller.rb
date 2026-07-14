@@ -19,8 +19,14 @@ class BuildsController < ApplicationController
   def confirm
     if @build.proposed?
       @build.confirm!
-      OpencodeBuildJob.perform_later(@build.id)
-      redirect_to build_path(@build), notice: "Build confirmed and queued."
+      begin
+        OpencodeBuildJob.perform_later(@build.id)
+        redirect_to build_path(@build), notice: "Build confirmed and queued."
+      rescue StandardError => error
+        @build.revert_confirmation!
+        Rails.logger.error("Build #{@build.id} confirmation could not be queued: #{error.class}: #{error.message}")
+        redirect_to build_path(@build), alert: "The build could not be queued. Try again."
+      end
     else
       redirect_to build_path(@build), alert: "This build can no longer be confirmed."
     end

@@ -5,6 +5,7 @@ class BroadcastSurfaceJob < ApplicationJob
 
   def perform(surface_id)
     surface = Surface.includes(:surface_items).find(surface_id)
+    return unless surface.active?
 
     Turbo::StreamsChannel.broadcast_replace_to(
       "flyd_surface",

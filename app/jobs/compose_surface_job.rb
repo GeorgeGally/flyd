@@ -113,7 +113,7 @@ class ComposeSurfaceJob < ApplicationJob
 
   def enqueue_broadcast(surface, log)
     BroadcastSurfaceJob.perform_later(surface.id)
-  rescue ActiveJob::EnqueueError => error
+  rescue StandardError => error
     log.update!(metadata: log.metadata.merge("broadcast_enqueue_error" => error.message))
     Rails.logger.error("Surface #{surface.id} activated but broadcast enqueue failed: #{error.message}")
   end

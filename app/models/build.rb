@@ -26,6 +26,12 @@ class Build < ApplicationRecord
     update!(status: "pending", confirmed_at: Time.current)
   end
 
+  def revert_confirmation!
+    return false unless status == "pending"
+
+    update!(status: "proposed", confirmed_at: nil)
+  end
+
   def start!
     update!(status: "preparing", started_at: Time.current)
   end

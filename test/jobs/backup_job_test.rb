@@ -2,6 +2,17 @@ require "test_helper"
 require "tmpdir"
 
 class BackupJobTest < ActiveJob::TestCase
+  test "raises a failed backup so Active Job can retry it" do
+    config = Rails.configuration.flyd
+    original_passphrase = config[:backup_passphrase]
+    config[:backup_passphrase] = nil
+
+    error = assert_raises(BackupJob::BackupFailed) { BackupJob.new.perform }
+    assert_equal "FLYD_BACKUP_PASSPHRASE not set", error.message
+  ensure
+    config[:backup_passphrase] = original_passphrase if config
+  end
+
   test "archive includes the database dump and configured attachment storage" do
     calls = []
     success = Struct.new(:success?).new(true)

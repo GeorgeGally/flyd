@@ -5,6 +5,8 @@ require "tempfile"
 require "tmpdir"
 
 class BackupJob < ApplicationJob
+  BackupFailed = Class.new(StandardError)
+
   queue_as :default
 
   retry_on StandardError, wait: :polynomially_longer, attempts: 3
@@ -16,23 +18,23 @@ class BackupJob < ApplicationJob
     timestamp = Time.current.strftime("%Y%m%d-%H%M%S")
     filename = File.join(backup_dir, "flyd-backup-#{timestamp}.tar.gz.gpg")
     passphrase = Rails.configuration.flyd[:backup_passphrase]
-    return log_result(false, filename, "FLYD_BACKUP_PASSPHRASE not set") if passphrase.blank?
+    return fail_backup!(filename, "FLYD_BACKUP_PASSPHRASE not set") if passphrase.blank?
 
     db_config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: "primary")
-    return log_result(false, filename, "No primary database config") unless db_config
+    return fail_backup!(filename, "No primary database config") unless db_config
 
     Dir.mktmpdir("flyd-backup") do |working_dir|
       database_path = File.join(working_dir, "database.sql")
       database_error = dump_database(db_config, database_path)
-      return log_result(false, filename, database_error) if database_error
+      return fail_backup!(filename, database_error) if database_error
 
       Tempfile.create([ "flyd-backup", ".tar.gz" ]) do |archive|
         archive.close
         archive_error = create_archive(archive.path, working_dir)
-        return log_result(false, filename, archive_error) if archive_error
+        return fail_backup!(filename, archive_error) if archive_error
 
         encryption_error = encrypt_archive(archive.path, filename, passphrase)
-        return log_result(false, filename, encryption_error) if encryption_error
+        return fail_backup!(filename, encryption_error) if encryption_error
       end
     end
 
@@ -92,5 +94,10 @@ class BackupJob < ApplicationJob
     else
       Rails.logger.error("Backup failed: #{error}")
     end
+  end
+
+  def fail_backup!(filename, error)
+    log_result(false, filename, error)
+    raise BackupFailed, error
   end
 end

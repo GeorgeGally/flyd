@@ -20,11 +20,21 @@ class OpencodeBuildJobTest < ActiveSupport::TestCase
     ENV["PATH"] = orig_path if orig_path
   end
 
-  test "build_context includes project info" do
+  test "approved_context includes project info" do
     job = OpencodeBuildJob.new
-    context = job.send(:build_context, @build)
+    context = job.send(:approved_context, @build)
     assert_includes context, @project.name
     assert_includes context, @conversation.messages.last.content
+  end
+
+  test "execute_opencode stops after the execution deadline" do
+    job = OpencodeBuildJob.new
+
+    Timeout.stub(:timeout, ->(*) { raise Timeout::Error }) do
+      result = job.send(:execute_opencode, "test", "context", nil)
+      assert_not result[:success]
+      assert_match(/timed out/, result[:error])
+    end
   end
 
   test "execute_opencode uses project root_path when available" do

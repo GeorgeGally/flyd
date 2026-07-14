@@ -32,4 +32,16 @@ class BroadcastSurfaceJobTest < ActiveJob::TestCase
     assert_equal :morph, calls.first.last[:method]
     assert_equal surface, calls.first.last[:locals][:surface]
   end
+
+  test "does not broadcast a surface that is no longer active" do
+    surface = Surface.fallback!
+    surface.update!(status: "superseded")
+    calls = []
+
+    Turbo::StreamsChannel.stub(:broadcast_replace_to, ->(*args, **kwargs) { calls << [args, kwargs] }) do
+      BroadcastSurfaceJob.perform_now(surface.id)
+    end
+
+    assert_empty calls
+  end
 end
