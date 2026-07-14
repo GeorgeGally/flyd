@@ -38,9 +38,14 @@ module Flyd
         values << candidate("decision", "An unresolved choice is blocking progress", 0.95, decision_scene) if decision_scene || requested_capability == "decide"
         values << candidate("investigation", "Meaningful uncertainty needs to be reduced", 0.9, investigation_scene) if investigation_scene || requested_capability == "investigate"
         values << candidate("monitoring", "A changing condition is active", 0.8, monitoring_scene) if monitoring_scene || requested_capability == "monitor"
+        values.concat(EvidenceCandidates.call(@state))
         values << candidate("conversation", "Dialogue is the explicit active interaction", 0.65, conversation_scene) if @state[:active_interaction].present?
         values << candidate("quiet", "Nothing has earned a more specific interface", 0.2)
-        values.sort_by { |value| -value[:confidence] }
+        values
+          .group_by { |value| value[:mode] }
+          .values
+          .map { |group| group.max_by { |value| value[:confidence] } }
+          .sort_by { |value| -value[:confidence] }
       end
     end
 

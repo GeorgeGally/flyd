@@ -57,6 +57,37 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal ["conversation", "quiet"], directive[:candidates].map { |candidate| candidate[:mode] }
   end
 
+  test "provider evidence earns specific interface candidates without prebuilt scenes" do
+    directive = Flyd::InterfaceDirector.call(
+      builds: [],
+      provider_state: {
+        providers: [{
+          source: "flyd-cli",
+          fresh: true,
+          errors: [],
+          data: {
+            tensions: [{
+              id: "tension:launch", type: "tension", epistemicStatus: "observation",
+              content: { blockers: 1, tension: 0.7 }
+            }],
+            curiosity: [{
+              id: "curiosity:adoption", type: "curiosity", epistemicStatus: "llm_generated",
+              content: { question: "Why are users abandoning setup?", missingEvidence: "Recent setup sessions" }
+            }],
+            signals: [{
+              id: "signal:setup", type: "signal", epistemicStatus: "heuristic",
+              content: { topic: "setup", unresolved: 2 }
+            }]
+          }
+        }]
+      }
+    )
+
+    assert_equal "decision", directive[:suggested_mode]
+    assert_equal %w[decision investigation monitoring quiet], directive[:candidates].map { |candidate| candidate[:mode] }
+    assert_equal [{ type: "tension", id: "tension:launch" }], directive[:candidates].first[:evidence_refs]
+  end
+
   test "quiet is valid when nothing has earned the screen" do
     directive = Flyd::InterfaceDirector.call(builds: [])
 
