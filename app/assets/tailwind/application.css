@@ -134,6 +134,11 @@
     justify-content: space-between;
   }
 
+  .working-scene__title {
+    overflow-wrap: anywhere;
+    font-size: clamp(2.25rem, 8cqi, 4.5rem);
+  }
+
   .working-scene__secondary {
     display: grid;
     align-content: center;

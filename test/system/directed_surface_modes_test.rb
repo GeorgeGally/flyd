@@ -107,6 +107,73 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_nil build.confirmed_at
   end
 
+  test "support working scenes scale titles to their container without clipping" do
+    focus_scene = Scene.create!(
+      scene_key: "investigation:user-engagement",
+      kind: "investigation",
+      status: "active",
+      title: "What factors are contributing to the unresolved issue in user engagement?"
+    )
+    focus_item = activate_surface(
+      scene: focus_scene,
+      mode: "investigation",
+      kind: "question",
+      intent: "investigate",
+      renderer: "investigation_scene",
+      metadata: {
+        "known" => [ "The issue is unresolved." ],
+        "unknown" => [ "The cause is unclear." ],
+        "next_question" => "What evidence would resolve it?"
+      },
+      actions: [ {
+        "id" => "investigate",
+        "label" => "Investigate",
+        "payload" => { "question" => "What evidence would resolve it?" }
+      } ],
+      context_refs: []
+    )
+    focus_item.surface.surface_items.create!(
+      item_key: "investigation:content-quality",
+      kind: "question",
+      intent: "investigate",
+      renderer: "investigation_scene",
+      depth: "middle",
+      state: "presented",
+      title: "How can we address the declining activity in content quality and its unresolved blocker?",
+      summary: "The evidence is incomplete.",
+      position: 1,
+      context_refs: [],
+      metadata: {
+        "known" => [ "Quality is declining." ],
+        "unknown" => [ "The blocker is unclear." ],
+        "next_question" => "Which metric identifies the blocker?"
+      },
+      actions: [ {
+        "id" => "investigate",
+        "label" => "Investigate quality",
+        "payload" => { "question" => "Which metric identifies the blocker?" }
+      } ]
+    )
+
+    visit root_path
+
+    focus_title_size = page.evaluate_script(<<~JS)
+      parseFloat(getComputedStyle(document.querySelector('.surface-object[data-role="focus"] .working-scene h2')).fontSize)
+    JS
+    support_title_size = page.evaluate_script(<<~JS)
+      parseFloat(getComputedStyle(document.querySelector('.surface-object[data-role="support"] .working-scene h2')).fontSize)
+    JS
+    support_title_fits = page.evaluate_script(<<~JS)
+      (() => {
+        const title = document.querySelector('.surface-object[data-role="support"] .working-scene h2')
+        return title.scrollWidth <= title.clientWidth
+      })()
+    JS
+
+    assert_operator support_title_size, :<, focus_title_size
+    assert support_title_fits
+  end
+
   test "decision mode renders an editorial comparison wall" do
     context = Context.create!(name: "Poster direction", kind: "temporary")
     scene = Scene.create!(
