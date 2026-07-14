@@ -45,7 +45,11 @@
 
         <% if action %>
           <div class="mt-10">
-            <%= button_to (recommended ? "Accept" : "Choose"), surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: action["payload"] }, class: "inline-flex min-w-32 items-center justify-between gap-8 bg-amber-300 px-5 py-3 text-xs font-medium text-gray-950 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+            <% if recommended %>
+              <%= button_to "Accept", surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: action["payload"] }, class: "inline-flex min-w-32 items-center justify-between gap-8 bg-amber-300 px-5 py-3 text-xs font-medium text-gray-950 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+            <% else %>
+              <%= button_to "Choose", surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: action["payload"] }, class: "inline-flex min-w-32 items-center justify-between gap-8 border border-gray-300 bg-white px-5 py-3 text-xs font-medium text-gray-950 hover:border-gray-950 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+            <% end %>
           </div>
         <% end %>
       </article>
