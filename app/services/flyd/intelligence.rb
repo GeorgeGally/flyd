@@ -132,7 +132,7 @@ module Flyd
             "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context","label":"Action label","payload":{}}],
             "metadata": {
               "options": [{"id":"option-id","label":"Choice","description":"consequence"}],
-              "recommendation": "optional recommendation",
+              "recommendation": "optional recommendation; when present the recommended option must be first in options",
               "known": ["known fact"],
               "unknown": ["important uncertainty"],
               "next_question": "question Flyd should investigate",
@@ -150,7 +150,7 @@ module Flyd
         }
 
         Grammar requirements:
-        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option.
+        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis.
         - investigation: focus renderer investigation_scene, known/unknown evidence, a next_question, and an investigate action.
         - action: focus renderer action_scene and a build action. Never imply execution before confirmation.
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
