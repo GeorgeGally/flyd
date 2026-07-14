@@ -27,7 +27,7 @@
 
 - [ ] **Step 1: Write failing tests for meaningful and empty provider state**
 
-Add tests that pass provider-only state containing a user-confirmed tension, an explicit curiosity item, and an unresolved signal. Assert that the service returns `decision`, `investigation`, and `monitoring` candidates with exact source references. Add a second test asserting that goals by themselves do not manufacture urgency and return no candidates.
+Add tests that pass provider-only state containing a blocked or high-tension item, an explicit curiosity item, and an unresolved signal. Assert that the service returns `decision`, `investigation`, and `monitoring` candidates with exact source references. Add a second test asserting that goals, low heuristic tension, and weak generated nudges do not manufacture urgency and return no candidates.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -39,9 +39,9 @@ Expected: FAIL because `Flyd::EvidenceCandidates` does not exist.
 
 Implement `Flyd::EvidenceCandidates.call(state)` with these rules:
 
-- eligible `tensions` create a `decision` candidate;
-- eligible `curiosity` creates an `investigation` candidate;
-- eligible unresolved `signals`, `nudges`, or `recentEvents` create a `monitoring` candidate;
+- blocked or high-value `tensions` create a `decision` candidate;
+- explicit unanswered `curiosity` creates an `investigation` candidate;
+- eligible unresolved `signals`, sufficiently supported `nudges`, or outcome-bearing `recentEvents` create a `monitoring` candidate;
 - goals and reports remain supporting evidence and do not create a mode by existence alone;
 - items with missing ids are ignored;
 - candidates include at most five exact `{ type:, id: }` evidence references;
