@@ -2,7 +2,6 @@ require "application_system_test_case"
 
 class DirectedSurfaceModesTest < ApplicationSystemTestCase
   setup do
-    SurfaceItem.delete_all
     Surface.delete_all
     Rails.cache.clear
   end
@@ -13,7 +12,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       scene_key: "investigation:dynamic-interface",
       kind: "investigation",
       status: "active",
-      title: "Why does the interface still feel static?",
+      title: "The interface is not dynamic yet",
       context: context
     )
     item = activate_surface(
@@ -23,16 +22,18 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       intent: "investigate",
       renderer: "investigation_scene",
       metadata: {
-        "known" => ["The surface already supports semantic scenes."],
-        "unknown" => ["Why the experience still defaults to familiar UI patterns."],
-        "next_question" => "Which fixed shell is still controlling the experience?"
+        "known" => [ "The renderer changes content." ],
+        "unknown" => [ "The shell still looks fixed." ],
+        "next_question" => "Which fixed shell is suppressing the scene?"
       },
-      actions: [{
-        "id" => "investigate",
-        "label" => "Investigate",
-        "payload" => { "question" => "Which fixed shell is still controlling the experience?" }
-      }],
-      context_refs: [{ "type" => "context", "id" => context.id }]
+      actions: [
+        {
+          "id" => "investigate",
+          "label" => "Investigate",
+          "payload" => { "question" => "Which fixed shell is suppressing the scene?" }
+        }
+      ],
+      context_refs: [ { "type" => "context", "id" => context.id } ]
     )
 
     visit root_path
@@ -45,12 +46,9 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_text "Which fixed shell"
     click_on "Investigate"
 
-    assert_selector "form[action$='/messages']"
-    conversation = scene.reload.conversation
-    assert conversation.present?
-    assert_equal context, conversation.context
-    assert_selector "form[action='#{conversation_messages_path(conversation)}']"
-    assert_match(/Which fixed shell/, conversation.messages.last.content)
+    assert_current_path root_path
+    assert_text "Which fixed shell is suppressing the scene?"
+    assert Conversation.where(context: context).exists?
     assert_equal "discussed", item.surface_feedbacks.last.signal
   end
 
@@ -58,31 +56,36 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     project = Project.create!(name: "Flyd", root_path: "/tmp/flyd")
     conversation = Conversation.start!(project, summary: "Build the dynamic director")
     scene = Scene.create!(
-      scene_key: "build:dynamic-director",
+      scene_key: "action:dynamic-director",
       kind: "build",
       status: "active",
-      title: "Build the dynamic interface director",
+      title: "Build the interface director",
       project: project,
-      conversation: conversation,
-      desired_outcome: "Implement mode-specific interface direction."
+      conversation: conversation
     )
-    activate_surface(
+    item = activate_surface(
       scene: scene,
       mode: "action",
-      kind: "scene",
+      kind: "artifact",
       intent: "build",
       renderer: "action_scene",
       metadata: {
-        "proposed_action" => "Implement mode-specific interface direction.",
-        "impact" => "Decision, investigation, and action moments will reshape the whole surface.",
+        "proposed_action" => "Implement the dynamic director and its tests.",
+        "impact" => "The root surface will direct the present situation.",
         "readiness" => "ready"
       },
-      actions: [{
-        "id" => "build",
-        "label" => "Review action",
-        "payload" => { "instructions" => "Implement mode-specific interface direction." }
-      }],
-      context_refs: [{ "type" => "project", "id" => project.id }]
+      actions: [
+        {
+          "id" => "build",
+          "label" => "Review action",
+          "payload" => {
+            "project_id" => project.id,
+            "conversation_id" => conversation.id,
+            "description" => "Implement the dynamic director and its tests."
+          }
+        }
+      ],
+      context_refs: [ { "type" => "project", "id" => project.id } ]
     )
 
     visit root_path
@@ -94,11 +97,11 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_text "WHAT CHANGES"
     click_on "Review action"
 
-    assert_text "OPENCODE EXECUTION"
-    assert_text "Confirm build"
-    build = Build.order(:created_at).last
-    assert_current_path build_path(build)
-    assert build.proposed?
+    build = item.reload.scene.builds.order(:created_at).last
+    assert_current_path confirm_build_path(build)
+    assert_text "Review before running"
+    assert_text "Nothing has executed yet"
+    assert_equal "proposed", build.status
     assert_nil build.confirmed_at
   end
 
@@ -128,7 +131,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
         { "id" => "choose", "label" => "Choose darker", "payload" => { "option_id" => "dark" } },
         { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } }
       ],
-      context_refs: [{ "type" => "context", "id" => context.id }]
+      context_refs: [ { "type" => "context", "id" => context.id } ]
     )
 
     visit root_path
@@ -137,9 +140,11 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_selector ".surface-object[data-role='focus'] .decision-wall"
     assert_selector ".decision-poster", count: 2
     assert_selector ".decision-poster[data-recommended='true']", count: 1
+    assert_selector ".decision-poster[data-recommended='true']", text: "Darker poster"
+    assert_selector ".decision-poster[data-recommended='false']", text: "Bright poster"
     assert_text "Use the darker direction."
-    assert_button "Accept"
-    assert_button "Choose"
+    assert_button "Accept", count: 1
+    assert_button "Choose", count: 1
   end
 
   private
@@ -147,13 +152,14 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
   def activate_surface(scene:, mode:, kind:, intent:, renderer:, metadata:, actions:, context_refs:)
     surface = Surface.create!(
       status: "draft",
-      understanding: "A directed situation.",
-      current_intention: "Use the interface required by the moment.",
+      understanding: "A directed scene is warranted.",
+      current_intention: "Resolve the present situation.",
       focus_item_key: scene.scene_key,
-      composition_version: "director-system-test",
+      generated_at: Time.current,
+      composition_version: "test-directed",
       metadata: { "surface_mode" => mode }
     )
-    item = surface.items.create!(
+    item = surface.surface_items.create!(
       scene: scene,
       item_key: scene.scene_key,
       kind: kind,
@@ -162,11 +168,11 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       depth: "foreground",
       state: "presented",
       title: scene.title,
-      summary: scene.summary.presence || "Resolve the situation directly.",
+      summary: scene.summary.presence || "The scene needs a directed interface.",
       position: 0,
       context_refs: context_refs,
-      actions: actions,
-      metadata: metadata
+      metadata: metadata,
+      actions: actions
     )
     Surface.activate!(surface)
     item
