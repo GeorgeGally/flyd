@@ -1,0 +1,62 @@
+publishers:
+  - name: Daring Fireball
+    url: https://daringfireball.net/feeds/main
+    category: technology
+  - name: Ars Technica
+    url: https://feeds.arstechnica.com/arstechnica/index
+    category: technology
+  - name: Hackaday
+    url: https://hackaday.com/blog/feed/
+    category: hardware
+  - name: TechCrunch
+    url: https://techcrunch.com/feed/
+    category: startups
+  - name: TechRadar
+    url: https://www.techradar.com/feeds.xml
+    category: technology
+  - name: The Next Web
+    url: https://feeds2.feedburner.com/TheNextWeb
+    category: technology
+  - name: Fast Company
+    url: https://www.fastcompany.com/latest/rss?truncated=false
+    category: design
+  - name: Slashdot
+    url: https://rss.slashdot.org/Slashdot/slashdot
+    category: technology
+  - name: Smashing Magazine
+    url: https://www.smashingmagazine.com/feed/
+    category: design
+
+reddit:
+  creative_coding:
+    - creativecoding
+    - generative
+    - p5js
+    - vibecoding
+    - vjing
+  hardware_hacking:
+    - hardwarehacking
+    - esp32
+    - cyberDeck
+    - synthdiy
+  ai_art:
+    - StableDiffusion
+    - comfyui
+    - Deforum
+    - LocalLLaMA
+  internet_web:
+    - internetisbeautiful
+    - selfhosted
+    - DataHoarder
+  startups:
+    - SideProject
+    - indiehackers
+    - SaaS
+  bitcoin:
+    - Bitcoin
+    - BitcoinBeginners
+  deep_cuts:
+    - ReverseEngineering
+    - HobbyDrama
+    - AskHistorians
+    - electronics

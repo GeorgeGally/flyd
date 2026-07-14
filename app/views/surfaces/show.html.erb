@@ -33,11 +33,13 @@
     <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
   </main>
 
-  <footer class="flyd-stage__context">
-    <span><%= context_name.present? ? "#{context_type.humanize}: #{context_name}" : "Flyd" %></span>
-    <span aria-hidden="true">•</span>
-    <span><%= surface_mode.humanize %></span>
-  </footer>
+  <% unless surface_mode == "discovery" %>
+    <footer class="flyd-stage__context">
+      <span><%= context_name.present? ? "#{context_type.humanize}: #{context_name}" : "Flyd" %></span>
+      <span aria-hidden="true">•</span>
+      <span><%= surface_mode.humanize %></span>
+    </footer>
+  <% end %>
 
   <section class="flyd-intent-tray" data-surface-target="intent" aria-hidden="<%= !intent_expanded %>">
     <div class="flyd-intent-tray__inner">

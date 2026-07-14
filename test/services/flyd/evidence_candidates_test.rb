@@ -238,6 +238,44 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal "discovery:hn:grounded", candidates.first.dig(:evidence_refs, 0, :id)
   end
 
+  test "builds a three-object discovery led by recent personal context" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [
+          {
+            source: "personal-context",
+            fresh: true,
+            data: {
+              activities: [ evidence("activity", "activity:flyd", {
+                title: "Continue flyd",
+                description: "Build the living discovery stage.",
+                updatedAt: 1.hour.ago.iso8601
+              }, confidence: 0.95) ],
+              horoscopes: [ evidence("horoscope", "horoscope:aries:today", {
+                title: "Aries",
+                description: "Make room for a creative risk today.",
+                date: Date.current.iso8601
+              }, confidence: 0.9) ]
+            }
+          },
+          {
+            source: "web-discovery",
+            fresh: true,
+            data: {
+              discoveries: [ evidence("discovery", "discovery:feed:1", {
+                title: "A current creative coding story",
+                description: "A detailed account of a new creative coding instrument and how it was made."
+              }) ]
+            }
+          }
+        ]
+      }
+    )
+
+    discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
+    assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:1], discovery[:evidence_refs].pluck(:id)
+  end
+
   private
 
   def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])

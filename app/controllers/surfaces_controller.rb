@@ -40,6 +40,10 @@ class SurfacesController < ApplicationController
   def prepare_next_surface
     snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::CliProvider::PROVIDER)
     enqueue_without_blocking { RefreshIntelligenceStateJob.enqueue } if snapshot.nil? || !snapshot.fresh?
+    personal_snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::PersonalContextProvider::PROVIDER)
+    if personal_context_enabled? && (personal_snapshot.nil? || !personal_snapshot.fresh?)
+      enqueue_without_blocking { RefreshPersonalContextJob.enqueue }
+    end
     web_snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::WebDiscoveryProvider::PROVIDER)
     if web_discovery_enabled? && (web_snapshot.nil? || !web_snapshot.fresh?)
       enqueue_without_blocking { RefreshWebDiscoveryJob.enqueue }
@@ -70,5 +74,9 @@ class SurfacesController < ApplicationController
 
   def web_discovery_enabled?
     Rails.application.config_for(:flyd).fetch(:web_discovery_enabled, true)
+  end
+
+  def personal_context_enabled?
+    Rails.application.config_for(:flyd).fetch(:personal_context_enabled, true)
   end
 end

@@ -40,14 +40,14 @@ module Flyd
     end
 
     def discovery_candidate
-      item = discovery_evidence.first
-      return unless item
+      items = discovery_evidence
+      return if items.empty?
 
       {
         mode: "discovery",
         reason: "Grounded personal or current evidence is worth rediscovering",
         confidence: 0.45,
-        evidence_refs: [ { type: item[:type].to_s, id: item[:id] } ]
+        evidence_refs: discovery_selection(items).map { |item| { type: item[:type].to_s, id: item[:id] } }
       }
     end
 
@@ -96,10 +96,18 @@ module Flyd
     end
 
     def discovery_evidence
-      items = fresh_collection(:discoveries) + collection(:recent_events, :recentEvents) + collection(:reports)
+      items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:discoveries) +
+        collection(:recent_events, :recentEvents) + collection(:reports)
       items.select do |item|
         discoverable?(item) && !previously_shown?(item)
       end.sort_by { |item| -discovery_score(item) }
+    end
+
+    def discovery_selection(items)
+      personal = %w[activity horoscope].filter_map do |type|
+        items.find { |item| item[:type].to_s == type }
+      end
+      (personal + (items - personal)).first(3)
     end
 
     def discoverable?(item)
@@ -121,6 +129,8 @@ module Flyd
       content = evidence_content(item)
       title = content[:title].to_s
       score = case item[:type].to_s
+      when "activity" then 1_500
+      when "horoscope" then 1_250
       when "discovery" then 1_000
       when "event" then 500
       else 100

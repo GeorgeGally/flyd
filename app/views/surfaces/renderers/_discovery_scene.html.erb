@@ -1,47 +1,23 @@
 <% source = SurfaceSourceResolver.new(item.surface).resolve(item.source_refs.first || {}) %>
 <% display_title = source.title.presence || item.title %>
-<section class="discovery-scene">
-  <div class="discovery-scene__direction">
-    <div>
-      <div class="surface-label"><%= item.metadata["source_label"].presence || "Discovery" %></div>
-      <h2><%= display_title %></h2>
-      <% if item.metadata["why_it_matters"].present? %>
-        <p class="discovery-scene__reason"><%= item.metadata["why_it_matters"] %></p>
-      <% end %>
-    </div>
-
-    <div>
-      <div class="discovery-scene__actions">
+<% variant = item.metadata["variant"].presence || source.type %>
+<section class="discovery-scene" data-variant="<%= variant %>">
+  <article class="discovery-poster" data-has-image="<%= source.image_url.present? %>">
+    <% if source.image_url.present? %>
+      <div class="discovery-poster__image-field">
+        <%= image_tag source.image_url, alt: "Preview for #{display_title}", class: "discovery-poster__image", referrerpolicy: "no-referrer" %>
+      </div>
+    <% end %>
+    <div class="discovery-poster__body">
+      <div class="discovery-poster__source"><%= source.site_name.presence || item.metadata["source_label"].presence || display_title %></div>
+      <h2 class="discovery-poster__title"><%= display_title %></h2>
+      <p class="discovery-poster__summary"><%= source.description.presence || item.summary %></p>
+      <div class="discovery-poster__actions">
         <% if source.url.present? %>
-          <%= link_to "Read original", source.url, target: "_blank", rel: "noopener noreferrer" %>
-        <% end %>
-        <% if source.discussion_url.present? %>
-          <%= link_to "Discussion", source.discussion_url, target: "_blank", rel: "noopener noreferrer" %>
+          <%= link_to "Open", source.url, target: "_blank", rel: "noopener noreferrer" %>
         <% end %>
         <%= render "surfaces/actions", item: item, context_project: context_project, actions: item.actions.reject { |action| (action["id"] || action[:id]) == "inspect_sources" } %>
-        <%= link_to "Evidence", surface_item_sources_path(item) %>
       </div>
-      <% if item.metadata["provenance"].present? %>
-        <p class="discovery-scene__provenance"><%= item.metadata["provenance"] %></p>
-      <% end %>
     </div>
-  </div>
-
-  <div class="discovery-scene__matter">
-    <article class="discovery-poster" data-has-image="<%= source.image_url.present? %>">
-      <% if source.image_url.present? %>
-        <div class="discovery-poster__image-field">
-          <%= image_tag source.image_url, alt: "Preview for #{display_title}", class: "discovery-poster__image", referrerpolicy: "no-referrer" %>
-        </div>
-      <% end %>
-      <div class="discovery-poster__body">
-        <div class="surface-label discovery-poster__source"><%= source.site_name.presence || item.metadata["source_label"].presence || "Discovery" %></div>
-        <p class="discovery-poster__summary"><%= source.description.presence || item.summary %></p>
-        <div class="discovery-poster__footer">
-          <span><%= display_title %></span>
-          <% if item.metadata["provenance"].present? %><span><%= item.metadata["provenance"] %></span><% end %>
-        </div>
-      </div>
-    </article>
-  </div>
+  </article>
 </section>

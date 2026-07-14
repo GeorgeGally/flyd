@@ -6,7 +6,7 @@
      "action" => "working-scene",
      "conversation" => "working-scene",
      "monitoring" => "editorial-focus",
-     "discovery" => "editorial-focus",
+     "discovery" => "poster-deck",
      "quiet" => "editorial-focus"
    }.fetch(surface_mode, "editorial-focus") %>
 <% conversation_scene = active_conversation&.scenes&.order(updated_at: :desc)&.first %>
@@ -29,6 +29,7 @@
          data-surface-mode="<%= surface_mode %>"
          data-surface-composition="<%= composition.tr('-', '_') %>"
          data-surface-focus-key="<%= active_conversation ? "conversation:#{active_conversation.id}" : surface.focus_item_id %>"
+         <% if surface_mode == "discovery" %>data-action="touchstart->surface#startSwipe touchend->surface#endSwipe"<% end %>
          data-surface-intention="<%= surface.current_intention %>">
   <% if active_conversation %>
     <article id="surface_semantic_conversation_<%= active_conversation.id %>"
@@ -67,8 +68,10 @@
              data-depth="<%= item.depth %>"
              data-state="<%= item.state %>"
              data-renderer="<%= item.renderer %>"
+             data-variant="<%= item.metadata["variant"] %>"
              data-outgoing-behaviours="<%= outgoing.join(' ') %>"
-             data-incoming-behaviours="<%= incoming.join(' ') %>">
+             data-incoming-behaviours="<%= incoming.join(' ') %>"
+             <% if surface_mode == "discovery" %>data-action="click->surface#focusObject keydown->surface#focusObject" tabindex="0"<% end %>>
       <%= render renderer[:partial], item: item, context_project: context_project, dominant: dominant %>
     </article>
   <% end %>

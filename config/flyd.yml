@@ -9,6 +9,9 @@ shared: &shared
   backup_passphrase: <%= ENV["FLYD_BACKUP_PASSPHRASE"] %>
   generated_surface_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_GENERATED_SURFACE", "false")) %>
   web_discovery_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_WEB_DISCOVERY", "true")) %>
+  personal_context_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_PERSONAL_CONTEXT", "true")) %>
+  local_activity_root: <%= ENV.fetch("FLYD_PROJECTS_DIR", File.join(Dir.home, "Documents")) %>
+  zodiac_sign: <%= ENV.fetch("FLYD_ZODIAC_SIGN", "aries") %>
 
 development:
   <<: *shared

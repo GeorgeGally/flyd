@@ -16,7 +16,7 @@ module Flyd
       "investigation" => 3,
       "action" => 3,
       "monitoring" => 2,
-      "discovery" => 1,
+      "discovery" => 3,
       "idle" => 1,
       "interaction" => 2,
       "build" => 3
@@ -200,7 +200,8 @@ module Flyd
         {
           "why_it_matters" => metadata["why_it_matters"].to_s.truncate(700),
           "source_label" => metadata["source_label"].to_s.truncate(120),
-          "provenance" => metadata["provenance"].to_s.truncate(300)
+          "provenance" => metadata["provenance"].to_s.truncate(300),
+          "variant" => metadata["variant"].to_s.in?(%w[activity horoscope story archive]) ? metadata["variant"].to_s : nil
         }.compact_blank
       else
         {}

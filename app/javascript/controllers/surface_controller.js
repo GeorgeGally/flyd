@@ -9,6 +9,7 @@ export default class extends Controller {
     document.addEventListener("turbo:morph", this.handleMorph)
     document.addEventListener("keydown", this.handleGlobalKeydown)
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
+    this.applyRuntimeFocus()
   }
 
   disconnect() {
@@ -18,6 +19,7 @@ export default class extends Controller {
 
   handleMorph() {
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
+    this.applyRuntimeFocus()
   }
 
   focusIntent() {
@@ -44,6 +46,63 @@ export default class extends Controller {
   handleGlobalKeydown(event) {
     if (event.key === "/" && !this.editingText()) this.openIntent(event)
     if (event.key === "Escape" && this.element.dataset.intentActive === "true") this.closeIntent(event)
+    if (!this.editingText() && this.posterDeck() && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault()
+      this.cycleFocus(event.key === "ArrowRight" ? 1 : -1)
+    }
+  }
+
+  focusObject(event) {
+    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return
+    if (event.target.closest("a, button, input, textarea, select")) return
+
+    event.preventDefault()
+    this.setRuntimeFocus(event.currentTarget)
+  }
+
+  cycleFocus(direction) {
+    const items = this.itemTargets.filter((item) => item.closest("[data-surface-composition='poster_deck']"))
+    if (items.length < 2) return
+
+    const index = items.findIndex((item) => item.classList.contains("is-runtime-focus"))
+    this.setRuntimeFocus(items[(index + direction + items.length) % items.length])
+  }
+
+  startSwipe(event) {
+    this.swipeStartX = event.touches[0]?.clientX
+  }
+
+  endSwipe(event) {
+    if (this.swipeStartX == null) return
+
+    const distance = event.changedTouches[0]?.clientX - this.swipeStartX
+    this.swipeStartX = null
+    if (Math.abs(distance) < 45) return
+
+    this.cycleFocus(distance < 0 ? 1 : -1)
+  }
+
+  setRuntimeFocus(focus) {
+    if (!focus || !this.hasPlaneTarget) return
+
+    this.planeTarget.dataset.runtimeFocusKey = focus.dataset.itemKey
+    this.applyRuntimeFocus()
+  }
+
+  applyRuntimeFocus() {
+    if (!this.posterDeck()) return
+
+    const focusKey = this.planeTarget.dataset.runtimeFocusKey || this.planeTarget.dataset.surfaceFocusKey
+    this.itemTargets.forEach((item) => {
+      const focused = item.dataset.itemKey === focusKey
+      item.classList.toggle("is-runtime-focus", focused)
+      item.classList.toggle("is-runtime-support", !focused)
+      item.setAttribute("aria-current", focused ? "true" : "false")
+    })
+  }
+
+  posterDeck() {
+    return this.hasPlaneTarget && this.planeTarget.dataset.surfaceComposition === "poster_deck"
   }
 
   releaseIntent(event) {

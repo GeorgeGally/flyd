@@ -4,7 +4,7 @@ module IntelligenceState
       new.snapshot
     end
 
-    def initialize(providers: [ CliProvider.new, WebDiscoveryProvider.new ])
+    def initialize(providers: [ CliProvider.new, PersonalContextProvider.new, WebDiscoveryProvider.new ])
       @providers = providers
     end
 

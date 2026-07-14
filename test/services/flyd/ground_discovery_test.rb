@@ -88,6 +88,51 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
     assert_equal "A current story matches your interests: art.", result["understanding"]
   end
 
+  test "grounds three directed objects from activity horoscope and current news" do
+    state = {
+      interface_direction: {
+        suggested_mode: "discovery",
+        candidates: [ {
+          mode: "discovery",
+          evidence_refs: [
+            { type: "activity", id: "activity:flyd" },
+            { type: "horoscope", id: "horoscope:aries:today" },
+            { type: "discovery", id: "discovery:feed:1" }
+          ]
+        } ]
+      },
+      provider_state: {
+        providers: [ {
+          data: {
+            evidence: [
+              { id: "activity:flyd", type: "activity", content: {
+                title: "Continue flyd", description: "Build the living stage.", updatedAt: "2026-07-14T18:36:00Z"
+              } },
+              { id: "horoscope:aries:today", type: "horoscope", content: {
+                title: "Aries", description: "Make room for a creative risk today.", date: "2026-07-14"
+              } },
+              { id: "discovery:feed:1", type: "discovery", content: {
+                title: "A new creative instrument", description: "A detailed account of a new creative coding instrument and how it was made.",
+                sourceName: "Hackaday"
+              } }
+            ]
+          }
+        } ]
+      }
+    }
+
+    result = Flyd::GroundDiscovery.call(payload: discovery_payload(
+      title: "Model filler", summary: "Model filler", source_ref: { type: "discovery", id: "wrong" }
+    ), state:)
+
+    assert_equal 3, result["items"].length
+    assert_equal [ "Continue flyd", "Aries", "A new creative instrument" ], result["items"].pluck("title")
+    assert_equal "Build the living stage.", result["items"].first["summary"]
+    assert_equal "Make room for a creative risk today.", result["items"].second["summary"]
+    assert_equal "activity", result["items"].first.dig("metadata", "variant")
+    assert_equal "horoscope", result["items"].second.dig("metadata", "variant")
+  end
+
   private
 
   def discovery_payload(title:, summary:, source_ref:)

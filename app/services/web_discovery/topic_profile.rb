@@ -17,10 +17,25 @@ module WebDiscovery
       matched, unmatched = enriched.partition { |story| story[:matched_topics].any? }
       matched.sort_by! { |story| [ -story[:matched_topics].length, -story[:score].to_i ] }
       unmatched.sort_by! { |story| -story[:score].to_i }
-      (matched + unmatched).first(limit)
+      diversify(matched + unmatched).first(limit)
     end
 
     private
+
+    def diversify(stories)
+      seen = Set.new
+      repeats = []
+      distinct = stories.filter_map do |story|
+        source = story[:source_key].presence || "story:#{story[:id]}"
+        if seen.add?(source)
+          story
+        else
+          repeats << story
+          nil
+        end
+      end
+      distinct + repeats
+    end
 
     def enrich(story)
       title = story[:title].to_s.downcase

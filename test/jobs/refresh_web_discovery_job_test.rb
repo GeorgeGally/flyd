@@ -20,6 +20,20 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
       { goals: [ { "content" => { "title" => "Build personal intelligence" } } ] }
     )
     client = Struct.new(:stories) { def fetch = stories }.new([ story ])
+    feed_story = {
+      id: "feed-7",
+      title: "Personal intelligence through spatial interfaces",
+      url: "https://journal.example/spatial",
+      author: "editor",
+      score: 80,
+      published_at: 30.minutes.ago,
+      description: "A detailed look at spatial interfaces for personal intelligence.",
+      source_name: "Design Journal",
+      source_key: "design-journal",
+      source_kind: "publisher",
+      source_category: "design"
+    }
+    feed_client = Struct.new(:stories) { def fetch = stories }.new([ feed_story ])
     metadata_client = Struct.new(:result) do
       def fetch(_url) = result
     end.new({
@@ -29,6 +43,7 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
     })
     job = RefreshWebDiscoveryJob.new
     job.define_singleton_method(:client) { client }
+    job.define_singleton_method(:feed_client) { feed_client }
     job.define_singleton_method(:cli_snapshot) { cli_snapshot }
     job.define_singleton_method(:metadata_client) { metadata_client }
     compose_calls = []
@@ -39,13 +54,18 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
 
     assert_equal [ { reason: "web_discovery_refresh" } ], compose_calls
     snapshot = IntelligenceState::WebDiscoveryProvider.new.snapshot
-    evidence = snapshot.data[:discoveries].first
+    assert_equal 2, snapshot.data[:discoveries].length
+    evidence = snapshot.data[:discoveries].find { |item| item["id"] == "discovery:hn:42" }
     assert_equal "discovery:hn:42", evidence["id"]
     assert_equal [ "intelligence", "personal" ], evidence.dig("content", "matchedTopics").sort
     assert_equal "https://example.com/story", evidence.dig("content", "url")
     assert_equal "A concrete account of how personal intelligence interfaces work.", evidence.dig("content", "description")
     assert_equal "https://example.com/story.jpg", evidence.dig("content", "imageUrl")
     assert_equal "Example Journal", evidence.dig("content", "siteName")
+    feed_evidence = snapshot.data[:discoveries].find { |item| item["id"] == "discovery:design-journal:feed-7" }
+    assert_equal "web.design-journal", feed_evidence["source"]
+    assert_equal "Design Journal", feed_evidence.dig("content", "sourceName")
+    assert_equal "publisher", feed_evidence.dig("content", "sourceKind")
   end
 
 
@@ -55,13 +75,16 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
     assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob
   end
 
-  test "scheduled intelligence refresh queues CLI and web providers" do
+  test "scheduled intelligence refresh queues CLI, personal context, and web providers" do
     Rails.cache.delete(RefreshIntelligenceStateJob::LOCK_KEY)
+    Rails.cache.delete(RefreshPersonalContextJob::LOCK_KEY) if defined?(RefreshPersonalContextJob::LOCK_KEY)
     Rails.cache.delete(RefreshWebDiscoveryJob::LOCK_KEY) if defined?(RefreshWebDiscoveryJob::LOCK_KEY)
 
     assert_enqueued_jobs 1, only: RefreshIntelligenceStateJob do
-      assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob do
-        ScheduleIntelligenceRefreshJob.perform_now
+      assert_enqueued_jobs 1, only: RefreshPersonalContextJob do
+        assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob do
+          ScheduleIntelligenceRefreshJob.perform_now
+        end
       end
     end
   end

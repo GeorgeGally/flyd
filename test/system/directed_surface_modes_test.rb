@@ -241,8 +241,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_equal "0px", field_border
   end
 
-  test "discovery gives grounded knowledge its own fixed stage" do
-    snapshot, = IntelligenceState::WebDiscoveryProvider.new.persist!(
+  test "discovery composes three grounded objects as a moving poster deck" do
+    web_snapshot, = IntelligenceState::WebDiscoveryProvider.new.persist!(
       discoveries: [ {
         "id" => "discovery:hn:memex",
         "type" => "discovery",
@@ -260,6 +260,23 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
         }
       } ]
     )
+    personal_snapshot, = IntelligenceState::PersonalContextProvider.new.persist!(
+      activities: [ {
+        "id" => "activity:flyd", "type" => "activity", "source" => "local.activity",
+        "epistemicStatus" => "observation", "confidence" => 0.95, "generatedAt" => Time.current.iso8601,
+        "evidenceRefs" => [], "content" => {
+          "title" => "Continue flyd", "description" => "Build the living discovery stage.", "updatedAt" => Time.current.iso8601
+        }
+      } ],
+      horoscopes: [ {
+        "id" => "horoscope:aries:today", "type" => "horoscope", "source" => "web.astrology",
+        "epistemicStatus" => "observation", "confidence" => 0.9, "generatedAt" => Time.current.iso8601,
+        "evidenceRefs" => [], "content" => {
+          "title" => "Aries", "description" => "Make room for a creative risk today.",
+          "url" => "https://www.astrology.com/horoscope/daily/aries.html", "siteName" => "Astrology.com"
+        }
+      } ]
+    )
     scene = Scene.create!(
       scene_key: "discovery:memex",
       kind: "work",
@@ -272,27 +289,49 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
       kind: "insight",
       intent: "inform",
       renderer: "discovery_scene",
-      metadata: {
-        "source_label" => "From your archive",
-        "why_it_matters" => "This is the conceptual bridge between stored memory and Flyd's generated interface."
-      },
+      metadata: { "variant" => "activity", "provenance" => "499 points · 123 comments" },
       actions: [ { "id" => "inspect_sources", "label" => "Open source", "payload" => {} } ],
       context_refs: [],
-      source_refs: [ { "type" => "discovery", "id" => "discovery:hn:memex" } ]
+      source_refs: [ { "type" => "activity", "id" => "activity:flyd" } ]
+    )
+    item.update!(title: "Continue flyd", summary: "Build the living discovery stage.")
+    item.surface.surface_items.create!(
+      item_key: "horoscope:aries", kind: "insight", intent: "inform", renderer: "discovery_scene",
+      depth: "middle", state: "presented", title: "Aries", summary: "Make room for a creative risk today.",
+      position: 1, source_refs: [ { "type" => "horoscope", "id" => "horoscope:aries:today" } ],
+      metadata: { "variant" => "horoscope" }, actions: []
+    )
+    item.surface.surface_items.create!(
+      item_key: "discovery:memex:story", kind: "insight", intent: "inform", renderer: "discovery_scene",
+      depth: "background", state: "presented", title: "The memex was designed around associative trails",
+      summary: "A system for following connections through a personal archive.", position: 2,
+      source_refs: [ { "type" => "discovery", "id" => "discovery:hn:memex" } ],
+      metadata: { "variant" => "story", "why_it_matters" => "Model rationale" }, actions: []
     )
     item.surface.update!(metadata: item.surface.metadata.merge(
-      "provider_snapshots" => [ { "source" => "web-discovery", "snapshot_id" => snapshot.id } ]
+      "provider_snapshots" => [
+        { "source" => "personal-context", "snapshot_id" => personal_snapshot.id },
+        { "source" => "web-discovery", "snapshot_id" => web_snapshot.id }
+      ]
     ))
 
     visit root_path
 
     assert_selector "#surface_plane[data-surface-mode='discovery']"
-    assert_selector ".discovery-scene", text: "The memex was designed around associative trails"
-    assert_selector ".discovery-poster"
+    assert_selector "#surface_plane[data-surface-composition='poster_deck']"
+    assert_selector ".discovery-scene", count: 3
+    assert_selector ".discovery-poster", count: 3
     assert_selector ".discovery-poster img[src='https://example.com/memex.jpg']"
+    page.find(".surface-object[data-position='2']").click
     assert_selector ".discovery-poster", text: "A system for following connections through a personal archive."
-    assert_text "From your archive"
-    assert_link "Evidence"
+    assert_text "Continue flyd"
+    assert_text "Aries"
+    assert_no_text "Evidence"
+    assert_no_text "499 points"
+    assert_no_text "Model rationale"
+    assert_link "Open", href: "https://example.com/memex"
+    page.find(".surface-object[data-position='1']").click
+    assert_selector ".surface-object[data-position='1'].is-runtime-focus"
     assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
   end
 

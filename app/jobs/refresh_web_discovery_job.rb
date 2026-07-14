@@ -19,7 +19,8 @@ class RefreshWebDiscoveryJob < ApplicationJob
   end
 
   def perform
-    selected = WebDiscovery::TopicProfile.new(cli_snapshot).select(client.fetch, limit: 8)
+    stories = client.fetch + feed_client.fetch
+    selected = WebDiscovery::TopicProfile.new(cli_snapshot).select(stories, limit: 8)
     selected = selected.map { |story| story.merge(metadata_client.fetch(story.fetch(:url))) }
     _record, changed = provider.persist!(discoveries: selected.map { |story| evidence_for(story) })
     ComposeSurfaceJob.enqueue(reason: "web_discovery_refresh") if changed || Surface.current.nil? || Surface.current.stale?
@@ -36,6 +37,10 @@ class RefreshWebDiscoveryJob < ApplicationJob
     @client ||= WebDiscovery::HackerNewsClient.new
   end
 
+  def feed_client
+    @feed_client ||= WebDiscovery::FeedClient.new
+  end
+
   def cli_snapshot
     IntelligenceState::CliProvider.new.snapshot
   end
@@ -49,10 +54,12 @@ class RefreshWebDiscoveryJob < ApplicationJob
   end
 
   def evidence_for(story)
+    source_key = story[:source_key].presence || "hn"
+    source_name = story[:source_name].presence || "Hacker News"
     {
-      "id" => "discovery:hn:#{story.fetch(:id)}",
+      "id" => "discovery:#{source_key}:#{story.fetch(:id)}",
       "type" => "discovery",
-      "source" => "web.hacker_news",
+      "source" => "web.#{source_key}",
       "epistemicStatus" => "observation",
       "confidence" => story[:matched_topics].any? ? 0.85 : 0.75,
       "generatedAt" => story.fetch(:published_at).iso8601,
@@ -60,8 +67,10 @@ class RefreshWebDiscoveryJob < ApplicationJob
       "content" => {
         "title" => story.fetch(:title),
         "url" => story.fetch(:url),
-        "discussionUrl" => story.fetch(:discussion_url),
-        "sourceName" => "Hacker News",
+        "discussionUrl" => story[:discussion_url],
+        "sourceName" => source_name,
+        "sourceKind" => story[:source_kind],
+        "sourceCategory" => story[:source_category],
         "author" => story[:author],
         "score" => story[:score],
         "comments" => story[:comments],

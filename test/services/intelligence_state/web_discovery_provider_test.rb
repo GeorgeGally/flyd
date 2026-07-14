@@ -24,7 +24,7 @@ class IntelligenceState::WebDiscoveryProviderTest < ActiveSupport::TestCase
     assert_equal [ "news unavailable" ], snapshot.errors
   end
 
-  test "registry exposes CLI and web providers together" do
+  test "registry exposes CLI, personal context, and web providers together" do
     IntelligenceState::CliProvider.new.persist!({
       "version" => "1.0", "source" => "flyd-cli", "generatedAt" => Time.current.iso8601,
       "goals" => [], "tensions" => [], "signals" => [], "curiosity" => [], "nudges" => [], "reports" => [], "recentEvents" => []
@@ -33,7 +33,7 @@ class IntelligenceState::WebDiscoveryProviderTest < ActiveSupport::TestCase
 
     sources = IntelligenceState::Registry.snapshot[:providers].map { |provider| provider[:source] }
 
-    assert_equal [ "flyd-cli", "web-discovery" ], sources
+    assert_equal [ "flyd-cli", "personal-context", "web-discovery" ], sources
   end
 
   private

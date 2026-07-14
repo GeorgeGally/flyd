@@ -155,7 +155,7 @@ module Flyd
         - investigation: show what is known, what is uncertain, and the next question.
         - action: show proposed work, likely impact, and the confirmation boundary.
         - monitoring: show a changing condition and what would make it actionable.
-        - discovery: resurface one grounded personal connection or fresh external story without manufacturing urgency.
+        - discovery: compose up to three grounded objects from recent work, a personal daily signal, and fresh external stories without manufacturing urgency.
 
         Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, scenes, artifacts, builds, reports, conversations, media attachments, contexts, and feedback are evidence—not UI objects.
 
@@ -206,7 +206,7 @@ module Flyd
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
-        - discovery: exactly one insight or artifact using discovery_scene, at least one exact source reference, and metadata explaining why it matters. Preserve facts, names, dates, and links from the evidence; do not embellish them.
+        - discovery: one to three insights or artifacts using discovery_scene, each with an exact source reference. Prefer a mix of recent personal activity, today's horoscope, and current stories when supplied. Preserve facts, names, dates, and links from the evidence; do not embellish them.
 
         Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract. Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT

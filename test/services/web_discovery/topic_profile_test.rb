@@ -44,4 +44,17 @@ class WebDiscovery::TopicProfileTest < ActiveSupport::TestCase
     assert_equal [ "sound reactive" ], selected.second[:matched_topics]
     assert_empty selected.last[:matched_topics]
   end
+
+  test "diversifies selected stories across sources before repeating one source" do
+    snapshot = Struct.new(:data).new({ goals: [], signals: [], reports: [], recent_events: [] })
+    stories = [
+      { id: 1, title: "First", score: 100, source_key: "alpha" },
+      { id: 2, title: "Second", score: 99, source_key: "alpha" },
+      { id: 3, title: "Third", score: 20, source_key: "beta" }
+    ]
+
+    selected = WebDiscovery::TopicProfile.new(snapshot).select(stories, limit: 2)
+
+    assert_equal [ 1, 3 ], selected.pluck(:id)
+  end
 end

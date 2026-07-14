@@ -122,9 +122,9 @@ module Flyd
           maximum_items: 2
         },
         discovery: {
-          purpose: "Resurface one grounded personal connection or fresh external discovery.",
+          purpose: "Compose recent work, a personal daily signal, and fresh discoveries as one living stage.",
           focus_renderer: "discovery_scene",
-          maximum_items: 1
+          maximum_items: 3
         }
       }
     end
