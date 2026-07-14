@@ -14,7 +14,7 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
 
   test "an unresolved choice becomes a decision interface" do
     directive = Flyd::InterfaceDirector.call(
-      scenes: [ { scene_key: "decision:architecture", kind: "decision", status: "active" } ],
+      scenes: [ { scene_key: "decision:architecture", kind: "decision", status: "active", project_id: 1 } ],
       builds: []
     )
 
@@ -28,7 +28,7 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
       active_interaction: { id: 1 },
       scenes: [
         { scene_key: "conversation:1", kind: "conversation", status: "active" },
-        { scene_key: "decision:launch", kind: "decision", status: "active" }
+        { scene_key: "decision:launch", kind: "decision", status: "active", project_id: 1 }
       ],
       builds: []
     )
@@ -72,10 +72,13 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
             } ],
             curiosity: [ {
               id: "curiosity:adoption", type: "curiosity", epistemicStatus: "llm_generated",
+              confidence: 0.7, generatedAt: Time.current.iso8601,
+              evidenceRefs: [ { type: "event", id: "event:setup" } ],
               content: { question: "Why are users abandoning setup?", missingEvidence: "Recent setup sessions" }
             } ],
             signals: [ {
               id: "signal:setup", type: "signal", epistemicStatus: "heuristic",
+              generatedAt: Time.current.iso8601,
               content: { topic: "setup", unresolved: 2 }
             } ]
           }
@@ -86,6 +89,17 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal "decision", directive[:suggested_mode]
     assert_equal %w[decision investigation monitoring quiet], directive[:candidates].map { |candidate| candidate[:mode] }
     assert_equal [ { type: "tension", id: "tension:launch" } ], directive[:candidates].first[:evidence_refs]
+  end
+
+  test "ownerless generated scenes do not perpetuate themselves" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ { scene_key: "curiosity:stale", kind: "investigation", status: "active" } ],
+      builds: [],
+      provider_state: { providers: [] }
+    )
+
+    assert_equal "quiet", directive[:suggested_mode]
+    assert_equal [ "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
   end
 
   test "quiet is valid when nothing has earned the screen" do

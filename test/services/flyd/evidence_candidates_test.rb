@@ -13,7 +13,7 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
             curiosity: [ evidence("curiosity", "curiosity:adoption", {
               question: "Why are users abandoning setup?",
               missingEvidence: "Recent setup-session observations"
-            }, epistemic_status: "llm_generated") ],
+            }, epistemic_status: "llm_generated", confidence: 0.7, evidence_refs: [ { type: "event", id: "event:setup" } ]) ],
             signals: [ evidence("signal", "signal:setup", {
               topic: "setup",
               unresolved: 2,
@@ -49,17 +49,72 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_empty candidates
   end
 
+  test "rejects stale ungrounded generated curiosity and stale unresolved signals" do
+    stale_time = 30.days.ago.iso8601
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "flyd-cli",
+          fresh: true,
+          errors: [],
+          data: {
+            curiosity: [ evidence(
+              "curiosity",
+              "curiosity:generic",
+              { question: "What is declining?", missingEvidence: "Real evidence" },
+              epistemic_status: "llm_generated",
+              confidence: 0.5,
+              generated_at: stale_time
+            ) ],
+            signals: [ evidence(
+              "signal",
+              "signal:old",
+              { topic: "content quality", unresolved: 1, details: { lastActivity: stale_time } },
+              epistemic_status: "heuristic",
+              confidence: 0.55,
+              generated_at: nil
+            ) ]
+          }
+        } ]
+      }
+    )
+
+    assert_empty candidates
+  end
+
+  test "honours normalized epistemic status keys" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          data: {
+            curiosity: [ {
+              id: "curiosity:rejected",
+              type: "curiosity",
+              epistemic_status: "superseded",
+              confidence: 0.9,
+              generated_at: Time.current.iso8601,
+              evidence_refs: [ { type: "event", id: "event:1" } ],
+              content: { question: "Why?", missing_evidence: "Evidence" }
+            } ]
+          }
+        } ]
+      }
+    )
+
+    assert_empty candidates
+  end
+
   private
 
-  def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8)
+  def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])
     {
       id: id,
       type: type,
       source: "test",
       content: content,
       confidence: confidence,
-      generatedAt: Time.current.iso8601,
-      evidenceRefs: [],
+      generatedAt: generated_at,
+      evidenceRefs: evidence_refs,
       epistemicStatus: epistemic_status
     }
   end

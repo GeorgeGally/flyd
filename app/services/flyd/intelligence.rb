@@ -35,6 +35,16 @@ module Flyd
       )
       compiled = WorldStateExtensions.call(compiled: compiled, active_intent: @active_intent)
       compiled = apply_interface_direction(compiled)
+      if intentionally_quiet?(compiled.state)
+        @diagnostics = compiled.diagnostics.merge(
+          state_digest: IntelligenceSnapshot.digest_for(compiled.state.except(:generated_at)),
+          provider_snapshots: provider_snapshots(compiled.state),
+          output_characters: 0,
+          latency_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round
+        )
+        return quiet_surface
+      end
+
       response = @chat.call!(messages(compiled.state))
       responses = [ response ]
       payload = parse_json(response)
@@ -82,6 +92,10 @@ module Flyd
           "fresh" => provider[:fresh]
         }
       end
+    end
+
+    def intentionally_quiet?(state)
+      Array(state.dig(:interface_direction, :candidates)).map { |candidate| candidate[:mode].to_s } == [ "quiet" ]
     end
 
     def messages(state)
@@ -225,6 +239,16 @@ module Flyd
     end
 
     def fallback_surface
+      quiet_surface(
+        understanding: "Flyd could not compose a contextual surface.",
+        current_intention: "Remain available without fabricating relevance."
+      )
+    end
+
+    def quiet_surface(
+      understanding: "Nothing has earned the screen yet.",
+      current_intention: "Stay available without inventing urgency."
+    )
       item = SurfaceItem.new(
         id: "quiet:available", kind: "scene", intent: "discuss",
         title: "What deserves your attention?",
@@ -235,8 +259,8 @@ module Flyd
 
       Surface.new(
         generated_at: Time.current,
-        understanding: "Flyd could not compose a contextual surface.",
-        current_intention: "Remain available without fabricating relevance.",
+        understanding: understanding,
+        current_intention: current_intention,
         surface_mode: "quiet",
         focus_item_id: item.id,
         items: [ item ],

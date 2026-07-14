@@ -65,7 +65,13 @@ module Flyd
     end
 
     def active_scenes
-      @active_scenes ||= Array(@state[:scenes]).select { |scene| scene[:status].to_s == "active" }
+      @active_scenes ||= Array(@state[:scenes]).select do |scene|
+        scene[:status].to_s == "active" && durable_scene?(scene)
+      end
+    end
+
+    def durable_scene?(scene)
+      %i[project_id context_id conversation_id intent_id].any? { |key| scene[key].present? }
     end
 
     def scene_for(*kinds)

@@ -2,7 +2,9 @@ class IntentsController < ApplicationController
   def create
     text = intent_params[:text].to_s.strip
     clipboard = intent_params[:clipboard].to_s.strip
-    uploads = Array(intent_params[:files]).compact
+    uploads = Array(intent_params[:files]).select do |upload|
+      upload.respond_to?(:content_type) && upload.respond_to?(:original_filename)
+    end
     return redirect_to root_path, alert: "Say, paste, or attach something first." if text.blank? && clipboard.blank? && uploads.empty?
 
     intent = Intent.transaction do

@@ -1,6 +1,8 @@
 module Flyd
   class EvidenceCandidates
     MAX_REFERENCES = 5
+    MAX_EPHEMERAL_AGE = 14.days
+    EPHEMERAL_TYPES = %w[curiosity signal nudge event].freeze
     DISQUALIFIED_STATUSES = %w[contradicted superseded].freeze
 
     def self.call(state)
@@ -65,7 +67,7 @@ module Flyd
       collection(:nudges).select do |item|
         content = item[:content].to_h
         eligible?(item) &&
-          item[:epistemicStatus].to_s.in?(%w[observation user_confirmed]) &&
+          epistemic_status(item).in?(%w[observation user_confirmed]) &&
           item[:confidence].to_f >= 0.6 &&
           content[:text].present?
       end
@@ -89,9 +91,12 @@ module Flyd
     end
 
     def eligible?(item)
-      item[:id].present? &&
-        item[:type].present? &&
-        !DISQUALIFIED_STATUSES.include?(item[:epistemicStatus].to_s)
+      return false if item[:id].blank? || item[:type].blank?
+      return false if DISQUALIFIED_STATUSES.include?(epistemic_status(item))
+      return false if EPHEMERAL_TYPES.include?(item[:type].to_s) && !recent?(item)
+      return generated_evidence_grounded?(item) if epistemic_status(item) == "llm_generated"
+
+      true
     end
 
     def evidence_reference(item)
@@ -102,6 +107,32 @@ module Flyd
 
     def missing_evidence(content)
       content[:missingEvidence].presence || content[:missing_evidence].presence
+    end
+
+    def epistemic_status(item)
+      (item[:epistemic_status] || item[:epistemicStatus]).to_s
+    end
+
+    def generated_evidence_grounded?(item)
+      item[:confidence].to_f >= 0.6 && evidence_refs(item).any?
+    end
+
+    def evidence_refs(item)
+      Array(item[:evidence_refs] || item[:evidenceRefs])
+    end
+
+    def recent?(item)
+      timestamp = evidence_timestamp(item)
+      timestamp.present? && timestamp >= MAX_EPHEMERAL_AGE.ago
+    end
+
+    def evidence_timestamp(item)
+      content = item[:content].to_h
+      details = content[:details].to_h
+      raw = item[:generated_at] || item[:generatedAt] || content[:date] || details[:lastActivity] || details[:last_activity]
+      Time.zone.parse(raw.to_s) if raw.present?
+    rescue ArgumentError, TypeError
+      nil
     end
   end
 end

@@ -21,4 +21,21 @@ class IntentsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path(intent_id: intent.id)
     assert_not Project.exists?(name: "Inbox")
   end
+
+  test "ignores the browser's blank multipart file value" do
+    assert_difference("Intent.count", 1) do
+      post intents_path, params: {
+        intent: {
+          text: "This is a text-only thought",
+          modality: "text",
+          files: [""]
+        }
+      }
+    end
+
+    intent = Intent.order(:created_at).last
+    assert_equal "text", intent.modality
+    assert_empty intent.attachments
+    assert_redirected_to root_path(intent_id: intent.id)
+  end
 end

@@ -73,7 +73,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             epistemicStatus: "user_confirmed",
             confidence: 0.9,
             generatedAt: Time.current.iso8601,
-            evidenceRefs: [],
+            evidenceRefs: [ { type: "event", id: "event:setup" } ],
             content: { slug: "ship-flyd" }
           } ]
         }
@@ -138,7 +138,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             epistemicStatus: "llm_generated",
             confidence: 0.7,
             generatedAt: Time.current.iso8601,
-            evidenceRefs: [],
+            evidenceRefs: [ { type: "event", id: "event:setup" } ],
             content: {
               question: "Why are users abandoning setup?",
               missingEvidence: "Recent setup-session observations"
@@ -151,7 +151,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             epistemicStatus: "heuristic",
             confidence: 0.6,
             generatedAt: Time.current.iso8601,
-            evidenceRefs: [],
+            evidenceRefs: [ { type: "event", id: "event:setup" } ],
             content: { topic: "setup", unresolved: 2 }
           } ]
         }
@@ -240,7 +240,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             epistemicStatus: "llm_generated",
             confidence: 0.7,
             generatedAt: Time.current.iso8601,
-            evidenceRefs: [],
+            evidenceRefs: [ { type: "event", id: "event:setup" } ],
             content: {
               question: "Why are users abandoning setup?",
               missingEvidence: "Recent setup-session observations"
@@ -295,7 +295,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
             epistemicStatus: "llm_generated",
             confidence: 0.7,
             generatedAt: Time.current.iso8601,
-            evidenceRefs: [],
+            evidenceRefs: [ { type: "event", id: "event:setup" } ],
             content: { question: "Why?", missingEvidence: "Direct observation" }
           } ]
         }
@@ -316,5 +316,17 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal "quiet:available", surface.focus_item_id
     assert_equal 1, surface.items.length
     assert_empty surface.items.first.source_refs
+  end
+
+  test "stays intentionally quiet without asking the model to invent relevance" do
+    chat = FakeChat.new("must not be called")
+    provider = FakeStateProvider.new({ providers: [] })
+
+    surface = Flyd::Intelligence.new(chat: chat, state_provider: provider, fallback: false).compose_surface
+
+    assert_equal "quiet", surface.surface_mode
+    assert_equal "quiet:available", surface.focus_item_id
+    assert_nil chat.received_messages
+    assert_equal "Nothing has earned the screen yet.", surface.understanding
   end
 end
