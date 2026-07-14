@@ -1,16 +1,19 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["plane", "intent", "input", "item", "conversation"]
+  static targets = ["plane", "intent", "input", "item", "conversation", "launcher"]
 
   connect() {
     this.handleMorph = this.handleMorph.bind(this)
+    this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this)
     document.addEventListener("turbo:morph", this.handleMorph)
-    this.applySemanticLayout(false)
+    document.addEventListener("keydown", this.handleGlobalKeydown)
+    this.applySemanticLayout(this.element.dataset.intentActive === "true")
   }
 
   disconnect() {
     document.removeEventListener("turbo:morph", this.handleMorph)
+    document.removeEventListener("keydown", this.handleGlobalKeydown)
   }
 
   handleMorph() {
@@ -19,14 +22,36 @@ export default class extends Controller {
 
   focusIntent() {
     this.element.dataset.intentActive = "true"
+    this.intentTarget.setAttribute("aria-hidden", "false")
     this.applySemanticLayout(true)
   }
 
+  openIntent(event) {
+    event?.preventDefault()
+    this.focusIntent()
+    window.requestAnimationFrame(() => this.inputTarget.focus())
+  }
+
+  closeIntent(event) {
+    event?.preventDefault()
+    delete this.element.dataset.intentActive
+    this.intentTarget.setAttribute("aria-hidden", "true")
+    this.inputTarget.blur()
+    this.applySemanticLayout(false)
+    if (event?.type === "click" && this.hasLauncherTarget) this.launcherTarget.focus()
+  }
+
+  handleGlobalKeydown(event) {
+    if (event.key === "/" && !this.editingText()) this.openIntent(event)
+    if (event.key === "Escape" && this.element.dataset.intentActive === "true") this.closeIntent(event)
+  }
+
   releaseIntent(event) {
-    if (event?.type === "keydown") this.inputTarget.blur()
+    if (event?.type === "keydown") return this.closeIntent(event)
     window.setTimeout(() => {
       if (!this.intentTarget.contains(document.activeElement)) {
         delete this.element.dataset.intentActive
+        this.intentTarget.setAttribute("aria-hidden", "true")
         this.applySemanticLayout(false)
       }
     }, 0)
@@ -69,5 +94,10 @@ export default class extends Controller {
 
   behaviours(value) {
     return (value || "").split(" ").filter(Boolean)
+  }
+
+  editingText() {
+    const element = document.activeElement
+    return element?.matches("input, textarea, select, [contenteditable='true']")
   }
 }

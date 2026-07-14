@@ -22,7 +22,7 @@
 <% surface_projects = Project.where(id: project_ids).index_by(&:id) %>
 
 <section id="surface_plane"
-         class="surface-composition surface-composition--<%= composition %> <%= 'surface-composition--solo' if !active_conversation && visible_items.one? %> mt-8 flex-1"
+         class="surface-composition surface-composition--<%= composition %> <%= 'surface-composition--solo' if !active_conversation && visible_items.one? %>"
          data-surface-target="plane"
          data-surface-id="<%= surface.id %>"
          data-surface-mode="<%= surface_mode %>"

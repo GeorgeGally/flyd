@@ -1,26 +1,51 @@
 <%= content_for :title, "Flyd" %>
 <%= turbo_stream_from "flyd_surface" %>
 <% surface_mode = (@surface.metadata["surface_mode"].presence || "quiet").to_s %>
-<% directed_mode = %w[decision investigation action monitoring].include?(surface_mode) %>
+<% focus_item = @surface.items.find { |item| item.item_key == @surface.focus_item_id } || @surface.items.first %>
+<% context_ref = Array(focus_item&.context_refs).first %>
+<% context_type = context_ref && (context_ref["type"] || context_ref[:type]) %>
+<% context_id = context_ref && (context_ref["id"] || context_ref[:id]) %>
+<% context_name = case context_type
+   when "project" then Project.find_by(id: context_id)&.name
+   when "context" then ::Context.find_by(id: context_id)&.name
+   end %>
+<% intent_expanded = @conversation.present? || @intent&.status == "clarification_required" %>
 
-<div class="min-h-screen bg-white text-gray-950"
+<div class="flyd-stage"
      data-controller="surface<%= ' chat' if @conversation %>"
      data-surface-mode="<%= surface_mode %>"
+     <% if intent_expanded %>data-intent-active="true"<% end %>
      <% if @conversation %>data-chat-conversation-id-value="<%= @conversation.id %>"<% end %>>
-  <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-6 md:px-10 md:py-8">
-    <header class="flex items-center justify-between">
-      <%= link_to "flyd", root_path, class: "text-sm font-semibold" %>
-      <div class="flex items-center gap-5">
-        <% unless surface_mode == "quiet" %><span class="text-xs text-gray-400"><%= surface_mode.humanize %></span><% end %>
-        <%= link_to "System", projects_path, class: "text-xs text-gray-400 hover:text-gray-700" %>
-      </div>
-    </header>
+  <header class="flyd-stage__header">
+    <div class="flyd-wordmark">
+      <%= link_to "flyd", root_path %>
+      <button type="button"
+              class="flyd-wordmark__intent"
+              aria-label="Open Flyd input"
+              title="Open Flyd input"
+              data-surface-target="launcher"
+              data-action="surface#openIntent"></button>
+    </div>
+    <%= link_to "System", projects_path, class: "flyd-system-link" %>
+  </header>
 
-    <% if directed_mode %>
-      <%= render "surfaces/plane", surface: @surface, active_conversation: nil %>
-    <% end %>
+  <main class="flyd-stage__scene">
+    <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
+  </main>
 
-    <section class="<%= directed_mode ? 'mt-auto border-t border-gray-100 pt-5' : 'mt-14 md:mt-20' %>" data-surface-target="intent">
+  <footer class="flyd-stage__context">
+    <span><%= context_name.present? ? "#{context_type.humanize}: #{context_name}" : "Flyd" %></span>
+    <span aria-hidden="true">•</span>
+    <span><%= surface_mode.humanize %></span>
+  </footer>
+
+  <section class="flyd-intent-tray" data-surface-target="intent" aria-hidden="<%= !intent_expanded %>">
+    <div class="flyd-intent-tray__inner">
+      <button type="button"
+              class="flyd-intent-tray__close"
+              aria-label="Close Flyd input"
+              title="Close Flyd input"
+              data-action="surface#closeIntent">×</button>
       <% if @conversation %>
         <% message_path = @conversation.project ? project_conversation_messages_path(@conversation.project, @conversation) : conversation_messages_path(@conversation) %>
         <%= form_with url: message_path, scope: :message, method: :post, html: { data: { action: "submit->chat#submit" }, class: "group" } do |form| %>
@@ -30,12 +55,12 @@
         <%= form_with url: intents_path, scope: :intent, method: :post, class: "group" do |form| %>
           <%= form.hidden_field :project_id, value: @preferred_project.id if @preferred_project %>
           <%= form.hidden_field :modality, value: "text" %>
-          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (directed_mode ? "Respond, redirect, or introduce new evidence." : (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will understand the outcome before assigning context.")), chat: false %>
+          <%= render "surfaces/intent_field", form: form, field_name: :text, context_label: (@preferred_project ? "Context: #{@preferred_project.name}" : "Flyd will assign context after understanding the outcome."), chat: false %>
         <% end %>
       <% end %>
 
       <% if @intent&.status == "clarification_required" %>
-        <div class="mt-6 max-w-3xl border-t border-gray-200 pt-5">
+        <div class="mt-6 max-h-64 overflow-y-auto border-t border-gray-200 pt-5">
           <p class="text-sm text-gray-700">This may relate to:</p>
           <div class="mt-3 flex flex-wrap gap-3 text-xs">
             <% @intent.context_candidates.each do |candidate| %>
@@ -62,10 +87,6 @@
           </details>
         </div>
       <% end %>
-    </section>
-
-    <% unless directed_mode %>
-      <%= render "surfaces/plane", surface: @surface, active_conversation: @conversation %>
-    <% end %>
-  </div>
+    </div>
+  </section>
 </div>

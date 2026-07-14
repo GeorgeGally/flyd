@@ -8,11 +8,42 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     Rails.cache.clear
   end
 
+  test "root surface is a fixed stage and intent opens without page reflow" do
+    activate_surface(title: "A grounded scene", renderer: "hero_scene")
+    page.current_window.resize_to(1440, 900)
+
+    visit root_path
+
+    assert_selector ".flyd-stage"
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
+    initial_height = page.evaluate_script("document.scrollingElement.scrollHeight")
+
+    click_button "Open Flyd input"
+
+    assert_selector ".flyd-stage[data-intent-active='true']"
+    assert_selector "textarea[aria-label='Tell Flyd what is happening']", visible: true
+    assert_equal initial_height, page.evaluate_script("document.scrollingElement.scrollHeight")
+
+    find("textarea[aria-label='Tell Flyd what is happening']").send_keys(:escape)
+    assert_no_selector ".flyd-stage[data-intent-active='true']"
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
+
+    page.current_window.resize_to(390, 844)
+    visit root_path
+
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
+    mobile_height = page.evaluate_script("document.scrollingElement.scrollHeight")
+    click_button "Open Flyd input"
+    assert_equal mobile_height, page.evaluate_script("document.scrollingElement.scrollHeight")
+  end
+
   test "root presents the universal composer and prepared scene" do
     Surface.fallback!
 
     visit root_path
 
+    assert_button "Open Flyd input"
+    click_button "Open Flyd input"
     assert_selector "textarea[placeholder='Ask, tell, show…']"
     assert_text "What deserves your attention?"
     assert_no_selector "aside"
@@ -122,6 +153,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     )
 
     visit root_path
+    click_button "Open Flyd input"
     find("textarea[aria-label='Tell Flyd what is happening']").click
     support_selector = "[data-item-key='#{support.item_key}']"
     assert_selector "#{support_selector}.opacity-35"
