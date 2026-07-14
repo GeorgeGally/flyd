@@ -1,7 +1,7 @@
 class InterpretIntentJob < ApplicationJob
   queue_as :default
 
-  retry_on StandardError, wait: :exponentially_longer, attempts: 3
+  retry_on StandardError, wait: :polynomially_longer, attempts: 3
 
   def perform(intent_id, preferred_project_id: nil)
     intent = Intent.includes(:intent_attachments).find(intent_id)
@@ -74,7 +74,7 @@ class InterpretIntentJob < ApplicationJob
     intent.update!(
       status: "accepted",
       conversation: conversation,
-      resolved_contexts: [{ "type" => context_type, "id" => owner.id, "name" => owner.name }],
+      resolved_contexts: [ { "type" => context_type, "id" => owner.id, "name" => owner.name } ],
       metadata: intent.metadata.merge("source_message_id" => message.id, "scene_id" => scene&.id)
     )
 

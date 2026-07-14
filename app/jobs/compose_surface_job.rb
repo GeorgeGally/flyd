@@ -13,7 +13,7 @@ class ComposeSurfaceJob < ApplicationJob
     Flyd::SurfacePlanValidator::ValidationError
   ].freeze
 
-  retry_on(*RETRYABLE_ERRORS, wait: :exponentially_longer, attempts: 3) do |job, error|
+  retry_on(*RETRYABLE_ERRORS, wait: :polynomially_longer, attempts: 3) do |job, error|
     arguments = job.arguments.first.is_a?(Hash) ? job.arguments.first : {}
     record_failure!(error, reason: arguments["reason"] || arguments[:reason])
     finish_and_enqueue_pending

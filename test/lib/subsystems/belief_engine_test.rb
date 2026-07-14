@@ -19,7 +19,9 @@ class Subsystems::BeliefEngineTest < ActiveSupport::TestCase
       extracted_at: Time.current
     )
 
-    @engine.synthesize([ d1, d2 ])
+    @engine.stub(:extract_topic, "postgresql") do
+      @engine.synthesize([ d1, d2 ])
+    end
     belief = @project.beliefs.first
     assert belief.present?
     assert belief.statement.present?

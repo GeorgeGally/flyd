@@ -8,17 +8,23 @@ class Subsystems::MemoryEngineTest < ActiveSupport::TestCase
   end
 
   test "extract_decisions creates decisions from messages" do
-    skip "Requires API key" unless Flyd::KeyLoader.has_api_key?("gpt-4o-mini")
-
-    @conversation.messages.create!(role: "user", content: "Let's use PostgreSQL")
+    first_source = @conversation.messages.create!(role: "user", content: "Let's use PostgreSQL")
     @conversation.messages.create!(role: "assistant", content: "Agreed, PostgreSQL is the right choice")
     source_message = @conversation.messages.create!(role: "user", content: "We'll use uuid primary keys")
 
-    @engine.extract_decisions(@conversation, message_range: 5)
-    assert @project.decisions.count >= 1
-    assert @project.decisions.first.content.present?
-    assert @project.decisions.first.extracted_at.present?
-    assert_equal source_message, @project.decisions.first.source_message
+    responses = [
+      '[{"content":"Use PostgreSQL"}]',
+      '[{"content":"Use UUID primary keys"}]'
+    ]
+    @engine.stub(:call_llm, ->(*) { responses.shift }) do
+      @engine.extract_decisions(@conversation, message_range: 5)
+    end
+
+    assert_equal 2, @project.decisions.count
+    assert_equal first_source, @project.decisions.find_by!(content: "Use PostgreSQL").source_message
+    uuid_decision = @project.decisions.find_by!(content: "Use UUID primary keys")
+    assert_equal source_message, uuid_decision.source_message
+    assert uuid_decision.extracted_at.present?
   end
 
   test "extract_decisions ignores superseded message segments" do

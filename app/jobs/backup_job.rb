@@ -7,7 +7,7 @@ require "tmpdir"
 class BackupJob < ApplicationJob
   queue_as :default
 
-  retry_on StandardError, wait: :exponentially_longer, attempts: 3
+  retry_on StandardError, wait: :polynomially_longer, attempts: 3
 
   def perform
     backup_dir = Rails.configuration.flyd[:backup_directory]
