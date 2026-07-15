@@ -5,7 +5,13 @@
     aria: { label: "Tell Flyd what is happening" },
     class: "flyd-intent-field__input",
     data: {
-      action: "focus->surface#focusIntent blur->surface#releaseIntent input->surface#resizeIntent keydown.esc->surface#releaseIntent",
+      action: [
+        "focus->surface#focusIntent",
+        "blur->surface#releaseIntent",
+        "input->surface#resizeIntent",
+        "keydown.esc->surface#releaseIntent",
+        ("keydown->chat#submitOnCommandEnter" if chat)
+      ].compact.join(" "),
       surface_target: "input",
       chat_target: (chat ? "input" : nil)
     }.compact %>

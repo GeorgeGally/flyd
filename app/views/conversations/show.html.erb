@@ -57,7 +57,7 @@
     <% message_path = @project ? project_conversation_messages_path(@project, @conversation) : conversation_messages_path(@conversation) %>
     <%= form_with url: message_path, method: :post, html: { data: { action: "submit->chat#submit" }, class: "flex items-end gap-2" } do |form| %>
       <div class="sr-only"><%= form.label :content, "Message" %></div>
-      <%= form.text_area :content, rows: 1, placeholder: "Type a message...", data: { chat_target: "input" }, aria: { label: "Message" }, class: "flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent", style: "max-height: 120px" %>
+      <%= form.text_area :content, rows: 1, placeholder: "Type a message...", data: { chat_target: "input", action: "keydown->chat#submitOnCommandEnter" }, aria: { label: "Message" }, class: "flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent", style: "max-height: 120px" %>
       <button type="submit" class="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm hover:bg-gray-800">Send</button>
     <% end %>
   </div>

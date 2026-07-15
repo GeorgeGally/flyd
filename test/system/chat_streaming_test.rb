@@ -28,6 +28,21 @@ class ChatStreamingTest < ApplicationSystemTestCase
     assert_text "Hello, this is a test message"
   end
 
+  test "command enter submits the message" do
+    visit project_conversation_path(@project, @conversation)
+
+    textarea = find("textarea[data-chat-target='input']")
+    textarea.fill_in with: "Send this with the keyboard"
+    page.execute_script(<<~JS)
+      document.querySelector("textarea[data-chat-target='input']").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true })
+      )
+    JS
+
+    assert_text "Send this with the keyboard"
+    assert_equal "", textarea.value
+  end
+
   test "start new chat navigates away" do
     visit project_conversation_path(@project, @conversation)
     click_on "Start New Chat"

@@ -19,6 +19,13 @@ export default class extends Controller {
     this.channel?.unsubscribe()
   }
 
+  submitOnCommandEnter(event) {
+    if (event.key !== "Enter" || !event.metaKey) return
+
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   submit(event) {
     event.preventDefault()
     const content = this.inputTarget.value.trim()
