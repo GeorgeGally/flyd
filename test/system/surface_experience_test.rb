@@ -50,6 +50,23 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_no_selector "aside"
   end
 
+  test "command enter submits the universal composer" do
+    Surface.fallback!
+    visit root_path
+    click_button "Open Flyd input"
+
+    textarea = find("textarea[aria-label='Tell Flyd what is happening']")
+    textarea.fill_in with: "Send this from the main surface"
+    page.execute_script(<<~JS)
+      document.querySelector("textarea[aria-label='Tell Flyd what is happening']").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true })
+      )
+    JS
+
+    assert_current_path(/intent_id=\d+/)
+    assert_equal "Send this from the main surface", Intent.order(:created_at).last.input_text
+  end
+
   test "a decision takes over the surface instead of reopening recent chat" do
     project = Project.create!(name: "Directed Flyd")
     conversation = Conversation.start!(project, summary: "An older conversation")

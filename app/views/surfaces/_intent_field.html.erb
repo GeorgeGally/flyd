@@ -10,7 +10,7 @@
         "blur->surface#releaseIntent",
         "input->surface#resizeIntent",
         "keydown.esc->surface#releaseIntent",
-        ("keydown->chat#submitOnCommandEnter" if chat)
+        "keydown->surface#submitOnCommandEnter"
       ].compact.join(" "),
       surface_target: "input",
       chat_target: (chat ? "input" : nil)

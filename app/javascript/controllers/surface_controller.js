@@ -137,6 +137,13 @@ export default class extends Controller {
     input.style.height = `${Math.min(input.scrollHeight, 260)}px`
   }
 
+  submitOnCommandEnter(event) {
+    if (event.key !== "Enter" || !event.metaKey) return
+
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   applySemanticLayout(active) {
     const focusKey = this.hasPlaneTarget ? this.planeTarget.dataset.surfaceFocusKey : null
 
