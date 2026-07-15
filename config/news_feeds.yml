@@ -32,6 +32,15 @@ publishers:
   - name: Uncrate
     url: https://feeds.feedburner.com/uncrate
     category: design
+  - name: Core77
+    url: https://feeds.feedburner.com/core77/blog
+    category: design
+  - name: FlowingData
+    url: https://flowingdata.com/feed
+    category: data_visualization
+  - name: Design Milk
+    url: https://feeds.feedburner.com/design-milk
+    category: design
 
 reddit:
   creative_coding:

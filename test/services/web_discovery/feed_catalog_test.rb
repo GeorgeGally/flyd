@@ -16,6 +16,9 @@ class WebDiscovery::FeedCatalogTest < ActiveSupport::TestCase
     assert_includes urls, "https://www.smashingmagazine.com/feed/"
     assert_includes urls, "https://feeds.feedburner.com/InformationIsBeautiful"
     assert_includes urls, "https://feeds.feedburner.com/uncrate"
+    assert_includes urls, "https://feeds.feedburner.com/core77/blog"
+    assert_includes urls, "https://flowingdata.com/feed"
+    assert_includes urls, "https://feeds.feedburner.com/design-milk"
     assert_equal urls.uniq, urls
   end
 
