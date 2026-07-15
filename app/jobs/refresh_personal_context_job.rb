@@ -22,7 +22,7 @@ class RefreshPersonalContextJob < ApplicationJob
 
   def perform
     activities = scanner.fetch.map { |activity| activity_evidence(activity) }
-    horoscope = horoscope_client.fetch
+    horoscope = horoscope_client.fetch if configuration[:zodiac_sign].present?
     horoscopes = horoscope ? [ horoscope_evidence(horoscope) ] : []
     _record, changed = provider.persist!(activities:, horoscopes:)
     ComposeSurfaceJob.enqueue(reason: "personal_context_refresh") if changed || Surface.current.nil? || Surface.current.stale?
@@ -44,6 +44,8 @@ class RefreshPersonalContextJob < ApplicationJob
   end
 
   def horoscope_client
+    return unless configuration[:zodiac_sign].present?
+
     @horoscope_client ||= Horoscope::Client.new(sign: configuration.fetch(:zodiac_sign))
   end
 

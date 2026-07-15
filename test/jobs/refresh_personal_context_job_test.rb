@@ -22,6 +22,7 @@ class RefreshPersonalContextJobTest < ActiveJob::TestCase
     })
     job = RefreshPersonalContextJob.new
     job.define_singleton_method(:scanner) { scanner }
+    job.define_singleton_method(:configuration) { { zodiac_sign: "aries" } }
     job.define_singleton_method(:horoscope_client) { horoscope }
     calls = []
 
@@ -33,5 +34,20 @@ class RefreshPersonalContextJobTest < ActiveJob::TestCase
     assert_equal "Continue Flyd", snapshot.data[:activities].first.dig("content", "title")
     assert_equal "Aries", snapshot.data[:horoscopes].first.dig("content", "title")
     assert_equal [ { reason: "personal_context_refresh" } ], calls
+  end
+
+  test "does not invent a horoscope when the zodiac sign is unknown" do
+    scanner = Struct.new(:items) { def fetch = items }.new([])
+    job = RefreshPersonalContextJob.new
+    job.define_singleton_method(:scanner) { scanner }
+    job.define_singleton_method(:configuration) { { zodiac_sign: nil } }
+    job.define_singleton_method(:horoscope_client) { raise "horoscope client should not be called" }
+
+    ComposeSurfaceJob.stub(:enqueue, false) do
+      job.perform
+    end
+
+    snapshot = IntelligenceState::PersonalContextProvider.new.snapshot
+    assert_empty snapshot.data[:horoscopes]
   end
 end

@@ -19,7 +19,7 @@ Providers supply observations only. Flyd decides whether they deserve the screen
 Discovery may use up to three semantic objects. The default living composition is:
 
 1. the most recent local work, when fresh;
-2. the current Aries horoscope;
+2. the user's current horoscope, when their sign is known;
 3. a discovery edition containing several grounded stories.
 
 The objects share one viewport. One object owns focus while the others remain visibly present. Arrow keys, pointer selection, and swipe-compatible controls move focus with directional transforms and palette changes. Reduced-motion preferences disable nonessential transitions.
@@ -55,7 +55,7 @@ Reddit feeds use direct `https://www.reddit.com/r/<subreddit>/.rss` URLs for the
 
 Local activity is observed from configured project roots and records project name, path, latest activity time, branch, and latest commit summary where available. The current checkout should therefore identify Flyd as the most recent work, followed by other genuinely recent projects.
 
-The horoscope source defaults to Aries because the supplied horoscope project defaults to Aries. The sign remains configurable through `FLYD_ZODIAC_SIGN`.
+The horoscope source is enabled only when the user's sign is explicitly configured through `FLYD_ZODIAC_SIGN`. Flyd must not treat the supplied horoscope project's demo default as personal data.
 
 ## Validation
 

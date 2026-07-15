@@ -11,7 +11,7 @@ shared: &shared
   web_discovery_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_WEB_DISCOVERY", "true")) %>
   personal_context_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_PERSONAL_CONTEXT", "true")) %>
   local_activity_root: <%= ENV.fetch("FLYD_PROJECTS_DIR", File.join(Dir.home, "Documents")) %>
-  zodiac_sign: <%= ENV.fetch("FLYD_ZODIAC_SIGN", "aries") %>
+  zodiac_sign: <%= ENV["FLYD_ZODIAC_SIGN"] %>
 
 development:
   <<: *shared
