@@ -1,11 +1,11 @@
 <% source = SurfaceSourceResolver.new(item.surface).resolve(item.source_refs.first || {}) %>
 <% display_title = source.title.presence || item.title %>
 <% variant = item.metadata["variant"].presence || source.type %>
-<section class="discovery-scene" data-variant="<%= variant %>">
+<section class="discovery-scene" data-variant="<%= variant %>" data-spine-label="<%= display_title %>">
   <article class="discovery-poster" data-has-image="<%= source.image_url.present? %>">
     <% if source.image_url.present? %>
       <div class="discovery-poster__image-field">
-        <%= image_tag source.image_url, alt: "Preview for #{display_title}", class: "discovery-poster__image", referrerpolicy: "no-referrer" %>
+        <%= image_tag source.image_url, alt: "", class: "discovery-poster__image", referrerpolicy: "no-referrer", data: { action: "error->surface#hideBrokenImage" } %>
       </div>
     <% end %>
     <div class="discovery-poster__body">

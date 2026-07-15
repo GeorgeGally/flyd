@@ -706,15 +706,46 @@
     }
 
     .surface-object.is-runtime-support .discovery-poster__body {
-      padding-inline: 0.45rem;
+      display: none;
     }
 
-    .surface-object.is-runtime-support .discovery-poster__source,
-    .surface-object.is-runtime-support .discovery-poster__title {
-      writing-mode: vertical-rl;
-      overflow: hidden;
-      font-size: 0.72rem;
+    .surface-object.is-runtime-support .discovery-scene {
+      position: relative;
+    }
+
+    .surface-object.is-runtime-support .discovery-scene::after {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      padding-block: 0.75rem;
+      background: rgb(17 17 15 / 58%);
+      color: #f5f1e8;
+      content: attr(data-spine-label);
+      font-size: 0.78rem;
+      font-weight: 650;
       line-height: 1;
+      overflow: hidden;
+      text-orientation: mixed;
+      writing-mode: vertical-rl;
+      white-space: nowrap;
+    }
+
+    .surface-object.is-runtime-support .discovery-scene[data-variant="horoscope"]::after {
+      background: transparent;
+      color: #171b2a;
+      font-weight: 400;
+    }
+
+    .surface-object.is-runtime-support .discovery-poster[data-has-image="true"] {
+      position: relative;
+      display: block;
+    }
+
+    .surface-object.is-runtime-support .discovery-poster[data-has-image="true"] .discovery-poster__image-field {
+      position: absolute;
+      inset: 0;
     }
 
     .flyd-intent-tray__inner {

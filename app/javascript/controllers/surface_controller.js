@@ -10,6 +10,7 @@ export default class extends Controller {
     document.addEventListener("keydown", this.handleGlobalKeydown)
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
     this.applyRuntimeFocus()
+    this.hideFailedImages()
   }
 
   disconnect() {
@@ -20,6 +21,7 @@ export default class extends Controller {
   handleMorph() {
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
     this.applyRuntimeFocus()
+    this.hideFailedImages()
   }
 
   focusIntent() {
@@ -80,6 +82,19 @@ export default class extends Controller {
     if (Math.abs(distance) < 45) return
 
     this.cycleFocus(distance < 0 ? 1 : -1)
+  }
+
+  hideBrokenImage(event) {
+    const field = event.currentTarget.closest(".discovery-poster__image-field")
+    const poster = event.currentTarget.closest(".discovery-poster")
+    field?.remove()
+    if (poster) poster.dataset.hasImage = "false"
+  }
+
+  hideFailedImages() {
+    this.element.querySelectorAll(".discovery-poster__image").forEach((image) => {
+      if (image.complete && image.naturalWidth === 0) this.hideBrokenImage({ currentTarget: image })
+    })
   }
 
   setRuntimeFocus(focus) {

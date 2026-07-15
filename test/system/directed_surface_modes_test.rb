@@ -321,7 +321,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_selector "#surface_plane[data-surface-composition='poster_deck']"
     assert_selector ".discovery-scene", count: 3
     assert_selector ".discovery-poster", count: 3
-    assert_selector ".discovery-poster img[src='https://example.com/memex.jpg']"
+    assert_selector ".discovery-poster[data-has-image='false']"
     page.find(".surface-object[data-position='2']").click
     assert_selector ".discovery-poster", text: "A system for following connections through a personal archive."
     assert_text "Continue flyd"
