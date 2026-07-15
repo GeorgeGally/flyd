@@ -21,8 +21,7 @@ module Flyd
     private
 
     def directed_discovery?
-      suggested = @state.dig(:interface_direction, :suggested_mode).to_s
-      (suggested.blank? || suggested == "discovery") && directed_references.any?
+      @payload["surface_mode"] == "discovery" && directed_references.any?
     end
 
     def directed_payload

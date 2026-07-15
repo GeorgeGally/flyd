@@ -49,6 +49,38 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     assert_equal "useful", result.state[:recent_feedback].first[:signal]
   end
 
+  test "budgeting retains representative evidence from every provider collection" do
+    provider = FakeProvider.new({
+      providers: [
+        {
+          source: "flyd-cli", fresh: true, data: {
+            reports: Array.new(8) { |index| evidence("report:#{index}", type: "report", body: "archive " * 300) }
+          }
+        },
+        {
+          source: "personal-context", fresh: true, data: {
+            activities: Array.new(8) { |index| evidence("activity:#{index}", type: "activity", body: "activity " * 300) },
+            horoscopes: [ evidence("horoscope:today", type: "horoscope", body: "horoscope " * 300) ]
+          }
+        },
+        {
+          source: "web-discovery", fresh: true, data: {
+            discoveries: Array.new(8) { |index| evidence("discovery:#{index}", type: "discovery", body: "discovery " * 300) }
+          }
+        }
+      ]
+    })
+
+    result = Flyd::WorldStateCompiler.call(state_provider: provider, budget: 3_500)
+    providers = result.state.dig(:provider_state, :providers).index_by { |entry| entry[:source] }
+
+    assert providers.dig("flyd-cli", :data, :reports).any?
+    assert providers.dig("personal-context", :data, :activities).any?
+    assert providers.dig("personal-context", :data, :horoscopes).any?
+    assert_operator providers.dig("web-discovery", :data, :discoveries).length, :>=, 3
+    assert_operator JSON.generate(result.state).length, :<=, 3_500
+  end
+
   private
 
   def evidence(id, type: "goal", body: "ship")

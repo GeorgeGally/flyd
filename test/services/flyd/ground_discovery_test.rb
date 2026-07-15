@@ -69,6 +69,7 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
       }
     )
     state[:interface_direction] = {
+      suggested_mode: "decision",
       candidates: [ {
         mode: "discovery",
         evidence_refs: [ { type: "discovery", id: "discovery:hn:art" } ]

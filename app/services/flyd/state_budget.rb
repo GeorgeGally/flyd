@@ -4,6 +4,7 @@ module Flyd
     Result = Data.define(:state, :dropped)
     Candidate = Data.define(:path, :array, :depth)
     PROTECTED_ARRAY_KEYS = %w[capabilities renderers providers candidates].freeze
+    PROVIDER_COLLECTION_MINIMUMS = { "discoveries" => 3 }.freeze
 
     def self.call(state:, budget:)
       new(state:, budget:).call
@@ -77,9 +78,18 @@ module Flyd
 
     def prunable?(path, array)
       return false if array.empty?
+      return false if provider_evidence_collection?(path) && array.length <= provider_collection_minimum(path)
 
       key = path.split(".").last.to_s.sub(/\[\d+\]\z/, "")
       !PROTECTED_ARRAY_KEYS.include?(key)
+    end
+
+    def provider_evidence_collection?(path)
+      path.match?(/\Astate\.provider_state\.providers\[\d+\]\.data\.[^.]+\z/)
+    end
+
+    def provider_collection_minimum(path)
+      PROVIDER_COLLECTION_MINIMUMS.fetch(path.split(".").last, 1)
     end
 
     def identifier_for(value)
