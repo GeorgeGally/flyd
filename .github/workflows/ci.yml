@@ -28,7 +28,7 @@ jobs:
           exit $status
 
       - name: Upload Brakeman failure log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: brakeman-log
@@ -77,7 +77,7 @@ jobs:
           exit $status
 
       - name: Upload RuboCop failure log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: rubocop-log
@@ -115,7 +115,7 @@ jobs:
           exit $status
 
       - name: Upload CLI failure log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: cli-test-log
@@ -172,14 +172,14 @@ jobs:
           exit $status
 
       - name: Upload Rails failure log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: rails-test-log
           path: /tmp/rails-test.log
 
       - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: screenshots
