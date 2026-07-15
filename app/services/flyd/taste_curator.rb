@@ -64,7 +64,7 @@ module Flyd
           "rabbit_hole_key":"exact key of the single most weird, deep, or fun accepted item"
         }
 
-        Judge every candidate exactly once. Be opinionated. `hot` means genuinely novel or unusually compelling. `worth_a_look` means specifically useful or intriguing. `skip` means it does not earn attention. Give every verdict a concrete reason. If anything is accepted, choose exactly one accepted rabbit hole; otherwise use null.
+        Judge every candidate exactly once. Be opinionated. `hot` means genuinely novel or unusually compelling. `worth_a_look` means specifically useful or intriguing. `skip` means it does not earn attention. Give every verdict a concrete reason. If anything is accepted, choose exactly one accepted rabbit hole; otherwise use null. The rabbit hole should be a project, tool, archive, oddity, or deep essay, not a conventional news headline.
       PROMPT
     end
 

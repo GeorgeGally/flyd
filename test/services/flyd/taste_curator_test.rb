@@ -26,6 +26,7 @@ class Flyd::TasteCuratorTest < ActiveSupport::TestCase
     assert_equal "A deep visual explanation with an unusual premise.", selected.first[:interest_reason]
     assert_equal false, selected.second[:rabbit_hole]
     assert_includes chat.received_messages.first[:content], "Weird over practical"
+    assert_includes chat.received_messages.first[:content], "not a conventional news headline"
     sent = JSON.parse(chat.received_messages.last[:content])
     assert_includes sent.dig("personal_context", "goals"), "Build personal intelligence"
     assert_includes sent.dig("personal_context", "recent_work"), "Continue Flyd"
