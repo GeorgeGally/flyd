@@ -44,7 +44,7 @@ module WebDiscovery
 
       guid = node_text(entry, "guid", "id").presence || url
       published_at = parsed_time(node_text(entry, "pubDate", "published", "updated", "date")) || Time.current
-      html = node_text(entry, "description", "summary", "content")
+      html = node_text(entry, "description", "summary", "content", "encoded")
       description = clean_html(html)
       image_url = absolute_url(feed_uri, entry_image(entry, html))
       reddit = source[:kind] == "reddit"
@@ -78,7 +78,7 @@ module WebDiscovery
       link = entry.xpath("./*[local-name()='link']").find do |node|
         node["rel"].blank? || node["rel"] == "alternate"
       end
-      safe_url(link&.[]("href").presence || link&.text)
+      safe_url(link&.[]("href").presence || link&.text.presence || node_text(entry, "guid"))
     end
 
     def entry_image(entry, html)

@@ -62,6 +62,18 @@ class WebDiscovery::FeedClientTest < ActiveSupport::TestCase
     assert_equal 2.megabytes, received_limit
   end
 
+  test "reads legacy RSS links and descriptions from guid and content encoded" do
+    source = { name: "Uncrate", url: "https://feeds.feedburner.com/uncrate", kind: "publisher", category: "design" }
+    transport = ->(*) { legacy_rss_fixture }
+
+    story = WebDiscovery::FeedClient.new(sources: [ source ], transport:).fetch.first
+
+    assert_equal "Rivian x Nike ACG R1T Recharge Truck", story[:title]
+    assert_equal "https://uncrate.com/rivian-x-nike-acg-r1t-recharge-truck/", story[:url]
+    assert_equal "Nike ACG and Rivian built a shade truck for a trail race.", story[:description]
+    assert_equal "https://uncrate.com/recharge-truck.jpg", story[:image_url]
+  end
+
   private
 
   def rss_fixture
@@ -95,6 +107,24 @@ class WebDiscovery::FeedClientTest < ActiveSupport::TestCase
           <content type="html">&lt;div&gt;&lt;p&gt;A playable audiovisual instrument built with p5.js.&lt;/p&gt;&lt;/div&gt;</content>
         </entry>
       </feed>
+    XML
+  end
+
+  def legacy_rss_fixture
+    <<~XML
+      <?xml version="1.0"?>
+      <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel>
+          <item>
+            <title>Rivian x Nike ACG R1T Recharge Truck</title>
+            <guid>https://uncrate.com/rivian-x-nike-acg-r1t-recharge-truck/</guid>
+            <pubDate>Tue, 14 Jul 2026 18:00:00 -0500</pubDate>
+            <description></description>
+            <content:encoded><![CDATA[<p>Nike ACG and Rivian built a shade truck for a trail race.</p>]]></content:encoded>
+            <enclosure type="image/jpg" url="https://uncrate.com/recharge-truck.jpg" />
+          </item>
+        </channel>
+      </rss>
     XML
   end
 end

@@ -14,6 +14,9 @@ class WebDiscovery::FeedCatalogTest < ActiveSupport::TestCase
     assert_includes urls, "https://www.fastcompany.com/latest/rss?truncated=false"
     assert_includes urls, "https://rss.slashdot.org/Slashdot/slashdot"
     assert_includes urls, "https://www.smashingmagazine.com/feed/"
+    assert_includes urls, "https://feeds.feedburner.com/InformationIsBeautiful"
+    assert_includes urls, "https://feeds.feedburner.com/uncrate"
+    assert_equal urls.uniq, urls
   end
 
   test "expands every configured subreddit into a direct Atom feed" do

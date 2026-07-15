@@ -26,6 +26,12 @@ publishers:
   - name: Smashing Magazine
     url: https://www.smashingmagazine.com/feed/
     category: design
+  - name: Information Is Beautiful
+    url: https://feeds.feedburner.com/InformationIsBeautiful
+    category: design
+  - name: Uncrate
+    url: https://feeds.feedburner.com/uncrate
+    category: design
 
 reddit:
   creative_coding:
