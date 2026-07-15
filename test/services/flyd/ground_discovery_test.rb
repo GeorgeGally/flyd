@@ -18,8 +18,7 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
           comments: 169,
           publishedAt: "2026-07-14T00:57:11Z",
           description: "A precise walkthrough of reconstructing repository history from Git objects.",
-          matchedTopics: [ "git" ],
-          relevanceReason: "Matches your interests: git"
+          interestReason: "Matches your interests: git"
         }
       )
     )
@@ -65,7 +64,7 @@ class Flyd::GroundDiscoveryTest < ActiveSupport::TestCase
         score: 16,
         comments: 5,
         publishedAt: "2026-07-11T15:38:13Z",
-        relevanceReason: "Matches your interests: art"
+        interestReason: "Matches your interests: art"
       }
     )
     state[:interface_direction] = {

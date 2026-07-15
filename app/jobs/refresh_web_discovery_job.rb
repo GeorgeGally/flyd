@@ -19,8 +19,8 @@ class RefreshWebDiscoveryJob < ApplicationJob
   end
 
   def perform
-    stories = client.fetch + feed_client.fetch
-    selected = WebDiscovery::TopicProfile.new(cli_snapshot).select(stories, limit: 8)
+    stories = candidate_pool(client.fetch + feed_client.fetch).call
+    selected = taste_curator(stories).call
     selected = selected.map { |story| story.merge(metadata_client.fetch(story.fetch(:url))) }
     _record, changed = provider.persist!(discoveries: selected.map { |story| evidence_for(story) })
     ComposeSurfaceJob.enqueue(reason: "web_discovery_refresh") if changed || Surface.current.nil? || Surface.current.stale?
@@ -45,6 +45,21 @@ class RefreshWebDiscoveryJob < ApplicationJob
     IntelligenceState::CliProvider.new.snapshot
   end
 
+  def personal_snapshot
+    IntelligenceState::PersonalContextProvider.new.snapshot
+  end
+
+  def candidate_pool(stories)
+    WebDiscovery::CandidatePool.new(stories)
+  end
+
+  def taste_curator(stories)
+    Flyd::TasteCurator.new(
+      stories: stories,
+      context: { cli: cli_snapshot.data, personal: personal_snapshot.data }
+    )
+  end
+
   def provider
     @provider ||= IntelligenceState::WebDiscoveryProvider.new
   end
@@ -61,7 +76,7 @@ class RefreshWebDiscoveryJob < ApplicationJob
       "type" => "discovery",
       "source" => "web.#{source_key}",
       "epistemicStatus" => "observation",
-      "confidence" => story[:matched_topics].any? ? 0.85 : 0.75,
+      "confidence" => story.fetch(:interest_verdict) == "hot" ? 0.9 : 0.82,
       "generatedAt" => story.fetch(:published_at).iso8601,
       "evidenceRefs" => [],
       "content" => {
@@ -75,8 +90,9 @@ class RefreshWebDiscoveryJob < ApplicationJob
         "score" => story[:score],
         "comments" => story[:comments],
         "publishedAt" => story.fetch(:published_at).iso8601,
-        "matchedTopics" => story[:matched_topics],
-        "relevanceReason" => story[:relevance_reason],
+        "interestVerdict" => story.fetch(:interest_verdict),
+        "interestReason" => story.fetch(:interest_reason),
+        "rabbitHole" => story.fetch(:rabbit_hole),
         "description" => story[:description],
         "imageUrl" => story[:image_url],
         "siteName" => story[:site_name]

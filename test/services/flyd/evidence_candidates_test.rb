@@ -238,6 +238,33 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal "discovery:hn:grounded", candidates.first.dig(:evidence_refs, 0, :id)
   end
 
+  test "prioritizes Flyd's rabbit hole and opinionated verdicts internally" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "web-discovery",
+          fresh: true,
+          data: {
+            discoveries: [
+              evidence("discovery", "discovery:feed:routine", {
+                title: "A routine accepted story",
+                description: "A detailed but ordinary story that Flyd still considered worth a look.",
+                interestVerdict: "worth_a_look", rabbitHole: false
+              }),
+              evidence("discovery", "discovery:feed:rabbit", {
+                title: "An obscure protocol rabbit hole",
+                description: "A strange and deep history of a forgotten protocol built under severe constraints.",
+                interestVerdict: "hot", rabbitHole: true
+              })
+            ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "discovery:feed:rabbit", candidates.first.dig(:evidence_refs, 0, :id)
+  end
+
   test "builds a three-object discovery led by recent personal context" do
     candidates = Flyd::EvidenceCandidates.call(
       provider_state: {

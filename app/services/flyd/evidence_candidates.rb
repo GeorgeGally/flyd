@@ -136,6 +136,9 @@ module Flyd
       else 100
       end
       score += Array(content[:topics]).compact_blank.size * 12
+      score += 500 if content[:rabbitHole] || content[:rabbit_hole]
+      score += 180 if (content[:interestVerdict] || content[:interest_verdict]) == "hot"
+      score += 60 if (content[:interestVerdict] || content[:interest_verdict]) == "worth_a_look"
       score += 120 if title.match?(/research|finding|fact|insight/i)
       score += 70 if title.match?(/concept|history|news/i)
       score -= 100 if title.match?(/attention report|tension report|implementation plan|deep review|test/i)

@@ -103,7 +103,7 @@ module Flyd
       item["summary"] = content[:description].presence || content[:excerpt].presence || facts.join(" · ").presence || item["title"]
       item["metadata"]["source_label"] = [ "Current story", content[:sourceName] || content[:source_name] ].compact_blank.join(" · ")
       item["metadata"]["provenance"] = facts.join(" · ") if facts.any?
-      reason = content[:relevanceReason] || content[:relevance_reason] || "From current stories"
+      reason = content[:interestReason] || content[:interest_reason] || "From current stories"
       item["metadata"]["why_it_matters"] = reason
       item["metadata"]["variant"] = "story"
       @payload["understanding"] = current_story_understanding(reason)
