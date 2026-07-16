@@ -4,7 +4,8 @@ class SurfaceItemActionsController < ApplicationController
   def create
     item = SurfaceItem.includes(:scene, :surface).find(params[:surface_item_id])
     action_id = params.require(:action_id)
-    unless DIRECT_ACTIONS.include?(action_id) && SurfaceActions::Registry.supported?(action_id) && item.offers_action?(action_id)
+    action = item.offered_action(action_id, option_id: requested_option_id)
+    unless DIRECT_ACTIONS.include?(action_id) && SurfaceActions::Registry.supported?(action_id) && action
       raise ArgumentError, "Action is not available for this item."
     end
 
@@ -14,13 +15,13 @@ class SurfaceItemActionsController < ApplicationController
       record_feedback(item, "discussed")
       redirect_to root_path(conversation_id: conversation.id)
     when "choose"
-      choose_option(item)
+      choose_option(item, action)
       redirect_to root_path, notice: "Decision recorded."
     when "investigate"
-      conversation = begin_investigation(item)
+      conversation = begin_investigation(item, action)
       redirect_to root_path(conversation_id: conversation.id), notice: "Investigation started."
     when "build"
-      build = propose_build(item)
+      build = propose_build(item, action)
       redirect_to build_path(build), notice: build.proposed? ? "Review the action before it runs." : "This scene already has an active action."
     else
       redirect_to root_path, alert: "Action is not available."
@@ -31,9 +32,9 @@ class SurfaceItemActionsController < ApplicationController
 
   private
 
-  def choose_option(item)
+  def choose_option(item, action)
     Surface.with_transition_lock do
-      payload = action_payload
+      payload = persisted_payload(action)
       option_id = payload.fetch("option_id")
       option_label = payload.fetch("option_label")
       scene = item.scene || raise(ActiveRecord::RecordNotFound, "Decision scene is unavailable")
@@ -80,9 +81,9 @@ class SurfaceItemActionsController < ApplicationController
     end
   end
 
-  def begin_investigation(item)
+  def begin_investigation(item, action)
     conversation = conversation_for(item)
-    question = action_payload.fetch("question")
+    question = persisted_payload(action).fetch("question")
     scene = item.scene || conversation.primary_scene
     scene&.present!(
       title: item.title,
@@ -105,8 +106,14 @@ class SurfaceItemActionsController < ApplicationController
     conversation
   end
 
-  def action_payload
-    params.fetch(:payload, {}).permit(:option_id, :option_label, :question, :instructions).to_h
+  def requested_option_id
+    legacy_payload = params[:payload]
+    legacy_option_id = legacy_payload.dig(:option_id) if legacy_payload.respond_to?(:dig)
+    params[:option_id].presence || legacy_option_id.presence
+  end
+
+  def persisted_payload(action)
+    action.fetch("payload", {}).to_h.deep_stringify_keys
   end
 
   def record_feedback(item, signal)
@@ -115,7 +122,7 @@ class SurfaceItemActionsController < ApplicationController
     feedback
   end
 
-  def propose_build(item)
+  def propose_build(item, action)
     conversation = conversation_for(item)
     raise ArgumentError, "Build currently requires a project-owned scene" unless conversation.project
 
@@ -124,7 +131,7 @@ class SurfaceItemActionsController < ApplicationController
       conversation: conversation,
       scene: item.scene || conversation.primary_scene,
       surface_item: item,
-      instructions: action_payload["instructions"]
+      instructions: persisted_payload(action)["instructions"]
     )
   end
 

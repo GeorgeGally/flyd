@@ -113,7 +113,7 @@ module Flyd
         action: {
           purpose: "Show the proposed work, likely impact, and confirmation boundary.",
           focus_renderer: "action_scene",
-          required_action: "build",
+          actions_by_readiness: { ready: "build", blocked: nil, running: nil },
           maximum_items: 3
         },
         monitoring: {

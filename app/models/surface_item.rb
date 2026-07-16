@@ -24,4 +24,19 @@ class SurfaceItem < ApplicationRecord
       (action["id"] || action[:id]).to_s == action_id.to_s
     end
   end
+
+  def offered_action(action_id, option_id: nil)
+    matches = Array(actions).filter_map do |action|
+      action = action.to_h.deep_stringify_keys
+      action if action["id"] == action_id.to_s
+    end
+
+    if action_id.to_s == "choose"
+      return if option_id.blank?
+
+      matches.select! { |action| action.dig("payload", "option_id").to_s == option_id.to_s }
+    end
+
+    matches.one? ? matches.first : nil
+  end
 end

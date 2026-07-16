@@ -210,8 +210,8 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
         ]
       },
       actions: [
-        { "id" => "choose", "label" => "Choose darker", "payload" => { "option_id" => "dark" } },
-        { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright" } },
+        { "id" => "choose", "label" => "Choose darker", "payload" => { "option_id" => "dark", "option_label" => "Darker direction" } },
+        { "id" => "choose", "label" => "Choose bright", "payload" => { "option_id" => "bright", "option_label" => "Bright direction" } },
         { "id" => "discuss", "label" => "Talk it through", "payload" => {} }
       ],
       context_refs: [ { "type" => "context", "id" => context.id } ],
@@ -239,6 +239,102 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     field_border = page.evaluate_script("getComputedStyle(document.querySelector('.decision-field')).borderTopWidth")
     assert_equal "none", option_shadow
     assert_equal "0px", field_border
+
+    click_on "Choose"
+    assert_current_path root_path
+    assert_no_text "Choose the stronger direction"
+  end
+
+  test "decision mode stays neutral when Flyd makes no recommendation" do
+    scene = Scene.create!(
+      scene_key: "decision:neutral",
+      kind: "decision",
+      status: "active",
+      title: "Choose without a recommendation"
+    )
+    activate_surface(
+      scene: scene,
+      mode: "decision",
+      kind: "decision",
+      intent: "decide",
+      renderer: "decision_scene",
+      metadata: {
+        "options" => [
+          { "id" => "one", "label" => "First option", "description" => "One valid direction." },
+          { "id" => "two", "label" => "Second option", "description" => "Another valid direction." }
+        ]
+      },
+      actions: [
+        { "id" => "choose", "label" => "Choose first", "payload" => { "option_id" => "one", "option_label" => "First option" } },
+        { "id" => "choose", "label" => "Choose second", "payload" => { "option_id" => "two", "option_label" => "Second option" } }
+      ],
+      context_refs: []
+    )
+
+    visit root_path
+
+    assert_no_text "Recommended"
+    assert_no_button "Accept"
+    assert_button "Choose", count: 2
+    assert_selector ".decision-option[data-recommended='false']", count: 2
+  end
+
+  test "action mode distinguishes blocked and running work from ready proposals" do
+    blocked_scene = Scene.create!(
+      scene_key: "action:blocked",
+      kind: "build",
+      status: "active",
+      title: "Waiting for repository access"
+    )
+    activate_surface(
+      scene: blocked_scene,
+      mode: "action",
+      kind: "scene",
+      intent: "build",
+      renderer: "action_scene",
+      metadata: {
+        "proposed_action" => "Update the protected repository.",
+        "impact" => "The release can proceed once access is restored.",
+        "readiness" => "blocked"
+      },
+      actions: [],
+      context_refs: []
+    )
+
+    visit root_path
+
+    assert_selector ".surface-label", text: /Blocked/i
+    assert_no_text "Ready to act"
+    assert_no_button "Review action"
+    assert_text "Flyd will not offer execution until the blocker is resolved."
+
+    running_scene = Scene.create!(
+      scene_key: "action:running",
+      kind: "build",
+      status: "active",
+      title: "Building the action contract"
+    )
+    activate_surface(
+      scene: running_scene,
+      mode: "action",
+      kind: "scene",
+      intent: "build",
+      renderer: "action_scene",
+      metadata: {
+        "proposed_action" => "Run the approved implementation.",
+        "impact" => "The verified result will return to Flyd.",
+        "readiness" => "running"
+      },
+      actions: [],
+      context_refs: []
+    )
+
+    visit root_path
+
+    assert_selector ".surface-label", text: /In progress/i
+    assert_no_text "Ready to act"
+    assert_no_button "Review action"
+    assert_text "Execution is already underway. Flyd will return the outcome to this scene."
   end
 
   test "discovery composes three grounded objects as a moving poster deck" do

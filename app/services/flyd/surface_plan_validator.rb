@@ -55,6 +55,7 @@ module Flyd
       focus ||= ids.first
 
       relationships = Array(@payload["relationships"]).map { |relationship| validate_relationship(relationship, ids) }
+      items.each { |item| validate_renderer_action_contract(item) }
       validate_mode_grammar(mode, items.find { |item| item["id"] == focus.to_s })
       raise ValidationError, @errors.join("; ") if @errors.any?
 
@@ -221,18 +222,82 @@ module Flyd
         @errors << "Conversation surface must focus conversation" unless focus["renderer"] == "conversation"
       when "decision"
         @errors << "Decision surface must focus a decision scene" unless focus["renderer"] == "decision_scene"
-        @errors << "Decision surface requires choose actions" unless focus["actions"].count { |action| action["id"] == "choose" } >= 2
       when "investigation"
         @errors << "Investigation surface must focus an investigation scene" unless focus["renderer"] == "investigation_scene"
-        @errors << "Investigation surface requires an investigate action" unless focus["actions"].any? { |action| action["id"] == "investigate" }
       when "action"
         @errors << "Action surface must focus an action scene" unless focus["renderer"] == "action_scene"
-        @errors << "Action surface requires a build action" unless focus["actions"].any? { |action| action["id"] == "build" }
       when "monitoring"
         @errors << "Monitoring surface must focus a notification" unless focus["renderer"] == "notification"
       when "discovery"
         @errors << "Discovery surface must focus a discovery scene" unless focus["renderer"] == "discovery_scene"
         @errors << "Discovery requires grounded source evidence" if focus["source_refs"].empty?
+      end
+    end
+
+    def validate_renderer_action_contract(item)
+      case item["renderer"]
+      when "decision_scene"
+        validate_decision_actions(item)
+      when "investigation_scene"
+        validate_investigation_action(item)
+      when "action_scene"
+        validate_build_action(item)
+      end
+    end
+
+    def validate_decision_actions(item)
+      options = Array(item.dig("metadata", "options"))
+      option_ids = options.map { |option| option["id"] }
+      choose_actions = item["actions"].select { |action| action["id"] == "choose" }
+
+      @errors << "Decision option ids must be unique" unless option_ids.uniq.length == option_ids.length
+
+      action_matches = options.to_h do |option|
+        [ option["id"], choose_actions.select { |action| action.dig("payload", "option_id") == option["id"] } ]
+      end
+      @errors << "Each decision option requires exactly one choose action" unless action_matches.values.all?(&:one?)
+
+      options.each do |option|
+        matching = action_matches.fetch(option["id"], [])
+        next unless matching.one?
+
+        if matching.first.dig("payload", "option_label") != option["label"]
+          @errors << "Decision action label must match its displayed option"
+        end
+      end
+
+      if choose_actions.any? { |action| !option_ids.include?(action.dig("payload", "option_id")) }
+        @errors << "Decision choose actions must reference a displayed option"
+      end
+    end
+
+    def validate_investigation_action(item)
+      investigate_actions = item["actions"].select { |action| action["id"] == "investigate" }
+      unless investigate_actions.one?
+        @errors << "Investigation surface requires exactly one investigate action"
+        return
+      end
+
+      if investigate_actions.first.dig("payload", "question") != item.dig("metadata", "next_question")
+        @errors << "Investigation action must match the displayed next question"
+      end
+    end
+
+    def validate_build_action(item)
+      readiness = item.dig("metadata", "readiness")
+      build_actions = item["actions"].select { |action| action["id"] == "build" }
+
+      if readiness == "ready"
+        unless build_actions.one?
+          @errors << "Ready action surface requires exactly one build action"
+          return
+        end
+
+        if build_actions.first.dig("payload", "instructions") != item.dig("metadata", "proposed_action")
+          @errors << "Build instructions must match the displayed proposed work"
+        end
+      elsif build_actions.any?
+        @errors << "Blocked or running action surfaces must not offer a build action"
       end
     end
 

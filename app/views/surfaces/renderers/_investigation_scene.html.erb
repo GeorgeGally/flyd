@@ -12,7 +12,7 @@
       <div class="mt-8 flex flex-wrap gap-4 text-xs">
         <% item.actions.select { |action| (action["id"] || action[:id]) == "investigate" }.each do |action| %>
           <% action_id = action["id"] || action[:id] %>
-          <%= button_to action["label"] || "Investigate", surface_item_action_path(item, action_id: action_id), method: :post, params: { payload: action["payload"] || {} }, class: "bg-gray-950 px-5 py-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+          <%= button_to action["label"] || "Investigate", surface_item_action_path(item, action_id: action_id), method: :post, class: "bg-gray-950 px-5 py-3 font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
         <% end %>
       </div>
       <%= render "surfaces/actions", item: item, context_project: context_project, actions: item.actions.reject { |action| (action["id"] || action[:id]) == "investigate" } %>

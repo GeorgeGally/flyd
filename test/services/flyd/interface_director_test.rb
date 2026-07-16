@@ -10,6 +10,9 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
 
     assert_equal "action", directive[:suggested_mode]
     assert_equal "action_scene", directive.dig(:grammars, :action, :focus_renderer)
+    assert_equal "build", directive.dig(:grammars, :action, :actions_by_readiness, :ready)
+    assert_nil directive.dig(:grammars, :action, :actions_by_readiness, :blocked)
+    assert_nil directive.dig(:grammars, :action, :actions_by_readiness, :running)
   end
 
   test "an unresolved choice becomes a decision interface" do

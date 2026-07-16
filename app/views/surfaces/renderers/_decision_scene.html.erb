@@ -1,5 +1,5 @@
 <% options = Array(item.metadata["options"]) %>
-<% recommended_id = options.first && options.first["id"].to_s %>
+<% recommended_id = item.metadata["recommendation"].present? && options.first && options.first["id"].to_s %>
 <% attachment_ids = options.filter_map { |option| option["attachment_id"] } %>
 <% attachments = IntentAttachment.available.where(id: attachment_ids).index_by { |attachment| attachment.id.to_s } %>
 <% recommended_action = item.actions.find do |candidate|
@@ -24,7 +24,7 @@
 
     <div class="decision-field__actions">
       <% if recommended_action %>
-        <%= button_to surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: recommended_action["payload"] || recommended_action[:payload] }, class: "decision-field__accept" do %>
+        <%= button_to surface_item_action_path(item, action_id: "choose"), method: :post, params: { option_id: recommended_id }, class: "decision-field__accept" do %>
           <span>Accept</span><span aria-hidden="true">→</span>
         <% end %>
       <% end %>
@@ -59,7 +59,7 @@
             <% if option["description"].present? %><p><%= option["description"] %></p><% end %>
           </div>
           <% if action && !recommended %>
-            <%= button_to "Choose", surface_item_action_path(item, action_id: "choose"), method: :post, params: { payload: action["payload"] }, class: "decision-option__choose" %>
+            <%= button_to "Choose", surface_item_action_path(item, action_id: "choose"), method: :post, params: { option_id: option["id"] }, class: "decision-option__choose" %>
           <% end %>
         </div>
       </article>

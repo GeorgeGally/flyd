@@ -56,7 +56,33 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
       Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
     end
 
-    assert_match(/requires choose actions/, error.message)
+    assert_match(/exactly one choose action/, error.message)
+  end
+
+  test "decision mode requires unique options with one exact action each" do
+    duplicate_options = valid_payload
+    duplicate_options[:items].first[:metadata][:options].last[:id] = "a"
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(duplicate_options)
+    end
+    assert_match(/option ids must be unique/i, error.message)
+
+    duplicate_actions = valid_payload
+    duplicate_actions[:items].first[:actions].last[:payload][:option_id] = "a"
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(duplicate_actions)
+    end
+    assert_match(/exactly one choose action/i, error.message)
+
+    mismatched_label = valid_payload
+    mismatched_label[:items].first[:actions].first[:payload][:option_label] = "A different choice"
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(mismatched_label)
+    end
+    assert_match(/must match its displayed option/i, error.message)
   end
 
   test "investigation mode requires known uncertainty and a next question" do
@@ -73,6 +99,58 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
     assert_equal "investigation", result["surface_mode"]
     assert_equal "What changed?", result["items"].first.dig("metadata", "next_question")
+  end
+
+  test "investigation action must use the exact displayed question" do
+    payload = investigation_payload
+    payload[:items].first[:actions].first[:payload][:question] = "A different question?"
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(payload)
+    end
+
+    assert_match(/must match the displayed next question/i, error.message)
+  end
+
+  test "action readiness controls whether review is executable" do
+    ready = action_payload(readiness: "ready", actions: [{
+      id: "build",
+      label: "Review action",
+      payload: { instructions: "Do different work." }
+    }])
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(ready)
+    end
+    assert_match(/must match the displayed proposed work/i, error.message)
+
+    blocked = action_payload(readiness: "blocked", actions: [])
+    result = validate(blocked)
+    assert_equal "blocked", result["items"].first.dig("metadata", "readiness")
+
+    running = action_payload(readiness: "running", actions: [{
+      id: "build",
+      label: "Review action",
+      payload: { instructions: "Perform the proposed work." }
+    }])
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(running)
+    end
+    assert_match(/must not offer a build action/i, error.message)
+  end
+
+  test "renderer action contracts also apply to supporting items" do
+    payload = valid_payload
+    support = investigation_payload[:items].first
+    support[:id] = "supporting-investigation"
+    support[:actions].first[:payload][:question] = "A different question?"
+    payload[:items] << support
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      validate(payload)
+    end
+
+    assert_match(/must match the displayed next question/i, error.message)
   end
 
   test "monitoring mode requires a focused notification" do
@@ -217,6 +295,43 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
   end
 
   private
+
+  def validate(payload)
+    Flyd::SurfacePlanValidator.call(
+      payload: payload,
+      reference_registry: [ "project:1", "goal:goal:ship" ]
+    )
+  end
+
+  def investigation_payload
+    payload = valid_payload
+    payload[:surface_mode] = "investigation"
+    payload[:items].first.merge!(
+      kind: "question",
+      intent: "investigate",
+      renderer: "investigation_scene",
+      metadata: { known: ["The symptom is repeatable"], unknown: ["The cause"], next_question: "What changed?" },
+      actions: [{ id: "investigate", label: "Investigate", payload: { question: "What changed?" } }]
+    )
+    payload
+  end
+
+  def action_payload(readiness:, actions:)
+    payload = valid_payload
+    payload[:surface_mode] = "action"
+    payload[:items].first.merge!(
+      kind: "scene",
+      intent: "build",
+      renderer: "action_scene",
+      metadata: {
+        proposed_action: "Perform the proposed work.",
+        impact: "The surface contract becomes reliable.",
+        readiness: readiness
+      },
+      actions: actions
+    )
+    payload
+  end
 
   def valid_payload
     {

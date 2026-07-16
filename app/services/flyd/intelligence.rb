@@ -200,9 +200,9 @@ module Flyd
         }
 
         Grammar requirements:
-        - decision: focus renderer decision_scene, 2-4 options, and a choose action for each option. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis. When an option corresponds to supplied image evidence, bind its exact intent attachment id as attachment_id and include that same intent_attachment reference in source_refs so the real object becomes the interface.
+        - decision: focus renderer decision_scene, 2-4 options, and exactly one choose action for each option. Every choose payload must contain the exact displayed option id and label. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis only when recommendation is present. When an option corresponds to supplied image evidence, bind its exact intent attachment id as attachment_id and include that same intent_attachment reference in source_refs so the real object becomes the interface.
         - investigation: focus kind must be question, insight, or scene; focus renderer investigation_scene; include known/unknown evidence and a next_question; investigate action payload must be {"question":"metadata.next_question"}.
-        - action: focus renderer action_scene and a build action. Never imply execution before confirmation.
+        - action: focus renderer action_scene. When readiness is ready, include exactly one build action whose instructions exactly equal metadata.proposed_action. When readiness is blocked or running, include no build action. Never imply execution before confirmation.
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
