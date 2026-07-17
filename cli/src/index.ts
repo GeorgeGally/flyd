@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyEntry = Record<string, any>;
 import { runSetup } from "./commands/setup.js";
 import { runCapture } from "./commands/capture.js";
 import { runAsk } from "./commands/ask.js";
@@ -249,38 +248,16 @@ program
   .command("librarian <question>")
   .description("Evaluate evidence coverage for a question without synthesis")
   .action(async (question: string) => {
-    const { extractKeywords, searchWiki, buildRawEntries, mergeEntries, QMD_RAW_COLLECTION } = await import("./lib/retrieval.js");
-    const { search } = await import("./lib/qmd.js");
-    const { scoreEvidence, corroborate, estimateSufficiency, formatLibrarianSummary } = await import("./lib/librarian.js");
-    const { getInterestKeywords } = await import("./lib/interests.js");
+    const { retrieveRankedBrainEvidence } = await import("./lib/brain-retrieval.js");
+    const { formatLibrarianSummary } = await import("./lib/librarian.js");
+    const result = await retrieveRankedBrainEvidence(question);
 
-    const keywords = extractKeywords(question);
-    const interestBoost = getInterestKeywords(question);
-    const searchQuery = interestBoost ? `${question} ${interestBoost}` : question;
-    const rawResults = await search(searchQuery, QMD_RAW_COLLECTION);
-    const rawEntries = buildRawEntries(rawResults, keywords);
-    const wikiEntries = searchWiki(searchQuery, keywords);
-    const entries: AnyEntry[] = mergeEntries(rawEntries, wikiEntries);
-
-    if (!entries.length) {
+    if (!result.entries.length) {
       console.log("no captures found");
       return;
     }
 
-    const evidenceEntries = entries.map((e: AnyEntry) => ({
-      path: e.path,
-      body: e.body,
-      source: e.source as "raw" | "wiki",
-      score: e.score,
-      metadata: e.metadata,
-      staleness: e.staleness,
-    }));
-
-    let scored = evidenceEntries.map((e) => scoreEvidence(e as never, keywords, question));
-    scored = corroborate(scored);
-    const sufficiency = estimateSufficiency(scored, question);
-
-    console.log(formatLibrarianSummary(scored, sufficiency));
+    console.log(formatLibrarianSummary(result.entries, result.sufficiency));
   });
 
 program

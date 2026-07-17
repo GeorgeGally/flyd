@@ -30,6 +30,7 @@ class Flyd::TasteCuratorTest < ActiveSupport::TestCase
     sent = JSON.parse(chat.received_messages.last[:content])
     assert_includes sent.dig("personal_context", "goals"), "Build personal intelligence"
     assert_includes sent.dig("personal_context", "recent_work"), "Continue Flyd"
+    assert_includes sent.dig("personal_context", "taste_profile", "favors"), "internet_archaeology"
     assert_equal %w[hn:1 feed:2 feed:3], sent.fetch("candidates").pluck("key")
   end
 
@@ -139,7 +140,8 @@ class Flyd::TasteCuratorTest < ActiveSupport::TestCase
       cli: {
         goals: [ { "content" => { "title" => "Build personal intelligence" } } ],
         signals: [ { "content" => { "topic" => "creative coding" } } ],
-        reports: [ { "content" => { "title" => "Internet archaeology" } } ]
+        reports: [ { "content" => { "title" => "Internet archaeology" } } ],
+        profile: [ { "content" => { "taste" => { "favors" => [ "internet_archaeology" ] } } } ]
       },
       personal: {
         activities: [ { "content" => { "title" => "Continue Flyd" } } ]

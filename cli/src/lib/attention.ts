@@ -3,6 +3,7 @@ import { join } from "path";
 import { RAW_DIR, WIKI_DIR } from "./config.js";
 import { parse } from "./frontmatter.js";
 import { getActiveInterests } from "./interests.js";
+import { isPollutedCapture } from "./brain-state.js";
 
 export interface AttentionSignal {
   topic: string;
@@ -94,7 +95,7 @@ export interface CaptureDoc {
   signal: string | null;
 }
 
-export function loadCaptureDocs(): CaptureDoc[] {
+export function loadCaptureDocs(options: { includePolluted?: boolean } = {}): CaptureDoc[] {
   const docs: CaptureDoc[] = [];
   if (!existsSync(RAW_DIR)) return docs;
 
@@ -109,6 +110,7 @@ export function loadCaptureDocs(): CaptureDoc[] {
         try {
           const content = readFileSync(full, "utf8");
           const parsed = parse(content);
+          if (!options.includePolluted && isPollutedCapture({ body: parsed.body, metadata: parsed.metadata })) continue;
           const topics = extractTopicFromBody(parsed.body, parsed.metadata);
           const date = String(parsed.metadata.timestamp ?? parsed.metadata.date ?? parsed.metadata.created ?? "");
 

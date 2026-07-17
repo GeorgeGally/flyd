@@ -23,6 +23,7 @@ class SurfaceFeedbacksController < ApplicationController
       Surfaces::LearnFromFeedback.call(feedback)
     end
 
+    ArchiveEventJob.perform_later(archive_event_attributes(item, feedback))
     conversation_id = item.scene&.conversation_id
     ComposeSurfaceJob.enqueue(reason: "surface_#{feedback.signal}", active_conversation_id: conversation_id)
 
@@ -30,6 +31,21 @@ class SurfaceFeedbacksController < ApplicationController
   end
 
   private
+
+  def archive_event_attributes(item, feedback)
+    note = feedback.metadata["note"].presence || item.summary
+    {
+      "event_key" => "surface_feedback:#{feedback.id}",
+      "body" => [ "#{feedback.signal}: #{item.title}", note ].compact_blank.join("\n\n"),
+      "event_type" => "surface_feedback",
+      "outcome" => feedback.signal.in?(%w[resolved dismissed]) ? feedback.signal : nil,
+      "signal" => feedback.signal,
+      "project" => item.scene&.project&.name,
+      "record_type" => "SurfaceFeedback",
+      "record_id" => feedback.id,
+      "timestamp" => feedback.created_at.iso8601
+    }.compact
+  end
 
   def authorize_item_action!(item, signal)
     action_id = signal == "dismissed" ? "dismiss" : "resolve"

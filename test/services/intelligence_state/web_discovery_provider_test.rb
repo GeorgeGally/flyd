@@ -27,7 +27,8 @@ class IntelligenceState::WebDiscoveryProviderTest < ActiveSupport::TestCase
   test "registry exposes CLI, personal context, and web providers together" do
     IntelligenceState::CliProvider.new.persist!({
       "version" => "1.0", "source" => "flyd-cli", "generatedAt" => Time.current.iso8601,
-      "goals" => [], "tensions" => [], "signals" => [], "curiosity" => [], "nudges" => [], "reports" => [], "recentEvents" => []
+      "goals" => [], "tensions" => [], "signals" => [], "curiosity" => [], "nudges" => [], "reports" => [], "recentEvents" => [],
+      "brainHealth" => [], "profile" => [], "knowledge" => [], "review" => [], "suggestions" => [], "capabilities" => []
     })
     IntelligenceState::WebDiscoveryProvider.new.persist!(discoveries: [ discovery ])
 

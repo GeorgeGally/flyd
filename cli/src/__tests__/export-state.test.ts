@@ -15,7 +15,7 @@ vi.mock("../lib/config.js", () => ({
 }));
 
 vi.mock("../lib/attention.js", () => ({
-  loadCaptureDocs: () => [{
+  loadCaptureDocs: (options?: { includePolluted?: boolean }) => [{
     path: join(flydDir, "raw", "event.md"),
     date: "2026-07-12",
     topics: ["flyd"],
@@ -23,8 +23,34 @@ vi.mock("../lib/attention.js", () => ({
     outcome: "implemented",
     signal: "important",
     body: "The interface is the intelligence expressed.",
-  }],
+    metadata: {},
+  }, ...(options?.includePolluted ? [{
+    path: join(flydDir, "raw", "test.md"),
+    date: "2026-07-12",
+    topics: ["flyd"],
+    eventType: "observation",
+    outcome: null,
+    signal: null,
+    body: `test: ${"A".repeat(500)}`,
+    metadata: {},
+  }] : [])],
   computeAttention: () => [{ topic: "flyd", score: 0.8 }],
+}));
+
+vi.mock("../lib/interests.js", () => ({
+  getActiveInterests: () => [{ topic: "generative art", keywords: [], priority: "high", auto_extracted: false, first_seen: "2026-01-01", last_active: "2026-07-12", capture_count: 10, staleness_days: 30 }],
+}));
+
+vi.mock("../lib/graph.js", () => ({
+  getGraphStats: () => ({ entities: 4, edges: 8, bodyEdges: 3, frontmatterEdges: 5, byType: {} }),
+}));
+
+vi.mock("../lib/review-store.js", () => ({
+  getStats: () => ({ total: 6, due: 2, reviewedToday: 1, avgStability: 3 }),
+}));
+
+vi.mock("../commands/dashboard.js", () => ({
+  getActiveSuggestions: () => [{ id: "s1", type: "stale", message: "Review memory", action: "flyd review" }],
 }));
 
 vi.mock("../lib/tension.js", () => ({
@@ -62,6 +88,13 @@ describe("intelligence state exporter", () => {
     expect(state.goals[0].id).toMatch(/^goal:/);
     expect(state.reports[0].content.path).toBe("wiki/nested/status-report.md");
     expect(state.recentEvents[0].content.path).toBe("raw/event.md");
+    expect(state.brainHealth[0].content).toMatchObject({ rawCaptures: 2, usableCaptures: 1, quarantinedCaptures: 1, wikiPages: 1 });
+    expect(state.profile[0].content.interests).toHaveLength(1);
+    expect(state.knowledge[0].content.graph).toMatchObject({ entities: 4, edges: 8 });
+    expect(state.review[0].content).toMatchObject({ total: 6, due: 2 });
+    expect(state.suggestions[0].content.message).toBe("Review memory");
+    const manifest = state.capabilities[0].content.manifest as Record<string, { integration: string }>;
+    expect(manifest.ask.integration).toBe("targeted");
   });
 
   it("writes through a temporary file and leaves only the final JSON", async () => {

@@ -6,6 +6,11 @@ import { pathToFileURL } from "url";
 import { FLYD_DIR, WIKI_DIR, PLANS_DIR } from "./lib/config.js";
 import { loadCaptureDocs, computeAttention } from "./lib/attention.js";
 import { loadGoals, computeTension } from "./lib/tension.js";
+import { getActiveInterests } from "./lib/interests.js";
+import { getGraphStats } from "./lib/graph.js";
+import { getStats as getReviewStats } from "./lib/review-store.js";
+import { getActiveSuggestions } from "./commands/dashboard.js";
+import { assessBrainState, isPollutedCapture } from "./lib/brain-state.js";
 
 export const INTELLIGENCE_STATE_VERSION = "1.0";
 export const INTELLIGENCE_STATE_PATH = join(FLYD_DIR, "intelligence-state.json");
@@ -42,6 +47,12 @@ export interface IntelligenceState {
   nudges: Evidence[];
   reports: Evidence[];
   recentEvents: Evidence[];
+  brainHealth: Evidence[];
+  profile: Evidence[];
+  knowledge: Evidence[];
+  review: Evidence[];
+  suggestions: Evidence[];
+  capabilities: Evidence[];
 }
 
 function stableId(type: string, value: unknown): string {
@@ -145,26 +156,36 @@ function loadReports(): Evidence[] {
 }
 
 export function buildIntelligenceState(): IntelligenceState {
-  const docs = loadCaptureDocs();
+  const docs = loadCaptureDocs({ includePolluted: true });
+  const usableDocs = docs.filter((doc) => !isPollutedCapture(doc));
   const goals = loadGoals();
-  const tensions = computeTension(goals, docs);
+  const tensions = computeTension(goals, usableDocs);
   const tensionByTopic = Object.fromEntries(
     tensions.flatMap((entry) => entry.goal.topics.map((topic) => [topic, entry.tension]))
   );
+  const brain = assessBrainState({
+    docs,
+    interests: getActiveInterests(),
+    wikiCount: markdownFiles(WIKI_DIR).length,
+    graph: getGraphStats(),
+    review: getReviewStats(),
+    suggestions: getActiveSuggestions(),
+  });
+  const generatedAt = new Date().toISOString();
 
   return {
     version: INTELLIGENCE_STATE_VERSION,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     source: "flyd-cli",
     goals: goals.map((goal) => evidence("goal", "cli.goals", "user_confirmed", 0.9, goal as unknown as Record<string, unknown>)),
     tensions: tensions.map((tension) => evidence("tension", "cli.tension", "heuristic", 0.65, tension as unknown as Record<string, unknown>)),
-    signals: computeAttention(docs, tensionByTopic).slice(0, 30).map((signal) =>
+    signals: computeAttention(usableDocs, tensionByTopic).slice(0, 30).map((signal) =>
       evidence("signal", "cli.attention", "heuristic", 0.55, signal as unknown as Record<string, unknown>)
     ),
     curiosity: parseCuriosity(),
     nudges: parseNudges(),
     reports: loadReports(),
-    recentEvents: docs.slice(0, 50).map((doc) => evidence("event", "cli.capture", "observation", 0.8, {
+    recentEvents: usableDocs.slice(0, 50).map((doc) => evidence("event", "cli.capture", "observation", 0.8, {
       path: portablePath(doc.path),
       date: doc.date,
       topics: doc.topics,
@@ -173,6 +194,14 @@ export function buildIntelligenceState(): IntelligenceState {
       signal: doc.signal,
       excerpt: doc.body.trim().slice(0, 1000),
     }, doc.date)),
+    brainHealth: [evidence("brain_health", "cli.dashboard", "observation", 0.95, brain.health, generatedAt)],
+    profile: [evidence("profile", "cli.interests", "heuristic", 0.7, brain.profile, generatedAt)],
+    knowledge: [evidence("knowledge_coverage", "cli.graph", "observation", 0.9, brain.knowledge, generatedAt)],
+    review: [evidence("review_state", "cli.review", "observation", 0.9, brain.review as unknown as Record<string, unknown>, generatedAt)],
+    suggestions: brain.suggestions.map((suggestion) =>
+      evidence("memory_suggestion", "cli.dashboard", "heuristic", 0.7, suggestion as unknown as Record<string, unknown>, generatedAt)
+    ),
+    capabilities: [evidence("capability_manifest", "cli.contract", "observation", 1, brain.capabilities, generatedAt)],
   };
 }
 

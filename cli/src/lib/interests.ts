@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "path";
 import { FLYD_DIR, RAW_DIR, INTERESTS_PATH, INTERESTS_STATE_PATH } from "./config.js";
 import { parse } from "./frontmatter.js";
+import { isPollutedCapture } from "./brain-state.js";
 
 export interface Interest {
   topic: string;
@@ -111,6 +112,7 @@ function getUnprocessedCaptures(state: ExtractionState): Array<{ file: string; t
       const fullPath = join(RAW_DIR, file);
       const content = readFileSync(fullPath, "utf8");
       const { metadata, body } = parse(content);
+      if (isPollutedCapture({ body, metadata })) continue;
       const ts = String(metadata.timestamp ?? "");
       if (!ts) continue;
 

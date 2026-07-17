@@ -78,6 +78,17 @@ class InterpretIntentJob < ApplicationJob
       metadata: intent.metadata.merge("source_message_id" => message.id, "scene_id" => scene&.id)
     )
 
+    ArchiveEventJob.perform_later(
+      "event_key" => "intent:#{intent.id}:accepted",
+      "body" => interpretation_text,
+      "event_type" => "intent",
+      "outcome" => "accepted",
+      "project" => owner.name,
+      "record_type" => "Intent",
+      "record_id" => intent.id,
+      "timestamp" => Time.current.iso8601
+    )
+
     LlmStreamingJob.perform_later(conversation.id, message.content)
     DecisionExtractionJob.perform_later(conversation.id) if owner.is_a?(Project) && conversation.messages.count % 5 == 0
     ComposeSurfaceJob.enqueue(reason: "new_intent", active_conversation_id: conversation.id, active_intent_id: intent.id)

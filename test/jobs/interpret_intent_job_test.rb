@@ -36,8 +36,10 @@ class InterpretIntentJobTest < ActiveJob::TestCase
     )
 
     ContextResolver.stub(:call, resolution) do
-      assert_enqueued_with(job: LlmStreamingJob) do
-        InterpretIntentJob.perform_now(intent.id)
+      assert_enqueued_with(job: ArchiveEventJob) do
+        assert_enqueued_with(job: LlmStreamingJob) do
+          InterpretIntentJob.perform_now(intent.id)
+        end
       end
     end
 
@@ -45,6 +47,9 @@ class InterpretIntentJobTest < ActiveJob::TestCase
     assert_equal "accepted", intent.status
     assert_equal project.id, intent.resolved_contexts.first["id"]
     assert_equal intent.input_text, intent.conversation.messages.last.content
+    archive_job = enqueued_jobs.find { |job| job[:job] == ArchiveEventJob }
+    assert_equal "intent:#{intent.id}:accepted", archive_job[:args].first["event_key"]
+    assert_equal "Fix the Flyd surface", archive_job[:args].first["body"]
   end
 
   test "accepts a confident temporary context without a project" do

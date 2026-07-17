@@ -1,34 +1,19 @@
-import { search } from "../lib/qmd.js";
-import {
-  extractKeywords,
-  searchWiki,
-  buildRawEntries,
-  mergeEntries,
-  QMD_RAW_COLLECTION,
-  MAX_ENTRIES,
-  type BaseEntry,
-} from "../lib/retrieval.js";
+import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
 
 export async function runSearch(query: string): Promise<void> {
-  const keywords = extractKeywords(query);
+  const result = await retrieveBrainEvidence(query);
 
-  const rawResults = await search(query, QMD_RAW_COLLECTION);
-  const rawEntries = buildRawEntries(rawResults, keywords);
-  const wikiEntries = searchWiki(query, keywords);
-
-  const entries = mergeEntries(rawEntries, wikiEntries);
-
-  if (!entries.length) {
+  if (!result.matches.length) {
     console.log("no captures found");
     return;
   }
 
-  console.log(`## Evidence (${entries.length} entries)\n`);
-  for (const e of entries) {
-    const timestamp = e.metadata.timestamp ? ` (${e.metadata.timestamp})` : "";
-    console.log(`[${e.source}] ${e.path}${timestamp} (score=${e.score}%)`);
-    console.log(e.body.trim().slice(0, 500));
-    if (e.body.trim().length > 500) console.log("...");
+  console.log(`## Evidence (${result.matches.length} entries)\n`);
+  for (const match of result.matches) {
+    const content = match.content;
+    console.log(`[${content.archive}] ${content.path} (score=${content.retrievalScore}%, confidence=${Math.round(match.confidence * 100)}%)`);
+    console.log(content.excerpt.slice(0, 500));
+    if (content.excerpt.length > 500) console.log("...");
     console.log("");
   }
 }

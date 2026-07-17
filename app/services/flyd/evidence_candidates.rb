@@ -18,8 +18,9 @@ module Flyd
 
     def call
       [
+        memory_conversation_candidate,
         build_candidate("decision", decision_evidence, "Blocked or high-tension evidence may require a choice", 0.76),
-        build_candidate("investigation", investigation_evidence, "Explicit unanswered questions may require investigation", 0.72),
+        build_candidate("investigation", investigation_evidence, "Missing or conflicting evidence may require investigation", 0.72),
         build_candidate("monitoring", monitoring_evidence, "Unresolved or outcome-bearing evidence may require monitoring", 0.68),
         discovery_candidate
       ].compact
@@ -61,10 +62,41 @@ module Flyd
     end
 
     def investigation_evidence
-      collection(:curiosity).select do |item|
+      curiosity = collection(:curiosity).select do |item|
         content = evidence_content(item)
         eligible?(item) && content[:question].present? && missing_evidence(content).present?
       end
+      curiosity + memory_investigation_evidence
+    end
+
+    def memory_conversation_candidate
+      return if @state[:active_intent].blank?
+      return unless memory_verdict == "sufficient"
+
+      build_candidate(
+        "conversation",
+        memory_matches,
+        "Targeted personal memory can answer the active intent",
+        0.74
+      )
+    end
+
+    def memory_investigation_evidence
+      return [] unless memory_verdict.in?(%w[partial conflicting])
+
+      memory_assessments + memory_matches
+    end
+
+    def memory_matches
+      collection(:memory_matches).select { |item| eligible?(item) }
+    end
+
+    def memory_assessments
+      collection(:memory_assessment).select { |item| eligible?(item) }
+    end
+
+    def memory_verdict
+      evidence_content(memory_assessments.first || {})[:verdict].to_s
     end
 
     def monitoring_evidence
@@ -97,7 +129,7 @@ module Flyd
 
     def discovery_evidence
       items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:discoveries) +
-        collection(:recent_events, :recentEvents) + collection(:reports)
+        collection(:recent_events, :recentEvents) + collection(:reports) + memory_matches
       items.select do |item|
         discoverable?(item) && !previously_shown?(item)
       end.sort_by { |item| -discovery_score(item) }

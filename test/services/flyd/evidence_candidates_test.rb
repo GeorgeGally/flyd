@@ -1,6 +1,45 @@
 require "test_helper"
 
 class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
+  test "uses sufficient targeted memory to support the active conversation" do
+    candidates = Flyd::EvidenceCandidates.call(
+      active_intent: { id: 4, text: "What was I doing?" },
+      provider_state: {
+        providers: [{
+          source: "flyd-cli-query",
+          fresh: true,
+          data: {
+            memory_matches: [ evidence("memory_match", "memory_match:work", { excerpt: "Building shared Flyd brain parity." }, confidence: 0.82) ],
+            memory_assessment: [ evidence("memory_assessment", "memory_assessment:work", { verdict: "sufficient", coverage: 0.8 }, epistemic_status: "heuristic") ]
+          }
+        }]
+      }
+    )
+
+    conversation = candidates.find { |candidate| candidate[:mode] == "conversation" }
+    assert_equal [ { type: "memory_match", id: "memory_match:work" } ], conversation[:evidence_refs]
+  end
+
+  test "uses partial targeted memory to expose uncertainty for investigation" do
+    candidates = Flyd::EvidenceCandidates.call(
+      active_intent: { id: 5, text: "Why did this stall?" },
+      provider_state: {
+        providers: [{
+          source: "flyd-cli-query",
+          fresh: true,
+          data: {
+            memory_matches: [ evidence("memory_match", "memory_match:stall", { excerpt: "One unresolved blocker." }, confidence: 0.75) ],
+            memory_assessment: [ evidence("memory_assessment", "memory_assessment:stall", { verdict: "partial", reason: "Only one source" }, epistemic_status: "heuristic") ]
+          }
+        }]
+      }
+    )
+
+    investigation = candidates.find { |candidate| candidate[:mode] == "investigation" }
+    assert_includes investigation[:evidence_refs], { type: "memory_assessment", id: "memory_assessment:stall" }
+    assert_includes investigation[:evidence_refs], { type: "memory_match", id: "memory_match:stall" }
+  end
+
   test "derives justified modes with exact provider evidence references" do
     candidates = Flyd::EvidenceCandidates.call(
       provider_state: {

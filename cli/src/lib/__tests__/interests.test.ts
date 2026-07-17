@@ -69,6 +69,18 @@ describe("extractInterests", () => {
     expect(extractInterests().extracted).toBeGreaterThanOrEqual(0);
   });
 
+  it("does not learn interests from quarantined test captures", async () => {
+    const { extractInterests, getMatchingInterests } = await import("../interests.js");
+    const payload = `test: ${"A".repeat(500)} pollutedtopic`;
+    writeCapture("1.md", payload);
+    writeCapture("2.md", payload, "test-project", "2026-06-01 11:00:00");
+    writeCapture("3.md", payload, "test-project", "2026-06-01 12:00:00");
+
+    extractInterests();
+
+    expect(getMatchingInterests("pollutedtopic")).toEqual([]);
+  });
+
   it("updates existing interests on re-extraction", async () => {
     const { extractInterests } = await import("../interests.js");
     writeCapture("1.md", "Rust programming is fun");

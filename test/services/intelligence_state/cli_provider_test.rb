@@ -13,6 +13,7 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     assert_equal record.id, snapshot.snapshot_id
     assert_equal record.state_digest, snapshot.state_digest
     assert_equal "ship-flyd", snapshot.data[:goals].first.dig("content", "slug")
+    assert_equal "generative art", snapshot.data[:profile].first.dig("content", "interests", 0, "topic")
   end
 
   test "does not create a duplicate snapshot for unchanged state" do
@@ -30,6 +31,20 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     assert_equal refreshed_at.to_i, second.generated_at.to_i
   end
 
+  test "ignores volatile evidence generation times when detecting semantic changes" do
+    provider = IntelligenceState::CliProvider.new
+    state = payload(generated_at: Time.current)
+    first, = provider.persist!(state)
+    refreshed = state.deep_dup
+    refreshed["generatedAt"] = 2.minutes.from_now.iso8601
+    refreshed["brainHealth"].first["generatedAt"] = 2.minutes.from_now.iso8601
+
+    second, changed = provider.persist!(refreshed)
+
+    assert_not changed
+    assert_equal first.id, second.id
+  end
+
   test "returns unavailable state when no snapshot exists" do
     snapshot = IntelligenceState::CliProvider.new.snapshot
 
@@ -45,6 +60,15 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
     provider.persist!(payload(generated_at: 1.hour.ago))
 
     assert_not provider.snapshot.fresh
+  end
+
+  test "rejects nonnumeric evidence confidence" do
+    state = payload(generated_at: Time.current)
+    state["goals"].first["confidence"] = "not-a-number"
+
+    assert_raises(ArgumentError) do
+      IntelligenceState::CliProvider.new.persist!(state)
+    end
   end
 
   test "retains usable evidence while exposing a later refresh failure" do
@@ -74,7 +98,13 @@ class IntelligenceState::CliProviderTest < ActiveSupport::TestCase
       "curiosity" => [],
       "nudges" => [],
       "reports" => [],
-      "recentEvents" => []
+      "recentEvents" => [],
+      "brainHealth" => [ evidence("brain_health", "brain_health:1", { "usableCaptures" => 10 }) ],
+      "profile" => [ evidence("profile", "profile:1", { "interests" => [{ "topic" => "generative art" }] }) ],
+      "knowledge" => [],
+      "review" => [],
+      "suggestions" => [],
+      "capabilities" => []
     }
   end
 

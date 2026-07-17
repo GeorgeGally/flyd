@@ -1,15 +1,17 @@
 module IntelligenceState
   class Registry
-    def self.snapshot
-      new.snapshot
+    def self.snapshot(query: nil)
+      new.snapshot(query: query)
     end
 
-    def initialize(providers: [ CliProvider.new, PersonalContextProvider.new, WebDiscoveryProvider.new ])
+    def initialize(providers: [ CliProvider.new, PersonalContextProvider.new, WebDiscoveryProvider.new ], query_provider: CliQueryProvider.new)
       @providers = providers
+      @query_provider = query_provider
     end
 
-    def snapshot
+    def snapshot(query: nil)
       snapshots = @providers.map(&:snapshot)
+      snapshots << @query_provider.snapshot(query: query) if query.present?
       {
         providers: snapshots.map do |snapshot|
           {

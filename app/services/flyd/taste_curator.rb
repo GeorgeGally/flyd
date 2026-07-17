@@ -100,7 +100,8 @@ module Flyd
         goals: content_values(cli[:goals], :title),
         signals: content_values(cli[:signals], :topic),
         reports: content_values(cli[:reports], :title),
-        recent_work: content_values(personal[:activities], :title)
+        recent_work: content_values(personal[:activities], :title),
+        taste_profile: Array(cli[:profile]).first.to_h.deep_symbolize_keys.dig(:content, :taste) || {}
       }
     end
 

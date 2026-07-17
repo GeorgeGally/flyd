@@ -24,6 +24,10 @@ class IntelligenceSnapshot < ApplicationRecord
       Digest::SHA256.hexdigest(JSON.generate(canonicalize(payload)))
     end
 
+    def semantic_digest_for(payload)
+      digest_for(without_volatile_generation_times(payload))
+    end
+
     private
 
     def canonicalize(value)
@@ -32,6 +36,21 @@ class IntelligenceSnapshot < ApplicationRecord
         value.deep_stringify_keys.sort.to_h.transform_values { |nested| canonicalize(nested) }
       when Array
         value.map { |nested| canonicalize(nested) }
+      else
+        value
+      end
+    end
+
+    def without_volatile_generation_times(value)
+      case value
+      when Hash
+        value.each_with_object({}) do |(key, nested), result|
+          next if key.to_s.in?(%w[generatedAt generated_at])
+
+          result[key] = without_volatile_generation_times(nested)
+        end
+      when Array
+        value.map { |nested| without_volatile_generation_times(nested) }
       else
         value
       end

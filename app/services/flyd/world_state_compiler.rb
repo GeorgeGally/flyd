@@ -139,7 +139,7 @@ module Flyd
     end
 
     def provider_snapshot
-      snapshot = @state_provider.snapshot.deep_symbolize_keys
+      snapshot = state_provider_snapshot.deep_symbolize_keys
       providers = Array(snapshot[:providers]).map do |provider|
         data = provider[:data].to_h.transform_values do |items|
           Array(items).first(MAX_PROVIDER_ITEMS).filter_map { |item| normalize_evidence(item) }
@@ -155,6 +155,27 @@ module Flyd
         }
       end
       { providers: providers }
+    end
+
+    def state_provider_snapshot
+      parameters = @state_provider.method(:snapshot).parameters
+      accepts_keywords = parameters.any? { |kind, _name| kind.in?([ :key, :keyreq, :keyrest ]) }
+      return @state_provider.snapshot unless accepts_keywords
+
+      @state_provider.snapshot(query: retrieval_query)
+    end
+
+    def retrieval_query
+      intent_text = @active_intent&.input_text.to_s.squish
+      return intent_text.truncate(500) if intent_text.present?
+
+      user_message = @active_conversation&.messages&.ordered&.reverse&.find { |message| message.role == "user" }
+      return user_message.content.to_s.squish.truncate(500) if user_message&.content.present?
+
+      scene = @active_conversation&.primary_scene || Scene.continue_scene
+      return if scene.nil?
+
+      [ scene.title, scene.desired_outcome ].compact_blank.join(". ").squish.truncate(500).presence
     end
 
     def normalize_evidence(item)

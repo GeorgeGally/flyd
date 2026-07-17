@@ -102,7 +102,13 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
       "curiosity" => [],
       "nudges" => [],
       "reports" => [],
-      "recentEvents" => []
+      "recentEvents" => [],
+      "brainHealth" => [],
+      "profile" => [],
+      "knowledge" => [],
+      "review" => [],
+      "suggestions" => [],
+      "capabilities" => []
     }
   end
 end

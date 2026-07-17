@@ -71,11 +71,17 @@ cd cli && npm run export-state -- --stdout
 - `app/services/flyd/intelligence.rb` — Flyd's surface-composition boundary
 - `app/services/intelligence_state/provider.rb` — provider contract
 - `app/services/intelligence_state/cli_provider.rb` — PostgreSQL-backed CLI adapter
+- `app/services/intelligence_state/cli_query_provider.rb` — targeted shared-archive evidence adapter
+- `app/services/intelligence_state/cli_bridge.rb` — JSON-only CLI retrieval boundary
 - `app/services/intelligence_state/registry.rb` — provider aggregation
+- `lib/flyd/archive_event_writer.rb` — Rails-to-shared-archive event writer
 - `app/jobs/refresh_intelligence_state_job.rb` — CLI stdout ingestion
+- `app/jobs/archive_event_job.rb` — background Rails event export
 - `app/jobs/compose_surface_job.rb` — background composition and activation
 - `app/jobs/broadcast_surface_job.rb` — retryable live surface delivery
 - `cli/src/export-state.ts` — CLI state producer
+- `cli/src/bridge.ts` — targeted retrieval bridge
+- `cli/src/lib/brain-retrieval.ts` — shared ask/search/librarian retrieval service
 - `app/services/context_resolver.rb` — temporary context-routing support
 - `app/services/surface/planner.rb` — compatibility delegate only; contains no intelligence
 - `config/flyd.yml` — app configuration
@@ -84,8 +90,7 @@ cd cli && npm run export-state -- --stdout
 
 ## Known Issues
 
-- QMD sidecar (`qmd-sidecar/`) does not exist — search-dependent features return empty
-- The world-state prompt is not yet compiled or token-budgeted
-- Surface source references are shape-checked but not yet checked against a known reference registry
-- Renderer and action choices are not yet backed by strict registries
-- The current context resolver still assumes project-shaped persistence after interpretation
+- World state is bounded by serialized character count, not model-specific tokens.
+- Large archive queries can be slow while the local QMD index or embedding model warms up.
+- Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
+- The current context resolver still assumes project-shaped persistence after interpretation.

@@ -115,7 +115,7 @@ export async function search(
 
     // If it's the LlamaGrammar error, use OpenAI expansion
     if (msg.includes("LlamaGrammar") || msg.includes("different Llama instance")) {
-      console.log("using OpenAI-based query expansion fallback...");
+      console.error("using OpenAI-based query expansion fallback...");
       const expanded = await expandQueryOpenAI(query);
       return searchWithExpansion(expanded, collection, limit);
     }

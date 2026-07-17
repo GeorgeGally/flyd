@@ -4,21 +4,18 @@ import { hasApiKey, defaultModel, RAW_DIR, WIKI_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { getStaleness, stalenessSummary, type StalenessResult } from "../lib/staleness.js";
-import { search } from "../lib/qmd.js";
-import { getActiveInterests, getInterestKeywords } from "../lib/interests.js";
+import { getActiveInterests } from "../lib/interests.js";
+import { retrieveRankedBrainEvidence } from "../lib/brain-retrieval.js";
 import {
   extractKeywords,
   searchWiki,
   buildRawEntries,
   mergeEntries,
-  augmentWithGraph,
-  isContentRelevant,
   QMD_RAW_COLLECTION,
   MAX_ENTRIES,
   type BaseEntry,
 } from "../lib/retrieval.js";
 import { walkWikiFiles } from "../lib/wiki.js";
-import { searchGraph, graphExists } from "../lib/graph.js";
 import {
   scoreEvidence,
   corroborate,
@@ -115,20 +112,11 @@ function formatEvidence(entries: RetrievedEntry[], scored?: ScoredEvidence[]): s
 export async function runAsk(question: string, model?: string, opts?: { librarian?: boolean }): Promise<void> {
   const m = model ?? defaultModel();
   const keywords = extractKeywords(question);
-
-  // Build search query with interest boost
-  const interestBoost = getInterestKeywords(question);
-  const searchQuery = interestBoost ? `${question} ${interestBoost}` : question;
-
-  // Search raw captures via QMD
-  const rawResults = await search(searchQuery, QMD_RAW_COLLECTION);
-  const rawEntries = buildEntries(rawResults, keywords);
-
-  // Search wiki files
-  const wikiEntries = searchWiki(searchQuery, keywords);
-
-  // Merge and rank
-  let entries = mergeEntries(rawEntries, wikiEntries) as RetrievedEntry[];
+  const retrieval = await retrieveRankedBrainEvidence(question);
+  const entries = retrieval.entries.map((entry) => ({
+    ...entry,
+    fullPath: join(entry.source === "wiki" ? WIKI_DIR : RAW_DIR, entry.path),
+  })) as RetrievedEntry[];
 
   // If nothing found, use LLM to find relevant wiki pages by title/summary
   if (!entries.length && hasApiKey(m)) {
@@ -173,12 +161,6 @@ If no page is relevant, return [].`;
         }
       } catch {}
     }
-  }
-
-  // Augment with graph traversal
-  const graphResults = searchGraph(searchQuery, 1);
-  if (graphResults.length > 0) {
-    entries = augmentWithGraph(entries, graphResults) as RetrievedEntry[];
   }
 
   if (!entries.length) {

@@ -5,6 +5,13 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     def snapshot = payload
   end
 
+  QueryProvider = Struct.new(:payload, :queries) do
+    def snapshot(query: nil)
+      queries << query
+      payload
+    end
+  end
+
   test "bounds, deduplicates, and registers only retained evidence" do
     provider = FakeProvider.new({
       providers: [{
@@ -47,6 +54,26 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     assert_equal intent.id, result.state.dig(:active_intent, :id)
     assert_equal "Global thought", result.state[:context_corrections].first[:reason]
     assert_equal "useful", result.state[:recent_feedback].first[:signal]
+  end
+
+  test "retrieves personal archive evidence for the active intent" do
+    intent = Intent.create!(input_text: "What was I working on in Flyd?", origin_surface: Surface.fallback!)
+    provider = QueryProvider.new({
+      providers: [{
+        source: "flyd-cli-query",
+        snapshot_id: 12,
+        state_digest: "query-state",
+        fresh: true,
+        errors: [],
+        data: { memory_matches: [ evidence("memory_match:work", type: "memory_match", body: "Surface intelligence parity") ] }
+      }]
+    }, [])
+
+    result = Flyd::WorldStateCompiler.call(active_intent: intent, state_provider: provider)
+
+    assert_equal [ "What was I working on in Flyd?" ], provider.queries
+    assert_equal "Surface intelligence parity", result.state.dig(:provider_state, :providers, 0, :data, :memory_matches, 0, :content, "body")
+    assert_includes result.reference_registry, "memory_match:memory_match:work"
   end
 
   test "budgeting retains representative evidence from every provider collection" do

@@ -14,7 +14,7 @@ This document describes the runtime, persistence, trust boundaries, interface gr
 
 Projects, contexts, conversations, messages, decisions, beliefs, behaviours, events, goals, reports, attachments, provider signals, corrections, feedback, scenes, artifacts, and actions are evidence or system structures. They inform Flyd. They do not determine the interface directly.
 
-The TypeScript CLI is an evidence producer. It is not a second intelligence, an attention engine, or a user-facing product boundary.
+The TypeScript CLI and Rails application are two interfaces to one Flyd brain. The CLI owns the shared local archive and its retrieval, graph, attention, interest, review, and maintenance machinery. Rails consumes those capabilities as evidence for `Flyd::Intelligence`; it is not a smaller replacement brain.
 
 ## Runtime architecture
 
@@ -34,7 +34,7 @@ provider evidence + Rails memory + active intent + active interaction
 → actions, corrections, memory, artifacts, and outcomes return as evidence
 ```
 
-`GET /` performs no model composition and executes no provider. It renders the current persisted surface immediately. Missing or stale provider state schedules refresh but never blocks Flyd from composing with Rails memory and provider-health evidence.
+`GET /` performs no model composition and executes no provider. It renders the current persisted surface immediately. Periodic export, targeted retrieval, archive writing, and composition all run in background jobs.
 
 ## Canonical product domains
 
@@ -50,7 +50,7 @@ Scenes and artifacts are product domains. Surfaces and surface items are present
 
 A scene may survive many surface compositions. A surface item may disappear while the scene remains unresolved. A resolved scene links to the artifact that changed the world.
 
-## Intelligence-state interface
+## Shared brain interface
 
 The CLI exports schema version `1.0`:
 
@@ -60,7 +60,19 @@ node cli/dist/export-state.js --stdout
 
 Each evidence unit carries stable identity and type, source, epistemic status, confidence, generated time, evidence references, and structured content.
 
-Rails validates CLI output and persists shared `IntelligenceSnapshot` records in PostgreSQL. Unchanged semantic evidence refreshes freshness without creating another snapshot. Failed refreshes preserve the newest usable snapshot and explicit provider health.
+The periodic export includes goals, tensions, attention signals, curiosity, nudges, reports, recent events, memory health, personal interests, graph coverage, review state, maintenance suggestions, and the complete capability manifest.
+
+For an active intent, conversation, or scene, background composition also invokes the JSON-only retrieval bridge:
+
+```bash
+node cli/dist/bridge.js retrieve --query "What was I working on?"
+```
+
+Search, `ask`, librarian evaluation, and Rails composition use the same ranked retrieval service. It returns stable memory references, source paths, freshness, confidence, corroboration, and a sufficiency judgment. Sufficient memory may justify conversation; partial or conflicting memory may justify investigation. `Flyd::Intelligence` still makes the final interface judgment.
+
+Rails validates both CLI contracts and persists shared `IntelligenceSnapshot` records in PostgreSQL. Unchanged semantic evidence refreshes freshness without creating another snapshot. Failed refreshes preserve the newest usable snapshot for the same query and expose explicit provider health.
+
+Accepted intents, extracted decisions, context corrections, surface feedback, and resolutions flow back into `~/.flyd/raw` through idempotent background archive events. The next CLI refresh therefore sees what happened in Rails. Test pollution is quarantined at read time without deleting source files.
 
 ## Bounded world state and provenance
 
@@ -210,7 +222,7 @@ Production separates web rendering from Sidekiq work. Redis backs Sidekiq, cache
 The core directed-interface loop is implemented for decision, investigation, action, conversation, monitoring, and quiet. Further product development still includes:
 
 - broader observation across email, calendar, GitHub, Slack, and the web;
-- semantic retrieval across deeper history rather than bounded recent evidence;
+- faster incremental retrieval and indexing across very large archives;
 - native microphone, camera, and screen capture;
 - transcription and vision understanding for binary media;
 - execution capabilities beyond OpenCode;
