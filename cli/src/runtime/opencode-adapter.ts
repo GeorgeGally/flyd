@@ -1,5 +1,8 @@
-import { spawn as nodeSpawn } from "child_process";
-import type { SpawnOptionsWithoutStdio } from "child_process";
+import {
+  runJsonWorkerProcess,
+  sanitizeWorkerEnvironment,
+  type WorkerSpawn,
+} from "./worker-adapter.js";
 
 export interface OpenCodeEvent {
   type: string;
@@ -25,17 +28,6 @@ type PermissionRule = "allow" | "ask" | "deny" | Record<string, "allow" | "ask" 
 export interface OpenCodePermissionConfig {
   permission: Record<string, PermissionRule>;
 }
-
-interface SpawnedProcess {
-  pid?: number;
-  stdout: NodeJS.ReadableStream;
-  stderr: NodeJS.ReadableStream;
-  kill(signal?: NodeJS.Signals): boolean;
-  once(event: "error", listener: (error: Error) => void): this;
-  once(event: "close", listener: (code: number | null) => void): this;
-}
-
-type Spawn = (command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => SpawnedProcess;
 
 export function buildOpenCodeArgs(input: OpenCodeArgsInput): string[] {
   const args = ["run", input.assignment];
@@ -98,13 +90,7 @@ export function buildOpenCodePermissionConfig(input: GrantPermissionInput): Open
   };
 }
 
-const PASSTHROUGH_ENVIRONMENT = new Set([
-  "PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL", "XDG_CONFIG_HOME",
-]);
-
-export function sanitizeWorkerEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(source).filter(([key]) => PASSTHROUGH_ENVIRONMENT.has(key)));
-}
+export { sanitizeWorkerEnvironment };
 
 export async function runOpenCode(input: {
   executable: string;
@@ -113,76 +99,23 @@ export async function runOpenCode(input: {
   timeoutMs: number;
   killGraceMs?: number;
   permissionConfig?: OpenCodePermissionConfig;
-  spawn?: Spawn;
+  spawn?: WorkerSpawn;
   onEvent?: (event: OpenCodeEvent) => void;
   onStart?: (processId: number | null) => void | Promise<void>;
 }): Promise<{ exitStatus: number; externalSessionId: string | null; output: string; error: string }> {
-  const spawn = input.spawn ?? (nodeSpawn as unknown as Spawn);
-  const env = sanitizeWorkerEnvironment();
-  if (input.permissionConfig) env.OPENCODE_CONFIG_CONTENT = JSON.stringify(input.permissionConfig);
-  const child = spawn(input.executable, input.args, { cwd: input.cwd, env, stdio: "pipe" });
-  child.kill("SIGSTOP");
-
-  let stdoutBuffer = "";
-  let output = "";
-  let error = "";
-  let timedOut = false;
-  let externalSessionId: string | null = null;
-  const consume = (line: string) => {
-    const event = parseOpenCodeEvent(line);
-    if (!event) return;
-    externalSessionId ||= event.sessionId;
-    if (event.text) output += event.text;
-    input.onEvent?.(event);
-  };
-
-  child.stdout.on("data", (chunk: Buffer | string) => {
-    stdoutBuffer += chunk.toString();
-    const lines = stdoutBuffer.split("\n");
-    stdoutBuffer = lines.pop() ?? "";
-    lines.forEach(consume);
-  });
-  child.stderr.on("data", (chunk: Buffer | string) => { error += chunk.toString(); });
-
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let forceTimer: NodeJS.Timeout | undefined;
-    const finish = (code: number | null, forced = false) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
-      if (stdoutBuffer) consume(stdoutBuffer);
-      if (timedOut) error = `${error}${error ? "\n" : ""}OpenCode timed out after ${input.timeoutMs}ms`;
-      if (forced) error = `${error}\nOpenCode required forced termination`;
-      resolve({ exitStatus: code ?? 1, externalSessionId, output, error });
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      forceTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-        finish(null, true);
-      }, input.killGraceMs ?? 5_000);
-    }, input.timeoutMs);
-    child.once("error", (spawnError) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
-      reject(spawnError);
-    });
-    child.once("close", (code) => finish(code));
-    Promise.resolve(input.onStart?.(child.pid ?? null)).then(
-      () => child.kill("SIGCONT"),
-      (startError) => {
-        child.kill("SIGKILL");
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (forceTimer) clearTimeout(forceTimer);
-        reject(startError);
-      },
-    );
+  return runJsonWorkerProcess({
+    executable: input.executable,
+    args: input.args,
+    cwd: input.cwd,
+    timeoutMs: input.timeoutMs,
+    killGraceMs: input.killGraceMs,
+    spawn: input.spawn,
+    label: "OpenCode",
+    parseEvent: parseOpenCodeEvent,
+    onEvent: input.onEvent,
+    onStart: input.onStart,
+    extraEnvironment: input.permissionConfig
+      ? { OPENCODE_CONFIG_CONTENT: JSON.stringify(input.permissionConfig) }
+      : undefined,
   });
 }

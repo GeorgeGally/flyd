@@ -57,29 +57,29 @@
 - Modify: `cli/src/runtime/__tests__/opencode-adapter.test.ts`
 - Modify: `cli/src/runtime/types.ts`
 
-- [ ] **Step 1: Write failing adapter contract tests**
+- [x] **Step 1: Write failing adapter contract tests**
 
   Require health and capability discovery, tested version ranges, structured argument arrays, JSONL session extraction, bounded stop behavior, sanitized environment, and exact-session resume.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worker-adapter.test.ts src/runtime/__tests__/codex-adapter.test.ts`
 
   Expected: missing adapter modules and contract.
 
-- [ ] **Step 3: Define the shared contract**
+- [x] **Step 3: Define the shared contract**
 
   Define `capabilities`, `detect`, `start`, `observe`, `stop`, and `resume` data shapes. Keep process execution shared while provider argument and event parsing stay adapter-specific.
 
-- [ ] **Step 4: Implement Codex**
+- [x] **Step 4: Implement Codex**
 
   Use `codex exec --json` with `workspace-write`, no interactive approval, network disabled, a Flyd-managed worktree, and minimum context. Parse `thread.started` for the durable Codex thread ID and resume only that ID. Fail closed when the executable is broken or outside the tested range.
 
-- [ ] **Step 5: Adapt OpenCode without changing its 1A security boundary**
+- [x] **Step 5: Adapt OpenCode without changing its 1A security boundary**
 
   Wrap the existing OpenCode implementation in the shared contract and retain its deny-by-default permission map, process journaling pause, timeout, and exact-session resume.
 
-- [ ] **Step 6: Run adapter tests**
+- [x] **Step 6: Run adapter tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worker-adapter.test.ts src/runtime/__tests__/codex-adapter.test.ts src/runtime/__tests__/opencode-adapter.test.ts`
 
