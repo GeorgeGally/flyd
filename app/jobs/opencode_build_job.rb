@@ -19,7 +19,7 @@ class OpencodeBuildJob < ApplicationJob
     build.update!(status: "running")
     BuildChannel.broadcast_to(build, { status: "running" })
 
-    result = execute_opencode(input, context, build.project.root_path)
+    result = execute_opencode(input, context, build.project.root_path, title: "flyd:build:#{build.id}")
 
     if result[:success]
       complete_build(build, result)
@@ -140,16 +140,21 @@ class OpencodeBuildJob < ApplicationJob
     )
   end
 
-  def execute_opencode(input, context, root_path)
+  def execute_opencode(input, context, root_path, title: "flyd:rails-build")
     Dir.mktmpdir("flyd-build") do |dir|
       context_file = File.join(dir, "context.md")
       File.write(context_file, context)
 
-      cmd = [ "opencode", "run", input, "-f", context_file, "--auto", "--format", "json" ]
       chdir = root_path.presence || Dir.home
+      command = Workers::OpenCodeCommand.new(
+        assignment: input,
+        context_path: context_file,
+        project_root: chdir,
+        title: title
+      )
 
       stdout, stderr, status = Timeout.timeout(EXECUTION_TIMEOUT) do
-        Open3.capture3(*cmd, chdir: chdir)
+        Open3.capture3(command.environment, *command.argv, chdir: chdir, unsetenv_others: true)
       end
 
       if status.success?

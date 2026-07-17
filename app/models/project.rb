@@ -6,6 +6,7 @@ class Project < ApplicationRecord
   has_many :builds, dependent: :destroy
   has_many :scenes, dependent: :nullify
   has_many :artifacts, dependent: :nullify
+  has_many :agent_tasks, dependent: :restrict_with_error
   has_many :capture_imports, foreign_key: :project, primary_key: :name, dependent: :nullify
 
   scope :active, -> { where(archived_at: nil) }

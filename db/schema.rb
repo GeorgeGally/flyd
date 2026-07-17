@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -40,6 +40,32 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
     t.bigint "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "agent_tasks", force: :cascade do |t|
+    t.bigint "project_id", null: false
+    t.string "task_key", null: false
+    t.string "status", default: "awaiting_grant", null: false
+    t.text "intended_outcome", null: false
+    t.jsonb "success_criteria", default: [], null: false
+    t.jsonb "verification_criteria", default: [], null: false
+    t.jsonb "plan", default: {}, null: false
+    t.jsonb "context_snapshot", default: {}, null: false
+    t.jsonb "repository_snapshot", default: {}, null: false
+    t.text "recommended_next_action"
+    t.text "outcome_summary"
+    t.jsonb "verification_result", default: {}, null: false
+    t.bigint "revision", default: 0, null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.datetime "cancelled_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["project_id"], name: "index_agent_tasks_on_project_id"
+    t.index ["project_id"], name: "index_agent_tasks_one_unfinished_per_project", unique: true, where: "((status)::text = ANY (ARRAY[('awaiting_grant'::character varying)::text, ('ready'::character varying)::text, ('running'::character varying)::text, ('blocked'::character varying)::text]))"
+    t.index ["task_key"], name: "index_agent_tasks_on_task_key", unique: true
+    t.check_constraint "revision >= 0", name: "agent_tasks_revision_check"
+    t.check_constraint "status::text = ANY (ARRAY['awaiting_grant'::character varying::text, 'ready'::character varying::text, 'running'::character varying::text, 'blocked'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'cancelled'::character varying::text])", name: "agent_tasks_status_check"
   end
 
   create_table "artifacts", force: :cascade do |t|
@@ -262,6 +288,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
     t.datetime "last_cited_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "relationship_type", default: "relates_to", null: false
+    t.index ["relationship_type"], name: "index_memory_edges_on_relationship_type"
   end
 
   create_table "messages", force: :cascade do |t|
@@ -272,8 +300,11 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
     t.jsonb "metadata", default: {}
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "tool_call_id"
+    t.string "name"
     t.index ["conversation_id", "created_at"], name: "index_messages_on_conversation_id_and_created_at"
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
+    t.index ["tool_call_id"], name: "index_messages_on_tool_call_id"
   end
 
   create_table "projects", force: :cascade do |t|
@@ -285,6 +316,32 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
     t.datetime "updated_at", null: false
     t.index ["archived_at"], name: "index_projects_on_archived_at"
     t.index ["name"], name: "index_projects_on_name", unique: true
+  end
+
+  create_table "runtime_events", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "task_grant_id"
+    t.bigint "worker_session_id"
+    t.string "event_key", null: false
+    t.string "event_type", null: false
+    t.string "idempotency_key"
+    t.bigint "task_revision", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "occurred_at", null: false
+    t.datetime "archive_delivered_at"
+    t.datetime "broadcast_delivered_at"
+    t.integer "delivery_attempts", default: 0, null: false
+    t.datetime "next_delivery_at"
+    t.text "last_delivery_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id", "task_revision"], name: "index_runtime_events_on_agent_task_id_and_task_revision", unique: true
+    t.index ["agent_task_id"], name: "index_runtime_events_on_agent_task_id"
+    t.index ["archive_delivered_at", "next_delivery_at"], name: "index_runtime_events_pending_archive"
+    t.index ["event_key"], name: "index_runtime_events_on_event_key", unique: true
+    t.index ["idempotency_key"], name: "index_runtime_events_on_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
+    t.index ["task_grant_id"], name: "index_runtime_events_on_task_grant_id"
+    t.index ["worker_session_id"], name: "index_runtime_events_on_worker_session_id"
   end
 
   create_table "scenes", force: :cascade do |t|
@@ -404,8 +461,86 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
     t.index ["valid_until"], name: "index_surfaces_on_valid_until"
   end
 
+  create_table "task_grants", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.string "grant_key", null: false
+    t.string "status", default: "proposed", null: false
+    t.string "scope_digest", null: false
+    t.jsonb "repository_roots", default: [], null: false
+    t.jsonb "worktree_paths", default: [], null: false
+    t.jsonb "worker_adapters", default: [], null: false
+    t.jsonb "file_operations", default: [], null: false
+    t.jsonb "command_classes", default: [], null: false
+    t.jsonb "verification_commands", default: [], null: false
+    t.jsonb "renewal_required_actions", default: [], null: false
+    t.integer "max_concurrency", default: 1, null: false
+    t.jsonb "budget", default: {}, null: false
+    t.datetime "approved_at"
+    t.datetime "expires_at", null: false
+    t.datetime "ended_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "provider_identity", default: "opencode-configured-provider", null: false
+    t.index ["agent_task_id"], name: "index_task_grants_on_agent_task_id"
+    t.index ["agent_task_id"], name: "index_task_grants_one_approved_per_task", unique: true, where: "((status)::text = 'approved'::text)"
+    t.index ["grant_key"], name: "index_task_grants_on_grant_key", unique: true
+    t.check_constraint "max_concurrency > 0", name: "task_grants_concurrency_check"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'approved'::character varying::text, 'expired'::character varying::text, 'revoked'::character varying::text, 'exhausted'::character varying::text, 'completed'::character varying::text])", name: "task_grants_status_check"
+  end
+
+  create_table "task_sessions", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.string "session_key", null: false
+    t.string "status", default: "active", null: false
+    t.boolean "resumed", default: false, null: false
+    t.string "interpretation_status", default: "pending", null: false
+    t.boolean "manual_context_restatement", default: false, null: false
+    t.boolean "tool_escape", default: false, null: false
+    t.jsonb "startup_snapshot", default: {}, null: false
+    t.datetime "started_at", null: false
+    t.datetime "ended_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id"], name: "index_task_sessions_on_agent_task_id"
+    t.index ["agent_task_id"], name: "index_task_sessions_one_active_per_task", unique: true, where: "((status)::text = 'active'::text)"
+    t.index ["session_key"], name: "index_task_sessions_on_session_key", unique: true
+    t.check_constraint "interpretation_status::text = ANY (ARRAY['pending'::character varying::text, 'accepted'::character varying::text, 'focused_corrected'::character varying::text, 'replaced'::character varying::text])", name: "task_sessions_interpretation_check"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'ended'::character varying::text])", name: "task_sessions_status_check"
+  end
+
+  create_table "worker_sessions", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "task_grant_id", null: false
+    t.bigint "resumes_worker_session_id"
+    t.string "worker_key", null: false
+    t.string "status", default: "queued", null: false
+    t.string "adapter", null: false
+    t.string "executable_path"
+    t.string "executable_version"
+    t.string "working_directory", null: false
+    t.string "external_session_id"
+    t.bigint "process_id"
+    t.integer "assignment_revision", default: 1, null: false
+    t.datetime "last_heartbeat_at"
+    t.datetime "started_at"
+    t.datetime "ended_at"
+    t.integer "exit_status"
+    t.text "error_summary"
+    t.text "output"
+    t.jsonb "usage", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id"], name: "index_worker_sessions_on_agent_task_id"
+    t.index ["agent_task_id"], name: "index_worker_sessions_one_live_per_task", unique: true, where: "((status)::text = ANY (ARRAY[('queued'::character varying)::text, ('starting'::character varying)::text, ('running'::character varying)::text]))"
+    t.index ["resumes_worker_session_id"], name: "index_worker_sessions_on_resumes_worker_session_id"
+    t.index ["task_grant_id"], name: "index_worker_sessions_on_task_grant_id"
+    t.index ["worker_key"], name: "index_worker_sessions_on_worker_key", unique: true
+    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'starting'::character varying::text, 'running'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'interrupted'::character varying::text, 'cancelled'::character varying::text])", name: "worker_sessions_status_check"
+  end
+
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "agent_tasks", "projects"
   add_foreign_key "artifacts", "builds"
   add_foreign_key "artifacts", "contexts"
   add_foreign_key "artifacts", "conversations"
@@ -431,6 +566,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
   add_foreign_key "intents", "surfaces", column: "origin_surface_id"
   add_foreign_key "intents", "surfaces", column: "result_surface_id"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "runtime_events", "agent_tasks"
+  add_foreign_key "runtime_events", "task_grants"
+  add_foreign_key "runtime_events", "worker_sessions"
   add_foreign_key "scenes", "artifacts", column: "resolved_artifact_id"
   add_foreign_key "scenes", "contexts"
   add_foreign_key "scenes", "conversations"
@@ -442,4 +580,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_090000) do
   add_foreign_key "surface_items", "scenes"
   add_foreign_key "surface_items", "surfaces"
   add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
+  add_foreign_key "task_grants", "agent_tasks"
+  add_foreign_key "task_sessions", "agent_tasks"
+  add_foreign_key "worker_sessions", "agent_tasks"
+  add_foreign_key "worker_sessions", "task_grants"
+  add_foreign_key "worker_sessions", "worker_sessions", column: "resumes_worker_session_id"
 end

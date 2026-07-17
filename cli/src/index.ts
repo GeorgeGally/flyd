@@ -27,13 +27,15 @@ import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
+import { runCode } from "./commands/code.js";
+import { runTaskComplete, runTaskEscape, runTaskList, runTaskMetrics, runTaskStatus } from "./commands/task.js";
 import { closeStore } from "./lib/qmd.js";
 
 const program = new Command();
 
 program
   .name("flyd")
-  .description("flyd — personal memory CLI")
+  .description("flyd — your continuous personal coding agent")
   .version("0.1.0");
 
 program
@@ -42,15 +44,64 @@ program
   .action(() => runSetup());
 
 program
-  .argument("[text]", "capture text to raw store (no args — dashboard)")
+  .argument("[text]", "capture text to raw store (no args — coding harness)")
   .action(async (text?: string) => {
     if (!text) {
-      generateSuggestions();
-      await runDashboard();
+      await runCode();
       return;
     }
     await runCapture(text);
   });
+
+program
+  .command("code")
+  .description("Start or resume the continuity coding harness")
+  .argument("[outcome]", "intended coding outcome")
+  .action((outcome?: string) => runCode(outcome));
+
+program
+  .command("dashboard")
+  .description("Open the legacy suggestion dashboard")
+  .action(async () => {
+    generateSuggestions();
+    await runDashboard();
+  });
+
+const task = program
+  .command("task")
+  .description("Inspect durable coding task state");
+
+task
+  .command("list")
+  .description("List coding tasks for the current repository")
+  .action(() => runTaskList());
+
+task
+  .command("status")
+  .description("Show the current task and worker re-entry point")
+  .argument("[task-key]", "exact Flyd task key")
+  .action((taskKey?: string) => runTaskStatus(taskKey));
+
+task
+  .command("resume")
+  .description("Resume the current repository task")
+  .action(() => runCode());
+
+task
+  .command("metrics")
+  .description("Show Release 1A dogfood evidence for this repository")
+  .action(() => runTaskMetrics());
+
+task
+  .command("complete")
+  .description("Record a separately verified task outcome")
+  .action(() => runTaskComplete());
+
+task
+  .command("escape")
+  .description("Record that work continued in another coding tool")
+  .argument("[reason]", "why Flyd was not used")
+  .action((reason?: string) => runTaskEscape(reason));
 
 program
   .command("ask <question>")
@@ -362,4 +413,10 @@ program
     }
   });
 
-program.parseAsync().finally(() => closeStore()).catch(() => {});
+program.parseAsync()
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`flyd: ${message}`);
+    process.exitCode = 1;
+  })
+  .finally(() => closeStore());

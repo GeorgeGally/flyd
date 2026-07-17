@@ -207,6 +207,28 @@ action scene
 
 The architecture can support additional specialist capabilities later without making any executor the intelligence boundary.
 
+## Release 1A continuity runtime
+
+The coding harness uses PostgreSQL as the live operational authority. `AgentTask`, `TaskGrant`, `WorkerSession`, `TaskSession`, and `RuntimeEvent` preserve the current outcome, approved scope, OpenCode process/session identity, corrections, verification, exact re-entry point, and dogfood measurements.
+
+Running `flyd` in a Git repository:
+
+1. observes current Git truth;
+2. reconciles dead workers as interrupted;
+3. resumes the unfinished repository task when one exists;
+4. retrieves bounded project and personal memory evidence;
+5. lets the user correct Flyd's interpretation;
+6. requires a repository-scoped task grant before the first worker;
+7. persists and pauses the worker process before allowing OpenCode to execute;
+8. runs OpenCode through structured arguments and a tested executable version;
+9. records each worker transition with the task revision;
+10. requires a successful worker, repository inspection, and user confirmation before completion;
+11. drains correction and verified-outcome events idempotently into `~/.flyd/raw`.
+
+The worker can edit only the single approved repository root in Release 1A. The approved scope has an eight-hour expiry, one-worker concurrency, three-run budget, provider identity, explicit verification command, and actions that require renewed approval. Flyd supplies an inline, deny-by-default OpenCode permission policy: external directories, subagents, network tools, ungranted shell commands, and inherited credentials are denied, while repository editing and the task grant's inspection, test, lint, build, and Git-read command classes are allowed.
+
+A worker report is retained as evidence but is not promoted to a verified outcome by itself. `flyd task status` exposes the exact next action, while `flyd task metrics` reports the rolling five-working-day window and missing trial data rather than manufacturing success. Resume measurement follows the PRD's 30-minute threshold and excludes sessions that never ran a worker.
+
 ## Persistence and diagnostics
 
 Only one surface may be active. Surface activation is transactional and preserves lineage. Composition logs record reason, state digest, provider identities, input/output size, latency, validation failure, dropped evidence, and delivery errors without private chain-of-thought.
@@ -221,6 +243,8 @@ Production separates web rendering from Sidekiq work. Redis backs Sidekiq, cache
 
 The core directed-interface loop is implemented for decision, investigation, action, conversation, monitoring, and quiet. Further product development still includes:
 
+- Release 1B Codex routing, worker control, initiative, and parallel isolated worktrees;
+- Release 1C Rails task control and cross-surface parity;
 - broader observation across email, calendar, GitHub, Slack, and the web;
 - faster incremental retrieval and indexing across very large archives;
 - native microphone, camera, and screen capture;

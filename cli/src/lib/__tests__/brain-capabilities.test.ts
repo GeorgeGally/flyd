@@ -9,7 +9,7 @@ describe("brain capability parity", () => {
     const commandIds = [...source.matchAll(/(?:^|=\s*)program\s*\n?\s*\.command\("([^" ]+)/gm)]
       .map((match) => match[1])
       .filter((id) => !["setup"].includes(id));
-    commandIds.push("capture", "dashboard");
+    commandIds.push("capture");
 
     expect(BRAIN_CAPABILITIES.map((capability) => capability.id).sort()).toEqual(commandIds.sort());
   });

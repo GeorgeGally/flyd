@@ -41,9 +41,10 @@ flyd/                    # Rails 8 + Hotwire intelligence surface
   lib/                   LLM providers, subsystems, utilities
   test/                  Test suite
 
-  cli/                   TypeScript memory and proactive-analysis producer
+  cli/                   TypeScript personal-agent harness and memory services
+    src/runtime/         Release 1A tasks, grants, workers, journal, and recovery
     src/export-state.ts  Versioned intelligence-state export
-    package.json         npm dependencies and export command
+    package.json         npm dependencies and CLI commands
 ```
 
 ## Commands
@@ -55,7 +56,10 @@ bin/rails test:all                   # Include system tests
 bundle exec sidekiq                  # Run provider, composition, and broadcast jobs
 
 cd cli && npm test                   # Run CLI tests
-cd cli && npm run dev                # Run CLI directly
+cd cli && npm run dev                # Start/resume the coding harness
+cd cli && npm run dev -- code "..."  # Start with an intended outcome
+cd cli && npm run dev -- task status # Inspect the exact re-entry point
+cd cli && npm run dev -- task metrics
 cd cli && npm run build              # Compile dist/export-state.js
 cd cli && npm run export-state       # Manual file export
 cd cli && npm run export-state -- --stdout
@@ -83,6 +87,15 @@ cd cli && npm run export-state -- --stdout
 - `cli/src/export-state.ts` — CLI state producer
 - `cli/src/bridge.ts` — targeted retrieval bridge
 - `cli/src/lib/brain-retrieval.ts` — shared ask/search/librarian retrieval service
+- `cli/src/runtime/harness.ts` — Release 1A continuity loop and verification boundary
+- `cli/src/runtime/task-store.ts` — PostgreSQL task, grant, worker, event, and session authority
+- `cli/src/runtime/archive-outbox.ts` — idempotent runtime outcome delivery into `~/.flyd/raw`
+- `cli/src/runtime/opencode-adapter.ts` — structured OpenCode worker adapter
+- `cli/src/runtime/recovery.ts` — stale-process reconciliation on restart
+- `app/models/agent_task.rb` — canonical coding task state
+- `app/models/task_grant.rb` — approved worker scope and lifecycle
+- `app/models/worker_session.rb` — durable worker process/session state
+- `app/models/runtime_event.rb` — transactional task event journal
 - `app/services/context_resolver.rb` — temporary context-routing support
 - `app/services/surface/planner.rb` — compatibility delegate only; contains no intelligence
 - `config/flyd.yml` — app configuration
@@ -95,3 +108,5 @@ cd cli && npm run export-state -- --stdout
 - Large archive queries can be slow while the local QMD index or embedding model warms up.
 - Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
 - The current context resolver still assumes project-shaped persistence after interpretation.
+- Release 1A supports one OpenCode worker in the approved repository. Codex routing, parallel worktrees, and active worker control are Release 1B.
+- Rails task control and live parity are Release 1C; Release 1A is intentionally CLI-first.

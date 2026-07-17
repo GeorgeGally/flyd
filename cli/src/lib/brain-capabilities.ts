@@ -10,6 +10,8 @@ export interface BrainCapability {
 export const BRAIN_CAPABILITIES = ([
   { id: "capture", integration: "automatic", description: "Persist new observations and outcomes in the shared raw archive.", mutatesArchive: true },
   { id: "dashboard", integration: "automatic", description: "Summarize archive health, coverage, and pending memory work.", mutatesArchive: false },
+  { id: "code", integration: "runtime", description: "Start or resume a durable repository-aware coding task through the canonical agent runtime.", mutatesArchive: false },
+  { id: "task", integration: "runtime", description: "Inspect and advance canonical coding task, grant, worker, correction, and outcome state.", mutatesArchive: false },
   { id: "ask", integration: "targeted", description: "Retrieve and synthesize personal evidence for a question.", mutatesArchive: false },
   { id: "search", integration: "targeted", description: "Retrieve matching raw and curated evidence without synthesis.", mutatesArchive: false },
   { id: "librarian", integration: "targeted", description: "Evaluate evidence quality, freshness, corroboration, and sufficiency.", mutatesArchive: false },
