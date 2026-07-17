@@ -177,25 +177,25 @@
 - Modify: `cli/src/commands/task.ts`
 - Modify: `cli/src/index.ts`
 
-- [ ] **Step 1: Write failing control tests**
+- [x] **Step 1: Write failing control tests**
 
   Cover idempotent commands, graceful then forced process stop, focused redirect incrementing assignment revision, retry preserving context, replacement excluding the failed adapter, and rejection outside an approved unexpired grant.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worker-controller.test.ts src/runtime/__tests__/task-store.integration.test.ts`
 
   Expected: missing controller and task commands.
 
-- [ ] **Step 3: Persist and execute controls**
+- [x] **Step 3: Persist and execute controls**
 
   Store the command before signaling a worker. Use `SIGTERM`, then bounded `SIGKILL`; never signal a PID unless executable-path recovery proves identity. Redirect and replacement become a new assignment revision rather than mutating worker history.
 
-- [ ] **Step 4: Add CLI controls**
+- [x] **Step 4: Add CLI controls**
 
   Add `flyd task workers`, `stop <worker-key>`, `retry <worker-key>`, `redirect <worker-key> <instruction>`, and `replace <worker-key>`. Status output must show assignment, adapter, worktree, revision, last heartbeat, and pending control.
 
-- [ ] **Step 5: Run control tests**
+- [x] **Step 5: Run control tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worker-controller.test.ts src/runtime/__tests__/task-store.integration.test.ts`
 

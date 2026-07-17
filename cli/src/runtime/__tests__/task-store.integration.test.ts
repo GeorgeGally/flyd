@@ -359,4 +359,92 @@ describe("PostgresTaskStore", () => {
       idempotencyKey: `plan-worker-2:${task.taskKey}`,
     })).rejects.toThrow("maximum concurrency");
   });
+
+  it("journals worker controls idempotently and revises the assignment", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Redirect a worker",
+      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `control-task:${projectRoot}`,
+    });
+    const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
+      successCriteria: ["Redirect is durable"],
+      verificationCriteria: ["git diff --check"],
+      source: "fallback",
+      assignments: [{
+        key: "primary",
+        title: "Primary",
+        instructions: "Initial instruction",
+        capabilityRequirements: ["implementation"],
+        dependencyKeys: [],
+        declaredFileScope: ["."],
+      }],
+      baseHead: "base",
+      idempotencyKey: `control-plan:${task.taskKey}`,
+    });
+    const grant = await store.approveGrant(task.taskKey, planned.task.revision, {
+      repositoryRoots: [projectRoot], worktreePaths: [], workerAdapters: ["codex", "opencode"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
+      maxConcurrency: 1, budget: { max_worker_runs: 3, max_runtime_minutes: 90 },
+      providerIdentity: "codex:local,opencode:local", expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `control-grant:${task.taskKey}`,
+    });
+    const worker = await store.createWorker({
+      taskKey: task.taskKey,
+      grantKey: grant.grantKey,
+      assignmentKey: planned.assignments[0].assignmentKey,
+      adapter: "codex",
+      capabilities: ["implementation"],
+      executablePath: "/bin/codex",
+      executableVersion: "codex-cli 0.144.2",
+      workingDirectory: projectRoot,
+      idempotencyKey: `control-worker:${task.taskKey}`,
+    });
+    await store.transitionWorker(worker.workerKey, {
+      status: "running",
+      processId: process.pid,
+      idempotencyKey: `control-running:${task.taskKey}`,
+    });
+
+    const first = await store.queueWorkerCommand(
+      worker.workerKey,
+      "redirect",
+      { instruction: "Focus on the failing store test" },
+      `redirect:${worker.workerKey}`,
+    );
+    const duplicate = await store.queueWorkerCommand(
+      worker.workerKey,
+      "redirect",
+      { instruction: "This duplicate must not replace the durable payload" },
+      `redirect:${worker.workerKey}`,
+    );
+    expect(duplicate.command.commandKey).toBe(first.command.commandKey);
+    expect(first.worker.status).toBe("stopping");
+
+    await store.completeWorkerCommand(first.command.commandKey, {
+      workerStatus: "interrupted",
+    });
+    const completedEvent = await pool.query(
+      "SELECT payload FROM runtime_events WHERE agent_task_id = $1 AND event_type = 'worker.command_completed' ORDER BY task_revision DESC LIMIT 1",
+      [task.id],
+    );
+    expect(completedEvent.rows[0].payload.worker_key).toBe(worker.workerKey);
+    const assignments = await store.listAssignments(task.id);
+    expect(assignments[0]).toMatchObject({
+      status: "pending",
+      instructions: "Focus on the failing store test",
+      revision: 2,
+    });
+
+    const replacement = await store.queueWorkerCommand(
+      worker.workerKey,
+      "replace",
+      {},
+      `replace:${worker.workerKey}`,
+    );
+    await store.completeWorkerCommand(replacement.command.commandKey, { workerStatus: null });
+    expect((await store.listAssignments(task.id))[0].excludedAdapters).toContain("codex");
+  });
 });

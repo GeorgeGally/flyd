@@ -3,7 +3,8 @@ import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
-import type { AgentTask, RuntimeMetrics } from "../runtime/types.js";
+import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
+import type { AgentTask, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
 
 export function formatTask(task: AgentTask): string {
   const lines = [
@@ -15,6 +16,18 @@ export function formatTask(task: AgentTask): string {
   if (task.status !== "completed" && task.recommendedNextAction) lines.push(`Next: ${task.recommendedNextAction}`);
   if (task.outcomeSummary) lines.push(`Outcome: ${task.outcomeSummary}`);
   return lines.join("\n");
+}
+
+export function formatWorker(worker: WorkerSession): string {
+  return [
+    `${worker.workerKey}  ${worker.status}`,
+    `Assignment: ${worker.taskAssignmentId}`,
+    `Adapter: ${worker.adapter} ${worker.executableVersion ?? "unknown version"}`,
+    `Worktree: ${worker.workingDirectory}`,
+    `Revision observed: ${worker.lastObservedAt ?? "not yet"}`,
+    worker.externalSessionId ? `Session: ${worker.externalSessionId}` : null,
+    worker.errorSummary ? `Error: ${worker.errorSummary}` : null,
+  ].filter(Boolean).join("\n");
 }
 
 function rate(numerator: number, denominator: number): string {
@@ -90,6 +103,44 @@ export async function runTaskMetrics(): Promise<void> {
     const repository = await inspectRepository();
     const metrics = await new PostgresTaskStore(pool).metrics(repository.root);
     console.log(formatMetrics(metrics));
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function runTaskWorkers(): Promise<void> {
+  const pool = createRuntimePool();
+  try {
+    const store = new PostgresTaskStore(pool);
+    const repository = await inspectRepository();
+    const task = await store.findResumableTask(repository.root) ?? (await store.listTasks(repository.root, 1))[0] ?? null;
+    if (!task) {
+      console.log("No Flyd coding task was found.");
+      return;
+    }
+    const workers = await store.listWorkers(task.id);
+    console.log(workers.length ? workers.map(formatWorker).join("\n\n") : "No workers have run for this task.");
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function runTaskControl(
+  kind: WorkerCommandKind,
+  workerKey: string,
+  instruction?: string,
+): Promise<void> {
+  const pool = createRuntimePool();
+  const store = new PostgresTaskStore(pool);
+  try {
+    const command = await controlWorker({
+      workerKey,
+      kind,
+      instruction,
+      idempotencyKey: `${kind}:${workerKey}:${instruction?.trim() ?? ""}`,
+      deps: defaultWorkerControlDependencies(store),
+    });
+    console.log(`${kind} ${command.status}: ${command.commandKey}`);
   } finally {
     await pool.end();
   }

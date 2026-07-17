@@ -28,7 +28,15 @@ import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runCode } from "./commands/code.js";
-import { runTaskComplete, runTaskEscape, runTaskList, runTaskMetrics, runTaskStatus } from "./commands/task.js";
+import {
+  runTaskComplete,
+  runTaskControl,
+  runTaskEscape,
+  runTaskList,
+  runTaskMetrics,
+  runTaskStatus,
+  runTaskWorkers,
+} from "./commands/task.js";
 import { closeStore } from "./lib/qmd.js";
 
 const program = new Command();
@@ -91,6 +99,31 @@ task
   .command("metrics")
   .description("Show Release 1A dogfood evidence for this repository")
   .action(() => runTaskMetrics());
+
+task
+  .command("workers")
+  .description("List worker assignments and control identities")
+  .action(() => runTaskWorkers());
+
+task
+  .command("stop <worker-key>")
+  .description("Stop a live worker inside the current task grant")
+  .action((workerKey: string) => runTaskControl("stop", workerKey));
+
+task
+  .command("retry <worker-key>")
+  .description("Queue a failed or interrupted assignment for retry")
+  .action((workerKey: string) => runTaskControl("retry", workerKey));
+
+task
+  .command("redirect <worker-key> <instruction>")
+  .description("Stop a worker and revise its assignment with focused instructions")
+  .action((workerKey: string, instruction: string) => runTaskControl("redirect", workerKey, instruction));
+
+task
+  .command("replace <worker-key>")
+  .description("Stop a worker and route its assignment to another adapter")
+  .action((workerKey: string) => runTaskControl("replace", workerKey));
 
 task
   .command("complete")

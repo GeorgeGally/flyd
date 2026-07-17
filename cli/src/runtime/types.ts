@@ -112,6 +112,23 @@ export interface WorkerSession {
   stopReason: string | null;
 }
 
+export type WorkerCommandKind = "stop" | "retry" | "redirect" | "replace";
+export type WorkerCommandStatus = "queued" | "dispatched" | "completed" | "failed" | "cancelled";
+
+export interface WorkerCommand {
+  id: string;
+  commandKey: string;
+  agentTaskId: string;
+  workerSessionId: string;
+  kind: WorkerCommandKind;
+  status: WorkerCommandStatus;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+  dispatchedAt: string | null;
+  completedAt: string | null;
+  errorSummary: string | null;
+}
+
 export interface Orientation {
   kind: "new" | "resume" | "resume_changed" | "resume_interrupted";
   headline: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatMetrics, formatTask } from "../task.js";
-import type { AgentTask } from "../../runtime/types.js";
+import { formatMetrics, formatTask, formatWorker } from "../task.js";
+import type { AgentTask, WorkerSession } from "../../runtime/types.js";
 
 const task: AgentTask = {
   id: "1", taskKey: "task-12345678", projectId: "1", projectName: "GeorgeGally/flyd",
@@ -12,11 +12,31 @@ const task: AgentTask = {
   completedAt: null, updatedAt: "2026-07-17T01:00:00.000Z",
 };
 
+const worker: WorkerSession = {
+  id: "2", workerKey: "worker-12345678", agentTaskId: "1", taskGrantId: "3",
+  taskAssignmentId: "4", status: "running", adapter: "codex",
+  capabilities: ["implementation", "testing"], executablePath: "/bin/codex",
+  executableVersion: "codex-cli 0.144.2", workingDirectory: "/tmp/flyd/worktree",
+  externalSessionId: "thread-1", processId: 42, errorSummary: null, output: null,
+  exitStatus: null, startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
+  lastObservedAt: "2026-07-17T00:01:00.000Z", stopReason: null,
+};
+
 describe("task command formatting", () => {
   it("shows durable state and the exact re-entry point", () => {
     expect(formatTask(task)).toContain("Make Flyd continuous");
     expect(formatTask(task)).toContain("Resume the interrupted OpenCode session");
     expect(formatTask(task)).toContain("task-12345678");
+  });
+
+  it("shows controllable worker identity, assignment, adapter, and worktree", () => {
+    const output = formatWorker(worker);
+
+    expect(output).toContain("worker-12345678");
+    expect(output).toContain("Assignment: 4");
+    expect(output).toContain("codex");
+    expect(output).toContain("/tmp/flyd/worktree");
+    expect(output).toContain("2026-07-17T00:01:00.000Z");
   });
 
   it("reports missing trial data honestly", () => {

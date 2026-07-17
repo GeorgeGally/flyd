@@ -10,6 +10,8 @@ import type {
   RuntimeMetrics,
   TaskAssignment,
   TaskGrant,
+  WorkerCommand,
+  WorkerCommandKind,
   WorkerSession,
 } from "./types.js";
 
@@ -62,6 +64,16 @@ function mapWorker(row: QueryResultRow): WorkerSession {
     processId: row.process_id == null ? null : Number(row.process_id), errorSummary: row.error_summary, output: row.output,
     exitStatus: row.exit_status == null ? null : Number(row.exit_status), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
     lastObservedAt: iso(row.last_observed_at), stopReason: row.stop_reason,
+  };
+}
+
+function mapWorkerCommand(row: QueryResultRow): WorkerCommand {
+  return {
+    id: String(row.id), commandKey: row.command_key, agentTaskId: String(row.agent_task_id),
+    workerSessionId: String(row.worker_session_id), kind: row.kind, status: row.status,
+    idempotencyKey: row.idempotency_key, payload: row.payload ?? {},
+    dispatchedAt: iso(row.dispatched_at), completedAt: iso(row.completed_at),
+    errorSummary: row.error_summary,
   };
 }
 
@@ -134,6 +146,19 @@ export class PostgresTaskStore {
   async latestWorker(taskId: string): Promise<WorkerSession | null> {
     const result = await this.pool.query("SELECT * FROM worker_sessions WHERE agent_task_id = $1 ORDER BY created_at DESC LIMIT 1", [taskId]);
     return result.rows[0] ? mapWorker(result.rows[0]) : null;
+  }
+
+  async findWorker(workerKey: string): Promise<WorkerSession | null> {
+    const result = await this.pool.query("SELECT * FROM worker_sessions WHERE worker_key = $1", [workerKey]);
+    return result.rows[0] ? mapWorker(result.rows[0]) : null;
+  }
+
+  async listWorkers(taskId: string): Promise<WorkerSession[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM worker_sessions WHERE agent_task_id = $1 ORDER BY created_at, id",
+      [taskId],
+    );
+    return result.rows.map(mapWorker);
   }
 
   async liveWorkers(projectRoot: string): Promise<WorkerSession[]> {
@@ -502,6 +527,125 @@ export class PostgresTaskStore {
         error: update.error,
       }, current.task_grant_id, current.id);
       return mapWorker(result.rows[0]);
+    });
+  }
+
+  async queueWorkerCommand(
+    workerKey: string,
+    kind: WorkerCommandKind,
+    payload: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<{ command: WorkerCommand; worker: WorkerSession }> {
+    return withTransaction(this.pool, async (client) => {
+      const existing = await client.query(
+        "SELECT * FROM worker_commands WHERE idempotency_key = $1 LIMIT 1",
+        [idempotencyKey],
+      );
+      if (existing.rows[0]) {
+        const worker = await client.query("SELECT * FROM worker_sessions WHERE id = $1", [existing.rows[0].worker_session_id]);
+        return { command: mapWorkerCommand(existing.rows[0]), worker: mapWorker(worker.rows[0]) };
+      }
+      const result = await client.query(`SELECT w.*, t.revision AS task_revision, g.status AS grant_status,
+          g.expires_at AS grant_expires_at, a.instructions AS assignment_instructions,
+          a.excluded_adapters AS assignment_excluded_adapters, a.revision AS current_assignment_revision
+        FROM worker_sessions w
+        JOIN agent_tasks t ON t.id = w.agent_task_id
+        JOIN task_grants g ON g.id = w.task_grant_id
+        JOIN task_assignments a ON a.id = w.task_assignment_id
+        WHERE w.worker_key = $1
+        FOR UPDATE OF w, t, g, a`, [workerKey]);
+      const worker = result.rows[0];
+      if (!worker) throw new Error(`Unknown worker ${workerKey}`);
+      if (worker.grant_status !== "approved" || new Date(worker.grant_expires_at).getTime() <= Date.now()) {
+        throw new Error("Worker control requires an approved unexpired task grant");
+      }
+      const live = [ "queued", "starting", "running", "stopping" ].includes(worker.status);
+      if ([ "stop", "redirect" ].includes(kind) && !live) {
+        throw new Error(`${kind} requires a live worker`);
+      }
+      if (kind === "retry" && live) throw new Error("retry requires a terminal worker");
+      const instruction = typeof payload.instruction === "string" ? payload.instruction.trim() : "";
+      if (kind === "redirect" && !instruction) throw new Error("Redirect requires a focused instruction");
+
+      const commandResult = await client.query(`INSERT INTO worker_commands
+        (agent_task_id, worker_session_id, command_key, kind, status, idempotency_key, payload, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'queued', $5, $6::jsonb, NOW(), NOW()) RETURNING *`, [
+        worker.agent_task_id, worker.id, randomUUID(), kind, idempotencyKey, JSON.stringify(payload),
+      ]);
+      const assignmentRevision = Number(worker.current_assignment_revision) + 1;
+      const excluded = Array.isArray(worker.assignment_excluded_adapters) ? worker.assignment_excluded_adapters : [];
+      const updatedExcluded = kind === "replace" ? [...new Set([...excluded, worker.adapter])] : excluded;
+      await client.query(`UPDATE task_assignments SET status = $2, instructions = $3,
+        excluded_adapters = $4::jsonb, revision = $5, updated_at = NOW() WHERE id = $1`, [
+        worker.task_assignment_id,
+        kind === "stop" ? "cancelled" : "pending",
+        kind === "redirect" ? instruction : worker.assignment_instructions,
+        JSON.stringify(updatedExcluded),
+        assignmentRevision,
+      ]);
+      if (live && kind !== "retry") {
+        await client.query(
+          "UPDATE worker_sessions SET status = 'stopping', stop_reason = $2, updated_at = NOW() WHERE id = $1",
+          [worker.id, kind],
+        );
+      }
+      const revision = Number(worker.task_revision) + 1;
+      await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, worker.agent_task_id]);
+      await this.insertEvent(
+        client,
+        worker.agent_task_id,
+        revision,
+        "worker.command_queued",
+        idempotencyKey,
+        { worker_key: workerKey, command_key: commandResult.rows[0].command_key, kind, assignment_revision: assignmentRevision },
+        worker.task_grant_id,
+        worker.id,
+      );
+      const updatedWorker = await client.query("SELECT * FROM worker_sessions WHERE id = $1", [worker.id]);
+      return { command: mapWorkerCommand(commandResult.rows[0]), worker: mapWorker(updatedWorker.rows[0]) };
+    });
+  }
+
+  async completeWorkerCommand(commandKey: string, input: {
+    workerStatus: "stopped" | "interrupted" | "replaced" | null;
+    error?: string;
+  }): Promise<WorkerCommand> {
+    return withTransaction(this.pool, async (client) => {
+      const result = await client.query(`SELECT c.*, w.worker_key, w.agent_task_id, w.task_grant_id, w.task_assignment_id,
+          t.revision AS task_revision
+        FROM worker_commands c
+        JOIN worker_sessions w ON w.id = c.worker_session_id
+        JOIN agent_tasks t ON t.id = w.agent_task_id
+        WHERE c.command_key = $1 FOR UPDATE OF c, w, t`, [commandKey]);
+      const command = result.rows[0];
+      if (!command) throw new Error(`Unknown worker command ${commandKey}`);
+      if (command.status === "completed") return mapWorkerCommand(command);
+      if (input.workerStatus) {
+        await client.query(`UPDATE worker_sessions SET status = $2, stop_reason = $3,
+          ended_at = NOW(), updated_at = NOW() WHERE id = $1`, [
+          command.worker_session_id, input.workerStatus, command.kind,
+        ]);
+      }
+      const completed = await client.query(`UPDATE worker_commands SET status = $2,
+        dispatched_at = COALESCE(dispatched_at, NOW()), completed_at = NOW(),
+        error_summary = $3, updated_at = NOW() WHERE id = $1 RETURNING *`, [
+        command.id, input.error ? "failed" : "completed", input.error ?? null,
+      ]);
+      const revision = Number(command.task_revision) + 1;
+      await client.query("UPDATE agent_tasks SET status = 'ready', revision = $1, updated_at = NOW() WHERE id = $2", [
+        revision, command.agent_task_id,
+      ]);
+      await this.insertEvent(
+        client,
+        command.agent_task_id,
+        revision,
+        input.error ? "worker.command_failed" : "worker.command_completed",
+        `${command.idempotency_key}:completed`,
+        { worker_key: command.worker_key, command_key: command.command_key, kind: command.kind, error: input.error },
+        command.task_grant_id,
+        command.worker_session_id,
+      );
+      return mapWorkerCommand(completed.rows[0]);
     });
   }
 
