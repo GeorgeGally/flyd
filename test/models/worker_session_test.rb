@@ -4,10 +4,12 @@ class WorkerSessionTest < ActiveSupport::TestCase
   setup do
     project = Project.create!(name: "Worker session #{SecureRandom.hex(4)}", root_path: Dir.home)
     @task = project.agent_tasks.create!(intended_outcome: "Run one worker")
+    @assignment = @task.task_assignments.create!(title: "Implement", instructions: "Run one worker")
     @grant = @task.task_grants.create!(
       status: "approved",
       approved_at: Time.current,
       repository_roots: [ Dir.home ],
+      worktree_paths: [ Dir.home ],
       worker_adapters: [ "opencode" ],
       verification_commands: [ "git diff --check" ],
       expires_at: 8.hours.from_now
@@ -16,6 +18,7 @@ class WorkerSessionTest < ActiveSupport::TestCase
 
   test "Rails treats persisted workers as read-only projections" do
     worker = @task.worker_sessions.create!(
+      task_assignment: @assignment,
       task_grant: @grant,
       adapter: "opencode",
       executable_path: "/usr/local/bin/opencode",
@@ -43,6 +46,7 @@ class WorkerSessionTest < ActiveSupport::TestCase
     )
 
     worker = @task.worker_sessions.new(
+      task_assignment: @assignment,
       task_grant: other_grant,
       adapter: "opencode",
       working_directory: Dir.home
@@ -50,5 +54,34 @@ class WorkerSessionTest < ActiveSupport::TestCase
 
     assert_not worker.valid?
     assert_includes worker.errors[:task_grant], "must belong to the same task"
+  end
+
+  test "only one live worker exists for an assignment while other assignments can run" do
+    second_assignment = @task.task_assignments.create!(title: "Review", instructions: "Review independently")
+    first = @task.worker_sessions.create!(
+      task_assignment: @assignment,
+      task_grant: @grant,
+      adapter: "opencode",
+      working_directory: Dir.home,
+      status: "running"
+    )
+    second = @task.worker_sessions.create!(
+      task_assignment: second_assignment,
+      task_grant: @grant,
+      adapter: "opencode",
+      working_directory: Dir.home,
+      status: "running"
+    )
+    duplicate = @task.worker_sessions.new(
+      task_assignment: @assignment,
+      task_grant: @grant,
+      adapter: "opencode",
+      working_directory: Dir.home,
+      status: "queued"
+    )
+
+    assert first.persisted?
+    assert second.persisted?
+    assert_raises(ActiveRecord::RecordInvalid) { duplicate.save! }
   end
 end

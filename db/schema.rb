@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_17_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -62,10 +62,10 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["project_id"], name: "index_agent_tasks_on_project_id"
-    t.index ["project_id"], name: "index_agent_tasks_one_unfinished_per_project", unique: true, where: "((status)::text = ANY (ARRAY[('awaiting_grant'::character varying)::text, ('ready'::character varying)::text, ('running'::character varying)::text, ('blocked'::character varying)::text]))"
+    t.index ["project_id"], name: "index_agent_tasks_one_unfinished_per_project", unique: true, where: "((status)::text = ANY ((ARRAY['awaiting_grant'::character varying, 'ready'::character varying, 'running'::character varying, 'blocked'::character varying])::text[]))"
     t.index ["task_key"], name: "index_agent_tasks_on_task_key", unique: true
     t.check_constraint "revision >= 0", name: "agent_tasks_revision_check"
-    t.check_constraint "status::text = ANY (ARRAY['awaiting_grant'::character varying::text, 'ready'::character varying::text, 'running'::character varying::text, 'blocked'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'cancelled'::character varying::text])", name: "agent_tasks_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['awaiting_grant'::character varying, 'ready'::character varying, 'running'::character varying, 'blocked'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying]::text[])", name: "agent_tasks_status_check"
   end
 
   create_table "artifacts", force: :cascade do |t|
@@ -461,6 +461,34 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
     t.index ["valid_until"], name: "index_surfaces_on_valid_until"
   end
 
+  create_table "task_assignments", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.string "assignment_key", null: false
+    t.string "status", default: "pending", null: false
+    t.string "title", null: false
+    t.text "instructions", null: false
+    t.jsonb "success_criteria", default: [], null: false
+    t.jsonb "capability_requirements", default: [], null: false
+    t.jsonb "dependency_keys", default: [], null: false
+    t.jsonb "declared_file_scope", default: [], null: false
+    t.jsonb "excluded_adapters", default: [], null: false
+    t.string "worktree_path"
+    t.string "branch_name"
+    t.string "base_head"
+    t.jsonb "verification_result", default: {}, null: false
+    t.jsonb "integration_result", default: {}, null: false
+    t.bigint "revision", default: 1, null: false
+    t.datetime "started_at"
+    t.datetime "ended_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id", "status"], name: "index_task_assignments_on_agent_task_id_and_status"
+    t.index ["agent_task_id"], name: "index_task_assignments_on_agent_task_id"
+    t.index ["assignment_key"], name: "index_task_assignments_on_assignment_key", unique: true
+    t.check_constraint "revision > 0", name: "task_assignments_revision_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'verified'::character varying, 'blocked'::character varying, 'integrated'::character varying, 'failed'::character varying, 'cancelled'::character varying]::text[])", name: "task_assignments_status_check"
+  end
+
   create_table "task_grants", force: :cascade do |t|
     t.bigint "agent_task_id", null: false
     t.string "grant_key", null: false
@@ -485,7 +513,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
     t.index ["agent_task_id"], name: "index_task_grants_one_approved_per_task", unique: true, where: "((status)::text = 'approved'::text)"
     t.index ["grant_key"], name: "index_task_grants_on_grant_key", unique: true
     t.check_constraint "max_concurrency > 0", name: "task_grants_concurrency_check"
-    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'approved'::character varying::text, 'expired'::character varying::text, 'revoked'::character varying::text, 'exhausted'::character varying::text, 'completed'::character varying::text])", name: "task_grants_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'approved'::character varying, 'expired'::character varying, 'revoked'::character varying, 'exhausted'::character varying, 'completed'::character varying]::text[])", name: "task_grants_status_check"
   end
 
   create_table "task_sessions", force: :cascade do |t|
@@ -504,8 +532,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
     t.index ["agent_task_id"], name: "index_task_sessions_on_agent_task_id"
     t.index ["agent_task_id"], name: "index_task_sessions_one_active_per_task", unique: true, where: "((status)::text = 'active'::text)"
     t.index ["session_key"], name: "index_task_sessions_on_session_key", unique: true
-    t.check_constraint "interpretation_status::text = ANY (ARRAY['pending'::character varying::text, 'accepted'::character varying::text, 'focused_corrected'::character varying::text, 'replaced'::character varying::text])", name: "task_sessions_interpretation_check"
-    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'ended'::character varying::text])", name: "task_sessions_status_check"
+    t.check_constraint "interpretation_status::text = ANY (ARRAY['pending'::character varying, 'accepted'::character varying, 'focused_corrected'::character varying, 'replaced'::character varying]::text[])", name: "task_sessions_interpretation_check"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'ended'::character varying]::text[])", name: "task_sessions_status_check"
+  end
+
+  create_table "worker_commands", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "worker_session_id", null: false
+    t.string "command_key", null: false
+    t.string "kind", null: false
+    t.string "status", default: "queued", null: false
+    t.string "idempotency_key", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "dispatched_at"
+    t.datetime "completed_at"
+    t.text "error_summary"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id"], name: "index_worker_commands_on_agent_task_id"
+    t.index ["command_key"], name: "index_worker_commands_on_command_key", unique: true
+    t.index ["idempotency_key"], name: "index_worker_commands_on_idempotency_key", unique: true
+    t.index ["worker_session_id", "status"], name: "index_worker_commands_on_worker_session_id_and_status"
+    t.index ["worker_session_id"], name: "index_worker_commands_on_worker_session_id"
+    t.check_constraint "kind::text = ANY (ARRAY['stop'::character varying, 'retry'::character varying, 'redirect'::character varying, 'replace'::character varying]::text[])", name: "worker_commands_kind_check"
+    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying, 'dispatched'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying]::text[])", name: "worker_commands_status_check"
   end
 
   create_table "worker_sessions", force: :cascade do |t|
@@ -530,12 +580,17 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
     t.jsonb "usage", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "task_assignment_id", null: false
+    t.jsonb "capabilities", default: [], null: false
+    t.datetime "last_observed_at"
+    t.text "stop_reason"
     t.index ["agent_task_id"], name: "index_worker_sessions_on_agent_task_id"
-    t.index ["agent_task_id"], name: "index_worker_sessions_one_live_per_task", unique: true, where: "((status)::text = ANY (ARRAY[('queued'::character varying)::text, ('starting'::character varying)::text, ('running'::character varying)::text]))"
     t.index ["resumes_worker_session_id"], name: "index_worker_sessions_on_resumes_worker_session_id"
+    t.index ["task_assignment_id"], name: "index_worker_sessions_on_task_assignment_id"
+    t.index ["task_assignment_id"], name: "index_worker_sessions_one_live_per_assignment", unique: true, where: "((status)::text = ANY ((ARRAY['queued'::character varying, 'starting'::character varying, 'running'::character varying, 'stopping'::character varying])::text[]))"
     t.index ["task_grant_id"], name: "index_worker_sessions_on_task_grant_id"
     t.index ["worker_key"], name: "index_worker_sessions_on_worker_key", unique: true
-    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'starting'::character varying::text, 'running'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'interrupted'::character varying::text, 'cancelled'::character varying::text])", name: "worker_sessions_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying, 'starting'::character varying, 'running'::character varying, 'stopping'::character varying, 'completed'::character varying, 'failed'::character varying, 'interrupted'::character varying, 'cancelled'::character varying, 'stopped'::character varying, 'replaced'::character varying]::text[])", name: "worker_sessions_status_check"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
@@ -580,9 +635,13 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_093000) do
   add_foreign_key "surface_items", "scenes"
   add_foreign_key "surface_items", "surfaces"
   add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
+  add_foreign_key "task_assignments", "agent_tasks"
   add_foreign_key "task_grants", "agent_tasks"
   add_foreign_key "task_sessions", "agent_tasks"
+  add_foreign_key "worker_commands", "agent_tasks"
+  add_foreign_key "worker_commands", "worker_sessions"
   add_foreign_key "worker_sessions", "agent_tasks"
+  add_foreign_key "worker_sessions", "task_assignments"
   add_foreign_key "worker_sessions", "task_grants"
   add_foreign_key "worker_sessions", "worker_sessions", column: "resumes_worker_session_id"
 end

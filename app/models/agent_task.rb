@@ -5,7 +5,9 @@ class AgentTask < ApplicationRecord
   belongs_to :project
 
   has_many :task_grants, dependent: :destroy
+  has_many :task_assignments, dependent: :destroy
   has_many :worker_sessions, dependent: :destroy
+  has_many :worker_commands, dependent: :destroy
   has_many :task_sessions, dependent: :destroy
   has_many :runtime_events, dependent: :destroy
 
