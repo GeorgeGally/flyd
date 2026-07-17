@@ -1,33 +1,27 @@
-import { execFile } from "child_process";
 import { mkdir, rename, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
-import { promisify } from "util";
 import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
+import { planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
+import { codexAdapter } from "../runtime/codex-adapter.js";
 import { createRuntimePool } from "../runtime/database.js";
 import { runContinuityHarness } from "../runtime/harness.js";
-import { runOpenCode } from "../runtime/opencode-adapter.js";
+import {
+  buildOpenCodePermissionConfig,
+  createOpenCodeAdapter,
+  detectOpenCode,
+  runOpenCode,
+} from "../runtime/opencode-adapter.js";
+import { orchestrateAssignments } from "../runtime/orchestrator.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
 import { recoverInterruptedWorkers, workerProcessIsAlive } from "../runtime/recovery.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
+import { GitWorktreeManager } from "../runtime/worktree-manager.js";
 
-const execFileAsync = promisify(execFile);
-const TESTED_OPENCODE_VERSION = /^1\.17\.\d+$/;
-
-export async function detectOpenCode(): Promise<{ executable: string; version: string }> {
-  const [{ stdout: executable }, { stdout: versionOutput }] = await Promise.all([
-    execFileAsync("which", ["opencode"], { encoding: "utf8", timeout: 3_000 }),
-    execFileAsync("opencode", ["--version"], { encoding: "utf8", timeout: 3_000 }),
-  ]);
-  const version = versionOutput.trim();
-  if (!TESTED_OPENCODE_VERSION.test(version)) {
-    throw new Error(`OpenCode ${version || "unknown"} is outside Flyd's tested 1.17.x range`);
-  }
-  return { executable: executable.trim(), version };
-}
+export { detectOpenCode };
 
 export async function retrieveRuntimeMemory(query: string): Promise<MemoryEvidence> {
   const result = await retrieveBrainEvidence(query);
@@ -60,6 +54,7 @@ export async function runCode(outcome?: string): Promise<void> {
   const pool = createRuntimePool();
   const terminal = new NodeTerminal();
   const store = new PostgresTaskStore(pool);
+  const manager = new GitWorktreeManager();
   try {
     const result = await runContinuityHarness({
       outcome,
@@ -77,6 +72,45 @@ export async function runCode(outcome?: string): Promise<void> {
         recoverSessions: (projectRoot) => store.recoverTaskSessions(projectRoot),
         writeContext: writeRuntimeContext,
         now: () => new Date(),
+        orchestrationGrantScope: {
+          workerAdapters: [ "codex", "opencode" ],
+          worktreeRoot: manager.managedRoot,
+          providerIdentity: "codex-local,opencode-configured-provider",
+        },
+        orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
+          let assignments = await store.listAssignments(task.id);
+          if (assignments.length === 0) {
+            const plan = await planAssignments({
+              outcome: assignment,
+              repository,
+              memory,
+            });
+            const current = await store.findTask(task.taskKey);
+            if (!current) throw new Error(`Task ${task.taskKey} disappeared before planning`);
+            const persisted = await store.persistAssignmentPlan(task.taskKey, current.revision, {
+              ...plan,
+              baseHead: repository.head,
+              idempotencyKey: `task-plan:${task.taskKey}:${repository.head}`,
+            });
+            assignments = persisted.assignments;
+          }
+          const adapters = [
+            codexAdapter,
+            createOpenCodeAdapter(buildOpenCodePermissionConfig({
+              fileOperations: grant.fileOperations,
+              commandClasses: grant.commandClasses,
+            })),
+          ];
+          return orchestrateAssignments({
+            task,
+            grant,
+            assignments,
+            repository,
+            contextPath,
+            adapters,
+            deps: { store, manager },
+          });
+        },
         runWorker: ({ executable, args, cwd, timeoutMs, permissionConfig, onStart, onEvent }) =>
           runOpenCode({ executable, args, cwd, timeoutMs, permissionConfig, onStart, onEvent }),
       },

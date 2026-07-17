@@ -212,29 +212,29 @@
 - Modify: `cli/src/runtime/__tests__/harness.test.ts`
 - Modify: `cli/src/commands/code.ts`
 
-- [ ] **Step 1: Write failing orchestration tests**
+- [x] **Step 1: Write failing orchestration tests**
 
   Cover loose outcome to plan, two disjoint assignments running concurrently up to the grant limit, dependency ordering, provider routing, no manual context transfer, verified integration, and grounded review.
 
-- [ ] **Step 2: Write failing initiative tests**
+- [x] **Step 2: Write failing initiative tests**
 
   Cover one bounded retry after a failed verifier, replacement after an unhealthy adapter, stop after inactivity, refusal to expand scope, no duplicate intervention for the same evidence digest, and escalation when repository evidence invalidates the plan.
 
-- [ ] **Step 3: Verify the tests fail**
+- [x] **Step 3: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/orchestrator.test.ts src/runtime/__tests__/intervention-policy.test.ts src/runtime/__tests__/harness.test.ts`
 
   Expected: missing orchestration and intervention behavior.
 
-- [ ] **Step 4: Split the 1A harness into orientation and orchestration**
+- [x] **Step 4: Split the 1A harness into orientation and orchestration**
 
   Keep startup reconstruction and interpretation correction in the harness. Delegate planning, worktree creation, routing, worker lifecycle, independent verification, intervention, integration, and review to the orchestrator.
 
-- [ ] **Step 5: Implement bounded initiative**
+- [x] **Step 5: Implement bounded initiative**
 
   Automatically retry or replace only inside the current task grant and remaining budget. Record the trigger evidence, expected benefit, action, and verification. Consequential, destructive, external, secret-bearing, deployment, publication, purchase, and permission changes remain approval boundaries.
 
-- [ ] **Step 6: Run orchestration tests**
+- [x] **Step 6: Run orchestration tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/orchestrator.test.ts src/runtime/__tests__/intervention-policy.test.ts src/runtime/__tests__/harness.test.ts`
 

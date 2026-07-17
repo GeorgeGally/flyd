@@ -80,6 +80,29 @@ function dependencies(overrides: Record<string, unknown> = {}) {
 }
 
 describe("runContinuityHarness", () => {
+  it("delegates an approved task to the Release 1B orchestrator when available", async () => {
+    const orchestrate = vi.fn(async () => ({
+      status: "integrated" as const,
+      summary: "Two assignments integrated",
+      verification: { passed: true },
+      repositorySnapshot: { head: "def", status_digest: "changed" },
+    }));
+    const deps = dependencies({
+      orchestrate,
+      planAssignments: vi.fn(async () => ({
+        successCriteria: ["Implemented"],
+        verificationCriteria: ["git diff --check"],
+        assignments: [],
+        source: "fallback" as const,
+      })),
+    });
+
+    await runContinuityHarness({ outcome: "Implement continuity", deps });
+
+    expect(orchestrate).toHaveBeenCalledOnce();
+    expect(deps.runWorker).not.toHaveBeenCalled();
+  });
+
   it("creates, grants, runs, and verifies a new task", async () => {
     const deps = dependencies();
 

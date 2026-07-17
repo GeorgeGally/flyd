@@ -40,7 +40,7 @@ describe("GitWorktreeManager", () => {
     await writeFile(join(worktree.path, "README.md"), "worker edit\n");
 
     expect(worktree.path.startsWith(managedRoot)).toBe(true);
-    expect(worktree.branchName).toBe("flyd/task-123/assignme");
+    expect(worktree.branchName).toMatch(/^flyd\/task-123\/assignme-[a-f0-9]{8}$/);
     expect(await readFile(join(repo.root, "README.md"), "utf8")).toBe("base\n");
     await expect(execFileAsync("git", ["-C", worktree.path, "rev-parse", "HEAD"], { encoding: "utf8" }))
       .resolves.toMatchObject({ stdout: `${repo.head}\n` });

@@ -114,6 +114,23 @@ export interface HarnessDependencies {
   }): Promise<{ exitStatus: number; externalSessionId: string | null; output: string; error: string }>;
   writeContext(taskKey: string, context: ContextPackage): Promise<string>;
   now(): Date;
+  orchestrationGrantScope?: {
+    workerAdapters: string[];
+    worktreeRoot: string;
+    providerIdentity: string;
+  };
+  orchestrate?(input: {
+    task: AgentTask;
+    grant: TaskGrant;
+    repository: RepositorySnapshot;
+    memory: MemoryEvidence;
+    contextPath: string;
+    assignment: string;
+  }): Promise<{
+    status: "integrated" | "blocked";
+    summary: string;
+    verification: Record<string, unknown>;
+  }>;
 }
 
 export interface HarnessResult {
@@ -208,7 +225,7 @@ export async function runContinuityHarness(input: {
       idempotencyKey: eventKey(task.taskKey, "oriented"),
     });
 
-    if (previousWorker && ["queued", "starting", "running"].includes(previousWorker.status)) {
+    if (previousWorker && ["queued", "starting", "running", "stopping"].includes(previousWorker.status)) {
       deps.terminal.write(
         `\nOpenCode worker ${previousWorker.workerKey} is still running${previousWorker.processId ? ` as process ${previousWorker.processId}` : ""}. Flyd will not launch a duplicate.\n`,
       );
@@ -246,8 +263,14 @@ export async function runContinuityHarness(input: {
 
     let grant = await deps.store.approvedGrant(task.id);
     if (!grant) {
+      const orchestrationScope = deps.orchestrationGrantScope;
+      const workerLabel = orchestrationScope ? "Flyd-routed Codex and OpenCode" : "OpenCode";
+      const providerLabel = orchestrationScope?.providerIdentity ?? "OpenCode configured provider";
+      const limitLabel = orchestrationScope
+        ? "two isolated workers at a time, four total runs"
+        : "one worker at a time, three runs";
       deps.terminal.write(
-        `\nProposed task grant\nRepository: ${repository.root}\nWorker: OpenCode\nProvider: OpenCode configured provider\nAllowed: read/write this repository; inspect, test, lint, build, and read Git state\nLimits: one worker at a time, three runs, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: git diff --check plus repository tests selected by the worker\n`,
+        `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: git diff --check plus repository tests selected by Flyd\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
         await deps.store.finishTaskSession(sessionKey, sessionResult());
@@ -256,8 +279,8 @@ export async function runContinuityHarness(input: {
       }
       grant = await deps.store.approveGrant(task.taskKey, task.revision, {
         repositoryRoots: [repository.root],
-        worktreePaths: [],
-        workerAdapters: ["opencode"],
+        worktreePaths: orchestrationScope ? [orchestrationScope.worktreeRoot] : [],
+        workerAdapters: orchestrationScope?.workerAdapters ?? ["opencode"],
         fileOperations: ["read", "write"],
         commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
         verificationCommands: ["git diff --check"],
@@ -265,9 +288,9 @@ export async function runContinuityHarness(input: {
           "destructive_operation", "external_write", "deploy", "publish", "purchase",
           "secret_disclosure", "permission_change",
         ],
-        maxConcurrency: 1,
-        budget: { max_worker_runs: 3, max_runtime_minutes: 90 },
-        providerIdentity: "opencode-configured-provider",
+        maxConcurrency: orchestrationScope ? 2 : 1,
+        budget: { max_worker_runs: orchestrationScope ? 4 : 3, max_runtime_minutes: 90 },
+        providerIdentity: orchestrationScope?.providerIdentity ?? "opencode-configured-provider",
         expiresAt: new Date(deps.now().getTime() + 8 * 60 * 60 * 1000),
         idempotencyKey: eventKey(task.taskKey, "grant"),
       });
@@ -275,6 +298,58 @@ export async function runContinuityHarness(input: {
     }
 
     const context = buildContextPackage({ task, repository, worker: previousWorker, memory });
+    if (deps.orchestrate) {
+      let contextPath: string;
+      try {
+        contextPath = await deps.writeContext(task.taskKey, context);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+          nextAction: `Prepare worker context: ${message}`,
+          repositorySnapshot: repositoryState(repository),
+          idempotencyKey: eventKey(task.taskKey, "orchestration-preparation-failed"),
+        });
+        await deps.store.finishTaskSession(sessionKey, sessionResult());
+        sessionKey = null;
+        return { status: task.status, taskKey: task.taskKey };
+      }
+      const orchestration = await deps.orchestrate({
+        task,
+        grant,
+        repository,
+        memory,
+        contextPath,
+        assignment,
+      });
+      task = await currentTask(deps.store, task.taskKey);
+      repository = await deps.inspectRepository(repository.root);
+      deps.terminal.write(`\nFlyd review\n${orchestration.summary}\n`);
+      if (orchestration.status === "integrated" &&
+          await deps.terminal.confirm("Does the verified integrated result satisfy the intended outcome?")) {
+        task = await deps.store.completeTask(task.taskKey, task.revision, {
+          summary: orchestration.summary,
+          verification: {
+            ...orchestration.verification,
+            user_confirmed: true,
+            confirmed_at: deps.now().toISOString(),
+          },
+          repositorySnapshot: repositoryState(repository),
+          idempotencyKey: eventKey(task.taskKey, "orchestration-completed"),
+        });
+      } else {
+        task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+          nextAction: orchestration.status === "blocked"
+            ? orchestration.summary
+            : "Review the integrated changes and provide a focused correction",
+          repositorySnapshot: repositoryState(repository),
+          idempotencyKey: eventKey(task.taskKey, "orchestration-reentry"),
+        });
+      }
+      await deps.store.finishTaskSession(sessionKey, sessionResult());
+      sessionKey = null;
+      return { status: task.status, taskKey: task.taskKey };
+    }
+
     let contextPath: string;
     let openCode: { executable: string; version: string };
     try {

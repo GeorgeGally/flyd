@@ -1,13 +1,62 @@
+import { execFile as nodeExecFile } from "child_process";
+import { promisify } from "util";
 import {
   runJsonWorkerProcess,
   sanitizeWorkerEnvironment,
+  type WorkerAdapter,
+  type WorkerHealth,
   type WorkerSpawn,
 } from "./worker-adapter.js";
+
+const execFileAsync = promisify(nodeExecFile);
+const TESTED_OPENCODE_VERSION = /^1\.17\.\d+$/;
+const OPENCODE_CAPABILITIES = [ "analysis", "implementation", "review", "testing", "resume" ] as const;
+type ExecFile = (executable: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export interface OpenCodeEvent {
   type: string;
   sessionId: string | null;
   text: string | null;
+}
+
+export function isTestedOpenCodeVersion(version: string): boolean {
+  return TESTED_OPENCODE_VERSION.test(version.trim());
+}
+
+export async function detectOpenCode(input: {
+  candidates?: string[];
+  execFile?: ExecFile;
+} = {}): Promise<WorkerHealth> {
+  const candidates = input.candidates ?? [
+    process.env.FLYD_OPENCODE_PATH,
+    `${process.env.HOME ?? ""}/.opencode/bin/opencode`,
+    "opencode",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const execFile = input.execFile ?? (async (executable, args) => {
+    const result = await execFileAsync(executable, args, { encoding: "utf8", timeout: 3_000 });
+    return { stdout: result.stdout, stderr: result.stderr };
+  });
+  const diagnostics: string[] = [];
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      const { stdout } = await execFile(candidate, [ "--version" ]);
+      const version = stdout.trim();
+      if (!isTestedOpenCodeVersion(version)) {
+        diagnostics.push(`${candidate}: ${version || "unknown version"}`);
+        continue;
+      }
+      return {
+        name: "opencode",
+        executable: candidate,
+        version,
+        healthy: true,
+        capabilities: [...OPENCODE_CAPABILITIES],
+      };
+    } catch (error) {
+      diagnostics.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`No healthy OpenCode 1.17.x executable (${diagnostics.join("; ")})`);
 }
 
 interface OpenCodeArgsInput {
@@ -118,4 +167,15 @@ export async function runOpenCode(input: {
       ? { OPENCODE_CONFIG_CONTENT: JSON.stringify(input.permissionConfig) }
       : undefined,
   });
+}
+
+export function createOpenCodeAdapter(permissionConfig: OpenCodePermissionConfig): WorkerAdapter {
+  return {
+    name: "opencode",
+    capabilities: [...OPENCODE_CAPABILITIES],
+    detect: detectOpenCode,
+    buildArgs: buildOpenCodeArgs,
+    parseEvent: parseOpenCodeEvent,
+    run: (input) => runOpenCode({ ...input, permissionConfig }),
+  };
 }

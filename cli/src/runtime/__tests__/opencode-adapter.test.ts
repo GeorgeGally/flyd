@@ -4,12 +4,26 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildOpenCodeArgs,
   buildOpenCodePermissionConfig,
+  detectOpenCode,
+  isTestedOpenCodeVersion,
   parseOpenCodeEvent,
   runOpenCode,
   sanitizeWorkerEnvironment,
 } from "../opencode-adapter.js";
 
 describe("OpenCode adapter", () => {
+  it("detects only the tested OpenCode release line", async () => {
+    expect(isTestedOpenCodeVersion("1.17.18")).toBe(true);
+    expect(isTestedOpenCodeVersion("1.18.0")).toBe(false);
+    await expect(detectOpenCode({
+      candidates: ["/broken/opencode", "/bin/opencode"],
+      execFile: vi.fn(async (candidate: string) => {
+        if (candidate.includes("broken")) throw new Error("ENOENT");
+        return { stdout: "1.17.18\n", stderr: "" };
+      }),
+    })).resolves.toMatchObject({ executable: "/bin/opencode", version: "1.17.18", healthy: true });
+  });
+
   it("builds a structured approved command for a new task", () => {
     expect(buildOpenCodeArgs({ assignment: "Implement continuity", contextPath: "/tmp/context.md", projectRoot: "/work/flyd", taskKey: "task-1" })).toEqual([
       "run", "Implement continuity", "-f", "/tmp/context.md", "--format", "json", "--dir", "/work/flyd", "--title", "flyd:task-1", "--auto",

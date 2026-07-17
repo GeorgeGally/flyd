@@ -1,4 +1,5 @@
 import { execFile as nodeExecFile } from "child_process";
+import { createHash } from "crypto";
 import { mkdir, stat } from "fs/promises";
 import { homedir } from "os";
 import { join, resolve } from "path";
@@ -48,7 +49,8 @@ export class GitWorktreeManager {
   }
 
   branchFor(taskKey: string, assignmentKey: string): string {
-    return `flyd/${slug(taskKey).slice(0, 8)}/${slug(assignmentKey).slice(0, 8)}`;
+    const digest = createHash("sha256").update(`${taskKey}:${assignmentKey}`).digest("hex").slice(0, 8);
+    return `flyd/${slug(taskKey).slice(0, 8)}/${slug(assignmentKey).slice(0, 8)}-${digest}`;
   }
 
   async prepare(input: {

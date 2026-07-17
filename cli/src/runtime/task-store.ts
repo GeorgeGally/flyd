@@ -165,7 +165,7 @@ export class PostgresTaskStore {
     const result = await this.pool.query(`SELECT w.* FROM worker_sessions w
       JOIN agent_tasks t ON t.id = w.agent_task_id
       JOIN projects p ON p.id = t.project_id
-      WHERE p.root_path = $1 AND w.status IN ('queued','starting','running')
+      WHERE p.root_path = $1 AND w.status IN ('queued','starting','running','stopping')
       ORDER BY w.created_at`, [projectRoot]);
     return result.rows.map(mapWorker);
   }
@@ -185,6 +185,100 @@ export class PostgresTaskStore {
       [taskId],
     );
     return result.rows.map(mapAssignment);
+  }
+
+  async updateAssignmentWorkspace(assignmentKey: string, input: {
+    worktreePath: string;
+    branchName: string;
+    baseHead: string;
+    idempotencyKey: string;
+  }): Promise<TaskAssignment> {
+    return withTransaction(this.pool, async (client) => {
+      const duplicate = await client.query(
+        "SELECT a.* FROM task_assignments a JOIN runtime_events e ON e.agent_task_id = a.agent_task_id WHERE a.assignment_key = $1 AND e.idempotency_key = $2 LIMIT 1",
+        [assignmentKey, input.idempotencyKey],
+      );
+      if (duplicate.rows[0]) return mapAssignment(duplicate.rows[0]);
+      const result = await client.query(`SELECT a.*, t.revision AS task_revision
+        FROM task_assignments a JOIN agent_tasks t ON t.id = a.agent_task_id
+        WHERE a.assignment_key = $1 FOR UPDATE OF a, t`, [assignmentKey]);
+      const assignment = result.rows[0];
+      if (!assignment) throw new Error(`Unknown assignment ${assignmentKey}`);
+      const updated = await client.query(`UPDATE task_assignments SET worktree_path = $2,
+        branch_name = $3, base_head = $4, updated_at = NOW() WHERE id = $1 RETURNING *`, [
+        assignment.id, input.worktreePath, input.branchName, input.baseHead,
+      ]);
+      const revision = Number(assignment.task_revision) + 1;
+      await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, assignment.agent_task_id]);
+      await this.insertEvent(client, assignment.agent_task_id, revision, "assignment.workspace_prepared", input.idempotencyKey, {
+        assignment_key: assignmentKey,
+        worktree_path: input.worktreePath,
+        branch_name: input.branchName,
+        base_head: input.baseHead,
+      });
+      return mapAssignment(updated.rows[0]);
+    });
+  }
+
+  async recordAssignmentVerification(assignmentKey: string, input: {
+    status: "verified" | "failed" | "blocked";
+    result: Record<string, unknown>;
+    idempotencyKey: string;
+  }): Promise<TaskAssignment> {
+    return withTransaction(this.pool, async (client) => {
+      const duplicate = await client.query(
+        "SELECT a.* FROM task_assignments a JOIN runtime_events e ON e.agent_task_id = a.agent_task_id WHERE a.assignment_key = $1 AND e.idempotency_key = $2 LIMIT 1",
+        [assignmentKey, input.idempotencyKey],
+      );
+      if (duplicate.rows[0]) return mapAssignment(duplicate.rows[0]);
+      const result = await client.query(`SELECT a.*, t.revision AS task_revision
+        FROM task_assignments a JOIN agent_tasks t ON t.id = a.agent_task_id
+        WHERE a.assignment_key = $1 FOR UPDATE OF a, t`, [assignmentKey]);
+      const assignment = result.rows[0];
+      if (!assignment) throw new Error(`Unknown assignment ${assignmentKey}`);
+      const updated = await client.query(`UPDATE task_assignments SET status = $2,
+        verification_result = $3::jsonb, ended_at = CASE WHEN $2 IN ('verified','failed') THEN NOW() ELSE ended_at END,
+        updated_at = NOW() WHERE id = $1 RETURNING *`, [
+        assignment.id, input.status, JSON.stringify(input.result),
+      ]);
+      const revision = Number(assignment.task_revision) + 1;
+      await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, assignment.agent_task_id]);
+      await this.insertEvent(client, assignment.agent_task_id, revision, `assignment.${input.status}`, input.idempotencyKey, {
+        assignment_key: assignmentKey,
+        verification: input.result,
+      });
+      return mapAssignment(updated.rows[0]);
+    });
+  }
+
+  async recordTaskIntegration(taskKey: string, input: {
+    result: { status: "integrated" | "blocked"; reason: string | null; changedFiles: string[]; patchDigest: string | null; repositorySnapshot?: RepositorySnapshot };
+    idempotencyKey: string;
+  }): Promise<AgentTask> {
+    return withTransaction(this.pool, async (client) => {
+      const existing = await this.taskForIdempotency(client, input.idempotencyKey);
+      if (existing) return existing;
+      const task = await this.lockTask(client, taskKey);
+      const revision = Number(task.revision) + 1;
+      const verification = {
+        integrated: input.result.status === "integrated",
+        changed_files: input.result.changedFiles,
+        patch_digest: input.result.patchDigest,
+        reason: input.result.reason,
+      };
+      await client.query(`UPDATE agent_tasks SET status = $2, verification_result = $3::jsonb,
+        repository_snapshot = COALESCE($4::jsonb, repository_snapshot), recommended_next_action = $5,
+        revision = $6, updated_at = NOW() WHERE id = $1`, [
+        task.id,
+        input.result.status === "integrated" ? "ready" : "blocked",
+        JSON.stringify(verification),
+        input.result.repositorySnapshot ? JSON.stringify(input.result.repositorySnapshot) : null,
+        input.result.status === "integrated" ? "Review the verified integrated result" : input.result.reason,
+        revision,
+      ]);
+      await this.insertEvent(client, task.id, revision, `task.integration_${input.result.status}`, input.idempotencyKey, verification);
+      return this.loadTask(client, taskKey);
+    });
   }
 
   async persistAssignmentPlan(taskKey: string, expectedRevision: number, input: {
@@ -661,7 +755,7 @@ export class PostgresTaskStore {
   async recordToolEscape(taskKey: string, expectedRevision: number, reason: string, idempotencyKey: string): Promise<AgentTask> {
     return this.mutateTask(taskKey, expectedRevision, idempotencyKey, "task.tool_escape", async (client, row, revision) => {
       const liveWorker = await client.query(
-        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running') LIMIT 1",
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
         [row.id],
       );
       if (liveWorker.rows[0]) throw new Error("Cannot record a tool escape while a worker is still live");
@@ -685,7 +779,7 @@ export class PostgresTaskStore {
   async completeTask(taskKey: string, expectedRevision: number, input: { summary: string; verification: Record<string, unknown>; repositorySnapshot: Record<string, unknown>; idempotencyKey: string }): Promise<AgentTask> {
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.completed", async (client, row, revision) => {
       const liveWorker = await client.query(
-        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running') LIMIT 1",
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
         [row.id],
       );
       if (liveWorker.rows[0]) throw new Error("Cannot complete a task while a worker is still live");

@@ -422,6 +422,7 @@ describe("PostgresTaskStore", () => {
     );
     expect(duplicate.command.commandKey).toBe(first.command.commandKey);
     expect(first.worker.status).toBe("stopping");
+    expect((await store.liveWorkers(projectRoot)).map((item) => item.workerKey)).toContain(worker.workerKey);
 
     await store.completeWorkerCommand(first.command.commandKey, {
       workerStatus: "interrupted",

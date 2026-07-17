@@ -22,7 +22,7 @@ class WorkerSession < ApplicationRecord
   validate :assignment_belongs_to_task
   validate :grant_authorizes_worker
 
-  scope :live, -> { where(status: %w[queued starting running]) }
+  scope :live, -> { where(status: %w[queued starting running stopping]) }
 
   def readonly?
     persisted?
