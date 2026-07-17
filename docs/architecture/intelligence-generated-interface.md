@@ -8,6 +8,6 @@ The architecture is an implemented foundation, not a claim that the Flyd V1 prod
 
 The authoritative product requirements are now:
 
-- `docs/product/flyd-v1-prd.md`
+- `docs/product/flyd-personal-agent-platform-prd.md`
 
-The July 7 project/chat-first PRD is superseded by that product PRD. Its useful OpenCode execution requirements are retained there, while its project-first navigation and chat-shell assumptions are explicitly retired.
+`docs/product/flyd-v1-prd.md` remains the detailed Rails directed-surface specification. The July 7 project/chat-first PRD is superseded; its useful OpenCode execution requirements are retained, while its project-first navigation and chat-shell assumptions remain retired.

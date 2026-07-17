@@ -4,7 +4,7 @@
 
 Implemented architecture and first complete directed-interface slice for Flyd V1.
 
-This document describes the runtime, persistence, trust boundaries, interface grammar, and deployment substrate. Product behavior and completion criteria are defined in `docs/product/flyd-v1-prd.md`.
+This document describes the implemented Rails surface foundation. Product behavior and completion criteria are defined in `docs/product/flyd-personal-agent-platform-prd.md`; the earlier `docs/product/flyd-v1-prd.md` remains the detailed directed-surface specification.
 
 ## Principle
 
@@ -230,4 +230,4 @@ The core directed-interface loop is implemented for decision, investigation, act
 - deeper resurfacing and longitudinal learning;
 - continued refinement of the final spatial visual language.
 
-See `docs/product/flyd-v1-prd.md` for the authoritative product definition and completion gate.
+See `docs/product/flyd-personal-agent-platform-prd.md` for the authoritative product definition and completion gate.

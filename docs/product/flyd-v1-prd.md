@@ -2,7 +2,9 @@
 
 ## Status
 
-Authoritative product PRD for Flyd V1.
+Superseded as the authoritative product definition by `docs/product/flyd-personal-agent-platform-prd.md`.
+
+This document remains the detailed directed-surface specification for the Rails interface where it does not conflict with the personal-agent platform PRD.
 
 This document supersedes the July 7 project/chat-first PRD. Projects, chat, OpenCode, memory, scenes, artifacts, and providers remain useful parts of Flyd, but none defines the product interface.
 

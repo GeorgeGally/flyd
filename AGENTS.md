@@ -28,7 +28,7 @@ Guardrails:
 - Layout semantics belong to Flyd's surface composition; renderers only present the plan.
 - New modalities must enter through the universal intent model rather than separate product modes.
 
-See `docs/architecture/intelligence-generated-interface.md`.
+See `docs/product/flyd-personal-agent-platform-prd.md` and `docs/architecture/intelligence-generated-interface.md`.
 
 ## Structure
 
@@ -64,6 +64,7 @@ cd cli && npm run export-state -- --stdout
 ## Key Files
 
 - `docs/architecture/intelligence-generated-interface.md` — product architecture and interface contract
+- `docs/product/flyd-personal-agent-platform-prd.md` — authoritative personal-agent platform PRD and release sequence
 - `app/models/surface.rb` — persisted surface lifecycle and activation
 - `app/models/surface_item.rb` — persisted semantic presentation objects
 - `app/models/intelligence_snapshot.rb` — shared provider snapshots and health
