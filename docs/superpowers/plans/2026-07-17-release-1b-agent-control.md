@@ -135,33 +135,33 @@
 - Create: `cli/src/runtime/__tests__/result-integrator.test.ts`
 - Modify: `cli/src/runtime/repository-inspector.ts`
 
-- [ ] **Step 1: Write failing Git isolation tests**
+- [x] **Step 1: Write failing Git isolation tests**
 
   Use temporary repositories to prove deterministic managed paths, assignment branches from the recorded base head, no edits in the source checkout, cleanup, and refusal to reuse an unrelated worktree.
 
-- [ ] **Step 2: Write failing verification and integration tests**
+- [x] **Step 2: Write failing verification and integration tests**
 
   Prove worker text cannot verify completion, verification commands must exit zero, overlapping changed files block integration, changed source HEAD or dirty state blocks integration, and two disjoint verified patches integrate through a temporary integration worktree before touching `main`.
 
-- [ ] **Step 3: Verify the tests fail**
+- [x] **Step 3: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worktree-manager.test.ts src/runtime/__tests__/result-verifier.test.ts src/runtime/__tests__/result-integrator.test.ts`
 
   Expected: missing worktree, verifier, and integrator modules.
 
-- [ ] **Step 4: Implement managed worktrees**
+- [x] **Step 4: Implement managed worktrees**
 
   Store worktrees under `~/.flyd/runtime/worktrees/<task-key>/<assignment-key>`, create branches from the task's recorded base head, and reject paths outside the managed root.
 
-- [ ] **Step 5: Implement independent verification**
+- [x] **Step 5: Implement independent verification**
 
   Run only grant-approved verification commands with structured shell invocation and bounded timeouts. Record command, exit status, output digest, changed files, resulting head, and observed repository state.
 
-- [ ] **Step 6: Implement conflict-safe integration**
+- [x] **Step 6: Implement conflict-safe integration**
 
   Refuse overlapping files before application. Apply and verify all patches in an integration worktree. Recheck source branch, head, and status digest immediately before applying the verified combined patch to `main`. On any mismatch, leave `main` untouched and return a blocked result with evidence.
 
-- [ ] **Step 7: Run isolation tests**
+- [x] **Step 7: Run isolation tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/worktree-manager.test.ts src/runtime/__tests__/result-verifier.test.ts src/runtime/__tests__/result-integrator.test.ts`
 
