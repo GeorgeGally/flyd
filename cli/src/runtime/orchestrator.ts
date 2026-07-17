@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { integrateVerifiedResults, type IntegrationResult } from "./result-integrator.js";
-import { verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
+import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
 import { chooseIntervention } from "./intervention-policy.js";
 import { routeWorker } from "./worker-router.js";
 import type {
@@ -45,11 +45,11 @@ interface OrchestrationStore {
   ): Promise<unknown>;
   queueWorkerCommand(
     workerKey: string,
-    kind: "retry" | "replace",
+    kind: "stop" | "retry" | "replace",
     payload: Record<string, unknown>,
     idempotencyKey: string,
   ): Promise<{ command: WorkerCommand; worker: WorkerSession }>;
-  completeWorkerCommand(commandKey: string, input: { workerStatus: null }): Promise<WorkerCommand>;
+  completeWorkerCommand(commandKey: string, input: { workerStatus: "stopped" | null }): Promise<WorkerCommand>;
   recordTaskIntegration(
     taskKey: string,
     input: { result: IntegrationResult; idempotencyKey: string },
@@ -103,11 +103,33 @@ export async function orchestrateAssignments(input: {
   const verified = new Map<string, VerifiedWorkerResult>();
   const completed = new Set<string>();
   const remaining = new Map(input.assignments.map((assignment) => [assignment.assignmentKey, assignment]));
-  const priorEvidenceDigests: string[] = [];
   let workerRuns = 0;
   const maxWorkerRuns = Number(input.grant.budget.max_worker_runs ?? input.assignments.length);
 
   const runAssignment = async (assignment: TaskAssignment): Promise<void> => {
+    if (assignment.baseHead && assignment.baseHead !== input.repository.head) {
+      const evidenceDigest = createHash("sha256")
+        .update(`${assignment.assignmentKey}:${assignment.baseHead}:${input.repository.head}`)
+        .digest("hex");
+      const intervention = chooseIntervention({
+        trigger: "repository_changed",
+        evidenceDigest,
+        priorEvidenceDigests: [],
+        remainingRuns: maxWorkerRuns - workerRuns,
+        replacementAvailable: false,
+      });
+      await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
+        status: "blocked",
+        result: {
+          passed: false,
+          recorded_base_head: assignment.baseHead,
+          current_head: input.repository.head,
+          intervention,
+        },
+        idempotencyKey: eventKey(`assignment-stale:${assignment.assignmentKey}`),
+      });
+      throw new Error(intervention.reason);
+    }
     const worktree = await input.deps.manager.prepare({
       repositoryRoot: input.repository.root,
       taskKey: input.task.taskKey,
@@ -122,6 +144,7 @@ export async function orchestrateAssignments(input: {
     });
 
     const excluded = [...assignment.excludedAdapters];
+    const priorEvidenceDigests: string[] = [];
     for (;;) {
       const selected = routeWorker({
         requirements: assignment.capabilityRequirements,
@@ -151,31 +174,78 @@ export async function orchestrateAssignments(input: {
       });
       let recordedSession: string | null = null;
       let workerTransitions = Promise.resolve(worker);
-      const result = await adapter.run({
-        executable: selected.executable,
-        args,
-        cwd: worktree.path,
-        timeoutMs: Number(input.grant.budget.max_runtime_minutes ?? 90) * 60_000,
-        onStart: async (processId) => {
-          workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
-            status: "running",
-            processId,
-            idempotencyKey: eventKey(`worker-running:${worker.workerKey}`),
-          }));
-          await workerTransitions;
-        },
-        onEvent: (event) => {
-          if (!event.sessionId || event.sessionId === recordedSession) return;
-          recordedSession = event.sessionId;
-          workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
-            status: "running",
-            externalSessionId: event.sessionId!,
-            idempotencyKey: eventKey(`worker-session:${worker.workerKey}`),
-          }));
-        },
-      });
-      activeCounts[selected.name] -= 1;
+      const inactivity = {} as { control?: { command: WorkerCommand; worker: WorkerSession } };
+      let result;
+      try {
+        result = await adapter.run({
+          executable: selected.executable,
+          args,
+          cwd: worktree.path,
+          timeoutMs: Number(input.grant.budget.max_runtime_minutes ?? 90) * 60_000,
+          onStart: async (processId) => {
+            workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
+              status: "running",
+              processId,
+              idempotencyKey: eventKey(`worker-running:${worker.workerKey}`),
+            }));
+            await workerTransitions;
+          },
+          onEvent: (event) => {
+            if (!event.sessionId || event.sessionId === recordedSession) return;
+            recordedSession = event.sessionId;
+            workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
+              status: "running",
+              externalSessionId: event.sessionId!,
+              idempotencyKey: eventKey(`worker-session:${worker.workerKey}`),
+            }));
+          },
+          onTimeout: async () => {
+            const evidenceDigest = createHash("sha256")
+              .update(`${assignment.assignmentKey}:${worker.workerKey}:inactive`)
+              .digest("hex");
+            const intervention = chooseIntervention({
+              trigger: "inactive",
+              evidenceDigest,
+              priorEvidenceDigests,
+              remainingRuns: maxWorkerRuns - workerRuns,
+              replacementAvailable: false,
+            });
+            inactivity.control = await input.deps.store.queueWorkerCommand(
+              worker.workerKey,
+              "stop",
+              { trigger: "inactive", evidence_digest: evidenceDigest, reason: intervention.reason },
+              eventKey(`inactivity-stop:${worker.workerKey}`),
+            );
+          },
+        });
+      } catch (error) {
+        await workerTransitions;
+        const message = error instanceof Error ? error.message : String(error);
+        await input.deps.store.transitionWorker(worker.workerKey, {
+          status: "failed",
+          error: message,
+          idempotencyKey: eventKey(`worker-crashed:${worker.workerKey}`),
+        });
+        throw error;
+      } finally {
+        activeCounts[selected.name] -= 1;
+      }
       await workerTransitions;
+      if (inactivity.control) {
+        const control = inactivity.control;
+        await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
+        const intervention = {
+          action: "stop",
+          automatic: true,
+          reason: "The worker was stopped after exceeding the approved inactivity threshold",
+        };
+        await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
+          status: "blocked",
+          result: { passed: false, intervention },
+          idempotencyKey: eventKey(`assignment-inactive:${assignment.assignmentKey}`),
+        });
+        throw new Error(intervention.reason);
+      }
       await input.deps.store.transitionWorker(worker.workerKey, {
         status: result.exitStatus === 0 ? "completed" : "failed",
         externalSessionId: result.externalSessionId ?? undefined,
@@ -189,6 +259,30 @@ export async function orchestrateAssignments(input: {
         baseHead: input.repository.head,
         commands: input.grant.verificationCommands,
       });
+      const outOfScopeFiles = filesOutsideScope(verification.changedFiles, assignment.declaredFileScope);
+      if (outOfScopeFiles.length > 0) {
+        const evidenceDigest = createHash("sha256")
+          .update(`${assignment.assignmentKey}:${outOfScopeFiles.join("\n")}`)
+          .digest("hex");
+        const intervention = chooseIntervention({
+          trigger: "scope_expansion",
+          evidenceDigest,
+          priorEvidenceDigests,
+          remainingRuns: maxWorkerRuns - workerRuns,
+          replacementAvailable: false,
+        });
+        await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
+          status: "blocked",
+          result: {
+            ...verificationPayload(verification),
+            declared_file_scope: assignment.declaredFileScope,
+            out_of_scope_files: outOfScopeFiles,
+            intervention,
+          },
+          idempotencyKey: eventKey(`assignment-scope:${assignment.assignmentKey}`),
+        });
+        throw new Error(`${intervention.reason}: ${outOfScopeFiles.join(", ")}`);
+      }
       if (result.exitStatus === 0 && verification.passed) {
         await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
           status: "verified",
@@ -200,6 +294,7 @@ export async function orchestrateAssignments(input: {
       }
 
       const evidenceDigest = createHash("sha256").update(JSON.stringify({
+        assignmentKey: assignment.assignmentKey,
         exitStatus: result.exitStatus,
         error: result.error,
         patchDigest: verification.patchDigest,
@@ -256,14 +351,24 @@ export async function orchestrateAssignments(input: {
     };
   }
 
-  const integration = await integrateVerifiedResults({
-    repositoryRoot: input.repository.root,
-    taskKey: input.task.taskKey,
-    baseSnapshot: input.repository,
-    results: input.assignments.map((assignment) => verified.get(assignment.assignmentKey)!),
-    verificationCommands: input.grant.verificationCommands,
-    manager: input.deps.manager,
-  });
+  let integration: IntegrationResult;
+  try {
+    integration = await integrateVerifiedResults({
+      repositoryRoot: input.repository.root,
+      taskKey: input.task.taskKey,
+      baseSnapshot: input.repository,
+      results: input.assignments.map((assignment) => verified.get(assignment.assignmentKey)!),
+      verificationCommands: input.grant.verificationCommands,
+      manager: input.deps.manager,
+    });
+  } catch (error) {
+    integration = {
+      status: "blocked",
+      reason: `Integration failed without changing main: ${error instanceof Error ? error.message : String(error)}`,
+      changedFiles: [...new Set([...verified.values()].flatMap((result) => result.changedFiles))].sort(),
+      patchDigest: null,
+    };
+  }
   await input.deps.store.recordTaskIntegration(input.task.taskKey, {
     result: integration,
     idempotencyKey: eventKey(`task-integration:${input.task.taskKey}`),

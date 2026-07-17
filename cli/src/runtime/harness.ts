@@ -17,6 +17,10 @@ interface TaskStore {
   findTask(taskKey: string): Promise<AgentTask | null>;
   latestWorker(taskId: string): Promise<WorkerSession | null>;
   approvedGrant(taskId: string): Promise<TaskGrant | null>;
+  revokeGrant(taskKey: string, expectedRevision: number, grantKey: string, input: {
+    reason: string;
+    idempotencyKey: string;
+  }): Promise<AgentTask>;
   createTask(input: {
     projectName: string;
     projectRoot: string;
@@ -154,6 +158,18 @@ function eventKey(taskKey: string, event: string): string {
   return `${taskKey}:${event}:${randomUUID()}`;
 }
 
+function grantSupportsOrchestration(
+  grant: TaskGrant,
+  scope: NonNullable<HarnessDependencies["orchestrationGrantScope"]>,
+): boolean {
+  const maxWorkerRuns = Number(grant.budget.max_worker_runs ?? 0);
+
+  return scope.workerAdapters.every((adapter) => grant.workerAdapters.includes(adapter))
+    && grant.worktreePaths.includes(scope.worktreeRoot)
+    && grant.maxConcurrency >= 2
+    && maxWorkerRuns >= 4;
+}
+
 async function currentTask(store: TaskStore, taskKey: string): Promise<AgentTask> {
   const task = await store.findTask(taskKey);
   if (!task) throw new Error(`Task ${taskKey} disappeared`);
@@ -262,6 +278,13 @@ export async function runContinuityHarness(input: {
     }
 
     let grant = await deps.store.approvedGrant(task.id);
+    if (grant && deps.orchestrationGrantScope && !grantSupportsOrchestration(grant, deps.orchestrationGrantScope)) {
+      task = await deps.store.revokeGrant(task.taskKey, task.revision, grant.grantKey, {
+        reason: "Release 1B orchestration requires renewed bounded authority",
+        idempotencyKey: eventKey(task.taskKey, "grant-renewal"),
+      });
+      grant = null;
+    }
     if (!grant) {
       const orchestrationScope = deps.orchestrationGrantScope;
       const workerLabel = orchestrationScope ? "Flyd-routed Codex and OpenCode" : "OpenCode";
@@ -270,7 +293,7 @@ export async function runContinuityHarness(input: {
         ? "two isolated workers at a time, four total runs"
         : "one worker at a time, three runs";
       deps.terminal.write(
-        `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: git diff --check plus repository tests selected by Flyd\n`,
+        `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: grant-approved commands, including git diff --check\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
         await deps.store.finishTaskSession(sessionKey, sessionResult());
@@ -299,28 +322,40 @@ export async function runContinuityHarness(input: {
 
     const context = buildContextPackage({ task, repository, worker: previousWorker, memory });
     if (deps.orchestrate) {
-      let contextPath: string;
-      try {
-        contextPath = await deps.writeContext(task.taskKey, context);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
-          nextAction: `Prepare worker context: ${message}`,
-          repositorySnapshot: repositoryState(repository),
-          idempotencyKey: eventKey(task.taskKey, "orchestration-preparation-failed"),
+      let orchestration;
+      if (task.verificationResult.integrated === true) {
+        const changedFiles = Array.isArray(task.verificationResult.changed_files)
+          ? task.verificationResult.changed_files
+          : [];
+        orchestration = {
+          status: "integrated" as const,
+          summary: `Review the previously verified integration (${changedFiles.length} changed files)`,
+          verification: task.verificationResult,
+        };
+      } else {
+        let contextPath: string;
+        try {
+          contextPath = await deps.writeContext(task.taskKey, context);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+            nextAction: `Prepare worker context: ${message}`,
+            repositorySnapshot: repositoryState(repository),
+            idempotencyKey: eventKey(task.taskKey, "orchestration-preparation-failed"),
+          });
+          await deps.store.finishTaskSession(sessionKey, sessionResult());
+          sessionKey = null;
+          return { status: task.status, taskKey: task.taskKey };
+        }
+        orchestration = await deps.orchestrate({
+          task,
+          grant,
+          repository,
+          memory,
+          contextPath,
+          assignment,
         });
-        await deps.store.finishTaskSession(sessionKey, sessionResult());
-        sessionKey = null;
-        return { status: task.status, taskKey: task.taskKey };
       }
-      const orchestration = await deps.orchestrate({
-        task,
-        grant,
-        repository,
-        memory,
-        contextPath,
-        assignment,
-      });
       task = await currentTask(deps.store, task.taskKey);
       repository = await deps.inspectRepository(repository.root);
       deps.terminal.write(`\nFlyd review\n${orchestration.summary}\n`);

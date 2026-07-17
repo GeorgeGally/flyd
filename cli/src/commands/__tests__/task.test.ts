@@ -20,6 +20,7 @@ const worker: WorkerSession = {
   externalSessionId: "thread-1", processId: 42, errorSummary: null, output: null,
   exitStatus: null, startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
   lastObservedAt: "2026-07-17T00:01:00.000Z", stopReason: null,
+  assignmentRevision: 3, pendingControl: "retry",
 };
 
 describe("task command formatting", () => {
@@ -34,9 +35,11 @@ describe("task command formatting", () => {
 
     expect(output).toContain("worker-12345678");
     expect(output).toContain("Assignment: 4");
+    expect(output).toContain("Assignment revision: 3");
     expect(output).toContain("codex");
     expect(output).toContain("/tmp/flyd/worktree");
-    expect(output).toContain("2026-07-17T00:01:00.000Z");
+    expect(output).toContain("Last heartbeat: 2026-07-17T00:01:00.000Z");
+    expect(output).toContain("Pending control: retry");
   });
 
   it("reports missing trial data honestly", () => {
@@ -46,6 +49,10 @@ describe("task command formatting", () => {
       acceptedInterpretations: 0, correctedInterpretations: 0,
       replacedInterpretations: 0,
       manualContextRestatements: 0, toolEscapes: 0,
+      routedAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
+      acceptedInterventions: 0, stopControls: 0, retryControls: 0,
+      redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
+      permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,
     })).toContain("No coding sessions recorded yet");
   });
 
@@ -55,9 +62,32 @@ describe("task command formatting", () => {
       tasks: 2, completedTasks: 1, sessions: 5, resumedSessions: 4, resumedWithoutRestatement: 3,
       acceptedInterpretations: 2, correctedInterpretations: 1,
       replacedInterpretations: 1, manualContextRestatements: 1, toolEscapes: 0,
+      routedAssignments: 2, codexAssignments: 1, openCodeAssignments: 1,
+      acceptedInterventions: 1, stopControls: 0, retryControls: 1,
+      redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
+      permissionRenewals: 1, verifiedIntegrations: 1, manualContextTransfers: 1,
     });
 
     expect(output).toContain("Resumed without context restatement: 75% (3/4)");
+    expect(output).toContain("Routed assignments: 2 (Codex 1, OpenCode 1)");
+    expect(output).toContain("Accepted automatic interventions: 1");
+    expect(output).toContain("Controls: stop 0, retry 1, redirect 0, replace 0");
+    expect(output).toContain("Verified integrations: 1");
     expect(output).not.toContain("Resume rate: 80%");
+  });
+
+  it("labels a session-only trial as insufficient Release 1B evidence", () => {
+    const output = formatMetrics({
+      windowStartedAt: "2026-07-14T00:00:00.000Z",
+      tasks: 1, completedTasks: 0, sessions: 1, resumedSessions: 0, resumedWithoutRestatement: 0,
+      acceptedInterpretations: 1, correctedInterpretations: 0, replacedInterpretations: 0,
+      manualContextRestatements: 0, toolEscapes: 0,
+      routedAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
+      acceptedInterventions: 0, stopControls: 0, retryControls: 0,
+      redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
+      permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,
+    });
+
+    expect(output).toContain("Release 1B control trial: insufficient evidence");
   });
 });

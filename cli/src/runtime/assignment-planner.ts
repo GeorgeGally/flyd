@@ -31,6 +31,12 @@ function strings(value: unknown): value is string[] {
     value.every((item) => typeof item === "string" && item.trim().length > 0);
 }
 
+function safeFileScope(scope: string): boolean {
+  if (scope === ".") return true;
+  if (scope !== scope.trim() || scope.startsWith("/") || scope.includes("\\")) return false;
+  return scope.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
 function exactKeys(value: Record<string, unknown>, expected: string[]): boolean {
   return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
 }
@@ -75,7 +81,8 @@ function parsePlan(raw: string): AssignmentPlan | null {
           !assignment.capabilityRequirements.every((capability) => ALLOWED_CAPABILITIES.has(capability as WorkerCapability))) return null;
       if (!Array.isArray(assignment.dependencyKeys) ||
           !assignment.dependencyKeys.every((key) => typeof key === "string" && key.trim())) return null;
-      if (!strings(assignment.declaredFileScope)) return null;
+      if (!strings(assignment.declaredFileScope) ||
+          !assignment.declaredFileScope.every(safeFileScope)) return null;
       assignments.push({
         key: assignment.key as string,
         title: assignment.title as string,

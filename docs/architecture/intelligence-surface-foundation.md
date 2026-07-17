@@ -229,6 +229,18 @@ The worker can edit only the single approved repository root in Release 1A. The 
 
 A worker report is retained as evidence but is not promoted to a verified outcome by itself. `flyd task status` exposes the exact next action, while `flyd task metrics` reports the rolling five-working-day window and missing trial data rather than manufacturing success. Resume measurement follows the PRD's 30-minute threshold and excludes sessions that never ran a worker.
 
+## Release 1B supervised agent runtime
+
+Release 1B adds durable `TaskAssignment` and `WorkerCommand` records while keeping PostgreSQL authoritative. Flyd plans one or two bounded assignments, discovers pinned Codex and OpenCode adapters, routes by declared capability and current load, and gives each editing worker a deterministic managed worktree under the approved root.
+
+Codex runs with strict configuration, workspace-write sandboxing, network disabled, and no inherited rules or interactive approval. OpenCode receives a deny-by-default permission document derived from the same task grant. Both adapters use a common process supervisor that sanitizes credentials, journals the process before allowing it to continue, captures structured session identity, and enforces a bounded shutdown.
+
+Flyd may retry failed verification or replace a failed worker only when the current grant, capability set, evidence digest, and remaining run budget permit it. Every control is persisted before a process signal. `flyd task workers`, `stop`, `retry`, `redirect`, and `replace` expose the same durable control identities to the operator. Repeated intervention on identical evidence is refused, and scope expansion or repository drift escalates instead of widening authority.
+
+Each worker result is independently reconstructed from Git rather than trusted from its report. Flyd records the patch, changed files, base and resulting heads, verification commands, exit statuses, and output digests. Results with overlapping files or inconsistent bases are blocked. The combined patch is applied and verified in a temporary integration worktree; only an unchanged clean source branch may receive that same verified patch. A planned task cannot complete until all assignments are marked integrated and the user confirms the repository outcome.
+
+Existing narrower Release 1A grants are revoked and shown for renewed approval before Codex, managed worktrees, higher concurrency, or a larger run budget become available. `flyd task metrics` reports real routed assignments, adapter use, accepted evidence-backed interventions, controls, conflicts, grant renewals, verified integrations, and manual context transfer. It does not infer trial success from prompts or worker claims.
+
 ## Persistence and diagnostics
 
 Only one surface may be active. Surface activation is transactional and preserves lineage. Composition logs record reason, state digest, provider identities, input/output size, latency, validation failure, dropped evidence, and delivery errors without private chain-of-thought.
@@ -243,7 +255,6 @@ Production separates web rendering from Sidekiq work. Redis backs Sidekiq, cache
 
 The core directed-interface loop is implemented for decision, investigation, action, conversation, monitoring, and quiet. Further product development still includes:
 
-- Release 1B Codex routing, worker control, initiative, and parallel isolated worktrees;
 - Release 1C Rails task control and cross-surface parity;
 - broader observation across email, calendar, GitHub, Slack, and the web;
 - faster incremental retrieval and indexing across very large archives;

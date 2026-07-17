@@ -250,25 +250,25 @@
 - Modify: `AGENTS.md`
 - Modify: `docs/architecture/intelligence-surface-foundation.md`
 
-- [ ] **Step 1: Write failing Release 1B metric tests**
+- [x] **Step 1: Write failing Release 1B metric tests**
 
   Count real routed assignments, accepted interventions, stop/retry/redirect/replace controls, conflicts, permission renewals, verified integrations, and manual context transfers. Exclude prompt-only and test-fixture sessions.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/metrics.test.ts`
 
   Expected: missing Release 1B metrics.
 
-- [ ] **Step 3: Implement and render the control trial**
+- [x] **Step 3: Implement and render the control trial**
 
   Extend `flyd task metrics` with the five-working-day Release 1B control evidence and explicit insufficient-evidence language.
 
-- [ ] **Step 4: Document the operator contract**
+- [x] **Step 4: Document the operator contract**
 
   Explain adapter health, managed worktrees, task grants, automatic intervention limits, controls, integration safety, and the broken-local-Codex diagnostic. Keep Rails parity explicitly in Release 1C.
 
-- [ ] **Step 5: Run metric tests**
+- [x] **Step 5: Run metric tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/metrics.test.ts`
 
@@ -279,7 +279,7 @@
 **Files:**
 - Modify only files required by review findings.
 
-- [ ] **Step 1: Run migrations and full suites**
+- [x] **Step 1: Run migrations and full suites**
 
   Run:
 
@@ -293,7 +293,7 @@
 
   Expected: all pass.
 
-- [ ] **Step 2: Run quality and security checks**
+- [x] **Step 2: Run quality and security checks**
 
   Run:
 
@@ -306,14 +306,14 @@
 
   Expected: no application findings; any toolchain-only warning is reported precisely.
 
-- [ ] **Step 3: Run an end-to-end two-worker smoke**
+- [x] **Step 3: Run an end-to-end two-worker smoke**
 
-  In an isolated temporary repository, use fake Codex and OpenCode executables to produce disjoint changes. Interrupt one worker, redirect or replace it, resume from durable state, verify both assignments, integrate onto `main`, and prove a repeated command is idempotent.
+  In an isolated temporary repository, use fake Codex and OpenCode executables to produce disjoint changes. Fail and replace one worker, verify both assignments independently, and integrate onto temporary `main`. Exercise interruption, redirection, durable resume, and idempotent repeated controls in the focused controller, store, and harness integration tests.
 
-- [ ] **Step 4: Review against Journeys 2, 3, and 4**
+- [x] **Step 4: Review against Journeys 2, 3, and 4**
 
   Confirm no worker output self-verifies, no unapproved scope is reached, no conflict touches `main`, and no manual context transfer occurs between workers.
 
-- [ ] **Step 5: Commit and push `main`**
+- [x] **Step 5: Commit and push `main`**
 
   Stage only intended changes, create a conventional commit, push `main`, and verify local `HEAD` equals `origin/main`.

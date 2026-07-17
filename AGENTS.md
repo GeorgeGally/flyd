@@ -42,7 +42,7 @@ flyd/                    # Rails 8 + Hotwire intelligence surface
   test/                  Test suite
 
   cli/                   TypeScript personal-agent harness and memory services
-    src/runtime/         Release 1A tasks, grants, workers, journal, and recovery
+    src/runtime/         Tasks, planning, routing, workers, controls, verification, and recovery
     src/export-state.ts  Versioned intelligence-state export
     package.json         npm dependencies and CLI commands
 ```
@@ -59,6 +59,11 @@ cd cli && npm test                   # Run CLI tests
 cd cli && npm run dev                # Start/resume the coding harness
 cd cli && npm run dev -- code "..."  # Start with an intended outcome
 cd cli && npm run dev -- task status # Inspect the exact re-entry point
+cd cli && npm run dev -- task workers
+cd cli && npm run dev -- task stop <worker-key>
+cd cli && npm run dev -- task retry <worker-key>
+cd cli && npm run dev -- task redirect <worker-key> "..."
+cd cli && npm run dev -- task replace <worker-key>
 cd cli && npm run dev -- task metrics
 cd cli && npm run build              # Compile dist/export-state.js
 cd cli && npm run export-state       # Manual file export
@@ -87,10 +92,17 @@ cd cli && npm run export-state -- --stdout
 - `cli/src/export-state.ts` — CLI state producer
 - `cli/src/bridge.ts` — targeted retrieval bridge
 - `cli/src/lib/brain-retrieval.ts` — shared ask/search/librarian retrieval service
-- `cli/src/runtime/harness.ts` — Release 1A continuity loop and verification boundary
+- `cli/src/runtime/harness.ts` — continuity, interpretation, grant, and user-confirmation boundary
+- `cli/src/runtime/assignment-planner.ts` — bounded one-or-two assignment planning
+- `cli/src/runtime/orchestrator.ts` — capability routing, lifecycle, intervention, verification, and integration
+- `cli/src/runtime/codex-adapter.ts` — pinned strict Codex worker adapter
 - `cli/src/runtime/task-store.ts` — PostgreSQL task, grant, worker, event, and session authority
 - `cli/src/runtime/archive-outbox.ts` — idempotent runtime outcome delivery into `~/.flyd/raw`
 - `cli/src/runtime/opencode-adapter.ts` — structured OpenCode worker adapter
+- `cli/src/runtime/worktree-manager.ts` — Flyd-managed assignment isolation
+- `cli/src/runtime/result-verifier.ts` — independent patch and command evidence
+- `cli/src/runtime/result-integrator.ts` — unchanged-main integration boundary
+- `cli/src/runtime/worker-controller.ts` — durable stop, retry, redirect, and replace controls
 - `cli/src/runtime/recovery.ts` — stale-process reconciliation on restart
 - `app/models/agent_task.rb` — canonical coding task state
 - `app/models/task_grant.rb` — approved worker scope and lifecycle
@@ -108,5 +120,5 @@ cd cli && npm run export-state -- --stdout
 - Large archive queries can be slow while the local QMD index or embedding model warms up.
 - Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
 - The current context resolver still assumes project-shaped persistence after interpretation.
-- Release 1A supports one OpenCode worker in the approved repository. Codex routing, parallel worktrees, and active worker control are Release 1B.
-- Rails task control and live parity are Release 1C; Release 1A is intentionally CLI-first.
+- Codex adapter support is pinned to 0.144.x and OpenCode to 1.17.x; other versions fail closed until tested.
+- Rails task control and live parity are Release 1C; Release 1B remains CLI-first.

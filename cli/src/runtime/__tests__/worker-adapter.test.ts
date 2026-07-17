@@ -86,6 +86,9 @@ describe("worker adapter contract", () => {
     child.stderr = new PassThrough();
     child.pid = 73;
     child.kill = vi.fn(() => true);
+    const onTimeout = vi.fn(async () => {
+      expect(child.kill).not.toHaveBeenCalledWith("SIGTERM");
+    });
 
     const result = await runJsonWorkerProcess({
       executable: "/bin/worker",
@@ -96,8 +99,10 @@ describe("worker adapter contract", () => {
       label: "Test worker",
       spawn: vi.fn(() => child),
       parseEvent: () => null,
+      onTimeout,
     });
 
+    expect(onTimeout).toHaveBeenCalledOnce();
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     expect(child.kill).toHaveBeenCalledWith("SIGKILL");
     expect(result.error).toContain("Test worker timed out");

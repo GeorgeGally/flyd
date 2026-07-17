@@ -86,6 +86,12 @@ describe("assignment planner", () => {
         { key: "one", title: "One", instructions: "One", capabilityRequirements: ["deploy"], dependencyKeys: [], declaredFileScope: ["app"] },
       ],
     },
+    {
+      name: "scope outside the repository",
+      assignments: [
+        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["../secrets"] },
+      ],
+    },
   ])("rejects $name instead of trusting an unsafe plan", async ({ assignments }) => {
     const plan = await planAssignments({
       outcome: "Safely implement work",

@@ -46,6 +46,7 @@ export interface WorkerRunInput {
   killGraceMs?: number;
   onEvent?: (event: WorkerEvent) => void;
   onStart?: (processId: number | null) => void | Promise<void>;
+  onTimeout?: () => void | Promise<void>;
 }
 
 export interface WorkerAdapter {
@@ -129,11 +130,18 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      forceTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-        finish(null, true);
-      }, input.killGraceMs ?? 5_000);
+      Promise.resolve(input.onTimeout?.()).catch((timeoutError) => {
+        error = `${error}${error ? "\n" : ""}Failed to journal timeout: ${
+          timeoutError instanceof Error ? timeoutError.message : String(timeoutError)
+        }`;
+      }).finally(() => {
+        if (settled) return;
+        child.kill("SIGTERM");
+        forceTimer = setTimeout(() => {
+          child.kill("SIGKILL");
+          finish(null, true);
+        }, input.killGraceMs ?? 5_000);
+      });
     }, input.timeoutMs);
     child.once("error", (spawnError) => {
       if (settled) return;

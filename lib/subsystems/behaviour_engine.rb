@@ -2,8 +2,9 @@ module Subsystems
   class BehaviourEngine
     STOP_WORDS = %w[use with for and the a an to of in on primary decision].freeze
 
-    def initialize(project)
+    def initialize(project, chat: Llm::Chat.new)
       @project = project
+      @chat = chat
     end
 
     def compile_from_patterns(decision_sequences)
@@ -42,7 +43,7 @@ module Subsystems
       return if sequence.empty?
 
       decisions_text = sequence.each_with_index.map { |decision, index| "#{index + 1}. #{decision.content}" }.join("\n")
-      response = Llm::Chat.new.call([
+      response = @chat.call([
         { role: "system", content: "Given these decisions made in sequence by a software team, what is the trigger phrase that would describe this pattern? Answer in 2-5 words. Return ONLY the trigger phrase, nothing else." },
         { role: "user", content: decisions_text }
       ])

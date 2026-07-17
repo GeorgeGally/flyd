@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { afterEach, describe, expect, it } from "vitest";
-import { verifyWorkerResult } from "../result-verifier.js";
+import { filesOutsideScope, verifyWorkerResult } from "../result-verifier.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -25,6 +25,14 @@ afterEach(async () => {
 });
 
 describe("verifyWorkerResult", () => {
+  it("identifies changed files outside the assignment's declared repository scope", () => {
+    expect(filesOutsideScope(
+      ["app/models/task.rb", "test/models/task_test.rb", "README.md"],
+      ["app", "test/models/task_test.rb"],
+    )).toEqual(["README.md"]);
+    expect(filesOutsideScope(["anything.txt"], ["."])).toEqual([]);
+  });
+
   it("records repository evidence and passing commands independently of worker text", async () => {
     const repo = await repository();
     await writeFile(join(repo.root, "one.txt"), "implemented\n");

@@ -51,7 +51,16 @@ class WorkerSession < ApplicationRecord
 
     errors.add(:task_grant, "must be approved and unexpired") unless task_grant.approved? && !task_grant.expires_at&.past?
     approved_paths = task_grant.repository_roots + task_grant.worktree_paths
-    errors.add(:working_directory, "must be inside the task grant") unless approved_paths.include?(working_directory)
+    errors.add(:working_directory, "must be inside the task grant") unless approved_paths.any? { |path| inside_path?(working_directory, path) }
     errors.add(:adapter, "must be allowed by the task grant") unless task_grant.worker_adapters.include?(adapter)
+  end
+
+  def inside_path?(candidate, root)
+    return false if candidate.blank? || root.blank?
+
+    candidate_path = File.expand_path(candidate)
+    root_path = File.expand_path(root)
+
+    candidate_path == root_path || candidate_path.start_with?("#{root_path}#{File::SEPARATOR}")
   end
 end

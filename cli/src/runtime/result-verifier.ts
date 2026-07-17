@@ -4,6 +4,12 @@ import { promisify } from "util";
 
 const execFileAsync = promisify(nodeExecFile);
 
+export function filesOutsideScope(changedFiles: string[], declaredFileScope: string[]): string[] {
+  return changedFiles.filter((file) => !declaredFileScope.some((scope) => (
+    scope === "." || file === scope || file.startsWith(`${scope}/`)
+  )));
+}
+
 export interface VerificationCommandResult {
   command: string;
   executable: string;

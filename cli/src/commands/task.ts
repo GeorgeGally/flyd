@@ -4,6 +4,7 @@ import { inspectRepository } from "../runtime/repository-inspector.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
+import { hasControlTrialEvidence } from "../runtime/metrics.js";
 import type { AgentTask, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
 
 export function formatTask(task: AgentTask): string {
@@ -22,9 +23,11 @@ export function formatWorker(worker: WorkerSession): string {
   return [
     `${worker.workerKey}  ${worker.status}`,
     `Assignment: ${worker.taskAssignmentId}`,
+    `Assignment revision: ${worker.assignmentRevision ?? "unknown"}`,
     `Adapter: ${worker.adapter} ${worker.executableVersion ?? "unknown version"}`,
     `Worktree: ${worker.workingDirectory}`,
-    `Revision observed: ${worker.lastObservedAt ?? "not yet"}`,
+    `Last heartbeat: ${worker.lastObservedAt ?? "not yet"}`,
+    worker.pendingControl ? `Pending control: ${worker.pendingControl}` : null,
     worker.externalSessionId ? `Session: ${worker.externalSessionId}` : null,
     worker.errorSummary ? `Error: ${worker.errorSummary}` : null,
   ].filter(Boolean).join("\n");
@@ -47,7 +50,7 @@ export function formatMetrics(metrics: RuntimeMetrics): string {
   if (metrics.sessions === 0) return "No coding sessions recorded yet. The 5-day dogfood trial has not produced evidence.";
   const interpreted = metrics.acceptedInterpretations + metrics.correctedInterpretations + metrics.replacedInterpretations;
   const successfulResumes = metrics.resumedWithoutRestatement;
-  return [
+  const lines = [
     `Rolling five-working-day window since ${metrics.windowStartedAt}`,
     `Verified tasks: ${metrics.completedTasks}/${metrics.tasks}`,
     `Sessions: ${metrics.sessions}`,
@@ -56,7 +59,21 @@ export function formatMetrics(metrics: RuntimeMetrics): string {
     `Focused corrections: ${metrics.correctedInterpretations}`,
     `Manual context restatements: ${metrics.manualContextRestatements}`,
     `Escapes to another coding tool: ${metrics.toolEscapes}`,
-  ].join("\n");
+  ];
+  if (!hasControlTrialEvidence(metrics)) {
+    lines.push("Release 1B control trial: insufficient evidence; no routed assignment, control, renewal, conflict, or integration has been recorded.");
+  } else {
+    lines.push(
+      `Routed assignments: ${metrics.routedAssignments} (Codex ${metrics.codexAssignments}, OpenCode ${metrics.openCodeAssignments})`,
+      `Accepted automatic interventions: ${metrics.acceptedInterventions}`,
+      `Controls: stop ${metrics.stopControls}, retry ${metrics.retryControls}, redirect ${metrics.redirectControls}, replace ${metrics.replaceControls}`,
+      `Integration conflicts: ${metrics.integrationConflicts}`,
+      `Permission renewals: ${metrics.permissionRenewals}`,
+      `Verified integrations: ${metrics.verifiedIntegrations}`,
+      `Manual context transfers: ${metrics.manualContextTransfers}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 export async function runTaskList(): Promise<void> {

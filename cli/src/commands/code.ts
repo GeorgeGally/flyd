@@ -48,7 +48,7 @@ export async function writeRuntimeContext(taskKey: string, context: ContextPacka
 
 export async function runCode(outcome?: string): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("The Release 1A coding harness requires an interactive terminal");
+    throw new Error("The Flyd coding harness requires an interactive terminal");
   }
 
   const pool = createRuntimePool();

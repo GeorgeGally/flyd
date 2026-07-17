@@ -25,7 +25,7 @@ async function cleanProject(): Promise<void> {
   }
 }
 
-describe("PostgresTaskStore", () => {
+describe("PostgresTaskStore", { timeout: 15_000 }, () => {
   beforeEach(async () => {
     await cleanProject();
   });
@@ -360,6 +360,89 @@ describe("PostgresTaskStore", () => {
     })).rejects.toThrow("maximum concurrency");
   });
 
+  it("requires every planned assignment to be integrated before task completion", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Integrate the complete plan",
+      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `integrated-task:${projectRoot}`,
+    });
+    const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
+      successCriteria: ["Both assignments integrated"],
+      verificationCriteria: ["git diff --check"],
+      source: "model",
+      assignments: [
+        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["one.txt"] },
+        { key: "two", title: "Two", instructions: "Two", capabilityRequirements: ["testing"], dependencyKeys: [], declaredFileScope: ["two.txt"] },
+      ],
+      baseHead: "base",
+      idempotencyKey: `integrated-plan:${task.taskKey}`,
+    });
+    const grant = await store.approveGrant(task.taskKey, planned.task.revision, {
+      repositoryRoots: [projectRoot], worktreePaths: [projectRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
+      maxConcurrency: 2, budget: { max_worker_runs: 2, max_runtime_minutes: 90 },
+      providerIdentity: "codex:local", expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `integrated-grant:${task.taskKey}`,
+    });
+    for (const item of planned.assignments) {
+      const created = await store.createWorker({
+        taskKey: task.taskKey, grantKey: grant.grantKey, assignmentKey: item.assignmentKey,
+        adapter: "codex", capabilities: item.capabilityRequirements, executablePath: "/bin/codex",
+        executableVersion: "codex-cli 0.144.2", workingDirectory: projectRoot,
+        idempotencyKey: `integrated-worker:${item.assignmentKey}`,
+      });
+      await store.transitionWorker(created.workerKey, {
+        status: "running", processId: process.pid,
+        idempotencyKey: `integrated-worker-running:${item.assignmentKey}`,
+      });
+      await store.transitionWorker(created.workerKey, {
+        status: "completed", exitStatus: 0, output: "done",
+        idempotencyKey: `integrated-worker-done:${item.assignmentKey}`,
+      });
+      await store.recordAssignmentVerification(item.assignmentKey, {
+        status: "verified", result: { passed: true },
+        idempotencyKey: `integrated-verified:${item.assignmentKey}`,
+      });
+    }
+    const beforeIntegration = await store.findTask(task.taskKey);
+    await expect(store.completeTask(task.taskKey, beforeIntegration!.revision, {
+      summary: "Too early", verification: { confirmed_by: "user" },
+      repositorySnapshot: { head: "result", status_digest: "changed" },
+      idempotencyKey: `integrated-premature:${task.taskKey}`,
+    })).rejects.toThrow(/assignments.*integrated/i);
+
+    await store.recordTaskIntegration(task.taskKey, {
+      result: { status: "integrated", reason: null, changedFiles: ["one.txt", "two.txt"], patchDigest: "digest" },
+      idempotencyKey: `integrated-result:${task.taskKey}`,
+    });
+    const assignments = await store.listAssignments(task.id);
+    expect(assignments.map((item) => item.status)).toEqual(["integrated", "integrated"]);
+    const ready = await store.findTask(task.taskKey);
+    const completed = await store.completeTask(task.taskKey, ready!.revision, {
+      summary: "Integrated", verification: { confirmed_by: "user" },
+      repositorySnapshot: { head: "result", status_digest: "changed" },
+      idempotencyKey: `integrated-complete:${task.taskKey}`,
+    });
+    expect(completed.status).toBe("completed");
+    expect(await store.metrics(projectRoot)).toMatchObject({
+      routedAssignments: 2,
+      codexAssignments: 2,
+      openCodeAssignments: 0,
+      acceptedInterventions: 0,
+      stopControls: 0,
+      retryControls: 0,
+      redirectControls: 0,
+      replaceControls: 0,
+      integrationConflicts: 0,
+      permissionRenewals: 0,
+      verifiedIntegrations: 1,
+      manualContextTransfers: 0,
+    });
+  });
+
   it("journals worker controls idempotently and revises the assignment", async () => {
     const task = await store.createTask({
       projectName: "runtime-test",
@@ -423,6 +506,12 @@ describe("PostgresTaskStore", () => {
     expect(duplicate.command.commandKey).toBe(first.command.commandKey);
     expect(first.worker.status).toBe("stopping");
     expect((await store.liveWorkers(projectRoot)).map((item) => item.workerKey)).toContain(worker.workerKey);
+    expect((await store.listWorkers(task.id))[0]).toMatchObject({
+      workerKey: worker.workerKey,
+      assignmentRevision: 2,
+      pendingControl: "redirect",
+      lastObservedAt: expect.any(String),
+    });
 
     await store.completeWorkerCommand(first.command.commandKey, {
       workerStatus: "interrupted",

@@ -97,7 +97,7 @@ task
 
 task
   .command("metrics")
-  .description("Show Release 1A dogfood evidence for this repository")
+  .description("Show continuity and agent-control evidence for this repository")
   .action(() => runTaskMetrics());
 
 task

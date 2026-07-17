@@ -50,6 +50,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
       return currentTask;
     }),
     approvedGrant: vi.fn(async (): Promise<TaskGrant | null> => null),
+    revokeGrant: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "awaiting_grant" }; return currentTask; }),
     approveGrant: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "ready" }; return grant; }),
     startTaskSession: vi.fn(async () => "session-1"),
     finishTaskSession: vi.fn(async () => undefined),
@@ -101,6 +102,72 @@ describe("runContinuityHarness", () => {
 
     expect(orchestrate).toHaveBeenCalledOnce();
     expect(deps.runWorker).not.toHaveBeenCalled();
+  });
+
+  it("reviews an already integrated result without rerunning its workers", async () => {
+    const orchestrate = vi.fn();
+    const deps = dependencies({ orchestrate });
+    let integratedTask = task({
+      status: "ready",
+      revision: 4,
+      verificationResult: {
+        integrated: true,
+        changed_files: ["app/models/task.rb"],
+        patch_digest: "digest",
+      },
+    });
+    deps.store.findResumableTask.mockResolvedValue(integratedTask);
+    deps.store.recordOrientation.mockImplementation(async () => {
+      integratedTask = { ...integratedTask, revision: integratedTask.revision + 1 };
+      return integratedTask;
+    });
+    deps.store.findTask.mockImplementation(async () => integratedTask);
+    deps.store.completeTask.mockImplementation(async () => {
+      integratedTask = { ...integratedTask, revision: integratedTask.revision + 1, status: "completed" };
+      return integratedTask;
+    });
+    deps.store.approvedGrant.mockResolvedValue(grant);
+
+    const result = await runContinuityHarness({ outcome: "Implement continuity", deps });
+
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(deps.store.completeTask).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({
+        verification: expect.objectContaining({ integrated: true, user_confirmed: true }),
+      }),
+    );
+    expect(result.status).toBe("completed");
+  });
+
+  it("renews a narrower Release 1A grant before starting Release 1B orchestration", async () => {
+    const deps = dependencies({
+      orchestrationGrantScope: {
+        workerAdapters: ["codex", "opencode"],
+        worktreeRoot: "/tmp/flyd-worktrees",
+        providerIdentity: "codex:local,opencode:local",
+      },
+      orchestrate: vi.fn(async () => ({
+        status: "integrated" as const,
+        summary: "Integrated",
+        verification: { passed: true },
+      })),
+    });
+    deps.store.approvedGrant.mockResolvedValue(grant);
+
+    await runContinuityHarness({ outcome: "Implement continuity", deps });
+
+    expect(deps.store.revokeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), "grant-1", expect.objectContaining({
+        reason: expect.stringMatching(/Release 1B/),
+      }),
+    );
+    expect(deps.store.approveGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({
+        workerAdapters: ["codex", "opencode"],
+        worktreePaths: ["/tmp/flyd-worktrees"],
+        maxConcurrency: 2,
+      }),
+    );
   });
 
   it("creates, grants, runs, and verifies a new task", async () => {

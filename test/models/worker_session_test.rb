@@ -84,4 +84,33 @@ class WorkerSessionTest < ActiveSupport::TestCase
     assert second.persisted?
     assert_raises(ActiveRecord::RecordInvalid) { duplicate.save! }
   end
+
+  test "grant permits a worker inside an approved managed worktree root" do
+    managed_root = File.join(Dir.home, ".flyd", "runtime", "worktrees")
+    @grant.repository_roots = [ "/project" ]
+    @grant.worktree_paths = [ managed_root ]
+    worker = @task.worker_sessions.new(
+      task_assignment: @assignment,
+      task_grant: @grant,
+      adapter: "opencode",
+      working_directory: File.join(managed_root, "task-1", "assignment-1")
+    )
+
+    assert worker.valid?, worker.errors.full_messages.to_sentence
+  end
+
+  test "grant rejects a sibling path that only shares the approved prefix" do
+    managed_root = File.join(Dir.home, ".flyd", "runtime", "worktrees")
+    @grant.repository_roots = [ "/project" ]
+    @grant.worktree_paths = [ managed_root ]
+    worker = @task.worker_sessions.new(
+      task_assignment: @assignment,
+      task_grant: @grant,
+      adapter: "opencode",
+      working_directory: "#{managed_root}-outside/task-1"
+    )
+
+    assert_not worker.valid?
+    assert_includes worker.errors[:working_directory], "must be inside the task grant"
+  end
 end

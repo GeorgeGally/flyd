@@ -4,7 +4,9 @@ class Subsystems::BehaviourEngineTest < ActiveSupport::TestCase
   setup do
     @project = Project.create!(name: "Behaviour Test #{Time.now.to_i}")
     @conversation = Conversation.start!(@project)
-    @engine = Subsystems::BehaviourEngine.new(@project)
+    chat = Object.new
+    chat.define_singleton_method(:call) { |_messages| "database configuration" }
+    @engine = Subsystems::BehaviourEngine.new(@project, chat:)
   end
 
   test "compile_from_patterns creates behaviours from decision sequences" do

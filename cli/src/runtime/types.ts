@@ -1,6 +1,16 @@
 export type TaskStatus = "awaiting_grant" | "ready" | "running" | "blocked" | "completed" | "failed" | "cancelled";
 export type GrantStatus = "proposed" | "approved" | "expired" | "revoked" | "exhausted" | "completed";
-export type WorkerStatus = "queued" | "starting" | "running" | "completed" | "failed" | "interrupted" | "cancelled";
+export type WorkerStatus =
+  | "queued"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "cancelled"
+  | "stopped"
+  | "replaced";
 
 export interface RepositorySnapshot {
   root: string;
@@ -110,6 +120,8 @@ export interface WorkerSession {
   endedAt: string | null;
   lastObservedAt: string | null;
   stopReason: string | null;
+  assignmentRevision?: number;
+  pendingControl?: WorkerCommandKind | null;
 }
 
 export type WorkerCommandKind = "stop" | "retry" | "redirect" | "replace";
@@ -154,6 +166,18 @@ export interface RuntimeMetrics {
   replacedInterpretations: number;
   manualContextRestatements: number;
   toolEscapes: number;
+  routedAssignments: number;
+  codexAssignments: number;
+  openCodeAssignments: number;
+  acceptedInterventions: number;
+  stopControls: number;
+  retryControls: number;
+  redirectControls: number;
+  replaceControls: number;
+  integrationConflicts: number;
+  permissionRenewals: number;
+  verifiedIntegrations: number;
+  manualContextTransfers: number;
 }
 
 export interface ArchiveRuntimeEvent {

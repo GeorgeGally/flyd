@@ -63,7 +63,11 @@ function mapWorker(row: QueryResultRow): WorkerSession {
     workingDirectory: row.working_directory, externalSessionId: row.external_session_id,
     processId: row.process_id == null ? null : Number(row.process_id), errorSummary: row.error_summary, output: row.output,
     exitStatus: row.exit_status == null ? null : Number(row.exit_status), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
-    lastObservedAt: iso(row.last_observed_at), stopReason: row.stop_reason,
+    lastObservedAt: iso(row.last_observed_at ?? row.last_heartbeat_at), stopReason: row.stop_reason,
+    assignmentRevision: row.assignment_revision_current == null
+      ? Number(row.assignment_revision)
+      : Number(row.assignment_revision_current),
+    pendingControl: row.pending_control ?? null,
   };
 }
 
@@ -108,7 +112,7 @@ export class PostgresTaskStore {
 
   async metrics(projectRoot: string, since = fiveWorkingDayWindowStart(new Date())): Promise<RuntimeMetrics> {
     const values = [projectRoot, since.toISOString()];
-    const [tasks, sessions] = await Promise.all([
+    const [tasks, sessions, assignments, controls, events] = await Promise.all([
       this.pool.query(`SELECT COUNT(*)::int AS tasks,
         COUNT(*) FILTER (WHERE t.status = 'completed' AND t.verification_result <> '{}'::jsonb)::int AS completed_tasks
         FROM agent_tasks t JOIN projects p ON p.id = t.project_id
@@ -127,6 +131,39 @@ export class PostgresTaskStore {
         JOIN projects p ON p.id = t.project_id
         WHERE p.root_path = $1 AND s.started_at >= $2
           AND EXISTS (SELECT 1 FROM worker_sessions w WHERE w.agent_task_id = t.id)`, values),
+      this.pool.query(`SELECT COUNT(*)::int AS routed_assignments,
+        COUNT(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM worker_sessions w WHERE w.task_assignment_id = a.id AND w.adapter = 'codex'
+        ))::int AS codex_assignments,
+        COUNT(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM worker_sessions w WHERE w.task_assignment_id = a.id AND w.adapter = 'opencode'
+        ))::int AS opencode_assignments
+        FROM task_assignments a
+        JOIN agent_tasks t ON t.id = a.agent_task_id
+        JOIN projects p ON p.id = t.project_id
+        WHERE p.root_path = $1 AND a.created_at >= $2
+          AND EXISTS (SELECT 1 FROM worker_sessions w WHERE w.task_assignment_id = a.id)`, values),
+      this.pool.query(`SELECT
+        COUNT(*) FILTER (WHERE c.status = 'completed' AND c.payload ? 'evidence_digest'
+          AND a.status = 'integrated')::int AS accepted_interventions,
+        COUNT(*) FILTER (WHERE c.kind = 'stop')::int AS stop_controls,
+        COUNT(*) FILTER (WHERE c.kind = 'retry')::int AS retry_controls,
+        COUNT(*) FILTER (WHERE c.kind = 'redirect')::int AS redirect_controls,
+        COUNT(*) FILTER (WHERE c.kind = 'replace')::int AS replace_controls
+        FROM worker_commands c
+        JOIN worker_sessions w ON w.id = c.worker_session_id
+        JOIN task_assignments a ON a.id = w.task_assignment_id
+        JOIN agent_tasks t ON t.id = c.agent_task_id
+        JOIN projects p ON p.id = t.project_id
+        WHERE p.root_path = $1 AND c.created_at >= $2`, values),
+      this.pool.query(`SELECT
+        COUNT(*) FILTER (WHERE e.event_type = 'task.integration_blocked')::int AS integration_conflicts,
+        COUNT(*) FILTER (WHERE e.event_type = 'grant.revoked')::int AS permission_renewals,
+        COUNT(*) FILTER (WHERE e.event_type = 'task.integration_integrated')::int AS verified_integrations
+        FROM runtime_events e
+        JOIN agent_tasks t ON t.id = e.agent_task_id
+        JOIN projects p ON p.id = t.project_id
+        WHERE p.root_path = $1 AND e.occurred_at >= $2`, values),
     ]);
     return {
       windowStartedAt: since.toISOString(),
@@ -140,6 +177,18 @@ export class PostgresTaskStore {
       replacedInterpretations: Number(sessions.rows[0].replaced_interpretations),
       manualContextRestatements: Number(sessions.rows[0].manual_context_restatements),
       toolEscapes: Number(sessions.rows[0].tool_escapes),
+      routedAssignments: Number(assignments.rows[0].routed_assignments),
+      codexAssignments: Number(assignments.rows[0].codex_assignments),
+      openCodeAssignments: Number(assignments.rows[0].opencode_assignments),
+      acceptedInterventions: Number(controls.rows[0].accepted_interventions),
+      stopControls: Number(controls.rows[0].stop_controls),
+      retryControls: Number(controls.rows[0].retry_controls),
+      redirectControls: Number(controls.rows[0].redirect_controls),
+      replaceControls: Number(controls.rows[0].replace_controls),
+      integrationConflicts: Number(events.rows[0].integration_conflicts),
+      permissionRenewals: Number(events.rows[0].permission_renewals),
+      verifiedIntegrations: Number(events.rows[0].verified_integrations),
+      manualContextTransfers: Number(sessions.rows[0].manual_context_restatements),
     };
   }
 
@@ -155,7 +204,13 @@ export class PostgresTaskStore {
 
   async listWorkers(taskId: string): Promise<WorkerSession[]> {
     const result = await this.pool.query(
-      "SELECT * FROM worker_sessions WHERE agent_task_id = $1 ORDER BY created_at, id",
+      `SELECT w.*, a.revision AS assignment_revision_current,
+        (SELECT c.kind FROM worker_commands c
+          WHERE c.worker_session_id = w.id AND c.status IN ('queued','dispatched')
+          ORDER BY c.created_at DESC LIMIT 1) AS pending_control
+        FROM worker_sessions w
+        JOIN task_assignments a ON a.id = w.task_assignment_id
+        WHERE w.agent_task_id = $1 ORDER BY w.created_at, w.id`,
       [taskId],
     );
     return result.rows.map(mapWorker);
@@ -177,6 +232,28 @@ export class PostgresTaskStore {
       [taskId],
     );
     return result.rows[0] ? mapGrant(result.rows[0]) : null;
+  }
+
+  async revokeGrant(taskKey: string, expectedRevision: number, grantKey: string, input: {
+    reason: string;
+    idempotencyKey: string;
+  }): Promise<AgentTask> {
+    return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "grant.revoked", async (client, row, revision) => {
+      const grant = await client.query(
+        "SELECT * FROM task_grants WHERE agent_task_id = $1 AND grant_key = $2 AND status = 'approved' FOR UPDATE",
+        [row.id, grantKey],
+      );
+      if (!grant.rows[0]) throw new Error(`Approved grant ${grantKey} is not available for renewal`);
+      await client.query(
+        "UPDATE task_grants SET status = 'revoked', ended_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [grant.rows[0].id],
+      );
+      await client.query(
+        "UPDATE agent_tasks SET status = 'awaiting_grant', recommended_next_action = $1, revision = $2, updated_at = NOW() WHERE id = $3",
+        [input.reason, revision, row.id],
+      );
+      return { grant_key: grantKey, reason: input.reason };
+    });
   }
 
   async listAssignments(taskId: string): Promise<TaskAssignment[]> {
@@ -236,8 +313,8 @@ export class PostgresTaskStore {
         WHERE a.assignment_key = $1 FOR UPDATE OF a, t`, [assignmentKey]);
       const assignment = result.rows[0];
       if (!assignment) throw new Error(`Unknown assignment ${assignmentKey}`);
-      const updated = await client.query(`UPDATE task_assignments SET status = $2,
-        verification_result = $3::jsonb, ended_at = CASE WHEN $2 IN ('verified','failed') THEN NOW() ELSE ended_at END,
+      const updated = await client.query(`UPDATE task_assignments SET status = $2::varchar,
+        verification_result = $3::jsonb, ended_at = CASE WHEN $2::varchar IN ('verified','failed') THEN NOW() ELSE ended_at END,
         updated_at = NOW() WHERE id = $1 RETURNING *`, [
         assignment.id, input.status, JSON.stringify(input.result),
       ]);
@@ -259,6 +336,13 @@ export class PostgresTaskStore {
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
       if (existing) return existing;
       const task = await this.lockTask(client, taskKey);
+      if (input.result.status === "integrated") {
+        const unverified = await client.query(
+          "SELECT 1 FROM task_assignments WHERE agent_task_id = $1 AND status <> 'verified' LIMIT 1",
+          [task.id],
+        );
+        if (unverified.rows[0]) throw new Error("Task integration requires every assignment to be independently verified");
+      }
       const revision = Number(task.revision) + 1;
       const verification = {
         integrated: input.result.status === "integrated",
@@ -276,6 +360,11 @@ export class PostgresTaskStore {
         input.result.status === "integrated" ? "Review the verified integrated result" : input.result.reason,
         revision,
       ]);
+      if (input.result.status === "integrated") {
+        await client.query(`UPDATE task_assignments SET status = 'integrated',
+          integration_result = $2::jsonb, ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+          WHERE agent_task_id = $1 AND status = 'verified'`, [task.id, JSON.stringify(verification)]);
+      }
       await this.insertEvent(client, task.id, revision, `task.integration_${input.result.status}`, input.idempotencyKey, verification);
       return this.loadTask(client, taskKey);
     });
@@ -788,6 +877,17 @@ export class PostgresTaskStore {
         [row.id],
       );
       if (!successfulWorker.rows[0]) throw new Error("Task completion requires a successful worker");
+      const plannedAssignmentKeys = Array.isArray(row.plan?.assignment_keys) ? row.plan.assignment_keys : [];
+      if (plannedAssignmentKeys.length > 0) {
+        const assignments = await client.query(`SELECT COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status = 'integrated')::int AS integrated
+          FROM task_assignments WHERE agent_task_id = $1 AND assignment_key = ANY($2::varchar[])`,
+        [row.id, plannedAssignmentKeys]);
+        if (Number(assignments.rows[0].total) !== plannedAssignmentKeys.length
+          || Number(assignments.rows[0].integrated) !== plannedAssignmentKeys.length) {
+          throw new Error("Task completion requires all planned assignments to be integrated");
+        }
+      }
       const confirmed = input.verification.user_confirmed === true || input.verification.confirmed_by === "user";
       if (!confirmed || !input.repositorySnapshot.head || !input.repositorySnapshot.status_digest) {
         throw new Error("Task completion requires explicit repository verification");
