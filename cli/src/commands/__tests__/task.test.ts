@@ -5,6 +5,7 @@ import type { AgentTask } from "../../runtime/types.js";
 const task: AgentTask = {
   id: "1", taskKey: "task-12345678", projectId: "1", projectName: "GeorgeGally/flyd",
   projectRoot: "/work/flyd", status: "ready", intendedOutcome: "Make Flyd continuous",
+  successCriteria: [], verificationCriteria: [], plan: {},
   contextSnapshot: {}, repositorySnapshot: { head: "abc" },
   recommendedNextAction: "Resume the interrupted OpenCode session", outcomeSummary: null,
   verificationResult: {}, revision: 4, startedAt: "2026-07-17T00:00:00.000Z",

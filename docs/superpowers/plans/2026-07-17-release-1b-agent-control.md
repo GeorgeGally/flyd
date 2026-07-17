@@ -96,29 +96,29 @@
 - Modify: `cli/src/runtime/__tests__/task-store.integration.test.ts`
 - Modify: `cli/src/lib/llm.ts`
 
-- [ ] **Step 1: Write failing planning, routing, and persistence tests**
+- [x] **Step 1: Write failing planning, routing, and persistence tests**
 
   Require one grounded fallback assignment when model planning is unavailable, no more than two editing assignments, explicit dependencies, capability-based routing, load-aware choice, unhealthy-provider exclusion, assignment idempotency, and grant concurrency enforcement.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/assignment-planner.test.ts src/runtime/__tests__/worker-router.test.ts src/runtime/__tests__/task-store.integration.test.ts`
 
   Expected: missing planner/router APIs.
 
-- [ ] **Step 3: Implement a validated Flyd plan**
+- [x] **Step 3: Implement a validated Flyd plan**
 
   Ask the configured Flyd model for strict JSON containing success criteria, verification criteria, and at most two genuinely independent assignments. Reject unknown fields, cycles, empty instructions, overlapping declared file scopes, and unsupported capability names. Fall back to one assignment equal to the user's outcome without fabricating detail.
 
-- [ ] **Step 4: Implement capability routing**
+- [x] **Step 4: Implement capability routing**
 
   Score healthy adapters by required capabilities and current task load. Prefer the least-loaded capable adapter; use stable tie-breaking so identical state produces the same route. The user supplies an outcome, not a provider name.
 
-- [ ] **Step 5: Persist the plan transactionally**
+- [x] **Step 5: Persist the plan transactionally**
 
   Store task criteria and assignments with one task revision and idempotent events. Enforce the approved grant's adapters, concurrency, run budget, expiry, and worktree paths under row locks.
 
-- [ ] **Step 6: Run planning and store tests**
+- [x] **Step 6: Run planning and store tests**
 
   Run: `cd cli && npm test -- src/runtime/__tests__/assignment-planner.test.ts src/runtime/__tests__/worker-router.test.ts src/runtime/__tests__/task-store.integration.test.ts`
 

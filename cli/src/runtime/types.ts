@@ -33,6 +33,9 @@ export interface AgentTask {
   projectRoot: string;
   status: TaskStatus;
   intendedOutcome: string;
+  successCriteria: string[];
+  verificationCriteria: string[];
+  plan: Record<string, unknown>;
   contextSnapshot: Record<string, unknown>;
   repositorySnapshot: Record<string, unknown>;
   recommendedNextAction: string | null;
@@ -42,6 +45,28 @@ export interface AgentTask {
   startedAt: string;
   completedAt: string | null;
   updatedAt: string;
+}
+
+export type AssignmentStatus = "pending" | "running" | "verified" | "blocked" | "integrated" | "failed" | "cancelled";
+
+export interface TaskAssignment {
+  id: string;
+  assignmentKey: string;
+  agentTaskId: string;
+  status: AssignmentStatus;
+  title: string;
+  instructions: string;
+  successCriteria: string[];
+  capabilityRequirements: import("./worker-adapter.js").WorkerCapability[];
+  dependencyKeys: string[];
+  declaredFileScope: string[];
+  excludedAdapters: string[];
+  worktreePath: string | null;
+  branchName: string | null;
+  baseHead: string | null;
+  verificationResult: Record<string, unknown>;
+  integrationResult: Record<string, unknown>;
+  revision: number;
 }
 
 export interface TaskGrant {
@@ -69,8 +94,10 @@ export interface WorkerSession {
   workerKey: string;
   agentTaskId: string;
   taskGrantId: string;
+  taskAssignmentId: string;
   status: WorkerStatus;
   adapter: string;
+  capabilities: import("./worker-adapter.js").WorkerCapability[];
   executablePath: string | null;
   executableVersion: string | null;
   workingDirectory: string;
@@ -81,6 +108,8 @@ export interface WorkerSession {
   exitStatus: number | null;
   startedAt: string | null;
   endedAt: string | null;
+  lastObservedAt: string | null;
+  stopReason: string | null;
 }
 
 export interface Orientation {

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "crypto";
+import { isAbsolute, relative, resolve } from "path";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { withTransaction } from "./database.js";
 import { fiveWorkingDayWindowStart } from "./metrics.js";
@@ -7,6 +8,7 @@ import type {
   ArchiveRuntimeEvent,
   RepositorySnapshot,
   RuntimeMetrics,
+  TaskAssignment,
   TaskGrant,
   WorkerSession,
 } from "./types.js";
@@ -19,10 +21,24 @@ function mapTask(row: QueryResultRow): AgentTask {
   return {
     id: String(row.id), taskKey: row.task_key, projectId: String(row.project_id), projectName: row.project_name,
     projectRoot: row.project_root, status: row.status, intendedOutcome: row.intended_outcome,
+    successCriteria: row.success_criteria ?? [], verificationCriteria: row.verification_criteria ?? [],
+    plan: row.plan ?? {},
     contextSnapshot: row.context_snapshot ?? {}, repositorySnapshot: row.repository_snapshot ?? {},
     recommendedNextAction: row.recommended_next_action, outcomeSummary: row.outcome_summary,
     verificationResult: row.verification_result ?? {}, revision: Number(row.revision),
     startedAt: iso(row.started_at)!, completedAt: iso(row.completed_at), updatedAt: iso(row.updated_at)!,
+  };
+}
+
+function mapAssignment(row: QueryResultRow): TaskAssignment {
+  return {
+    id: String(row.id), assignmentKey: row.assignment_key, agentTaskId: String(row.agent_task_id),
+    status: row.status, title: row.title, instructions: row.instructions,
+    successCriteria: row.success_criteria ?? [], capabilityRequirements: row.capability_requirements ?? [],
+    dependencyKeys: row.dependency_keys ?? [], declaredFileScope: row.declared_file_scope ?? [],
+    excludedAdapters: row.excluded_adapters ?? [], worktreePath: row.worktree_path, branchName: row.branch_name,
+    baseHead: row.base_head, verificationResult: row.verification_result ?? {},
+    integrationResult: row.integration_result ?? {}, revision: Number(row.revision),
   };
 }
 
@@ -40,10 +56,12 @@ function mapGrant(row: QueryResultRow): TaskGrant {
 function mapWorker(row: QueryResultRow): WorkerSession {
   return {
     id: String(row.id), workerKey: row.worker_key, agentTaskId: String(row.agent_task_id), taskGrantId: String(row.task_grant_id),
-    status: row.status, adapter: row.adapter, executablePath: row.executable_path, executableVersion: row.executable_version,
+    taskAssignmentId: String(row.task_assignment_id), status: row.status, adapter: row.adapter,
+    capabilities: row.capabilities ?? [], executablePath: row.executable_path, executableVersion: row.executable_version,
     workingDirectory: row.working_directory, externalSessionId: row.external_session_id,
     processId: row.process_id == null ? null : Number(row.process_id), errorSummary: row.error_summary, output: row.output,
     exitStatus: row.exit_status == null ? null : Number(row.exit_status), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
+    lastObservedAt: iso(row.last_observed_at), stopReason: row.stop_reason,
   };
 }
 
@@ -134,6 +152,84 @@ export class PostgresTaskStore {
       [taskId],
     );
     return result.rows[0] ? mapGrant(result.rows[0]) : null;
+  }
+
+  async listAssignments(taskId: string): Promise<TaskAssignment[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_assignments WHERE agent_task_id = $1 ORDER BY created_at, id",
+      [taskId],
+    );
+    return result.rows.map(mapAssignment);
+  }
+
+  async persistAssignmentPlan(taskKey: string, expectedRevision: number, input: {
+    successCriteria: string[];
+    verificationCriteria: string[];
+    source: "model" | "fallback";
+    assignments: Array<{
+      key: string;
+      title: string;
+      instructions: string;
+      capabilityRequirements: string[];
+      dependencyKeys: string[];
+      declaredFileScope: string[];
+    }>;
+    baseHead: string;
+    idempotencyKey: string;
+  }): Promise<{ task: AgentTask; assignments: TaskAssignment[] }> {
+    return withTransaction(this.pool, async (client) => {
+      const existing = await this.taskForIdempotency(client, input.idempotencyKey);
+      if (existing) {
+        const assignments = await client.query(
+          "SELECT * FROM task_assignments WHERE agent_task_id = $1 ORDER BY created_at, id",
+          [existing.id],
+        );
+        return { task: existing, assignments: assignments.rows.map(mapAssignment) };
+      }
+      const task = await this.lockTask(client, taskKey);
+      if (Number(task.revision) !== expectedRevision) {
+        throw new RevisionConflictError(`Task revision ${task.revision} does not match expected revision ${expectedRevision}`);
+      }
+      if (input.assignments.length < 1 || input.assignments.length > 2) {
+        throw new Error("Assignment plan must contain one or two assignments");
+      }
+      const revision = expectedRevision + 1;
+      const keyMap = new Map(input.assignments.map((assignment) => [assignment.key, randomUUID()]));
+      const stored: TaskAssignment[] = [];
+      for (const assignment of input.assignments) {
+        const result = await client.query(`INSERT INTO task_assignments
+          (agent_task_id, assignment_key, title, instructions, success_criteria, capability_requirements,
+           dependency_keys, declared_file_scope, base_head, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW(), NOW())
+          RETURNING *`, [
+          task.id,
+          keyMap.get(assignment.key),
+          assignment.title,
+          assignment.instructions,
+          JSON.stringify(input.successCriteria),
+          JSON.stringify(assignment.capabilityRequirements),
+          JSON.stringify(assignment.dependencyKeys.map((key) => keyMap.get(key))),
+          JSON.stringify(assignment.declaredFileScope),
+          input.baseHead,
+        ]);
+        stored.push(mapAssignment(result.rows[0]));
+      }
+      const plan = {
+        source: input.source,
+        assignment_keys: stored.map((assignment) => assignment.assignmentKey),
+      };
+      await client.query(`UPDATE agent_tasks SET success_criteria = $1::jsonb, verification_criteria = $2::jsonb,
+        plan = $3::jsonb, recommended_next_action = $4, revision = $5, updated_at = NOW() WHERE id = $6`, [
+        JSON.stringify(input.successCriteria),
+        JSON.stringify(input.verificationCriteria),
+        JSON.stringify(plan),
+        stored[0].instructions,
+        revision,
+        task.id,
+      ]);
+      await this.insertEvent(client, task.id, revision, "task.planned", input.idempotencyKey, plan);
+      return { task: await this.loadTask(client, taskKey), assignments: stored };
+    });
   }
 
   async createTask(input: { projectName: string; projectRoot: string; intendedOutcome: string; repository: RepositorySnapshot; idempotencyKey: string }): Promise<AgentTask> {
@@ -275,7 +371,17 @@ export class PostgresTaskStore {
     });
   }
 
-  async createWorker(input: { taskKey: string; grantKey: string; adapter: string; executablePath: string; executableVersion: string; workingDirectory: string; idempotencyKey: string }): Promise<WorkerSession> {
+  async createWorker(input: {
+    taskKey: string;
+    grantKey: string;
+    assignmentKey?: string;
+    adapter: string;
+    capabilities?: string[];
+    executablePath: string;
+    executableVersion: string;
+    workingDirectory: string;
+    idempotencyKey: string;
+  }): Promise<WorkerSession> {
     return withTransaction(this.pool, async (client) => {
       const existing = await client.query(`SELECT w.* FROM worker_sessions w
         JOIN runtime_events e ON e.worker_session_id = w.id
@@ -287,12 +393,36 @@ export class PostgresTaskStore {
         AND (expires_at IS NULL OR expires_at > NOW())`, [input.grantKey, task.id]);
       const grant = grantResult.rows[0];
       const repositoryRoots = Array.isArray(grant?.repository_roots) ? grant.repository_roots : [];
+      const worktreePaths = Array.isArray(grant?.worktree_paths) ? grant.worktree_paths : [];
       const workerAdapters = Array.isArray(grant?.worker_adapters) ? grant.worker_adapters : [];
-      if (!grant || !repositoryRoots.includes(input.workingDirectory) || !workerAdapters.includes(input.adapter)) {
+      const pathAuthorized = [...repositoryRoots, ...worktreePaths].some((root) => {
+        const child = relative(resolve(root), resolve(input.workingDirectory));
+        return child === "" || (child !== ".." && !child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(child));
+      });
+      if (!grant || !pathAuthorized || !workerAdapters.includes(input.adapter)) {
         throw new Error("No approved task grant authorizes this worker directory");
       }
+      let assignmentResult = input.assignmentKey
+        ? await client.query("SELECT * FROM task_assignments WHERE assignment_key = $1 AND agent_task_id = $2 FOR UPDATE", [input.assignmentKey, task.id])
+        : await client.query("SELECT * FROM task_assignments WHERE agent_task_id = $1 ORDER BY created_at LIMIT 1 FOR UPDATE", [task.id]);
+      if (!assignmentResult.rows[0] && !input.assignmentKey) {
+        assignmentResult = await client.query(`INSERT INTO task_assignments
+          (agent_task_id, assignment_key, title, instructions, success_criteria, capability_requirements,
+           declared_file_scope, base_head, created_at, updated_at)
+          VALUES ($1, $2, 'Primary assignment', $3, '[]'::jsonb, '["implementation"]'::jsonb,
+            '["."]'::jsonb, $4, NOW(), NOW()) RETURNING *`, [
+          task.id, randomUUID(), task.intended_outcome, task.repository_snapshot?.head ?? null,
+        ]);
+      }
+      const assignment = assignmentResult.rows[0];
+      if (!assignment) throw new Error("Unknown task assignment");
+      const capabilities = input.capabilities ?? [ "implementation" ];
+      const requirements = Array.isArray(assignment.capability_requirements) ? assignment.capability_requirements : [];
+      if (!requirements.every((capability: string) => capabilities.includes(capability))) {
+        throw new Error("Worker does not satisfy assignment capabilities");
+      }
       const liveWorkers = await client.query(
-        "SELECT COUNT(*)::int AS count FROM worker_sessions WHERE task_grant_id = $1 AND status IN ('queued','starting','running')",
+        "SELECT COUNT(*)::int AS count FROM worker_sessions WHERE task_grant_id = $1 AND status IN ('queued','starting','running','stopping')",
         [grant.id],
       );
       if (Number(liveWorkers.rows[0].count) >= Number(grant.max_concurrency)) {
@@ -308,9 +438,15 @@ export class PostgresTaskStore {
       }
       const revision = Number(task.revision) + 1;
       const result = await client.query(`INSERT INTO worker_sessions
-        (agent_task_id, task_grant_id, worker_key, status, adapter, executable_path, executable_version, working_directory, created_at, updated_at)
-        VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, NOW(), NOW()) RETURNING *`,
-      [task.id, grant.id, randomUUID(), input.adapter, input.executablePath, input.executableVersion, input.workingDirectory]);
+        (agent_task_id, task_grant_id, task_assignment_id, worker_key, status, adapter, capabilities,
+         executable_path, executable_version, working_directory, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'queued', $5, $6::jsonb, $7, $8, $9, NOW(), NOW()) RETURNING *`,
+      [task.id, grant.id, assignment.id, randomUUID(), input.adapter, JSON.stringify(capabilities),
+        input.executablePath, input.executableVersion, input.workingDirectory]);
+      await client.query(
+        "UPDATE task_assignments SET status = 'running', started_at = COALESCE(started_at, NOW()), updated_at = NOW() WHERE id = $1",
+        [assignment.id],
+      );
       await client.query("UPDATE agent_tasks SET status = 'running', revision = $1, updated_at = NOW() WHERE id = $2", [revision, task.id]);
       await this.insertEvent(
         client,
@@ -318,7 +454,7 @@ export class PostgresTaskStore {
         revision,
         "worker.queued",
         input.idempotencyKey,
-        { worker_key: result.rows[0].worker_key },
+        { worker_key: result.rows[0].worker_key, assignment_key: assignment.assignment_key, adapter: input.adapter },
         grant.id,
         result.rows[0].id,
       );

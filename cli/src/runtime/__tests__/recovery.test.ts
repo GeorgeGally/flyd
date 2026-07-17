@@ -5,10 +5,12 @@ import type { WorkerSession } from "../types.js";
 function worker(overrides: Partial<WorkerSession>): WorkerSession {
   return {
     id: "1", workerKey: "worker-1", agentTaskId: "task-1", taskGrantId: "grant-1",
-    status: "running", adapter: "opencode", executablePath: "/bin/opencode",
+    taskAssignmentId: "assignment-1", status: "running", adapter: "opencode",
+    capabilities: ["implementation"], executablePath: "/bin/opencode",
     executableVersion: "1.17.18", workingDirectory: "/work/flyd", externalSessionId: "ses_1",
     processId: 123, errorSummary: null, output: null, exitStatus: null,
-    startedAt: "2026-07-17T00:00:00.000Z", endedAt: null, ...overrides,
+    startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
+    lastObservedAt: "2026-07-17T00:00:00.000Z", stopReason: null, ...overrides,
   };
 }
 

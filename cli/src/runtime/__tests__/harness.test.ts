@@ -10,7 +10,8 @@ const repository: RepositorySnapshot = {
 function task(overrides: Partial<AgentTask> = {}): AgentTask {
   return {
     id: "1", taskKey: "task-1", projectId: "1", projectName: repository.name, projectRoot: repository.root,
-    status: "awaiting_grant", intendedOutcome: "Implement continuity", contextSnapshot: {},
+    status: "awaiting_grant", intendedOutcome: "Implement continuity",
+    successCriteria: [], verificationCriteria: [], plan: {}, contextSnapshot: {},
     repositorySnapshot: { head: "abc", status_digest: "clean" }, recommendedNextAction: "Start the worker",
     outcomeSummary: null, verificationResult: {}, revision: 0, startedAt: "2026-07-17T00:00:00.000Z",
     completedAt: null, updatedAt: "2026-07-17T00:00:00.000Z", ...overrides,
@@ -27,9 +28,11 @@ const grant: TaskGrant = {
 };
 
 const worker: WorkerSession = {
-  id: "3", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", status: "queued", adapter: "opencode",
+  id: "3", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "4",
+  status: "queued", adapter: "opencode", capabilities: ["implementation"],
   executablePath: "/bin/opencode", executableVersion: "1.17.18", workingDirectory: repository.root,
-  externalSessionId: null, processId: null, errorSummary: null, output: null, exitStatus: null, startedAt: null, endedAt: null,
+  externalSessionId: null, processId: null, errorSummary: null, output: null, exitStatus: null,
+  startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
 };
 
 function dependencies(overrides: Record<string, unknown> = {}) {

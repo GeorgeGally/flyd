@@ -21,6 +21,9 @@ const task: AgentTask = {
   projectRoot: "/work/flyd",
   status: "ready",
   intendedOutcome: "Make Flyd resume coding work",
+  successCriteria: [],
+  verificationCriteria: [],
+  plan: {},
   contextSnapshot: {},
   repositorySnapshot: { head: "old-head", status_digest: "old-digest" },
   recommendedNextAction: "Continue the runtime store",
@@ -37,8 +40,10 @@ const worker: WorkerSession = {
   workerKey: "worker-1",
   agentTaskId: "1",
   taskGrantId: "3",
+  taskAssignmentId: "4",
   status: "interrupted",
   adapter: "opencode",
+  capabilities: ["implementation"],
   executablePath: "/usr/local/bin/opencode",
   executableVersion: "1.17.18",
   workingDirectory: "/work/flyd",
@@ -49,6 +54,8 @@ const worker: WorkerSession = {
   exitStatus: null,
   startedAt: "2026-07-17T00:10:00.000Z",
   endedAt: "2026-07-17T00:20:00.000Z",
+  lastObservedAt: "2026-07-17T00:20:00.000Z",
+  stopReason: null,
 };
 
 const memory: MemoryEvidence = {

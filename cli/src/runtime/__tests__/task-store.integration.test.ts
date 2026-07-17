@@ -15,7 +15,9 @@ async function cleanProject(): Promise<void> {
     if (taskIds.length) {
       await pool.query("DELETE FROM runtime_events WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
+      await pool.query("DELETE FROM worker_commands WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
+      await pool.query("DELETE FROM task_assignments WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_grants WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM agent_tasks WHERE id = ANY($1::bigint[])", [taskIds]);
     }
@@ -269,5 +271,92 @@ describe("PostgresTaskStore", () => {
 
     expect(replacement.grantKey).not.toBe(first.grantKey);
     expect((await pool.query("SELECT status FROM task_grants WHERE id = $1", [first.id])).rows[0].status).toBe("expired");
+  });
+
+  it("persists one validated plan idempotently and enforces assignment concurrency", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Run two bounded assignments",
+      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `plan-task:${projectRoot}`,
+    });
+    const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
+      successCriteria: ["Both assignments verify"],
+      verificationCriteria: ["git diff --check"],
+      source: "model",
+      assignments: [
+        {
+          key: "implementation",
+          title: "Implement",
+          instructions: "Implement the change",
+          capabilityRequirements: ["implementation", "testing"],
+          dependencyKeys: [],
+          declaredFileScope: ["app"],
+        },
+        {
+          key: "review",
+          title: "Review",
+          instructions: "Review the implementation",
+          capabilityRequirements: ["review"],
+          dependencyKeys: ["implementation"],
+          declaredFileScope: ["test"],
+        },
+      ],
+      baseHead: "base",
+      idempotencyKey: `plan:${task.taskKey}`,
+    });
+    const duplicate = await store.persistAssignmentPlan(task.taskKey, task.revision, {
+      successCriteria: ["Both assignments verify"],
+      verificationCriteria: ["git diff --check"],
+      source: "model",
+      assignments: [],
+      baseHead: "base",
+      idempotencyKey: `plan:${task.taskKey}`,
+    });
+
+    expect(planned.task.revision).toBe(1);
+    expect(duplicate.assignments.map((assignment) => assignment.assignmentKey))
+      .toEqual(planned.assignments.map((assignment) => assignment.assignmentKey));
+    expect(planned.assignments).toHaveLength(2);
+    expect(planned.task.successCriteria).toEqual(["Both assignments verify"]);
+
+    const grant = await store.approveGrant(task.taskKey, planned.task.revision, {
+      repositoryRoots: [projectRoot],
+      worktreePaths: [`${projectRoot}/managed-worktrees`],
+      workerAdapters: ["codex", "opencode"],
+      fileOperations: ["read", "write"],
+      commandClasses: ["test", "git_status"],
+      verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"],
+      maxConcurrency: 1,
+      budget: { max_worker_runs: 3, max_runtime_minutes: 90 },
+      providerIdentity: "codex:local,opencode:local",
+      expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `plan-grant:${task.taskKey}`,
+    });
+    const first = await store.createWorker({
+      taskKey: task.taskKey,
+      grantKey: grant.grantKey,
+      assignmentKey: planned.assignments[0].assignmentKey,
+      adapter: "codex",
+      capabilities: ["implementation", "testing"],
+      executablePath: "/bin/codex",
+      executableVersion: "codex-cli 0.144.2",
+      workingDirectory: `${projectRoot}/managed-worktrees/implementation`,
+      idempotencyKey: `plan-worker-1:${task.taskKey}`,
+    });
+    expect(first.taskAssignmentId).toBe(planned.assignments[0].id);
+    await expect(store.createWorker({
+      taskKey: task.taskKey,
+      grantKey: grant.grantKey,
+      assignmentKey: planned.assignments[1].assignmentKey,
+      adapter: "opencode",
+      capabilities: ["review"],
+      executablePath: "/bin/opencode",
+      executableVersion: "1.17.18",
+      workingDirectory: projectRoot,
+      idempotencyKey: `plan-worker-2:${task.taskKey}`,
+    })).rejects.toThrow("maximum concurrency");
   });
 });
