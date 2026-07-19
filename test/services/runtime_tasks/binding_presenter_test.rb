@@ -16,6 +16,7 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
       provider_identity: "codex:local",
       expires_at: 1.hour.from_now
     )
+    mark_delivery_healthy
   end
 
   test "resolves only records named by persisted source references" do
@@ -40,6 +41,19 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
       { "task_revision" => @task.revision }
     )
     AgentTask.where(id: @task.id).update_all(revision: @task.revision + 1)
+
+    binding = RuntimeTasks::BindingPresenter.call(item)
+
+    assert binding.stale?
+    assert_not binding.controls_enabled?
+  end
+
+  test "becomes read only without a healthy runtime listener" do
+    RuntimeDeliveryState.delete_all
+    item = Item.new(
+      [ { "type" => "runtime_task", "id" => @task.task_key } ],
+      { "task_revision" => @task.revision }
+    )
 
     binding = RuntimeTasks::BindingPresenter.call(item)
 
@@ -73,5 +87,15 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
     end
 
     assert_match(/crosses task boundaries/, error.message)
+  end
+
+  private
+
+  def mark_delivery_healthy
+    RuntimeDeliveryState.create!(
+      listener_key: AgentRuntime::EventListener::LISTENER_KEY,
+      lease_owner: "test-listener",
+      lease_expires_at: 1.minute.from_now
+    )
   end
 end

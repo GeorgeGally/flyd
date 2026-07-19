@@ -53,12 +53,12 @@ module IntelligenceState
 
     def current_task
       AgentTask
-        .includes(:project, :task_grants, :task_assignments, :worker_sessions, :task_artifacts, :runtime_events)
+        .includes(:project, :task_grants, :task_assignments, :worker_sessions, :task_artifacts, :task_corrections, :runtime_events)
         .unfinished
         .recent
         .first ||
         AgentTask
-          .includes(:project, :task_grants, :task_assignments, :worker_sessions, :task_artifacts, :runtime_events)
+          .includes(:project, :task_grants, :task_assignments, :worker_sessions, :task_artifacts, :task_corrections, :runtime_events)
           .where(completed_at: RECENT_COMPLETION_WINDOW.ago..)
           .recent
           .first
@@ -69,6 +69,7 @@ module IntelligenceState
       assignments = task.task_assignments.sort_by(&:created_at).last(MAX_RECORDS)
       workers = task.worker_sessions.sort_by(&:created_at).last(MAX_RECORDS)
       artifacts = task.task_artifacts.verified.sort_by(&:created_at).last(MAX_RECORDS)
+      corrections = task.task_corrections.sort_by(&:task_revision).last(MAX_RECORDS)
       latest_event = task.runtime_events.max_by(&:task_revision)
 
       {
@@ -92,6 +93,7 @@ module IntelligenceState
             "assignmentKeys" => assignments.map(&:assignment_key),
             "workerKeys" => workers.map(&:worker_key),
             "artifactKeys" => artifacts.map(&:artifact_key),
+            "correctionKeys" => corrections.map(&:correction_key),
             "latestEventType" => latest_event&.event_type,
             "updatedAt" => task.updated_at.iso8601
           }.compact
@@ -99,7 +101,8 @@ module IntelligenceState
         "task_grants" => grants.map { |grant| grant_evidence(grant) },
         "task_assignments" => assignments.map { |assignment| assignment_evidence(assignment) },
         "worker_sessions" => workers.map { |worker| worker_evidence(worker) },
-        "task_artifacts" => artifacts.map { |artifact| artifact_evidence(artifact) }
+        "task_artifacts" => artifacts.map { |artifact| artifact_evidence(artifact) },
+        "task_corrections" => corrections.map { |correction| correction_evidence(correction) }
       }
     end
 
@@ -187,12 +190,31 @@ module IntelligenceState
       )
     end
 
-    def evidence(id:, type:, generated_at:, content:)
+    def correction_evidence(correction)
+      evidence(
+        id: correction.correction_key,
+        type: "task_correction",
+        generated_at: correction.created_at,
+        epistemic_status: "user_confirmed",
+        content: {
+          "taskKey" => correction.agent_task.task_key,
+          "correctionKey" => correction.correction_key,
+          "originalClaim" => correction.original_claim,
+          "correctedValue" => correction.corrected_value,
+          "taskRevision" => correction.task_revision,
+          "surfaceRevision" => correction.surface_revision,
+          "authority" => correction.authority,
+          "supersedesCorrectionKey" => correction.supersedes_task_correction&.correction_key
+        }.compact
+      )
+    end
+
+    def evidence(id:, type:, generated_at:, content:, epistemic_status: "observation")
       {
         "id" => id,
         "type" => type,
         "source" => PROVIDER,
-        "epistemicStatus" => "observation",
+        "epistemicStatus" => epistemic_status,
         "confidence" => 1.0,
         "generatedAt" => generated_at&.iso8601,
         "evidenceRefs" => [],
@@ -206,7 +228,8 @@ module IntelligenceState
         "task_grants" => [],
         "task_assignments" => [],
         "worker_sessions" => [],
-        "task_artifacts" => []
+        "task_artifacts" => [],
+        "task_corrections" => []
       }
     end
   end

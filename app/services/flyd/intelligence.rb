@@ -279,6 +279,7 @@ module Flyd
       status = content[:status].to_s
       revision = content[:revision].to_i
       related, renderer, mode, kind, intent = runtime_fallback_direction(collections, status)
+      related = Array(collections[:task_corrections]).last(1) + related
       source_refs = ([ task ] + related).filter_map do |evidence|
         { "type" => evidence[:type].to_s, "id" => evidence[:id] } if evidence[:type].present? && evidence[:id].present?
       end.uniq.first(20)

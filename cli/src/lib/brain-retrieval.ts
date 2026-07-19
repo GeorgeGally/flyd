@@ -74,6 +74,12 @@ function stableId(path: string, body: string): string {
   return `memory_match:${digest}`;
 }
 
+function memoryEpistemicStatus(entry: ScoredEvidence): "observation" | "user_confirmed" {
+  if (entry.source === "wiki") return "user_confirmed";
+  if (entry.metadata.type === "flyd-runtime-task-corrected") return "user_confirmed";
+  return "observation";
+}
+
 export async function retrieveBrainEvidence(
   query: string,
   dependencies: BrainRetrievalDependencies = defaults,
@@ -90,7 +96,7 @@ export async function retrieveBrainEvidence(
       id: stableId(entry.path, entry.body),
       type: "memory_match",
       source: "cli.retrieval",
-      epistemicStatus: entry.source === "wiki" ? "user_confirmed" : "observation",
+      epistemicStatus: memoryEpistemicStatus(entry),
       confidence: entry.librarianScore,
       generatedAt: ranked.generatedAt,
       evidenceRefs: [],

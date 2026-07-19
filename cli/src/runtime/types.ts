@@ -180,6 +180,20 @@ export interface TaskArtifactDraft {
   provenance: Record<string, unknown>;
 }
 
+export interface TaskCorrection {
+  id: string;
+  correctionKey: string;
+  agentTaskId: string;
+  supersedesTaskCorrectionId: string | null;
+  originalClaim: string | null;
+  correctedValue: string;
+  taskRevision: number;
+  surfaceRevision: number | null;
+  authority: "user";
+  provenance: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface Orientation {
   kind: "new" | "resume" | "resume_changed" | "resume_interrupted";
   headline: string;

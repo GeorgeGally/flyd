@@ -4,6 +4,7 @@ import { inspectRepository } from "./runtime/repository-inspector.js";
 import { RuntimeCommandService } from "./runtime/runtime-command-service.js";
 import { RevisionConflictError, PostgresTaskStore } from "./runtime/task-store.js";
 import { controlWorker, defaultWorkerControlDependencies } from "./runtime/worker-controller.js";
+import { deliverArchiveOutbox } from "./runtime/archive-outbox.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 
@@ -65,6 +66,11 @@ async function main(): Promise<void> {
   });
   try {
     const response = await runRuntimeBridge(await readStandardInput(), service);
+    try {
+      await deliverArchiveOutbox(store);
+    } catch (error) {
+      process.stderr.write(`Flyd memory delivery is delayed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
     process.stdout.write(`${response.output}\n`);
     process.exitCode = response.exitCode;
   } catch (error) {

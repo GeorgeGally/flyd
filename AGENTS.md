@@ -54,6 +54,7 @@ bin/rails server                     # Start dev server
 bin/rails test                       # Run Rails tests
 bin/rails test:all                   # Include system tests
 bundle exec sidekiq                  # Run provider, composition, and broadcast jobs
+bin/rails flyd:runtime_listener      # Replay runtime events and update live Rails task bindings
 
 cd cli && npm test                   # Run CLI tests
 cd cli && npm run dev                # Start/resume the coding harness
@@ -108,6 +109,12 @@ cd cli && npm run export-state -- --stdout
 - `app/models/task_grant.rb` — approved worker scope and lifecycle
 - `app/models/worker_session.rb` — durable worker process/session state
 - `app/models/runtime_event.rb` — transactional task event journal
+- `app/models/task_artifact.rb` — immutable verified runtime artifacts
+- `app/models/task_correction.rb` — user-authoritative task corrections
+- `app/services/agent_runtime/event_listener.rb` — leased PostgreSQL notification replay
+- `app/jobs/broadcast_runtime_observation_job.rb` — high-frequency worker activity delivery without recomposition
+- `app/services/runtime_tasks/action_executor.rb` — Rails-to-runtime command boundary
+- `app/services/runtime_tasks/binding_presenter.rb` — revision-safe task scene binding
 - `app/services/context_resolver.rb` — temporary context-routing support
 - `app/services/surface/planner.rb` — compatibility delegate only; contains no intelligence
 - `config/flyd.yml` — app configuration
@@ -121,4 +128,4 @@ cd cli && npm run export-state -- --stdout
 - Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
 - The current context resolver still assumes project-shaped persistence after interpretation.
 - Codex adapter support is pinned to 0.144.x and OpenCode to 1.17.x; other versions fail closed until tested.
-- Rails task control and live parity are Release 1C; Release 1B remains CLI-first.
+- The local propagation target is below two seconds, but production latency still needs measurement under the Release 1C dogfood window.

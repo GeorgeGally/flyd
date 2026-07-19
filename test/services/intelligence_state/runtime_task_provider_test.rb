@@ -37,6 +37,12 @@ class IntelligenceState::RuntimeTaskProviderTest < ActiveSupport::TestCase
       source_revision: @task.revision,
       content: "patch"
     )
+    correction = @task.task_corrections.create!(
+      original_claim: "Rails is secondary",
+      corrected_value: "Rails is a first-class surface",
+      task_revision: 1,
+      surface_revision: 9
+    )
 
     snapshot = IntelligenceState::RuntimeTaskProvider.new.snapshot
 
@@ -47,6 +53,9 @@ class IntelligenceState::RuntimeTaskProviderTest < ActiveSupport::TestCase
     assert_equal @assignment.assignment_key, snapshot.data.dig(:task_assignments, 0, :id)
     assert_equal artifact.artifact_key, snapshot.data.dig(:task_artifacts, 0, :id)
     assert_nil snapshot.data.dig(:task_artifacts, 0, :content, :content)
+    assert_equal correction.correction_key, snapshot.data.dig(:task_corrections, 0, :id)
+    assert_equal "user_confirmed", snapshot.data.dig(:task_corrections, 0, :epistemicStatus)
+    assert_equal "user", snapshot.data.dig(:task_corrections, 0, :content, :authority)
   end
 
   test "omits rejected artifacts from interface evidence" do

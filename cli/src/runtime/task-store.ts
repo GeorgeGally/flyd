@@ -10,6 +10,7 @@ import type {
   RuntimeMetrics,
   TaskArtifact,
   TaskArtifactDraft,
+  TaskCorrection,
   TaskAssignment,
   TaskGrant,
   WorkerCommand,
@@ -19,6 +20,13 @@ import type {
 
 function iso(value: Date | string | null): string | null {
   return value ? new Date(value).toISOString() : null;
+}
+
+function boundedText(value: string, label: string, maximum: number): string {
+  const text = value.trim();
+  if (!text) throw new Error(`${label} is required`);
+  if (text.length > maximum) throw new Error(`${label} is too long`);
+  return text;
 }
 
 function mapTask(row: QueryResultRow): AgentTask {
@@ -146,6 +154,24 @@ function mapTaskArtifact(row: QueryResultRow): TaskArtifact {
   };
 }
 
+function mapTaskCorrection(row: QueryResultRow): TaskCorrection {
+  return {
+    id: String(row.id),
+    correctionKey: row.correction_key,
+    agentTaskId: String(row.agent_task_id),
+    supersedesTaskCorrectionId: row.supersedes_task_correction_id == null
+      ? null
+      : String(row.supersedes_task_correction_id),
+    originalClaim: row.original_claim,
+    correctedValue: row.corrected_value,
+    taskRevision: Number(row.task_revision),
+    surfaceRevision: row.surface_revision == null ? null : Number(row.surface_revision),
+    authority: row.authority,
+    provenance: row.provenance ?? {},
+    createdAt: iso(row.created_at)!,
+  };
+}
+
 const TASK_SELECT = `SELECT t.*, p.name AS project_name, p.root_path AS project_root
   FROM agent_tasks t JOIN projects p ON p.id = t.project_id`;
 
@@ -153,6 +179,10 @@ export class RevisionConflictError extends Error {}
 
 export class PostgresTaskStore {
   constructor(private readonly pool: Pool) {}
+
+  async health(): Promise<void> {
+    await this.pool.query("SELECT 1");
+  }
 
   async findResumableTask(projectRoot: string): Promise<AgentTask | null> {
     const result = await this.pool.query(`${TASK_SELECT} WHERE p.root_path = $1 AND t.status IN ('awaiting_grant','ready','running','blocked') ORDER BY t.updated_at DESC LIMIT 1`, [projectRoot]);
@@ -359,6 +389,14 @@ export class PostgresTaskStore {
     return result.rows.map(mapTaskArtifact);
   }
 
+  async listCorrections(taskId: string): Promise<TaskCorrection[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_corrections WHERE agent_task_id = $1 ORDER BY task_revision, id",
+      [taskId],
+    );
+    return result.rows.map(mapTaskCorrection);
+  }
+
   async updateAssignmentWorkspace(assignmentKey: string, input: {
     worktreePath: string;
     branchName: string;
@@ -366,6 +404,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<TaskAssignment> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const duplicate = await client.query(
         "SELECT a.* FROM task_assignments a JOIN runtime_events e ON e.agent_task_id = a.agent_task_id WHERE a.assignment_key = $1 AND e.idempotency_key = $2 LIMIT 1",
         [assignmentKey, input.idempotencyKey],
@@ -399,6 +438,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<TaskAssignment> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const duplicate = await client.query(
         "SELECT a.* FROM task_assignments a JOIN runtime_events e ON e.agent_task_id = a.agent_task_id WHERE a.assignment_key = $1 AND e.idempotency_key = $2 LIMIT 1",
         [assignmentKey, input.idempotencyKey],
@@ -456,6 +496,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<AgentTask> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
       if (existing) return existing;
       const task = await this.lockTask(client, taskKey);
@@ -509,6 +550,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<{ task: AgentTask; assignments: TaskAssignment[] }> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
       if (existing) {
         const assignments = await client.query(
@@ -565,6 +607,7 @@ export class PostgresTaskStore {
 
   async createTask(input: { projectName: string; projectRoot: string; intendedOutcome: string; repository: RepositorySnapshot; idempotencyKey: string }): Promise<AgentTask> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
       if (existing) return existing;
       const existingProject = await client.query("SELECT * FROM projects WHERE name = $1 FOR UPDATE", [input.projectName]);
@@ -593,15 +636,52 @@ export class PostgresTaskStore {
     });
   }
 
-  async recordCorrection(taskKey: string, expectedRevision: number, correction: string, input: { repositorySnapshot: Record<string, unknown>; idempotencyKey: string }): Promise<AgentTask> {
+  async recordCorrection(taskKey: string, expectedRevision: number, correction: string, input: {
+    repositorySnapshot: Record<string, unknown>;
+    originalClaim?: string;
+    surfaceRevision?: number;
+    actorSurface?: "cli" | "rails";
+    idempotencyKey: string;
+  }): Promise<AgentTask> {
+    const correctedValue = boundedText(correction, "Correction", 4_000);
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.corrected", async (client, row, revision) => {
       const context = row.context_snapshot ?? {};
       const corrections = Array.isArray(context.corrections) ? context.corrections : [];
-      const contextSnapshot = { ...context, corrections: [...corrections, correction] };
+      const correctionKey = randomUUID();
+      const previous = await client.query(
+        "SELECT id FROM task_corrections WHERE agent_task_id = $1 ORDER BY task_revision DESC LIMIT 1",
+        [row.id],
+      );
+      const correctionRecord = {
+        correction_key: correctionKey,
+        original_claim: input.originalClaim ?? null,
+        corrected_value: correctedValue,
+        task_revision: revision,
+        surface_revision: input.surfaceRevision ?? null,
+        authority: "user",
+        provenance: {
+          actor_surface: input.actorSurface ?? "cli",
+          repository_snapshot: input.repositorySnapshot,
+        },
+      };
+      await client.query(`INSERT INTO task_corrections
+        (agent_task_id, supersedes_task_correction_id, correction_key, original_claim, corrected_value,
+         task_revision, surface_revision, authority, provenance, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'user', $8::jsonb, NOW(), NOW())`, [
+        row.id,
+        previous.rows[0]?.id ?? null,
+        correctionKey,
+        input.originalClaim ?? null,
+        correctedValue,
+        revision,
+        input.surfaceRevision ?? null,
+        JSON.stringify(correctionRecord.provenance),
+      ]);
+      const contextSnapshot = { ...context, corrections: [...corrections, correctionRecord].slice(-20) };
       await client.query(`UPDATE agent_tasks SET context_snapshot = $1::jsonb, repository_snapshot = $2::jsonb,
         recommended_next_action = $3, revision = $4, updated_at = NOW() WHERE id = $5`,
-      [JSON.stringify(contextSnapshot), JSON.stringify(input.repositorySnapshot), correction, revision, row.id]);
-      return { correction };
+      [JSON.stringify(contextSnapshot), JSON.stringify(input.repositorySnapshot), correctedValue, revision, row.id]);
+      return correctionRecord;
     });
   }
 
@@ -610,6 +690,7 @@ export class PostgresTaskStore {
   }): Promise<TaskGrant> {
     validateGrantScope(input);
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const row = await this.lockTask(client, taskKey);
       const existing = await client.query(`SELECT g.* FROM task_grants g
         JOIN runtime_events e ON e.task_grant_id = g.id
@@ -666,6 +747,7 @@ export class PostgresTaskStore {
 
   async approveGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, idempotencyKey: string): Promise<TaskGrant> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, idempotencyKey);
       const row = await this.lockTask(client, taskKey);
       const existing = await client.query(`SELECT g.* FROM task_grants g
         JOIN runtime_events e ON e.task_grant_id = g.id
@@ -708,9 +790,9 @@ export class PostgresTaskStore {
     reason: string,
     idempotencyKey: string,
   ): Promise<TaskGrant> {
-    const decisionReason = reason.trim();
-    if (!decisionReason) throw new Error("Grant rejection reason is required");
+    const decisionReason = boundedText(reason, "Grant rejection reason", 1_000);
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, idempotencyKey);
       const row = await this.lockTask(client, taskKey);
       const existing = await client.query(`SELECT g.* FROM task_grants g
         JOIN runtime_events e ON e.task_grant_id = g.id
@@ -762,6 +844,7 @@ export class PostgresTaskStore {
   }): Promise<TaskGrant> {
     validateGrantScope(input);
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await client.query(`SELECT g.* FROM task_grants g
         JOIN runtime_events e ON e.task_grant_id = g.id
         WHERE e.idempotency_key = $1 LIMIT 1`, [input.idempotencyKey]);
@@ -838,6 +921,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<WorkerSession> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await client.query(`SELECT w.* FROM worker_sessions w
         JOIN runtime_events e ON e.worker_session_id = w.id
         WHERE e.idempotency_key = $1 LIMIT 1`, [input.idempotencyKey]);
@@ -928,6 +1012,7 @@ export class PostgresTaskStore {
     idempotencyKey: string;
   }): Promise<WorkerSession> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, update.idempotencyKey);
       const existing = await client.query("SELECT w.* FROM worker_sessions w JOIN runtime_events e ON e.worker_session_id = w.id WHERE e.idempotency_key = $1 LIMIT 1", [update.idempotencyKey]);
       if (existing.rows[0]) return mapWorker(existing.rows[0]);
       const workerResult = await client.query(`SELECT w.*, t.task_key, t.revision
@@ -964,9 +1049,27 @@ export class PostgresTaskStore {
   }
 
   async observeWorker(workerKey: string): Promise<void> {
-    await this.pool.query(`UPDATE worker_sessions
-      SET last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
-      WHERE worker_key = $1 AND status IN ('queued','starting','running','stopping')`, [workerKey]);
+    await withTransaction(this.pool, async (client) => {
+      const result = await client.query(`WITH observed AS (
+          UPDATE worker_sessions
+          SET last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
+          WHERE worker_key = $1 AND status IN ('queued','starting','running','stopping')
+          RETURNING agent_task_id
+        )
+        SELECT t.task_key, t.revision
+        FROM observed JOIN agent_tasks t ON t.id = observed.agent_task_id`, [workerKey]);
+      if (!result.rows[0]) return;
+
+      await client.query("SELECT pg_notify($1, $2)", [
+        "flyd_runtime_events",
+        JSON.stringify({
+          event_type: "worker.observed",
+          task_key: result.rows[0].task_key,
+          task_revision: Number(result.rows[0].revision),
+          occurred_at: new Date().toISOString(),
+        }),
+      ]);
+    });
   }
 
   async queueWorkerCommand(
@@ -977,6 +1080,7 @@ export class PostgresTaskStore {
     expectedTaskRevision?: number,
   ): Promise<{ command: WorkerCommand; worker: WorkerSession }> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, idempotencyKey);
       const existing = await client.query(
         "SELECT * FROM worker_commands WHERE idempotency_key = $1 LIMIT 1",
         [idempotencyKey],
@@ -1019,8 +1123,9 @@ export class PostgresTaskStore {
         throw new Error(`${kind} requires a live worker`);
       }
       if (kind === "retry" && live) throw new Error("retry requires a terminal worker");
-      const instruction = typeof payload.instruction === "string" ? payload.instruction.trim() : "";
-      if (kind === "redirect" && !instruction) throw new Error("Redirect requires a focused instruction");
+      const instruction = kind === "redirect"
+        ? boundedText(typeof payload.instruction === "string" ? payload.instruction : "", "Redirect instruction", 4_000)
+        : "";
 
       const commandResult = await client.query(`INSERT INTO worker_commands
         (agent_task_id, worker_session_id, command_key, kind, status, idempotency_key, payload, created_at, updated_at)
@@ -1145,6 +1250,7 @@ export class PostgresTaskStore {
   }
 
   async completeTask(taskKey: string, expectedRevision: number, input: { summary: string; verification: Record<string, unknown>; repositorySnapshot: Record<string, unknown>; idempotencyKey: string }): Promise<AgentTask> {
+    const summary = boundedText(input.summary, "Completion summary", 4_000);
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.completed", async (client, row, revision) => {
       const liveWorker = await client.query(
         "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
@@ -1173,9 +1279,16 @@ export class PostgresTaskStore {
       }
       await client.query(`UPDATE agent_tasks SET status = 'completed', outcome_summary = $1, verification_result = $2::jsonb,
         repository_snapshot = $3::jsonb, recommended_next_action = NULL, completed_at = NOW(), revision = $4, updated_at = NOW() WHERE id = $5`,
-      [input.summary, JSON.stringify(input.verification), JSON.stringify(input.repositorySnapshot), revision, row.id]);
+      [summary, JSON.stringify(input.verification), JSON.stringify(input.repositorySnapshot), revision, row.id]);
       await client.query("UPDATE task_grants SET status = 'completed', ended_at = NOW(), updated_at = NOW() WHERE agent_task_id = $1 AND status = 'approved'", [row.id]);
-      return { summary: input.summary, verification: input.verification };
+      return {
+        summary,
+        verification: input.verification,
+        repository: {
+          head: input.repositorySnapshot.head,
+          status_digest: input.repositorySnapshot.status_digest,
+        },
+      };
     });
   }
 
@@ -1275,6 +1388,7 @@ export class PostgresTaskStore {
 
   private async mutateTask(taskKey: string, expectedRevision: number, idempotencyKey: string, eventType: string, mutation: (client: PoolClient, row: QueryResultRow, revision: number) => Promise<Record<string, unknown>>): Promise<AgentTask> {
     return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, idempotencyKey);
       const existing = await this.taskForIdempotency(client, idempotencyKey);
       if (existing) return existing;
       const row = await this.lockTask(client, taskKey);
@@ -1284,6 +1398,10 @@ export class PostgresTaskStore {
       await this.insertEvent(client, row.id, revision, eventType, idempotencyKey, payload);
       return this.loadTask(client, taskKey);
     });
+  }
+
+  private async lockIdempotency(client: PoolClient, key: string): Promise<void> {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
   }
 
   private async lockTask(client: PoolClient, taskKey: string): Promise<QueryResultRow> {
@@ -1304,9 +1422,20 @@ export class PostgresTaskStore {
   }
 
   private async insertEvent(client: PoolClient, taskId: string, revision: number, eventType: string, idempotencyKey: string, payload: Record<string, unknown>, grantId?: string, workerId?: string): Promise<void> {
+    const eventKey = randomUUID();
     await client.query(`INSERT INTO runtime_events
       (agent_task_id, task_grant_id, worker_session_id, event_key, event_type, idempotency_key, task_revision, payload, occurred_at, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW(), NOW())`,
-    [taskId, grantId ?? null, workerId ?? null, randomUUID(), eventType, idempotencyKey, revision, JSON.stringify(payload)]);
+    [taskId, grantId ?? null, workerId ?? null, eventKey, eventType, idempotencyKey, revision, JSON.stringify(payload)]);
+    const task = await client.query("SELECT task_key FROM agent_tasks WHERE id = $1", [taskId]);
+    await client.query("SELECT pg_notify($1, $2)", [
+      "flyd_runtime_events",
+      JSON.stringify({
+        event_key: eventKey,
+        task_key: task.rows[0]?.task_key,
+        task_revision: revision,
+        event_type: eventType,
+      }),
+    ]);
   }
 }

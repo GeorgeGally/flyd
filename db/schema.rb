@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_19_200000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_19_202000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -318,6 +318,22 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_200000) do
     t.index ["name"], name: "index_projects_on_name", unique: true
   end
 
+  create_table "runtime_delivery_states", force: :cascade do |t|
+    t.string "listener_key", null: false
+    t.bigint "last_event_id", default: 0, null: false
+    t.string "lease_owner"
+    t.datetime "lease_expires_at"
+    t.datetime "last_received_at"
+    t.datetime "last_delivered_at"
+    t.integer "delivery_latency_ms"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["listener_key"], name: "index_runtime_delivery_states_on_listener_key", unique: true
+    t.check_constraint "delivery_latency_ms IS NULL OR delivery_latency_ms >= 0", name: "runtime_delivery_states_latency_check"
+    t.check_constraint "last_event_id >= 0", name: "runtime_delivery_states_cursor_check"
+  end
+
   create_table "runtime_events", force: :cascade do |t|
     t.bigint "agent_task_id", null: false
     t.bigint "task_grant_id"
@@ -518,6 +534,27 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_200000) do
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'verified'::character varying, 'blocked'::character varying, 'integrated'::character varying, 'failed'::character varying, 'cancelled'::character varying]::text[])", name: "task_assignments_status_check"
   end
 
+  create_table "task_corrections", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "supersedes_task_correction_id"
+    t.string "correction_key", null: false
+    t.text "original_claim"
+    t.text "corrected_value", null: false
+    t.bigint "task_revision", null: false
+    t.bigint "surface_revision"
+    t.string "authority", default: "user", null: false
+    t.jsonb "provenance", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id", "task_revision"], name: "index_task_corrections_on_agent_task_id_and_task_revision", unique: true
+    t.index ["agent_task_id"], name: "index_task_corrections_on_agent_task_id"
+    t.index ["correction_key"], name: "index_task_corrections_on_correction_key", unique: true
+    t.index ["supersedes_task_correction_id"], name: "index_task_corrections_on_supersedes_task_correction_id"
+    t.check_constraint "authority::text = 'user'::text", name: "task_corrections_authority_check"
+    t.check_constraint "surface_revision IS NULL OR surface_revision >= 0", name: "task_corrections_surface_revision_check"
+    t.check_constraint "task_revision >= 0", name: "task_corrections_revision_check"
+  end
+
   create_table "task_grants", force: :cascade do |t|
     t.bigint "agent_task_id", null: false
     t.string "grant_key", null: false
@@ -671,6 +708,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_200000) do
   add_foreign_key "task_artifacts", "task_assignments"
   add_foreign_key "task_artifacts", "worker_sessions"
   add_foreign_key "task_assignments", "agent_tasks"
+  add_foreign_key "task_corrections", "agent_tasks"
+  add_foreign_key "task_corrections", "task_corrections", column: "supersedes_task_correction_id"
   add_foreign_key "task_grants", "agent_tasks"
   add_foreign_key "task_sessions", "agent_tasks"
   add_foreign_key "worker_commands", "agent_tasks"

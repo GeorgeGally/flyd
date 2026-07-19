@@ -38,6 +38,8 @@ interface TaskStore {
   }): Promise<AgentTask>;
   recordCorrection(taskKey: string, expectedRevision: number, correction: string, input: {
     repositorySnapshot: Record<string, unknown>;
+    originalClaim?: string;
+    actorSurface?: "cli" | "rails";
     idempotencyKey: string;
   }): Promise<AgentTask>;
   proposeGrant(taskKey: string, expectedRevision: number, input: {
@@ -290,6 +292,8 @@ export async function runContinuityHarness(input: {
         manualContextRestatement = replacesInterpretation;
         task = await deps.store.recordCorrection(task.taskKey, task.revision, correction, {
           repositorySnapshot: repositoryState(repository),
+          originalClaim: replacesInterpretation ? resumedTask.intendedOutcome : orientation.nextAction,
+          actorSurface: "cli",
           idempotencyKey: eventKey(task.taskKey, "corrected"),
         });
       }
@@ -408,7 +412,7 @@ export async function runContinuityHarness(input: {
       if (orchestration.status === "integrated" &&
           await deps.terminal.confirm("Does the verified integrated result satisfy the intended outcome?")) {
         task = await deps.store.completeTask(task.taskKey, task.revision, {
-          summary: orchestration.summary,
+          summary: orchestration.summary.trim().slice(0, 4_000) || "Verified integrated result confirmed by the user.",
           verification: {
             ...orchestration.verification,
             user_confirmed: true,
@@ -568,7 +572,7 @@ export async function runContinuityHarness(input: {
     const verified = await deps.terminal.confirm("Does the repository now satisfy the intended outcome?");
     if (verified) {
       task = await deps.store.completeTask(task.taskKey, task.revision, {
-        summary: result.output.trim() || "Worker completed and the user verified the repository outcome.",
+        summary: result.output.trim().slice(0, 4_000) || "Worker completed and the user verified the repository outcome.",
         verification: { user_confirmed: true, confirmed_at: deps.now().toISOString() },
         repositorySnapshot: repositoryState(repository),
         idempotencyKey: eventKey(task.taskKey, "completed"),

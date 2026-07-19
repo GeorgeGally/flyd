@@ -9,25 +9,34 @@ import type {
   RepositorySnapshot,
   TaskAssignment,
   TaskArtifact,
+  TaskCorrection,
   TaskGrant,
   WorkerCommand,
   WorkerSession,
 } from "./types.js";
 
 interface RuntimeCommandStore {
+  health(): Promise<void>;
   findTask(taskKey: string): Promise<AgentTask | null>;
   findWorker(workerKey: string): Promise<WorkerSession | null>;
   listAssignments(taskId: string): Promise<TaskAssignment[]>;
   listWorkers(taskId: string): Promise<WorkerSession[]>;
   listGrants(taskId: string): Promise<TaskGrant[]>;
   listArtifacts(taskId: string): Promise<TaskArtifact[]>;
+  listCorrections(taskId: string): Promise<TaskCorrection[]>;
   approveGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, idempotencyKey: string): Promise<TaskGrant>;
   rejectGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, reason: string, idempotencyKey: string): Promise<TaskGrant>;
   recordCorrection(
     taskKey: string,
     expectedRevision: number,
     correction: string,
-    input: { repositorySnapshot: Record<string, unknown>; idempotencyKey: string },
+    input: {
+      repositorySnapshot: Record<string, unknown>;
+      originalClaim?: string;
+      surfaceRevision?: number;
+      actorSurface?: "cli" | "rails";
+      idempotencyKey: string;
+    },
   ): Promise<AgentTask>;
   completeTask(
     taskKey: string,
@@ -73,6 +82,7 @@ export class RuntimeCommandService {
   async execute(value: unknown): Promise<RuntimeCommandResult> {
     const request = parseRuntimeCommandRequest(value);
     if (request.action === "health") {
+      await this.deps.store.health();
       return { action: request.action, data: { healthy: true } };
     }
 
@@ -123,6 +133,9 @@ export class RuntimeCommandService {
           request.correctedValue,
           {
             repositorySnapshot: repositoryState(repository),
+            originalClaim: request.originalClaim,
+            surfaceRevision: request.surfaceRevision,
+            actorSurface: request.actorSurface,
             idempotencyKey: request.idempotencyKey,
           },
         );
@@ -158,17 +171,18 @@ export class RuntimeCommandService {
   }
 
   private async status(task: AgentTask): Promise<RuntimeCommandResult> {
-    const [assignments, workers, grants, artifacts] = await Promise.all([
+    const [assignments, workers, grants, artifacts, corrections] = await Promise.all([
       this.deps.store.listAssignments(task.id),
       this.deps.store.listWorkers(task.id),
       this.deps.store.listGrants(task.id),
       this.deps.store.listArtifacts(task.id),
+      this.deps.store.listCorrections(task.id),
     ]);
     return {
       action: "task.status",
       taskKey: task.taskKey,
       taskRevision: task.revision,
-      data: { task, assignments, workers, grants, artifacts },
+      data: { task, assignments, workers, grants, artifacts, corrections },
     };
   }
 

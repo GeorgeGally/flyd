@@ -35,7 +35,7 @@ module Flyd
 
       content = evidence_content(task)
       status = content[:status].to_s
-      related = case status
+      related = collection(:task_corrections).last(1) + case status
       when "awaiting_grant"
         collection(:task_grants).select { |grant| evidence_content(grant)[:status].to_s == "proposed" }
       when "running"

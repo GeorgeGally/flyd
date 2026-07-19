@@ -78,9 +78,12 @@ module SurfaceActions
           )
         when "correct_task"
           ensure_exact_fields!(payload, %w[task_key task_revision original_claim])
+          original_claim = payload["original_claim"].to_s.truncate(4_000)
+          raise ArgumentError, "Task correction requires the claim being corrected" if original_claim.blank?
+
           task_payload(payload, reference_registry:).merge(
-            "original_claim" => payload["original_claim"].to_s.truncate(4_000).presence
-          ).compact
+            "original_claim" => original_claim
+          )
         when "confirm_task_completion"
           ensure_exact_fields!(payload, %w[task_key task_revision summary])
           summary = payload["summary"].to_s.truncate(4_000)

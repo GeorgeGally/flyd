@@ -18,6 +18,7 @@ async function cleanProject(): Promise<void> {
       await pool.query("DELETE FROM task_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_commands WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_artifacts WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
+      await pool.query("DELETE FROM task_corrections WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_assignments WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_grants WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
@@ -200,6 +201,84 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       correctedInterpretations: 1,
       replacedInterpretations: 0,
       toolEscapes: 1,
+    });
+  });
+
+  it("publishes a compact notification only after the runtime event commits", async () => {
+    const listener = await pool.connect();
+    try {
+      await listener.query("LISTEN flyd_runtime_events");
+      const received = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("runtime notification timed out")), 2_000);
+        listener.once("notification", (message) => {
+          clearTimeout(timeout);
+          resolve(JSON.parse(message.payload ?? "{}"));
+        });
+      });
+
+      const task = await store.createTask({
+        projectName: "runtime-test",
+        projectRoot,
+        intendedOutcome: "Notify Rails after commit",
+        repository: {
+          root: projectRoot, name: "runtime-test", remote: null, branch: "main",
+          head: "notify-head", dirty: false, statusLines: [], statusDigest: "clean",
+        },
+        idempotencyKey: `notify-task:${projectRoot}`,
+      });
+      const payload = await received;
+
+      expect(payload).toEqual(expect.objectContaining({
+        task_key: task.taskKey,
+        task_revision: 0,
+        event_type: "task.created",
+      }));
+      expect(payload.event_key).toEqual(expect.any(String));
+    } finally {
+      await listener.query("UNLISTEN flyd_runtime_events");
+      listener.release();
+    }
+  });
+
+  it("persists structured user corrections idempotently with provenance", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Assume the old claim",
+      repository: {
+        root: projectRoot, name: "runtime-test", remote: null, branch: "main",
+        head: "correction-head", dirty: false, statusLines: [], statusDigest: "clean",
+      },
+      idempotencyKey: `correction-task:${projectRoot}`,
+    });
+    const input = {
+      repositorySnapshot: { head: "correction-head", status_digest: "clean" },
+      originalClaim: "The old claim",
+      surfaceRevision: 42,
+      actorSurface: "rails" as const,
+      idempotencyKey: `correction:${task.taskKey}`,
+    };
+
+    const [ corrected, replay ] = await Promise.all([
+      store.recordCorrection(task.taskKey, task.revision, "The corrected value", input),
+      store.recordCorrection(task.taskKey, task.revision, "The corrected value", input),
+    ]);
+    const corrections = await store.listCorrections(task.id);
+
+    expect(replay.revision).toBe(corrected.revision);
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0]).toMatchObject({
+      originalClaim: "The old claim",
+      correctedValue: "The corrected value",
+      surfaceRevision: 42,
+      authority: "user",
+      provenance: { actor_surface: "rails" },
+    });
+    const archive = await store.pendingArchiveEvents();
+    expect(archive.find((event) => event.eventType === "task.corrected")?.payload).toMatchObject({
+      original_claim: "The old claim",
+      corrected_value: "The corrected value",
+      authority: "user",
     });
   });
 
@@ -696,7 +775,26 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       }));
     }
     const revisionBeforeObservation = (await store.findTask(task.taskKey))!.revision;
-    await store.observeWorker(workers[1].workerKey);
+    const listener = await pool.connect();
+    await listener.query("LISTEN flyd_runtime_events");
+    const notification = new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("worker observation notification timed out")), 2_000);
+      listener.once("notification", (message) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(message.payload ?? "{}"));
+      });
+    });
+    try {
+      await store.observeWorker(workers[1].workerKey);
+      await expect(notification).resolves.toMatchObject({
+        event_type: "worker.observed",
+        task_key: task.taskKey,
+        task_revision: revisionBeforeObservation,
+      });
+    } finally {
+      await listener.query("UNLISTEN flyd_runtime_events");
+      listener.release();
+    }
     expect((await store.findTask(task.taskKey))!.revision).toBe(revisionBeforeObservation);
     expect((await store.listWorkers(task.id)).find((item) => item.workerKey === workers[1].workerKey)?.lastObservedAt)
       .toEqual(expect.any(String));

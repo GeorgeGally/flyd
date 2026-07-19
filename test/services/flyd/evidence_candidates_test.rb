@@ -46,6 +46,19 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal [ "action", "task_review" ], ready.values_at(:mode, :renderer)
   end
 
+  test "keeps the latest user correction in the authoritative task context" do
+    candidate = runtime_candidate(status: "ready", related: {
+      task_artifacts: [ runtime_evidence("artifact-1", "task_artifact", verificationStatus: "verified") ],
+      task_corrections: [
+        runtime_evidence("correction-1", "task_correction", correctedValue: "Old correction"),
+        runtime_evidence("correction-2", "task_correction", correctedValue: "Rails is a first-class surface")
+      ]
+    })
+
+    assert_includes candidate[:evidence_refs], { type: "task_correction", id: "correction-2" }
+    assert_not_includes candidate[:evidence_refs], { type: "task_correction", id: "correction-1" }
+  end
+
   test "uses sufficient targeted memory to support the active conversation" do
     candidates = Flyd::EvidenceCandidates.call(
       active_intent: { id: 4, text: "What was I doing?" },

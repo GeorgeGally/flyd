@@ -27,6 +27,11 @@ class RuntimeTasks::ActionExecutorTest < ActiveSupport::TestCase
       current_intention: "Get an explicit decision",
       generated_at: Time.current
     )
+    RuntimeDeliveryState.create!(
+      listener_key: AgentRuntime::EventListener::LISTENER_KEY,
+      lease_owner: "test-listener",
+      lease_expires_at: 1.minute.from_now
+    )
     @bridge = FakeBridge.new([])
   end
 

@@ -1,6 +1,8 @@
 import { createStore, type HybridQueryResult } from "@tobilu/qmd";
+import { mkdir } from "fs/promises";
 import { homedir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
+import { RAW_DIR, WIKI_DIR } from "./config.js";
 import { expandQuery as expandQueryOpenAI, type ExpandedQuery } from "./query-expansion.js";
 
 function getDbPath(): string {
@@ -8,11 +10,27 @@ function getDbPath(): string {
   return join(cacheDir, "qmd", "index.sqlite");
 }
 
-let storePromise: ReturnType<typeof createStore> | null = null;
+async function initializeStore() {
+  await Promise.all([
+    mkdir(RAW_DIR, { recursive: true, mode: 0o700 }),
+    mkdir(WIKI_DIR, { recursive: true, mode: 0o700 }),
+  ]);
+  const store = await createStore({ dbPath: getDbPath() });
+  const collections = await store.listCollections();
+  for (const [name, path] of [ [ "flyd-raw", RAW_DIR ], [ "flyd-wiki", WIKI_DIR ] ] as const) {
+    const current = collections.find((collection) => collection.name === name);
+    if (!current || resolve(current.pwd) !== resolve(path)) {
+      await store.addCollection(name, { path, pattern: "**/*.md" });
+    }
+  }
+  return store;
+}
+
+let storePromise: ReturnType<typeof initializeStore> | null = null;
 
 async function getStore() {
   if (!storePromise) {
-    storePromise = createStore({ dbPath: getDbPath() });
+    storePromise = initializeStore();
   }
   return storePromise;
 }
@@ -135,11 +153,15 @@ export async function search(
 
 export async function updateRaw(): Promise<void> {
   try {
-    const store = await getStore();
-    await store.update({ collections: ["flyd-raw"] });
+    await updateRawStrict();
   } catch {
     // non-fatal
   }
+}
+
+export async function updateRawStrict(): Promise<void> {
+  const store = await getStore();
+  await store.update({ collections: ["flyd-raw"] });
 }
 
 export async function embedRaw(): Promise<void> {

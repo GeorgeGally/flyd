@@ -1,8 +1,8 @@
 import { execFile as nodeExecFile } from "child_process";
 import { createHash } from "crypto";
 import { mkdir, stat } from "fs/promises";
-import { homedir } from "os";
 import { join, resolve } from "path";
+import { FLYD_DIR } from "../lib/config.js";
 import { promisify } from "util";
 
 const execFileAsync = promisify(nodeExecFile);
@@ -35,7 +35,7 @@ export class GitWorktreeManager {
   private readonly runGit: GitRunner;
 
   constructor(input: { managedRoot?: string; runGit?: GitRunner } = {}) {
-    this.managedRoot = resolve(input.managedRoot ?? join(homedir(), ".flyd", "runtime", "worktrees"));
+    this.managedRoot = resolve(input.managedRoot ?? join(FLYD_DIR, "runtime", "worktrees"));
     this.runGit = input.runGit ?? (async (args) => {
       const { stdout } = await execFileAsync("git", args, { encoding: "utf8", timeout: 30_000 });
       return stdout;

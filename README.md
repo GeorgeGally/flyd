@@ -2,9 +2,9 @@
 
 Flyd is a personal agent platform. Its first product is a repository-aware coding harness that preserves the intended outcome, relevant memory, permissions, worker state, corrections, verification, and exact re-entry point across sessions.
 
-## Release 1B: supervised coding harness
+## Release 1C: shared coding agent
 
-Prerequisites: PostgreSQL, Node 20+, Ruby 3.2+, Codex CLI 0.144.x, and OpenCode 1.17.x.
+Prerequisites: PostgreSQL, Node 20+, Ruby 3.4+, Codex CLI 0.144.x, and OpenCode 1.17.x.
 
 ```bash
 bin/rails db:prepare
@@ -49,10 +49,13 @@ The five-working-day control trial begins with real worker activity. A measured 
 ```bash
 redis-server &
 bundle exec sidekiq &
+bin/rails flyd:runtime_listener &
 bin/rails server
 ```
 
-Visit <http://localhost:3000>. Rails is the intelligence-generated surface foundation. Shared coding-task control and live parity remain the Release 1C gate; the web app is not represented as equivalent to the Release 1B CLI yet.
+Visit <http://localhost:3000>. Rails and the CLI read the same PostgreSQL task, grant, assignment, worker, artifact, correction, and event authority. The Rails surface can approve or reject grants, stop, retry, redirect, or replace workers, correct Flyd, inspect verified artifacts, and confirm completion through the same TypeScript command service used by the CLI.
+
+The runtime listener verifies the TypeScript bridge, replays committed task events, pushes worker observations without an LLM call, and keeps an old scene read-only until normal surface recomposition catches up with a semantic phase change. If the listener or bridge is stale, consequential controls remain disabled instead of mutating a second Rails-owned task state.
 
 ## Stack
 

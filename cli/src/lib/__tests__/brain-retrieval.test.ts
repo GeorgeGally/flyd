@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { BaseEntry } from "../retrieval.js";
 import { retrieveBrainEvidence } from "../brain-retrieval.js";
 
-function entry(path: string, body: string, source: "raw" | "wiki", confidence: unknown = 0.8): BaseEntry {
-  return { path, body, source, score: 80, metadata: { confidence, timestamp: "2026-07-15 10:00:00" } };
+function entry(
+  path: string,
+  body: string,
+  source: "raw" | "wiki",
+  confidence: unknown = 0.8,
+  metadata: Record<string, unknown> = {},
+): BaseEntry {
+  return { path, body, source, score: 80, metadata: { confidence, timestamp: "2026-07-15 10:00:00", ...metadata } };
 }
 
 describe("targeted brain retrieval", () => {
@@ -37,5 +43,24 @@ describe("targeted brain retrieval", () => {
 
     expect(result.matches).toEqual([]);
     expect(result.sufficiency.verdict).toBe("insufficient");
+  });
+
+  it("preserves user authority when retrieving a runtime correction from raw memory", async () => {
+    const result = await retrieveBrainEvidence("What did I correct about Rails?", {
+      searchRaw: async () => [
+        entry(
+          "runtime-correction.md",
+          "Correction: Rails is secondary -> Rails is a first-class surface.",
+          "raw",
+          1,
+          { type: "flyd-runtime-task-corrected" },
+        ),
+      ],
+      searchWiki: () => [],
+      searchGraph: () => [],
+      now: () => new Date("2026-07-16T00:00:00Z"),
+    });
+
+    expect(result.matches[0]?.epistemicStatus).toBe("user_confirmed");
   });
 });

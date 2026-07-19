@@ -28,7 +28,7 @@ module RuntimeTasks
     end
 
     def stale?
-      expected_revision != task.revision
+      expected_revision != task.revision || delivery_stale?
     end
 
     def controls_enabled?
@@ -74,6 +74,11 @@ module RuntimeTasks
     end
 
     private
+
+    def delivery_stale?
+      state = RuntimeDeliveryState.find_by(listener_key: AgentRuntime::EventListener::LISTENER_KEY)
+      state.nil? || !state.covers?(task)
+    end
 
     def reference_ids(type)
       Array(item.source_refs).filter_map do |reference|

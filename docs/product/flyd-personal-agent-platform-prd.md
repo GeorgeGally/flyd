@@ -478,6 +478,8 @@ Release 1B has a five-working-day control trial covering worker routing, initiat
 
 Release 1C is successful when Journeys 5, 6, and 7 pass. The qualifying two-week primary product window begins after this gate. Release 1 as a whole completes only when that window passes.
 
+Implementation status (2026-07-19): the shared command authority, persisted permission proposals, Rails task scenes and controls, verified artifact delivery, committed event listener, structured corrections, and verified outcome promotion are implemented on `main`. Automated contract and cross-surface tests pass. The real-session latency measurement and qualifying two-week primary-product window remain acceptance work, not missing interface functionality.
+
 ### Release 2: Multi-agent workbench
 
 - richer parallel and specialist agent coordination;

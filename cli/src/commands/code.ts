@@ -1,6 +1,6 @@
 import { mkdir, rename, writeFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+import { FLYD_DIR } from "../lib/config.js";
 import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
 import { planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
@@ -39,7 +39,7 @@ export async function retrieveRuntimeMemory(query: string): Promise<MemoryEviden
 }
 
 export async function writeRuntimeContext(taskKey: string, context: ContextPackage): Promise<string> {
-  const directory = join(homedir(), ".flyd", "runtime");
+  const directory = join(FLYD_DIR, "runtime");
   const path = join(directory, `${taskKey}-context.md`);
   const temporaryPath = `${path}.${process.pid}.tmp`;
   await mkdir(directory, { recursive: true, mode: 0o700 });

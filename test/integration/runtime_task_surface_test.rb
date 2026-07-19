@@ -57,6 +57,11 @@ class RuntimeTaskSurfaceTest < ActionDispatch::IntegrationTest
       ]
     )
     Surface.activate!(surface)
+    RuntimeDeliveryState.create!(
+      listener_key: AgentRuntime::EventListener::LISTENER_KEY,
+      lease_owner: "runtime-surface-test",
+      lease_expires_at: 1.minute.from_now
+    )
   end
 
   test "renders an unframed task plan with the exact permission boundary" do

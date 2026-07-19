@@ -4,6 +4,7 @@ module TaskArtifacts
   class Resolver
     ResolutionError = Class.new(StandardError)
     TEXT_KINDS = %w[diff test log code].freeze
+    MAX_FILE_BYTES = 25.megabytes
 
     Resolved = Data.define(:artifact, :content, :path, :media_type, :filename, :disposition)
 
@@ -19,7 +20,7 @@ module TaskArtifacts
     def call
       raise ResolutionError, "Artifact is not verified" unless @artifact.verified?
 
-      @artifact.content.present? ? resolve_content : resolve_path
+      @artifact.content.nil? ? resolve_path : resolve_content
     end
 
     private
@@ -29,6 +30,9 @@ module TaskArtifacts
 
       content = @artifact.content.b
       expected = @artifact.provenance["retained_sha256_digest"].presence || @artifact.sha256_digest
+      expected_size = @artifact.provenance["retained_bytes"].presence || @artifact.byte_size
+      raise ResolutionError, "Artifact byte size does not match" unless content.bytesize == expected_size
+
       verify_digest!(content, expected)
       Resolved.new(
         artifact: @artifact,
@@ -54,12 +58,17 @@ module TaskArtifacts
         raise ResolutionError, "Artifact repository revision no longer matches"
       end
 
-      verify_digest!(path.binread, @artifact.sha256_digest)
+      size = path.size
+      raise ResolutionError, "Artifact file is too large" if size > MAX_FILE_BYTES
+      raise ResolutionError, "Artifact byte size does not match" unless size == @artifact.byte_size
+
+      content = path.binread
+      verify_digest!(content, @artifact.sha256_digest)
       disposition = @artifact.inline_image? ? "inline" : "attachment"
       Resolved.new(
         artifact: @artifact,
-        content: nil,
-        path: path,
+        content: content,
+        path: nil,
         media_type: disposition == "inline" ? @artifact.media_type : "application/octet-stream",
         filename: safe_filename(path.basename.to_s),
         disposition: disposition

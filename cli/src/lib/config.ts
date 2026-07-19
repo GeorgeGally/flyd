@@ -1,9 +1,12 @@
 import { homedir } from "os";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, resolve } from "path";
 import { execSync } from "child_process";
 
 function resolveFlydDir(): string {
+  const configured = process.env.FLYD_DIR?.trim();
+  if (configured) return resolve(configured);
+
   const cwdLocal = join(process.cwd(), ".flyd");
   if (existsSync(cwdLocal)) return cwdLocal;
   return join(homedir(), ".flyd");

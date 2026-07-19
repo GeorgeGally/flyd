@@ -32,6 +32,15 @@ class TaskArtifacts::ResolverTest < ActiveSupport::TestCase
     end
   end
 
+  test "resolves empty verified text without treating it as a missing file" do
+    artifact = create_artifact(content: "")
+
+    resolved = TaskArtifacts::Resolver.call(artifact)
+
+    assert_equal "", resolved.content
+    assert_equal "inline", resolved.disposition
+  end
+
   test "rejects unverified artifacts and symlink escapes" do
     rejected = create_artifact(verification_status: "rejected", content: "worker claim")
     assert_raises(TaskArtifacts::Resolver::ResolutionError) do
@@ -83,7 +92,7 @@ class TaskArtifacts::ResolverTest < ActiveSupport::TestCase
   def create_artifact(kind: "log", media_type: "text/plain", content: "output",
     verification_status: "verified", relative_path: nil, repository_head: nil,
     sha256_digest: nil, provenance: {})
-    value = content.to_s
+    value = content.nil? && relative_path ? File.binread(File.join(@repository, relative_path)) : content.to_s
     @task.task_artifacts.create!(
       kind: kind,
       title: "Artifact",

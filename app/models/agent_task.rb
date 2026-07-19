@@ -11,6 +11,7 @@ class AgentTask < ApplicationRecord
   has_many :task_sessions, dependent: :destroy
   has_many :runtime_events, dependent: :destroy
   has_many :task_artifacts, dependent: :destroy
+  has_many :task_corrections, dependent: :delete_all
 
   before_validation :assign_task_key, on: :create
   before_validation :set_started_at, on: :create

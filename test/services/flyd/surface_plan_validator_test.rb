@@ -325,6 +325,31 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/Unknown grant_key/, error.message)
   end
 
+  test "task corrections require the exact displayed claim they supersede" do
+    payload = task_plan_payload
+    payload[:surface_mode] = "action"
+    payload[:items].first.merge!(
+      kind: "artifact",
+      intent: "review",
+      renderer: "task_review",
+      source_refs: [ { type: "runtime_task", id: "task-1" } ],
+      actions: [ {
+        id: "correct_task",
+        label: "Correct Flyd",
+        payload: { task_key: "task-1", task_revision: 7 }
+      } ]
+    )
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: [ "project:1", "runtime_task:task-1" ]
+      )
+    end
+
+    assert_match(/claim being corrected/, error.message)
+  end
+
   private
 
   def validate(payload)

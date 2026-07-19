@@ -1,7 +1,9 @@
 import { mkdir, rename, stat, writeFile } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+import { RAW_DIR } from "../lib/config.js";
+import { updateRawStrict } from "../lib/qmd.js";
 import type { ArchiveRuntimeEvent } from "./types.js";
+import { promoteRuntimeOutcome } from "./outcome-promoter.js";
 
 interface ArchiveOutboxStore {
   pendingArchiveEvents(limit?: number): Promise<ArchiveRuntimeEvent[]>;
@@ -19,10 +21,15 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function renderEvent(event: ArchiveRuntimeEvent): string {
+  const promotedKnowledge = promoteRuntimeOutcome(event);
   const summary = event.eventType === "task.completed"
-    ? `Verified outcome: ${String(event.payload.summary ?? "Completed task")}`
+    ? `Verified outcome: ${String(event.payload.summary ?? "Completed task")} at ${String(
+        (event.payload.repository as Record<string, unknown> | undefined)?.head ?? "verified repository head",
+      )}`
     : event.eventType === "task.corrected"
-      ? `Correction: ${String(event.payload.correction ?? "Task interpretation corrected")}`
+      ? `Correction: ${String(event.payload.original_claim ?? "Previous Flyd claim")} -> ${String(
+          event.payload.corrected_value ?? "Task interpretation corrected",
+        )}`
       : `Tool escape: ${String(event.payload.reason ?? "Work continued outside Flyd")}`;
   return [
     "---",
@@ -38,6 +45,12 @@ function renderEvent(event: ArchiveRuntimeEvent): string {
     "",
     summary,
     "",
+    "Promotable knowledge:",
+    "",
+    "```json",
+    JSON.stringify(promotedKnowledge, null, 2),
+    "```",
+    "",
     "Operational provenance:",
     "",
     "```json",
@@ -49,11 +62,12 @@ function renderEvent(event: ArchiveRuntimeEvent): string {
 
 export async function deliverArchiveOutbox(
   store: ArchiveOutboxStore,
-  rawDir = join(homedir(), ".flyd", "raw"),
+  rawDir = RAW_DIR,
+  refreshIndex: () => Promise<void> = updateRawStrict,
 ): Promise<number> {
   await mkdir(rawDir, { recursive: true, mode: 0o700 });
   const events = await store.pendingArchiveEvents();
-  let delivered = 0;
+  const prepared: ArchiveRuntimeEvent[] = [];
   for (const event of events) {
     const path = join(rawDir, `runtime-event-${event.eventKey}.md`);
     try {
@@ -62,6 +76,26 @@ export async function deliverArchiveOutbox(
         await writeFile(temporaryPath, renderEvent(event), { encoding: "utf8", mode: 0o600 });
         await rename(temporaryPath, path);
       }
+      prepared.push(event);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await store.markArchiveFailed(event.id, message);
+    }
+  }
+
+  if (prepared.length === 0) return 0;
+
+  try {
+    await refreshIndex();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await Promise.all(prepared.map((event) => store.markArchiveFailed(event.id, message)));
+    throw error;
+  }
+
+  let delivered = 0;
+  for (const event of prepared) {
+    try {
       await store.markArchiveDelivered(event.id);
       delivered += 1;
     } catch (error) {

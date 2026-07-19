@@ -36,12 +36,14 @@ function dependencies() {
     dispatchedAt: "2026-07-19T00:01:00.000Z", completedAt: "2026-07-19T00:01:01.000Z", errorSummary: null,
   };
   const store = {
+    health: vi.fn(async () => {}),
     findTask: vi.fn(async () => currentTask),
     findWorker: vi.fn(async () => worker),
     listAssignments: vi.fn(async () => []),
     listWorkers: vi.fn(async () => [worker]),
     listGrants: vi.fn(async () => [grant]),
     listArtifacts: vi.fn(async () => []),
+    listCorrections: vi.fn(async () => []),
     approveGrantProposal: vi.fn(async () => ({ ...grant, status: "approved" as const })),
     rejectGrantProposal: vi.fn(async () => ({ ...grant, status: "revoked" as const })),
     recordCorrection: vi.fn(async () => {
@@ -64,6 +66,18 @@ function dependencies() {
 }
 
 describe("RuntimeCommandService", () => {
+  it("checks the PostgreSQL-backed store before reporting healthy", async () => {
+    const deps = dependencies();
+    const result = await new RuntimeCommandService(deps).execute({
+      schemaVersion: 1,
+      action: "health",
+      actorSurface: "rails",
+    });
+
+    expect(deps.store.health).toHaveBeenCalledOnce();
+    expect(result).toEqual({ action: "health", data: { healthy: true } });
+  });
+
   it("returns one authoritative task projection", async () => {
     const deps = dependencies();
     const result = await new RuntimeCommandService(deps).execute({
