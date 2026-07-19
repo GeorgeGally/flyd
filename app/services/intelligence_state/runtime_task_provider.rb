@@ -66,9 +66,14 @@ module IntelligenceState
 
     def task_evidence(task)
       grants = task.task_grants.sort_by(&:created_at).last(MAX_RECORDS)
-      assignments = task.task_assignments.sort_by(&:created_at).last(MAX_RECORDS)
-      workers = task.worker_sessions.sort_by(&:created_at).last(MAX_RECORDS)
-      artifacts = task.task_artifacts.verified.sort_by(&:created_at).last(MAX_RECORDS)
+      assignments = current_plan_assignments(task)
+      assignment_ids = assignments.map(&:id)
+      workers = task.worker_sessions.select { |worker| assignment_ids.include?(worker.task_assignment_id) }
+        .sort_by(&:created_at).last(MAX_RECORDS)
+      artifacts = task.task_artifacts.verified.select do |artifact|
+        artifact.task_assignment_id.nil? || assignment_ids.include?(artifact.task_assignment_id)
+      end
+        .sort_by(&:created_at).last(MAX_RECORDS)
       corrections = task.task_corrections.sort_by(&:task_revision).last(MAX_RECORDS)
       latest_event = task.runtime_events.max_by(&:task_revision)
 
@@ -104,6 +109,14 @@ module IntelligenceState
         "task_artifacts" => artifacts.map { |artifact| artifact_evidence(artifact) },
         "task_corrections" => corrections.map { |correction| correction_evidence(correction) }
       }
+    end
+
+    def current_plan_assignments(task)
+      assignments = task.task_assignments.sort_by(&:created_at).last(MAX_RECORDS)
+      keys = Array(task.plan.to_h["assignment_keys"]).map(&:to_s)
+      return assignments if keys.empty?
+
+      assignments.index_by(&:assignment_key).values_at(*keys).compact
     end
 
     def grant_evidence(grant)

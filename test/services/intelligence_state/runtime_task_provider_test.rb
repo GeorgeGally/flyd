@@ -74,4 +74,46 @@ class IntelligenceState::RuntimeTaskProviderTest < ActiveSupport::TestCase
 
     assert_empty snapshot.data[:task_artifacts]
   end
+
+  test "exposes only assignments and artifacts from the current plan" do
+    old_assignment = @task.task_assignments.create!(
+      status: "cancelled",
+      title: "Superseded implementation",
+      instructions: "This plan was replaced.",
+      success_criteria: [ "Old result" ],
+      declared_file_scope: [ "app/**" ]
+    )
+    old_artifact = @task.task_artifacts.create!(
+      task_assignment: old_assignment,
+      kind: "log",
+      title: "Superseded worker output",
+      media_type: "text/plain",
+      byte_size: 3,
+      sha256_digest: Digest::SHA256.hexdigest("old"),
+      verification_status: "verified",
+      source_revision: @task.revision,
+      content: "old"
+    )
+    current_assignment = @assignment
+    current_artifact = @task.task_artifacts.create!(
+      task_assignment: current_assignment,
+      kind: "log",
+      title: "Current worker output",
+      media_type: "text/plain",
+      byte_size: 7,
+      sha256_digest: Digest::SHA256.hexdigest("current"),
+      verification_status: "verified",
+      source_revision: @task.revision,
+      content: "current"
+    )
+    AgentTask.where(id: @task.id).update_all(
+      plan: { "source" => "fallback", "assignment_keys" => [ current_assignment.assignment_key ] }
+    )
+
+    snapshot = IntelligenceState::RuntimeTaskProvider.new.snapshot
+
+    assert_equal [ current_assignment.assignment_key ], snapshot.data[:task_assignments].map { |item| item[:id] }
+    assert_equal [ current_artifact.artifact_key ], snapshot.data[:task_artifacts].map { |item| item[:id] }
+    assert_not_includes snapshot.data[:task_artifacts].map { |item| item[:id] }, old_artifact.artifact_key
+  end
 end
