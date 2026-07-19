@@ -798,6 +798,18 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       lastObservedAt: expect.any(String),
     });
 
+    const whileStopping = await store.transitionWorker(worker.workerKey, {
+      status: "failed",
+      exitStatus: 1,
+      error: "Process exited while stop was being dispatched",
+      idempotencyKey: `stopping-exit:${worker.workerKey}`,
+    });
+    expect(whileStopping).toMatchObject({
+      workerKey: worker.workerKey,
+      status: "stopping",
+      stopReason: "redirect",
+    });
+
     await store.completeWorkerCommand(first.command.commandKey, {
       workerStatus: "interrupted",
     });

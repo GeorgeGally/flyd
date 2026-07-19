@@ -111,4 +111,41 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("new main reality\n");
   });
+
+  it("accepts a verified read-only result when an already-dirty source is unchanged", async () => {
+    const repo = await repository();
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    await writeFile(join(repo.root, "one.txt"), "existing user work\n");
+    const baseSnapshot = await inspectRepository(repo.root);
+    const worktree = await manager.prepare({
+      repositoryRoot: repo.root,
+      taskKey: "task-4",
+      assignmentKey: "assessment",
+      baseHead: repo.head,
+    });
+    const result = await verifyWorkerResult({
+      worktreePath: worktree.path,
+      baseHead: repo.head,
+      commands: ["git diff --check"],
+      requireChanges: false,
+    });
+
+    const integration = await integrateVerifiedResults({
+      repositoryRoot: repo.root,
+      taskKey: "task-4",
+      baseSnapshot,
+      results: [result],
+      verificationCommands: ["git diff --check"],
+      manager,
+    });
+
+    expect(integration).toMatchObject({
+      status: "integrated",
+      changedFiles: [],
+      repositorySnapshot: expect.objectContaining({ statusDigest: baseSnapshot.statusDigest }),
+    });
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("existing user work\n");
+  });
 });

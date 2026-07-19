@@ -32,6 +32,7 @@ interface OrchestrationStore {
     workingDirectory: string;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  findWorker?(workerKey: string): Promise<WorkerSession | null>;
   transitionWorker(workerKey: string, update: {
     status: "running" | "completed" | "failed" | "interrupted";
     processId?: number | null;
@@ -73,6 +74,14 @@ export interface OrchestrationResult {
 
 function eventKey(prefix: string): string {
   return `${prefix}:${randomUUID()}`;
+}
+
+const CONTROLLED_WORKER_STATUSES = new Set([
+  "stopping", "stopped", "interrupted", "replaced", "cancelled",
+]);
+
+function workerWasControlled(worker: WorkerSession | null | undefined): boolean {
+  return Boolean(worker && CONTROLLED_WORKER_STATUSES.has(worker.status));
 }
 
 function verificationPayload(result: VerifiedWorkerResult): Record<string, unknown> {
@@ -279,6 +288,7 @@ export async function orchestrateAssignments(input: {
         control?: { command: WorkerCommand; worker: WorkerSession };
       };
       let adapterCrashed = false;
+      let controlledWorker = false;
       let result;
       try {
         result = await adapter.run({
@@ -339,11 +349,16 @@ export async function orchestrateAssignments(input: {
       } catch (error) {
         await workerTransitions;
         const message = error instanceof Error ? error.message : String(error);
-        await input.deps.store.transitionWorker(worker.workerKey, {
-          status: "failed",
-          error: message,
-          idempotencyKey: eventKey(`worker-crashed:${worker.workerKey}`),
-        });
+        const currentWorker = await input.deps.store.findWorker?.(worker.workerKey);
+        controlledWorker = workerWasControlled(currentWorker);
+        if (!controlledWorker) {
+          const failedWorker = await input.deps.store.transitionWorker(worker.workerKey, {
+            status: "failed",
+            error: message,
+            idempotencyKey: eventKey(`worker-crashed:${worker.workerKey}`),
+          });
+          controlledWorker = workerWasControlled(failedWorker);
+        }
         adapterCrashed = true;
         result = {
           exitStatus: 1,
@@ -355,6 +370,10 @@ export async function orchestrateAssignments(input: {
         activeCounts[selected.name] -= 1;
       }
       await workerTransitions;
+      controlledWorker ||= workerWasControlled(await input.deps.store.findWorker?.(worker.workerKey));
+      if (controlledWorker) {
+        throw new Error("Worker ended after an explicit control; Flyd will not retry it automatically");
+      }
       if (timeout.control) {
         const control = timeout.control;
         await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
@@ -374,14 +393,17 @@ export async function orchestrateAssignments(input: {
         throw new Error(intervention.reason);
       }
       if (!adapterCrashed) {
-        await input.deps.store.transitionWorker(worker.workerKey, {
+        const terminalWorker = await input.deps.store.transitionWorker(worker.workerKey, {
           status: result.exitStatus === 0 ? "completed" : "failed",
           externalSessionId: result.externalSessionId ?? undefined,
           exitStatus: result.exitStatus,
           output: result.output,
-          error: result.error,
+          error: result.exitStatus === 0 ? undefined : result.error,
           idempotencyKey: eventKey(`worker-terminal:${worker.workerKey}`),
         });
+        if (workerWasControlled(terminalWorker)) {
+          throw new Error("Worker ended after an explicit control; Flyd will not retry it automatically");
+        }
       }
       const verification = await verifyWorkerResult({
         worktreePath: worktree.path,

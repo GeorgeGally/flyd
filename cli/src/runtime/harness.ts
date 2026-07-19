@@ -18,6 +18,7 @@ interface TaskStore {
   findTask(taskKey: string): Promise<AgentTask | null>;
   latestWorker(taskId: string): Promise<WorkerSession | null>;
   approvedGrant(taskId: string): Promise<TaskGrant | null>;
+  workerRunCount(grantId: string): Promise<number>;
   proposedGrant(taskId: string): Promise<TaskGrant | null>;
   revokeGrant(taskKey: string, expectedRevision: number, grantKey: string, input: {
     reason: string;
@@ -314,6 +315,16 @@ export async function runContinuityHarness(input: {
       });
       grant = null;
     }
+    if (grant) {
+      const maxWorkerRuns = Number(grant.budget.max_worker_runs ?? 0);
+      if (maxWorkerRuns > 0 && await deps.store.workerRunCount(grant.id) >= maxWorkerRuns) {
+        task = await deps.store.revokeGrant(task.taskKey, task.revision, grant.grantKey, {
+          reason: "The approved worker-run budget is exhausted",
+          idempotencyKey: eventKey(task.taskKey, "grant-budget-renewal"),
+        });
+        grant = null;
+      }
+    }
     if (!grant) {
       const orchestrationScope = deps.orchestrationGrantScope;
       const workerLabel = orchestrationScope ? "Flyd-routed Codex and OpenCode" : "OpenCode";
@@ -556,7 +567,7 @@ export async function runContinuityHarness(input: {
       externalSessionId: result.externalSessionId ?? undefined,
       exitStatus: result.exitStatus,
       output: result.output,
-      error: result.error,
+      error: result.exitStatus === 0 ? undefined : result.error,
       idempotencyKey: eventKey(task.taskKey, result.exitStatus === 0 ? "worker-completed" : "worker-failed"),
     });
     task = await currentTask(deps.store, task.taskKey);

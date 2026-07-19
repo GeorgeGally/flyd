@@ -1,5 +1,5 @@
 import { query } from "../lib/llm.js";
-import type { MemoryEvidence, RepositorySnapshot } from "./types.js";
+import type { AgentTask, MemoryEvidence, RepositorySnapshot, TaskAssignment } from "./types.js";
 import type { WorkerCapability } from "./worker-adapter.js";
 
 const ALLOWED_CAPABILITIES = new Set<WorkerCapability>([
@@ -111,19 +111,44 @@ function parsePlan(raw: string): AssignmentPlan | null {
 }
 
 function fallbackPlan(outcome: string): AssignmentPlan {
+  const requestsChanges = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/i
+    .test(outcome);
+  const requestsAssessment = /\b(analy[sz]e|assess|audit|explain|inspect|investigate|look at|review|status|summari[sz]e)\b/i
+    .test(outcome);
+  const readOnly = requestsAssessment && !requestsChanges;
+
   return {
-    successCriteria: [ "The intended outcome is implemented and independently verified" ],
-    verificationCriteria: [ "The repository verification commands pass" ],
+    successCriteria: [readOnly
+      ? "The requested assessment is grounded in repository evidence and returns a concrete conclusion"
+      : "The intended outcome is implemented and independently verified"],
+    verificationCriteria: [readOnly
+      ? "The worker exits successfully without modifying the repository"
+      : "The repository verification commands pass"],
     assignments: [{
       key: "primary",
       title: outcome,
       instructions: outcome,
-      capabilityRequirements: [ "implementation", "testing" ],
+      capabilityRequirements: readOnly ? [ "analysis", "review" ] : [ "implementation", "testing" ],
       dependencyKeys: [],
       declaredFileScope: [ "." ],
     }],
     source: "fallback",
   };
+}
+
+const RUNNABLE_ASSIGNMENT_STATUSES = new Set([ "pending", "running", "verified" ]);
+
+export function currentPlanAssignments(
+  task: Pick<AgentTask, "plan">,
+  assignments: TaskAssignment[],
+): TaskAssignment[] {
+  const keys = Array.isArray(task.plan.assignment_keys)
+    ? task.plan.assignment_keys.filter((key): key is string => typeof key === "string")
+    : [];
+  const current = keys.length > 0
+    ? assignments.filter((assignment) => keys.includes(assignment.assignmentKey))
+    : assignments;
+  return current.filter((assignment) => RUNNABLE_ASSIGNMENT_STATUSES.has(assignment.status));
 }
 
 export async function planAssignments(input: {
@@ -138,6 +163,7 @@ export async function planAssignments(input: {
     "Return strict JSON only with keys successCriteria, verificationCriteria, assignments.",
     "Create one assignment unless two assignments are genuinely independent with non-overlapping file scopes.",
     "At most two assignments. Capabilities: analysis, implementation, review, testing, resume.",
+    "Status, assessment, explanation, and review-only outcomes must not request implementation unless edits are explicitly requested.",
     "Each assignment must contain exactly: key, title, instructions, capabilityRequirements, dependencyKeys, declaredFileScope.",
     `Outcome: ${input.outcome}`,
     `Repository: ${input.repository.name} at ${input.repository.head}`,

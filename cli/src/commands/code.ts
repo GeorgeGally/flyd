@@ -2,7 +2,7 @@ import { mkdir, rename, writeFile } from "fs/promises";
 import { join } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
-import { planAssignments } from "../runtime/assignment-planner.js";
+import { currentPlanAssignments, planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { codexAdapter } from "../runtime/codex-adapter.js";
 import { createRuntimePool } from "../runtime/database.js";
@@ -89,7 +89,7 @@ export async function runCode(outcome?: string): Promise<void> {
           providerIdentity: "codex-local,opencode-configured-provider",
         },
         orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
-          let assignments = await store.listAssignments(task.id);
+          let assignments = currentPlanAssignments(task, await store.listAssignments(task.id));
           if (assignments.length === 0) {
             const plan = await planAssignments({
               outcome: assignment,
@@ -101,7 +101,7 @@ export async function runCode(outcome?: string): Promise<void> {
             const persisted = await store.persistAssignmentPlan(task.taskKey, current.revision, {
               ...plan,
               baseHead: repository.head,
-              idempotencyKey: `task-plan:${task.taskKey}:${repository.head}`,
+              idempotencyKey: `task-plan:${task.taskKey}:${current.revision}:${repository.head}`,
             });
             assignments = persisted.assignments;
           }

@@ -52,6 +52,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
       return currentTask;
     }),
     approvedGrant: vi.fn(async (): Promise<TaskGrant | null> => null),
+    workerRunCount: vi.fn(async () => 0),
     revokeGrant: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "awaiting_grant" }; return currentTask; }),
     proposeGrant: vi.fn(async () => {
       currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "awaiting_grant" };
@@ -222,6 +223,40 @@ describe("runContinuityHarness", () => {
     );
   });
 
+  it("renews an exhausted orchestration grant before creating another worker", async () => {
+    const worktreeRoot = "/tmp/flyd-worktrees";
+    const orchestrationGrant = {
+      ...grant,
+      worktreePaths: [worktreeRoot],
+      workerAdapters: ["codex", "opencode"],
+      maxConcurrency: 2,
+      budget: { max_worker_runs: 4 },
+    };
+    const deps = dependencies({
+      orchestrationGrantScope: {
+        workerAdapters: ["codex", "opencode"],
+        worktreeRoot,
+        providerIdentity: "codex:local,opencode:local",
+      },
+      orchestrate: vi.fn(async () => ({
+        status: "integrated" as const,
+        summary: "Assessment integrated",
+        verification: { passed: true },
+      })),
+    });
+    deps.store.approvedGrant.mockResolvedValue(orchestrationGrant);
+    deps.store.workerRunCount.mockResolvedValue(4);
+
+    await runContinuityHarness({ outcome: "Assess the project", deps });
+
+    expect(deps.store.revokeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), "grant-1", expect.objectContaining({
+        reason: expect.stringMatching(/worker-run budget/i),
+      }),
+    );
+    expect(deps.store.proposeGrant).toHaveBeenCalled();
+  });
+
   it("creates, grants, runs, and verifies a new task", async () => {
     const deps = dependencies();
 
@@ -235,6 +270,24 @@ describe("runContinuityHarness", () => {
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ cwd: repository.root, externalSessionId: undefined }));
     expect(deps.store.completeTask).toHaveBeenCalledWith("task-1", expect.any(Number), expect.objectContaining({ summary: "Implemented it" }));
     expect(deps.store.finishTaskSession).toHaveBeenCalledWith("session-1", expect.objectContaining({ interpretation: "accepted" }));
+  });
+
+  it("does not record successful worker diagnostics as an error", async () => {
+    const deps = dependencies({
+      runWorker: vi.fn(async () => ({
+        exitStatus: 0,
+        externalSessionId: "ses_1",
+        output: "Assessment complete",
+        error: "Reading additional input from stdin...",
+      })),
+    });
+
+    await runContinuityHarness({ outcome: "Assess the project", deps });
+
+    expect(deps.store.transitionWorker).toHaveBeenCalledWith("worker-1", expect.objectContaining({
+      status: "completed",
+      error: undefined,
+    }));
   });
 
   it("resumes an interrupted OpenCode session with a focused correction", async () => {

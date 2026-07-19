@@ -35,6 +35,13 @@ function unchanged(base: RepositorySnapshot, current: RepositorySnapshot): boole
     current.statusDigest === base.statusDigest;
 }
 
+function sameRepositoryState(base: RepositorySnapshot, current: RepositorySnapshot): boolean {
+  return current.branch === base.branch &&
+    current.head === base.head &&
+    current.dirty === base.dirty &&
+    current.statusDigest === base.statusDigest;
+}
+
 async function applyPatch(cwd: string, patch: string, checkOnly = false): Promise<void> {
   if (!patch) return;
   const directory = await mkdtemp(join(tmpdir(), "flyd-patch-"));
@@ -73,7 +80,22 @@ export async function integrateVerifiedResults(input: {
       patchDigest: null,
     };
   }
-  if (!unchanged(input.baseSnapshot, await inspectRepository(input.repositoryRoot))) {
+  const currentSource = await inspectRepository(input.repositoryRoot);
+  const changedFiles = [...new Set(input.results.flatMap((result) => result.changedFiles))].sort();
+  if (changedFiles.length === 0) {
+    if (!sameRepositoryState(input.baseSnapshot, currentSource)) {
+      return { status: "blocked", reason: "Source repository changed after assignments started", changedFiles: [], patchDigest: null };
+    }
+    return {
+      status: "integrated",
+      reason: null,
+      changedFiles: [],
+      patchDigest: input.results[0].patchDigest,
+      repositorySnapshot: currentSource,
+      verification: input.results[0],
+    };
+  }
+  if (!unchanged(input.baseSnapshot, currentSource)) {
     return { status: "blocked", reason: "Source repository changed after assignments started", changedFiles: [], patchDigest: null };
   }
 

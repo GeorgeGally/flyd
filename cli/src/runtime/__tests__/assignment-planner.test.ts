@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { planAssignments } from "../assignment-planner.js";
+import { currentPlanAssignments, planAssignments } from "../assignment-planner.js";
+import type { AgentTask, TaskAssignment } from "../types.js";
 
 const repository = {
   root: "/work/flyd",
@@ -30,6 +31,34 @@ describe("assignment planner", () => {
       dependencyKeys: [],
     })]);
     expect(plan.successCriteria).toEqual(["The intended outcome is implemented and independently verified"]);
+  });
+
+  it("falls back to read-only analysis for a project status request", async () => {
+    const plan = await planAssignments({
+      outcome: "I want you to look at the status of this project",
+      repository,
+      memory: { verdict: "insufficient", matches: [] },
+      generate: async () => { throw new Error("offline"); },
+    });
+
+    expect(plan.source).toBe("fallback");
+    expect(plan.assignments).toEqual([expect.objectContaining({
+      capabilityRequirements: ["analysis", "review"],
+    })]);
+    expect(plan.successCriteria).toEqual([
+      "The requested assessment is grounded in repository evidence and returns a concrete conclusion",
+    ]);
+  });
+
+  it("keeps implementation requirements when a review request also asks for fixes", async () => {
+    const plan = await planAssignments({
+      outcome: "Review the pull request and fix the issues you find",
+      repository,
+      memory: { verdict: "insufficient", matches: [] },
+      generate: async () => { throw new Error("offline"); },
+    });
+
+    expect(plan.assignments[0].capabilityRequirements).toEqual(["implementation", "testing"]);
   });
 
   it("accepts two independent bounded assignments from Flyd", async () => {
@@ -106,5 +135,26 @@ describe("assignment planner", () => {
 
     expect(plan.source).toBe("fallback");
     expect(plan.assignments).toHaveLength(1);
+  });
+
+  it("selects only runnable assignments from the task's current plan", () => {
+    const assignments = [
+      {
+        id: "1", assignmentKey: "old", status: "cancelled",
+      },
+      {
+        id: "2", assignmentKey: "current", status: "pending",
+      },
+    ] as TaskAssignment[];
+    const task: Pick<AgentTask, "plan"> = {
+      plan: { source: "fallback", assignment_keys: ["current"] },
+    };
+
+    expect(currentPlanAssignments(task, assignments).map((assignment) => assignment.assignmentKey))
+      .toEqual(["current"]);
+    expect(currentPlanAssignments(
+      { ...task, plan: { source: "fallback", assignment_keys: ["old"] } },
+      assignments,
+    )).toEqual([]);
   });
 });

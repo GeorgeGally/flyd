@@ -382,13 +382,13 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
     roots.push(managedRoot);
     const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
-    const worker = {
+    const worker: WorkerSession = {
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
       status: "queued", adapter: "codex", capabilities: ["implementation"],
       executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
       externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
-    } satisfies WorkerSession;
+    };
     const store = {
       updateAssignmentWorkspace: vi.fn(async () => undefined),
       createWorker: vi.fn(async () => worker),
@@ -452,6 +452,81 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
         }),
       }),
     );
+  });
+
+  it("does not fail or retry a worker stopped by an explicit control", async () => {
+    const repo = await repository();
+    const snapshot = await inspectRepository(repo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
+    roots.push(managedRoot);
+    const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
+    const worker: WorkerSession = {
+      id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
+      status: "queued", adapter: "codex", capabilities: ["implementation"],
+      executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
+      externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
+      startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
+    };
+    const store = {
+      updateAssignmentWorkspace: vi.fn(async () => undefined),
+      createWorker: vi.fn(async () => worker),
+      findWorker: vi.fn(async () => worker),
+      transitionWorker: vi.fn(async (_key: string, update: Record<string, unknown>) => {
+        Object.assign(worker, { status: update.status });
+        return worker;
+      }),
+      recordAssignmentVerification: vi.fn(async () => undefined),
+      queueWorkerCommand: vi.fn(),
+      completeWorkerCommand: vi.fn(),
+      recordTaskIntegration: vi.fn(async () => undefined),
+    };
+    const stopped: WorkerAdapter = {
+      name: "codex",
+      capabilities: ["implementation"],
+      detect: async () => ({
+        name: "codex", executable: "/bin/codex", version: "1.0.0",
+        healthy: true, capabilities: ["implementation"],
+      }),
+      buildArgs: () => [],
+      parseEvent: () => null,
+      run: async (input) => {
+        await input.onStart?.(123);
+        worker.status = "stopping";
+        worker.stopReason = "stop";
+        throw new Error("terminated by SIGTERM");
+      },
+    };
+    const task: AgentTask = {
+      id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
+      status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
+      verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
+      completedAt: null, updatedAt: new Date().toISOString(),
+    };
+    const grant: TaskGrant = {
+      id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
+      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
+      providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
+    };
+
+    const result = await orchestrateAssignments({
+      task, grant, assignments, repository: snapshot, contextPath: "/tmp/context.md",
+      adapters: [stopped], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
+    });
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      summary: expect.stringMatching(/explicit control/i),
+    });
+    expect(store.createWorker).toHaveBeenCalledOnce();
+    expect(store.transitionWorker).not.toHaveBeenCalledWith("worker-1", expect.objectContaining({
+      status: "failed",
+    }));
+    expect(store.queueWorkerCommand).not.toHaveBeenCalled();
   });
 
   it("records an inactivity stop before accepting a timed-out adapter result", async () => {

@@ -498,6 +498,14 @@ export class PostgresTaskStore {
     return result.rows[0] ? mapGrant(result.rows[0]) : null;
   }
 
+  async workerRunCount(grantId: string): Promise<number> {
+    const result = await this.pool.query(
+      "SELECT COUNT(*)::int AS count FROM worker_sessions WHERE task_grant_id = $1",
+      [grantId],
+    );
+    return Number(result.rows[0].count);
+  }
+
   async proposedGrant(taskId: string): Promise<TaskGrant | null> {
     const result = await this.pool.query(
       `SELECT * FROM task_grants WHERE agent_task_id = $1 AND status = 'proposed'
@@ -1193,6 +1201,9 @@ export class PostgresTaskStore {
         "completed", "failed", "interrupted", "cancelled", "stopped", "replaced",
       ]);
       if (terminalStatuses.has(current.status) && terminalStatuses.has(update.status)) {
+        return mapWorker(current);
+      }
+      if (current.status === "stopping" && terminalStatuses.has(update.status)) {
         return mapWorker(current);
       }
       if (!(allowedTransitions[current.status] ?? []).includes(update.status)) {
