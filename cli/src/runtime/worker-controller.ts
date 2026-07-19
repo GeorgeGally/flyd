@@ -11,6 +11,7 @@ interface ControlStore {
     kind: WorkerCommandKind,
     payload: Record<string, unknown>,
     idempotencyKey: string,
+    expectedTaskRevision?: number,
   ): Promise<{ command: WorkerCommand; worker: WorkerSession }>;
   completeWorkerCommand(
     commandKey: string,
@@ -23,6 +24,7 @@ export async function controlWorker(input: {
   kind: WorkerCommandKind;
   instruction?: string;
   idempotencyKey: string;
+  expectedTaskRevision?: number;
   killGraceMs?: number;
   deps: {
     store: ControlStore;
@@ -38,6 +40,7 @@ export async function controlWorker(input: {
     input.kind,
     instruction ? { instruction } : {},
     input.idempotencyKey,
+    input.expectedTaskRevision,
   );
   if ([ "completed", "failed", "cancelled" ].includes(command.status)) return command;
 

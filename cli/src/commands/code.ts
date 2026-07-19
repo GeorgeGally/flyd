@@ -16,10 +16,12 @@ import {
 import { orchestrateAssignments } from "../runtime/orchestrator.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
 import { recoverInterruptedWorkers, workerProcessIsAlive } from "../runtime/recovery.js";
+import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
+import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 
 export { detectOpenCode };
 
@@ -55,6 +57,14 @@ export async function runCode(outcome?: string): Promise<void> {
   const terminal = new NodeTerminal();
   const store = new PostgresTaskStore(pool);
   const manager = new GitWorktreeManager();
+  const runtimeCommands = new RuntimeCommandService({
+    store,
+    inspectRepository,
+    controlWorker: (input) => controlWorker({
+      ...input,
+      deps: defaultWorkerControlDependencies(store),
+    }),
+  });
   try {
     const result = await runContinuityHarness({
       outcome,
@@ -72,6 +82,7 @@ export async function runCode(outcome?: string): Promise<void> {
         recoverSessions: (projectRoot) => store.recoverTaskSessions(projectRoot),
         writeContext: writeRuntimeContext,
         now: () => new Date(),
+        runtimeCommands,
         orchestrationGrantScope: {
           workerAdapters: [ "codex", "opencode" ],
           worktreeRoot: manager.managedRoot,

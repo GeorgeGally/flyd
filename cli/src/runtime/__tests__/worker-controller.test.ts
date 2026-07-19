@@ -95,6 +95,7 @@ describe("controlWorker", () => {
       kind: "redirect",
       instruction: "Focus only on the failing integration test",
       idempotencyKey: "redirect-1",
+      expectedTaskRevision: 12,
       deps,
     });
 
@@ -103,6 +104,7 @@ describe("controlWorker", () => {
       "redirect",
       { instruction: "Focus only on the failing integration test" },
       "redirect-1",
+      12,
     );
     expect(deps.signal).toHaveBeenCalledTimes(1);
     expect(deps.store.completeWorkerCommand).toHaveBeenCalledWith(

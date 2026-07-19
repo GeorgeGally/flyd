@@ -97,6 +97,8 @@ export interface TaskGrant {
   providerIdentity: string;
   approvedAt: string | null;
   expiresAt: string | null;
+  decisionReason: string | null;
+  decidedAt: string | null;
 }
 
 export interface WorkerSession {

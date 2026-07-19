@@ -9,6 +9,7 @@ import type {
   TaskGrant,
   WorkerSession,
 } from "./types.js";
+import type { RuntimeCommandResult } from "./runtime-command-contract.js";
 
 type Interpretation = "accepted" | "focused_corrected" | "replaced";
 
@@ -17,6 +18,7 @@ interface TaskStore {
   findTask(taskKey: string): Promise<AgentTask | null>;
   latestWorker(taskId: string): Promise<WorkerSession | null>;
   approvedGrant(taskId: string): Promise<TaskGrant | null>;
+  proposedGrant(taskId: string): Promise<TaskGrant | null>;
   revokeGrant(taskKey: string, expectedRevision: number, grantKey: string, input: {
     reason: string;
     idempotencyKey: string;
@@ -38,7 +40,7 @@ interface TaskStore {
     repositorySnapshot: Record<string, unknown>;
     idempotencyKey: string;
   }): Promise<AgentTask>;
-  approveGrant(taskKey: string, expectedRevision: number, input: {
+  proposeGrant(taskKey: string, expectedRevision: number, input: {
     repositoryRoots: string[];
     worktreePaths: string[];
     workerAdapters: string[];
@@ -52,6 +54,19 @@ interface TaskStore {
     expiresAt: Date;
     idempotencyKey: string;
   }): Promise<TaskGrant>;
+  approveGrantProposal(
+    taskKey: string,
+    expectedRevision: number,
+    grantKey: string,
+    idempotencyKey: string,
+  ): Promise<TaskGrant>;
+  rejectGrantProposal(
+    taskKey: string,
+    expectedRevision: number,
+    grantKey: string,
+    reason: string,
+    idempotencyKey: string,
+  ): Promise<TaskGrant>;
   startTaskSession(taskId: string, resumed: boolean, startupSnapshot: Record<string, unknown>): Promise<string>;
   finishTaskSession(sessionKey: string, input: {
     interpretation: "pending" | Interpretation;
@@ -118,6 +133,9 @@ export interface HarnessDependencies {
   }): Promise<{ exitStatus: number; externalSessionId: string | null; output: string; error: string }>;
   writeContext(taskKey: string, context: ContextPackage): Promise<string>;
   now(): Date;
+  runtimeCommands: {
+    execute(request: unknown): Promise<RuntimeCommandResult>;
+  };
   orchestrationGrantScope?: {
     workerAdapters: string[];
     worktreeRoot: string;
@@ -292,31 +310,59 @@ export async function runContinuityHarness(input: {
       const limitLabel = orchestrationScope
         ? "two isolated workers at a time, four total runs"
         : "one worker at a time, three runs";
+      let proposal = await deps.store.proposedGrant(task.id);
+      if (!proposal) {
+        proposal = await deps.store.proposeGrant(task.taskKey, task.revision, {
+          repositoryRoots: [repository.root],
+          worktreePaths: orchestrationScope ? [orchestrationScope.worktreeRoot] : [],
+          workerAdapters: orchestrationScope?.workerAdapters ?? ["opencode"],
+          fileOperations: ["read", "write"],
+          commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
+          verificationCommands: ["git diff --check"],
+          renewalRequiredActions: [
+            "destructive_operation", "external_write", "deploy", "publish", "purchase",
+            "secret_disclosure", "permission_change",
+          ],
+          maxConcurrency: orchestrationScope ? 2 : 1,
+          budget: {
+            max_worker_runs: orchestrationScope ? 4 : 3,
+            max_runtime_minutes: 90,
+            max_inactivity_minutes: 10,
+          },
+          providerIdentity: orchestrationScope?.providerIdentity ?? "opencode-configured-provider",
+          expiresAt: new Date(deps.now().getTime() + 8 * 60 * 60 * 1000),
+          idempotencyKey: eventKey(task.taskKey, "grant-proposed"),
+        });
+        task = await currentTask(deps.store, task.taskKey);
+      }
       deps.terminal.write(
         `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: grant-approved commands, including git diff --check\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
+        await deps.runtimeCommands.execute({
+          schemaVersion: 1,
+          action: "task.reject_grant",
+          actorSurface: "cli",
+          taskKey: task.taskKey,
+          expectedTaskRevision: task.revision,
+          grantKey: proposal.grantKey,
+          reason: "The user rejected the proposed task grant",
+          idempotencyKey: eventKey(task.taskKey, "grant-rejected"),
+        });
         await deps.store.finishTaskSession(sessionKey, sessionResult());
         sessionKey = null;
         return { status: "awaiting_grant", taskKey: task.taskKey };
       }
-      grant = await deps.store.approveGrant(task.taskKey, task.revision, {
-        repositoryRoots: [repository.root],
-        worktreePaths: orchestrationScope ? [orchestrationScope.worktreeRoot] : [],
-        workerAdapters: orchestrationScope?.workerAdapters ?? ["opencode"],
-        fileOperations: ["read", "write"],
-        commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
-        verificationCommands: ["git diff --check"],
-        renewalRequiredActions: [
-          "destructive_operation", "external_write", "deploy", "publish", "purchase",
-          "secret_disclosure", "permission_change",
-        ],
-        maxConcurrency: orchestrationScope ? 2 : 1,
-        budget: { max_worker_runs: orchestrationScope ? 4 : 3, max_runtime_minutes: 90 },
-        providerIdentity: orchestrationScope?.providerIdentity ?? "opencode-configured-provider",
-        expiresAt: new Date(deps.now().getTime() + 8 * 60 * 60 * 1000),
-        idempotencyKey: eventKey(task.taskKey, "grant"),
+      const approval = await deps.runtimeCommands.execute({
+        schemaVersion: 1,
+        action: "task.approve_grant",
+        actorSurface: "cli",
+        taskKey: task.taskKey,
+        expectedTaskRevision: task.revision,
+        grantKey: proposal.grantKey,
+        idempotencyKey: eventKey(task.taskKey, "grant-approved"),
       });
+      grant = approval.data.grant as TaskGrant;
       task = await currentTask(deps.store, task.taskKey);
     }
 

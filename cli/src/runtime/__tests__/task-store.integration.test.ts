@@ -274,6 +274,56 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     expect((await pool.query("SELECT status FROM task_grants WHERE id = $1", [first.id])).rows[0].status).toBe("expired");
   });
 
+  it("persists a grant proposal before approving or rejecting the exact scope", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Share one permission decision across surfaces",
+      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `proposal-task:${projectRoot}`,
+    });
+    const proposal = await store.proposeGrant(task.taskKey, task.revision, {
+      repositoryRoots: [projectRoot], worktreePaths: [], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
+      maxConcurrency: 1,
+      budget: { max_worker_runs: 2, max_runtime_minutes: 90, max_inactivity_minutes: 10 },
+      providerIdentity: "codex:local", expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `proposal:${task.taskKey}`,
+    });
+
+    expect(proposal).toMatchObject({
+      status: "proposed",
+      approvedAt: null,
+      decisionReason: null,
+      workerAdapters: ["codex"],
+    });
+    expect((await store.findTask(task.taskKey))!.status).toBe("awaiting_grant");
+    expect((await store.proposedGrant(task.id))?.grantKey).toBe(proposal.grantKey);
+
+    const current = await store.findTask(task.taskKey);
+    const [approved, replay] = await Promise.all([
+      store.approveGrantProposal(
+        task.taskKey,
+        current!.revision,
+        proposal.grantKey,
+        `proposal-approve:${proposal.grantKey}`,
+      ),
+      store.approveGrantProposal(
+        task.taskKey,
+        current!.revision,
+        proposal.grantKey,
+        `proposal-approve:${proposal.grantKey}`,
+      ),
+    ]);
+    expect(approved.status).toBe("approved");
+    expect(approved.approvedAt).toEqual(expect.any(String));
+    expect((await store.findTask(task.taskKey))!.status).toBe("ready");
+
+    expect(replay.grantKey).toBe(approved.grantKey);
+    expect((await store.listGrants(task.id))).toHaveLength(1);
+  });
+
   it("persists one validated plan idempotently and enforces assignment concurrency", async () => {
     const task = await store.createTask({
       projectName: "runtime-test",
@@ -491,6 +541,14 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       processId: process.pid,
       idempotencyKey: `control-running:${task.taskKey}`,
     });
+    const currentBeforeControl = await store.findTask(task.taskKey);
+    await expect(store.queueWorkerCommand(
+      worker.workerKey,
+      "redirect",
+      { instruction: "Stale request" },
+      `stale-redirect:${worker.workerKey}`,
+      currentBeforeControl!.revision - 1,
+    )).rejects.toThrow(/revision/i);
 
     const [first, duplicate] = await Promise.all([
       store.queueWorkerCommand(

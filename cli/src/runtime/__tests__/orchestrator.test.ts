@@ -110,6 +110,7 @@ describe("orchestrateAssignments", () => {
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
     };
     const neverRun: WorkerAdapter = {
       name: "codex", capabilities: ["implementation"],
@@ -210,6 +211,7 @@ describe("orchestrateAssignments", () => {
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
     };
 
     const orchestration = orchestrateAssignments({
@@ -337,6 +339,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 1 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
     };
     const capabilities: WorkerAdapter["capabilities"] = ["analysis", "implementation", "review", "testing", "resume"];
     const adapters: WorkerAdapter[] = [
@@ -426,6 +429,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
     };
 
     const result = await orchestrateAssignments({
@@ -509,6 +513,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 2, max_runtime_minutes: 1 / 60 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
     };
 
     const result = await orchestrateAssignments({

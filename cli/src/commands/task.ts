@@ -1,11 +1,24 @@
+import { randomUUID } from "crypto";
 import { createRuntimePool } from "../runtime/database.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
+import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 import { hasControlTrialEvidence } from "../runtime/metrics.js";
 import type { AgentTask, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
+
+function commandService(store: PostgresTaskStore): RuntimeCommandService {
+  return new RuntimeCommandService({
+    store,
+    inspectRepository,
+    controlWorker: (input) => controlWorker({
+      ...input,
+      deps: defaultWorkerControlDependencies(store),
+    }),
+  });
+}
 
 export function formatTask(task: AgentTask): string {
   const lines = [
@@ -103,8 +116,16 @@ export async function runTaskStatus(taskKey?: string): Promise<void> {
       console.log("No Flyd coding task was found.");
       return;
     }
-    const worker = await store.latestWorker(task.id);
-    console.log(formatTask(task));
+    const status = await commandService(store).execute({
+      schemaVersion: 1,
+      action: "task.status",
+      actorSurface: "cli",
+      taskKey: task.taskKey,
+    });
+    const currentTask = status.data.task as AgentTask;
+    const workers = status.data.workers as WorkerSession[];
+    const worker = workers.at(-1) ?? null;
+    console.log(formatTask(currentTask));
     if (worker) {
       console.log(`Worker: ${worker.adapter} ${worker.status}${worker.externalSessionId ? ` (${worker.externalSessionId})` : ""}`);
       if (worker.errorSummary) console.log(`Worker error: ${worker.errorSummary}`);
@@ -150,13 +171,25 @@ export async function runTaskControl(
   const pool = createRuntimePool();
   const store = new PostgresTaskStore(pool);
   try {
-    const command = await controlWorker({
+    const worker = await store.findWorker(workerKey);
+    if (!worker) throw new Error(`Unknown worker ${workerKey}`);
+    const task = await store.findTaskById(worker.agentTaskId);
+    if (!task) throw new Error(`Unknown task for worker ${workerKey}`);
+    const result = await commandService(store).execute({
+      schemaVersion: 1,
+      action: `task.${kind}_worker` as
+        | "task.stop_worker"
+        | "task.retry_worker"
+        | "task.redirect_worker"
+        | "task.replace_worker",
+      actorSurface: "cli",
+      taskKey: task.taskKey,
+      expectedTaskRevision: task.revision,
       workerKey,
-      kind,
-      instruction,
-      idempotencyKey: `${kind}:${workerKey}:${instruction?.trim() ?? ""}`,
-      deps: defaultWorkerControlDependencies(store),
+      ...(kind === "redirect" ? { instruction: instruction ?? "" } : {}),
+      idempotencyKey: randomUUID(),
     });
+    const command = result.data.command as { status: string; commandKey: string };
     console.log(`${kind} ${command.status}: ${command.commandKey}`);
   } finally {
     await pool.end();
@@ -178,17 +211,16 @@ export async function runTaskComplete(): Promise<void> {
     if (!await terminal.confirm("Have you verified this outcome against the current repository?")) return;
     const summary = (await terminal.ask("What verified outcome should Flyd record?")).trim();
     if (!summary) throw new Error("A verified outcome summary is required");
-    const completed = await store.completeTask(task.taskKey, task.revision, {
+    const result = await commandService(store).execute({
+      schemaVersion: 1,
+      action: "task.confirm_completion",
+      actorSurface: "cli",
+      taskKey: task.taskKey,
+      expectedTaskRevision: task.revision,
       summary,
-      verification: { user_confirmed: true, confirmed_at: new Date().toISOString() },
-      repositorySnapshot: {
-        root: repository.root, branch: repository.branch, head: repository.head,
-        dirty: repository.dirty, status_lines: repository.statusLines,
-        status_digest: repository.statusDigest,
-      },
-      idempotencyKey: `manual-complete:${task.taskKey}:${task.revision}`,
+      idempotencyKey: randomUUID(),
     });
-    terminal.write(`Task ${completed.taskKey}: completed\n`);
+    terminal.write(`Task ${result.taskKey}: completed\n`);
   } finally {
     await flushArchiveOutbox(store);
     await terminal.close();

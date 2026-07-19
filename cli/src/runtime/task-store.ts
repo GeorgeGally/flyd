@@ -52,7 +52,47 @@ function mapGrant(row: QueryResultRow): TaskGrant {
     verificationCommands: row.verification_commands ?? [], renewalRequiredActions: row.renewal_required_actions ?? [],
     maxConcurrency: Number(row.max_concurrency), budget: row.budget ?? {}, providerIdentity: row.provider_identity,
     approvedAt: iso(row.approved_at), expiresAt: iso(row.expires_at),
+    decisionReason: row.decision_reason, decidedAt: iso(row.decided_at),
   };
+}
+
+export interface TaskGrantScopeInput {
+  repositoryRoots: string[];
+  worktreePaths: string[];
+  workerAdapters: string[];
+  fileOperations: string[];
+  commandClasses: string[];
+  verificationCommands: string[];
+  renewalRequiredActions: string[];
+  maxConcurrency: number;
+  budget: Record<string, unknown>;
+  providerIdentity: string;
+  expiresAt: Date;
+}
+
+function validateGrantScope(input: TaskGrantScopeInput): void {
+  if (input.expiresAt.getTime() <= Date.now()) throw new Error("Task grant expiry must be in the future");
+  if (input.expiresAt.getTime() > Date.now() + 8 * 60 * 60 * 1000 + 5_000) {
+    throw new Error("Release 1 task grants cannot exceed eight hours");
+  }
+  if (!input.providerIdentity.trim()) throw new Error("Task grant provider identity is required");
+  if (input.repositoryRoots.length === 0 || input.workerAdapters.length === 0) {
+    throw new Error("Task grant requires a repository root and worker adapter");
+  }
+  if (input.verificationCommands.length === 0) throw new Error("Task grant verification commands are required");
+  if (input.renewalRequiredActions.length === 0) throw new Error("Task grant renewal actions are required");
+  if (!Number.isInteger(input.maxConcurrency) || input.maxConcurrency < 1) {
+    throw new Error("Task grant maximum concurrency must be a positive integer");
+  }
+  const maxWorkerRuns = Number(input.budget.max_worker_runs);
+  const maxRuntimeMinutes = Number(input.budget.max_runtime_minutes);
+  if (!Number.isInteger(maxWorkerRuns) || maxWorkerRuns < 1 || !Number.isFinite(maxRuntimeMinutes) || maxRuntimeMinutes <= 0) {
+    throw new Error("Task grant requires positive worker-run and runtime budgets");
+  }
+  const maxInactivityMinutes = input.budget.max_inactivity_minutes;
+  if (maxInactivityMinutes != null && (!Number.isFinite(Number(maxInactivityMinutes)) || Number(maxInactivityMinutes) <= 0)) {
+    throw new Error("Task grant inactivity budget must be positive");
+  }
 }
 
 function mapWorker(row: QueryResultRow): WorkerSession {
@@ -97,6 +137,11 @@ export class PostgresTaskStore {
 
   async findTask(taskKey: string): Promise<AgentTask | null> {
     const result = await this.pool.query(`${TASK_SELECT} WHERE t.task_key = $1 LIMIT 1`, [taskKey]);
+    return result.rows[0] ? mapTask(result.rows[0]) : null;
+  }
+
+  async findTaskById(taskId: string): Promise<AgentTask | null> {
+    const result = await this.pool.query(`${TASK_SELECT} WHERE t.id = $1 LIMIT 1`, [taskId]);
     return result.rows[0] ? mapTask(result.rows[0]) : null;
   }
 
@@ -233,6 +278,23 @@ export class PostgresTaskStore {
       [taskId],
     );
     return result.rows[0] ? mapGrant(result.rows[0]) : null;
+  }
+
+  async proposedGrant(taskId: string): Promise<TaskGrant | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM task_grants WHERE agent_task_id = $1 AND status = 'proposed'
+       AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [taskId],
+    );
+    return result.rows[0] ? mapGrant(result.rows[0]) : null;
+  }
+
+  async listGrants(taskId: string): Promise<TaskGrant[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_grants WHERE agent_task_id = $1 ORDER BY created_at, id",
+      [taskId],
+    );
+    return result.rows.map(mapGrant);
   }
 
   async revokeGrant(taskKey: string, expectedRevision: number, grantKey: string, input: {
@@ -483,6 +545,147 @@ export class PostgresTaskStore {
     });
   }
 
+  async proposeGrant(taskKey: string, expectedRevision: number, input: TaskGrantScopeInput & {
+    idempotencyKey: string;
+  }): Promise<TaskGrant> {
+    validateGrantScope(input);
+    return withTransaction(this.pool, async (client) => {
+      const row = await this.lockTask(client, taskKey);
+      const existing = await client.query(`SELECT g.* FROM task_grants g
+        JOIN runtime_events e ON e.task_grant_id = g.id
+        WHERE e.idempotency_key = $1 LIMIT 1`, [input.idempotencyKey]);
+      if (existing.rows[0]) return mapGrant(existing.rows[0]);
+      if (Number(row.revision) !== expectedRevision) {
+        throw new RevisionConflictError(`Task revision ${row.revision} does not match expected revision ${expectedRevision}`);
+      }
+      await client.query(`UPDATE task_grants SET status = 'revoked',
+        decision_reason = 'Superseded by a new proposal', decided_at = NOW(), ended_at = NOW(), updated_at = NOW()
+        WHERE agent_task_id = $1 AND status = 'proposed'`, [row.id]);
+      const scope = {
+        repository_roots: input.repositoryRoots,
+        worktree_paths: input.worktreePaths,
+        worker_adapters: input.workerAdapters,
+        file_operations: input.fileOperations,
+        command_classes: input.commandClasses,
+        verification_commands: input.verificationCommands,
+        renewal_required_actions: input.renewalRequiredActions,
+        max_concurrency: input.maxConcurrency,
+        budget: input.budget,
+        provider_identity: input.providerIdentity,
+        expires_at: input.expiresAt.toISOString(),
+      };
+      const digest = createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+      const result = await client.query(`INSERT INTO task_grants
+        (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths, worker_adapters,
+         file_operations, command_classes, verification_commands, renewal_required_actions, max_concurrency,
+         budget, provider_identity, expires_at, created_at, updated_at)
+        VALUES ($1, $2, 'proposed', $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
+          $9::jsonb, $10::jsonb, $11, $12::jsonb, $13, $14, NOW(), NOW()) RETURNING *`, [
+        row.id, randomUUID(), digest, JSON.stringify(input.repositoryRoots), JSON.stringify(input.worktreePaths),
+        JSON.stringify(input.workerAdapters), JSON.stringify(input.fileOperations), JSON.stringify(input.commandClasses),
+        JSON.stringify(input.verificationCommands), JSON.stringify(input.renewalRequiredActions), input.maxConcurrency,
+        JSON.stringify(input.budget), input.providerIdentity, input.expiresAt,
+      ]);
+      const revision = expectedRevision + 1;
+      await client.query(`UPDATE agent_tasks SET status = 'awaiting_grant',
+        recommended_next_action = 'Review the proposed task grant', revision = $1, updated_at = NOW()
+        WHERE id = $2`, [revision, row.id]);
+      const grant = mapGrant(result.rows[0]);
+      await this.insertEvent(
+        client,
+        row.id,
+        revision,
+        "grant.proposed",
+        input.idempotencyKey,
+        { grant_key: grant.grantKey, scope_digest: digest },
+        grant.id,
+      );
+      return grant;
+    });
+  }
+
+  async approveGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, idempotencyKey: string): Promise<TaskGrant> {
+    return withTransaction(this.pool, async (client) => {
+      const row = await this.lockTask(client, taskKey);
+      const existing = await client.query(`SELECT g.* FROM task_grants g
+        JOIN runtime_events e ON e.task_grant_id = g.id
+        WHERE e.idempotency_key = $1 LIMIT 1`, [idempotencyKey]);
+      if (existing.rows[0]) return mapGrant(existing.rows[0]);
+      if (Number(row.revision) !== expectedRevision) {
+        throw new RevisionConflictError(`Task revision ${row.revision} does not match expected revision ${expectedRevision}`);
+      }
+      const grantResult = await client.query(
+        `SELECT * FROM task_grants WHERE agent_task_id = $1 AND grant_key = $2
+         AND status = 'proposed' AND expires_at > NOW() FOR UPDATE`,
+        [row.id, grantKey],
+      );
+      if (!grantResult.rows[0]) throw new Error(`Proposed grant ${grantKey} is not available`);
+      const updated = await client.query(`UPDATE task_grants SET status = 'approved',
+        approved_at = NOW(), decided_at = NOW(), decision_reason = NULL, updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [grantResult.rows[0].id]);
+      const revision = expectedRevision + 1;
+      await client.query(`UPDATE agent_tasks SET status = 'ready',
+        recommended_next_action = COALESCE(recommended_next_action, 'Continue the approved task'),
+        revision = $1, updated_at = NOW() WHERE id = $2`, [revision, row.id]);
+      const grant = mapGrant(updated.rows[0]);
+      await this.insertEvent(
+        client,
+        row.id,
+        revision,
+        "grant.approved",
+        idempotencyKey,
+        { grant_key: grant.grantKey, scope_digest: grant.scopeDigest },
+        grant.id,
+      );
+      return grant;
+    });
+  }
+
+  async rejectGrantProposal(
+    taskKey: string,
+    expectedRevision: number,
+    grantKey: string,
+    reason: string,
+    idempotencyKey: string,
+  ): Promise<TaskGrant> {
+    const decisionReason = reason.trim();
+    if (!decisionReason) throw new Error("Grant rejection reason is required");
+    return withTransaction(this.pool, async (client) => {
+      const row = await this.lockTask(client, taskKey);
+      const existing = await client.query(`SELECT g.* FROM task_grants g
+        JOIN runtime_events e ON e.task_grant_id = g.id
+        WHERE e.idempotency_key = $1 LIMIT 1`, [idempotencyKey]);
+      if (existing.rows[0]) return mapGrant(existing.rows[0]);
+      if (Number(row.revision) !== expectedRevision) {
+        throw new RevisionConflictError(`Task revision ${row.revision} does not match expected revision ${expectedRevision}`);
+      }
+      const grantResult = await client.query(
+        `SELECT * FROM task_grants WHERE agent_task_id = $1 AND grant_key = $2
+         AND status = 'proposed' FOR UPDATE`,
+        [row.id, grantKey],
+      );
+      if (!grantResult.rows[0]) throw new Error(`Proposed grant ${grantKey} is not available`);
+      const updated = await client.query(`UPDATE task_grants SET status = 'revoked',
+        decision_reason = $2, decided_at = NOW(), ended_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [grantResult.rows[0].id, decisionReason]);
+      const revision = expectedRevision + 1;
+      await client.query(`UPDATE agent_tasks SET status = 'awaiting_grant',
+        recommended_next_action = $1, revision = $2, updated_at = NOW() WHERE id = $3`,
+      [decisionReason, revision, row.id]);
+      const grant = mapGrant(updated.rows[0]);
+      await this.insertEvent(
+        client,
+        row.id,
+        revision,
+        "grant.rejected",
+        idempotencyKey,
+        { grant_key: grant.grantKey, reason: decisionReason },
+        grant.id,
+      );
+      return grant;
+    });
+  }
+
   async approveGrant(taskKey: string, expectedRevision: number, input: {
     repositoryRoots: string[];
     worktreePaths: string[];
@@ -497,24 +700,7 @@ export class PostgresTaskStore {
     expiresAt: Date;
     idempotencyKey: string;
   }): Promise<TaskGrant> {
-    if (input.expiresAt.getTime() <= Date.now()) throw new Error("Task grant expiry must be in the future");
-    if (input.expiresAt.getTime() > Date.now() + 8 * 60 * 60 * 1000 + 5_000) {
-      throw new Error("Release 1A task grants cannot exceed eight hours");
-    }
-    if (!input.providerIdentity.trim()) throw new Error("Task grant provider identity is required");
-    if (input.repositoryRoots.length === 0 || input.workerAdapters.length === 0) {
-      throw new Error("Task grant requires a repository root and worker adapter");
-    }
-    if (input.verificationCommands.length === 0) throw new Error("Task grant verification commands are required");
-    if (input.renewalRequiredActions.length === 0) throw new Error("Task grant renewal actions are required");
-    if (!Number.isInteger(input.maxConcurrency) || input.maxConcurrency < 1) {
-      throw new Error("Task grant maximum concurrency must be a positive integer");
-    }
-    const maxWorkerRuns = Number(input.budget.max_worker_runs);
-    const maxRuntimeMinutes = Number(input.budget.max_runtime_minutes);
-    if (!Number.isInteger(maxWorkerRuns) || maxWorkerRuns < 1 || !Number.isFinite(maxRuntimeMinutes) || maxRuntimeMinutes <= 0) {
-      throw new Error("Task grant requires positive worker-run and runtime budgets");
-    }
+    validateGrantScope(input);
     return withTransaction(this.pool, async (client) => {
       const existing = await client.query(`SELECT g.* FROM task_grants g
         JOIN runtime_events e ON e.task_grant_id = g.id
@@ -728,6 +914,7 @@ export class PostgresTaskStore {
     kind: WorkerCommandKind,
     payload: Record<string, unknown>,
     idempotencyKey: string,
+    expectedTaskRevision?: number,
   ): Promise<{ command: WorkerCommand; worker: WorkerSession }> {
     return withTransaction(this.pool, async (client) => {
       const existing = await client.query(
@@ -758,6 +945,11 @@ export class PostgresTaskStore {
           command: mapWorkerCommand(committedDuplicate.rows[0]),
           worker: mapWorker(worker),
         };
+      }
+      if (expectedTaskRevision != null && Number(worker.task_revision) !== expectedTaskRevision) {
+        throw new RevisionConflictError(
+          `Task revision ${worker.task_revision} does not match expected revision ${expectedTaskRevision}`,
+        );
       }
       if (worker.grant_status !== "approved" || new Date(worker.grant_expires_at).getTime() <= Date.now()) {
         throw new Error("Worker control requires an approved unexpired task grant");

@@ -25,6 +25,7 @@ const grant: TaskGrant = {
   verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
   maxConcurrency: 1, budget: { max_worker_runs: 3 }, providerIdentity: "opencode-configured-provider",
   approvedAt: "2026-07-17T00:01:00.000Z", expiresAt: "2026-07-17T08:00:00.000Z",
+  decisionReason: null, decidedAt: "2026-07-17T00:01:00.000Z",
 };
 
 const worker: WorkerSession = {
@@ -40,6 +41,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
   const store = {
     findResumableTask: vi.fn(async (): Promise<AgentTask | null> => null),
     latestWorker: vi.fn(async (): Promise<WorkerSession | null> => null),
+    proposedGrant: vi.fn(async (): Promise<TaskGrant | null> => null),
     createTask: vi.fn(async () => currentTask),
     recordOrientation: vi.fn(async (_key: string, _revision: number, input: { recommendedNextAction: string }) => {
       currentTask = { ...currentTask, revision: currentTask.revision + 1, recommendedNextAction: input.recommendedNextAction };
@@ -51,7 +53,26 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     }),
     approvedGrant: vi.fn(async (): Promise<TaskGrant | null> => null),
     revokeGrant: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "awaiting_grant" }; return currentTask; }),
-    approveGrant: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "ready" }; return grant; }),
+    proposeGrant: vi.fn(async () => {
+      currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "awaiting_grant" };
+      return { ...grant, status: "proposed" as const, approvedAt: null, decidedAt: null };
+    }),
+    approveGrantProposal: vi.fn(async (
+      _taskKey: string,
+      _expectedRevision: number,
+      _grantKey: string,
+      _idempotencyKey: string,
+    ) => {
+      currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "ready" };
+      return grant;
+    }),
+    rejectGrantProposal: vi.fn(async (
+      _taskKey: string,
+      _expectedRevision: number,
+      _grantKey: string,
+      _reason: string,
+      _idempotencyKey: string,
+    ) => ({ ...grant, status: "revoked" as const })),
     startTaskSession: vi.fn(async () => "session-1"),
     finishTaskSession: vi.fn(async () => undefined),
     createWorker: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "running" }; return worker; }),
@@ -66,8 +87,28 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     confirm: vi.fn(async () => true),
     close: vi.fn(async () => undefined),
   };
+  const runtimeCommands = {
+    execute: vi.fn(async (request: unknown) => {
+      const command = request as { action: string; taskKey: string; expectedTaskRevision: number; grantKey: string; idempotencyKey: string; reason?: string };
+      const decided = command.action === "task.approve_grant"
+        ? await store.approveGrantProposal(command.taskKey, command.expectedTaskRevision, command.grantKey, command.idempotencyKey)
+        : await store.rejectGrantProposal(
+          command.taskKey,
+          command.expectedTaskRevision,
+          command.grantKey,
+          command.reason ?? "rejected",
+          command.idempotencyKey,
+        );
+      return {
+        action: command.action as "task.approve_grant" | "task.reject_grant",
+        taskKey: command.taskKey,
+        taskRevision: currentTask.revision,
+        data: { grant: decided },
+      };
+    }),
+  };
   return {
-    store, terminal,
+    store, terminal, runtimeCommands,
     inspectRepository: vi.fn(async () => repository),
     retrieveMemory: vi.fn(async () => ({ verdict: "partial" as const, matches: [] })),
     detectOpenCode: vi.fn(async () => ({ executable: "/bin/opencode", version: "1.17.18" })),
@@ -161,12 +202,15 @@ describe("runContinuityHarness", () => {
         reason: expect.stringMatching(/Release 1B/),
       }),
     );
-    expect(deps.store.approveGrant).toHaveBeenCalledWith(
+    expect(deps.store.proposeGrant).toHaveBeenCalledWith(
       "task-1", expect.any(Number), expect.objectContaining({
         workerAdapters: ["codex", "opencode"],
         worktreePaths: ["/tmp/flyd-worktrees"],
         maxConcurrency: 2,
       }),
+    );
+    expect(deps.store.approveGrantProposal).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), "grant-1", expect.any(String),
     );
   });
 
@@ -177,7 +221,8 @@ describe("runContinuityHarness", () => {
 
     expect(result).toMatchObject({ status: "completed", taskKey: "task-1" });
     expect(deps.store.createTask).toHaveBeenCalled();
-    expect(deps.store.approveGrant).toHaveBeenCalled();
+    expect(deps.store.proposeGrant).toHaveBeenCalled();
+    expect(deps.store.approveGrantProposal).toHaveBeenCalled();
     expect(deps.store.createWorker).toHaveBeenCalled();
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ cwd: repository.root, externalSessionId: undefined }));
     expect(deps.store.completeTask).toHaveBeenCalledWith("task-1", expect.any(Number), expect.objectContaining({ summary: "Implemented it" }));
