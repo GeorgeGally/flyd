@@ -1,24 +1,24 @@
 <%= content_for :title, "Sources — Flyd" %>
 
-<main class="mx-auto max-w-3xl px-6 py-10">
-  <%= link_to "← Surface", root_path, class: "text-xs text-gray-500 hover:text-gray-950" %>
-  <h1 class="mt-8 text-3xl font-medium"><%= @item.title %></h1>
-  <p class="mt-3 text-sm text-gray-500">Evidence used by this scene.</p>
+<main class="mx-auto max-w-3xl px-8 py-10 flyd-system-body min-h-screen">
+  <%= link_to "← Surface", root_path, class: "text-xs text-muted hover:text-ink transition-colors" %>
+  <h1 class="mt-8 text-3xl font-medium text-ink"><%= @item.title %></h1>
+  <p class="mt-3 text-sm text-muted">Evidence used by this scene.</p>
 
-  <div class="mt-10 divide-y divide-gray-200 border-y border-gray-200">
+  <div class="mt-10 divide-y divide-line border-y border-line">
     <% @sources.each do |source| %>
       <section class="py-5">
-        <div class="text-xs text-gray-400"><%= source.type %>:<%= source.id %></div>
+        <div class="text-xs text-muted"><%= source.type %>:<%= source.id %></div>
         <% record = source.record.respond_to?(:attributes) ? source.record.attributes : source.record.to_h %>
         <% content = record["content"].to_h %>
-        <h2 class="mt-3 text-xl font-medium"><%= content["title"].presence || record["title"].presence || source.type.humanize %></h2>
-        <% if content["excerpt"].present? %><p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-700"><%= content["excerpt"] %></p><% end %>
-        <div class="mt-4 flex gap-5 text-sm underline underline-offset-4">
+        <h2 class="mt-3 text-xl font-medium text-ink"><%= content["title"].presence || record["title"].presence || source.type.humanize %></h2>
+        <% if content["excerpt"].present? %><p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted"><%= content["excerpt"] %></p><% end %>
+        <div class="mt-4 flex gap-5 text-sm underline decoration-line underline-offset-4 text-muted hover:decoration-ink">
           <% if source.url.present? %><%= link_to "Read original", source.url, target: "_blank", rel: "noopener noreferrer" %><% end %>
           <% if source.discussion_url.present? %><%= link_to "Discussion", source.discussion_url, target: "_blank", rel: "noopener noreferrer" %><% end %>
         </div>
-        <details class="mt-5 text-xs text-gray-500">
-          <summary class="cursor-pointer">Raw evidence</summary>
+        <details class="mt-5 text-xs text-muted">
+          <summary class="cursor-pointer hover:text-ink transition-colors">Raw evidence</summary>
           <pre class="mt-3 overflow-x-auto whitespace-pre-wrap leading-5"><%= JSON.pretty_generate(record) %></pre>
         </details>
       </section>

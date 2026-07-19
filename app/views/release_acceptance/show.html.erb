@@ -1,46 +1,46 @@
 <%= content_for :title, "Release 1 acceptance" %>
 
-<main class="min-h-screen px-6 py-8 md:px-12 md:py-10" data-acceptance-status="<%= @report[:status] %>">
-  <header class="flex flex-wrap items-start justify-between gap-4 border-b border-black pb-6">
+<main class="min-h-screen px-8 py-10 flyd-system-body" data-acceptance-status="<%= @report[:status] %>">
+  <header class="flex flex-wrap items-start justify-between gap-4 border-b border-ink pb-6">
     <div>
-      <p class="text-xs uppercase tracking-widest text-gray-500">Flyd / Release 1</p>
-      <h1 class="mt-2 text-3xl font-semibold">Acceptance</h1>
+      <p class="flyd-system-label">Flyd / Release 1</p>
+      <h1 class="mt-2 text-3xl font-semibold text-ink">Acceptance</h1>
     </div>
-    <p class="text-sm font-medium uppercase"><%= @report[:status].humanize %></p>
+    <p class="text-sm font-medium uppercase text-ink"><%= @report[:status].humanize %></p>
   </header>
 
-  <section class="grid gap-8 border-b border-black py-8 md:grid-cols-3">
+  <section class="grid gap-8 border-b border-ink py-8 md:grid-cols-3">
     <div>
-      <p class="text-xs text-gray-500">Primary-product trial</p>
-      <p class="mt-3 text-3xl"><%= @report.dig(:primary_product_trial, :qualifying_working_days) %><span class="text-gray-400"> / 10 days</span></p>
-      <p class="mt-2 text-sm"><%= @report.dig(:primary_product_trial, :status).humanize %></p>
+      <p class="text-xs text-muted">Primary-product trial</p>
+      <p class="mt-3 text-3xl text-ink"><%= @report.dig(:primary_product_trial, :qualifying_working_days) %><span class="text-muted"> / 10 days</span></p>
+      <p class="mt-2 text-sm text-muted"><%= @report.dig(:primary_product_trial, :status).humanize %></p>
     </div>
     <div>
-      <p class="text-xs text-gray-500">Real coding sessions</p>
-      <p class="mt-3 text-3xl"><%= @report.dig(:technical_trial, :real_sessions) %><span class="text-gray-400"> / 10</span></p>
-      <p class="mt-2 text-sm"><%= @report.dig(:technical_trial, :resumed_sessions) %> / 5 resumed</p>
+      <p class="text-xs text-muted">Real coding sessions</p>
+      <p class="mt-3 text-3xl text-ink"><%= @report.dig(:technical_trial, :real_sessions) %><span class="text-muted"> / 10</span></p>
+      <p class="mt-2 text-sm text-muted"><%= @report.dig(:technical_trial, :resumed_sessions) %> / 5 resumed</p>
     </div>
     <div>
-      <p class="text-xs text-gray-500">Browser-visible propagation</p>
-      <p class="mt-3 text-3xl"><%= @report.dig(:propagation, :p95_ms)&.then { |value| "#{value} ms" } || "No data" %></p>
-      <p class="mt-2 text-sm"><%= @report.dig(:propagation, :sample_size) %> samples; target &lt; 2000 ms</p>
+      <p class="text-xs text-muted">Browser-visible propagation</p>
+      <p class="mt-3 text-3xl text-ink"><%= @report.dig(:propagation, :p95_ms)&.then { |value| "#{value} ms" } || "No data" %></p>
+      <p class="mt-2 text-sm text-muted"><%= @report.dig(:propagation, :sample_size) %> samples; target &lt; 2000 ms</p>
     </div>
   </section>
 
   <section class="py-8">
-    <div class="grid border-t border-black text-sm">
+    <div class="grid border-t border-ink text-sm">
       <% @report[:measures].each do |measure| %>
-        <div class="grid gap-2 border-b border-gray-300 py-4 md:grid-cols-[minmax(0,1fr)_12rem_10rem] md:items-center">
-          <p><%= measure[:label] %></p>
-          <p class="text-gray-500"><%= measure[:result] %></p>
-          <p class="font-medium md:text-right"><%= measure[:status].humanize %></p>
+        <div class="grid gap-2 border-b border-line py-4 md:grid-cols-[minmax(0,1fr)_12rem_10rem] md:items-center">
+          <p class="text-ink"><%= measure[:label] %></p>
+          <p class="text-muted"><%= measure[:result] %></p>
+          <p class="font-medium text-ink md:text-right"><%= measure[:status].humanize %></p>
         </div>
       <% end %>
     </div>
   </section>
 
   <% unless @report[:status] == "qualified" %>
-    <footer class="mt-auto border-t border-black pt-5 text-sm">
+    <footer class="mt-auto border-t border-ink pt-5 text-sm text-muted">
       Release 1 remains unqualified until every required persisted check passes.
     </footer>
   <% end %>

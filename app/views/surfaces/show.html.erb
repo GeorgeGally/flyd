@@ -1,5 +1,5 @@
 <%= content_for :title, "Flyd" %>
-<%= turbo_stream_from "flyd_surface" %>
+<%= turbo_stream_from "flyd_surface" unless @conversation %>
 <% surface_mode = (@surface.metadata["surface_mode"].presence || "quiet").to_s %>
 <% focus_item = @surface.items.find { |item| item.item_key == @surface.focus_item_id } || @surface.items.first %>
 <% context_ref = Array(focus_item&.context_refs).first %>
@@ -62,29 +62,29 @@
       <% end %>
 
       <% if @intent&.status == "clarification_required" %>
-        <div class="mt-6 max-h-64 overflow-y-auto border-t border-gray-200 pt-5">
-          <p class="text-sm text-gray-700">This may relate to:</p>
+        <div class="mt-6 max-h-64 overflow-y-auto border-t border-line pt-5">
+          <p class="text-sm text-ink">This may relate to:</p>
           <div class="mt-3 flex flex-wrap gap-3 text-xs">
             <% @intent.context_candidates.each do |candidate| %>
               <%= form_with url: intent_context_corrections_path(@intent), method: :post do %>
                 <%= hidden_field_tag "corrected_contexts[][type]", candidate["type"] %>
                 <%= hidden_field_tag "corrected_contexts[][id]", candidate["id"] %>
                 <%= hidden_field_tag "corrected_contexts[][name]", candidate["name"] %>
-                <%= submit_tag candidate["name"], class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
+                <%= submit_tag candidate["name"], class: "border border-line px-4 py-2 text-ink hover:border-ink transition-colors text-xs" %>
               <% end %>
             <% end %>
             <%= form_with url: intent_context_corrections_path(@intent), method: :post do %>
               <%= hidden_field_tag :reason, "No persistent context" %>
-              <%= submit_tag "No persistent context", class: "rounded-full border border-gray-300 px-4 py-2 hover:border-gray-950" %>
+              <%= submit_tag "No persistent context", class: "border border-line px-4 py-2 text-ink hover:border-ink transition-colors text-xs" %>
             <% end %>
           </div>
 
           <details class="mt-5 text-sm">
-            <summary class="cursor-pointer text-gray-500 hover:text-gray-950">Create a temporary context</summary>
+            <summary class="cursor-pointer text-muted hover:text-ink transition-colors">Create a temporary context</summary>
             <%= form_with url: intent_contexts_path(@intent), scope: :context, method: :post, class: "mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" do |form| %>
-              <%= form.text_field :name, required: true, placeholder: "Context name", class: "border-b border-gray-300 bg-transparent px-0 py-2 focus:border-gray-950 focus:outline-none" %>
-              <%= form.submit "Create", class: "rounded-full bg-gray-950 px-4 py-2 text-xs font-medium text-white" %>
-              <%= form.text_area :description, rows: 2, placeholder: "What is this context?", class: "border-b border-gray-200 bg-transparent px-0 py-2 text-sm focus:border-gray-950 focus:outline-none sm:col-span-2" %>
+              <%= form.text_field :name, required: true, placeholder: "Context name", class: "border-b border-line bg-transparent px-0 py-2 text-ink placeholder:text-muted focus:border-ink focus:outline-none" %>
+              <%= form.submit "Create", class: "bg-ink px-4 py-2 text-xs font-medium text-paper" %>
+              <%= form.text_area :description, rows: 2, placeholder: "What is this context?", class: "border-b border-line bg-transparent px-0 py-2 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none sm:col-span-2" %>
             <% end %>
           </details>
         </div>

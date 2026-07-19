@@ -1,26 +1,26 @@
 <%= content_for :title, "#{@artifact.title} — Flyd" %>
 
-<div class="mx-auto max-w-4xl py-12">
-  <div class="flex items-center justify-between gap-4 text-[10px] uppercase tracking-[0.18em] text-gray-400">
+<div class="mx-auto max-w-4xl py-8">
+  <div class="flex items-center justify-between gap-4 flyd-system-label">
     <span><%= @artifact.kind.humanize %></span>
     <span><%= @artifact.status.humanize %></span>
   </div>
 
-  <h1 class="mt-5 text-4xl font-medium tracking-tight md:text-6xl"><%= @artifact.title %></h1>
-  <p class="mt-4 text-sm text-gray-500">Scene: <%= @artifact.scene.title %></p>
+  <h1 class="mt-5 text-4xl font-medium text-ink md:text-6xl"><%= @artifact.title %></h1>
+  <p class="mt-4 text-sm text-muted">Scene: <%= @artifact.scene.title %></p>
 
-  <article class="mt-10 border-y border-gray-200 py-8">
-    <pre class="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-800"><%= @artifact.content %></pre>
+  <article class="mt-8 border-y border-line py-8">
+    <pre class="whitespace-pre-wrap font-sans text-sm leading-7 text-ink"><%= @artifact.content %></pre>
   </article>
 
   <div class="mt-8 flex items-center gap-4 text-sm">
     <% if @artifact.conversation %>
-      <%= link_to "Continue in Flyd", root_path(conversation_id: @artifact.conversation_id), class: "underline decoration-gray-300 underline-offset-4" %>
+      <%= link_to "Continue in Flyd", root_path(conversation_id: @artifact.conversation_id), class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
     <% else %>
-      <%= link_to "Return to Flyd", root_path, class: "underline decoration-gray-300 underline-offset-4" %>
+      <%= link_to "Return to Flyd", root_path, class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
     <% end %>
     <% if @artifact.build %>
-      <%= link_to "Build record", build_path(@artifact.build), class: "underline decoration-gray-300 underline-offset-4" %>
+      <%= link_to "Build record", build_path(@artifact.build), class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
     <% end %>
   </div>
 </div>

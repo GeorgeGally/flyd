@@ -21,12 +21,12 @@
       <%= form.text_area :clipboard,
         rows: 2,
         placeholder: "Paste longer material here…",
-        class: "block w-full resize-none border-0 bg-gray-50 px-3 py-2 text-sm leading-5 text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-0" %>
+        class: "block w-full resize-none border-0 bg-ink/[0.03] px-3 py-2 text-sm leading-5 text-ink placeholder:text-muted/50 focus:outline-none focus:ring-0" %>
     </div>
   <% end %>
 
   <div class="flyd-intent-field__tools">
-    <span class="text-xs text-gray-400"><%= context_label %></span>
+    <span class="text-xs text-muted"><%= context_label %></span>
     <div class="flex items-center gap-3">
       <% unless chat %>
         <label class="flyd-intent-field__icon" aria-label="Attach evidence" title="Attach evidence">

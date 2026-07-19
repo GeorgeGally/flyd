@@ -1,20 +1,20 @@
 <%= content_for :title, "#{@conversation.owner_name} — Flyd" %>
 
 <div class="flex flex-col h-full" data-controller="chat" data-chat-conversation-id-value="<%= @conversation.id %>">
-  <div class="flex items-center justify-between pb-3 border-b border-gray-200 mb-3">
+  <div class="flex items-center justify-between pb-3 border-b border-line mb-3">
     <div>
-      <h2 class="text-lg font-semibold text-gray-900"><%= @conversation.owner_name %></h2>
+      <h2 class="text-lg font-semibold text-ink"><%= @conversation.owner_name %></h2>
       <% if @conversation.created_at %>
-        <p class="text-xs text-gray-400"><%= time_ago_in_words(@conversation.created_at) %> ago</p>
+        <p class="text-xs text-muted"><%= time_ago_in_words(@conversation.created_at) %> ago</p>
       <% end %>
     </div>
     <div class="flex items-center gap-2">
       <% if @project %>
-        <%= link_to "Build this", project_conversation_builds_path(@project, @conversation), data: { turbo_method: :post }, class: "px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white hover:bg-blue-700" %>
-        <%= link_to "Start New Chat", project_conversations_path(@project), data: { turbo_method: :post }, class: "px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:border-gray-400 text-gray-600" %>
-        <%= link_to "Summary", project_path(@project), class: "px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:border-gray-400 text-gray-600" %>
+        <%= link_to "Build this", project_conversation_builds_path(@project, @conversation), data: { turbo_method: :post }, class: "flyd-system-btn flyd-system-btn--primary px-3 py-1.5 rounded-sm text-xs" %>
+        <%= link_to "Start New Chat", project_conversations_path(@project), data: { turbo_method: :post }, class: "flyd-system-btn flyd-system-btn--ghost px-3 py-1.5 rounded-sm text-xs" %>
+        <%= link_to "Summary", project_path(@project), class: "flyd-system-btn flyd-system-btn--ghost px-3 py-1.5 rounded-sm text-xs" %>
       <% else %>
-        <%= link_to "Surface", root_path(conversation_id: @conversation.id), class: "px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:border-gray-400 text-gray-600" %>
+        <%= link_to "Surface", root_path(conversation_id: @conversation.id), class: "flyd-system-btn flyd-system-btn--ghost px-3 py-1.5 rounded-sm text-xs" %>
       <% end %>
     </div>
   </div>
@@ -24,7 +24,7 @@
     <% if visible_messages.any? %>
       <% visible_messages.each do |message| %>
         <div class="flex <%= message.role == 'user' ? 'justify-end' : 'justify-start' %> mb-4">
-          <div class="max-w-[80%] rounded-lg px-4 py-2 text-sm <%= message.role == 'user' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900' %>">
+          <div class="max-w-[80%] px-4 py-2.5 text-sm <%= message.role == 'user' ? 'bg-ink text-paper' : 'bg-ink/6 text-ink' %>">
             <% if message.role == "assistant" %>
               <%= markdown(message.content) %>
             <% else %>
@@ -36,29 +36,29 @@
     <% else %>
       <div class="flex flex-col items-center justify-center h-full text-center">
         <div class="max-w-md">
-          <h3 class="text-lg font-medium text-gray-700 mb-2">Start a conversation</h3>
-          <p class="text-sm text-gray-500">Ask a question, describe a problem, or share what you're working on.</p>
+          <h3 class="text-base font-medium text-ink mb-2">Start a conversation</h3>
+          <p class="text-sm text-muted">Ask a question, describe a problem, or share what you're working on.</p>
         </div>
       </div>
     <% end %>
 
     <div class="flex justify-start mb-4 hidden" data-chat-target="streamingMessage">
-      <div class="max-w-[80%] rounded-lg px-4 py-2 bg-gray-100 text-gray-900 text-sm">
+      <div class="max-w-[80%] px-4 py-2.5 bg-ink/6 text-ink text-sm">
         <div class="flex items-center gap-2 mb-2">
-          <div class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></div>
-          <span class="text-xs text-gray-400">Thinking...</span>
+          <div class="w-1.5 h-1.5 rounded-full bg-muted animate-pulse"></div>
+          <span class="text-xs text-muted">Thinking...</span>
         </div>
         <p data-chat-target="streamingContent"></p>
       </div>
     </div>
   </div>
 
-  <div class="border-t border-gray-200 pt-3">
+  <div class="border-t border-line pt-3">
     <% message_path = @project ? project_conversation_messages_path(@project, @conversation) : conversation_messages_path(@conversation) %>
     <%= form_with url: message_path, method: :post, html: { data: { action: "submit->chat#submit" }, class: "flex items-end gap-2" } do |form| %>
       <div class="sr-only"><%= form.label :content, "Message" %></div>
-      <%= form.text_area :content, rows: 1, placeholder: "Type a message...", data: { chat_target: "input", action: "keydown->chat#submitOnCommandEnter" }, aria: { label: "Message" }, class: "flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent", style: "max-height: 120px" %>
-      <button type="submit" class="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm hover:bg-gray-800">Send</button>
+      <%= form.text_area :content, rows: 1, placeholder: "Type a message...", data: { chat_target: "input", action: "keydown->chat#submitOnCommandEnter" }, aria: { label: "Message" }, class: "flyd-system-input min-h-[2.25rem]", style: "max-height: 120px" %>
+      <button type="submit" class="flyd-system-btn flyd-system-btn--primary px-4 py-2 rounded-sm">Send</button>
     <% end %>
   </div>
 </div>

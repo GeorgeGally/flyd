@@ -66,6 +66,16 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action='#{project_conversation_messages_path(project, conversation)}']"
   end
 
+  test "active chat surface does not subscribe to global surface replacement" do
+    project = Project.create!(name: "Flyd chat")
+    conversation = Conversation.start!(project)
+
+    get root_url(conversation_id: conversation.id)
+
+    assert_response :success
+    assert_select "turbo-cable-stream-source[channel='Turbo::StreamsChannel'][signed-stream-name]", count: 0
+  end
+
   test "surface can embed a temporary-context conversation" do
     context = Context.create!(name: "Interface sprint")
     conversation = Conversation.start!(context)

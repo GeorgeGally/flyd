@@ -1,26 +1,26 @@
 <div class="max-w-3xl">
-  <h2 class="text-2xl font-bold text-gray-900 mb-6">Projects</h2>
+  <h2 class="text-2xl font-semibold text-ink mb-6">Projects</h2>
 
   <% if @active_projects.any? %>
-    <div class="grid gap-3">
+    <div class="divide-y divide-line">
       <% @active_projects.each do |project| %>
-        <%= link_to project_path(project), class: "block p-4 rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-sm transition" do %>
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="font-medium text-gray-900"><%= project.name %></h3>
+        <%= link_to project_path(project), class: "flyd-system-card block py-4 group" do %>
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <h3 class="font-medium text-ink"><%= project.name %></h3>
               <% if project.description.present? %>
-                <p class="text-sm text-gray-500 mt-0.5"><%= truncate(project.description, length: 100) %></p>
+                <p class="text-sm text-muted mt-0.5"><%= truncate(project.description, length: 100) %></p>
               <% end %>
             </div>
-            <span class="text-xs text-gray-400"><%= time_ago_in_words(project.updated_at) %> ago</span>
+            <span class="text-xs text-muted flex-shrink-0"><%= time_ago_in_words(project.updated_at) %> ago</span>
           </div>
         <% end %>
       <% end %>
     </div>
   <% else %>
-    <div class="text-center py-12 rounded-lg border border-dashed border-gray-300">
-      <p class="text-gray-500 mb-4">No projects yet. Create your first project to get started.</p>
-      <%= link_to "Create Project", new_project_path, class: "inline-flex items-center px-4 py-2 rounded-md bg-gray-900 text-white text-sm hover:bg-gray-800" %>
+    <div class="text-center py-16">
+      <p class="text-muted mb-5">No projects yet. Create your first project to get started.</p>
+      <%= link_to "Create Project", new_project_path, class: "flyd-system-btn flyd-system-btn--primary px-5 py-2.5 rounded-sm" %>
     </div>
   <% end %>
 </div>

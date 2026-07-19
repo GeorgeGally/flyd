@@ -11,6 +11,15 @@ class ProjectsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2", "Projects"
   end
 
+  test "system layout keeps project content usable on mobile" do
+    get projects_url
+
+    assert_select "body[class*='flex-col'][class*='md:flex-row']"
+    assert_select "aside[class*='hidden'][class*='md:flex']"
+    assert_select "header[class*='md:hidden']", text: /Projects/
+    assert_select "main[class*='min-w-0']"
+  end
+
   test "should get new" do
     get new_project_url
     assert_response :success

@@ -50,7 +50,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_no_selector "aside"
   end
 
-  test "surface composer renders as a compact input panel" do
+  test "surface composer renders as a restrained single-outline panel" do
     Surface.fallback!
     visit root_path
     click_button "Open Flyd input"
@@ -58,13 +58,22 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_selector ".flyd-intent-field", visible: true
     assert page.evaluate_script(<<~JS)
       (() => {
-      const field = document.querySelector(".flyd-intent-field")
-      const input = document.querySelector(".flyd-intent-field__input")
-      const styles = getComputedStyle(field)
-      const inputStyles = getComputedStyle(input)
-      return styles.backgroundColor !== "rgba(0, 0, 0, 0)" &&
-        styles.borderTopWidth !== "0px" &&
-        parseFloat(inputStyles.fontSize) <= 36
+        const tray = document.querySelector(".flyd-intent-tray__inner")
+        const field = document.querySelector(".flyd-intent-field")
+        const input = document.querySelector(".flyd-intent-field__input")
+        const close = document.querySelector(".flyd-intent-tray__close")
+        const trayStyles = getComputedStyle(tray)
+        const fieldStyles = getComputedStyle(field)
+        const inputStyles = getComputedStyle(input)
+        const trayBox = tray.getBoundingClientRect()
+        const fieldBox = field.getBoundingClientRect()
+        const closeBox = close.getBoundingClientRect()
+        return trayStyles.borderTopWidth !== "0px" &&
+          fieldStyles.borderTopWidth === "0px" &&
+          fieldStyles.boxShadow === "none" &&
+          parseFloat(inputStyles.fontSize) <= 24 &&
+          trayBox.width <= 760 &&
+          closeBox.bottom <= fieldBox.top
       })()
     JS
   end

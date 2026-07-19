@@ -16,26 +16,33 @@
   </head>
 
   <% if controller_name == "surfaces" %>
-    <body class="h-dvh overflow-hidden bg-[#f7f5f0]">
+    <body class="h-dvh overflow-hidden bg-paper">
       <%= yield %>
     </body>
   <% elsif controller_name == "release_acceptance" %>
-    <body class="min-h-dvh bg-[#f7f5f0]">
+    <body class="min-h-dvh flyd-system-body">
       <%= yield %>
     </body>
   <% else %>
-    <body class="h-screen flex overflow-hidden bg-white">
-      <aside class="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
-        <div class="p-4 border-b border-gray-200">
-          <h1 class="text-lg font-semibold text-gray-900">
-            <%= link_to "Flyd", root_path, class: "hover:text-gray-600" %>
+    <body class="h-dvh flex flex-col overflow-hidden flyd-system-body md:flex-row">
+      <aside class="flyd-system-sidebar hidden w-56 flex-shrink-0 flex-col md:flex">
+        <div class="px-4 py-3.5 border-b border-line">
+          <h1 class="text-base font-bold">
+            <%= link_to "flyd", root_path, class: "text-ink hover:opacity-70 transition-opacity" %>
           </h1>
         </div>
         <%= render "projects/sidebar" %>
       </aside>
 
-      <main class="flex-1 flex flex-col overflow-hidden">
-        <div class="flex-1 overflow-y-auto p-6">
+      <main class="min-w-0 flex-1 flex flex-col overflow-hidden">
+        <header class="flex h-14 flex-shrink-0 items-center justify-between border-b border-line px-4 md:hidden">
+          <%= link_to "flyd", root_path, class: "text-base font-bold text-ink" %>
+          <nav class="flex items-center gap-5 text-xs">
+            <%= link_to "Projects", projects_path, class: "text-muted hover:text-ink transition-colors" %>
+            <%= link_to "New", new_project_path, class: "font-medium text-ink" %>
+          </nav>
+        </header>
+        <div class="flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-7">
           <%= yield %>
         </div>
       </main>
