@@ -127,5 +127,5 @@ cd cli && npm run export-state -- --stdout
 - Large archive queries can be slow while the local QMD index or embedding model warms up.
 - Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
 - The current context resolver still assumes project-shaped persistence after interpretation.
-- Codex adapter support is pinned to 0.144.x and OpenCode to 1.17.x; other versions fail closed until tested.
+- Codex adapter support is pinned to 0.144.x and 0.145.0-alpha.x, and OpenCode to 1.17.x; other versions fail closed until tested.
 - The local propagation target is below two seconds, but production latency still needs measurement under the Release 1C dogfood window.

@@ -65,22 +65,24 @@ describe("Codex adapter", () => {
 
   it("pins the supported Codex release line", () => {
     expect(isTestedCodexVersion("codex-cli 0.144.2")).toBe(true);
+    expect(isTestedCodexVersion("codex-cli 0.145.0-alpha.18")).toBe(true);
     expect(isTestedCodexVersion("codex-cli 0.145.0")).toBe(false);
+    expect(isTestedCodexVersion("codex-cli 0.146.0-alpha.1")).toBe(false);
     expect(isTestedCodexVersion("unknown")).toBe(false);
   });
 
-  it("skips a broken PATH shim and selects the working app binary", async () => {
+  it("skips a broken PATH shim and selects the working ChatGPT app binary", async () => {
     const execFile = vi.fn(async (candidate: string) => {
       if (candidate === "/broken/codex") throw new Error("ENOENT");
-      return { stdout: "codex-cli 0.144.2\n", stderr: "" };
+      return { stdout: "codex-cli 0.145.0-alpha.18\n", stderr: "" };
     });
 
     await expect(detectCodex({
-      candidates: ["/broken/codex", "/Applications/Codex.app/Contents/Resources/codex"],
+      candidates: ["/broken/codex", "/Applications/ChatGPT.app/Contents/Resources/codex"],
       execFile,
     })).resolves.toMatchObject({
-      executable: "/Applications/Codex.app/Contents/Resources/codex",
-      version: "codex-cli 0.144.2",
+      executable: "/Applications/ChatGPT.app/Contents/Resources/codex",
+      version: "codex-cli 0.145.0-alpha.18",
     });
   });
 
@@ -88,6 +90,6 @@ describe("Codex adapter", () => {
     const execFile = vi.fn(async () => ({ stdout: "codex-cli 0.145.0\n", stderr: "" }));
 
     await expect(detectCodex({ candidates: ["/bin/codex"], execFile }))
-      .rejects.toThrow("No healthy Codex 0.144.x executable");
+      .rejects.toThrow("No healthy tested Codex executable");
   });
 });

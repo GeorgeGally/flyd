@@ -11,13 +11,16 @@ import {
 } from "./worker-adapter.js";
 
 const execFileAsync = promisify(nodeExecFile);
-const TESTED_CODEX_VERSION = /^codex-cli 0\.144\.\d+$/;
+const TESTED_CODEX_VERSIONS = [
+  /^codex-cli 0\.144\.\d+$/,
+  /^codex-cli 0\.145\.0-alpha\.\d+$/,
+];
 const CODEX_CAPABILITIES = [ "analysis", "implementation", "review", "testing", "resume" ] as const;
 
 type ExecFile = (executable: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export function isTestedCodexVersion(version: string): boolean {
-  return TESTED_CODEX_VERSION.test(version.trim());
+  return TESTED_CODEX_VERSIONS.some((pattern) => pattern.test(version.trim()));
 }
 
 export async function detectCodex(input: {
@@ -26,6 +29,7 @@ export async function detectCodex(input: {
 } = {}): Promise<WorkerHealth> {
   const candidates = input.candidates ?? [
     process.env.FLYD_CODEX_PATH,
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/Applications/Codex.app/Contents/Resources/codex",
     "codex",
   ].filter((candidate): candidate is string => Boolean(candidate));
@@ -55,7 +59,7 @@ export async function detectCodex(input: {
     }
   }
 
-  throw new Error(`No healthy Codex 0.144.x executable (${diagnostics.join("; ")})`);
+  throw new Error(`No healthy tested Codex executable (${diagnostics.join("; ")})`);
 }
 
 function strictRuntimeArgs(): string[] {

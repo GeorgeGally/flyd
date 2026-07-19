@@ -4,7 +4,7 @@ Flyd is a personal agent platform. Its first product is a repository-aware codin
 
 ## Release 1C: shared coding agent
 
-Prerequisites: PostgreSQL, Node 20+, Ruby 3.4+, Codex CLI 0.144.x, and OpenCode 1.17.x.
+Prerequisites: PostgreSQL, Node 20+, Ruby 3.4+, Codex CLI 0.144.x or 0.145.0-alpha.x, and OpenCode 1.17.x.
 
 ```bash
 bin/rails db:prepare
@@ -40,7 +40,7 @@ Codex runs with strict config, workspace-write sandboxing, network disabled, and
 
 Worker output is evidence, not proof. Flyd independently captures each patch, changed-file set, command result, and digest. It rejects overlapping assignments, verifies the combined result in a temporary integration worktree, rechecks that `main` is clean and unchanged, and only then applies the verified patch. PostgreSQL rejects completion until every planned assignment is integrated and the user confirms the repository result.
 
-If the `codex` command in `PATH` is broken, Flyd also checks the Codex desktop executable at `/Applications/Codex.app/Contents/Resources/codex`. Set `FLYD_CODEX_PATH` or `FLYD_OPENCODE_PATH` to an exact supported executable when needed. An unsupported version fails closed instead of running an untested adapter.
+If the `codex` command in `PATH` is broken, Flyd also checks the current ChatGPT desktop executable at `/Applications/ChatGPT.app/Contents/Resources/codex` and the legacy Codex app path. Set `FLYD_CODEX_PATH` or `FLYD_OPENCODE_PATH` to an exact supported executable when needed. An unsupported version fails closed instead of running an untested adapter.
 
 The five-working-day control trial begins with real worker activity. A measured resume is the same unresolved task reopened at least 30 minutes after the prior session. `flyd task metrics` reports routed assignments, adapter use, accepted evidence-backed interventions, controls, integration conflicts, permission renewals, verified integrations, manual context transfer, completion, and tool escape. Missing evidence is reported as missing.
 
