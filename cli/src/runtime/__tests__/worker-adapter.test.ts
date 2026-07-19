@@ -35,11 +35,13 @@ describe("worker adapter contract", () => {
 
   it("journals a process before continuing it and parses JSONL events", async () => {
     const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough;
       stdout: PassThrough;
       stderr: PassThrough;
       pid: number;
       kill: (signal?: NodeJS.Signals) => boolean;
     };
+    child.stdin = new PassThrough();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     child.pid = 73;
@@ -62,6 +64,7 @@ describe("worker adapter contract", () => {
     });
 
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith("SIGCONT"));
+    expect(child.stdin.writableEnded).toBe(true);
     child.stdout.write(`${JSON.stringify({ session: "session-1", text: "Done" })}\n`);
     child.emit("close", 0);
 

@@ -62,6 +62,7 @@ export interface WorkerAdapter {
 
 interface SpawnedProcess {
   pid?: number;
+  stdin?: { end(): void };
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
   kill(signal?: NodeJS.Signals): boolean;
@@ -93,6 +94,7 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
   const env = { ...sanitizeWorkerEnvironment(), ...input.extraEnvironment };
   const child = spawn(input.executable, input.args, { cwd: input.cwd, env, stdio: "pipe" });
   child.kill("SIGSTOP");
+  child.stdin?.end();
 
   let stdoutBuffer = "";
   let output = "";
