@@ -2,6 +2,7 @@ class RuntimeEvent < ApplicationRecord
   belongs_to :agent_task
   belongs_to :task_grant, optional: true
   belongs_to :worker_session, optional: true
+  has_many :runtime_delivery_receipts, dependent: :delete_all
 
   before_validation :assign_event_key, on: :create
   before_validation :set_occurred_at, on: :create

@@ -66,6 +66,10 @@ cd cli && npm run dev -- task retry <worker-key>
 cd cli && npm run dev -- task redirect <worker-key> "..."
 cd cli && npm run dev -- task replace <worker-key>
 cd cli && npm run dev -- task metrics
+cd cli && npm run dev -- task acceptance
+cd cli && npm run dev -- task acceptance review memory passed "review note"
+cd cli && npm run dev -- task acceptance review rationale passed "review note"
+cd cli && npm run dev -- task acceptance verify
 cd cli && npm run build              # Compile dist/export-state.js
 cd cli && npm run export-state       # Manual file export
 cd cli && npm run export-state -- --stdout

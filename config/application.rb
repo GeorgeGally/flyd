@@ -29,6 +29,7 @@ module FlydV1
     config.autoload_lib(ignore: %w[assets tasks])
 
     config.active_job.queue_adapter = :sidekiq
+    config.time_zone = ENV.fetch("FLYD_TIME_ZONE", "Asia/Makassar")
 
     # Configuration for the application, engines, and railties goes here.
     #

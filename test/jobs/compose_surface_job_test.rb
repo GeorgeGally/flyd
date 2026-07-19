@@ -56,6 +56,20 @@ class ComposeSurfaceJobTest < ActiveJob::TestCase
     assert Surface.current.active?
   end
 
+  test "uses intelligence fallback so invalid generated plans still produce a surface" do
+    observed_fallback = nil
+    intelligence = fake_intelligence(build_plan)
+
+    Flyd::Intelligence.stub(:new, ->(**kwargs) {
+      observed_fallback = kwargs.fetch(:fallback)
+      intelligence
+    }) do
+      ComposeSurfaceJob.perform_now(reason: "assistant_response")
+    end
+
+    assert_equal true, observed_fallback
+  end
+
   test "failed composition preserves the current active surface" do
     current = Surface.fallback!
     intelligence = Object.new

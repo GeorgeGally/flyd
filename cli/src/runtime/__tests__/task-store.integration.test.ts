@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { PostgresTaskStore } from "../task-store.js";
@@ -14,6 +15,8 @@ async function cleanProject(): Promise<void> {
     const tasks = await pool.query("SELECT id FROM agent_tasks WHERE project_id = $1", [project.id]);
     const taskIds = tasks.rows.map((row) => row.id);
     if (taskIds.length) {
+      await pool.query(`DELETE FROM runtime_delivery_receipts
+        WHERE runtime_event_id IN (SELECT id FROM runtime_events WHERE agent_task_id = ANY($1::bigint[]))`, [taskIds]);
       await pool.query("DELETE FROM runtime_events WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_commands WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
@@ -152,6 +155,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       idempotencyKey: `worker-completed:${task.taskKey}`,
     });
     const afterWorker = await store.findTask(task.taskKey);
+    expect(afterWorker?.status).toBe("ready");
     await expect(store.completeTask(task.taskKey, afterWorker!.revision, {
       summary: "Not actually verified",
       verification: {},
@@ -173,6 +177,9 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     });
     expect(completed.status).toBe("completed");
     expect(completed.verificationResult).toEqual({ confirmed_by: "user" });
+    expect(completed.recommendedNextAction).toBe(
+      "No unresolved work. Reopen only if this verified outcome regresses: Continuity proven",
+    );
 
     const events = await pool.query("SELECT event_type FROM runtime_events WHERE agent_task_id = $1 ORDER BY task_revision", [task.id]);
     expect(events.rows.map((row) => row.event_type)).toEqual([
@@ -238,6 +245,124 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       await listener.query("UNLISTEN flyd_runtime_events");
       listener.release();
     }
+  });
+
+  it("derives global acceptance from session-bounded artifacts and browser receipts", async () => {
+    await pool.query(`INSERT INTO release_markers
+      (release_key, available_at, metadata, created_at, updated_at)
+      VALUES ('release_1c', NOW() - INTERVAL '1 day', '{}'::jsonb, NOW(), NOW())
+      ON CONFLICT (release_key) DO UPDATE
+      SET available_at = EXCLUDED.available_at, updated_at = NOW()`);
+    const baseline = await store.releaseAcceptanceEvidence();
+    const project = await pool.query(`INSERT INTO projects
+      (name, root_path, created_at, updated_at)
+      VALUES ($1, $2, NOW(), NOW()) RETURNING id`, [
+      `acceptance-${process.pid}`,
+      projectRoot,
+    ]);
+    const task = await pool.query(`INSERT INTO agent_tasks
+      (project_id, task_key, status, intended_outcome, success_criteria, verification_criteria,
+       plan, context_snapshot, repository_snapshot, verification_result, revision, started_at,
+       created_at, updated_at)
+      VALUES ($1, $2, 'ready', 'Prove session evidence', '[]'::jsonb, '[]'::jsonb,
+       '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 1, NOW() - INTERVAL '2 hours',
+       NOW(), NOW()) RETURNING id`, [project.rows[0].id, randomUUID()]);
+    const taskId = task.rows[0].id;
+    const assignment = await pool.query(`INSERT INTO task_assignments
+      (agent_task_id, assignment_key, status, title, instructions, success_criteria,
+       capability_requirements, dependency_keys, declared_file_scope, excluded_adapters,
+       verification_result, integration_result, revision, created_at, updated_at)
+      VALUES ($1, $2, 'integrated', 'Implement', 'Implement and verify', '[]'::jsonb,
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '{}'::jsonb,
+       1, NOW(), NOW()) RETURNING id`, [taskId, randomUUID()]);
+    const grant = await pool.query(`INSERT INTO task_grants
+      (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths,
+       worker_adapters, file_operations, command_classes, verification_commands,
+       renewal_required_actions, max_concurrency, budget, expires_at, provider_identity,
+       created_at, updated_at)
+      VALUES ($1, $2, 'completed', $3, '[]'::jsonb, '[]'::jsonb, '["codex"]'::jsonb,
+       '[]'::jsonb, '[]'::jsonb, '["npm test"]'::jsonb, '[]'::jsonb, 1, '{}'::jsonb,
+       NOW() + INTERVAL '1 hour', 'codex:test', NOW(), NOW()) RETURNING id`, [
+      taskId,
+      randomUUID(),
+      "a".repeat(64),
+    ]);
+    const realSession = await pool.query(`INSERT INTO task_sessions
+      (agent_task_id, session_key, status, resumed, interpretation_status,
+       manual_context_restatement, tool_escape, startup_snapshot, started_at, ended_at,
+       created_at, updated_at)
+      VALUES ($1, $2, 'ended', TRUE, 'focused_corrected', FALSE, FALSE, '{}'::jsonb,
+       NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '2 minutes', NOW(), NOW())
+      RETURNING id`, [taskId, randomUUID()]);
+    const worker = await pool.query(`INSERT INTO worker_sessions
+      (agent_task_id, task_grant_id, task_assignment_id, worker_key, status, adapter,
+       working_directory, assignment_revision, capabilities, started_at, ended_at,
+       exit_status, usage, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'completed', 'codex', $5, 1, '[]'::jsonb,
+       NOW() - INTERVAL '9 minutes', NOW() - INTERVAL '5 minutes', 0, '{}'::jsonb,
+       NOW() - INTERVAL '9 minutes', NOW()) RETURNING id`, [
+      taskId,
+      grant.rows[0].id,
+      assignment.rows[0].id,
+      randomUUID(),
+      projectRoot,
+    ]);
+    await pool.query(`INSERT INTO task_artifacts
+      (agent_task_id, task_assignment_id, worker_session_id, artifact_key, kind, title,
+       media_type, byte_size, sha256_digest, verification_status, source_revision,
+       provenance, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'test', 'Verified test', 'text/plain', 6, $5,
+       'verified', 1, '{}'::jsonb, NOW() - INTERVAL '4 minutes', NOW())`, [
+      taskId,
+      assignment.rows[0].id,
+      worker.rows[0].id,
+      randomUUID(),
+      "b".repeat(64),
+    ]);
+    const event = await pool.query(`INSERT INTO runtime_events
+      (agent_task_id, event_key, event_type, task_revision, payload, occurred_at,
+       broadcast_delivered_at, delivery_attempts, created_at, updated_at)
+      VALUES ($1, $2, 'worker.completed', 1, '{}'::jsonb, NOW() - INTERVAL '3 minutes',
+       NOW() - INTERVAL '2 minutes', 0, NOW(), NOW()) RETURNING id`, [taskId, randomUUID()]);
+    await pool.query(`INSERT INTO runtime_delivery_receipts
+      (runtime_event_id, client_id, acknowledged_at, delivery_latency_ms, created_at, updated_at)
+      VALUES ($1, 'acceptance-browser', NOW() - INTERVAL '2 minutes', 777, NOW(), NOW())`, [
+      event.rows[0].id,
+    ]);
+    await pool.query(`INSERT INTO task_sessions
+      (agent_task_id, session_key, status, resumed, interpretation_status,
+       manual_context_restatement, tool_escape, startup_snapshot, started_at, ended_at,
+       created_at, updated_at)
+      VALUES ($1, $2, 'ended', TRUE, 'accepted', FALSE, FALSE, '{}'::jsonb,
+       NOW() - INTERVAL '90 seconds', NOW() - INTERVAL '60 seconds', NOW(), NOW())`, [
+      taskId,
+      randomUUID(),
+    ]);
+    const reviewKey = `acceptance-review:${process.pid}`;
+    await store.recordReleaseAcceptanceObservation({
+      kind: "memory_safety",
+      passed: true,
+      evidence: { note: "Sampled evidence stayed current" },
+      idempotencyKey: reviewKey,
+    });
+    await store.recordReleaseAcceptanceObservation({
+      kind: "memory_safety",
+      passed: true,
+      evidence: { note: "Idempotent replay" },
+      idempotencyKey: reviewKey,
+    });
+
+    const evidence = await store.releaseAcceptanceEvidence();
+
+    expect(evidence.realSessions).toBe(baseline.realSessions + 1);
+    expect(evidence.resumedSessions).toBe(baseline.resumedSessions + 1);
+    expect(evidence.recommendedActions).toBe(baseline.recommendedActions + 1);
+    expect(evidence.acceptedOrAdaptedActions).toBe(baseline.acceptedOrAdaptedActions + 1);
+    expect(evidence.parityEvidenceCount).toBe(baseline.parityEvidenceCount + 1);
+    expect(evidence.propagationLatenciesMs).toContain(777);
+    expect(evidence.memorySafetyReviews.length).toBe(baseline.memorySafetyReviews.length + 1);
+    expect(realSession.rows[0].id).toBeDefined();
+    await pool.query("DELETE FROM release_acceptance_observations WHERE idempotency_key = $1", [reviewKey]);
   });
 
   it("persists structured user corrections idempotently with provenance", async () => {

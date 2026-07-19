@@ -79,7 +79,15 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     transitionWorker: vi.fn(async () => worker),
     findTask: vi.fn(async () => currentTask),
     completeTask: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "completed" }; return currentTask; }),
-    keepTaskOpen: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "ready" }; return currentTask; }),
+    keepTaskOpen: vi.fn(async (_key: string, _revision: number, input: { nextAction: string }) => {
+      currentTask = {
+        ...currentTask,
+        revision: currentTask.revision + 1,
+        status: "ready",
+        recommendedNextAction: input.nextAction,
+      };
+      return currentTask;
+    }),
   };
   const terminal = {
     write: vi.fn(),
@@ -288,6 +296,36 @@ describe("runContinuityHarness", () => {
 
     expect(deps.store.recordCorrection).not.toHaveBeenCalled();
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ assignment: "Implement continuity" }));
+  });
+
+  it("keeps the real resume assignment when orchestration is blocked by worker health", async () => {
+    const deps = dependencies({
+      orchestrate: vi.fn(async () => ({
+        status: "blocked" as const,
+        summary: "No healthy worker satisfies: implementation, testing",
+        verification: { passed: false },
+      })),
+    });
+    const existing = task({
+      status: "ready",
+      revision: 4,
+      intendedOutcome: "Build the Release 1 acceptance gate",
+      recommendedNextAction: "Implement the acceptance gate non-interactively",
+    });
+    deps.store.findResumableTask.mockResolvedValue(existing);
+    deps.store.approvedGrant.mockResolvedValue(grant);
+    deps.terminal.ask.mockResolvedValue("");
+
+    await runContinuityHarness({ deps });
+
+    expect(deps.store.keepTaskOpen).toHaveBeenCalledWith(
+      "task-1",
+      expect.any(Number),
+      expect.objectContaining({
+        nextAction: "Implement the acceptance gate non-interactively",
+      }),
+    );
+    expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringContaining("No healthy worker satisfies"));
   });
 
   it("stops before worker creation when the task grant is rejected", async () => {

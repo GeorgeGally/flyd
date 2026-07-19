@@ -100,11 +100,13 @@
 
   .flyd-intent-tray__inner {
     position: relative;
-    width: min(62rem, calc(100% - 2.5rem));
-    margin: 0 auto clamp(1.25rem, 4vh, 3rem);
-    border-top: 1px solid var(--ink);
+    width: min(46rem, calc(100% - 2.5rem));
+    margin: 0 auto clamp(1rem, 3.2vh, 2.25rem);
+    border: 1px solid var(--ink);
+    border-radius: 6px;
     background: var(--paper);
-    padding: clamp(1.25rem, 2.5vw, 2.25rem) clamp(1rem, 2.5vw, 2rem);
+    padding: clamp(0.85rem, 1.4vw, 1.2rem);
+    box-shadow: 0 1rem 3rem rgb(13 15 20 / 12%);
     transform: translateY(calc(100% + 3rem));
     transition: transform 300ms cubic-bezier(0.2, 0.75, 0.2, 1);
   }
@@ -122,13 +124,20 @@
 
   .flyd-intent-tray__close {
     position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    width: 2rem;
-    height: 2rem;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.8rem;
+    height: 1.8rem;
     cursor: pointer;
-    font-size: 1.4rem;
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 1rem;
     line-height: 1;
+  }
+
+  .flyd-intent-tray__close:hover {
+    color: var(--ink);
+    background: rgb(13 15 20 / 6%);
   }
 
   .flyd-intent-tray__close:focus-visible {
@@ -137,29 +146,36 @@
   }
 
   .flyd-intent-field {
-    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #fffdf8;
+    padding: 1rem 1rem 0.75rem;
   }
 
   .flyd-intent-field:focus-within {
     border-color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--ink);
   }
 
   .flyd-intent-field__input {
     display: block;
-    width: calc(100% - 3rem);
-    max-height: 16rem;
+    width: calc(100% - 2.25rem);
+    min-height: 3.25rem;
+    max-height: 12rem;
     resize: none;
     border: 0;
     background: transparent;
-    padding: 0.5rem 0 1rem;
+    padding: 0.15rem 0 0;
     color: var(--ink);
-    font-size: clamp(1.65rem, 4cqi, 3rem);
-    font-weight: 400;
-    line-height: 1.08;
+    font-size: clamp(1.15rem, 2.2vw, 1.75rem);
+    font-weight: 500;
+    line-height: 1.22;
   }
 
   .flyd-intent-field__input::placeholder {
-    color: rgb(184 186 190);
+    color: rgb(126 132 143);
   }
 
   .flyd-intent-field__input:focus {
@@ -172,22 +188,29 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.75rem 0;
+    min-height: 2rem;
+    border-top: 1px solid rgb(13 15 20 / 10%);
+    padding-top: 0.65rem;
   }
 
   .flyd-intent-field__icon,
   .flyd-intent-field__submit {
     display: inline-grid;
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2rem;
+    height: 2rem;
     cursor: pointer;
+    border-radius: 4px;
     place-items: center;
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
 
   .flyd-intent-field__submit {
     background: var(--ink);
     color: var(--paper);
+  }
+
+  .flyd-intent-field__submit:hover {
+    background: #242830;
   }
 
   .flyd-intent-field__icon:focus-within,

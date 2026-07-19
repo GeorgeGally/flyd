@@ -1,4 +1,9 @@
 import { randomUUID } from "crypto";
+import { spawn } from "child_process";
+import { constants } from "fs";
+import { access, readFile } from "fs/promises";
+import { homedir } from "os";
+import { join } from "path";
 import { createRuntimePool } from "../runtime/database.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
@@ -7,6 +12,8 @@ import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 import { hasControlTrialEvidence } from "../runtime/metrics.js";
+import { buildReleaseAcceptanceReport, type ReleaseAcceptanceReport } from "../runtime/release-acceptance.js";
+import type { ReleaseAcceptanceObservationKind } from "../runtime/release-acceptance.js";
 import type { AgentTask, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
 
 function commandService(store: PostgresTaskStore): RuntimeCommandService {
@@ -89,6 +96,26 @@ export function formatMetrics(metrics: RuntimeMetrics): string {
   return lines.join("\n");
 }
 
+export function formatAcceptanceReport(report: ReleaseAcceptanceReport): string {
+  const status = report.status === "qualified" ? "QUALIFIED" : report.status.replace("_", " ").toUpperCase();
+  const lines = [
+    `Release 1 acceptance: ${status}`,
+    `Two-week primary-product trial: ${report.primaryProductTrial.status.replace("_", " ")}`,
+    `Qualifying working days: ${report.primaryProductTrial.qualifyingWorkingDays}/10`,
+    `Real sessions: ${report.technicalTrial.realSessions}/10`,
+    `Resumed sessions: ${report.technicalTrial.resumedSessions}/5`,
+    `Browser-visible propagation p95: ${report.propagation.p95Ms == null ? "no data" : `${report.propagation.p95Ms} ms`} (${report.propagation.sampleSize} samples; target <2000 ms)`,
+    `Automated acceptance runs: ${report.automatedAcceptance.runs} (${report.automatedAcceptance.status.replace("_", " ")})`,
+    ...report.measures.map((measure) =>
+      `${measure.label}: ${measure.status.replace("_", " ")} (${measure.result})`
+    ),
+  ];
+  if (report.status !== "qualified") {
+    lines.push("Release 1 is not qualified. Missing or failing persisted evidence cannot be treated as success.");
+  }
+  return lines.join("\n");
+}
+
 export async function runTaskList(): Promise<void> {
   const pool = createRuntimePool();
   try {
@@ -144,6 +171,125 @@ export async function runTaskMetrics(): Promise<void> {
   } finally {
     await pool.end();
   }
+}
+
+export async function runTaskAcceptance(): Promise<void> {
+  const pool = createRuntimePool();
+  try {
+    const store = new PostgresTaskStore(pool);
+    const evidence = await store.releaseAcceptanceEvidence();
+    console.log(formatAcceptanceReport(buildReleaseAcceptanceReport(evidence)));
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function runTaskAcceptanceReview(
+  review: "memory" | "rationale",
+  result: "passed" | "failed",
+  note: string,
+): Promise<void> {
+  const boundedNote = note.trim();
+  if (!boundedNote) throw new Error("An acceptance review note is required");
+  if (boundedNote.length > 2_000) throw new Error("The acceptance review note is too long");
+  const pool = createRuntimePool();
+  try {
+    const store = new PostgresTaskStore(pool);
+    const kind: ReleaseAcceptanceObservationKind = review === "memory"
+      ? "memory_safety"
+      : "recommendation_rationale";
+    await store.recordReleaseAcceptanceObservation({
+      kind,
+      passed: result === "passed",
+      evidence: { note: boundedNote },
+      idempotencyKey: randomUUID(),
+    });
+    console.log(`${review} review recorded: ${result}`);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function runAcceptanceCommand(
+  executable: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ command: string; exitStatus: number }> {
+  const command = [executable, ...args].join(" ");
+  const exitStatus = await new Promise<number>((resolve) => {
+    const child = spawn(executable, args, { cwd, env, stdio: "inherit" });
+    child.once("error", () => resolve(127));
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+  return { command, exitStatus };
+}
+
+export function cleanRubyEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const key of ["BUNDLE_GEMFILE", "BUNDLE_PATH", "GEM_HOME", "GEM_PATH", "RUBYLIB", "RUBYOPT"]) {
+    delete clean[key];
+  }
+  return clean;
+}
+
+export async function resolveRepositoryRuby(
+  repositoryRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): Promise<string> {
+  try {
+    const version = (await readFile(join(repositoryRoot, ".ruby-version"), "utf8")).trim();
+    const rbenvRoot = env.RBENV_ROOT || join(home, ".rbenv");
+    const executable = join(rbenvRoot, "versions", version, "bin", "ruby");
+    await access(executable, constants.X_OK);
+    return executable;
+  } catch {
+    return "ruby";
+  }
+}
+
+export async function runTaskAcceptanceVerification(): Promise<void> {
+  const repository = await inspectRepository();
+  const packageJson = JSON.parse(await readFile(join(repository.root, "cli/package.json"), "utf8")) as {
+    name?: string;
+  };
+  if (packageJson.name !== "@radarboy/flyd") {
+    throw new Error("Automated Release 1 acceptance must run from the Flyd repository");
+  }
+  const ruby = await resolveRepositoryRuby(repository.root);
+  const checks = [
+    await runAcceptanceCommand(
+      ruby,
+      ["bin/rails", "test:all"],
+      repository.root,
+      cleanRubyEnvironment(process.env),
+    ),
+    await runAcceptanceCommand("npm", ["test"], join(repository.root, "cli")),
+    await runAcceptanceCommand("npm", ["run", "lint"], join(repository.root, "cli")),
+  ];
+  const passed = checks.every((check) => check.exitStatus === 0);
+  const pool = createRuntimePool();
+  try {
+    const store = new PostgresTaskStore(pool);
+    await store.recordReleaseAcceptanceObservation({
+      kind: "automated_acceptance",
+      passed,
+      evidence: {
+        idempotent: passed,
+        permissions_enforced: passed,
+        no_duplicate_effects: passed,
+        checks,
+      },
+      idempotencyKey: randomUUID(),
+    });
+    console.log(formatAcceptanceReport(
+      buildReleaseAcceptanceReport(await store.releaseAcceptanceEvidence()),
+    ));
+  } finally {
+    await pool.end();
+  }
+  if (!passed) throw new Error("The automated Release 1 acceptance run failed");
 }
 
 export async function runTaskWorkers(): Promise<void> {

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_19_202000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_20_203000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -316,6 +316,41 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_202000) do
     t.datetime "updated_at", null: false
     t.index ["archived_at"], name: "index_projects_on_archived_at"
     t.index ["name"], name: "index_projects_on_name", unique: true
+  end
+
+  create_table "release_acceptance_observations", force: :cascade do |t|
+    t.string "kind", null: false
+    t.boolean "passed", null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.string "idempotency_key", null: false
+    t.datetime "observed_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["idempotency_key"], name: "index_release_acceptance_observations_on_idempotency_key", unique: true
+    t.index ["kind", "observed_at"], name: "index_release_acceptance_observations_on_kind_and_observed_at"
+    t.check_constraint "kind::text = ANY (ARRAY['memory_safety'::character varying, 'recommendation_rationale'::character varying, 'automated_acceptance'::character varying]::text[])", name: "release_acceptance_observations_kind_check"
+  end
+
+  create_table "release_markers", force: :cascade do |t|
+    t.string "release_key", null: false
+    t.datetime "available_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["release_key"], name: "index_release_markers_on_release_key", unique: true
+  end
+
+  create_table "runtime_delivery_receipts", force: :cascade do |t|
+    t.bigint "runtime_event_id", null: false
+    t.string "client_id", null: false
+    t.bigint "surface_id"
+    t.datetime "acknowledged_at", null: false
+    t.integer "delivery_latency_ms", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["runtime_event_id", "client_id"], name: "index_runtime_delivery_receipts_on_event_and_client", unique: true
+    t.index ["runtime_event_id"], name: "index_runtime_delivery_receipts_on_runtime_event_id"
+    t.check_constraint "delivery_latency_ms >= 0", name: "runtime_delivery_receipts_latency_check"
   end
 
   create_table "runtime_delivery_states", force: :cascade do |t|
@@ -690,6 +725,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_202000) do
   add_foreign_key "intents", "surfaces", column: "origin_surface_id"
   add_foreign_key "intents", "surfaces", column: "result_surface_id"
   add_foreign_key "messages", "conversations"
+  add_foreign_key "runtime_delivery_receipts", "runtime_events"
   add_foreign_key "runtime_events", "agent_tasks"
   add_foreign_key "runtime_events", "task_grants"
   add_foreign_key "runtime_events", "worker_sessions"

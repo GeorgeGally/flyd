@@ -55,7 +55,10 @@ export function workerProcessIsAlive(
 export async function recoverInterruptedWorkers(input: RecoveryInput): Promise<number> {
   let recovered = 0;
   for (const worker of input.workers) {
-    if (worker.processId && input.isProcessAlive(worker.processId, worker)) continue;
+    if (worker.processId && (
+      input.isProcessAlive(worker.processId, worker) ||
+      input.isProcessAlive(worker.processId, worker)
+    )) continue;
     await input.transition(worker.workerKey, {
       status: "interrupted",
       error: "Flyd restarted after the worker process ended",

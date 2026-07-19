@@ -14,7 +14,7 @@ class BroadcastRuntimeTaskJob < ApplicationJob
         "flyd_surface",
         target: "surface_plane",
         partial: "surfaces/plane",
-        locals: { surface: surface, active_conversation: nil },
+        locals: { surface: surface, active_conversation: nil, runtime_event: event },
         method: :morph
       )
     end

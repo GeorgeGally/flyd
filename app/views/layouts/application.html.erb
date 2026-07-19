@@ -19,6 +19,10 @@
     <body class="h-dvh overflow-hidden bg-[#f7f5f0]">
       <%= yield %>
     </body>
+  <% elsif controller_name == "release_acceptance" %>
+    <body class="min-h-dvh bg-[#f7f5f0]">
+      <%= yield %>
+    </body>
   <% else %>
     <body class="h-screen flex overflow-hidden bg-white">
       <aside class="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">

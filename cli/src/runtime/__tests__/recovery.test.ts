@@ -49,4 +49,21 @@ describe("recoverInterruptedWorkers", () => {
     expect(workerProcessIsAlive(recorded, () => "/usr/local/bin/opencode run task", sameStart)).toBe(true);
     expect(workerProcessIsAlive(recorded, () => "node /usr/local/bin/opencode run task", sameStart)).toBe(true);
   });
+
+  it("does not interrupt a worker after one transient liveness miss", async () => {
+    const transition = vi.fn();
+    const isProcessAlive = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    const recovered = await recoverInterruptedWorkers({
+      workers: [ worker({ processId: 123 }) ],
+      isProcessAlive,
+      transition,
+    });
+
+    expect(recovered).toBe(0);
+    expect(isProcessAlive).toHaveBeenCalledTimes(2);
+    expect(transition).not.toHaveBeenCalled();
+  });
 });

@@ -26,35 +26,49 @@ export default class extends Controller {
     event.currentTarget.form?.requestSubmit()
   }
 
-  submit(event) {
+  async submit(event) {
     event.preventDefault()
     const content = this.inputTarget.value.trim()
     if (!content) return
 
-    this.appendUserMessage(content)
+    const pendingMessage = this.appendUserMessage(content)
     this.showStreamingPlaceholder()
     this.inputTarget.value = ""
     this.inputTarget.style.height = "auto"
+    this.element.dataset.chatSubmitState = "sending"
 
     const csrfToken = document.querySelector("[name='csrf-token']")?.content
     const formAction = this.inputTarget.closest("form")?.action
 
-    if (!formAction || !csrfToken) {
+    if (!formAction) {
+      pendingMessage.remove()
+      this.inputTarget.value = content
+      this.hideStreamingPlaceholder()
+      this.element.dataset.chatSubmitState = "failed"
       this.showError("Could not send message. Please refresh the page.")
       return
     }
 
-    fetch(formAction, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrfToken
-      },
-      body: JSON.stringify({ message: { content } })
-    }).catch(() => {
+    try {
+      const headers = { "Content-Type": "application/json" }
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken
+      const response = await fetch(formAction, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ message: { content } })
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.errors?.join(", ") || `Message failed with status ${response.status}`)
+      }
+      this.element.dataset.chatSubmitState = "sent"
+    } catch (error) {
+      pendingMessage.remove()
+      this.inputTarget.value = content
       this.hideStreamingPlaceholder()
-      this.showError("Network error. Check your connection and try again.")
-    })
+      this.element.dataset.chatSubmitState = "failed"
+      this.showError(error instanceof Error ? error.message : "Network error. Check your connection and try again.")
+    }
   }
 
   appendUserMessage(content) {
@@ -63,6 +77,7 @@ export default class extends Controller {
     div.innerHTML = `<div class="max-w-[80%] rounded-lg px-4 py-2 bg-gray-900 text-white text-sm"><p>${this.escapeHtml(content)}</p></div>`
     this.messagesTarget.appendChild(div)
     this.scrollToBottom()
+    return div
   }
 
   showStreamingPlaceholder() {

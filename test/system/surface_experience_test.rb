@@ -50,6 +50,25 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     assert_no_selector "aside"
   end
 
+  test "surface composer renders as a compact input panel" do
+    Surface.fallback!
+    visit root_path
+    click_button "Open Flyd input"
+
+    assert_selector ".flyd-intent-field", visible: true
+    assert page.evaluate_script(<<~JS)
+      (() => {
+      const field = document.querySelector(".flyd-intent-field")
+      const input = document.querySelector(".flyd-intent-field__input")
+      const styles = getComputedStyle(field)
+      const inputStyles = getComputedStyle(input)
+      return styles.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+        styles.borderTopWidth !== "0px" &&
+        parseFloat(inputStyles.fontSize) <= 36
+      })()
+    JS
+  end
+
   test "command enter submits the universal composer" do
     Surface.fallback!
     visit root_path
@@ -65,6 +84,30 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
 
     assert_current_path(/intent_id=\d+/)
     assert_equal "Send this from the main surface", Intent.order(:created_at).last.input_text
+  end
+
+  test "surface chat focuses the open composer and submits with command enter" do
+    project = Project.create!(name: "Surface Chat")
+    conversation = Conversation.start!(project)
+    Surface.fallback!
+
+    visit root_path(conversation_id: conversation.id)
+
+    assert_selector ".flyd-stage[data-intent-active='true']"
+    assert page.evaluate_script("document.activeElement === document.querySelector(\"textarea[data-chat-target='input']\")")
+
+    textarea = find("textarea[data-chat-target='input']")
+    textarea.fill_in with: "Send from surface chat"
+    page.execute_script(<<~JS)
+      document.querySelector("textarea[data-chat-target='input']").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true })
+      )
+    JS
+
+    assert_selector ".flyd-stage[data-chat-submit-state='sent']"
+    assert_text "Send from surface chat"
+    assert_equal "Send from surface chat", conversation.messages.order(:created_at).last.content
+    assert_equal "", textarea.value
   end
 
   test "a decision takes over the surface instead of reopening recent chat" do

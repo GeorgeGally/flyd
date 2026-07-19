@@ -3,6 +3,8 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
 
   resource :surface, only: :show
+  resource :release_acceptance, only: :show, controller: "release_acceptance"
+  resources :runtime_delivery_receipts, only: :create
   resources :intents, only: :create do
     resources :context_corrections, only: :create
     resources :contexts, only: :create

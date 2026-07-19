@@ -11,6 +11,7 @@ export default class extends Controller {
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
     this.applyRuntimeFocus()
     this.hideFailedImages()
+    this.focusActiveIntent()
   }
 
   disconnect() {
@@ -22,6 +23,7 @@ export default class extends Controller {
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
     this.applyRuntimeFocus()
     this.hideFailedImages()
+    this.focusActiveIntent()
   }
 
   focusIntent() {
@@ -33,7 +35,7 @@ export default class extends Controller {
   openIntent(event) {
     event?.preventDefault()
     this.focusIntent()
-    window.requestAnimationFrame(() => this.inputTarget.focus())
+    this.focusActiveIntent()
   }
 
   closeIntent(event) {
@@ -135,6 +137,12 @@ export default class extends Controller {
     const input = this.inputTarget
     input.style.height = "auto"
     input.style.height = `${Math.min(input.scrollHeight, 260)}px`
+  }
+
+  focusActiveIntent() {
+    if (this.element.dataset.intentActive !== "true" || !this.hasInputTarget || this.editingText()) return
+
+    window.requestAnimationFrame(() => this.inputTarget.focus())
   }
 
   submitOnCommandEnter(event) {

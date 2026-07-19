@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { buildContextPackage, buildOrientation } from "./orientation.js";
+import { actionableTaskNextAction, buildContextPackage, buildOrientation } from "./orientation.js";
 import { buildOpenCodeArgs, buildOpenCodePermissionConfig } from "./opencode-adapter.js";
 import type {
   AgentTask,
@@ -194,6 +194,13 @@ async function currentTask(store: TaskStore, taskKey: string): Promise<AgentTask
   const task = await store.findTask(taskKey);
   if (!task) throw new Error(`Task ${taskKey} disappeared`);
   return task;
+}
+
+function orchestrationReentryAction(task: AgentTask, assignment: string, summary: string): string {
+  if (!summary.trim().startsWith("No healthy worker satisfies:")) return summary;
+  return assignment.trim().startsWith("No healthy worker satisfies:")
+    ? actionableTaskNextAction(task)
+    : assignment;
 }
 
 export async function runContinuityHarness(input: {
@@ -424,7 +431,7 @@ export async function runContinuityHarness(input: {
       } else {
         task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
           nextAction: orchestration.status === "blocked"
-            ? orchestration.summary
+            ? orchestrationReentryAction(task, assignment, orchestration.summary)
             : "Review the integrated changes and provide a focused correction",
           repositorySnapshot: repositoryState(repository),
           idempotencyKey: eventKey(task.taskKey, "orchestration-reentry"),

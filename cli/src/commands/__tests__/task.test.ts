@@ -1,5 +1,16 @@
+import { chmod, mkdir, mkdtemp, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
-import { formatMetrics, formatTask, formatWorker } from "../task.js";
+import {
+  cleanRubyEnvironment,
+  formatAcceptanceReport,
+  formatMetrics,
+  formatTask,
+  formatWorker,
+  resolveRepositoryRuby,
+} from "../task.js";
+import { buildReleaseAcceptanceReport } from "../../runtime/release-acceptance.js";
 import type { AgentTask, WorkerSession } from "../../runtime/types.js";
 
 const task: AgentTask = {
@@ -24,6 +35,39 @@ const worker: WorkerSession = {
 };
 
 describe("task command formatting", () => {
+  it("removes inherited Ruby and Bundler overrides from acceptance checks", () => {
+    const clean = cleanRubyEnvironment({
+      PATH: "/usr/bin",
+      DATABASE_URL: "postgres://flyd",
+      GEM_HOME: "/old/ruby",
+      GEM_PATH: "/old/ruby",
+      BUNDLE_GEMFILE: "/old/Gemfile",
+      RUBYOPT: "-rold",
+    });
+
+    expect(clean).toEqual({
+      PATH: "/usr/bin",
+      DATABASE_URL: "postgres://flyd",
+    });
+  });
+
+  it("uses the repository's pinned rbenv Ruby when it is executable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "flyd-ruby-"));
+    const rbenvRoot = join(root, "rbenv");
+    const ruby = join(rbenvRoot, "versions", "3.4.4", "bin", "ruby");
+    await mkdir(join(root, "repository"), { recursive: true });
+    await mkdir(join(rbenvRoot, "versions", "3.4.4", "bin"), { recursive: true });
+    await writeFile(join(root, "repository", ".ruby-version"), "3.4.4\n");
+    await writeFile(ruby, "#!/bin/sh\n");
+    await chmod(ruby, 0o755);
+
+    await expect(resolveRepositoryRuby(
+      join(root, "repository"),
+      { RBENV_ROOT: rbenvRoot },
+      root,
+    )).resolves.toBe(ruby);
+  });
+
   it("shows durable state and the exact re-entry point", () => {
     expect(formatTask(task)).toContain("Make Flyd continuous");
     expect(formatTask(task)).toContain("Resume the interrupted OpenCode session");
@@ -54,6 +98,27 @@ describe("task command formatting", () => {
       redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
       permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,
     })).toContain("No coding sessions recorded yet");
+  });
+
+  it("prints an explicit insufficient-evidence Release 1 gate", () => {
+    const report = buildReleaseAcceptanceReport({
+      release1cAvailableAt: null,
+      timeZone: "UTC",
+      realSessions: 0, resumedSessions: 0, resumedWithoutRestatement: 0,
+      acceptedInterpretations: 0, correctedInterpretations: 0, replacedInterpretations: 0,
+      recommendedActions: 0, acceptedOrAdaptedActions: 0, acceptedInterventionWeeks: 0,
+      acceptedInterventionWeekDates: [],
+      completedTasks: 0, completedTasksWithVerifiedOutcomeAndReentry: 0,
+      parityEvidenceCount: 0, propagationLatenciesMs: [],
+      memorySafetyReviews: [], rationaleReviews: [], automatedAcceptanceRuns: [],
+      realSessionDates: [],
+    });
+
+    const output = formatAcceptanceReport(report);
+    expect(output).toContain("Release 1 acceptance: INSUFFICIENT EVIDENCE");
+    expect(output).toContain("Real sessions: 0/10");
+    expect(output).toContain("Browser-visible propagation p95: no data");
+    expect(output).not.toContain("Release 1 acceptance: QUALIFIED");
   });
 
   it("measures successful resumes against resumed sessions", () => {

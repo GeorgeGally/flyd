@@ -1,4 +1,5 @@
 <% visible_items = surface.items.reject { |item| %w[dismissed collapsed].include?(item.state) } %>
+<% runtime_event = local_assigns[:runtime_event] %>
 <% surface_mode = (surface.metadata["surface_mode"].presence || "quiet").to_s %>
 <% composition = {
      "decision" => "comparison-wall",
@@ -28,6 +29,11 @@
          data-surface-id="<%= surface.id %>"
          data-surface-mode="<%= surface_mode %>"
          data-surface-composition="<%= composition.tr('-', '_') %>"
+         <% if runtime_event %>
+           data-controller="runtime-delivery"
+           data-runtime-delivery-event-id-value="<%= runtime_event.id %>"
+           data-runtime-delivery-surface-id-value="<%= surface.id %>"
+         <% end %>
          data-surface-focus-key="<%= active_conversation ? "conversation:#{active_conversation.id}" : surface.focus_item_id %>"
          <% if surface_mode == "discovery" %>data-action="touchstart->surface#startSwipe touchend->surface#endSwipe"<% end %>
          data-surface-intention="<%= surface.current_intention %>">

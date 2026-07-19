@@ -314,12 +314,15 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
 
   test "falls back without ranking database records when composition fails" do
     provider = FakeStateProvider.new({ providers: [] })
-    surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
+    intelligence = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider)
+    surface = intelligence.compose_surface
 
     assert_equal "quiet", surface.surface_mode
     assert_equal "quiet:available", surface.focus_item_id
     assert_equal 1, surface.items.length
     assert_empty surface.items.first.source_refs
+    assert intelligence.diagnostics[:state_digest].present?
+    assert_equal 0, intelligence.diagnostics[:output_characters]
   end
 
   test "falls back to the authoritative task scene when runtime evidence exists" do
@@ -354,13 +357,16 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
       } ]
     })
 
-    surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
+    intelligence = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider)
+    surface = intelligence.compose_surface
 
     assert_equal "decision", surface.surface_mode
     assert_equal "task_plan", surface.items.first.renderer
     assert_equal 5, surface.items.first.metadata["task_revision"]
     assert_equal %w[approve_task_grant reject_task_grant], surface.items.first.actions.pluck("id")
     assert_includes surface.items.first.source_refs, { "type" => "runtime_task", "id" => "task-1" }
+    assert intelligence.diagnostics[:state_digest].present?
+    assert_equal 0, intelligence.diagnostics[:output_characters]
   end
 
   test "stays intentionally quiet without asking the model to invent relevance" do

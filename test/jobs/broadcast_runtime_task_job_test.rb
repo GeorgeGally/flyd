@@ -44,6 +44,7 @@ class BroadcastRuntimeTaskJobTest < ActiveJob::TestCase
 
     assert_equal 0, item.reload.metadata["task_revision"]
     assert_equal 1, calls.length
+    assert_equal event, calls.first.last.dig(:locals, :runtime_event)
     assert event.reload.broadcast_delivered_at
     assert delivery.reload.last_delivered_at
     assert_operator delivery.delivery_latency_ms, :>=, 0

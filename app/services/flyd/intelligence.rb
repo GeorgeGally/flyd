@@ -70,7 +70,9 @@ module Flyd
       Rails.logger.warn("Flyd surface composition failed: #{error.message}")
       raise unless @fallback
 
-      fallback_surface(defined?(compiled) ? compiled&.state : nil)
+      state = defined?(compiled) ? compiled&.state : nil
+      record_fallback_diagnostics(state, started_at, diagnostics: defined?(compiled) ? compiled&.diagnostics : nil)
+      fallback_surface(state)
     end
 
     private
@@ -94,6 +96,16 @@ module Flyd
           "fresh" => provider[:fresh]
         }
       end
+    end
+
+    def record_fallback_diagnostics(state, started_at, diagnostics:)
+      state ||= {}
+      @diagnostics = diagnostics.to_h.merge(
+        state_digest: IntelligenceSnapshot.digest_for(state.except(:generated_at)),
+        provider_snapshots: provider_snapshots(state),
+        output_characters: 0,
+        latency_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round
+      )
     end
 
     def intentionally_quiet?(state)

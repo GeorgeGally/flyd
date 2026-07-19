@@ -241,6 +241,10 @@ Each worker result is independently reconstructed from Git rather than trusted f
 
 Existing narrower Release 1A grants are revoked and shown for renewed approval before Codex, managed worktrees, higher concurrency, or a larger run budget become available. `flyd task metrics` reports real routed assignments, adapter use, accepted evidence-backed interventions, controls, conflicts, grant renewals, verified integrations, and manual context transfer. It does not infer trial success from prompts or worker claims.
 
+`flyd task acceptance` and Rails `GET /release_acceptance` expose the same global, fail-closed Release 1 gate. A real session qualifies only when a worker starts during that session and produces a verified repository, test, log, or code artifact before the session ends. Resumed-session interpretation records measure accepted or directly adapted re-entry recommendations. Evidence-backed automatic worker controls measure proactive interventions. Browser delivery receipts measure p95 committed-event-to-visible-client latency without counting duplicate tabs as duplicate events. The qualifying window starts only after the persisted `release_1c` marker.
+
+Memory-safety and recommendation-rationale sampling are explicit `release_acceptance_observations`. `flyd task acceptance review` records those human checks with a note. `flyd task acceptance verify` runs the Rails tests, CLI tests, and CLI type check before recording the automated idempotency, permission, and duplicate-effect gate. If a required observation or latency sample is absent, both reports say `insufficient_evidence`; neither converts absence into a pass.
+
 ## Persistence and diagnostics
 
 Only one surface may be active. Surface activation is transactional and preserves lineage. Composition logs record reason, state digest, provider identities, input/output size, latency, validation failure, dropped evidence, and delivery errors without private chain-of-thought.
@@ -255,7 +259,7 @@ Production separates web rendering from Sidekiq work. Redis backs Sidekiq, cache
 
 The core directed-interface loop is implemented for decision, investigation, action, conversation, monitoring, and quiet. Further product development still includes:
 
-- Release 1C Rails task control and cross-surface parity;
+- the qualifying Release 1 two-week primary-product dogfood trial;
 - broader observation across email, calendar, GitHub, Slack, and the web;
 - faster incremental retrieval and indexing across very large archives;
 - native microphone, camera, and screen capture;

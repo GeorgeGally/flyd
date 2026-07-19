@@ -4,6 +4,10 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { withTransaction } from "./database.js";
 import { fiveWorkingDayWindowStart } from "./metrics.js";
 import type {
+  ReleaseAcceptanceEvidence,
+  ReleaseAcceptanceObservationKind,
+} from "./release-acceptance.js";
+import type {
   AgentTask,
   ArchiveRuntimeEvent,
   RepositorySnapshot,
@@ -290,6 +294,166 @@ export class PostgresTaskStore {
       verifiedIntegrations: Number(events.rows[0].verified_integrations),
       manualContextTransfers: Number(sessions.rows[0].manual_context_restatements),
     };
+  }
+
+  async releaseAcceptanceEvidence(): Promise<ReleaseAcceptanceEvidence> {
+    const timeZone = process.env.FLYD_TIME_ZONE
+      ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+      ?? "UTC";
+    const realSessions = `WITH marker AS (
+        SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+      ), real_sessions AS (
+        SELECT sessions.*
+        FROM task_sessions sessions
+        CROSS JOIN marker
+        WHERE sessions.status = 'ended'
+          AND sessions.started_at >= marker.available_at
+          AND EXISTS (
+            SELECT 1
+            FROM worker_sessions workers
+            JOIN task_artifacts artifacts ON artifacts.worker_session_id = workers.id
+            WHERE workers.agent_task_id = sessions.agent_task_id
+              AND workers.started_at BETWEEN sessions.started_at AND sessions.ended_at
+              AND artifacts.created_at BETWEEN sessions.started_at AND sessions.ended_at
+              AND artifacts.verification_status = 'verified'
+              AND artifacts.kind IN ('diff', 'test', 'log', 'code')
+          )
+      )`;
+    const [marker, sessions, interventions, outcomes, deliveries, reviews, runs] = await Promise.all([
+      this.pool.query(`SELECT available_at AT TIME ZONE 'UTC' AS available_at
+        FROM release_markers WHERE release_key = 'release_1c'`),
+      this.pool.query(`${realSessions}
+        SELECT COUNT(*)::int AS real_sessions,
+          COUNT(*) FILTER (WHERE resumed)::int AS resumed_sessions,
+          COUNT(*) FILTER (WHERE resumed AND NOT manual_context_restatement)::int AS resumed_without_restatement,
+          COUNT(*) FILTER (WHERE interpretation_status = 'accepted')::int AS accepted_interpretations,
+          COUNT(*) FILTER (WHERE interpretation_status = 'focused_corrected')::int AS corrected_interpretations,
+          COUNT(*) FILTER (WHERE interpretation_status = 'replaced')::int AS replaced_interpretations,
+          COUNT(*) FILTER (
+            WHERE resumed AND interpretation_status IN ('accepted', 'focused_corrected', 'replaced')
+          )::int AS recommended_actions,
+          COUNT(*) FILTER (
+            WHERE resumed AND interpretation_status IN ('accepted', 'focused_corrected')
+          )::int AS accepted_or_adapted_actions,
+          COALESCE(array_agg(DISTINCT to_char(
+            timezone($1, started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD'
+          )) FILTER (WHERE started_at IS NOT NULL), ARRAY[]::text[]) AS real_session_dates
+        FROM real_sessions`, [timeZone]),
+      this.pool.query(`WITH marker AS (
+          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+        )
+        SELECT COUNT(DISTINCT date_trunc(
+          'week', timezone($1, commands.created_at AT TIME ZONE 'UTC')
+        ))::int AS accepted_weeks,
+          COALESCE(array_agg(DISTINCT to_char(
+            date_trunc('week', timezone($1, commands.created_at AT TIME ZONE 'UTC')),
+            'YYYY-MM-DD'
+          )), ARRAY[]::text[]) AS accepted_week_dates
+        FROM worker_commands commands
+        JOIN worker_sessions workers ON workers.id = commands.worker_session_id
+        JOIN task_assignments assignments ON assignments.id = workers.task_assignment_id
+        CROSS JOIN marker
+        WHERE commands.status = 'completed'
+          AND commands.created_at >= marker.available_at
+          AND commands.payload ? 'evidence_digest'
+          AND assignments.status = 'integrated'`, [timeZone]),
+      this.pool.query(`WITH marker AS (
+          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+        )
+        SELECT COUNT(*)::int AS completed,
+          COUNT(*) FILTER (
+            WHERE tasks.verification_result <> '{}'::jsonb
+              AND NULLIF(tasks.outcome_summary, '') IS NOT NULL
+              AND NULLIF(tasks.recommended_next_action, '') IS NOT NULL
+          )::int AS complete_evidence
+        FROM agent_tasks tasks
+        CROSS JOIN marker
+        WHERE tasks.status = 'completed' AND tasks.completed_at >= marker.available_at`),
+      this.pool.query(`${realSessions}, visible_events AS (
+          SELECT real_sessions.id AS session_id,
+            events.id AS event_id,
+            MIN(receipts.delivery_latency_ms)::int AS delivery_latency_ms
+          FROM real_sessions
+          JOIN runtime_events events
+            ON events.agent_task_id = real_sessions.agent_task_id
+            AND events.occurred_at BETWEEN real_sessions.started_at AND real_sessions.ended_at
+          JOIN runtime_delivery_receipts receipts ON receipts.runtime_event_id = events.id
+          GROUP BY real_sessions.id, events.id
+        )
+        SELECT COUNT(DISTINCT session_id)::int AS parity_count,
+          COALESCE(
+            array_agg(delivery_latency_ms ORDER BY event_id),
+            ARRAY[]::integer[]
+          ) AS latencies
+        FROM visible_events`),
+      this.pool.query(`WITH marker AS (
+          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+        )
+        SELECT observations.kind, observations.passed
+        FROM release_acceptance_observations observations
+        CROSS JOIN marker
+        WHERE observations.kind IN ('memory_safety', 'recommendation_rationale')
+          AND observations.observed_at >= marker.available_at
+        ORDER BY observations.observed_at`),
+      this.pool.query(`WITH marker AS (
+          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+        )
+        SELECT observations.passed, observations.evidence
+        FROM release_acceptance_observations observations
+        CROSS JOIN marker
+        WHERE observations.kind = 'automated_acceptance'
+          AND observations.observed_at >= marker.available_at
+        ORDER BY observations.observed_at`),
+    ]);
+    const session = sessions.rows[0];
+    const reviewRows = reviews.rows as Array<{ kind: string; passed: boolean }>;
+    return {
+      release1cAvailableAt: marker.rows[0]?.available_at?.toISOString() ?? null,
+      timeZone,
+      realSessions: Number(session.real_sessions),
+      resumedSessions: Number(session.resumed_sessions),
+      resumedWithoutRestatement: Number(session.resumed_without_restatement),
+      acceptedInterpretations: Number(session.accepted_interpretations),
+      correctedInterpretations: Number(session.corrected_interpretations),
+      replacedInterpretations: Number(session.replaced_interpretations),
+      recommendedActions: Number(session.recommended_actions),
+      acceptedOrAdaptedActions: Number(session.accepted_or_adapted_actions),
+      acceptedInterventionWeeks: Number(interventions.rows[0].accepted_weeks),
+      acceptedInterventionWeekDates: interventions.rows[0].accepted_week_dates,
+      completedTasks: Number(outcomes.rows[0].completed),
+      completedTasksWithVerifiedOutcomeAndReentry: Number(outcomes.rows[0].complete_evidence),
+      parityEvidenceCount: Number(deliveries.rows[0].parity_count),
+      propagationLatenciesMs: (deliveries.rows[0].latencies as number[]).map(Number),
+      memorySafetyReviews: reviewRows
+        .filter((row) => row.kind === "memory_safety")
+        .map((row) => row.passed),
+      rationaleReviews: reviewRows
+        .filter((row) => row.kind === "recommendation_rationale")
+        .map((row) => row.passed),
+      automatedAcceptanceRuns: runs.rows.map((row) => ({
+        idempotent: row.passed === true && row.evidence.idempotent === true,
+        permissionsEnforced: row.passed === true && row.evidence.permissions_enforced === true,
+        noDuplicateEffects: row.passed === true && row.evidence.no_duplicate_effects === true,
+      })),
+      realSessionDates: session.real_session_dates,
+    };
+  }
+
+  async recordReleaseAcceptanceObservation(input: {
+    kind: ReleaseAcceptanceObservationKind;
+    passed: boolean;
+    evidence: Record<string, unknown>;
+    idempotencyKey: string;
+  }): Promise<void> {
+    await this.pool.query(`INSERT INTO release_acceptance_observations
+      (kind, passed, evidence, idempotency_key, observed_at, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4, NOW(), NOW(), NOW())
+      ON CONFLICT (idempotency_key) DO NOTHING`, [
+      input.kind,
+      input.passed,
+      JSON.stringify(input.evidence),
+      input.idempotencyKey,
+    ]);
   }
 
   async latestWorker(taskId: string): Promise<WorkerSession | null> {
@@ -1015,7 +1179,7 @@ export class PostgresTaskStore {
       await this.lockIdempotency(client, update.idempotencyKey);
       const existing = await client.query("SELECT w.* FROM worker_sessions w JOIN runtime_events e ON e.worker_session_id = w.id WHERE e.idempotency_key = $1 LIMIT 1", [update.idempotencyKey]);
       if (existing.rows[0]) return mapWorker(existing.rows[0]);
-      const workerResult = await client.query(`SELECT w.*, t.task_key, t.revision
+      const workerResult = await client.query(`SELECT w.*, t.task_key, t.revision, t.status AS task_status
         FROM worker_sessions w JOIN agent_tasks t ON t.id = w.agent_task_id
         WHERE w.worker_key = $1 FOR UPDATE OF w, t`, [workerKey]);
       const current = workerResult.rows[0];
@@ -1043,7 +1207,17 @@ export class PostgresTaskStore {
         last_heartbeat_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
       [current.id, update.status, update.processId ?? null, update.processIdentity ?? null, update.externalSessionId ?? null,
         update.exitStatus ?? null, update.output ?? null, update.error ?? null]);
-      await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, current.agent_task_id]);
+      const liveWorkers = await client.query(
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
+        [current.agent_task_id],
+      );
+      const taskStatus = [ "completed", "failed", "cancelled", "blocked" ].includes(current.task_status)
+        ? current.task_status
+        : liveWorkers.rows[0] ? "running" : "ready";
+      await client.query(
+        "UPDATE agent_tasks SET status = $1, revision = $2, updated_at = NOW() WHERE id = $3",
+        [taskStatus, revision, current.agent_task_id],
+      );
       await this.insertEvent(client, current.agent_task_id, revision, `worker.${update.status}`, update.idempotencyKey, {
         worker_key: workerKey,
         external_session_id: update.externalSessionId,
@@ -1257,6 +1431,7 @@ export class PostgresTaskStore {
 
   async completeTask(taskKey: string, expectedRevision: number, input: { summary: string; verification: Record<string, unknown>; repositorySnapshot: Record<string, unknown>; idempotencyKey: string }): Promise<AgentTask> {
     const summary = boundedText(input.summary, "Completion summary", 4_000);
+    const reentryPoint = `No unresolved work. Reopen only if this verified outcome regresses: ${summary}`;
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.completed", async (client, row, revision) => {
       const liveWorker = await client.query(
         "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
@@ -1284,11 +1459,12 @@ export class PostgresTaskStore {
         throw new Error("Task completion requires explicit repository verification");
       }
       await client.query(`UPDATE agent_tasks SET status = 'completed', outcome_summary = $1, verification_result = $2::jsonb,
-        repository_snapshot = $3::jsonb, recommended_next_action = NULL, completed_at = NOW(), revision = $4, updated_at = NOW() WHERE id = $5`,
-      [summary, JSON.stringify(input.verification), JSON.stringify(input.repositorySnapshot), revision, row.id]);
+        repository_snapshot = $3::jsonb, recommended_next_action = $4, completed_at = NOW(), revision = $5, updated_at = NOW() WHERE id = $6`,
+      [summary, JSON.stringify(input.verification), JSON.stringify(input.repositorySnapshot), reentryPoint, revision, row.id]);
       await client.query("UPDATE task_grants SET status = 'completed', ended_at = NOW(), updated_at = NOW() WHERE agent_task_id = $1 AND status = 'approved'", [row.id]);
       return {
         summary,
+        reentry_point: reentryPoint,
         verification: input.verification,
         repository: {
           head: input.repositorySnapshot.head,

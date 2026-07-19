@@ -75,6 +75,17 @@ describe("buildOrientation", () => {
     expect(orientation.evidenceRefs).toEqual(["memory:1"]);
   });
 
+  it("does not turn a worker health blocker into the resume assignment", () => {
+    const orientation = buildOrientation({
+      task: { ...task, recommendedNextAction: "No healthy worker satisfies: implementation, testing" },
+      repository,
+      worker,
+      memory,
+    });
+
+    expect(orientation.nextAction).toBe("Make Flyd resume coding work");
+  });
+
   it("builds a bounded context package with epistemic labels", () => {
     const context = buildContextPackage({ task, repository, worker, memory, maxCharacters: 2_000 });
 

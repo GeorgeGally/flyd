@@ -66,7 +66,7 @@ class ComposeSurfaceJob < ApplicationJob
     log = nil
     conversation = Conversation.includes(:messages, :project, :context).find_by(id: active_conversation_id)
     intent = Intent.find_by(id: active_intent_id)
-    intelligence = Flyd::Intelligence.new(active_conversation: conversation, active_intent: intent, fallback: false)
+    intelligence = Flyd::Intelligence.new(active_conversation: conversation, active_intent: intent, fallback: true)
     plan = intelligence.compose_surface
     digest = intelligence.diagnostics.fetch(:state_digest)
     provider_snapshots = intelligence.diagnostics[:provider_snapshots] || []

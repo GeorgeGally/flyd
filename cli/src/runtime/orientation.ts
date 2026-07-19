@@ -12,6 +12,15 @@ interface ContextInput extends OrientationInput {
   maxCharacters?: number;
 }
 
+const WORKER_HEALTH_BLOCKER = /^No healthy worker satisfies:/;
+
+export function actionableTaskNextAction(task: AgentTask): string {
+  const nextAction = task.recommendedNextAction?.trim();
+  if (!nextAction) return "Continue the unfinished task";
+  if (WORKER_HEALTH_BLOCKER.test(nextAction)) return task.intendedOutcome;
+  return nextAction;
+}
+
 export function buildOrientation({ task, repository, worker, memory }: OrientationInput): Orientation {
   const evidenceRefs = memory.matches.map((match) => match.id);
   if (!task) {
@@ -39,7 +48,7 @@ export function buildOrientation({ task, repository, worker, memory }: Orientati
     kind,
     headline: `Resume: ${task.intendedOutcome}`,
     detail,
-    nextAction: task.recommendedNextAction ?? "Continue the unfinished task",
+    nextAction: actionableTaskNextAction(task),
     evidenceRefs,
   };
 }

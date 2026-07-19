@@ -30,6 +30,9 @@ import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions
 import { runCode } from "./commands/code.js";
 import {
   runTaskComplete,
+  runTaskAcceptance,
+  runTaskAcceptanceReview,
+  runTaskAcceptanceVerification,
   runTaskControl,
   runTaskEscape,
   runTaskList,
@@ -99,6 +102,29 @@ task
   .command("metrics")
   .description("Show continuity and agent-control evidence for this repository")
   .action(() => runTaskMetrics());
+
+const acceptance = task
+  .command("acceptance")
+  .description("Report the persisted Release 1 acceptance gate")
+  .action(() => runTaskAcceptance());
+
+acceptance
+  .command("review <kind> <result> <note>")
+  .description("Record a sampled memory or recommendation-rationale review")
+  .action((kind: string, result: string, note: string) => {
+    if (kind !== "memory" && kind !== "rationale") {
+      throw new Error("Review kind must be memory or rationale");
+    }
+    if (result !== "passed" && result !== "failed") {
+      throw new Error("Review result must be passed or failed");
+    }
+    return runTaskAcceptanceReview(kind, result, note);
+  });
+
+acceptance
+  .command("verify")
+  .description("Run and persist the automated Release 1 acceptance suite")
+  .action(() => runTaskAcceptanceVerification());
 
 task
   .command("workers")
