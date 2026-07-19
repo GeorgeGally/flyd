@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_19_193000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_19_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -461,6 +461,35 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_193000) do
     t.index ["valid_until"], name: "index_surfaces_on_valid_until"
   end
 
+  create_table "task_artifacts", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "task_assignment_id"
+    t.bigint "worker_session_id"
+    t.string "artifact_key", null: false
+    t.string "kind", null: false
+    t.string "title", null: false
+    t.string "media_type", null: false
+    t.bigint "byte_size", null: false
+    t.string "sha256_digest", null: false
+    t.string "verification_status", default: "pending", null: false
+    t.bigint "source_revision", null: false
+    t.text "content"
+    t.string "relative_path"
+    t.string "repository_head"
+    t.jsonb "provenance", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_task_id", "source_revision"], name: "index_task_artifacts_on_agent_task_id_and_source_revision"
+    t.index ["agent_task_id"], name: "index_task_artifacts_on_agent_task_id"
+    t.index ["artifact_key"], name: "index_task_artifacts_on_artifact_key", unique: true
+    t.index ["task_assignment_id"], name: "index_task_artifacts_on_task_assignment_id"
+    t.index ["worker_session_id"], name: "index_task_artifacts_on_worker_session_id"
+    t.check_constraint "byte_size >= 0", name: "task_artifacts_byte_size_check"
+    t.check_constraint "kind::text = ANY (ARRAY['diff'::character varying, 'test'::character varying, 'log'::character varying, 'code'::character varying, 'image'::character varying, 'document'::character varying]::text[])", name: "task_artifacts_kind_check"
+    t.check_constraint "source_revision >= 0", name: "task_artifacts_source_revision_check"
+    t.check_constraint "verification_status::text = ANY (ARRAY['pending'::character varying, 'verified'::character varying, 'rejected'::character varying]::text[])", name: "task_artifacts_verification_status_check"
+  end
+
   create_table "task_assignments", force: :cascade do |t|
     t.bigint "agent_task_id", null: false
     t.string "assignment_key", null: false
@@ -638,6 +667,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_19_193000) do
   add_foreign_key "surface_items", "scenes"
   add_foreign_key "surface_items", "surfaces"
   add_foreign_key "surfaces", "surfaces", column: "previous_surface_id"
+  add_foreign_key "task_artifacts", "agent_tasks"
+  add_foreign_key "task_artifacts", "task_assignments"
+  add_foreign_key "task_artifacts", "worker_sessions"
   add_foreign_key "task_assignments", "agent_tasks"
   add_foreign_key "task_grants", "agent_tasks"
   add_foreign_key "task_sessions", "agent_tasks"

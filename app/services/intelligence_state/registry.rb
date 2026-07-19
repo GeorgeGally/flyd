@@ -4,7 +4,7 @@ module IntelligenceState
       new.snapshot(query: query)
     end
 
-    def initialize(providers: [ CliProvider.new, PersonalContextProvider.new, WebDiscoveryProvider.new ], query_provider: CliQueryProvider.new)
+    def initialize(providers: [ RuntimeTaskProvider.new, CliProvider.new, PersonalContextProvider.new, WebDiscoveryProvider.new ], query_provider: CliQueryProvider.new)
       @providers = providers
       @query_provider = query_provider
     end

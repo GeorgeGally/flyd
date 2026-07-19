@@ -54,6 +54,7 @@
     <% project_id = project_ref && (project_ref["id"] || project_ref[:id]) %>
     <% context_project = surface_projects[project_id.to_i] if project_id %>
     <% renderer = SurfaceRenderers::Registry.fetch(item.renderer) %>
+    <% runtime_binding = RuntimeTasks::BindingPresenter.call(item) if renderer[:runtime] %>
     <% outgoing = item.relationships.select { |relationship| (relationship["from"] || relationship[:from]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
     <% incoming = item.relationships.select { |relationship| (relationship["to"] || relationship[:to]).to_s == item.item_key.to_s }.map { |relationship| relationship["behaviour"] || relationship[:behaviour] }.uniq %>
     <% semantic_dom_id = "surface_semantic_#{Digest::SHA256.hexdigest(item.item_key.to_s)[0, 16]}" %>
@@ -72,7 +73,7 @@
              data-outgoing-behaviours="<%= outgoing.join(' ') %>"
              data-incoming-behaviours="<%= incoming.join(' ') %>"
              <% if surface_mode == "discovery" %>data-action="click->surface#focusObject keydown->surface#focusObject" tabindex="0"<% end %>>
-      <%= render renderer[:partial], item: item, context_project: context_project, dominant: dominant %>
+      <%= render renderer[:partial], item: item, context_project: context_project, dominant: dominant, binding: runtime_binding %>
     </article>
   <% end %>
 </section>

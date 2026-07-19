@@ -18,6 +18,7 @@ module Flyd
 
     def call
       [
+        runtime_task_candidate,
         memory_conversation_candidate,
         build_candidate("decision", decision_evidence, "Blocked or high-tension evidence may require a choice", 0.76),
         build_candidate("investigation", investigation_evidence, "Missing or conflicting evidence may require investigation", 0.72),
@@ -27,6 +28,59 @@ module Flyd
     end
 
     private
+
+    def runtime_task_candidate
+      task = collection(:runtime_tasks).first
+      return unless task && eligible?(task)
+
+      content = evidence_content(task)
+      status = content[:status].to_s
+      related = case status
+      when "awaiting_grant"
+        collection(:task_grants).select { |grant| evidence_content(grant)[:status].to_s == "proposed" }
+      when "running"
+        collection(:worker_sessions).select { |worker| evidence_content(worker)[:status].to_s.in?(%w[queued starting running stopping]) } +
+          collection(:task_assignments)
+      when "blocked"
+        collection(:task_assignments).select { |assignment| evidence_content(assignment)[:status].to_s == "blocked" } +
+          collection(:worker_sessions).select { |worker| evidence_content(worker)[:status].to_s.in?(%w[failed interrupted]) }
+      when "ready", "completed"
+        collection(:task_artifacts) + collection(:task_assignments)
+      else
+        []
+      end
+      references = ([ task ] + related).filter_map { |item| evidence_reference(item) }.uniq.first(MAX_REFERENCES)
+      mode, renderer, reason = runtime_task_direction(status, related)
+
+      {
+        mode: mode,
+        renderer: renderer,
+        reason: reason,
+        confidence: 1.0,
+        evidence_refs: references
+      }
+    end
+
+    def runtime_task_direction(status, related)
+      case status
+      when "awaiting_grant"
+        if related.any?
+          [ "decision", "task_plan", "A persisted coding plan is waiting for an explicit permission decision" ]
+        else
+          [ "action", "task_orientation", "A coding task needs a precise orientation before work can begin" ]
+        end
+      when "running"
+        [ "monitoring", "worker_monitor", "Active coding work has live progress and bounded controls" ]
+      when "blocked"
+        [ "investigation", "task_review", "Coding work is blocked and needs a grounded intervention" ]
+      when "ready"
+        [ "action", "task_review", "Verified coding work is ready for review and completion" ]
+      when "completed"
+        [ "action", "task_completion", "A verified coding outcome is ready to return to the user" ]
+      else
+        [ "action", "task_orientation", "The coding task is the most concrete current situation" ]
+      end
+    end
 
     def build_candidate(mode, evidence, reason, confidence)
       references = evidence.filter_map { |item| evidence_reference(item) }.uniq.first(MAX_REFERENCES)

@@ -144,6 +144,42 @@ export interface WorkerCommand {
   errorSummary: string | null;
 }
 
+export type TaskArtifactKind = "diff" | "test" | "log" | "code" | "image" | "document";
+export type TaskArtifactVerificationStatus = "pending" | "verified" | "rejected";
+
+export interface TaskArtifact {
+  id: string;
+  artifactKey: string;
+  agentTaskId: string;
+  taskAssignmentId: string | null;
+  workerSessionId: string | null;
+  kind: TaskArtifactKind;
+  title: string;
+  mediaType: string;
+  byteSize: number;
+  sha256Digest: string;
+  verificationStatus: TaskArtifactVerificationStatus;
+  sourceRevision: number;
+  content: string | null;
+  relativePath: string | null;
+  repositoryHead: string | null;
+  provenance: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TaskArtifactDraft {
+  kind: TaskArtifactKind;
+  title: string;
+  mediaType: string;
+  byteSize: number;
+  sha256Digest: string;
+  verificationStatus: TaskArtifactVerificationStatus;
+  content?: string | null;
+  relativePath?: string | null;
+  repositoryHead?: string | null;
+  provenance: Record<string, unknown>;
+}
+
 export interface Orientation {
   kind: "new" | "resume" | "resume_changed" | "resume_interrupted";
   headline: string;

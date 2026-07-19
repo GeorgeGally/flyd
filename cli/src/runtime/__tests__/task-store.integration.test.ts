@@ -17,6 +17,7 @@ async function cleanProject(): Promise<void> {
       await pool.query("DELETE FROM runtime_events WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_commands WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
+      await pool.query("DELETE FROM task_artifacts WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_assignments WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_grants WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
@@ -438,7 +439,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       providerIdentity: "codex:local", expiresAt: new Date(Date.now() + 60_000),
       idempotencyKey: `integrated-grant:${task.taskKey}`,
     });
-    for (const item of planned.assignments) {
+    for (const [index, item] of planned.assignments.entries()) {
       const created = await store.createWorker({
         taskKey: task.taskKey, grantKey: grant.grantKey, assignmentKey: item.assignmentKey,
         adapter: "codex", capabilities: item.capabilityRequirements, executablePath: "/bin/codex",
@@ -455,6 +456,17 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       });
       await store.recordAssignmentVerification(item.assignmentKey, {
         status: "verified", result: { passed: true },
+        artifacts: index === 0 ? [{
+          kind: "diff",
+          title: "Verified patch",
+          mediaType: "text/x-diff",
+          byteSize: 7,
+          sha256Digest: "a".repeat(64),
+          verificationStatus: "verified",
+          content: "patch\\n",
+          repositoryHead: "base",
+          provenance: { assignment_key: item.assignmentKey },
+        }] : [],
         idempotencyKey: `integrated-verified:${item.assignmentKey}`,
       });
     }
@@ -471,6 +483,14 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     });
     const assignments = await store.listAssignments(task.id);
     expect(assignments.map((item) => item.status)).toEqual(["integrated", "integrated"]);
+    expect(await store.listArtifacts(task.id)).toEqual([
+      expect.objectContaining({
+        kind: "diff",
+        content: "patch\\n",
+        verificationStatus: "verified",
+        taskAssignmentId: planned.assignments[0].id,
+      }),
+    ]);
     const ready = await store.findTask(task.taskKey);
     const completed = await store.completeTask(task.taskKey, ready!.revision, {
       summary: "Integrated", verification: { confirmed_by: "user" },

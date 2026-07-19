@@ -2,6 +2,7 @@ class TaskAssignment < ApplicationRecord
   STATUSES = %w[pending running verified blocked integrated failed cancelled].freeze
 
   belongs_to :agent_task
+  has_many :task_artifacts, dependent: :nullify
 
   has_many :worker_sessions, dependent: :restrict_with_error
 

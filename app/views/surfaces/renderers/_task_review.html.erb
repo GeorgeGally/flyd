@@ -1,0 +1,62 @@
+<% completion_action = item.offered_action("confirm_task_completion") %>
+<% correction_action = item.offered_action("correct_task") %>
+<section class="directed-surface working-scene" data-runtime-task-key="<%= binding.task.task_key %>">
+  <div class="working-scene__primary">
+    <div class="flex items-center justify-between gap-6">
+      <span class="surface-label"><%= binding.task.project.name %></span>
+      <span class="surface-label"><%= binding.status_label %></span>
+    </div>
+    <h2 class="working-scene__title mt-8 max-w-5xl font-medium leading-[1.02]"><%= item.title %></h2>
+    <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= item.summary %></p>
+
+    <div class="mt-12 border-t border-gray-950">
+      <% binding.verified_artifacts.each do |artifact| %>
+        <div class="grid gap-3 border-b border-gray-300 py-5 md:grid-cols-[auto_1fr_auto] md:items-center">
+          <span class="surface-label"><%= artifact.kind %></span>
+          <span class="text-sm font-medium"><%= artifact.title %></span>
+          <%= link_to artifact.kind == "document" ? "Download" : "Inspect",
+                task_artifact_path(artifact.artifact_key),
+                class: "text-sm font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
+        </div>
+      <% end %>
+    </div>
+
+    <% if completion_action && binding.controls_enabled? %>
+      <div class="mt-9">
+        <%= button_to completion_action["label"].presence || "Confirm completion",
+              surface_item_action_path(item, action_id: "confirm_task_completion"),
+              method: :post,
+              class: "bg-gray-950 px-6 py-3 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="working-scene__secondary">
+    <section class="editorial-panel">
+      <div class="surface-label">Verification</div>
+      <ol class="mt-5 space-y-5">
+        <% binding.assignments.each do |assignment| %>
+          <li>
+            <div class="flex items-center justify-between gap-4 text-sm">
+              <span class="font-medium"><%= assignment.title %></span>
+              <span class="text-gray-400"><%= assignment.status.humanize %></span>
+            </div>
+            <% if assignment.verification_result.present? %>
+              <p class="mt-2 text-xs leading-5 text-gray-500"><%= assignment.verification_result["passed"] ? "Independent checks passed" : "Checks require attention" %></p>
+            <% end %>
+          </li>
+        <% end %>
+      </ol>
+    </section>
+
+    <% if correction_action && binding.controls_enabled? %>
+      <section class="editorial-panel border-gray-300">
+        <%= form_with url: surface_item_action_path(item, action_id: "correct_task"), method: :post do |form| %>
+          <%= form.label :corrected_value, "Correct Flyd's understanding", class: "surface-label" %>
+          <%= form.text_area :corrected_value, required: true, maxlength: 4000, rows: 3, class: "mt-4 w-full resize-none border-0 border-b border-gray-400 bg-transparent px-0 py-2 text-sm leading-6 focus:border-gray-950 focus:ring-0" %>
+          <%= form.submit correction_action["label"].presence || "Correct", class: "mt-4 border-b border-gray-950 py-1 text-sm font-medium" %>
+        <% end %>
+      </section>
+    <% end %>
+  </div>
+</section>

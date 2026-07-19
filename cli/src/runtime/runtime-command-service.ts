@@ -8,6 +8,7 @@ import type {
   AgentTask,
   RepositorySnapshot,
   TaskAssignment,
+  TaskArtifact,
   TaskGrant,
   WorkerCommand,
   WorkerSession,
@@ -19,6 +20,7 @@ interface RuntimeCommandStore {
   listAssignments(taskId: string): Promise<TaskAssignment[]>;
   listWorkers(taskId: string): Promise<WorkerSession[]>;
   listGrants(taskId: string): Promise<TaskGrant[]>;
+  listArtifacts(taskId: string): Promise<TaskArtifact[]>;
   approveGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, idempotencyKey: string): Promise<TaskGrant>;
   rejectGrantProposal(taskKey: string, expectedRevision: number, grantKey: string, reason: string, idempotencyKey: string): Promise<TaskGrant>;
   recordCorrection(
@@ -156,16 +158,17 @@ export class RuntimeCommandService {
   }
 
   private async status(task: AgentTask): Promise<RuntimeCommandResult> {
-    const [assignments, workers, grants] = await Promise.all([
+    const [assignments, workers, grants, artifacts] = await Promise.all([
       this.deps.store.listAssignments(task.id),
       this.deps.store.listWorkers(task.id),
       this.deps.store.listGrants(task.id),
+      this.deps.store.listArtifacts(task.id),
     ]);
     return {
       action: "task.status",
       taskKey: task.taskKey,
       taskRevision: task.revision,
-      data: { task, assignments, workers, grants },
+      data: { task, assignments, workers, grants, artifacts },
     };
   }
 

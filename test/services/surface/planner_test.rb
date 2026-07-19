@@ -322,6 +322,47 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_empty surface.items.first.source_refs
   end
 
+  test "falls back to the authoritative task scene when runtime evidence exists" do
+    provider = FakeStateProvider.new({
+      providers: [ {
+        source: "flyd-runtime",
+        fresh: true,
+        data: {
+          runtime_tasks: [ {
+            id: "task-1",
+            type: "runtime_task",
+            epistemicStatus: "observation",
+            confidence: 1.0,
+            generatedAt: Time.current.iso8601,
+            content: {
+              taskKey: "task-1",
+              status: "awaiting_grant",
+              revision: 5,
+              intendedOutcome: "Ship Rails parity",
+              projectId: 42
+            }
+          } ],
+          task_grants: [ {
+            id: "grant-1",
+            type: "task_grant",
+            epistemicStatus: "observation",
+            confidence: 1.0,
+            generatedAt: Time.current.iso8601,
+            content: { taskKey: "task-1", grantKey: "grant-1", status: "proposed" }
+          } ]
+        }
+      } ]
+    })
+
+    surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
+
+    assert_equal "decision", surface.surface_mode
+    assert_equal "task_plan", surface.items.first.renderer
+    assert_equal 5, surface.items.first.metadata["task_revision"]
+    assert_equal %w[approve_task_grant reject_task_grant], surface.items.first.actions.pluck("id")
+    assert_includes surface.items.first.source_refs, { "type" => "runtime_task", "id" => "task-1" }
+  end
+
   test "stays intentionally quiet without asking the model to invent relevance" do
     chat = FakeChat.new("must not be called")
     provider = FakeStateProvider.new({ providers: [] })

@@ -12,7 +12,12 @@ module SurfaceRenderers
       "decision_scene" => { partial: "surfaces/renderers/decision_scene", kinds: %w[decision question] },
       "investigation_scene" => { partial: "surfaces/renderers/investigation_scene", kinds: %w[question insight scene] },
       "action_scene" => { partial: "surfaces/renderers/action_scene", kinds: %w[scene artifact status] },
-      "discovery_scene" => { partial: "surfaces/renderers/discovery_scene", kinds: %w[insight artifact] }
+      "discovery_scene" => { partial: "surfaces/renderers/discovery_scene", kinds: %w[insight artifact] },
+      "task_orientation" => { partial: "surfaces/renderers/task_orientation", kinds: %w[scene status] , runtime: true },
+      "task_plan" => { partial: "surfaces/renderers/task_plan", kinds: %w[decision scene], runtime: true },
+      "worker_monitor" => { partial: "surfaces/renderers/worker_monitor", kinds: %w[status notification], runtime: true },
+      "task_review" => { partial: "surfaces/renderers/task_review", kinds: %w[artifact status scene question], runtime: true },
+      "task_completion" => { partial: "surfaces/renderers/task_completion", kinds: %w[artifact status scene], runtime: true }
     }.freeze
     LEGACY_ALIASES = {
       "card" => "supporting_card",

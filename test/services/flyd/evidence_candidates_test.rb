@@ -1,6 +1,51 @@
 require "test_helper"
 
 class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
+  test "an active runtime task earns the stage with its semantic renderer" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          fresh: true,
+          data: {
+            runtime_tasks: [ {
+              id: "task-1",
+              type: "runtime_task",
+              epistemicStatus: "observation",
+              confidence: 1.0,
+              content: { status: "awaiting_grant", revision: 4, intendedOutcome: "Ship Rails parity" }
+            } ],
+            task_grants: [ {
+              id: "grant-1",
+              type: "task_grant",
+              epistemicStatus: "observation",
+              confidence: 1.0,
+              content: { taskKey: "task-1", status: "proposed" }
+            } ]
+          }
+        } ]
+      }
+    )
+
+    assert_equal "decision", candidates.first[:mode]
+    assert_equal "task_plan", candidates.first[:renderer]
+    assert_equal [
+      { type: "runtime_task", id: "task-1" },
+      { type: "task_grant", id: "grant-1" }
+    ], candidates.first[:evidence_refs]
+  end
+
+  test "running and ready tasks use monitoring and review scenes" do
+    running = runtime_candidate(status: "running", related: {
+      worker_sessions: [ runtime_evidence("worker-1", "worker_session", status: "running") ]
+    })
+    ready = runtime_candidate(status: "ready", related: {
+      task_artifacts: [ runtime_evidence("artifact-1", "task_artifact", verificationStatus: "verified") ]
+    })
+
+    assert_equal [ "monitoring", "worker_monitor" ], running.values_at(:mode, :renderer)
+    assert_equal [ "action", "task_review" ], ready.values_at(:mode, :renderer)
+  end
+
   test "uses sufficient targeted memory to support the active conversation" do
     candidates = Flyd::EvidenceCandidates.call(
       active_intent: { id: 4, text: "What was I doing?" },
@@ -387,6 +432,23 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
   end
 
   private
+
+  def runtime_candidate(status:, related: {})
+    data = {
+      runtime_tasks: [ runtime_evidence("task-1", "runtime_task", status: status, revision: 2) ]
+    }.merge(related)
+    Flyd::EvidenceCandidates.call(provider_state: { providers: [ { fresh: true, data: data } ] }).first
+  end
+
+  def runtime_evidence(id, type, content)
+    {
+      id: id,
+      type: type,
+      epistemicStatus: "observation",
+      confidence: 1.0,
+      content: content
+    }
+  end
 
   def evidence(type, id, content, epistemic_status: "observation", confidence: 0.8, generated_at: Time.current.iso8601, evidence_refs: [])
     {

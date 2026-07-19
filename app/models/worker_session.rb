@@ -8,6 +8,7 @@ class WorkerSession < ApplicationRecord
 
   has_many :runtime_events, dependent: :nullify
   has_many :worker_commands, dependent: :restrict_with_error
+  has_many :task_artifacts, dependent: :nullify
 
   before_validation :assign_worker_key, on: :create
 

@@ -1,0 +1,72 @@
+<% approve_action = item.offered_action("approve_task_grant") %>
+<% reject_action = item.offered_action("reject_task_grant") %>
+<% grant = binding.proposed_grant %>
+<section class="directed-surface working-scene" data-runtime-task-key="<%= binding.task.task_key %>">
+  <div class="working-scene__primary">
+    <div class="flex items-center justify-between gap-6">
+      <span class="surface-label"><%= binding.task.project.name %></span>
+      <span class="surface-label"><%= binding.status_label %></span>
+    </div>
+    <h2 class="working-scene__title mt-8 max-w-5xl font-medium leading-[1.01]"><%= item.title %></h2>
+    <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= item.summary %></p>
+
+    <% if binding.stale? %>
+      <p class="mt-9 border-t border-gray-300 pt-5 text-sm text-gray-500">This plan is from revision <%= binding.expected_revision %>; the task is now at revision <%= binding.task.revision %>. Flyd is refreshing it.</p>
+    <% elsif grant && approve_action %>
+      <div class="mt-10 flex flex-wrap items-center gap-5">
+        <%= button_to approve_action["label"].presence || "Approve plan",
+              surface_item_action_path(item, action_id: "approve_task_grant"),
+              method: :post,
+              class: "bg-gray-950 px-6 py-3 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-gray-950 focus:ring-offset-2" %>
+      </div>
+
+      <% if reject_action %>
+        <%= form_with url: surface_item_action_path(item, action_id: "reject_task_grant"), method: :post, class: "mt-7 max-w-xl border-t border-gray-300 pt-5" do |form| %>
+          <%= form.label :reason, "What should change?", class: "surface-label" %>
+          <div class="mt-3 flex items-end gap-3">
+            <%= form.text_field :reason, required: true, maxlength: 1000, placeholder: "Change the scope or approach", class: "min-w-0 flex-1 border-0 border-b border-gray-400 bg-transparent px-0 py-2 text-sm focus:border-gray-950 focus:ring-0" %>
+            <%= form.submit reject_action["label"].presence || "Send back", class: "border-b border-gray-950 py-2 text-sm font-medium" %>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+
+  <div class="working-scene__secondary">
+    <section class="border-t border-gray-950 pt-6">
+      <div class="surface-label">Permission boundary</div>
+      <% if grant %>
+        <dl class="mt-6 space-y-6 text-sm">
+          <div>
+            <dt class="text-gray-400">Agents</dt>
+            <dd class="mt-2 text-lg"><%= Array(grant.worker_adapters).join(", ") %></dd>
+          </div>
+          <div>
+            <dt class="text-gray-400">Can change</dt>
+            <dd class="mt-2 leading-6"><%= Array(grant.file_operations).join(", ") %></dd>
+          </div>
+          <div>
+            <dt class="text-gray-400">Can run</dt>
+            <dd class="mt-2 leading-6"><%= Array(grant.command_classes).join(", ") %></dd>
+          </div>
+          <div>
+            <dt class="text-gray-400">Concurrency</dt>
+            <dd class="mt-2"><%= grant.max_concurrency %></dd>
+          </div>
+        </dl>
+      <% else %>
+        <p class="mt-5 text-sm leading-6 text-gray-500">The referenced permission proposal is no longer available.</p>
+      <% end %>
+    </section>
+
+    <section class="border-t border-gray-300 pt-6">
+      <div class="surface-label">Verification</div>
+      <ul class="mt-5 space-y-3 text-sm leading-6">
+        <% Array(grant&.verification_commands).each do |command| %>
+          <li class="break-words"><%= command %></li>
+        <% end %>
+      </ul>
+      <p class="mt-6 text-xs text-gray-400">Scope <%= grant&.scope_digest.to_s.first(12) %> · expires <%= l(grant.expires_at, format: :short) if grant&.expires_at %></p>
+    </section>
+  </div>
+</section>

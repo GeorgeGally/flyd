@@ -70,7 +70,7 @@ module Flyd
       Rails.logger.warn("Flyd surface composition failed: #{error.message}")
       raise unless @fallback
 
-      fallback_surface
+      fallback_surface(defined?(compiled) ? compiled&.state : nil)
     end
 
     private
@@ -157,6 +157,8 @@ module Flyd
         - monitoring: show a changing condition and what would make it actionable.
         - discovery: compose up to three grounded objects from recent work, a personal daily signal, and fresh external stories without manufacturing urgency.
 
+        A runtime_task is the authoritative state of active coding work. When it earns the stage, use the candidate's task renderer rather than flattening it into a generic action or notification. The renderer selects the semantic scene; persisted runtime evidence supplies every operational selector.
+
         Synthesize across evidence; never expose records merely because they exist. Goals, tensions, signals, memories, projects, scenes, artifacts, builds, reports, conversations, media attachments, contexts, and feedback are evidence—not UI objects.
 
         Learned surface preferences are soft evidence from outcomes. Use them only when they improve the present experience. Never mechanically rank or suppress meaning because of them.
@@ -173,11 +175,11 @@ module Flyd
             "intent": "inform|ask|decide|discuss|investigate|monitor|remind|review|celebrate|build",
             "title": "editorial title",
             "summary": "synthesized content",
-            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene|discovery_scene",
+            "renderer": "hero_scene|supporting_card|conversation|document|notification|code|data_table|media|decision_scene|investigation_scene|action_scene|discovery_scene|task_orientation|task_plan|worker_monitor|task_review|task_completion",
             "depth": "foreground|middle|background|receded",
             "context_refs": [{"type":"project|context","id":1}],
             "source_refs": [{"type":"exact evidence type from state","id":"exact id from state"}],
-            "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context","label":"Action label","payload":{}}],
+            "actions": [{"id":"choose|investigate|build|discuss|answer|dismiss|resolve|inspect_sources|correct_context|approve_task_grant|reject_task_grant|stop_worker|retry_worker|redirect_worker|replace_worker|correct_task|confirm_task_completion","label":"Action label","payload":{}}],
             "metadata": {
               "options": [{"id":"option-id","label":"Choice","description":"consequence","attachment_id":"optional exact intent attachment id"}],
               "recommendation": "optional recommendation; when present the recommended option must be first in options",
@@ -188,7 +190,8 @@ module Flyd
               "impact": "what changes if confirmed",
               "readiness": "ready|blocked|running",
               "why_it_matters": "grounded connection to the user's work or interests",
-              "source_label": "From your archive|Current story"
+              "source_label": "From your archive|Current story",
+              "task_revision": "required non-negative integer for every task renderer"
             }
           }],
           "relationships": [{
@@ -207,6 +210,7 @@ module Flyd
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
         - discovery: one to three insights or artifacts using discovery_scene, each with an exact source reference. Prefer a mix of recent personal activity, today's horoscope, and current stories when supplied. Preserve facts, names, dates, and links from the evidence; do not embellish them.
+        - runtime task: use the renderer named by the runtime candidate. Include exactly one runtime_task source reference, every displayed grant/assignment/worker/artifact as its exact source reference, and metadata.task_revision copied from runtime_task.content.revision. Every task action payload must contain task_key and task_revision copied exactly from that evidence. task_plan also requires one task_grant source and exactly one approve_task_grant plus one reject_task_grant action, both carrying its exact grant_key. worker actions carry an exact displayed worker_key. task_review may offer confirm_task_completion with a grounded summary, and correct_task with the exact claim being corrected. Never invent runtime state, selectors, progress, output, or verification.
 
         Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract. Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
@@ -250,11 +254,151 @@ module Flyd
       )
     end
 
-    def fallback_surface
+    def fallback_surface(state = nil)
+      runtime = runtime_fallback_surface(state)
+      return runtime if runtime
+
       quiet_surface(
         understanding: "Flyd could not compose a contextual surface.",
         current_intention: "Remain available without fabricating relevance."
       )
+    end
+
+    def runtime_fallback_surface(state)
+      providers = Array(state&.dig(:provider_state, :providers))
+      collections = providers.each_with_object({}) do |provider, result|
+        provider[:data].to_h.each do |key, items|
+          result[key.to_sym] = Array(result[key.to_sym]) + Array(items)
+        end
+      end
+      task = collections[:runtime_tasks]&.first
+      return unless task
+
+      content = task[:content].to_h.deep_symbolize_keys
+      task_key = task[:id].to_s
+      status = content[:status].to_s
+      revision = content[:revision].to_i
+      related, renderer, mode, kind, intent = runtime_fallback_direction(collections, status)
+      source_refs = ([ task ] + related).filter_map do |evidence|
+        { "type" => evidence[:type].to_s, "id" => evidence[:id] } if evidence[:type].present? && evidence[:id].present?
+      end.uniq.first(20)
+      actions = runtime_fallback_actions(task_key, revision, status, collections, related)
+      title = content[:intendedOutcome].presence || "Continue the active coding task"
+      summary = runtime_fallback_summary(status, content, related)
+      item = SurfaceItem.new(
+        id: "runtime:#{task_key}:#{renderer}",
+        kind: kind,
+        intent: intent,
+        title: title,
+        summary: summary,
+        renderer: renderer,
+        depth: "foreground",
+        state: "presented",
+        context_refs: content[:projectId] ? [ { "type" => "project", "id" => content[:projectId] } ] : [],
+        source_refs: source_refs,
+        actions: actions,
+        relationships: [],
+        metadata: { "task_revision" => revision }
+      )
+      Surface.new(
+        generated_at: Time.current,
+        understanding: "A canonical coding task is active at revision #{revision}.",
+        current_intention: runtime_fallback_intention(status),
+        surface_mode: mode,
+        focus_item_id: item.id,
+        items: [ item ],
+        relationships: []
+      )
+    end
+
+    def runtime_fallback_direction(collections, status)
+      case status
+      when "awaiting_grant"
+        grants = Array(collections[:task_grants]).select { |grant| runtime_evidence_content(grant)[:status].to_s == "proposed" }
+        grants.any? ? [ grants.first(1), "task_plan", "decision", "decision", "decide" ] :
+          [ [], "task_orientation", "action", "scene", "review" ]
+      when "running"
+        workers = Array(collections[:worker_sessions]).select { |worker| runtime_evidence_content(worker)[:status].to_s.in?(%w[queued starting running stopping]) }
+        assignments = Array(collections[:task_assignments])
+        [ (workers + assignments).first(19), "worker_monitor", "monitoring", "status", "monitor" ]
+      when "blocked"
+        related = Array(collections[:task_assignments]) + Array(collections[:worker_sessions])
+        [ related.first(19), "task_review", "investigation", "question", "investigate" ]
+      when "ready"
+        related = Array(collections[:task_artifacts]) + Array(collections[:task_assignments])
+        [ related.first(19), "task_review", "action", "artifact", "review" ]
+      when "completed"
+        [ Array(collections[:task_artifacts]).first(19), "task_completion", "action", "artifact", "celebrate" ]
+      else
+        [ [], "task_orientation", "action", "scene", "review" ]
+      end
+    end
+
+    def runtime_fallback_actions(task_key, revision, status, collections, related)
+      base = { "task_key" => task_key, "task_revision" => revision }
+      case status
+      when "awaiting_grant"
+        grant = related.find { |item| item[:type].to_s == "task_grant" }
+        return [] unless grant
+
+        selector = base.merge("grant_key" => grant[:id].to_s)
+        [
+          { "id" => "approve_task_grant", "label" => "Approve plan", "payload" => selector },
+          { "id" => "reject_task_grant", "label" => "Send back", "payload" => selector }
+        ]
+      when "running"
+        Array(collections[:worker_sessions]).select { |worker| runtime_evidence_content(worker)[:status].to_s.in?(%w[queued starting running stopping]) }.flat_map do |worker|
+          selector = base.merge("worker_key" => worker[:id].to_s)
+          [
+            { "id" => "stop_worker", "label" => "Stop", "payload" => selector },
+            { "id" => "redirect_worker", "label" => "Redirect", "payload" => selector },
+            { "id" => "replace_worker", "label" => "Replace", "payload" => selector }
+          ]
+        end.first(8)
+      when "blocked"
+        Array(collections[:worker_sessions]).select { |worker| runtime_evidence_content(worker)[:status].to_s.in?(%w[failed interrupted stopped]) }.flat_map do |worker|
+          selector = base.merge("worker_key" => worker[:id].to_s)
+          [
+            { "id" => "retry_worker", "label" => "Retry", "payload" => selector },
+            { "id" => "replace_worker", "label" => "Replace", "payload" => selector }
+          ]
+        end.first(7) + [
+          { "id" => "correct_task", "label" => "Correct Flyd", "payload" => base.merge("original_claim" => "The task is blocked.") }
+        ]
+      when "ready"
+        summary = runtime_evidence_content(collections[:runtime_tasks].first)[:outcomeSummary].presence || "Verified work is complete."
+        [
+          { "id" => "confirm_task_completion", "label" => "Confirm completion", "payload" => base.merge("summary" => summary) },
+          { "id" => "correct_task", "label" => "Correct Flyd", "payload" => base.merge("original_claim" => "The work is ready to complete.") }
+        ]
+      else
+        []
+      end
+    end
+
+    def runtime_fallback_summary(status, content, related)
+      case status
+      when "awaiting_grant" then "Review the exact worker scope and verification boundary before Flyd begins."
+      when "running" then "#{related.count { |item| item[:type].to_s == "worker_session" }} worker session(s) are carrying out the approved plan."
+      when "blocked" then content[:recommendedNextAction].presence || "The verified runtime state needs a bounded intervention."
+      when "ready" then content[:outcomeSummary].presence || "The assignments have returned verified artifacts for review."
+      when "completed" then content[:outcomeSummary].presence || "The verified outcome has been returned."
+      else "Flyd has a concrete coding outcome to orient and continue."
+      end
+    end
+
+    def runtime_evidence_content(evidence)
+      evidence.to_h[:content].to_h.deep_symbolize_keys
+    end
+
+    def runtime_fallback_intention(status)
+      {
+        "awaiting_grant" => "Get an explicit decision on the exact execution boundary.",
+        "running" => "Keep the live work legible and controllable.",
+        "blocked" => "Resolve the blocker without losing verified context.",
+        "ready" => "Review verified work and decide whether it is complete.",
+        "completed" => "Return the verified outcome and its artifacts."
+      }.fetch(status, "Orient the active coding task.")
     end
 
     def quiet_surface(

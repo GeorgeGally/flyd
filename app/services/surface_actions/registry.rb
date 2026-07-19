@@ -9,7 +9,15 @@ module SurfaceActions
       "dismiss" => { method: :post, route: :feedback },
       "resolve" => { method: :post, route: :feedback },
       "inspect_sources" => { method: :get, route: :sources },
-      "correct_context" => { method: :post, route: :context_correction }
+      "correct_context" => { method: :post, route: :context_correction },
+      "approve_task_grant" => { method: :post, route: :runtime },
+      "reject_task_grant" => { method: :post, route: :runtime },
+      "stop_worker" => { method: :post, route: :runtime },
+      "retry_worker" => { method: :post, route: :runtime },
+      "redirect_worker" => { method: :post, route: :runtime },
+      "replace_worker" => { method: :post, route: :runtime },
+      "correct_task" => { method: :post, route: :runtime },
+      "confirm_task_completion" => { method: :post, route: :runtime }
     }.freeze
 
     class << self
@@ -58,9 +66,59 @@ module SurfaceActions
             "reason" => payload["reason"].to_s.truncate(300),
             "note" => payload["note"].to_s.truncate(1_000)
           }.compact_blank
+        when "approve_task_grant", "reject_task_grant"
+          ensure_exact_fields!(payload, %w[task_key task_revision grant_key])
+          task_payload(payload, reference_registry:).merge(
+            "grant_key" => referenced_key!(payload, "grant_key", "task_grant", reference_registry)
+          )
+        when "stop_worker", "retry_worker", "redirect_worker", "replace_worker"
+          ensure_exact_fields!(payload, %w[task_key task_revision worker_key])
+          task_payload(payload, reference_registry:).merge(
+            "worker_key" => referenced_key!(payload, "worker_key", "worker_session", reference_registry)
+          )
+        when "correct_task"
+          ensure_exact_fields!(payload, %w[task_key task_revision original_claim])
+          task_payload(payload, reference_registry:).merge(
+            "original_claim" => payload["original_claim"].to_s.truncate(4_000).presence
+          ).compact
+        when "confirm_task_completion"
+          ensure_exact_fields!(payload, %w[task_key task_revision summary])
+          summary = payload["summary"].to_s.truncate(4_000)
+          raise ArgumentError, "Task completion requires a summary" if summary.blank?
+
+          task_payload(payload, reference_registry:).merge("summary" => summary)
         else
           {}
         end
+      end
+
+      private
+
+      def task_payload(payload, reference_registry:)
+        {
+          "task_key" => referenced_key!(payload, "task_key", "runtime_task", reference_registry),
+          "task_revision" => non_negative_integer!(payload, "task_revision")
+        }
+      end
+
+      def referenced_key!(payload, field, type, reference_registry)
+        value = payload[field].to_s
+        raise ArgumentError, "#{field} is required" if value.blank?
+        raise ArgumentError, "Unknown #{field}: #{value}" unless reference_registry.include?("#{type}:#{value}")
+
+        value
+      end
+
+      def non_negative_integer!(payload, field)
+        value = Integer(payload[field], exception: false)
+        raise ArgumentError, "#{field} must be a non-negative integer" unless value && value >= 0
+
+        value
+      end
+
+      def ensure_exact_fields!(payload, allowed)
+        unknown = payload.keys - allowed
+        raise ArgumentError, "Unknown task action field: #{unknown.first}" if unknown.any?
       end
     end
   end

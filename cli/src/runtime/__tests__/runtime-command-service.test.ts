@@ -41,6 +41,7 @@ function dependencies() {
     listAssignments: vi.fn(async () => []),
     listWorkers: vi.fn(async () => [worker]),
     listGrants: vi.fn(async () => [grant]),
+    listArtifacts: vi.fn(async () => []),
     approveGrantProposal: vi.fn(async () => ({ ...grant, status: "approved" as const })),
     rejectGrantProposal: vi.fn(async () => ({ ...grant, status: "revoked" as const })),
     recordCorrection: vi.fn(async () => {

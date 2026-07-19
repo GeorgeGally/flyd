@@ -34,7 +34,7 @@ class IntelligenceState::WebDiscoveryProviderTest < ActiveSupport::TestCase
 
     sources = IntelligenceState::Registry.snapshot[:providers].map { |provider| provider[:source] }
 
-    assert_equal [ "flyd-cli", "personal-context", "web-discovery" ], sources
+    assert_equal [ "flyd-runtime", "flyd-cli", "personal-context", "web-discovery" ], sources
   end
 
   private

@@ -51,4 +51,22 @@ class AgentRuntime::BridgeTest < ActiveSupport::TestCase
     assert_equal "revision_conflict", error.code
     assert_match(/revision changed/i, error.message)
   end
+
+  test "terminates a timed out runtime process group" do
+    script = Tempfile.new([ "slow-runtime", ".js" ])
+    script.write("setTimeout(() => process.stdout.write('{}'), 30_000)")
+    script.close
+
+    error = assert_raises(AgentRuntime::Bridge::Error) do
+      AgentRuntime::Bridge.new(bridge_path: script.path, timeout: 0.05.seconds).call(
+        schemaVersion: 1,
+        action: "health",
+        actorSurface: "rails"
+      )
+    end
+
+    assert_match(/unavailable/i, error.message)
+  ensure
+    script&.unlink
+  end
 end

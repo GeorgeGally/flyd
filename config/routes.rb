@@ -1,4 +1,5 @@
 Rails.application.routes.draw do
+  resources :task_artifacts, only: :show, param: :artifact_key
   get "up" => "rails/health#show", as: :rails_health_check
 
   resource :surface, only: :show

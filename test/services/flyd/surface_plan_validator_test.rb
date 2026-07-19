@@ -294,6 +294,37 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/Unknown correction context/, error.message)
   end
 
+  test "task plan binds permission actions to one persisted task revision" do
+    payload = task_plan_payload
+    references = [ "project:1", "runtime_task:task-1", "task_grant:grant-1" ]
+
+    result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: references)
+
+    assert_equal "task_plan", result.dig("items", 0, "renderer")
+    assert_equal 7, result.dig("items", 0, "metadata", "task_revision")
+    assert_equal %w[approve_task_grant reject_task_grant], result.dig("items", 0, "actions").pluck("id")
+
+    payload[:items].first[:actions].first[:payload][:task_revision] = 6
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: references)
+    end
+    assert_match(/revision must match/, error.message)
+  end
+
+  test "task actions reject selectors that are not displayed source references" do
+    payload = task_plan_payload
+    payload[:items].first[:actions].first[:payload][:grant_key] = "grant-other"
+
+    error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
+      Flyd::SurfacePlanValidator.call(
+        payload: payload,
+        reference_registry: [ "project:1", "runtime_task:task-1", "task_grant:grant-1" ]
+      )
+    end
+
+    assert_match(/Unknown grant_key/, error.message)
+  end
+
   private
 
   def validate(payload)
@@ -331,6 +362,43 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
       actions: actions
     )
     payload
+  end
+
+  def task_plan_payload
+    {
+      understanding: "A bounded coding plan is waiting for permission.",
+      current_intention: "Let the user review the exact scope.",
+      surface_mode: "decision",
+      focus_item_id: "runtime:task-1:plan",
+      items: [ {
+        id: "runtime:task-1:plan",
+        kind: "decision",
+        intent: "decide",
+        title: "Ship Rails parity",
+        summary: "One verified implementation plan is ready to run.",
+        renderer: "task_plan",
+        depth: "foreground",
+        context_refs: [ { type: "project", id: 1 } ],
+        source_refs: [
+          { type: "runtime_task", id: "task-1" },
+          { type: "task_grant", id: "grant-1" }
+        ],
+        metadata: { task_revision: 7 },
+        actions: [
+          {
+            id: "approve_task_grant",
+            label: "Approve",
+            payload: { task_key: "task-1", task_revision: 7, grant_key: "grant-1" }
+          },
+          {
+            id: "reject_task_grant",
+            label: "Reject",
+            payload: { task_key: "task-1", task_revision: 7, grant_key: "grant-1" }
+          }
+        ]
+      } ],
+      relationships: []
+    }
   end
 
   def valid_payload

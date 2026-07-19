@@ -101,24 +101,28 @@ module Flyd
         decision: {
           purpose: "Make the choice itself the interface.",
           focus_renderer: "decision_scene",
+          task_renderer: "task_plan",
           required_action: "choose",
           maximum_items: 3
         },
         investigation: {
           purpose: "Show what is known, what is uncertain, and the next question to pursue.",
           focus_renderer: "investigation_scene",
+          task_renderer: "task_review",
           required_action: "investigate",
           maximum_items: 3
         },
         action: {
           purpose: "Show the proposed work, likely impact, and confirmation boundary.",
           focus_renderer: "action_scene",
+          task_renderers: %w[task_orientation task_review task_completion],
           actions_by_readiness: { ready: "build", blocked: nil, running: nil },
           maximum_items: 3
         },
         monitoring: {
           purpose: "Show the changing condition and what would make it actionable.",
           focus_renderer: "notification",
+          task_renderer: "worker_monitor",
           maximum_items: 2
         },
         discovery: {

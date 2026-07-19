@@ -8,6 +8,8 @@ import type {
   ArchiveRuntimeEvent,
   RepositorySnapshot,
   RuntimeMetrics,
+  TaskArtifact,
+  TaskArtifactDraft,
   TaskAssignment,
   TaskGrant,
   WorkerCommand,
@@ -119,6 +121,28 @@ function mapWorkerCommand(row: QueryResultRow): WorkerCommand {
     idempotencyKey: row.idempotency_key, payload: row.payload ?? {},
     dispatchedAt: iso(row.dispatched_at), completedAt: iso(row.completed_at),
     errorSummary: row.error_summary,
+  };
+}
+
+function mapTaskArtifact(row: QueryResultRow): TaskArtifact {
+  return {
+    id: String(row.id),
+    artifactKey: row.artifact_key,
+    agentTaskId: String(row.agent_task_id),
+    taskAssignmentId: row.task_assignment_id == null ? null : String(row.task_assignment_id),
+    workerSessionId: row.worker_session_id == null ? null : String(row.worker_session_id),
+    kind: row.kind,
+    title: row.title,
+    mediaType: row.media_type,
+    byteSize: Number(row.byte_size),
+    sha256Digest: row.sha256_digest,
+    verificationStatus: row.verification_status,
+    sourceRevision: Number(row.source_revision),
+    content: row.content,
+    relativePath: row.relative_path,
+    repositoryHead: row.repository_head,
+    provenance: row.provenance ?? {},
+    createdAt: iso(row.created_at)!,
   };
 }
 
@@ -327,6 +351,14 @@ export class PostgresTaskStore {
     return result.rows.map(mapAssignment);
   }
 
+  async listArtifacts(taskId: string): Promise<TaskArtifact[]> {
+    const result = await this.pool.query(
+      "SELECT * FROM task_artifacts WHERE agent_task_id = $1 ORDER BY created_at, id",
+      [taskId],
+    );
+    return result.rows.map(mapTaskArtifact);
+  }
+
   async updateAssignmentWorkspace(assignmentKey: string, input: {
     worktreePath: string;
     branchName: string;
@@ -363,6 +395,7 @@ export class PostgresTaskStore {
   async recordAssignmentVerification(assignmentKey: string, input: {
     status: "verified" | "failed" | "blocked";
     result: Record<string, unknown>;
+    artifacts?: TaskArtifactDraft[];
     idempotencyKey: string;
   }): Promise<TaskAssignment> {
     return withTransaction(this.pool, async (client) => {
@@ -382,6 +415,33 @@ export class PostgresTaskStore {
         assignment.id, input.status, JSON.stringify(input.result),
       ]);
       const revision = Number(assignment.task_revision) + 1;
+      const worker = await client.query(
+        "SELECT id FROM worker_sessions WHERE task_assignment_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [assignment.id],
+      );
+      for (const artifact of input.artifacts ?? []) {
+        await client.query(`INSERT INTO task_artifacts
+          (agent_task_id, task_assignment_id, worker_session_id, artifact_key, kind, title, media_type,
+           byte_size, sha256_digest, verification_status, source_revision, content, relative_path,
+           repository_head, provenance, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, NOW(), NOW())`, [
+          assignment.agent_task_id,
+          assignment.id,
+          worker.rows[0]?.id ?? null,
+          randomUUID(),
+          artifact.kind,
+          artifact.title,
+          artifact.mediaType,
+          artifact.byteSize,
+          artifact.sha256Digest,
+          artifact.verificationStatus,
+          revision,
+          artifact.content ?? null,
+          artifact.relativePath ?? null,
+          artifact.repositoryHead ?? null,
+          JSON.stringify(artifact.provenance),
+        ]);
+      }
       await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, assignment.agent_task_id]);
       await this.insertEvent(client, assignment.agent_task_id, revision, `assignment.${input.status}`, input.idempotencyKey, {
         assignment_key: assignmentKey,

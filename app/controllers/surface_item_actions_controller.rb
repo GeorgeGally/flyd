@@ -1,5 +1,5 @@
 class SurfaceItemActionsController < ApplicationController
-  DIRECT_ACTIONS = %w[discuss answer choose investigate build].freeze
+  DIRECT_ACTIONS = (%w[discuss answer choose investigate build] + RuntimeTasks::ActionExecutor::TASK_ACTIONS).freeze
 
   def create
     item = SurfaceItem.includes(:scene, :surface).find(params[:surface_item_id])
@@ -23,10 +23,13 @@ class SurfaceItemActionsController < ApplicationController
     when "build"
       build = propose_build(item, action)
       redirect_to build_path(build), notice: build.proposed? ? "Review the action before it runs." : "This scene already has an active action."
+    when *RuntimeTasks::ActionExecutor::TASK_ACTIONS
+      RuntimeTasks::ActionExecutor.call(item:, action_id:, input: runtime_action_input(action_id))
+      redirect_to root_path, notice: "Flyd accepted the task command."
     else
       redirect_to root_path, alert: "Action is not available."
     end
-  rescue ArgumentError, ActiveRecord::RecordNotFound => error
+  rescue ArgumentError, ActiveRecord::RecordNotFound, AgentRuntime::Bridge::Error => error
     redirect_to root_path, alert: error.message
   end
 
@@ -110,6 +113,19 @@ class SurfaceItemActionsController < ApplicationController
     legacy_payload = params[:payload]
     legacy_option_id = legacy_payload.dig(:option_id) if legacy_payload.respond_to?(:dig)
     params[:option_id].presence || legacy_option_id.presence
+  end
+
+  def runtime_action_input(action_id)
+    case action_id
+    when "reject_task_grant"
+      { reason: params[:reason] }
+    when "redirect_worker"
+      { instruction: params[:instruction] }
+    when "correct_task"
+      { corrected_value: params[:corrected_value] }
+    else
+      {}
+    end
   end
 
   def persisted_payload(action)

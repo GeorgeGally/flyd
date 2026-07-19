@@ -204,6 +204,12 @@ module Flyd
           "provenance" => metadata["provenance"].to_s.truncate(300),
           "variant" => metadata["variant"].to_s.in?(%w[activity horoscope story archive]) ? metadata["variant"].to_s : nil
         }.compact_blank
+      when "task_orientation", "task_plan", "worker_monitor", "task_review", "task_completion"
+        task_revision = Integer(metadata["task_revision"], exception: false)
+        @errors << "Task renderer requires a non-negative task revision" unless task_revision && task_revision >= 0
+        source_types = source_refs.map { |reference| reference["type"] }
+        @errors << "Task renderer requires exactly one runtime task source" unless source_types.count("runtime_task") == 1
+        { "task_revision" => task_revision }.compact
       else
         {}
       end
@@ -221,13 +227,13 @@ module Flyd
       when "conversation"
         @errors << "Conversation surface must focus conversation" unless focus["renderer"] == "conversation"
       when "decision"
-        @errors << "Decision surface must focus a decision scene" unless focus["renderer"] == "decision_scene"
+        @errors << "Decision surface must focus a decision scene" unless focus["renderer"].in?(%w[decision_scene task_plan])
       when "investigation"
-        @errors << "Investigation surface must focus an investigation scene" unless focus["renderer"] == "investigation_scene"
+        @errors << "Investigation surface must focus an investigation scene" unless focus["renderer"].in?(%w[investigation_scene task_review])
       when "action"
-        @errors << "Action surface must focus an action scene" unless focus["renderer"] == "action_scene"
+        @errors << "Action surface must focus an action scene" unless focus["renderer"].in?(%w[action_scene task_orientation task_review task_completion])
       when "monitoring"
-        @errors << "Monitoring surface must focus a notification" unless focus["renderer"] == "notification"
+        @errors << "Monitoring surface must focus a notification" unless focus["renderer"].in?(%w[notification worker_monitor])
       when "discovery"
         @errors << "Discovery surface must focus a discovery scene" unless focus["renderer"] == "discovery_scene"
         @errors << "Discovery requires grounded source evidence" if focus["source_refs"].empty?
@@ -242,7 +248,34 @@ module Flyd
         validate_investigation_action(item)
       when "action_scene"
         validate_build_action(item)
+      when "task_orientation", "task_plan", "worker_monitor", "task_review", "task_completion"
+        validate_task_actions(item)
       end
+    end
+
+    def validate_task_actions(item)
+      source_keys = item["source_refs"].map { |reference| "#{reference["type"]}:#{reference["id"]}" }.to_set
+      item["actions"].each do |action|
+        payload = action["payload"]
+        if payload["task_key"].present? && !source_keys.include?("runtime_task:#{payload["task_key"]}")
+          @errors << "Task action must bind to the displayed runtime task"
+        end
+        if payload["grant_key"].present? && !source_keys.include?("task_grant:#{payload["grant_key"]}")
+          @errors << "Task grant action must bind to a displayed grant"
+        end
+        if payload["worker_key"].present? && !source_keys.include?("worker_session:#{payload["worker_key"]}")
+          @errors << "Worker action must bind to a displayed worker"
+        end
+        if payload["task_revision"].present? && payload["task_revision"] != item.dig("metadata", "task_revision")
+          @errors << "Task action revision must match the displayed task revision"
+        end
+      end
+
+      return unless item["renderer"] == "task_plan"
+
+      approve = item["actions"].count { |action| action["id"] == "approve_task_grant" }
+      reject = item["actions"].count { |action| action["id"] == "reject_task_grant" }
+      @errors << "Task plan requires exactly one approve and one reject action" unless approve == 1 && reject == 1
     end
 
     def validate_decision_actions(item)

@@ -8,6 +8,7 @@ import type {
   AgentTask,
   RepositorySnapshot,
   TaskAssignment,
+  TaskArtifactDraft,
   TaskGrant,
   WorkerCommand,
   WorkerSession,
@@ -44,7 +45,12 @@ interface OrchestrationStore {
   observeWorker?(workerKey: string): Promise<void>;
   recordAssignmentVerification(
     assignmentKey: string,
-    input: { status: "verified" | "failed" | "blocked"; result: Record<string, unknown>; idempotencyKey: string },
+    input: {
+      status: "verified" | "failed" | "blocked";
+      result: Record<string, unknown>;
+      artifacts?: TaskArtifactDraft[];
+      idempotencyKey: string;
+    },
   ): Promise<unknown>;
   queueWorkerCommand(
     workerKey: string,
@@ -82,6 +88,96 @@ function verificationPayload(result: VerifiedWorkerResult): Record<string, unkno
       output_digest: command.outputDigest,
     })),
   };
+}
+
+const MAX_TEXT_ARTIFACT_BYTES = 256 * 1024;
+
+function redactArtifactText(value: string): string {
+  return value
+    .replace(/\b(sk-[A-Za-z0-9_-]{16,})\b/g, "[REDACTED]")
+    .replace(/\b(api[_-]?key|token|secret|password)(\s*[:=]\s*)([^\s]+)/gi, "$1$2[REDACTED]");
+}
+
+function textArtifact(
+  kind: TaskArtifactDraft["kind"],
+  title: string,
+  mediaType: string,
+  rawContent: string,
+  verificationStatus: TaskArtifactDraft["verificationStatus"],
+  provenance: Record<string, unknown>,
+  repositoryHead: string,
+): TaskArtifactDraft {
+  const fullContent = redactArtifactText(rawContent);
+  const bytes = Buffer.from(fullContent, "utf8");
+  const truncated = bytes.byteLength > MAX_TEXT_ARTIFACT_BYTES;
+  const content = truncated
+    ? `${bytes.subarray(0, MAX_TEXT_ARTIFACT_BYTES).toString("utf8")}\n\n[Truncated ${bytes.byteLength - MAX_TEXT_ARTIFACT_BYTES} bytes]`
+    : fullContent;
+  const retainedBytes = Buffer.from(content, "utf8");
+  return {
+    kind,
+    title,
+    mediaType,
+    byteSize: bytes.byteLength,
+    sha256Digest: createHash("sha256").update(bytes).digest("hex"),
+    verificationStatus,
+    content,
+    repositoryHead,
+    provenance: {
+      ...provenance,
+      truncated,
+      retained_bytes: retainedBytes.byteLength,
+      retained_sha256_digest: createHash("sha256").update(retainedBytes).digest("hex"),
+    },
+  };
+}
+
+function verificationArtifacts(
+  verification: VerifiedWorkerResult,
+  workerResult: { output: string; error: string },
+  verificationStatus: TaskArtifactDraft["verificationStatus"],
+): TaskArtifactDraft[] {
+  const artifacts: TaskArtifactDraft[] = [];
+  if (verification.patch) {
+    artifacts.push(textArtifact(
+      "diff",
+      `Patch across ${verification.changedFiles.length} changed file${verification.changedFiles.length === 1 ? "" : "s"}`,
+      "text/x-diff",
+      verification.patch,
+      verificationStatus,
+      { changed_files: verification.changedFiles, patch_digest: verification.patchDigest },
+      verification.head,
+    ));
+  }
+  for (const command of verification.commands) {
+    artifacts.push(textArtifact(
+      "test",
+      command.command,
+      "text/plain",
+      [
+        `$ ${command.command}`,
+        `exit ${command.exitStatus}`,
+        command.stdout ? `\nstdout:\n${command.stdout}` : "",
+        command.stderr ? `\nstderr:\n${command.stderr}` : "",
+      ].join("\n"),
+      command.exitStatus === 0 && verificationStatus === "verified" ? "verified" : "rejected",
+      { command: command.command, exit_status: command.exitStatus, output_digest: command.outputDigest },
+      verification.head,
+    ));
+  }
+  const workerLog = [workerResult.output, workerResult.error].filter(Boolean).join("\n\n");
+  if (workerLog) {
+    artifacts.push(textArtifact(
+      "log",
+      "Worker result",
+      "text/plain",
+      workerLog,
+      verificationStatus,
+      {},
+      verification.head,
+    ));
+  }
+  return artifacts;
 }
 
 export async function orchestrateAssignments(input: {
@@ -312,6 +408,7 @@ export async function orchestrateAssignments(input: {
             out_of_scope_files: outOfScopeFiles,
             intervention,
           },
+          artifacts: verificationArtifacts(verification, result, "rejected"),
           idempotencyKey: eventKey(`assignment-scope:${assignment.assignmentKey}`),
         });
         throw new Error(`${intervention.reason}: ${outOfScopeFiles.join(", ")}`);
@@ -320,6 +417,7 @@ export async function orchestrateAssignments(input: {
         await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
           status: "verified",
           result: verificationPayload(verification),
+          artifacts: verificationArtifacts(verification, result, "verified"),
           idempotencyKey: eventKey(`assignment-verified:${assignment.assignmentKey}`),
         });
         verified.set(assignment.assignmentKey, verification);
@@ -349,6 +447,7 @@ export async function orchestrateAssignments(input: {
         await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
           status: "blocked",
           result: { ...verificationPayload(verification), intervention },
+          artifacts: verificationArtifacts(verification, result, "rejected"),
           idempotencyKey: eventKey(`assignment-blocked:${assignment.assignmentKey}`),
         });
         throw new Error(intervention.reason);
