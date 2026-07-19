@@ -2,12 +2,22 @@ import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import { describe, expect, it, vi } from "vitest";
 import {
+  nonInteractiveAssignment,
   runJsonWorkerProcess,
   sanitizeWorkerEnvironment,
   type WorkerAdapter,
 } from "../worker-adapter.js";
 
 describe("worker adapter contract", () => {
+  it("tells bounded workers to resolve safe ambiguity without asking questions", () => {
+    const prompt = nonInteractiveAssignment("Implement the acceptance report");
+
+    expect(prompt).toContain("Implement the acceptance report");
+    expect(prompt).toContain("Work non-interactively");
+    expect(prompt).toContain("Do not ask the user questions");
+    expect(prompt).toContain("exit non-zero");
+  });
+
   it("describes provider health and supported operations without branding the assignment", async () => {
     const adapter: WorkerAdapter = {
       name: "test",

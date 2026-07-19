@@ -65,6 +65,20 @@ describe("verifyWorkerResult", () => {
     expect(result.commands[0].exitStatus).toBe(7);
   });
 
+  it("fails an implementation result that changed no files", async () => {
+    const repo = await repository();
+
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: ["git diff --check"],
+      requireChanges: true,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.changedFiles).toEqual([]);
+  });
+
   it("rejects shell operators instead of interpreting an unstructured command", async () => {
     const repo = await repository();
 

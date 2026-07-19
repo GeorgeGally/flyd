@@ -80,6 +80,12 @@ const PASSTHROUGH_ENVIRONMENT = new Set([
   "PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL", "XDG_CONFIG_HOME", "CODEX_HOME",
 ]);
 
+export function nonInteractiveAssignment(assignment: string): string {
+  return `${assignment.trim()}
+
+Work non-interactively. Do not ask the user questions or stop for confirmation. Use repository evidence and the supplied task context to make conservative, reasonable assumptions. Implement and verify the requested outcome. If material ambiguity prevents safe work, exit non-zero with a concise blocker instead of claiming completion.`;
+}
+
 export function sanitizeWorkerEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(source).filter(([key]) => PASSTHROUGH_ENVIRONMENT.has(key)));
 }

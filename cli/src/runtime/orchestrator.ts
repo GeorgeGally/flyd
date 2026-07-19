@@ -13,7 +13,7 @@ import type {
   WorkerCommand,
   WorkerSession,
 } from "./types.js";
-import type { WorkerAdapter, WorkerHealth } from "./worker-adapter.js";
+import { nonInteractiveAssignment, type WorkerAdapter, type WorkerHealth } from "./worker-adapter.js";
 import { GitWorktreeManager } from "./worktree-manager.js";
 
 interface OrchestrationStore {
@@ -266,7 +266,7 @@ export async function orchestrateAssignments(input: {
         idempotencyKey: eventKey(`worker-create:${assignment.assignmentKey}`),
       });
       const args = adapter.buildArgs({
-        assignment: assignment.instructions,
+        assignment: nonInteractiveAssignment(assignment.instructions),
         projectRoot: worktree.path,
         taskKey: input.task.taskKey,
         contextPath: input.contextPath,
@@ -387,6 +387,7 @@ export async function orchestrateAssignments(input: {
         worktreePath: worktree.path,
         baseHead: input.repository.head,
         commands: input.grant.verificationCommands,
+        requireChanges: assignment.capabilityRequirements.includes("implementation"),
       });
       const outOfScopeFiles = filesOutsideScope(verification.changedFiles, assignment.declaredFileScope);
       if (outOfScopeFiles.length > 0) {

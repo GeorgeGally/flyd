@@ -113,6 +113,7 @@ export async function verifyWorkerResult(input: {
   baseHead: string;
   commands: string[];
   commandTimeoutMs?: number;
+  requireChanges?: boolean;
 }): Promise<VerifiedWorkerResult> {
   const commands: VerificationCommandResult[] = [];
   for (const command of input.commands) {
@@ -134,7 +135,8 @@ export async function verifyWorkerResult(input: {
   ]);
   const changedFiles = names.trim() ? names.trim().split("\n").sort() : [];
   return {
-    passed: commands.every((command) => command.exitStatus === 0),
+    passed: commands.every((command) => command.exitStatus === 0) &&
+      (!input.requireChanges || changedFiles.length > 0),
     worktreePath: input.worktreePath,
     baseHead: input.baseHead,
     head: head.trim(),
