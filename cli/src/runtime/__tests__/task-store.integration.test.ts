@@ -676,6 +676,17 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     await store.completeWorkerCommand(first.command.commandKey, {
       workerStatus: "interrupted",
     });
+    const afterLateExit = await store.transitionWorker(worker.workerKey, {
+      status: "failed",
+      exitStatus: 1,
+      error: "Process exited after redirect",
+      idempotencyKey: `late-exit:${worker.workerKey}`,
+    });
+    expect(afterLateExit).toMatchObject({
+      workerKey: worker.workerKey,
+      status: "interrupted",
+      stopReason: "redirect",
+    });
     const completedEvent = await pool.query(
       "SELECT payload FROM runtime_events WHERE agent_task_id = $1 AND event_type = 'worker.command_completed' ORDER BY task_revision DESC LIMIT 1",
       [task.id],

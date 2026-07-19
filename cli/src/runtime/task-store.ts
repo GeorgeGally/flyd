@@ -1025,6 +1025,12 @@ export class PostgresTaskStore {
         starting: [ "running", "failed", "interrupted" ],
         running: [ "running", "completed", "failed", "interrupted" ],
       };
+      const terminalStatuses = new Set([
+        "completed", "failed", "interrupted", "cancelled", "stopped", "replaced",
+      ]);
+      if (terminalStatuses.has(current.status) && terminalStatuses.has(update.status)) {
+        return mapWorker(current);
+      }
       if (!(allowedTransitions[current.status] ?? []).includes(update.status)) {
         throw new Error(`Worker cannot transition from ${current.status} to ${update.status}`);
       }
