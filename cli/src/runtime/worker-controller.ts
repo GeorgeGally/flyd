@@ -39,7 +39,7 @@ export async function controlWorker(input: {
     instruction ? { instruction } : {},
     input.idempotencyKey,
   );
-  if (command.status === "completed") return command;
+  if ([ "completed", "failed", "cancelled" ].includes(command.status)) return command;
 
   const shouldStop = [ "stop", "redirect", "replace" ].includes(input.kind);
   if (shouldStop && worker.processId && input.deps.isProcessAlive(worker)) {

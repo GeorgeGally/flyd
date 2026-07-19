@@ -20,13 +20,28 @@ export function processIsAlive(processId: number): boolean {
   }
 }
 
+export function readProcessIdentity(processId: number): string | null {
+  try {
+    const startedAt = execFileSync(
+      "ps",
+      [ "-p", String(processId), "-o", "lstart=" ],
+      { encoding: "utf8", timeout: 1_000 },
+    ).trim();
+    return startedAt || null;
+  } catch {
+    return null;
+  }
+}
+
 export function workerProcessIsAlive(
   worker: WorkerSession,
   readCommand: (processId: number) => string = (processId) =>
     execFileSync("ps", [ "-p", String(processId), "-o", "command=" ], { encoding: "utf8", timeout: 1_000 }).trim(),
+  readIdentity: (processId: number) => string | null = readProcessIdentity,
 ): boolean {
   if (!worker.processId || !processIsAlive(worker.processId)) return false;
   try {
+    if (!worker.processIdentity || readIdentity(worker.processId) !== worker.processIdentity) return false;
     const command = readCommand(worker.processId);
     const executable = worker.executablePath;
     if (!executable) return false;

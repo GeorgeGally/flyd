@@ -168,6 +168,7 @@ describe("orchestrateAssignments", () => {
           workingDirectory: input.workingDirectory as string,
           externalSessionId: null,
           processId: null,
+          processIdentity: null,
           errorSummary: null,
           output: null,
           exitStatus: null,
@@ -289,6 +290,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
           workingDirectory: input.workingDirectory as string,
           externalSessionId: null,
           processId: null,
+          processIdentity: null,
           errorSummary: null,
           output: null,
           exitStatus: null,
@@ -381,7 +383,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
       status: "queued", adapter: "codex", capabilities: ["implementation"],
       executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
-      externalSessionId: null, processId: null, errorSummary: null, output: null, exitStatus: null,
+      externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
     } satisfies WorkerSession;
     const store = {
@@ -431,12 +433,21 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       adapters: [crashing], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
     });
 
-    expect(result).toMatchObject({ status: "blocked", summary: "spawn channel closed" });
+    expect(result).toMatchObject({ status: "blocked", summary: expect.stringMatching(/budget is exhausted/i) });
     expect(store.transitionWorker).toHaveBeenCalledWith("worker-1", expect.objectContaining({
       status: "failed",
       error: "spawn channel closed",
     }));
     expect(worker.status).toBe("failed");
+    expect(store.recordAssignmentVerification).toHaveBeenCalledWith(
+      "assignment-1",
+      expect.objectContaining({
+        status: "blocked",
+        result: expect.objectContaining({
+          intervention: expect.objectContaining({ action: "escalate" }),
+        }),
+      }),
+    );
   });
 
   it("records an inactivity stop before accepting a timed-out adapter result", async () => {
@@ -449,7 +460,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
       status: "queued", adapter: "codex", capabilities: ["implementation"],
       executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
-      externalSessionId: null, processId: null, errorSummary: null, output: null, exitStatus: null,
+      externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
     } satisfies WorkerSession;
     const command = {
@@ -480,7 +491,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       parseEvent: () => null,
       run: async (input) => {
         await input.onStart?.(123);
-        await input.onTimeout?.();
+        await input.onTimeout?.("inactive");
         return { exitStatus: 1, externalSessionId: null, output: "", error: "Codex timed out after 1000ms" };
       },
     };

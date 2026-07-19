@@ -17,7 +17,7 @@ const worker: WorkerSession = {
   taskAssignmentId: "4", status: "running", adapter: "codex",
   capabilities: ["implementation", "testing"], executablePath: "/bin/codex",
   executableVersion: "codex-cli 0.144.2", workingDirectory: "/tmp/flyd/worktree",
-  externalSessionId: "thread-1", processId: 42, errorSummary: null, output: null,
+  externalSessionId: "thread-1", processId: 42, processIdentity: "process-42", errorSummary: null, output: null,
   exitStatus: null, startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
   lastObservedAt: "2026-07-17T00:01:00.000Z", stopReason: null,
   assignmentRevision: 3, pendingControl: "retry",

@@ -102,9 +102,97 @@ describe("worker adapter contract", () => {
       onTimeout,
     });
 
-    expect(onTimeout).toHaveBeenCalledOnce();
+    expect(onTimeout).toHaveBeenCalledWith("runtime");
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     expect(child.kill).toHaveBeenCalledWith("SIGKILL");
     expect(result.error).toContain("Test worker timed out");
+  });
+
+  it("resets inactivity on worker output without extending the absolute runtime", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        stderr: PassThrough;
+        pid: number;
+        kill: (signal?: NodeJS.Signals) => boolean;
+      };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 74;
+      child.kill = vi.fn(() => true);
+      const onActivity = vi.fn();
+      const onTimeout = vi.fn();
+      const resultPromise = runJsonWorkerProcess({
+        executable: "/bin/worker",
+        args: ["run"],
+        cwd: "/work/flyd",
+        timeoutMs: 100,
+        inactivityTimeoutMs: 20,
+        label: "Active worker",
+        spawn: vi.fn(() => child),
+        parseEvent: () => null,
+        onActivity,
+        onTimeout,
+      });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(15);
+      child.stdout.write("still working\n");
+      await vi.advanceTimersByTimeAsync(15);
+      child.stderr.write("progress");
+      await vi.advanceTimersByTimeAsync(15);
+      child.emit("close", 0);
+
+      await expect(resultPromise).resolves.toMatchObject({ exitStatus: 0 });
+      expect(onActivity).toHaveBeenCalledTimes(2);
+      expect(onTimeout).not.toHaveBeenCalled();
+      expect(child.kill).not.toHaveBeenCalledWith("SIGTERM");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("terminates a silent worker at the inactivity threshold", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        stderr: PassThrough;
+        pid: number;
+        kill: (signal?: NodeJS.Signals) => boolean;
+      };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 75;
+      child.kill = vi.fn(() => true);
+      const onTimeout = vi.fn();
+      const resultPromise = runJsonWorkerProcess({
+        executable: "/bin/worker",
+        args: ["run"],
+        cwd: "/work/flyd",
+        timeoutMs: 100,
+        inactivityTimeoutMs: 10,
+        killGraceMs: 2,
+        label: "Silent worker",
+        spawn: vi.fn(() => child),
+        parseEvent: () => null,
+        onTimeout,
+      });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(12);
+      await vi.advanceTimersByTimeAsync(2);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        exitStatus: 1,
+        error: expect.stringContaining("inactive"),
+      });
+      expect(onTimeout).toHaveBeenCalledWith("inactive");
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

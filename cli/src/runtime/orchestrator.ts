@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "crypto";
 import { integrateVerifiedResults, type IntegrationResult } from "./result-integrator.js";
 import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
 import { chooseIntervention } from "./intervention-policy.js";
+import { readProcessIdentity } from "./recovery.js";
 import { routeWorker } from "./worker-router.js";
 import type {
   AgentTask,
@@ -33,12 +34,14 @@ interface OrchestrationStore {
   transitionWorker(workerKey: string, update: {
     status: "running" | "completed" | "failed" | "interrupted";
     processId?: number | null;
+    processIdentity?: string | null;
     externalSessionId?: string;
     exitStatus?: number;
     output?: string;
     error?: string;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  observeWorker?(workerKey: string): Promise<void>;
   recordAssignmentVerification(
     assignmentKey: string,
     input: { status: "verified" | "failed" | "blocked"; result: Record<string, unknown>; idempotencyKey: string },
@@ -173,8 +176,13 @@ export async function orchestrateAssignments(input: {
         contextPath: input.contextPath,
       });
       let recordedSession: string | null = null;
+      let lastPersistedObservationAt = 0;
       let workerTransitions = Promise.resolve(worker);
-      const inactivity = {} as { control?: { command: WorkerCommand; worker: WorkerSession } };
+      const timeout = {} as {
+        reason?: "runtime" | "inactive";
+        control?: { command: WorkerCommand; worker: WorkerSession };
+      };
+      let adapterCrashed = false;
       let result;
       try {
         result = await adapter.run({
@@ -182,10 +190,12 @@ export async function orchestrateAssignments(input: {
           args,
           cwd: worktree.path,
           timeoutMs: Number(input.grant.budget.max_runtime_minutes ?? 90) * 60_000,
+          inactivityTimeoutMs: Number(input.grant.budget.max_inactivity_minutes ?? 10) * 60_000,
           onStart: async (processId) => {
             workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
               status: "running",
               processId,
+              processIdentity: processId ? readProcessIdentity(processId) : null,
               idempotencyKey: eventKey(`worker-running:${worker.workerKey}`),
             }));
             await workerTransitions;
@@ -199,22 +209,34 @@ export async function orchestrateAssignments(input: {
               idempotencyKey: eventKey(`worker-session:${worker.workerKey}`),
             }));
           },
-          onTimeout: async () => {
-            const evidenceDigest = createHash("sha256")
-              .update(`${assignment.assignmentKey}:${worker.workerKey}:inactive`)
-              .digest("hex");
-            const intervention = chooseIntervention({
-              trigger: "inactive",
-              evidenceDigest,
-              priorEvidenceDigests,
-              remainingRuns: maxWorkerRuns - workerRuns,
-              replacementAvailable: false,
+          onActivity: () => {
+            const now = Date.now();
+            if (!input.deps.store.observeWorker || now - lastPersistedObservationAt < 5_000) return;
+            lastPersistedObservationAt = now;
+            workerTransitions = workerTransitions.then(async (currentWorker) => {
+              await input.deps.store.observeWorker!(worker.workerKey);
+              return currentWorker;
             });
-            inactivity.control = await input.deps.store.queueWorkerCommand(
+          },
+          onTimeout: async (reason) => {
+            const evidenceDigest = createHash("sha256")
+              .update(`${assignment.assignmentKey}:${worker.workerKey}:${reason}`)
+              .digest("hex");
+            const explanation = reason === "inactive"
+              ? chooseIntervention({
+                trigger: "inactive",
+                evidenceDigest,
+                priorEvidenceDigests,
+                remainingRuns: maxWorkerRuns - workerRuns,
+                replacementAvailable: false,
+              }).reason
+              : "The worker exceeded the approved absolute runtime budget";
+            timeout.reason = reason;
+            timeout.control = await input.deps.store.queueWorkerCommand(
               worker.workerKey,
               "stop",
-              { trigger: "inactive", evidence_digest: evidenceDigest, reason: intervention.reason },
-              eventKey(`inactivity-stop:${worker.workerKey}`),
+              { trigger: reason === "inactive" ? "inactive" : "runtime_budget", evidence_digest: evidenceDigest, reason: explanation },
+              eventKey(`${reason}-stop:${worker.workerKey}`),
             );
           },
         });
@@ -226,18 +248,27 @@ export async function orchestrateAssignments(input: {
           error: message,
           idempotencyKey: eventKey(`worker-crashed:${worker.workerKey}`),
         });
-        throw error;
+        adapterCrashed = true;
+        result = {
+          exitStatus: 1,
+          externalSessionId: recordedSession,
+          output: "",
+          error: message,
+        };
       } finally {
         activeCounts[selected.name] -= 1;
       }
       await workerTransitions;
-      if (inactivity.control) {
-        const control = inactivity.control;
+      if (timeout.control) {
+        const control = timeout.control;
         await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
+        const reason = timeout.reason === "runtime"
+          ? "The worker was stopped after exceeding the approved absolute runtime budget"
+          : "The worker was stopped after exceeding the approved inactivity threshold";
         const intervention = {
           action: "stop",
           automatic: true,
-          reason: "The worker was stopped after exceeding the approved inactivity threshold",
+          reason,
         };
         await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
           status: "blocked",
@@ -246,14 +277,16 @@ export async function orchestrateAssignments(input: {
         });
         throw new Error(intervention.reason);
       }
-      await input.deps.store.transitionWorker(worker.workerKey, {
-        status: result.exitStatus === 0 ? "completed" : "failed",
-        externalSessionId: result.externalSessionId ?? undefined,
-        exitStatus: result.exitStatus,
-        output: result.output,
-        error: result.error,
-        idempotencyKey: eventKey(`worker-terminal:${worker.workerKey}`),
-      });
+      if (!adapterCrashed) {
+        await input.deps.store.transitionWorker(worker.workerKey, {
+          status: result.exitStatus === 0 ? "completed" : "failed",
+          externalSessionId: result.externalSessionId ?? undefined,
+          exitStatus: result.exitStatus,
+          output: result.output,
+          error: result.error,
+          idempotencyKey: eventKey(`worker-terminal:${worker.workerKey}`),
+        });
+      }
       const verification = await verifyWorkerResult({
         worktreePath: worktree.path,
         baseHead: input.repository.head,

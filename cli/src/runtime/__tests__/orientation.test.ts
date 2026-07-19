@@ -49,6 +49,7 @@ const worker: WorkerSession = {
   workingDirectory: "/work/flyd",
   externalSessionId: "ses_1",
   processId: null,
+  processIdentity: null,
   errorSummary: "runtime restarted",
   output: "Implemented the first store test",
   exitStatus: null,

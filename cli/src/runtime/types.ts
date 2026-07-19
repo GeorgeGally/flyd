@@ -113,6 +113,7 @@ export interface WorkerSession {
   workingDirectory: string;
   externalSessionId: string | null;
   processId: number | null;
+  processIdentity: string | null;
   errorSummary: string | null;
   output: string | null;
   exitStatus: number | null;

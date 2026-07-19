@@ -43,10 +43,12 @@ export interface WorkerRunInput {
   args: string[];
   cwd: string;
   timeoutMs: number;
+  inactivityTimeoutMs?: number;
   killGraceMs?: number;
   onEvent?: (event: WorkerEvent) => void;
   onStart?: (processId: number | null) => void | Promise<void>;
-  onTimeout?: () => void | Promise<void>;
+  onActivity?: () => void | Promise<void>;
+  onTimeout?: (reason: "runtime" | "inactive") => void | Promise<void>;
 }
 
 export interface WorkerAdapter {
@@ -95,8 +97,9 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
   let stdoutBuffer = "";
   let output = "";
   let error = "";
-  let timedOut = false;
+  let timeoutReason: "runtime" | "inactive" | null = null;
   let externalSessionId: string | null = null;
+  let markActivity = () => undefined;
   const consume = (line: string) => {
     const event = input.parseEvent(line);
     if (!event) return;
@@ -106,31 +109,47 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
   };
 
   child.stdout.on("data", (chunk: Buffer | string) => {
+    markActivity();
     stdoutBuffer += chunk.toString();
     const lines = stdoutBuffer.split("\n");
     stdoutBuffer = lines.pop() ?? "";
     lines.forEach(consume);
   });
   child.stderr.on("data", (chunk: Buffer | string) => {
+    markActivity();
     error += chunk.toString();
   });
 
   return new Promise((resolve, reject) => {
     let settled = false;
     let forceTimer: NodeJS.Timeout | undefined;
+    let inactivityTimer: NodeJS.Timeout | undefined;
+    let runtimeTimer: NodeJS.Timeout | undefined;
+    const clearTimers = () => {
+      if (runtimeTimer) clearTimeout(runtimeTimer);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (forceTimer) clearTimeout(forceTimer);
+    };
     const finish = (code: number | null, forced = false) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
+      clearTimers();
       if (stdoutBuffer) consume(stdoutBuffer);
-      if (timedOut) error = `${error}${error ? "\n" : ""}${input.label} timed out after ${input.timeoutMs}ms`;
+      if (timeoutReason === "runtime") {
+        error = `${error}${error ? "\n" : ""}${input.label} timed out after ${input.timeoutMs}ms`;
+      }
+      if (timeoutReason === "inactive") {
+        error = `${error}${error ? "\n" : ""}${input.label} was inactive for ${input.inactivityTimeoutMs}ms`;
+      }
       if (forced) error = `${error}${error ? "\n" : ""}${input.label} required forced termination`;
       resolve({ exitStatus: code ?? 1, externalSessionId, output, error });
     };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      Promise.resolve(input.onTimeout?.()).catch((timeoutError) => {
+    const terminate = (reason: "runtime" | "inactive") => {
+      if (settled || timeoutReason) return;
+      timeoutReason = reason;
+      if (runtimeTimer) clearTimeout(runtimeTimer);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      Promise.resolve(input.onTimeout?.(reason)).catch((timeoutError) => {
         error = `${error}${error ? "\n" : ""}Failed to journal timeout: ${
           timeoutError instanceof Error ? timeoutError.message : String(timeoutError)
         }`;
@@ -142,12 +161,22 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
           finish(null, true);
         }, input.killGraceMs ?? 5_000);
       });
-    }, input.timeoutMs);
+    };
+    const resetInactivityTimer = () => {
+      if (!input.inactivityTimeoutMs || input.inactivityTimeoutMs <= 0 || settled || timeoutReason) return;
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => terminate("inactive"), input.inactivityTimeoutMs);
+    };
+    markActivity = () => {
+      resetInactivityTimer();
+      Promise.resolve(input.onActivity?.()).catch(() => undefined);
+    };
+    runtimeTimer = setTimeout(() => terminate("runtime"), input.timeoutMs);
+    resetInactivityTimer();
     child.once("error", (spawnError) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
+      clearTimers();
       reject(spawnError);
     });
     child.once("close", (code) => finish(code));
@@ -157,8 +186,7 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
         child.kill("SIGKILL");
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
-        if (forceTimer) clearTimeout(forceTimer);
+        clearTimers();
         reject(startError);
       },
     );

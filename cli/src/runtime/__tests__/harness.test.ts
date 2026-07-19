@@ -31,7 +31,7 @@ const worker: WorkerSession = {
   id: "3", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "4",
   status: "queued", adapter: "opencode", capabilities: ["implementation"],
   executablePath: "/bin/opencode", executableVersion: "1.17.18", workingDirectory: repository.root,
-  externalSessionId: null, processId: null, errorSummary: null, output: null, exitStatus: null,
+  externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
   startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
 };
 

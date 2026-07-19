@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { PostgresTaskStore } from "../task-store.js";
+import type { WorkerSession } from "../types.js";
 
 const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
 const pool = new Pool({ connectionString, max: 2 });
@@ -491,18 +492,20 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       idempotencyKey: `control-running:${task.taskKey}`,
     });
 
-    const first = await store.queueWorkerCommand(
-      worker.workerKey,
-      "redirect",
-      { instruction: "Focus on the failing store test" },
-      `redirect:${worker.workerKey}`,
-    );
-    const duplicate = await store.queueWorkerCommand(
-      worker.workerKey,
-      "redirect",
-      { instruction: "This duplicate must not replace the durable payload" },
-      `redirect:${worker.workerKey}`,
-    );
+    const [first, duplicate] = await Promise.all([
+      store.queueWorkerCommand(
+        worker.workerKey,
+        "redirect",
+        { instruction: "Focus on the failing store test" },
+        `redirect:${worker.workerKey}`,
+      ),
+      store.queueWorkerCommand(
+        worker.workerKey,
+        "redirect",
+        { instruction: "Focus on the failing store test" },
+        `redirect:${worker.workerKey}`,
+      ),
+    ]);
     expect(duplicate.command.commandKey).toBe(first.command.commandKey);
     expect(first.worker.status).toBe("stopping");
     expect((await store.liveWorkers(projectRoot)).map((item) => item.workerKey)).toContain(worker.workerKey);
@@ -536,5 +539,100 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     );
     await store.completeWorkerCommand(replacement.command.commandKey, { workerStatus: null });
     expect((await store.listAssignments(task.id))[0].excludedAdapters).toContain("codex");
+
+    const retry = await store.queueWorkerCommand(
+      worker.workerKey,
+      "retry",
+      {},
+      `retry:${worker.workerKey}`,
+    );
+    const failed = await store.completeWorkerCommand(retry.command.commandKey, {
+      workerStatus: null,
+      error: "replacement unavailable",
+    });
+    const revisionAfterFailure = (await store.findTask(task.taskKey))!.revision;
+    const failedEventsBeforeReplay = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM runtime_events WHERE agent_task_id = $1 AND event_type = 'worker.command_failed'",
+      [task.id],
+    );
+
+    const replay = await store.completeWorkerCommand(retry.command.commandKey, {
+      workerStatus: null,
+      error: "replacement unavailable",
+    });
+
+    expect(failed.status).toBe("failed");
+    expect(replay.status).toBe("failed");
+    expect((await store.findTask(task.taskKey))!.revision).toBe(revisionAfterFailure);
+    const failedEventsAfterReplay = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM runtime_events WHERE agent_task_id = $1 AND event_type = 'worker.command_failed'",
+      [task.id],
+    );
+    expect(failedEventsAfterReplay.rows[0].count).toBe(failedEventsBeforeReplay.rows[0].count);
+  });
+
+  it("keeps a task running while another assignment worker remains live", async () => {
+    const task = await store.createTask({
+      projectName: "runtime-test",
+      projectRoot,
+      intendedOutcome: "Keep concurrent task state truthful",
+      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `parallel-control-task:${projectRoot}`,
+    });
+    const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
+      successCriteria: ["Both workers settle"],
+      verificationCriteria: ["git diff --check"],
+      source: "fallback",
+      assignments: [
+        {
+          key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"],
+          dependencyKeys: [], declaredFileScope: ["one.txt"],
+        },
+        {
+          key: "two", title: "Two", instructions: "Two", capabilityRequirements: ["testing"],
+          dependencyKeys: [], declaredFileScope: ["two.txt"],
+        },
+      ],
+      baseHead: "base",
+      idempotencyKey: `parallel-control-plan:${task.taskKey}`,
+    });
+    const grant = await store.approveGrant(task.taskKey, planned.task.revision, {
+      repositoryRoots: [projectRoot], worktreePaths: [], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
+      maxConcurrency: 2, budget: { max_worker_runs: 3, max_runtime_minutes: 90 },
+      providerIdentity: "codex:local", expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `parallel-control-grant:${task.taskKey}`,
+    });
+    const workers: WorkerSession[] = [];
+    for (const assignment of planned.assignments) {
+      const created = await store.createWorker({
+        taskKey: task.taskKey, grantKey: grant.grantKey, assignmentKey: assignment.assignmentKey,
+        adapter: "codex", capabilities: assignment.capabilityRequirements, executablePath: "/bin/codex",
+        executableVersion: "codex-cli 0.144.2", workingDirectory: projectRoot,
+        idempotencyKey: `parallel-control-worker:${assignment.assignmentKey}`,
+      });
+      workers.push(await store.transitionWorker(created.workerKey, {
+        status: "running", processId: process.pid,
+        idempotencyKey: `parallel-control-running:${assignment.assignmentKey}`,
+      }));
+    }
+    const revisionBeforeObservation = (await store.findTask(task.taskKey))!.revision;
+    await store.observeWorker(workers[1].workerKey);
+    expect((await store.findTask(task.taskKey))!.revision).toBe(revisionBeforeObservation);
+    expect((await store.listWorkers(task.id)).find((item) => item.workerKey === workers[1].workerKey)?.lastObservedAt)
+      .toEqual(expect.any(String));
+
+    const control = await store.queueWorkerCommand(
+      workers[0].workerKey,
+      "stop",
+      {},
+      `parallel-control-stop:${workers[0].workerKey}`,
+    );
+    await store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
+
+    expect((await store.findTask(task.taskKey))!.status).toBe("running");
+    expect((await store.listWorkers(task.id)).find((item) => item.workerKey === workers[1].workerKey)?.status)
+      .toBe("running");
   });
 });

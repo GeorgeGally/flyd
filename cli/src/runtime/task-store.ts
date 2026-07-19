@@ -61,7 +61,8 @@ function mapWorker(row: QueryResultRow): WorkerSession {
     taskAssignmentId: String(row.task_assignment_id), status: row.status, adapter: row.adapter,
     capabilities: row.capabilities ?? [], executablePath: row.executable_path, executableVersion: row.executable_version,
     workingDirectory: row.working_directory, externalSessionId: row.external_session_id,
-    processId: row.process_id == null ? null : Number(row.process_id), errorSummary: row.error_summary, output: row.output,
+    processId: row.process_id == null ? null : Number(row.process_id), processIdentity: row.process_identity,
+    errorSummary: row.error_summary, output: row.output,
     exitStatus: row.exit_status == null ? null : Number(row.exit_status), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
     lastObservedAt: iso(row.last_observed_at ?? row.last_heartbeat_at), stopReason: row.stop_reason,
     assignmentRevision: row.assignment_revision_current == null
@@ -673,6 +674,7 @@ export class PostgresTaskStore {
   async transitionWorker(workerKey: string, update: {
     status: "running" | "completed" | "failed" | "interrupted";
     processId?: number | null;
+    processIdentity?: string | null;
     externalSessionId?: string;
     exitStatus?: number;
     output?: string;
@@ -697,11 +699,13 @@ export class PostgresTaskStore {
       }
       const revision = Number(current.revision) + 1;
       const result = await client.query(`UPDATE worker_sessions SET status = $2::varchar, process_id = COALESCE($3::bigint, process_id),
-        external_session_id = COALESCE($4, external_session_id), exit_status = COALESCE($5, exit_status), output = COALESCE($6, output),
-        error_summary = COALESCE($7, error_summary), started_at = CASE WHEN $2::varchar = 'running' THEN COALESCE(started_at, NOW()) ELSE started_at END,
+        process_identity = COALESCE($4, process_identity), external_session_id = COALESCE($5, external_session_id),
+        exit_status = COALESCE($6, exit_status), output = COALESCE($7, output),
+        error_summary = COALESCE($8, error_summary), started_at = CASE WHEN $2::varchar = 'running' THEN COALESCE(started_at, NOW()) ELSE started_at END,
         ended_at = CASE WHEN $2::varchar IN ('completed','failed','interrupted') THEN NOW() ELSE ended_at END,
         last_heartbeat_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
-      [current.id, update.status, update.processId ?? null, update.externalSessionId ?? null, update.exitStatus ?? null, update.output ?? null, update.error ?? null]);
+      [current.id, update.status, update.processId ?? null, update.processIdentity ?? null, update.externalSessionId ?? null,
+        update.exitStatus ?? null, update.output ?? null, update.error ?? null]);
       await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, current.agent_task_id]);
       await this.insertEvent(client, current.agent_task_id, revision, `worker.${update.status}`, update.idempotencyKey, {
         worker_key: workerKey,
@@ -711,6 +715,12 @@ export class PostgresTaskStore {
       }, current.task_grant_id, current.id);
       return mapWorker(result.rows[0]);
     });
+  }
+
+  async observeWorker(workerKey: string): Promise<void> {
+    await this.pool.query(`UPDATE worker_sessions
+      SET last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
+      WHERE worker_key = $1 AND status IN ('queued','starting','running','stopping')`, [workerKey]);
   }
 
   async queueWorkerCommand(
@@ -739,6 +749,16 @@ export class PostgresTaskStore {
         FOR UPDATE OF w, t, g, a`, [workerKey]);
       const worker = result.rows[0];
       if (!worker) throw new Error(`Unknown worker ${workerKey}`);
+      const committedDuplicate = await client.query(
+        "SELECT * FROM worker_commands WHERE idempotency_key = $1 LIMIT 1",
+        [idempotencyKey],
+      );
+      if (committedDuplicate.rows[0]) {
+        return {
+          command: mapWorkerCommand(committedDuplicate.rows[0]),
+          worker: mapWorker(worker),
+        };
+      }
       if (worker.grant_status !== "approved" || new Date(worker.grant_expires_at).getTime() <= Date.now()) {
         throw new Error("Worker control requires an approved unexpired task grant");
       }
@@ -795,14 +815,14 @@ export class PostgresTaskStore {
   }): Promise<WorkerCommand> {
     return withTransaction(this.pool, async (client) => {
       const result = await client.query(`SELECT c.*, w.worker_key, w.agent_task_id, w.task_grant_id, w.task_assignment_id,
-          t.revision AS task_revision
+          t.revision AS task_revision, t.status AS task_status
         FROM worker_commands c
         JOIN worker_sessions w ON w.id = c.worker_session_id
         JOIN agent_tasks t ON t.id = w.agent_task_id
         WHERE c.command_key = $1 FOR UPDATE OF c, w, t`, [commandKey]);
       const command = result.rows[0];
       if (!command) throw new Error(`Unknown worker command ${commandKey}`);
-      if (command.status === "completed") return mapWorkerCommand(command);
+      if ([ "completed", "failed", "cancelled" ].includes(command.status)) return mapWorkerCommand(command);
       if (input.workerStatus) {
         await client.query(`UPDATE worker_sessions SET status = $2, stop_reason = $3,
           ended_at = NOW(), updated_at = NOW() WHERE id = $1`, [
@@ -815,8 +835,15 @@ export class PostgresTaskStore {
         command.id, input.error ? "failed" : "completed", input.error ?? null,
       ]);
       const revision = Number(command.task_revision) + 1;
-      await client.query("UPDATE agent_tasks SET status = 'ready', revision = $1, updated_at = NOW() WHERE id = $2", [
-        revision, command.agent_task_id,
+      const liveWorkers = await client.query(
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
+        [command.agent_task_id],
+      );
+      const taskStatus = [ "completed", "failed", "cancelled", "blocked" ].includes(command.task_status)
+        ? command.task_status
+        : liveWorkers.rows[0] ? "running" : "ready";
+      await client.query("UPDATE agent_tasks SET status = $1, revision = $2, updated_at = NOW() WHERE id = $3", [
+        taskStatus, revision, command.agent_task_id,
       ]);
       await this.insertEvent(
         client,

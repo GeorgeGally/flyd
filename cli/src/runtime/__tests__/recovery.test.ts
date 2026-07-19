@@ -8,7 +8,8 @@ function worker(overrides: Partial<WorkerSession>): WorkerSession {
     taskAssignmentId: "assignment-1", status: "running", adapter: "opencode",
     capabilities: ["implementation"], executablePath: "/bin/opencode",
     executableVersion: "1.17.18", workingDirectory: "/work/flyd", externalSessionId: "ses_1",
-    processId: 123, errorSummary: null, output: null, exitStatus: null,
+    processId: 123, processIdentity: "Thu Jul 17 00:00:00 2026",
+    errorSummary: null, output: null, exitStatus: null,
     startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
     lastObservedAt: "2026-07-17T00:00:00.000Z", stopReason: null, ...overrides,
   };
@@ -41,9 +42,11 @@ describe("recoverInterruptedWorkers", () => {
   it("rejects a reused live PID whose command is not the recorded executable", () => {
     const recorded = worker({ processId: process.pid, executablePath: "/usr/local/bin/opencode" });
 
-    expect(workerProcessIsAlive(recorded, () => "node unrelated-server.js")).toBe(false);
-    expect(workerProcessIsAlive(recorded, () => "/tmp/opencode run another-task")).toBe(false);
-    expect(workerProcessIsAlive(recorded, () => "/usr/local/bin/opencode run task")).toBe(true);
-    expect(workerProcessIsAlive(recorded, () => "node /usr/local/bin/opencode run task")).toBe(true);
+    const sameStart = () => recorded.processIdentity;
+    expect(workerProcessIsAlive(recorded, () => "node unrelated-server.js", sameStart)).toBe(false);
+    expect(workerProcessIsAlive(recorded, () => "/tmp/opencode run another-task", sameStart)).toBe(false);
+    expect(workerProcessIsAlive(recorded, () => "/usr/local/bin/opencode run task", () => "different process")).toBe(false);
+    expect(workerProcessIsAlive(recorded, () => "/usr/local/bin/opencode run task", sameStart)).toBe(true);
+    expect(workerProcessIsAlive(recorded, () => "node /usr/local/bin/opencode run task", sameStart)).toBe(true);
   });
 });

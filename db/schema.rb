@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_17_130000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_19_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -584,6 +584,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_17_130000) do
     t.jsonb "capabilities", default: [], null: false
     t.datetime "last_observed_at"
     t.text "stop_reason"
+    t.string "process_identity"
     t.index ["agent_task_id"], name: "index_worker_sessions_on_agent_task_id"
     t.index ["resumes_worker_session_id"], name: "index_worker_sessions_on_resumes_worker_session_id"
     t.index ["task_assignment_id"], name: "index_worker_sessions_on_task_assignment_id"

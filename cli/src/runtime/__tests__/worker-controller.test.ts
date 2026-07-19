@@ -16,6 +16,7 @@ const worker: WorkerSession = {
   workingDirectory: "/worktree",
   externalSessionId: "thread-1",
   processId: 42,
+  processIdentity: "process-42",
   errorSummary: null,
   output: null,
   exitStatus: null,
@@ -130,6 +131,28 @@ describe("controlWorker", () => {
       expect.objectContaining({ workerStatus: null }),
     );
   });
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "does not repeat a consequential effect for an existing %s command",
+    async (status) => {
+      const deps = dependencies("stop");
+      deps.store.queueWorkerCommand.mockResolvedValue({
+        command: { ...command("stop"), status },
+        worker,
+      });
+
+      const result = await controlWorker({
+        workerKey: worker.workerKey,
+        kind: "stop",
+        idempotencyKey: "stop-1",
+        deps,
+      });
+
+      expect(result.status).toBe(status);
+      expect(deps.signal).not.toHaveBeenCalled();
+      expect(deps.store.completeWorkerCommand).not.toHaveBeenCalled();
+    },
+  );
 
   it("requires a focused instruction for redirect", async () => {
     const deps = dependencies("redirect");
