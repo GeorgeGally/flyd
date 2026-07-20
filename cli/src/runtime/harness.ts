@@ -101,6 +101,12 @@ interface TaskStore {
     repositorySnapshot: Record<string, unknown>;
     idempotencyKey: string;
   }): Promise<AgentTask>;
+  completeLocalTask(taskKey: string, expectedRevision: number, input: {
+    summary: string;
+    verification: Record<string, unknown>;
+    repositorySnapshot: Record<string, unknown>;
+    idempotencyKey: string;
+  }): Promise<AgentTask>;
   keepTaskOpen(taskKey: string, expectedRevision: number, input: {
     nextAction: string;
     repositorySnapshot: Record<string, unknown>;
@@ -246,9 +252,10 @@ function liveWorkerMessage(worker: WorkerSession): string {
 }
 
 function requestsLocalProjectBriefing(task: AgentTask, nextAction: string): boolean {
-  const text = `${task.intendedOutcome}\n${nextAction}`.toLowerCase();
+  const outcome = task.intendedOutcome.toLowerCase();
+  const text = `${outcome}\n${nextAction}`.toLowerCase();
   const asksForStatus = /\b(status|review|assess|inspect|look at|summari[sz]e|current state|what'?s going on)\b/.test(text);
-  const asksForEdits = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/.test(text);
+  const asksForEdits = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/.test(outcome);
   return asksForStatus && !asksForEdits;
 }
 
@@ -351,7 +358,7 @@ export async function runContinuityHarness(input: {
       return { status: "running", taskKey: task.taskKey };
     }
 
-    if (resumedTask && requestsLocalProjectBriefing(resumedTask, orientation.nextAction)) {
+    if (resumedTask && !input.outcome?.trim() && requestsLocalProjectBriefing(resumedTask, orientation.nextAction)) {
       deps.terminal.write(renderLocalProjectBriefing({
         task: resumedTask,
         repository,
@@ -359,8 +366,14 @@ export async function runContinuityHarness(input: {
         recoveredWorkers,
         recoveredSessions,
       }));
-      task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
-        nextAction: "State the concrete outcome you want Flyd to change",
+      task = await deps.store.completeLocalTask(task.taskKey, task.revision, {
+        summary: `Reviewed project status locally. Repository ${repository.branch} at ${repository.head.slice(0, 12)} is ${repository.dirty ? "dirty" : "clean"}.`,
+        verification: {
+          local_project_briefing: true,
+          worker_launched: false,
+          recovered_workers: recoveredWorkers,
+          recovered_sessions: recoveredSessions,
+        },
         repositorySnapshot: repositoryState(repository),
         idempotencyKey: eventKey(task.taskKey, "local-project-briefing"),
       });

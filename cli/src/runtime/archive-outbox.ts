@@ -22,7 +22,10 @@ async function exists(path: string): Promise<boolean> {
 
 function renderEvent(event: ArchiveRuntimeEvent): string {
   const promotedKnowledge = promoteRuntimeOutcome(event);
-  const summary = event.eventType === "task.completed"
+  const verification = event.payload.verification as Record<string, unknown> | undefined;
+  const summary = event.eventType === "task.completed" && verification?.local_project_briefing === true
+    ? `Local project brief: ${String(event.payload.summary ?? "Reviewed project status locally")}`
+    : event.eventType === "task.completed"
     ? `Verified outcome: ${String(event.payload.summary ?? "Completed task")} at ${String(
         (event.payload.repository as Record<string, unknown> | undefined)?.head ?? "verified repository head",
       )}`

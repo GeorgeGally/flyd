@@ -80,6 +80,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     transitionWorker: vi.fn(async () => worker),
     findTask: vi.fn(async () => currentTask),
     completeTask: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "completed" }; return currentTask; }),
+    completeLocalTask: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "completed" }; return currentTask; }),
     keepTaskOpen: vi.fn(async (_key: string, _revision: number, input: { nextAction: string }) => {
       currentTask = {
         ...currentTask,
@@ -358,7 +359,7 @@ describe("runContinuityHarness", () => {
       revision: 3,
       intendedOutcome: "i want you to look at the status of this project.",
       repositorySnapshot: { head: "old", status_digest: "old" },
-      recommendedNextAction: "Review the current state before intervening again",
+      recommendedNextAction: "State the concrete outcome you want Flyd to change",
     }));
     deps.store.latestWorker.mockResolvedValue({
       ...worker,
@@ -384,15 +385,39 @@ describe("runContinuityHarness", () => {
     expect(deps.terminal.ask).not.toHaveBeenCalled();
     expect(deps.store.createWorker).not.toHaveBeenCalled();
     expect(deps.runWorker).not.toHaveBeenCalled();
-    expect(deps.store.keepTaskOpen).toHaveBeenCalledWith(
+    expect(deps.store.completeLocalTask).toHaveBeenCalledWith(
       "task-1",
       expect.any(Number),
       expect.objectContaining({
-        nextAction: "State the concrete outcome you want Flyd to change",
+        summary: expect.stringContaining("Reviewed project status locally"),
+        verification: expect.objectContaining({
+          local_project_briefing: true,
+          worker_launched: false,
+        }),
       }),
     );
+    expect(deps.store.keepTaskOpen).not.toHaveBeenCalled();
     expect(deps.store.completeTask).not.toHaveBeenCalled();
-    expect(result.status).toBe("ready");
+    expect(result.status).toBe("completed");
+  });
+
+  it("does not let an old status task swallow an explicit implementation outcome", async () => {
+    const deps = dependencies();
+    deps.store.findResumableTask.mockResolvedValue(task({
+      status: "ready",
+      revision: 3,
+      intendedOutcome: "Look at the status of this project",
+      recommendedNextAction: "Review the current state",
+    }));
+    deps.store.approvedGrant.mockResolvedValue(grant);
+
+    await runContinuityHarness({ outcome: "Fix the failing runtime test", deps });
+
+    expect(deps.store.completeLocalTask).not.toHaveBeenCalled();
+    expect(deps.store.createWorker).toHaveBeenCalled();
+    expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({
+      assignment: "Fix the failing runtime test",
+    }));
   });
 
   it("keeps the real resume assignment when orchestration is blocked by worker health", async () => {

@@ -59,6 +59,32 @@ describe("deliverArchiveOutbox", () => {
     expect(output).toContain('"authority": "user"');
   });
 
+  it("does not describe a local project briefing as a verified implementation outcome", async () => {
+    const rawDir = await mkdtemp(join(tmpdir(), "flyd-local-outbox-"));
+    const store = {
+      pendingArchiveEvents: vi.fn(async () => [ {
+        id: "10",
+        eventKey: "event-10",
+        eventType: "task.completed",
+        taskKey: "task-1",
+        taskRevision: 11,
+        occurredAt: "2026-07-20T04:00:00.000Z",
+        payload: {
+          summary: "Reviewed project status locally. Repository main at abc is clean.",
+          verification: { local_project_briefing: true, worker_launched: false },
+        },
+      } ]),
+      markArchiveDelivered: vi.fn(async () => undefined),
+      markArchiveFailed: vi.fn(async () => undefined),
+    };
+
+    await deliverArchiveOutbox(store, rawDir, async () => {});
+
+    const output = await readFile(join(rawDir, "runtime-event-event-10.md"), "utf8");
+    expect(output).toContain("Local project brief: Reviewed project status locally");
+    expect(output).not.toContain("Verified outcome:");
+  });
+
   it("does not acknowledge delivery until the retrieval index refreshes", async () => {
     const rawDir = await mkdtemp(join(tmpdir(), "flyd-index-outbox-"));
     const event = {

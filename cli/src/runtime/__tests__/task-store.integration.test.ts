@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { createRuntimePool } from "../database.js";
 import { PostgresTaskStore } from "../task-store.js";
 import type { WorkerSession } from "../types.js";
 
@@ -8,9 +9,10 @@ const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd
 const pool = new Pool({ connectionString, max: 2 });
 const store = new PostgresTaskStore(pool);
 const projectRoot = `/tmp/flyd-runtime-${process.pid}`;
+const projectName = `runtime-test-${process.pid}`;
 
 async function cleanProject(): Promise<void> {
-  const projects = await pool.query("SELECT id FROM projects WHERE root_path = $1", [projectRoot]);
+  const projects = await pool.query("SELECT id FROM projects WHERE root_path = $1 OR name = 'runtime-test'", [projectRoot]);
   for (const project of projects.rows) {
     const tasks = await pool.query("SELECT id FROM agent_tasks WHERE project_id = $1", [project.id]);
     const taskIds = tasks.rows.map((row) => row.id);
@@ -41,12 +43,23 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     await pool.end();
   });
 
+  it("uses UTC for every runtime database connection", async () => {
+    const runtimePool = createRuntimePool(connectionString);
+    try {
+      const result = await runtimePool.query("SHOW TimeZone");
+
+      expect(result.rows[0].TimeZone).toBe("UTC");
+    } finally {
+      await runtimePool.end();
+    }
+  });
+
   it("creates, orients, grants, resumes, and completes one durable task", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Prove restart continuity",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `task:${projectRoot}`,
     });
     expect(task.revision).toBe(0);
@@ -211,6 +224,82 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     });
   });
 
+  it("completes a read-only project briefing without successful worker evidence", async () => {
+    const task = await store.createTask({
+      projectName,
+      projectRoot,
+      intendedOutcome: "look at the status of this project",
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `local-task:${projectRoot}`,
+    });
+    const oriented = await store.recordOrientation(task.taskKey, task.revision, {
+      contextSnapshot: {},
+      repositorySnapshot: { head: "a", status_digest: "clean" },
+      recommendedNextAction: "Review the current state before intervening again",
+      idempotencyKey: `local-orient:${task.taskKey}`,
+    });
+    const planned = await store.persistAssignmentPlan(oriented.taskKey, oriented.revision, {
+      successCriteria: ["Project status is summarized"],
+      verificationCriteria: ["Repository state is observed"],
+      source: "fallback",
+      assignments: [{
+        key: "status",
+        title: "Assess status",
+        instructions: "Assess current project status without changing files",
+        capabilityRequirements: ["analysis"],
+        dependencyKeys: [],
+        declaredFileScope: [],
+      }],
+      baseHead: "a",
+      idempotencyKey: `local-plan:${task.taskKey}`,
+    });
+    const grant = await store.approveGrant(planned.task.taskKey, planned.task.revision, {
+      repositoryRoots: [projectRoot],
+      worktreePaths: [],
+      workerAdapters: ["opencode"],
+      fileOperations: ["read", "write"],
+      commandClasses: ["inspect"],
+      verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy", "publish", "secret_disclosure"],
+      maxConcurrency: 1,
+      budget: { max_worker_runs: 3, max_runtime_minutes: 90 },
+      providerIdentity: "opencode-configured-provider",
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+      idempotencyKey: `local-grant:${task.taskKey}`,
+    });
+    expect(grant.status).toBe("approved");
+    await store.recordAssignmentVerification(planned.assignments[0].assignmentKey, {
+      status: "blocked",
+      result: { reason: "No worker needed for local project briefing" },
+      idempotencyKey: `local-assignment-blocked:${task.taskKey}`,
+    });
+
+    const ready = await store.findTask(task.taskKey);
+    const completed = await store.completeLocalTask(task.taskKey, ready!.revision, {
+      summary: "Reviewed project status locally. Repository main at b is clean.",
+      verification: { local_project_briefing: true, worker_launched: false },
+      repositorySnapshot: { head: "b", status_digest: "clean" },
+      idempotencyKey: `local-complete:${task.taskKey}`,
+    });
+
+    expect(completed.status).toBe("completed");
+    expect(completed.verificationResult).toMatchObject({
+      local_project_briefing: true,
+      worker_launched: false,
+      locally_completed: true,
+    });
+    expect(await store.findResumableTask(projectRoot)).toBeNull();
+    expect((await store.listAssignments(task.id)).map((assignment) => assignment.status)).toEqual(["cancelled"]);
+    expect((await store.listGrants(task.id)).map((item) => item.status)).toEqual(["completed"]);
+    const events = await pool.query("SELECT event_type, payload FROM runtime_events WHERE agent_task_id = $1 ORDER BY task_revision", [task.id]);
+    expect(events.rows.map((row) => row.event_type)).toEqual([
+      "task.created", "task.oriented", "task.planned", "grant.approved", "assignment.blocked", "task.completed",
+    ]);
+    expect(events.rows.at(-1).payload).toMatchObject({
+      verification: { local_project_briefing: true, worker_launched: false, locally_completed: true },
+    });
+  });
+
   it("publishes a compact notification only after the runtime event commits", async () => {
     const listener = await pool.connect();
     try {
@@ -224,11 +313,11 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       });
 
       const task = await store.createTask({
-        projectName: "runtime-test",
+        projectName,
         projectRoot,
         intendedOutcome: "Notify Rails after commit",
         repository: {
-          root: projectRoot, name: "runtime-test", remote: null, branch: "main",
+          root: projectRoot, name: projectName, remote: null, branch: "main",
           head: "notify-head", dirty: false, statusLines: [], statusDigest: "clean",
         },
         idempotencyKey: `notify-task:${projectRoot}`,
@@ -367,11 +456,11 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("persists structured user corrections idempotently with provenance", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Assume the old claim",
       repository: {
-        root: projectRoot, name: "runtime-test", remote: null, branch: "main",
+        root: projectRoot, name: projectName, remote: null, branch: "main",
         head: "correction-head", dirty: false, statusLines: [], statusDigest: "clean",
       },
       idempotencyKey: `correction-task:${projectRoot}`,
@@ -409,10 +498,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("journals and closes an abandoned active task session on restart", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Recover an abandoned session",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "c", dirty: false, statusLines: [], statusDigest: "clean-c" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "c", dirty: false, statusLines: [], statusDigest: "clean-c" },
       idempotencyKey: `recovery-task:${projectRoot}`,
     });
     const sessionKey = await store.startTaskSession(task.id, false, { head: "c" });
@@ -429,10 +518,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("counts a task session as resumed only after a thirty-minute break", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Measure a real resume",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `resume-task:${projectRoot}`,
     });
     const first = await store.startTaskSession(task.id, false, {});
@@ -448,10 +537,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("expires stale authority before approving a replacement grant", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Renew bounded authority",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `renew-task:${projectRoot}`,
     });
     const first = await store.approveGrant(task.taskKey, task.revision, {
@@ -481,10 +570,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("persists a grant proposal before approving or rejecting the exact scope", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Share one permission decision across surfaces",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `proposal-task:${projectRoot}`,
     });
     const proposal = await store.proposeGrant(task.taskKey, task.revision, {
@@ -531,10 +620,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("persists one validated plan idempotently and enforces assignment concurrency", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Run two bounded assignments",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `plan-task:${projectRoot}`,
     });
     const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
@@ -618,10 +707,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("requires every planned assignment to be integrated before task completion", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Integrate the complete plan",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `integrated-task:${projectRoot}`,
     });
     const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
@@ -720,10 +809,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("journals worker controls idempotently and revises the assignment", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Redirect a worker",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `control-task:${projectRoot}`,
     });
     const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {
@@ -878,10 +967,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
 
   it("keeps a task running while another assignment worker remains live", async () => {
     const task = await store.createTask({
-      projectName: "runtime-test",
+      projectName,
       projectRoot,
       intendedOutcome: "Keep concurrent task state truthful",
-      repository: { root: projectRoot, name: "runtime-test", remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
       idempotencyKey: `parallel-control-task:${projectRoot}`,
     });
     const planned = await store.persistAssignmentPlan(task.taskKey, task.revision, {

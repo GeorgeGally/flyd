@@ -1485,6 +1485,45 @@ export class PostgresTaskStore {
     });
   }
 
+  async completeLocalTask(taskKey: string, expectedRevision: number, input: { summary: string; verification: Record<string, unknown>; repositorySnapshot: Record<string, unknown>; idempotencyKey: string }): Promise<AgentTask> {
+    const summary = boundedText(input.summary, "Local completion summary", 4_000);
+    const reentryPoint = "No unresolved local status review. Start a concrete outcome when you want Flyd to change the project.";
+    return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.completed", async (client, row, revision) => {
+      const liveWorker = await client.query(
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
+        [row.id],
+      );
+      if (liveWorker.rows[0]) throw new Error("Cannot complete a local task while a worker is still live");
+      if (input.verification.local_project_briefing !== true || input.verification.worker_launched !== false) {
+        throw new Error("Local task completion requires explicit local briefing evidence");
+      }
+      if (!input.repositorySnapshot.head || !input.repositorySnapshot.status_digest) {
+        throw new Error("Local task completion requires repository evidence");
+      }
+      const verification = {
+        ...input.verification,
+        locally_completed: true,
+      };
+      await client.query(`UPDATE task_assignments SET status = 'cancelled',
+        integration_result = jsonb_set(COALESCE(integration_result, '{}'::jsonb), '{local_completion}', 'true'::jsonb, true),
+        ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+        WHERE agent_task_id = $1 AND status IN ('pending','running','blocked')`, [row.id]);
+      await client.query(`UPDATE agent_tasks SET status = 'completed', outcome_summary = $1, verification_result = $2::jsonb,
+        repository_snapshot = $3::jsonb, recommended_next_action = $4, completed_at = NOW(), revision = $5, updated_at = NOW() WHERE id = $6`,
+      [summary, JSON.stringify(verification), JSON.stringify(input.repositorySnapshot), reentryPoint, revision, row.id]);
+      await client.query("UPDATE task_grants SET status = 'completed', ended_at = NOW(), updated_at = NOW() WHERE agent_task_id = $1 AND status = 'approved'", [row.id]);
+      return {
+        summary,
+        reentry_point: reentryPoint,
+        verification,
+        repository: {
+          head: input.repositorySnapshot.head,
+          status_digest: input.repositorySnapshot.status_digest,
+        },
+      };
+    });
+  }
+
   async startTaskSession(taskId: string, resumed: boolean, startupSnapshot: Record<string, unknown>): Promise<string> {
     return withTransaction(this.pool, async (client) => {
       const task = await client.query("SELECT * FROM agent_tasks WHERE id = $1 FOR UPDATE", [taskId]);

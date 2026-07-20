@@ -8,7 +8,12 @@ export function runtimeDatabaseUrl(): string {
 }
 
 export function createRuntimePool(connectionString = runtimeDatabaseUrl()): pg.Pool {
-  return new Pool({ connectionString, max: 4, connectionTimeoutMillis: 3_000 });
+  return new Pool({
+    connectionString,
+    max: 4,
+    connectionTimeoutMillis: 3_000,
+    options: "-c timezone=UTC",
+  });
 }
 
 export async function withTransaction<T>(pool: pg.Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
