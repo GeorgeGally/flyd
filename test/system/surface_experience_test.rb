@@ -103,7 +103,7 @@ class SurfaceExperienceTest < ApplicationSystemTestCase
     visit root_path(conversation_id: conversation.id)
 
     assert_selector ".flyd-stage[data-intent-active='true']"
-    assert page.evaluate_script("document.activeElement === document.querySelector(\"textarea[data-chat-target='input']\")")
+    assert_selector "textarea[data-chat-target='input']:focus"
 
     textarea = find("textarea[data-chat-target='input']")
     textarea.fill_in with: "Send from surface chat"

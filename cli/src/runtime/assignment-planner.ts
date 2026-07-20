@@ -141,6 +141,7 @@ const RUNNABLE_ASSIGNMENT_STATUSES = new Set([ "pending", "running", "verified" 
 export function currentPlanAssignments(
   task: Pick<AgentTask, "plan">,
   assignments: TaskAssignment[],
+  repositoryHead: string,
 ): TaskAssignment[] {
   const keys = Array.isArray(task.plan.assignment_keys)
     ? task.plan.assignment_keys.filter((key): key is string => typeof key === "string")
@@ -148,7 +149,10 @@ export function currentPlanAssignments(
   const current = keys.length > 0
     ? assignments.filter((assignment) => keys.includes(assignment.assignmentKey))
     : assignments;
-  return current.filter((assignment) => RUNNABLE_ASSIGNMENT_STATUSES.has(assignment.status));
+  return current.filter((assignment) => (
+    RUNNABLE_ASSIGNMENT_STATUSES.has(assignment.status)
+      && assignment.baseHead === repositoryHead
+  ));
 }
 
 export async function planAssignments(input: {

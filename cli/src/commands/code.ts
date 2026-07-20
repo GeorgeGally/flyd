@@ -89,7 +89,7 @@ export async function runCode(outcome?: string): Promise<void> {
           providerIdentity: "codex-local,opencode-configured-provider",
         },
         orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
-          let assignments = currentPlanAssignments(task, await store.listAssignments(task.id));
+          let assignments = currentPlanAssignments(task, await store.listAssignments(task.id), repository.head);
           if (assignments.length === 0) {
             const plan = await planAssignments({
               outcome: assignment,

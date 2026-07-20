@@ -143,18 +143,41 @@ describe("assignment planner", () => {
         id: "1", assignmentKey: "old", status: "cancelled",
       },
       {
-        id: "2", assignmentKey: "current", status: "pending",
+        id: "2", assignmentKey: "current", status: "pending", baseHead: repository.head,
       },
     ] as TaskAssignment[];
     const task: Pick<AgentTask, "plan"> = {
       plan: { source: "fallback", assignment_keys: ["current"] },
     };
 
-    expect(currentPlanAssignments(task, assignments).map((assignment) => assignment.assignmentKey))
+    expect(currentPlanAssignments(task, assignments, repository.head).map((assignment) => assignment.assignmentKey))
       .toEqual(["current"]);
     expect(currentPlanAssignments(
       { ...task, plan: { source: "fallback", assignment_keys: ["old"] } },
       assignments,
+      repository.head,
     )).toEqual([]);
+  });
+
+  it("does not reuse a current-plan assignment recorded against an older repository head", () => {
+    const assignments = [
+      {
+        id: "1", assignmentKey: "stale", status: "pending", baseHead: "old-head",
+      },
+      {
+        id: "2", assignmentKey: "current", status: "pending", baseHead: repository.head,
+      },
+    ] as TaskAssignment[];
+
+    expect(currentPlanAssignments(
+      { plan: { assignment_keys: [ "stale" ] } },
+      assignments,
+      repository.head,
+    )).toEqual([]);
+    expect(currentPlanAssignments(
+      { plan: { assignment_keys: [ "current" ] } },
+      assignments,
+      repository.head,
+    ).map((assignment) => assignment.assignmentKey)).toEqual([ "current" ]);
   });
 });
