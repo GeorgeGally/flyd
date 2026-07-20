@@ -66,4 +66,20 @@ describe("recoverInterruptedWorkers", () => {
     expect(isProcessAlive).toHaveBeenCalledTimes(2);
     expect(transition).not.toHaveBeenCalled();
   });
+
+  it("gives a recently observed worker time to publish its terminal result", async () => {
+    const transition = vi.fn();
+    const isProcessAlive = vi.fn().mockReturnValue(false);
+
+    const recovered = await recoverInterruptedWorkers({
+      workers: [ worker({ lastObservedAt: "2026-07-20T10:49:39.000Z" }) ],
+      isProcessAlive,
+      transition,
+      now: () => new Date("2026-07-20T10:49:46.000Z"),
+    });
+
+    expect(recovered).toBe(0);
+    expect(isProcessAlive).toHaveBeenCalledTimes(2);
+    expect(transition).not.toHaveBeenCalled();
+  });
 });

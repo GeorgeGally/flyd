@@ -245,6 +245,43 @@ function liveWorkerMessage(worker: WorkerSession): string {
   return `\n${worker.adapter} worker ${worker.workerKey} is still running${worker.processId ? ` as process ${worker.processId}` : ""}. Flyd will not launch a duplicate.\n`;
 }
 
+function requestsLocalProjectBriefing(task: AgentTask, nextAction: string): boolean {
+  const text = `${task.intendedOutcome}\n${nextAction}`.toLowerCase();
+  const asksForStatus = /\b(status|review|assess|inspect|look at|summari[sz]e|current state|what'?s going on)\b/.test(text);
+  const asksForEdits = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/.test(text);
+  return asksForStatus && !asksForEdits;
+}
+
+function renderLocalProjectBriefing(input: {
+  task: AgentTask;
+  repository: RepositorySnapshot;
+  worker: WorkerSession | null;
+  recoveredWorkers: number;
+  recoveredSessions: number;
+}): string {
+  const repositoryState = input.repository.dirty
+    ? `${input.repository.statusLines.length} uncommitted change${input.repository.statusLines.length === 1 ? "" : "s"}`
+    : "clean working tree";
+  const workerState = input.worker
+    ? `${input.worker.adapter} ${input.worker.status}${input.worker.errorSummary ? ` (${input.worker.errorSummary})` : ""}`
+    : "no active worker";
+  const cleanup = [
+    input.recoveredWorkers > 0 ? `${input.recoveredWorkers} stale worker session${input.recoveredWorkers === 1 ? "" : "s"}` : null,
+    input.recoveredSessions > 0 ? `${input.recoveredSessions} abandoned Flyd session${input.recoveredSessions === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join("; ");
+
+  return [
+    "",
+    "Project brief",
+    "Handled locally. This was a status request, so Flyd did not launch another coding worker.",
+    `Repository: ${input.repository.branch} at ${input.repository.head.slice(0, 12)}; ${repositoryState}.`,
+    `Task: ${input.task.intendedOutcome}`,
+    `Worker: ${workerState}.`,
+    cleanup ? `Runtime cleanup: ${cleanup}.` : null,
+    "Next: give Flyd a concrete outcome to change, or open the web surface for the same task.",
+  ].filter(Boolean).join("\n") + "\n";
+}
+
 export async function runContinuityHarness(input: {
   outcome?: string;
   cwd?: string;
@@ -259,13 +296,7 @@ export async function runContinuityHarness(input: {
   try {
     let repository = await deps.inspectRepository(input.cwd);
     const recoveredWorkers = await deps.recoverWorkers(repository.root);
-    if (recoveredWorkers > 0) {
-      deps.terminal.write(`Recovered ${recoveredWorkers} interrupted worker ${recoveredWorkers === 1 ? "session" : "sessions"}.\n`);
-    }
     const recoveredSessions = await deps.recoverSessions(repository.root);
-    if (recoveredSessions > 0) {
-      deps.terminal.write(`Closed ${recoveredSessions} abandoned Flyd ${recoveredSessions === 1 ? "session" : "sessions"}.\n`);
-    }
     const resumedTask = await deps.store.findResumableTask(repository.root);
     const previousWorker = resumedTask ? await deps.store.latestWorker(resumedTask.id) : null;
     const outcome = input.outcome?.trim() || resumedTask?.intendedOutcome ||
@@ -318,6 +349,24 @@ export async function runContinuityHarness(input: {
       await deps.store.finishTaskSession(sessionKey, sessionResult());
       sessionKey = null;
       return { status: "running", taskKey: task.taskKey };
+    }
+
+    if (resumedTask && requestsLocalProjectBriefing(resumedTask, orientation.nextAction)) {
+      deps.terminal.write(renderLocalProjectBriefing({
+        task: resumedTask,
+        repository,
+        worker: previousWorker,
+        recoveredWorkers,
+        recoveredSessions,
+      }));
+      task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+        nextAction: "State the concrete outcome you want Flyd to change",
+        repositorySnapshot: repositoryState(repository),
+        idempotencyKey: eventKey(task.taskKey, "local-project-briefing"),
+      });
+      await deps.store.finishTaskSession(sessionKey, sessionResult());
+      sessionKey = null;
+      return { status: task.status, taskKey: task.taskKey };
     }
 
     let assignment = outcome;

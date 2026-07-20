@@ -351,14 +351,14 @@ describe("runContinuityHarness", () => {
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ assignment: "Implement continuity" }));
   });
 
-  it("renders resumed startup as a daily-agent state instead of a raw resume prompt", async () => {
+  it("handles a resumed project-status request locally instead of launching another worker", async () => {
     const deps = dependencies();
     deps.store.findResumableTask.mockResolvedValue(task({
       status: "ready",
       revision: 3,
       intendedOutcome: "i want you to look at the status of this project.",
       repositorySnapshot: { head: "old", status_digest: "old" },
-      recommendedNextAction: "Re-check the current repository before continuing the task",
+      recommendedNextAction: "Review the current state before intervening again",
     }));
     deps.store.latestWorker.mockResolvedValue({
       ...worker,
@@ -367,19 +367,32 @@ describe("runContinuityHarness", () => {
       externalSessionId: "thread-1",
       errorSummary: "Flyd restarted after the worker process ended",
     });
+    deps.recoverWorkers.mockResolvedValue(1);
+    deps.recoverSessions.mockResolvedValue(1);
     deps.store.approvedGrant.mockResolvedValue(grant);
-    deps.terminal.ask.mockResolvedValue("");
 
-    await runContinuityHarness({ deps });
+    const result = await runContinuityHarness({ deps });
 
     const writes = deps.terminal.write.mock.calls.map(([text]) => text).join("\n");
     expect(writes).toContain("Flyd Daily Agent");
     expect(writes).toContain("You are working on: i want you to look at the status of this project.");
-    expect(writes).toContain("Recommended move: Re-check the current repository before continuing the task");
+    expect(writes).toContain("Project brief");
+    expect(writes).toContain("Handled locally");
+    expect(writes).not.toContain("Recovered 1 interrupted worker session.");
+    expect(writes).not.toContain("Closed 1 abandoned Flyd session.");
     expect(writes).not.toContain("Resume:");
-    expect(deps.terminal.ask).toHaveBeenCalledWith(
-      "Press Enter to let Flyd handle this, or type a focused correction:",
+    expect(deps.terminal.ask).not.toHaveBeenCalled();
+    expect(deps.store.createWorker).not.toHaveBeenCalled();
+    expect(deps.runWorker).not.toHaveBeenCalled();
+    expect(deps.store.keepTaskOpen).toHaveBeenCalledWith(
+      "task-1",
+      expect.any(Number),
+      expect.objectContaining({
+        nextAction: "State the concrete outcome you want Flyd to change",
+      }),
     );
+    expect(deps.store.completeTask).not.toHaveBeenCalled();
+    expect(result.status).toBe("ready");
   });
 
   it("keeps the real resume assignment when orchestration is blocked by worker health", async () => {

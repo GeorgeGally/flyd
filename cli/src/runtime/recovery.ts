@@ -9,7 +9,10 @@ interface RecoveryInput {
     error: string;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  now?: () => Date;
 }
+
+const TERMINAL_RESULT_GRACE_MS = 15_000;
 
 export function processIsAlive(processId: number): boolean {
   try {
@@ -59,6 +62,11 @@ export async function recoverInterruptedWorkers(input: RecoveryInput): Promise<n
       input.isProcessAlive(worker.processId, worker) ||
       input.isProcessAlive(worker.processId, worker)
     )) continue;
+    const observedAt = worker.lastObservedAt ? Date.parse(worker.lastObservedAt) : Number.NaN;
+    const elapsedSinceObservation = (input.now?.() ?? new Date()).getTime() - observedAt;
+    if (Number.isFinite(observedAt) &&
+        elapsedSinceObservation >= 0 &&
+        elapsedSinceObservation < TERMINAL_RESULT_GRACE_MS) continue;
     await input.transition(worker.workerKey, {
       status: "interrupted",
       error: "Flyd restarted after the worker process ended",
