@@ -11,13 +11,23 @@ class ProjectsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2", "Projects"
   end
 
-  test "system layout keeps project content usable on mobile" do
+  test "index reports a concrete active project count" do
+    Project.create!(name: "Second active project")
+
     get projects_url
 
-    assert_select "body[class*='flex-col'][class*='md:flex-row']"
-    assert_select "aside[class*='hidden'][class*='md:flex']"
-    assert_select "header[class*='md:hidden']", text: /Projects/
-    assert_select "main[class*='min-w-0']"
+    assert_response :success
+    assert_select ".sys-sub", text: /2 active projects/
+    assert_no_match(/=>/, response.body)
+  end
+
+  test "system layout renders minimal top-bar chrome" do
+    get projects_url
+
+    assert_select "header.sys-topbar"
+    assert_equal [ "Surface", "Projects" ], css_select("nav.sys-topbar__nav a").map { |node| node.text.strip }
+    assert_select "main a", text: "New project"
+    assert_select "main[class*='flex-1']"
   end
 
   test "should get new" do

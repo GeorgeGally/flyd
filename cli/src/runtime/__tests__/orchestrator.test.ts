@@ -232,6 +232,8 @@ describe("orchestrateAssignments", () => {
     const result = await orchestration;
 
     expect(result.status, JSON.stringify(result)).toBe("integrated");
+    expect(result.summary).toContain("## Implement\n\nopencode done");
+    expect(result.summary).toContain("## Review\n\ncodex done");
     expect(concurrency.maximum).toBe(2);
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("opencode changed\n");
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("codex changed\n");

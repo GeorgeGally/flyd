@@ -1,6 +1,6 @@
-<%= form_with model: @project, class: "space-y-5" do |f| %>
+<%= form_with model: @project, class: "space-y-7 border-t border-ink pt-7" do |f| %>
   <% if @project.errors.any? %>
-    <div class="px-4 py-2.5 border border-line">
+    <div class="sys-strip sys-strip--plain">
       <h3 class="text-sm font-medium text-ink"><%= pluralize(@project.errors.count, "error") %> prohibited this project from being saved:</h3>
       <ul class="mt-1 text-sm text-muted list-disc list-inside">
         <% @project.errors.full_messages.each do |msg| %>
@@ -22,12 +22,12 @@
 
   <div>
     <%= f.label :root_path, class: "flyd-system-label mb-1.5 block" %>
-    <%= f.text_field :root_path, class: "flyd-system-input", placeholder: "~/path/to/project (optional)" %>
-    <p class="text-xs text-muted mt-1.5">Maps auto-captures from this directory to this project.</p>
+    <%= f.text_field :root_path, class: "flyd-system-input font-mono", placeholder: "~/path/to/project (optional)" %>
+    <p class="sys-composer__hint mt-2">Maps auto-captures from this directory to this project.</p>
   </div>
 
-  <div class="flex items-center gap-3 pt-2">
-    <%= f.submit class: "flyd-system-btn flyd-system-btn--primary px-4 py-2 rounded-sm cursor-pointer" %>
-    <%= link_to "Cancel", @project.persisted? ? project_path(@project) : projects_path, class: "text-sm text-muted hover:text-ink transition-colors" %>
+  <div class="sys-actions !mt-8">
+    <%= f.submit class: "flyd-system-btn flyd-system-btn--primary cursor-pointer" %>
+    <%= link_to "Cancel", @project.persisted? ? project_path(@project) : projects_path, class: "flyd-system-btn flyd-system-btn--ghost" %>
   </div>
 <% end %>

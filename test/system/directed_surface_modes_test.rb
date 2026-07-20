@@ -118,6 +118,80 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_nil build.confirmed_at
   end
 
+  test "task review puts the verified worker conclusion on the stage" do
+    project = Project.create!(name: "Flyd runtime", root_path: Dir.home)
+    task = project.agent_tasks.create!(
+      status: "ready",
+      intended_outcome: "Assess the current project status"
+    )
+    assignment = task.task_assignments.create!(
+      status: "integrated",
+      title: "Assess the project",
+      instructions: "Return the grounded conclusion"
+    )
+    conclusion = task.task_artifacts.create!(
+      task_assignment: assignment,
+      kind: "log",
+      title: "Worker result",
+      media_type: "text/markdown",
+      byte_size: 76,
+      sha256_digest: Digest::SHA256.hexdigest("release-status"),
+      verification_status: "verified",
+      source_revision: task.revision,
+      content: "## Current status\n\nRelease 1C is implemented. Real dogfood evidence remains.",
+      provenance: {}
+    )
+    check = task.task_artifacts.create!(
+      task_assignment: assignment,
+      kind: "test",
+      title: "git diff --check",
+      media_type: "text/plain",
+      byte_size: 6,
+      sha256_digest: Digest::SHA256.hexdigest("exit 0"),
+      verification_status: "verified",
+      source_revision: task.revision,
+      content: "exit 0",
+      provenance: {}
+    )
+    RuntimeDeliveryState.create!(
+      listener_key: AgentRuntime::EventListener::LISTENER_KEY,
+      lease_owner: "system-test-listener",
+      lease_expires_at: 1.minute.from_now,
+      last_event_id: 0
+    )
+    scene = Scene.create!(
+      scene_key: "task-review:#{task.task_key}",
+      kind: "work",
+      status: "active",
+      title: task.intended_outcome,
+      project: project
+    )
+    activate_surface(
+      scene: scene,
+      mode: "action",
+      kind: "artifact",
+      intent: "review",
+      renderer: "task_review",
+      metadata: { "task_revision" => task.revision },
+      actions: [],
+      context_refs: [ { "type" => "project", "id" => project.id } ],
+      source_refs: [
+        { "type" => "runtime_task", "id" => task.task_key },
+        { "type" => "task_assignment", "id" => assignment.assignment_key },
+        { "type" => "task_artifact", "id" => conclusion.artifact_key },
+        { "type" => "task_artifact", "id" => check.artifact_key }
+      ]
+    )
+
+    visit root_path
+
+    assert_selector ".task-outcome", text: "Release 1C is implemented"
+    assert_selector ".task-outcome h2", text: "Current status"
+    assert_link "git diff --check"
+    assert_no_text "The assignments have returned verified artifacts"
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight + 1")
+  end
+
   test "support working scenes scale titles to their container without clipping" do
     focus_scene = Scene.create!(
       scene_key: "investigation:user-engagement",

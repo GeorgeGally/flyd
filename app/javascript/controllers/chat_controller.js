@@ -73,9 +73,9 @@ export default class extends Controller {
 
   appendUserMessage(content) {
     const div = document.createElement("div")
-    div.className = "flex justify-end mb-4"
-    div.innerHTML = `<div class="max-w-[80%] rounded-lg px-4 py-2 bg-gray-900 text-white text-sm"><p>${this.escapeHtml(content)}</p></div>`
-    this.messagesTarget.appendChild(div)
+    div.className = "sys-msg sys-msg--user"
+    div.innerHTML = `<div class="sys-msg__role">You</div><div class="sys-msg__body"><p>${this.escapeHtml(content)}</p></div>`
+    this.messagesTarget.querySelector(".sys-transcript")?.appendChild(div) || this.messagesTarget.appendChild(div)
     this.scrollToBottom()
     return div
   }
@@ -99,17 +99,17 @@ export default class extends Controller {
     this.streamingContentTarget.textContent = ""
 
     const div = document.createElement("div")
-    div.className = "flex justify-start mb-4"
-    div.innerHTML = `<div class="max-w-[80%] rounded-lg px-4 py-2 bg-gray-100 text-gray-900 text-sm">${this.renderMarkdown(content)}</div>`
-    this.messagesTarget.appendChild(div)
+    div.className = "sys-msg"
+    div.innerHTML = `<div class="sys-msg__role">Flyd</div><div class="sys-msg__body">${this.renderMarkdown(content)}</div>`
+    this.messagesTarget.querySelector(".sys-transcript")?.appendChild(div) || this.messagesTarget.appendChild(div)
     this.scrollToBottom()
   }
 
   showError(message) {
     const div = document.createElement("div")
-    div.className = "flex justify-center mb-4"
-    div.innerHTML = `<div class="rounded-lg px-4 py-2 bg-red-50 border border-red-200 text-red-700 text-sm">${this.escapeHtml(message)}</div>`
-    this.messagesTarget.appendChild(div)
+    div.className = "sys-msg"
+    div.innerHTML = `<div class="sys-msg__role">Notice</div><div class="sys-msg__body"><p class="sys-error">${this.escapeHtml(message)}</p></div>`
+    this.messagesTarget.querySelector(".sys-transcript")?.appendChild(div) || this.messagesTarget.appendChild(div)
     this.scrollToBottom()
   }
 
@@ -122,6 +122,8 @@ export default class extends Controller {
   }
 
   renderMarkdown(text) {
-    return text.replace(/\n/g, "<br>").replace(/`([^`]+)`/g, (_, code) => `<code class='bg-gray-200 px-1 rounded text-xs'>${this.escapeHtml(code)}</code>`)
+    return this.escapeHtml(text)
+      .replace(/\n/g, "<br>")
+      .replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`)
   }
 }

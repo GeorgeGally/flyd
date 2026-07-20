@@ -394,7 +394,7 @@ export class PostgresTaskStore {
         CROSS JOIN marker
         WHERE observations.kind IN ('memory_safety', 'recommendation_rationale')
           AND observations.observed_at >= marker.available_at
-        ORDER BY observations.observed_at`),
+        ORDER BY observations.observed_at, observations.id`),
       this.pool.query(`WITH marker AS (
           SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
         )
@@ -403,7 +403,7 @@ export class PostgresTaskStore {
         CROSS JOIN marker
         WHERE observations.kind = 'automated_acceptance'
           AND observations.observed_at >= marker.available_at
-        ORDER BY observations.observed_at`),
+        ORDER BY observations.observed_at, observations.id`),
     ]);
     const session = sessions.rows[0];
     const reviewRows = reviews.rows as Array<{ kind: string; passed: boolean }>;

@@ -25,7 +25,7 @@ Object.include(SimpleStub)
 
 module ActiveSupport
   class TestCase
-    parallelize(workers: :number_of_processors)
+    parallelize(workers: ENV.fetch("PARALLEL_WORKERS", 4).to_i)
     fixtures :all
   end
 end

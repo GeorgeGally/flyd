@@ -1,47 +1,56 @@
 <%= content_for :title, "Build — Flyd" %>
 
-<div class="mx-auto max-w-3xl py-8">
-  <div class="flyd-system-label"><%= @build.proposed? ? "Review before running" : "OpenCode execution" %></div>
-  <h1 class="mt-4 text-4xl font-medium text-ink"><%= @build.scene&.title.presence || "Build proposal" %></h1>
-  <p class="mt-4 text-sm leading-6 text-muted"><%= @build.confirmation_summary %></p>
+<div class="sys-shell sys-page">
+  <header class="sys-masthead sys-reveal">
+    <p class="sys-kicker"><%= @build.proposed? ? "Review before running" : "OpenCode execution" %></p>
+    <h1 class="sys-display sys-display--md"><%= @build.scene&.title.presence || "Build proposal" %></h1>
+    <p class="sys-sub"><%= @build.confirmation_summary %></p>
+  </header>
 
-  <dl class="mt-8 grid gap-5 border-t border-b border-line py-6 text-sm sm:grid-cols-2">
+  <dl class="sys-meta-grid sys-reveal text-sm" style="--d: 80ms">
     <div>
       <dt class="flyd-system-label">Project</dt>
-      <dd class="mt-1.5 text-ink"><%= @build.project.name %></dd>
+      <dd class="mt-2 text-ink"><%= @build.project.name %></dd>
     </div>
     <div>
       <dt class="flyd-system-label">Working directory</dt>
-      <dd class="mt-1.5 break-all text-ink"><%= @build.project.root_path.presence || Dir.home %></dd>
+      <dd class="mt-2 break-all font-mono text-[0.8rem] text-ink"><%= @build.project.root_path.presence || Dir.home %></dd>
     </div>
     <div class="sm:col-span-2">
       <dt class="flyd-system-label">Instructions</dt>
-      <dd class="mt-1.5 whitespace-pre-wrap leading-6 text-ink"><%= @build.instructions %></dd>
+      <dd class="mt-2 whitespace-pre-wrap leading-6 text-ink"><%= @build.instructions %></dd>
     </div>
   </dl>
 
   <% if @build.proposed? %>
-    <div class="mt-8 flex items-center gap-4">
-      <%= button_to "Confirm build", confirm_build_path(@build), method: :post, class: "flyd-system-btn flyd-system-btn--primary px-6 py-3 rounded-sm text-sm font-medium" %>
-      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "text-sm underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+    <div class="sys-actions sys-reveal" style="--d: 140ms">
+      <%= button_to "Confirm build", confirm_build_path(@build), method: :post, class: "flyd-system-btn flyd-system-btn--primary cursor-pointer" %>
+      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "flyd-system-btn flyd-system-btn--ghost" %>
     </div>
-    <p class="mt-4 text-sm text-muted">Nothing has executed yet.</p>
+    <p class="sys-composer__hint mt-4">Nothing has executed yet.</p>
   <% elsif @build.running? %>
-    <div class="mt-8">
-      <p class="text-sm font-medium text-ink">Build in progress</p>
-      <p class="mt-2 text-sm text-muted">Flyd will return the outcome to the scene and conversation.</p>
-      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "mt-4 inline-block text-sm underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+    <div class="sys-section sys-reveal" style="--d: 140ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label">Status</span>
+        <span class="sys-thinking"><span class="sys-thinking__dot"></span><span>Running</span></span>
+      </div>
+      <p class="py-5 text-sm text-muted">Flyd will return the outcome to the scene and conversation.</p>
+      <%= link_to "Return to Flyd", root_path(conversation_id: @build.conversation_id), class: "flyd-system-btn flyd-system-btn--ghost" %>
     </div>
   <% elsif @build.artifact %>
-    <div class="mt-8">
-      <p class="text-sm font-medium text-ink"><%= @build.status.humanize %></p>
-      <p class="mt-2 text-sm text-muted"><%= @build.outcome_summary %></p>
-      <%= link_to "Open result", artifact_path(@build.artifact), class: "mt-4 inline-block text-sm underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+    <div class="sys-section sys-reveal" style="--d: 140ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label"><%= @build.status.humanize %></span>
+      </div>
+      <p class="py-5 text-sm text-muted"><%= @build.outcome_summary %></p>
+      <%= link_to "Open result", artifact_path(@build.artifact), class: "flyd-system-btn flyd-system-btn--primary" %>
     </div>
   <% else %>
-    <div class="mt-8">
-      <p class="text-sm font-medium text-ink"><%= @build.status.humanize %></p>
-      <p class="mt-2 text-sm text-muted"><%= @build.outcome_summary %></p>
+    <div class="sys-section sys-reveal" style="--d: 140ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label"><%= @build.status.humanize %></span>
+      </div>
+      <p class="py-5 text-sm text-muted"><%= @build.outcome_summary %></p>
     </div>
   <% end %>
 </div>

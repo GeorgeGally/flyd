@@ -89,7 +89,7 @@ module IntelligenceState
             "intendedOutcome" => task.intended_outcome,
             "successCriteria" => Array(task.success_criteria).first(8),
             "verificationCriteria" => Array(task.verification_criteria).first(8),
-            "recommendedNextAction" => task.recommended_next_action,
+            "recommendedNextAction" => RuntimeTasks::NextAction.call(task),
             "outcomeSummary" => task.outcome_summary,
             "projectId" => task.project_id,
             "projectName" => task.project.name,

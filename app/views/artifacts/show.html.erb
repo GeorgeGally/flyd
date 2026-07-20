@@ -1,26 +1,24 @@
 <%= content_for :title, "#{@artifact.title} — Flyd" %>
 
-<div class="mx-auto max-w-4xl py-8">
-  <div class="flex items-center justify-between gap-4 flyd-system-label">
-    <span><%= @artifact.kind.humanize %></span>
-    <span><%= @artifact.status.humanize %></span>
-  </div>
+<div class="sys-shell sys-page">
+  <header class="sys-masthead sys-reveal">
+    <p class="sys-kicker"><%= @artifact.kind.humanize %> · <%= @artifact.status.humanize %></p>
+    <h1 class="sys-display"><%= @artifact.title %></h1>
+    <p class="sys-sub">Scene: <%= @artifact.scene.title %></p>
+  </header>
 
-  <h1 class="mt-5 text-4xl font-medium text-ink md:text-6xl"><%= @artifact.title %></h1>
-  <p class="mt-4 text-sm text-muted">Scene: <%= @artifact.scene.title %></p>
-
-  <article class="mt-8 border-y border-line py-8">
-    <pre class="whitespace-pre-wrap font-sans text-sm leading-7 text-ink"><%= @artifact.content %></pre>
+  <article class="sys-reveal border-y border-ink py-8" style="--d: 100ms">
+    <pre class="whitespace-pre-wrap font-sans text-sm leading-7 text-ink max-w-[72ch]"><%= @artifact.content %></pre>
   </article>
 
-  <div class="mt-8 flex items-center gap-4 text-sm">
+  <div class="sys-actions sys-reveal" style="--d: 160ms">
     <% if @artifact.conversation %>
-      <%= link_to "Continue in Flyd", root_path(conversation_id: @artifact.conversation_id), class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+      <%= link_to "Continue in Flyd", root_path(conversation_id: @artifact.conversation_id), class: "flyd-system-btn flyd-system-btn--ghost" %>
     <% else %>
-      <%= link_to "Return to Flyd", root_path, class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+      <%= link_to "Return to Flyd", root_path, class: "flyd-system-btn flyd-system-btn--ghost" %>
     <% end %>
     <% if @artifact.build %>
-      <%= link_to "Build record", build_path(@artifact.build), class: "underline decoration-line underline-offset-4 hover:decoration-ink text-muted hover:text-ink transition-all" %>
+      <%= link_to "Build record", build_path(@artifact.build), class: "flyd-system-btn flyd-system-btn--ghost" %>
     <% end %>
   </div>
 </div>

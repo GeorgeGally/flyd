@@ -75,6 +75,20 @@ class IntelligenceState::RuntimeTaskProviderTest < ActiveSupport::TestCase
     assert_empty snapshot.data[:task_artifacts]
   end
 
+  test "presents repository invalidation as a user-facing re-entry action" do
+    AgentTask.where(id: @task.id).update_all(
+      status: "ready",
+      recommended_next_action: "Current repository evidence invalidated the assignment base"
+    )
+
+    snapshot = IntelligenceState::RuntimeTaskProvider.new.snapshot
+
+    assert_equal(
+      "The repository changed while work was running; Flyd needs to re-check the current files before continuing.",
+      snapshot.data.dig(:runtime_tasks, 0, :content, :recommendedNextAction)
+    )
+  end
+
   test "exposes only assignments and artifacts from the current plan" do
     old_assignment = @task.task_assignments.create!(
       status: "cancelled",

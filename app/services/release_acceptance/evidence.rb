@@ -14,7 +14,7 @@ module ReleaseAcceptance
       session_ids = sessions.select(:id)
       recommendations = sessions.where(resumed: true, interpretation_status: %w[accepted focused_corrected replaced])
       completed = AgentTask.where(status: "completed", completed_at: marker.available_at..)
-      observations = ReleaseAcceptanceObservation.where(observed_at: marker.available_at..).order(:observed_at)
+      observations = ReleaseAcceptanceObservation.where(observed_at: marker.available_at..).order(:observed_at, :id)
       delivery_evidence = delivery_evidence(marker.available_at)
       intervention_weeks = accepted_intervention_weeks(marker.available_at)
 

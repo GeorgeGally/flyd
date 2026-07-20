@@ -58,6 +58,20 @@ class ReleaseAcceptance::ReportTest < ActiveSupport::TestCase
     assert_equal "failed", report.dig(:primary_product_trial, :status)
   end
 
+  test "uses the latest automated run as the current acceptance status" do
+    evidence = complete_evidence.merge(
+      automated_acceptance_runs: [
+        { idempotent: false, permissions_enforced: false, no_duplicate_effects: false },
+        { idempotent: true, permissions_enforced: true, no_duplicate_effects: true }
+      ]
+    )
+
+    report = ReleaseAcceptance::Report.build(evidence, now: Time.utc(2026, 7, 20))
+
+    assert_equal "qualified", report[:status]
+    assert_equal({ status: "passed", runs: 2 }, report[:automated_acceptance])
+  end
+
   test "does not fail provisional ratios or a partial first week" do
     evidence = complete_evidence.merge(
       release1c_available_at: "2026-07-08T00:00:00Z",

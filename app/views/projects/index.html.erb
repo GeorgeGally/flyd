@@ -1,26 +1,65 @@
-<div class="max-w-3xl">
-  <h2 class="text-2xl font-semibold text-ink mb-6">Projects</h2>
+<div class="sys-shell sys-page">
+  <header class="sys-masthead sys-reveal">
+    <p class="sys-kicker">System · Index</p>
+    <h2 class="sys-display">Projects</h2>
+    <p class="sys-sub">
+      <% if @active_projects.any? %>
+        <%= pluralize(@active_projects.length, "active project") %><%= ", #{pluralize(@archived_projects.length, 'archived')}" if @archived_projects.any? %>
+      <% else %>
+        Persistent contexts Flyd reasons about.
+      <% end %>
+    </p>
+    <div class="sys-actions">
+      <%= link_to "New project", new_project_path, class: "flyd-system-btn flyd-system-btn--primary" %>
+    </div>
+  </header>
 
   <% if @active_projects.any? %>
-    <div class="divide-y divide-line">
-      <% @active_projects.each do |project| %>
-        <%= link_to project_path(project), class: "flyd-system-card block py-4 group" do %>
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <h3 class="font-medium text-ink"><%= project.name %></h3>
-              <% if project.description.present? %>
-                <p class="text-sm text-muted mt-0.5"><%= truncate(project.description, length: 100) %></p>
-              <% end %>
-            </div>
-            <span class="text-xs text-muted flex-shrink-0"><%= time_ago_in_words(project.updated_at) %> ago</span>
-          </div>
+    <div class="sys-ledger">
+      <% @active_projects.each_with_index do |project, index| %>
+        <%= link_to project_path(project), class: "sys-ledger__row sys-reveal", style: "--d: #{80 + index * 45}ms" do %>
+          <span class="sys-ledger__index"><%= "%02d" % (index + 1) %></span>
+          <span class="min-w-0">
+            <span class="sys-ledger__title"><%= project.name %></span>
+            <% if project.description.present? %>
+              <span class="sys-ledger__desc"><%= truncate(project.description, length: 120) %></span>
+            <% end %>
+          </span>
+          <span class="sys-ledger__meta">
+            <%= time_ago_in_words(project.updated_at) %> ago
+            <span class="sys-ledger__arrow" aria-hidden="true">&rarr;</span>
+          </span>
         <% end %>
       <% end %>
     </div>
+
+    <% if @archived_projects.any? %>
+      <section class="sys-section">
+        <div class="sys-section__head">
+          <span class="flyd-system-label">Archived</span>
+        </div>
+        <div>
+          <% @archived_projects.each do |project| %>
+            <%= link_to project_path(project), class: "sys-ledger__row" do %>
+              <span class="sys-ledger__index">&nbsp;</span>
+              <span class="min-w-0">
+                <span class="sys-ledger__title text-muted"><%= project.name %></span>
+              </span>
+              <span class="sys-ledger__meta">
+                <span class="sys-status">Archived</span>
+              </span>
+            <% end %>
+          <% end %>
+        </div>
+      </section>
+    <% end %>
   <% else %>
-    <div class="text-center py-16">
-      <p class="text-muted mb-5">No projects yet. Create your first project to get started.</p>
-      <%= link_to "Create Project", new_project_path, class: "flyd-system-btn flyd-system-btn--primary px-5 py-2.5 rounded-sm" %>
+    <div class="sys-empty sys-reveal" style="--d: 120ms">
+      <h3 class="sys-display sys-display--md">No projects yet.</h3>
+      <p class="sys-sub">Create your first project to get started.</p>
+      <div class="sys-actions">
+        <%= link_to "Create Project", new_project_path, class: "flyd-system-btn flyd-system-btn--primary" %>
+      </div>
     </div>
   <% end %>
 </div>

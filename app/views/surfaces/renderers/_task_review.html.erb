@@ -1,28 +1,30 @@
 <% completion_action = item.offered_action("confirm_task_completion") %>
 <% correction_action = item.offered_action("correct_task") %>
 <section class="directed-surface working-scene" data-runtime-task-key="<%= binding.task.task_key %>">
-  <div class="working-scene__primary">
+  <div class="working-scene__primary <%= 'working-scene__primary--outcome' if binding.primary_outcome %>">
     <div class="flex items-center justify-between gap-6">
       <span class="surface-label"><%= binding.task.project.name %></span>
       <span class="surface-label"><%= binding.status_label %></span>
     </div>
-    <h2 class="working-scene__title mt-8 max-w-5xl font-medium leading-[1.02]"><%= item.title %></h2>
-    <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= item.summary %></p>
+    <h2 class="working-scene__title mt-8 max-w-5xl font-medium leading-[1.02]"><%= binding.primary_outcome ? binding.task.intended_outcome : item.title %></h2>
 
-    <div class="mt-12 border-t border-gray-950">
-      <% binding.verified_artifacts.each do |artifact| %>
-        <div class="grid gap-3 border-b border-gray-300 py-5 md:grid-cols-[auto_1fr_auto] md:items-center">
-          <span class="surface-label"><%= artifact.kind %></span>
-          <span class="text-sm font-medium"><%= artifact.title %></span>
-          <%= link_to artifact.kind == "document" ? "Download" : "Inspect",
-                task_artifact_path(artifact.artifact_key),
-                class: "text-sm font-medium underline decoration-gray-300 underline-offset-4 hover:decoration-gray-950" %>
-        </div>
-      <% end %>
-    </div>
+    <% if binding.primary_outcome %>
+      <div class="task-outcome" tabindex="0">
+        <% binding.outcome_artifacts.reverse_each do |artifact| %>
+          <section class="task-outcome__section">
+            <% if binding.outcome_artifacts.many? %>
+              <div class="surface-label"><%= artifact.task_assignment&.title || artifact.title %></div>
+            <% end %>
+            <div class="task-outcome__content"><%= markdown(artifact.content) %></div>
+          </section>
+        <% end %>
+      </div>
+    <% else %>
+      <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= item.summary %></p>
+    <% end %>
 
     <% if completion_action && binding.controls_enabled? %>
-      <div class="mt-9">
+      <div class="mt-7 flex-none">
         <%= button_to completion_action["label"].presence || "Confirm completion",
               surface_item_action_path(item, action_id: "confirm_task_completion"),
               method: :post,
@@ -48,6 +50,20 @@
         <% end %>
       </ol>
     </section>
+
+    <% if binding.supporting_artifacts.any? %>
+      <section class="editorial-panel border-gray-300">
+        <div class="surface-label">Checked</div>
+        <div class="mt-5 space-y-4">
+          <% binding.supporting_artifacts.each do |artifact| %>
+            <%= link_to task_artifact_path(artifact.artifact_key), class: "flex items-center justify-between gap-4 border-b border-gray-300 pb-3 text-sm" do %>
+              <span><%= artifact.title %></span>
+              <span class="text-gray-400"><%= artifact.kind %></span>
+            <% end %>
+          <% end %>
+        </div>
+      </section>
+    <% end %>
 
     <% if correction_action && binding.controls_enabled? %>
       <section class="editorial-panel border-gray-300">

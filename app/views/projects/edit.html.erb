@@ -1,4 +1,10 @@
-<div class="max-w-lg">
-  <h2 class="text-2xl font-semibold text-ink mb-6">Edit Project</h2>
-  <%= render "form", project: @project %>
+<div class="sys-shell sys-shell--narrow sys-page">
+  <header class="sys-masthead sys-reveal">
+    <p class="sys-kicker"><%= @project.name %></p>
+    <h2 class="sys-display sys-display--md">Edit Project</h2>
+  </header>
+
+  <div class="sys-reveal" style="--d: 80ms">
+    <%= render "form", project: @project %>
+  </div>
 </div>

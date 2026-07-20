@@ -61,10 +61,29 @@ module RuntimeTasks
       artifacts.select { |artifact| artifact.verification_status == "verified" }
     end
 
+    def outcome_artifacts
+      worker_results
+        .group_by(&:task_assignment_id)
+        .values
+        .filter_map(&:last)
+    end
+
+    def primary_outcome_artifact
+      outcome_artifacts.last
+    end
+
+    def primary_outcome
+      primary_outcome_artifact&.content.to_s.strip.presence
+    end
+
+    def supporting_artifacts
+      verified_artifacts - worker_results
+    end
+
     def status_label
       {
         "awaiting_grant" => "Awaiting permission",
-        "ready" => "Ready for review",
+        "ready" => verified_artifacts.any? ? "Ready for review" : "Ready to resume",
         "running" => "Working",
         "blocked" => "Needs intervention",
         "completed" => "Completed",
@@ -73,7 +92,17 @@ module RuntimeTasks
       }.fetch(task.status, task.status.humanize)
     end
 
+    def next_action
+      RuntimeTasks::NextAction.call(task)
+    end
+
     private
+
+    def worker_results
+      verified_artifacts.select do |artifact|
+        artifact.kind == "log" && artifact.title == "Worker result" && artifact.content.present?
+      end
+    end
 
     def delivery_stale?
       state = RuntimeDeliveryState.find_by(listener_key: AgentRuntime::EventListener::LISTENER_KEY)

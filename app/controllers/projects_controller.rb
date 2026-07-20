@@ -2,7 +2,8 @@ class ProjectsController < ApplicationController
   before_action :set_project, only: %i[show edit update destroy archive reactivate]
 
   def index
-    @archived_projects = Project.archived.by_recent_activity
+    @active_projects = Project.active.by_recent_activity.to_a
+    @archived_projects = Project.archived.by_recent_activity.to_a
   end
 
   def show

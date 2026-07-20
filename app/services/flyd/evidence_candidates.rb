@@ -74,7 +74,11 @@ module Flyd
       when "blocked"
         [ "investigation", "task_review", "Coding work is blocked and needs a grounded intervention" ]
       when "ready"
-        [ "action", "task_review", "Verified coding work is ready for review and completion" ]
+        if related.any? { |item| item[:type].to_s == "task_artifact" }
+          [ "action", "task_review", "Verified coding work is ready for review and completion" ]
+        else
+          [ "action", "task_orientation", "The coding task is ready to resume from its exact re-entry point" ]
+        end
       when "completed"
         [ "action", "task_completion", "A verified coding outcome is ready to return to the user" ]
       else

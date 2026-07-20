@@ -46,6 +46,15 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal [ "action", "task_review" ], ready.values_at(:mode, :renderer)
   end
 
+  test "a ready task without a verified artifact returns to orientation" do
+    ready = runtime_candidate(status: "ready", related: {
+      task_assignments: [ runtime_evidence("assignment-1", "task_assignment", status: "running") ]
+    })
+
+    assert_equal [ "action", "task_orientation" ], ready.values_at(:mode, :renderer)
+    assert_match(/re-entry/i, ready[:reason])
+  end
+
   test "keeps the latest user correction in the authoritative task context" do
     candidate = runtime_candidate(status: "ready", related: {
       task_artifacts: [ runtime_evidence("artifact-1", "task_artifact", verificationStatus: "verified") ],

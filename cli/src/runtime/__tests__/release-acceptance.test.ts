@@ -75,6 +75,18 @@ describe("Release 1 acceptance report", () => {
     expect(report.propagation).toMatchObject({ status: "failed", p95Ms: 2_500 });
   });
 
+  it("uses the latest automated run as the current acceptance status", () => {
+    const report = buildReleaseAcceptanceReport(evidence({
+      automatedAcceptanceRuns: [
+        { idempotent: false, permissionsEnforced: false, noDuplicateEffects: false },
+        { idempotent: true, permissionsEnforced: true, noDuplicateEffects: true },
+      ],
+    }), new Date("2026-07-20T00:00:00.000Z"));
+
+    expect(report.status).toBe("qualified");
+    expect(report.automatedAcceptance).toEqual({ status: "passed", runs: 2 });
+  });
+
   it("keeps an unfinished trial insufficient instead of failing it early", () => {
     const report = buildReleaseAcceptanceReport(evidence({
       realSessions: 1,

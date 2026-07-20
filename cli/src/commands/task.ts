@@ -7,6 +7,7 @@ import { join } from "path";
 import { createRuntimePool } from "../runtime/database.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
+import { recoverInterruptedWorkers, workerProcessIsAlive } from "../runtime/recovery.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { NodeTerminal } from "../runtime/terminal.js";
@@ -34,9 +35,22 @@ export function formatTask(task: AgentTask): string {
     `Project: ${task.projectName}`,
     `Updated: ${task.updatedAt}`,
   ];
-  if (task.status !== "completed" && task.recommendedNextAction) lines.push(`Next: ${task.recommendedNextAction}`);
+  if (task.status !== "completed" && task.recommendedNextAction) {
+    lines.push(`Next: ${formatNextAction(task.recommendedNextAction)}`);
+  }
   if (task.outcomeSummary) lines.push(`Outcome: ${task.outcomeSummary}`);
   return lines.join("\n");
+}
+
+export function formatNextAction(nextAction: string): string {
+  const trimmed = nextAction.trim();
+  if (trimmed.startsWith("No healthy worker satisfies:")) {
+    return "Worker routing is unavailable; Flyd needs to recover or replace its worker before continuing.";
+  }
+  if (trimmed === "Current repository evidence invalidated the assignment base") {
+    return "The repository changed while work was running; Flyd needs to re-check the current files before continuing.";
+  }
+  return trimmed;
 }
 
 export function formatWorker(worker: WorkerSession): string {
@@ -64,6 +78,21 @@ async function flushArchiveOutbox(store: PostgresTaskStore): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Flyd memory delivery is delayed: ${message}\n`);
   }
+}
+
+export async function recoverLiveWorkersForStatus(
+  store: Pick<PostgresTaskStore, "liveWorkers" | "transitionWorker">,
+  projectRoot: string,
+  deps: {
+    isProcessAlive?: typeof workerProcessIsAlive;
+    transition?: Pick<PostgresTaskStore, "transitionWorker">["transitionWorker"];
+  } = {},
+): Promise<number> {
+  return recoverInterruptedWorkers({
+    workers: await store.liveWorkers(projectRoot),
+    isProcessAlive: (_processId, worker) => (deps.isProcessAlive ?? workerProcessIsAlive)(worker),
+    transition: deps.transition ?? ((workerKey, update) => store.transitionWorker(workerKey, update)),
+  });
 }
 
 export function formatMetrics(metrics: RuntimeMetrics): string {
@@ -136,6 +165,10 @@ export async function runTaskStatus(taskKey?: string): Promise<void> {
   try {
     const store = new PostgresTaskStore(pool);
     const repository = await inspectRepository();
+    const recoveredWorkers = await recoverLiveWorkersForStatus(store, repository.root);
+    if (recoveredWorkers > 0) {
+      console.log(`Recovered ${recoveredWorkers} stale worker ${recoveredWorkers === 1 ? "session" : "sessions"} before reading task status.`);
+    }
     const task = taskKey
       ? await store.findTask(taskKey)
       : await store.findResumableTask(repository.root) ?? (await store.listTasks(repository.root, 1))[0] ?? null;

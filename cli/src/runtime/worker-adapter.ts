@@ -112,7 +112,7 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
     const event = input.parseEvent(line);
     if (!event) return;
     externalSessionId ||= event.sessionId;
-    if (event.text) output += event.text;
+    if (event.text) output = event.text;
     input.onEvent?.(event);
   };
 

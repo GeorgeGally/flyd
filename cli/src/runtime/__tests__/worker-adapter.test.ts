@@ -75,17 +75,19 @@ describe("worker adapter contract", () => {
 
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith("SIGCONT"));
     expect(child.stdin.writableEnded).toBe(true);
-    child.stdout.write(`${JSON.stringify({ session: "session-1", text: "Done" })}\n`);
+    child.stdout.write(`${JSON.stringify({ session: "session-1", text: "Checking the repository" })}\n`);
+    child.stdout.write(`${JSON.stringify({ session: "session-1", text: "The project is ready for dogfooding." })}\n`);
     child.emit("close", 0);
 
     await expect(resultPromise).resolves.toMatchObject({
       exitStatus: 0,
       externalSessionId: "session-1",
-      output: "Done",
+      output: "The project is ready for dogfooding.",
     });
     expect(child.kill).toHaveBeenNthCalledWith(1, "SIGSTOP");
     expect(onStart).toHaveBeenCalledWith(73);
-    expect(onEvent).toHaveBeenCalledWith({ type: "message", sessionId: "session-1", text: "Done" });
+    expect(onEvent).toHaveBeenCalledWith({ type: "message", sessionId: "session-1", text: "Checking the repository" });
+    expect(onEvent).toHaveBeenCalledWith({ type: "message", sessionId: "session-1", text: "The project is ready for dogfooding." });
   });
 
   it("terminates and then kills a timed-out worker", async () => {

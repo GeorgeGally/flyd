@@ -13,11 +13,13 @@ interface ContextInput extends OrientationInput {
 }
 
 const WORKER_HEALTH_BLOCKER = /^No healthy worker satisfies:/;
+const REPOSITORY_INVALIDATED_ASSIGNMENT = "Current repository evidence invalidated the assignment base";
 
 export function actionableTaskNextAction(task: AgentTask): string {
   const nextAction = task.recommendedNextAction?.trim();
   if (!nextAction) return "Continue the unfinished task";
   if (WORKER_HEALTH_BLOCKER.test(nextAction)) return task.intendedOutcome;
+  if (nextAction === REPOSITORY_INVALIDATED_ASSIGNMENT) return "Re-check the current repository before continuing the task";
   return nextAction;
 }
 

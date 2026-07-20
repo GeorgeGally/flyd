@@ -61,6 +61,25 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
     assert_not binding.controls_enabled?
   end
 
+  test "exposes a complete user-facing re-entry action" do
+    AgentTask.where(id: @task.id).update_all(
+      status: "ready",
+      recommended_next_action: "Current repository evidence invalidated the assignment base"
+    )
+    item = Item.new(
+      [ { "type" => "runtime_task", "id" => @task.task_key } ],
+      { "task_revision" => @task.revision }
+    )
+
+    binding = RuntimeTasks::BindingPresenter.call(item)
+
+    assert_equal(
+      "The repository changed while work was running; Flyd needs to re-check the current files before continuing.",
+      binding.next_action
+    )
+    assert_equal "Ready to resume", binding.status_label
+  end
+
   test "rejects referenced records from another task" do
     other_project = Project.create!(name: "Other binding #{SecureRandom.hex(4)}", root_path: Dir.home)
     other_task = other_project.agent_tasks.create!(intended_outcome: "Remain separate")
@@ -89,6 +108,39 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
     assert_match(/crosses task boundaries/, error.message)
   end
 
+  test "promotes the latest verified worker result and keeps other artifacts secondary" do
+    assignment = @task.task_assignments.create!(
+      status: "verified",
+      title: "Assess the project",
+      instructions: "Return a grounded status assessment"
+    )
+    earlier_result = artifact_for(assignment, kind: "log", title: "Worker result", content: "Earlier assessment")
+    verification = artifact_for(assignment, kind: "test", title: "git diff --check", content: "exit 0")
+    latest_result = artifact_for(
+      assignment,
+      kind: "log",
+      title: "Worker result",
+      content: "## Current status\n\nRelease 1C is implemented; dogfood evidence remains."
+    )
+    item = Item.new(
+      [
+        { "type" => "runtime_task", "id" => @task.task_key },
+        { "type" => "task_assignment", "id" => assignment.assignment_key },
+        { "type" => "task_artifact", "id" => earlier_result.artifact_key },
+        { "type" => "task_artifact", "id" => verification.artifact_key },
+        { "type" => "task_artifact", "id" => latest_result.artifact_key }
+      ],
+      { "task_revision" => @task.revision }
+    )
+
+    binding = RuntimeTasks::BindingPresenter.call(item)
+
+    assert_equal [ latest_result ], binding.outcome_artifacts
+    assert_equal latest_result, binding.primary_outcome_artifact
+    assert_equal latest_result.content, binding.primary_outcome
+    assert_equal [ verification ], binding.supporting_artifacts
+  end
+
   private
 
   def mark_delivery_healthy
@@ -96,6 +148,21 @@ class RuntimeTasks::BindingPresenterTest < ActiveSupport::TestCase
       listener_key: AgentRuntime::EventListener::LISTENER_KEY,
       lease_owner: "test-listener",
       lease_expires_at: 1.minute.from_now
+    )
+  end
+
+  def artifact_for(assignment, kind:, title:, content:)
+    @task.task_artifacts.create!(
+      task_assignment: assignment,
+      kind: kind,
+      title: title,
+      media_type: "text/plain",
+      byte_size: content.bytesize,
+      sha256_digest: Digest::SHA256.hexdigest(content),
+      verification_status: "verified",
+      source_revision: @task.revision,
+      content: content,
+      provenance: {}
     )
   end
 end

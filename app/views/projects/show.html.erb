@@ -1,110 +1,118 @@
 <%= content_for :title, "#{@project.name} — Flyd" %>
 
-<div class="max-w-3xl">
-  <div class="flex items-start justify-between mb-8">
-    <div>
-      <h2 class="text-2xl font-semibold text-ink">Here's where we are</h2>
-      <p class="text-sm text-muted mt-1"><%= @project.name %></p>
-    </div>
-    <div class="flex items-center gap-2 flex-shrink-0">
-      <%= link_to "Edit", edit_project_path(@project), class: "flyd-system-btn flyd-system-btn--ghost px-3 py-1.5 rounded-sm" %>
-      <% if @project.archived? %>
-        <%= button_to "Reactivate", reactivate_project_path(@project), method: :post, class: "flyd-system-btn flyd-system-btn--primary px-3 py-1.5 rounded-sm" %>
-      <% else %>
-        <%= button_to "Archive", archive_project_path(@project), method: :post, class: "flyd-system-btn flyd-system-btn--ghost px-3 py-1.5 rounded-sm" %>
-      <% end %>
-      <%= button_to "Delete", project_path(@project), method: :delete, class: "flyd-system-btn flyd-system-btn--danger px-3 py-1.5 rounded-sm", data: { turbo_confirm: "Delete this project and all its data?" }, form: { class: "inline" } %>
-    </div>
-  </div>
-
+<div class="sys-shell sys-page">
   <% if @project.archived? %>
-    <div class="px-4 py-2.5 mb-7 border border-signal/60 bg-signal/10 text-sm text-ink">
-      This project is archived.
-    </div>
+    <div class="sys-strip sys-reveal">This project is archived.</div>
   <% end %>
 
-  <% if @project.description.present? %>
-    <p class="text-sm text-muted mb-7 leading-6"><%= @project.description %></p>
-  <% end %>
+  <header class="sys-masthead sys-reveal" style="--d: 40ms">
+    <p class="sys-kicker"><%= @project.name %></p>
+    <h2 class="sys-display">Here's where we are</h2>
+    <% if @project.description.present? %>
+      <p class="sys-sub"><%= @project.description %></p>
+    <% end %>
+    <div class="sys-actions">
+      <%= link_to "Edit", edit_project_path(@project), class: "flyd-system-btn flyd-system-btn--ghost" %>
+      <% if @project.archived? %>
+        <%= button_to "Reactivate", reactivate_project_path(@project), method: :post, class: "flyd-system-btn flyd-system-btn--ghost", form: { class: "inline" } %>
+      <% else %>
+        <%= button_to "Archive", archive_project_path(@project), method: :post, class: "flyd-system-btn flyd-system-btn--ghost", form: { class: "inline" } %>
+      <% end %>
+      <%= button_to "Delete", project_path(@project), method: :delete, class: "flyd-system-btn flyd-system-btn--danger", data: { turbo_confirm: "Delete this project and all its data?" }, form: { class: "inline" } %>
+    </div>
+  </header>
 
   <% if @conversation = @project.active_conversation %>
-    <div class="mb-8">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="flyd-system-label font-semibold">Current Conversation</h3>
-        <%= link_to "Continue →", project_conversation_path(@project, @conversation), class: "flyd-system-btn text-sm underline decoration-line underline-offset-4 hover:decoration-ink text-ink" %>
+    <section class="sys-section sys-reveal" style="--d: 100ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label">Current conversation</span>
+        <%= link_to "Continue &rarr;".html_safe, project_conversation_path(@project, @conversation), class: "flyd-system-btn flyd-system-btn--ghost" %>
       </div>
-      <div class="divide-y divide-line border-b border-line">
+      <div class="sys-transcript">
         <% @conversation.messages.ordered.last(3).each do |msg| %>
-          <div class="py-3 first:pt-0 last:pb-0">
-            <span class="text-xs text-muted"><%= msg.role == "user" ? "You" : "Flyd" %></span>
-            <p class="text-sm text-ink mt-0.5"><%= truncate(msg.content, length: 200) %></p>
+          <div class="sys-msg <%= msg.role == "user" ? "sys-msg--user" : "" %>">
+            <div class="sys-msg__role"><%= msg.role == "user" ? "You" : "Flyd" %></div>
+            <div class="sys-msg__body"><p><%= truncate(msg.content, length: 220) %></p></div>
           </div>
         <% end %>
         <% if @conversation.messages.none? %>
-          <p class="text-sm text-muted py-3">No messages yet. Start the conversation!</p>
+          <div class="sys-msg">
+            <div class="sys-msg__role">Flyd</div>
+            <div class="sys-msg__body"><p class="text-muted">No messages yet. Start the conversation!</p></div>
+          </div>
         <% end %>
       </div>
-    </div>
+    </section>
   <% else %>
-    <div class="mb-8 py-10 text-center border-b border-line">
-      <h3 class="text-base font-medium text-ink mb-2">Start your first conversation</h3>
-      <p class="text-sm text-muted mb-4">Ask a question, describe a problem, or share what you're working on.</p>
-      <%= link_to "New Conversation", project_conversations_path(@project), data: { turbo_method: :post }, class: "flyd-system-btn flyd-system-btn--primary px-4 py-2 rounded-sm" %>
-    </div>
+    <section class="sys-section sys-reveal" style="--d: 100ms">
+      <div class="sys-empty">
+        <h3 class="sys-display sys-display--md">Start your first conversation</h3>
+        <p class="sys-sub">Ask a question, describe a problem, or share what you're working on.</p>
+        <div class="sys-actions">
+          <%= link_to "New Conversation", project_conversations_path(@project), data: { turbo_method: :post }, class: "flyd-system-btn flyd-system-btn--primary" %>
+        </div>
+      </div>
+    </section>
   <% end %>
 
   <% recent_decisions = @project.decisions.by_recency.limit(3) %>
   <% if recent_decisions.any? %>
-    <div class="mb-8">
-      <h3 class="flyd-system-label font-semibold mb-3">Recent Decisions</h3>
-      <div class="divide-y divide-line">
+    <section class="sys-section sys-reveal" style="--d: 160ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label">Recent decisions</span>
+      </div>
+      <div class="sys-transcript">
         <% recent_decisions.each do |decision| %>
-          <div class="py-3">
-            <p class="text-sm text-ink"><%= decision.content %></p>
-            <p class="text-xs text-muted mt-1"><%= time_ago_in_words(decision.created_at) %> ago</p>
+          <div class="sys-msg">
+            <div class="sys-msg__role"><%= time_ago_in_words(decision.created_at) %></div>
+            <div class="sys-msg__body"><p><%= decision.content %></p></div>
           </div>
         <% end %>
       </div>
-    </div>
+    </section>
   <% end %>
 
   <% if recent_decisions.empty? && !@project.active_conversation %>
-    <div class="py-8 text-center border-b border-line">
-      <% if @project.root_path.present? %>
-        <p class="text-sm text-muted mb-3">Import existing captures from <%= @project.root_path %></p>
-        <%= link_to "Import Captures", project_path(@project), class: "text-sm underline decoration-line underline-offset-4 hover:decoration-ink text-ink" %>
-      <% else %>
-        <p class="text-sm text-muted">Set a root path in project settings to auto-link captures from your filesystem.</p>
-      <% end %>
-    </div>
+    <section class="sys-section sys-reveal" style="--d: 160ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label">Captures</span>
+      </div>
+      <div class="py-6">
+        <% if @project.root_path.present? %>
+          <p class="text-sm text-muted mb-4">Import existing captures from <span class="font-mono"><%= @project.root_path %></span></p>
+          <%= link_to "Import Captures", project_path(@project), class: "flyd-system-btn flyd-system-btn--ghost" %>
+        <% else %>
+          <p class="text-sm text-muted">Set a root path in project settings to auto-link captures from your filesystem.</p>
+        <% end %>
+      </div>
+    </section>
   <% end %>
 
   <% all_conversations = @project.conversations.ordered %>
   <% if all_conversations.any? %>
-    <div>
-      <h3 class="flyd-system-label font-semibold mb-3">Conversation History</h3>
-      <div class="divide-y divide-line">
+    <section class="sys-section sys-reveal" style="--d: 220ms">
+      <div class="sys-section__head">
+        <span class="flyd-system-label">Conversation history</span>
+      </div>
+      <div>
         <% all_conversations.each do |conv| %>
-          <div class="flyd-system-card py-3 flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-ink truncate">
-                  <%= conv.messages.ordered.first&.content&.truncate(60) || "New conversation" %>
-                </span>
-                <% if conv.active? %>
-                  <span class="flyd-system-badge flyd-system-badge--active">Active</span>
-                <% else %>
-                  <span class="flyd-system-badge flyd-system-badge--archived">Archived</span>
-                <% end %>
-              </div>
-              <p class="text-xs text-muted mt-0.5">
-                <%= pluralize(conv.messages.count, "message") %> · <%= time_ago_in_words(conv.created_at) %> ago
-              </p>
-            </div>
-            <%= link_to "Open", project_conversation_path(@project, conv), class: "flyd-system-btn flyd-system-btn--ghost px-2.5 py-1 rounded-sm text-xs" %>
-          </div>
+          <%= link_to project_conversation_path(@project, conv), class: "sys-ledger__row" do %>
+            <span class="sys-ledger__index">&nbsp;</span>
+            <span class="min-w-0">
+              <span class="sys-ledger__title"><%= conv.messages.ordered.first&.content&.truncate(70) || "New conversation" %></span>
+              <span class="sys-ledger__desc"><%= pluralize(conv.messages.count, "message") %> · <%= time_ago_in_words(conv.created_at) %> ago</span>
+            </span>
+            <span class="sys-ledger__meta">
+              <% if conv.active? %>
+                <span class="sys-status sys-status--active">Active</span>
+              <% else %>
+                <span class="sys-status">Archived</span>
+              <% end %>
+              <span class="sys-ledger__arrow" aria-hidden="true">&rarr;</span>
+            </span>
+          <% end %>
         <% end %>
       </div>
-    </div>
+    </section>
   <% end %>
 </div>

@@ -86,6 +86,17 @@ describe("buildOrientation", () => {
     expect(orientation.nextAction).toBe("Make Flyd resume coding work");
   });
 
+  it("turns repository-invalidation blockers into user-facing resume guidance", () => {
+    const orientation = buildOrientation({
+      task: { ...task, recommendedNextAction: "Current repository evidence invalidated the assignment base" },
+      repository,
+      worker,
+      memory,
+    });
+
+    expect(orientation.nextAction).toBe("Re-check the current repository before continuing the task");
+  });
+
   it("builds a bounded context package with epistemic labels", () => {
     const context = buildContextPackage({ task, repository, worker, memory, maxCharacters: 2_000 });
 

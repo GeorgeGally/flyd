@@ -6,7 +6,7 @@
     </div>
 
     <h2 class="working-scene__title mt-8 max-w-5xl font-medium leading-[1.02]"><%= item.title %></h2>
-    <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= item.summary %></p>
+    <p class="mt-7 max-w-3xl text-lg leading-8 text-gray-600"><%= binding.next_action.presence || item.summary %></p>
 
     <div class="mt-12 border-t border-gray-950 pt-7">
       <div class="surface-label">Intended outcome</div>

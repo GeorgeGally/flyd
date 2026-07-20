@@ -100,6 +100,24 @@ function verificationPayload(result: VerifiedWorkerResult): Record<string, unkno
 }
 
 const MAX_TEXT_ARTIFACT_BYTES = 256 * 1024;
+const MAX_REVIEW_SUMMARY_CHARACTERS = 4_000;
+
+function reviewSummary(
+  assignments: TaskAssignment[],
+  workerOutcomes: Map<string, string>,
+  fallback: string,
+): string {
+  const outcomes = assignments.filter((assignment) => workerOutcomes.get(assignment.assignmentKey)?.trim());
+  if (outcomes.length === 0) return fallback;
+  const summary = outcomes.length === 1
+    ? workerOutcomes.get(outcomes[0].assignmentKey)!.trim()
+    : outcomes.map((assignment) => (
+      `## ${assignment.title}\n\n${workerOutcomes.get(assignment.assignmentKey)!.trim()}`
+    )).join("\n\n");
+  return summary.length > MAX_REVIEW_SUMMARY_CHARACTERS
+    ? `${summary.slice(0, MAX_REVIEW_SUMMARY_CHARACTERS - 18).trimEnd()}\n\n[Summary truncated]`
+    : summary;
+}
 
 function redactArtifactText(value: string): string {
   return value
@@ -209,6 +227,7 @@ export async function orchestrateAssignments(input: {
   const adapters = new Map(input.adapters.map((adapter) => [adapter.name, adapter]));
   const activeCounts: Record<string, number> = {};
   const verified = new Map<string, VerifiedWorkerResult>();
+  const workerOutcomes = new Map<string, string>();
   const completed = new Set<string>();
   const remaining = new Map(input.assignments.map((assignment) => [assignment.assignmentKey, assignment]));
   let workerRuns = 0;
@@ -444,6 +463,7 @@ export async function orchestrateAssignments(input: {
           idempotencyKey: eventKey(`assignment-verified:${assignment.assignmentKey}`),
         });
         verified.set(assignment.assignmentKey, verification);
+        workerOutcomes.set(assignment.assignmentKey, result.output);
         return;
       }
 
@@ -531,7 +551,11 @@ export async function orchestrateAssignments(input: {
   return {
     status: integration.status,
     summary: integration.status === "integrated"
-      ? `Integrated ${integration.changedFiles.length} changed files from ${input.assignments.length} verified assignments`
+      ? reviewSummary(
+          input.assignments,
+          workerOutcomes,
+          `Integrated ${integration.changedFiles.length} changed files from ${input.assignments.length} verified assignments`,
+        )
       : integration.reason ?? "Integration blocked",
     verification: integration.verification ? verificationPayload(integration.verification) : { passed: false },
   };

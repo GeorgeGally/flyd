@@ -316,7 +316,7 @@ module Flyd
       Surface.new(
         generated_at: Time.current,
         understanding: "A canonical coding task is active at revision #{revision}.",
-        current_intention: runtime_fallback_intention(status),
+        current_intention: runtime_fallback_intention(status, renderer),
         surface_mode: mode,
         focus_item_id: item.id,
         items: [ item ],
@@ -339,7 +339,11 @@ module Flyd
         [ related.first(19), "task_review", "investigation", "question", "investigate" ]
       when "ready"
         related = Array(collections[:task_artifacts]) + Array(collections[:task_assignments])
-        [ related.first(19), "task_review", "action", "artifact", "review" ]
+        if Array(collections[:task_artifacts]).any?
+          [ related.first(19), "task_review", "action", "artifact", "review" ]
+        else
+          [ related.first(19), "task_orientation", "action", "scene", "review" ]
+        end
       when "completed"
         [ Array(collections[:task_artifacts]).first(19), "task_completion", "action", "artifact", "celebrate" ]
       else
@@ -379,6 +383,8 @@ module Flyd
           { "id" => "correct_task", "label" => "Correct Flyd", "payload" => base.merge("original_claim" => "The task is blocked.") }
         ]
       when "ready"
+        return [] unless related.any? { |item| item[:type].to_s == "task_artifact" }
+
         summary = runtime_evidence_content(collections[:runtime_tasks].first)[:outcomeSummary].presence || "Verified work is complete."
         [
           { "id" => "confirm_task_completion", "label" => "Confirm completion", "payload" => base.merge("summary" => summary) },
@@ -394,7 +400,12 @@ module Flyd
       when "awaiting_grant" then "Review the exact worker scope and verification boundary before Flyd begins."
       when "running" then "#{related.count { |item| item[:type].to_s == "worker_session" }} worker session(s) are carrying out the approved plan."
       when "blocked" then content[:recommendedNextAction].presence || "The verified runtime state needs a bounded intervention."
-      when "ready" then content[:outcomeSummary].presence || "The assignments have returned verified artifacts for review."
+      when "ready"
+        if related.any? { |item| item[:type].to_s == "task_artifact" }
+          content[:outcomeSummary].presence || "The assignments have returned verified artifacts for review."
+        else
+          content[:recommendedNextAction].presence || "Resume the task from its last verified state."
+        end
       when "completed" then content[:outcomeSummary].presence || "The verified outcome has been returned."
       else "Flyd has a concrete coding outcome to orient and continue."
       end
@@ -404,12 +415,12 @@ module Flyd
       evidence.to_h[:content].to_h.deep_symbolize_keys
     end
 
-    def runtime_fallback_intention(status)
+    def runtime_fallback_intention(status, renderer = nil)
       {
         "awaiting_grant" => "Get an explicit decision on the exact execution boundary.",
         "running" => "Keep the live work legible and controllable.",
         "blocked" => "Resolve the blocker without losing verified context.",
-        "ready" => "Review verified work and decide whether it is complete.",
+        "ready" => renderer == "task_review" ? "Review verified work and decide whether it is complete." : "Resume from the exact re-entry point.",
         "completed" => "Return the verified outcome and its artifacts."
       }.fetch(status, "Orient the active coding task.")
     end

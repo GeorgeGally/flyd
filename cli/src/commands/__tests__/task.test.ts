@@ -8,6 +8,7 @@ import {
   formatMetrics,
   formatTask,
   formatWorker,
+  recoverLiveWorkersForStatus,
   resolveRepositoryRuby,
 } from "../task.js";
 import { buildReleaseAcceptanceReport } from "../../runtime/release-acceptance.js";
@@ -72,6 +73,45 @@ describe("task command formatting", () => {
     expect(formatTask(task)).toContain("Make Flyd continuous");
     expect(formatTask(task)).toContain("Resume the interrupted OpenCode session");
     expect(formatTask(task)).toContain("task-12345678");
+  });
+
+  it("does not print internal blocker strings as next actions", () => {
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "No healthy worker satisfies: implementation, testing",
+    })).toContain("Next: Worker routing is unavailable; Flyd needs to recover or replace its worker before continuing.");
+
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "Current repository evidence invalidated the assignment base",
+    })).toContain("Next: The repository changed while work was running; Flyd needs to re-check the current files before continuing.");
+  });
+
+  it("recovers dead live workers before status reports them", async () => {
+    const store = {
+      liveWorkers: async () => [ worker ],
+      transitionWorker: async () => worker,
+    };
+    const transitions: Array<{ workerKey: string; update: Record<string, unknown> }> = [];
+
+    const recovered = await recoverLiveWorkersForStatus(store, "/work/flyd", {
+      isProcessAlive: () => false,
+      transition: async (workerKey, update) => {
+        transitions.push({ workerKey, update });
+        return worker;
+      },
+    });
+
+    expect(recovered).toBe(1);
+    expect(transitions).toEqual([
+      {
+        workerKey: worker.workerKey,
+        update: expect.objectContaining({
+          status: "interrupted",
+          error: "Flyd restarted after the worker process ended",
+        }),
+      },
+    ]);
   });
 
   it("shows controllable worker identity, assignment, adapter, and worktree", () => {

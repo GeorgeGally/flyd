@@ -369,6 +369,47 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     assert_equal 0, intelligence.diagnostics[:output_characters]
   end
 
+  test "fallback does not claim review readiness without a verified artifact" do
+    provider = FakeStateProvider.new({
+      providers: [ {
+        source: "flyd-runtime",
+        fresh: true,
+        data: {
+          runtime_tasks: [ {
+            id: "task-1",
+            type: "runtime_task",
+            epistemicStatus: "observation",
+            confidence: 1.0,
+            generatedAt: Time.current.iso8601,
+            content: {
+              taskKey: "task-1",
+              status: "ready",
+              revision: 8,
+              intendedOutcome: "Assess the project",
+              recommendedNextAction: "Resume the interrupted assessment"
+            }
+          } ],
+          task_assignments: [ {
+            id: "assignment-1",
+            type: "task_assignment",
+            epistemicStatus: "observation",
+            confidence: 1.0,
+            generatedAt: Time.current.iso8601,
+            content: { taskKey: "task-1", status: "running", title: "Assess the project" }
+          } ],
+          task_artifacts: []
+        }
+      } ]
+    })
+
+    surface = Flyd::Intelligence.new(chat: FakeChat.new("not json"), state_provider: provider).compose_surface
+
+    assert_equal "action", surface.surface_mode
+    assert_equal "task_orientation", surface.items.first.renderer
+    assert_equal "Resume the interrupted assessment", surface.items.first.summary
+    assert_empty surface.items.first.actions
+  end
+
   test "stays intentionally quiet without asking the model to invent relevance" do
     chat = FakeChat.new("must not be called")
     provider = FakeStateProvider.new({ providers: [] })

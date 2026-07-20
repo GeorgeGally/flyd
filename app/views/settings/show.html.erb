@@ -1,24 +1,27 @@
-<div class="max-w-md mx-auto mt-16">
-  <h2 class="text-2xl font-semibold text-ink mb-2">Welcome to Flyd</h2>
-  <p class="text-sm text-muted mb-7 leading-6">Configure your LLM provider to start chatting. Your keys are stored in <code class="text-xs bg-ink/8 px-1">~/.flyd/config.json</code>.</p>
+<div class="sys-shell sys-shell--narrow sys-page">
+  <header class="sys-masthead sys-reveal">
+    <p class="sys-kicker">System · Configuration</p>
+    <h2 class="sys-display sys-display--md">Welcome to Flyd</h2>
+    <p class="sys-sub">Configure your LLM provider to start chatting. Your keys are stored in <code class="font-mono text-ink">~/.flyd/config.json</code>.</p>
+  </header>
 
   <% if notice %>
-    <div class="px-4 py-2.5 mb-5 border border-signal/60 bg-signal/10 text-sm text-ink"><%= notice %></div>
+    <div class="sys-strip sys-reveal mb-6"><%= notice %></div>
   <% end %>
   <% if alert %>
-    <div class="px-4 py-2.5 mb-5 border border-line text-sm text-ink"><%= alert %></div>
+    <div class="sys-strip sys-strip--plain sys-reveal mb-6"><%= alert %></div>
   <% end %>
 
-  <%= form_with url: settings_path, method: :patch, class: "space-y-5" do |f| %>
+  <%= form_with url: settings_path, method: :patch, class: "space-y-7 border-t border-ink pt-7 sys-reveal", style: "--d: 80ms" do |f| %>
     <% unless Flyd::KeyLoader.get("OPENAI_API_KEY") %>
       <div>
         <%= f.label :openai_api_key, "OpenAI API Key", class: "flyd-system-label mb-1.5 block" %>
         <%= f.password_field :openai_api_key, class: "flyd-system-input font-mono", placeholder: "sk-..." %>
-        <p class="text-xs text-muted mt-1.5">Get one at <a href="https://platform.openai.com/api-keys" class="underline decoration-line underline-offset-4 hover:decoration-ink text-ink">platform.openai.com</a></p>
+        <p class="sys-composer__hint mt-2">Get one at <a href="https://platform.openai.com/api-keys" class="underline decoration-line underline-offset-4 hover:decoration-ink text-ink">platform.openai.com</a></p>
       </div>
     <% else %>
-      <div class="px-4 py-2.5 border border-signal/60 bg-signal/10 flex items-center gap-2">
-        <span class="text-sm text-ink">OpenAI API key is configured.</span>
+      <div class="sys-strip flex items-center gap-3">
+        <span class="text-sm text-ink">OpenAI API key is set.</span>
       </div>
     <% end %>
 
@@ -26,10 +29,12 @@
       <div>
         <%= f.label :anthropic_api_key, "Anthropic API Key (optional)", class: "flyd-system-label mb-1.5 block" %>
         <%= f.password_field :anthropic_api_key, class: "flyd-system-input font-mono", placeholder: "sk-ant-..." %>
-        <p class="text-xs text-muted mt-1.5">Get one at <a href="https://console.anthropic.com/" class="underline decoration-line underline-offset-4 hover:decoration-ink text-ink">console.anthropic.com</a></p>
+        <p class="sys-composer__hint mt-2">Get one at <a href="https://console.anthropic.com/" class="underline decoration-line underline-offset-4 hover:decoration-ink text-ink">console.anthropic.com</a></p>
       </div>
     <% end %>
 
-    <%= f.submit "Save and Continue", class: "flyd-system-btn flyd-system-btn--primary w-full justify-center px-4 py-2.5 cursor-pointer" %>
+    <div class="sys-actions !mt-8">
+      <%= f.submit "Save and Continue", class: "flyd-system-btn flyd-system-btn--primary cursor-pointer" %>
+    </div>
   <% end %>
 </div>

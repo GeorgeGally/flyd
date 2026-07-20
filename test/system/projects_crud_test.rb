@@ -15,12 +15,12 @@ class ProjectsCrudTest < ApplicationSystemTestCase
     assert_text "A test project for system tests"
   end
 
-  test "list projects in sidebar" do
+  test "list projects on index" do
     Project.create!(name: "Alpha")
     Project.create!(name: "Beta")
 
     visit projects_path
-    within "aside" do
+    within "main" do
       assert_text "Alpha"
       assert_text "Beta"
     end

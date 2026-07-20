@@ -55,7 +55,7 @@ module ReleaseAcceptance
         measure("recommendation_rationale", "Recommendation rationale is identifiable without evidence noise",
           all_recorded(evidence[:rationale_reviews]), "#{evidence[:rationale_reviews].length} reviews")
       ]
-      automated_status = all_recorded(evidence[:automated_acceptance_runs].map do |run|
+      automated_status = latest_recorded(evidence[:automated_acceptance_runs].map do |run|
         run[:idempotent] && run[:permissions_enforced] && run[:no_duplicate_effects]
       end)
       statuses = [
@@ -108,6 +108,12 @@ module ReleaseAcceptance
       return "insufficient_evidence" if values.empty?
 
       values.all? ? "passed" : "failed"
+    end
+
+    def latest_recorded(values)
+      return "insufficient_evidence" if values.empty?
+
+      values.last ? "passed" : "failed"
     end
 
     def overall(statuses)

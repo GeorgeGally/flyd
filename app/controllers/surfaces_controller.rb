@@ -1,6 +1,4 @@
 class SurfacesController < ApplicationController
-  skip_before_action :load_sidebar_projects
-
   def show
     unless surface_enabled?
       redirect_to projects_path
