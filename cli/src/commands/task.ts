@@ -50,6 +50,9 @@ export function formatNextAction(nextAction: string): string {
   if (trimmed === "Current repository evidence invalidated the assignment base") {
     return "The repository changed while work was running; Flyd needs to re-check the current files before continuing.";
   }
+  if (trimmed === "Flyd already intervened on this exact evidence") {
+    return "Flyd already tried the safe automatic move here; review the current state before intervening again.";
+  }
   return trimmed;
 }
 

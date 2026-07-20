@@ -110,11 +110,12 @@ function parsePlan(raw: string): AssignmentPlan | null {
   }
 }
 
-function fallbackPlan(outcome: string): AssignmentPlan {
+function fallbackPlan(outcome: string, nextAction = outcome): AssignmentPlan {
+  const intent = `${outcome}\n${nextAction}`;
   const requestsChanges = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/i
-    .test(outcome);
+    .test(intent);
   const requestsAssessment = /\b(analy[sz]e|assess|audit|explain|inspect|investigate|look at|review|status|summari[sz]e)\b/i
-    .test(outcome);
+    .test(intent);
   const readOnly = requestsAssessment && !requestsChanges;
 
   return {
@@ -126,8 +127,8 @@ function fallbackPlan(outcome: string): AssignmentPlan {
       : "The repository verification commands pass"],
     assignments: [{
       key: "primary",
-      title: outcome,
-      instructions: outcome,
+      title: nextAction,
+      instructions: nextAction,
       capabilityRequirements: readOnly ? [ "analysis", "review" ] : [ "implementation", "testing" ],
       dependencyKeys: [],
       declaredFileScope: [ "." ],
@@ -157,6 +158,7 @@ export function currentPlanAssignments(
 
 export async function planAssignments(input: {
   outcome: string;
+  nextAction?: string;
   repository: RepositorySnapshot;
   memory: MemoryEvidence;
   generate?: (prompt: string) => Promise<string>;
@@ -169,14 +171,15 @@ export async function planAssignments(input: {
     "At most two assignments. Capabilities: analysis, implementation, review, testing, resume.",
     "Status, assessment, explanation, and review-only outcomes must not request implementation unless edits are explicitly requested.",
     "Each assignment must contain exactly: key, title, instructions, capabilityRequirements, dependencyKeys, declaredFileScope.",
-    `Outcome: ${input.outcome}`,
+    `Intended outcome: ${input.outcome}`,
+    `Current assignment: ${input.nextAction ?? input.outcome}`,
     `Repository: ${input.repository.name} at ${input.repository.head}`,
     `Relevant evidence:\n${evidence.join("\n") || "none"}`,
   ].join("\n");
 
   try {
-    return parsePlan(await generate(prompt)) ?? fallbackPlan(input.outcome);
+    return parsePlan(await generate(prompt)) ?? fallbackPlan(input.outcome, input.nextAction);
   } catch {
-    return fallbackPlan(input.outcome);
+    return fallbackPlan(input.outcome, input.nextAction);
   }
 }

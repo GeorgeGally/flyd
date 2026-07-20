@@ -14,12 +14,14 @@ interface ContextInput extends OrientationInput {
 
 const WORKER_HEALTH_BLOCKER = /^No healthy worker satisfies:/;
 const REPOSITORY_INVALIDATED_ASSIGNMENT = "Current repository evidence invalidated the assignment base";
+const REPEATED_INTERVENTION_BLOCKER = "Flyd already intervened on this exact evidence";
 
 export function actionableTaskNextAction(task: AgentTask): string {
   const nextAction = task.recommendedNextAction?.trim();
   if (!nextAction) return "Continue the unfinished task";
   if (WORKER_HEALTH_BLOCKER.test(nextAction)) return task.intendedOutcome;
   if (nextAction === REPOSITORY_INVALIDATED_ASSIGNMENT) return "Re-check the current repository before continuing the task";
+  if (nextAction === REPEATED_INTERVENTION_BLOCKER) return "Review the current state before intervening again";
   return nextAction;
 }
 

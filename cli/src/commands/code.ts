@@ -92,7 +92,8 @@ export async function runCode(outcome?: string): Promise<void> {
           let assignments = currentPlanAssignments(task, await store.listAssignments(task.id), repository.head);
           if (assignments.length === 0) {
             const plan = await planAssignments({
-              outcome: assignment,
+              outcome: task.intendedOutcome,
+              nextAction: assignment,
               repository,
               memory,
             });

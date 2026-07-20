@@ -97,6 +97,17 @@ describe("buildOrientation", () => {
     expect(orientation.nextAction).toBe("Re-check the current repository before continuing the task");
   });
 
+  it("turns repeated-intervention blockers into user-facing resume guidance", () => {
+    const orientation = buildOrientation({
+      task: { ...task, recommendedNextAction: "Flyd already intervened on this exact evidence" },
+      repository,
+      worker,
+      memory,
+    });
+
+    expect(orientation.nextAction).toBe("Review the current state before intervening again");
+  });
+
   it("builds a bounded context package with epistemic labels", () => {
     const context = buildContextPackage({ task, repository, worker, memory, maxCharacters: 2_000 });
 

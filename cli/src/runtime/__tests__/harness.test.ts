@@ -351,6 +351,37 @@ describe("runContinuityHarness", () => {
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ assignment: "Implement continuity" }));
   });
 
+  it("renders resumed startup as a daily-agent state instead of a raw resume prompt", async () => {
+    const deps = dependencies();
+    deps.store.findResumableTask.mockResolvedValue(task({
+      status: "ready",
+      revision: 3,
+      intendedOutcome: "i want you to look at the status of this project.",
+      repositorySnapshot: { head: "old", status_digest: "old" },
+      recommendedNextAction: "Re-check the current repository before continuing the task",
+    }));
+    deps.store.latestWorker.mockResolvedValue({
+      ...worker,
+      status: "interrupted",
+      adapter: "codex",
+      externalSessionId: "thread-1",
+      errorSummary: "Flyd restarted after the worker process ended",
+    });
+    deps.store.approvedGrant.mockResolvedValue(grant);
+    deps.terminal.ask.mockResolvedValue("");
+
+    await runContinuityHarness({ deps });
+
+    const writes = deps.terminal.write.mock.calls.map(([text]) => text).join("\n");
+    expect(writes).toContain("Flyd Daily Agent");
+    expect(writes).toContain("You are working on: i want you to look at the status of this project.");
+    expect(writes).toContain("Recommended move: Re-check the current repository before continuing the task");
+    expect(writes).not.toContain("Resume:");
+    expect(deps.terminal.ask).toHaveBeenCalledWith(
+      "Press Enter to let Flyd handle this, or type a focused correction:",
+    );
+  });
+
   it("keeps the real resume assignment when orchestration is blocked by worker health", async () => {
     const deps = dependencies({
       orchestrate: vi.fn(async () => ({
@@ -441,6 +472,30 @@ describe("runContinuityHarness", () => {
     const deps = dependencies();
     deps.store.findResumableTask.mockResolvedValue(task({ status: "running", revision: 5 }));
     deps.store.latestWorker.mockResolvedValue({ ...worker, status: "running", processId: 456, externalSessionId: "ses_live" });
+
+    const result = await runContinuityHarness({ deps });
+
+    expect(result.status).toBe("running");
+    expect(deps.store.createWorker).not.toHaveBeenCalled();
+    expect(deps.runWorker).not.toHaveBeenCalled();
+    expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringContaining("still running"));
+  });
+
+  it("rechecks for a worker that started while Flyd waited for resume input", async () => {
+    const deps = dependencies();
+    const interrupted = { ...worker, status: "interrupted" as const };
+    const concurrent = {
+      ...worker,
+      workerKey: "worker-concurrent",
+      status: "running" as const,
+      processId: 789,
+      externalSessionId: "ses_concurrent",
+    };
+    deps.store.findResumableTask.mockResolvedValue(task({ status: "ready", revision: 5 }));
+    deps.store.latestWorker
+      .mockResolvedValueOnce(interrupted)
+      .mockResolvedValueOnce(concurrent);
+    deps.terminal.ask.mockResolvedValue("");
 
     const result = await runContinuityHarness({ deps });
 

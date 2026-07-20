@@ -85,6 +85,11 @@ describe("task command formatting", () => {
       ...task,
       recommendedNextAction: "Current repository evidence invalidated the assignment base",
     })).toContain("Next: The repository changed while work was running; Flyd needs to re-check the current files before continuing.");
+
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "Flyd already intervened on this exact evidence",
+    })).toContain("Next: Flyd already tried the safe automatic move here; review the current state before intervening again.");
   });
 
   it("recovers dead live workers before status reports them", async () => {

@@ -5,6 +5,7 @@ import type {
   AgentTask,
   ContextPackage,
   MemoryEvidence,
+  Orientation,
   RepositorySnapshot,
   TaskGrant,
   WorkerSession,
@@ -204,6 +205,46 @@ function orchestrationReentryAction(task: AgentTask, assignment: string, summary
     : assignment;
 }
 
+function startupStateLabel(orientation: Orientation): string {
+  switch (orientation.kind) {
+    case "new":
+      return orientation.detail;
+    case "resume_changed":
+      return "The repository changed since Flyd last recorded this task. Current Git state is the source of truth.";
+    case "resume_interrupted":
+      return "The last worker stopped before Flyd could finish the task.";
+    case "resume":
+      return "The repository matches Flyd's last recorded task state.";
+  }
+  return orientation.detail;
+}
+
+function renderStartupOrientation(input: {
+  orientation: Orientation;
+  outcome: string;
+  worker: WorkerSession | null;
+}): string {
+  const workerLine = input.worker
+    ? `\nWorker: ${input.worker.adapter} ${input.worker.status}${input.worker.errorSummary ? ` (${input.worker.errorSummary})` : ""}`
+    : "";
+
+  return [
+    "",
+    "Flyd Daily Agent",
+    `You are working on: ${input.outcome}`,
+    `Current state: ${startupStateLabel(input.orientation)}${workerLine}`,
+    `Recommended move: ${input.orientation.nextAction}`,
+  ].join("\n") + "\n";
+}
+
+function workerIsLive(worker: WorkerSession | null): worker is WorkerSession {
+  return Boolean(worker && ["queued", "starting", "running", "stopping"].includes(worker.status));
+}
+
+function liveWorkerMessage(worker: WorkerSession): string {
+  return `\n${worker.adapter} worker ${worker.workerKey} is still running${worker.processId ? ` as process ${worker.processId}` : ""}. Flyd will not launch a duplicate.\n`;
+}
+
 export async function runContinuityHarness(input: {
   outcome?: string;
   cwd?: string;
@@ -240,7 +281,10 @@ export async function runContinuityHarness(input: {
       deps.terminal.write(`Memory retrieval is unavailable (${message}). Continuing from task and repository truth.\n`);
     }
     const orientation = buildOrientation({ task: resumedTask, repository, worker: previousWorker, memory });
-    deps.terminal.write(`\n${orientation.headline}\n${orientation.detail}\nNext: ${orientation.nextAction}\n`);
+    deps.terminal.write(renderStartupOrientation({ orientation, outcome, worker: previousWorker }));
+    const interruptedSessionId = previousWorker?.status === "interrupted"
+      ? previousWorker.externalSessionId ?? undefined
+      : undefined;
 
     let task = resumedTask ?? await deps.store.createTask({
       projectName: repository.name,
@@ -269,10 +313,8 @@ export async function runContinuityHarness(input: {
       idempotencyKey: eventKey(task.taskKey, "oriented"),
     });
 
-    if (previousWorker && ["queued", "starting", "running", "stopping"].includes(previousWorker.status)) {
-      deps.terminal.write(
-        `\nOpenCode worker ${previousWorker.workerKey} is still running${previousWorker.processId ? ` as process ${previousWorker.processId}` : ""}. Flyd will not launch a duplicate.\n`,
-      );
+    if (workerIsLive(previousWorker)) {
+      deps.terminal.write(liveWorkerMessage(previousWorker));
       await deps.store.finishTaskSession(sessionKey, sessionResult());
       sessionKey = null;
       return { status: "running", taskKey: task.taskKey };
@@ -287,7 +329,7 @@ export async function runContinuityHarness(input: {
         : explicitOutcome
           ? ""
           : (await deps.terminal.ask(
-              `Press Enter to continue with "${orientation.nextAction}", or type a focused correction:`,
+              "Press Enter to let Flyd handle this, or type a focused correction:",
             )).trim();
       assignment = correction || explicitOutcome || orientation.nextAction;
       if (correction) {
@@ -304,6 +346,16 @@ export async function runContinuityHarness(input: {
           actorSurface: "cli",
           idempotencyKey: eventKey(task.taskKey, "corrected"),
         });
+      }
+    }
+
+    if (resumedTask) {
+      const concurrentWorker = await deps.store.latestWorker(task.id);
+      if (workerIsLive(concurrentWorker)) {
+        deps.terminal.write(liveWorkerMessage(concurrentWorker));
+        await deps.store.finishTaskSession(sessionKey, sessionResult());
+        sessionKey = null;
+        return { status: "running", taskKey: task.taskKey };
       }
     }
 
@@ -495,15 +547,12 @@ export async function runContinuityHarness(input: {
 
     let workerTransitions = Promise.resolve<WorkerSession>(worker);
     let recordedSessionId: string | null = null;
-    const externalSessionId = previousWorker?.status === "interrupted"
-      ? previousWorker.externalSessionId ?? undefined
-      : undefined;
     const args = buildOpenCodeArgs({
       assignment,
       projectRoot: repository.root,
       taskKey: task.taskKey,
       contextPath,
-      externalSessionId,
+      externalSessionId: interruptedSessionId,
     });
     deps.terminal.write(`\nOpenCode is working on: ${assignment}\n`);
     let result: { exitStatus: number; externalSessionId: string | null; output: string; error: string };
@@ -513,7 +562,7 @@ export async function runContinuityHarness(input: {
         args,
         cwd: repository.root,
         assignment,
-        externalSessionId,
+        externalSessionId: interruptedSessionId,
         contextPath,
         timeoutMs: 90 * 60 * 1000,
         permissionConfig: buildOpenCodePermissionConfig({

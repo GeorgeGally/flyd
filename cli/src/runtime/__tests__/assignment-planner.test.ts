@@ -50,6 +50,22 @@ describe("assignment planner", () => {
     ]);
   });
 
+  it("keeps the original read-only intent when the resume action is generic", async () => {
+    const plan = await planAssignments({
+      outcome: "I want you to look at the status of this project",
+      nextAction: "Re-check the current repository before continuing the task",
+      repository,
+      memory: { verdict: "insufficient", matches: [] },
+      generate: async () => { throw new Error("offline"); },
+    });
+
+    expect(plan.assignments).toEqual([expect.objectContaining({
+      title: "Re-check the current repository before continuing the task",
+      instructions: "Re-check the current repository before continuing the task",
+      capabilityRequirements: ["analysis", "review"],
+    })]);
+  });
+
   it("keeps implementation requirements when a review request also asks for fixes", async () => {
     const plan = await planAssignments({
       outcome: "Review the pull request and fix the issues you find",
