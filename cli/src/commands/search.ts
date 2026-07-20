@@ -1,7 +1,12 @@
-import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
+import {
+  retrieveBrainEvidence,
+  retrieveLexicalBrainEvidence,
+} from "../lib/brain-retrieval.js";
 
-export async function runSearch(query: string): Promise<void> {
-  const result = await retrieveBrainEvidence(query);
+export async function runSearch(query: string, opts: { deep?: boolean } = {}): Promise<void> {
+  const result = opts.deep
+    ? await retrieveBrainEvidence(query)
+    : await retrieveLexicalBrainEvidence(query);
 
   if (!result.matches.length) {
     console.log("no captures found");

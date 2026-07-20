@@ -80,6 +80,7 @@ function stableId(path: string, body: string): string {
 }
 
 function memoryEpistemicStatus(entry: ScoredEvidence): "observation" | "user_confirmed" {
+  if (entry.metadata.type === "conversation-index" || entry.metadata.promoted === false) return "observation";
   if (entry.source === "wiki") return "user_confirmed";
   if (entry.metadata.type === "flyd-runtime-task-corrected") return "user_confirmed";
   return "observation";
@@ -122,6 +123,10 @@ export async function retrieveBrainEvidence(
 
 export async function retrieveLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
   return retrieveBrainEvidence(query, lexicalDefaults);
+}
+
+export async function retrieveRankedLexicalBrainEvidence(query: string): Promise<RankedBrainRetrieval> {
+  return retrieveRankedBrainEvidence(query, lexicalDefaults);
 }
 
 export async function retrieveRankedBrainEvidence(

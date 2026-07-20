@@ -16,6 +16,7 @@ describe("runAgentSession", () => {
   it("answers conversational input without creating or resuming a coding task", async () => {
     const ui = terminal(["let's just chat", "/exit"]);
     const retrieveMemory = vi.fn(async () => noMemory);
+    const recordTurn = vi.fn(async () => undefined);
     const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
       onToken("Good. What do you want to think through?");
       return "Good. What do you want to think through?";
@@ -24,6 +25,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory,
+      recordTurn,
       respond,
       loadSituation: vi.fn(async () => null),
     });
@@ -31,6 +33,10 @@ describe("runAgentSession", () => {
     expect(result).toEqual({ kind: "exit" });
     expect(retrieveMemory).toHaveBeenCalledWith("let's just chat");
     expect(respond).toHaveBeenCalledOnce();
+    expect(recordTurn).toHaveBeenCalledWith({
+      user: "let's just chat",
+      assistant: "Good. What do you want to think through?",
+    });
     expect(ui.write).toHaveBeenCalledWith("Good. What do you want to think through?");
     expect(ui.close).toHaveBeenCalledOnce();
   });
@@ -51,6 +57,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond,
       loadSituation: vi.fn(async () => null),
     });
@@ -77,6 +84,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond,
       loadSituation: vi.fn(async () => null),
     });
@@ -91,6 +99,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => null),
     });
@@ -105,6 +114,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => ({
         project: "GeorgeGally/flyd",
@@ -128,6 +138,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
         onToken("The current risk is stale state.");
         return "The current risk is stale state.";
@@ -145,7 +156,7 @@ describe("runAgentSession", () => {
       })),
     });
 
-    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("Unfinished: Implement continuity"));
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("Unfinished coding work: Implement continuity"));
     expect(ui.ask).toHaveBeenCalled();
   });
 
@@ -155,6 +166,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => ({
         project: "GeorgeGally/flyd",
@@ -169,7 +181,7 @@ describe("runAgentSession", () => {
       })),
     });
 
-    expect(ui.write).toHaveBeenCalledWith("GeorgeGally/flyd · main · clean\n");
+    expect(ui.write).not.toHaveBeenCalledWith(expect.stringContaining("GeorgeGally/flyd · main"));
     expect(ui.write).not.toHaveBeenCalledWith(expect.stringContaining("Old completed task"));
   });
 
@@ -183,6 +195,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
         onToken("Answer");
         return "Answer";

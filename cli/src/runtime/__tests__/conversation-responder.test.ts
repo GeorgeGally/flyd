@@ -101,9 +101,9 @@ describe("buildConversationPrompt", () => {
     expect(prompt.prompt).not.toContain("No evidence found");
   });
 
-  it("does not let archival memory define what happened most recently", () => {
+  it("does not let archival memory define current repository state", () => {
     const prompt = buildConversationPrompt({
-      message: "What was I last working on?",
+      message: "What is the latest code change?",
       history: [],
       memory: {
         verdict: "partial",
@@ -132,6 +132,37 @@ describe("buildConversationPrompt", () => {
     expect(prompt.prompt).not.toContain("old exploration of the capture command");
   });
 
+  it("uses recent conversation memory when asking what George was last working on", () => {
+    const prompt = buildConversationPrompt({
+      message: "What was I last working on?",
+      history: [],
+      memory: {
+        verdict: "partial",
+        matches: [{
+          id: "recent-conversation",
+          path: "conversations/art-release",
+          excerpt: "George was working through how to release his artwork.",
+          stale: false,
+          kind: "conversation",
+        }],
+      },
+      situation: {
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "bcb0399",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "fix(runtime): settle local reviews and timestamps",
+        outcome: null,
+        status: null,
+        nextAction: null,
+      },
+    });
+
+    expect(prompt.prompt).toContain("release his artwork");
+    expect(prompt.prompt).toContain("fix(runtime): settle local reviews and timestamps");
+  });
+
   it("keeps personal memory for recency questions that are not about repository work", () => {
     const prompt = buildConversationPrompt({
       message: "What is my current horoscope?",
@@ -149,5 +180,37 @@ describe("buildConversationPrompt", () => {
     });
 
     expect(prompt.prompt).toContain("Today's horoscope");
+  });
+
+  it("does not inject Git state into an unrelated personal conversation", () => {
+    const prompt = buildConversationPrompt({
+      message: "How should I release my artwork?",
+      history: [],
+      memory: {
+        verdict: "partial",
+        matches: [{
+          id: "art-memory",
+          path: "conversations/artwork",
+          excerpt: "George wants the artwork release to feel like art.",
+          stale: false,
+          kind: "conversation",
+        }],
+      },
+      situation: {
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: true,
+        changedFiles: 32,
+        latestCommit: "A code commit",
+        outcome: "A coding task",
+        status: "ready",
+        nextAction: "Run tests",
+      },
+    });
+
+    expect(prompt.prompt).toContain("artwork release");
+    expect(prompt.prompt).not.toContain("GeorgeGally/flyd");
+    expect(prompt.prompt).not.toContain("32 uncommitted");
   });
 });

@@ -41,10 +41,12 @@ export function scoreEvidence(
   keywords: string[],
   question: string,
 ): ScoredEvidence {
-  const parsedConfidence = Number(entry.metadata.confidence ?? (entry.source === "wiki" ? 0.9 : 0.5));
+  const unpromoted = entry.metadata.promoted === false || entry.metadata.type === "conversation-index";
+  const defaultConfidence = entry.source === "wiki" && !unpromoted ? 0.9 : 0.5;
+  const parsedConfidence = Number(entry.metadata.confidence ?? defaultConfidence);
   const rawConfidence = Number.isFinite(parsedConfidence)
     ? Math.max(0, Math.min(1, parsedConfidence))
-    : entry.source === "wiki" ? 0.9 : 0.5;
+    : defaultConfidence;
   const daysSince = entry.staleness?.daysSince ?? 0;
   const recencyWeight = Math.max(0, 1 - daysSince / 730);
   const halfLife = getHalfLife(entry.metadata);

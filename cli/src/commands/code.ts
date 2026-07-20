@@ -22,8 +22,14 @@ import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { runAgentSession, type AgentSituation } from "../runtime/agent-session.js";
 import { respondToConversation } from "../runtime/conversation-responder.js";
+import {
+  createConversationMemorySession,
+  mergeAgentMemoryEvidence,
+  retrieveRecentConversationEvidence,
+} from "../runtime/conversation-memory.js";
 import { retrieveFastBrainEvidence } from "../runtime/fast-brain-retrieval.js";
 import { isHoroscopeQuestion, verifiedHoroscopeEvidence } from "../runtime/personal-context-memory.js";
+import { retrieveSharedMemoryEvidence } from "../runtime/shared-memory-retrieval.js";
 import { actionableTaskNextAction } from "../runtime/orientation.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
@@ -37,12 +43,36 @@ export async function retrieveRuntimeMemory(query: string): Promise<MemoryEviden
   return retrieveFastBrainEvidence(query);
 }
 
-export async function retrieveAgentMemory(query: string): Promise<MemoryEvidence> {
-  const archive = await retrieveFastBrainEvidence(query);
-  if (!isHoroscopeQuestion(query)) return archive;
-
-  const pool = createRuntimePool();
+export async function retrieveAgentMemory(
+  query: string,
+  options: {
+    excludeConversationSessionId?: string;
+    pool?: ReturnType<typeof createRuntimePool>;
+  } = {},
+): Promise<MemoryEvidence> {
+  const [conversation, archive] = await Promise.all([
+    retrieveRecentConversationEvidence(query, {
+      excludeSessionId: options.excludeConversationSessionId,
+    }),
+    retrieveFastBrainEvidence(query),
+  ]);
+  const pool = options.pool ?? createRuntimePool();
+  const ownsPool = !options.pool;
+  let shared: MemoryEvidence = { verdict: "insufficient", matches: [] };
   try {
+    shared = await retrieveSharedMemoryEvidence(query, {
+      query: async (sql) => {
+        const result = await pool.query(sql);
+        return { rows: result.rows };
+      },
+      now: () => new Date(),
+    });
+  } catch {
+    // Filesystem memory remains available when the shared Rails database is offline.
+  }
+  const combined = mergeAgentMemoryEvidence(query, [ conversation, shared, archive ]);
+  try {
+    if (!isHoroscopeQuestion(query)) return combined;
     const result = await pool.query(
       `SELECT status, fresh_until, payload
        FROM intelligence_snapshots
@@ -51,15 +81,15 @@ export async function retrieveAgentMemory(query: string): Promise<MemoryEvidence
        LIMIT 1`,
     );
     const horoscopes = verifiedHoroscopeEvidence(result.rows[0] ?? null, zodiacSign());
-    if (horoscopes.length === 0) return archive;
+    if (horoscopes.length === 0) return combined;
     return {
       verdict: "partial",
-      matches: [ ...horoscopes, ...archive.matches ].slice(0, 6),
+      matches: [ ...horoscopes, ...combined.matches ].slice(0, 6),
     };
   } catch {
-    return archive;
+    return combined;
   } finally {
-    await pool.end();
+    if (ownsPool) await pool.end();
   }
 }
 
@@ -73,8 +103,11 @@ export async function writeRuntimeContext(taskKey: string, context: ContextPacka
   return path;
 }
 
-export async function loadAgentSituation(): Promise<AgentSituation | null> {
-  const pool = createRuntimePool();
+export async function loadAgentSituation(
+  options: { pool?: ReturnType<typeof createRuntimePool> } = {},
+): Promise<AgentSituation | null> {
+  const pool = options.pool ?? createRuntimePool();
+  const ownsPool = !options.pool;
   try {
     const repository = await inspectRepository();
     const store = new PostgresTaskStore(pool);
@@ -100,7 +133,7 @@ export async function loadAgentSituation(): Promise<AgentSituation | null> {
       nextAction: recent ? actionableTaskNextAction(recent) : null,
     };
   } finally {
-    await pool.end();
+    if (ownsPool) await pool.end();
   }
 }
 
@@ -109,12 +142,23 @@ export async function runAgent(): Promise<void> {
     throw new Error("Flyd requires an interactive terminal");
   }
 
-  const result = await runAgentSession({
-    terminal: new NodeTerminal(),
-    retrieveMemory: retrieveAgentMemory,
-    respond: respondToConversation,
-    loadSituation: loadAgentSituation,
-  });
+  const conversation = createConversationMemorySession();
+  const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
+  let result;
+  try {
+    result = await runAgentSession({
+      terminal: new NodeTerminal(),
+      retrieveMemory: (query) => retrieveAgentMemory(query, {
+        excludeConversationSessionId: conversation.id,
+        pool,
+      }),
+      recordTurn: conversation.recordTurn,
+      respond: respondToConversation,
+      loadSituation: () => loadAgentSituation({ pool }),
+    });
+  } finally {
+    await pool.end();
+  }
 
   if (result.kind === "coding") await runCode(result.outcome);
   if (result.kind === "resume") await runCode();

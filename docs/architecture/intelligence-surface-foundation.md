@@ -74,6 +74,10 @@ Rails validates both CLI contracts and persists shared `IntelligenceSnapshot` re
 
 Accepted intents, extracted decisions, context corrections, surface feedback, and resolutions flow back into `~/.flyd/raw` through idempotent background archive events. The next CLI refresh therefore sees what happened in Rails. Test pollution is quarantined at read time without deleting source files.
 
+Completed CLI conversation turns synchronously persist a structured session record, a raw source transcript, and an unpromoted wiki conversation index. Recent-session retrieval reads those records directly, so process restart does not depend on QMD warm-up or background consolidation. The CLI also reads bounded Rails conversations, decisions, beliefs, behaviours, and current provider snapshots from PostgreSQL. Filesystem and database failures degrade independently instead of collapsing all memory.
+
+Conversation indexes remain observations even though they live under `wiki/conversations`; only the existing promotion policy can turn their claims into confirmed knowledge. Immediate lexical retrieval is the default interactive path. Semantic expansion and reranking are opt-in deep retrieval.
+
 ## Bounded world state and provenance
 
 `Flyd::WorldStateCompiler` and `Flyd::WorldStateExtensions` combine:

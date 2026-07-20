@@ -5,7 +5,10 @@ import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { getStaleness, stalenessSummary, type StalenessResult } from "../lib/staleness.js";
 import { getActiveInterests } from "../lib/interests.js";
-import { retrieveRankedBrainEvidence } from "../lib/brain-retrieval.js";
+import {
+  retrieveRankedBrainEvidence,
+  retrieveRankedLexicalBrainEvidence,
+} from "../lib/brain-retrieval.js";
 import {
   extractKeywords,
   searchWiki,
@@ -109,17 +112,23 @@ function formatEvidence(entries: RetrievedEntry[], scored?: ScoredEvidence[]): s
   return lines.join("\n");
 }
 
-export async function runAsk(question: string, model?: string, opts?: { librarian?: boolean }): Promise<void> {
+export async function runAsk(
+  question: string,
+  model?: string,
+  opts?: { deep?: boolean; librarian?: boolean },
+): Promise<void> {
   const m = model ?? defaultModel();
   const keywords = extractKeywords(question);
-  const retrieval = await retrieveRankedBrainEvidence(question);
+  const retrieval = opts?.deep
+    ? await retrieveRankedBrainEvidence(question)
+    : await retrieveRankedLexicalBrainEvidence(question);
   const entries = retrieval.entries.map((entry) => ({
     ...entry,
     fullPath: join(entry.source === "wiki" ? WIKI_DIR : RAW_DIR, entry.path),
   })) as RetrievedEntry[];
 
   // If nothing found, use LLM to find relevant wiki pages by title/summary
-  if (!entries.length && hasApiKey(m)) {
+  if (!entries.length && opts?.deep && hasApiKey(m)) {
     const wikiFiles = walkWikiFiles();
     if (wikiFiles.length > 0) {
       const pageList = wikiFiles

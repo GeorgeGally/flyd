@@ -63,4 +63,23 @@ describe("targeted brain retrieval", () => {
 
     expect(result.matches[0]?.epistemicStatus).toBe("user_confirmed");
   });
+
+  it("does not promote a conversation index merely because it is stored in the wiki", async () => {
+    const result = await retrieveBrainEvidence("What did we discuss about Flyd?", {
+      searchRaw: async () => [],
+      searchWiki: () => [
+        entry(
+          "conversations/session.md",
+          "George discussed making Flyd remember conversations.",
+          "wiki",
+          1,
+          { type: "conversation-index", promoted: false },
+        ),
+      ],
+      searchGraph: () => [],
+      now: () => new Date("2026-07-16T00:00:00Z"),
+    });
+
+    expect(result.matches[0]?.epistemicStatus).toBe("observation");
+  });
 });

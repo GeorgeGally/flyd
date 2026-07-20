@@ -287,12 +287,26 @@ Release 1 is single-user and local. The runtime daemon, PostgreSQL, Rails web pr
 Authority is divided by durable domain, not duplicated:
 
 - PostgreSQL is canonical for live operational state: tasks, task grants, workers, commands, decisions, corrections, artifacts, interface plans, idempotency keys, and delivery state.
-- `~/.flyd` is canonical for raw personal and project memory evidence, curated knowledge, and retrieval indexes.
+- `~/.flyd` is canonical for raw personal and project memory evidence, CLI conversation transcripts, curated knowledge, and retrieval indexes.
 - Repository and tool state remain canonical in their native systems and are observed into Flyd with references.
 
 The runtime is the only command authority for changing operational state. A PostgreSQL transaction stores an operational change and its outbox event together. Background delivery exports eligible durable outcomes to `~/.flyd` idempotently and broadcasts state to Rails and CLI clients. Archive export may lag; task and permission state may not.
 
 When the runtime is unavailable, CLI and Rails may show their last persisted state as explicitly stale and read-only. They may not launch workers or accept consequential actions. Runtime restart reconstructs active tasks and worker status from PostgreSQL before accepting commands.
+
+### Conversation continuity and hot memory
+
+Every completed CLI conversation turn is persisted immediately, not only when the process exits. Flyd stores:
+
+- a canonical structured session record for deterministic restart;
+- a verbatim raw transcript as source evidence;
+- a lightweight wiki conversation index containing the user's statements and topic terms.
+
+Conversation indexes are explicitly unpromoted source evidence. Their location in the wiki does not make assistant output or inferred claims user-confirmed truth. Decisions, corrections, preferences, and beliefs follow the promotion policy above.
+
+A new CLI process can retrieve the most recent prior session directly without waiting for embedding, indexing, consolidation, or an LLM call. Ordinary `ask`, search, and conversational recall use immediate lexical and structured memory by default. Slower semantic expansion and reranking are explicit deep-retrieval operations.
+
+CLI conversation memory combines the same durable domains available to Rails: recent conversations, decisions, active beliefs, learned behaviours, personal-context snapshots, discovery snapshots, runtime state, the raw archive, and curated wiki knowledge. Repository state is supplied only when the request concerns coding or current work; it is not Flyd's default identity or substitute for personal memory.
 
 ### Canonical state
 

@@ -1,6 +1,6 @@
 # Flyd
 
-Flyd is a personal agent platform. Its first product is a repository-aware coding harness that preserves the intended outcome, relevant memory, permissions, worker state, corrections, verification, and exact re-entry point across sessions.
+Flyd is a personal agent platform. Its first product is a persistent conversational and coding agent that shares memory, task state, permissions, corrections, and outcomes across CLI and Rails.
 
 ## Release 1C: shared coding agent
 
@@ -17,9 +17,14 @@ cd ..
 flyd
 ```
 
-Run `flyd` from a Git repository. With no arguments it starts or resumes the repository's unfinished task. Flyd observes current Git state, retrieves relevant project and personal evidence, presents its interpretation, and asks for one repository-scoped task grant before starting OpenCode.
+With no arguments, `flyd` starts a natural conversation. Completed turns are persisted immediately and a new process can recall the prior session. Flyd combines recent CLI and Rails conversations, decisions, beliefs, behaviours, provider snapshots, raw archive evidence, and curated wiki knowledge. Repository state is used when the conversation concerns coding; `/resume` reopens unfinished coding work.
 
 ```bash
+flyd
+flyd ask "What do you remember about my artwork release?"
+flyd ask "Find conceptually related notes" --deep
+flyd search "artwork release"
+flyd search "conceptually related work" --deep
 flyd code "Fix the failing intent flow"
 flyd task status
 flyd task workers

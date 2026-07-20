@@ -27,6 +27,7 @@ interface AgentTerminal {
 interface AgentSessionDependencies {
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
+  recordTurn(turn: { user: string; assistant: string }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
   respond(input: {
     message: string;
@@ -45,11 +46,11 @@ export type AgentSessionResult =
 const MAX_HISTORY_TURNS = 12;
 
 function situationLine(situation: AgentSituation): string {
-  const repository = `${situation.project} · ${situation.branch} · ${situation.dirty ? `${situation.changedFiles} uncommitted changes` : "clean"}`;
   const unfinished = [ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? "");
-  if (!situation.outcome || !unfinished) return `${repository}\n`;
+  if (!situation.outcome || !unfinished) return "";
+  const repository = `${situation.project} · ${situation.branch}`;
   const next = situation.nextAction ? ` Next: ${situation.nextAction}` : "";
-  return `${repository}\nUnfinished: ${situation.outcome}.${next}\n`;
+  return `Unfinished coding work: ${situation.outcome}. ${repository}.${next}\n`;
 }
 
 export async function runAgentSession(deps: AgentSessionDependencies): Promise<AgentSessionResult> {
@@ -60,7 +61,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     deps.terminal.write("\nflyd\nTalk naturally. Use /resume for unfinished coding work or /exit to leave.\n");
     try {
       situation = await deps.loadSituation();
-      if (situation) deps.terminal.write(situationLine(situation));
+      const line = situation ? situationLine(situation) : "";
+      if (line) deps.terminal.write(line);
     } catch {
       // Conversation remains available when operational task state is unavailable.
     }
@@ -99,6 +101,15 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           { role: "user", content: input.message },
           { role: "assistant", content: answer },
         );
+        try {
+          await deps.recordTurn({
+            user: input.message,
+            assistant: answer,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.terminal.write(`Flyd could not save this turn: ${message}\n`);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         deps.terminal.write(`I could not answer that turn: ${message}\n`);

@@ -164,17 +164,19 @@ task
 
 program
   .command("ask <question>")
-  .description("Ask Floyd — synthesis from raw captures")
+  .description("Ask Flyd using immediate memory")
   .option("--model <model>", "LLM model")
+  .option("--deep", "Use slower semantic expansion and reranking")
   .option("--librarian", "Run librarian evidence evaluation before synthesis")
-  .action((question: string, opts: { model?: string; librarian?: boolean }) =>
+  .action((question: string, opts: { deep?: boolean; model?: string; librarian?: boolean }) =>
     runAsk(question, opts.model, opts)
   );
 
 program
   .command("search <query>")
-  .description("Raw QMD retrieval — returns top matching entries without synthesis")
-  .action((query: string) => runSearch(query));
+  .description("Search immediate raw and wiki memory")
+  .option("--deep", "Use slower semantic expansion and reranking")
+  .action((query: string, opts: { deep?: boolean }) => runSearch(query, opts));
 
 program
   .command("compile-context")

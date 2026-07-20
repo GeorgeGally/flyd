@@ -7,11 +7,14 @@ export function runtimeDatabaseUrl(): string {
   return process.env.FLYD_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgres:///flyd_v1_development";
 }
 
-export function createRuntimePool(connectionString = runtimeDatabaseUrl()): pg.Pool {
+export function createRuntimePool(
+  connectionString = runtimeDatabaseUrl(),
+  options: { connectionTimeoutMillis?: number } = {},
+): pg.Pool {
   return new Pool({
     connectionString,
     max: 4,
-    connectionTimeoutMillis: 3_000,
+    connectionTimeoutMillis: options.connectionTimeoutMillis ?? 3_000,
     options: "-c timezone=UTC",
   });
 }
