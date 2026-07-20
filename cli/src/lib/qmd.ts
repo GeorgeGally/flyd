@@ -151,6 +151,22 @@ export async function search(
   }
 }
 
+export async function searchLexical(
+  query: string,
+  collection: string,
+  limit = 20,
+): Promise<Array<{ path: string; score: number }>> {
+  const prefix = collection + "/";
+  try {
+    const store = await getStore();
+    const results = await store.searchLex(query, { collection, limit });
+    return normalizeResults(results, prefix);
+  } catch (error) {
+    console.error("qmd lexical search failed:", error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
+
 export async function updateRaw(): Promise<void> {
   try {
     await updateRawStrict();

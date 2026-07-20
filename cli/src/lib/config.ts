@@ -50,6 +50,8 @@ interface FlydConfig {
   ANTHROPIC_API_KEY?: string;
   GITHUB_TOKEN?: string;
   FLYD_MODEL?: string;
+  FLYD_CHAT_MODEL?: string;
+  FLYD_ZODIAC_SIGN?: string;
 }
 
 function loadConfig(): FlydConfig {
@@ -73,6 +75,14 @@ export function getKey(key: keyof FlydConfig): string | undefined {
 
 export function defaultModel(): string {
   return getKey("FLYD_MODEL") ?? "gpt-4o-mini";
+}
+
+export function defaultChatModel(): string {
+  return getKey("FLYD_CHAT_MODEL") ?? getKey("FLYD_MODEL") ?? "gpt-4o-mini";
+}
+
+export function zodiacSign(): string | null {
+  return getKey("FLYD_ZODIAC_SIGN")?.trim().toLowerCase() || null;
 }
 
 export function hasApiKey(model?: string): boolean {

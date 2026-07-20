@@ -11,15 +11,53 @@ class InterpretIntentJobTest < ActiveJob::TestCase
       requires_confirmation: true,
       candidates: []
     )
+    meaning = Flyd::IntentInterpreter::Result.new(
+      summary: "Something is off",
+      desired_outcome: "Understand what is off",
+      requested_capability: "investigate"
+    )
 
-    ContextResolver.stub(:call, resolution) do
-      InterpretIntentJob.perform_now(intent.id)
+    Flyd::IntentInterpreter.stub(:call, meaning) do
+      ContextResolver.stub(:call, resolution) do
+        InterpretIntentJob.perform_now(intent.id)
+      end
     end
 
     assert_equal "clarification_required", intent.reload.status
     assert_empty intent.resolved_contexts
     assert_nil intent.conversation
     assert_not Project.exists?(name: "Inbox")
+  end
+
+  test "starts a personal conversation when discussion does not need a project" do
+    intent = Intent.create!(input_text: "Let's just chat")
+    resolution = ContextResolver::Result.new(
+      project: nil,
+      context: nil,
+      confidence: 0.0,
+      reason: "No project needed",
+      requires_confirmation: true,
+      candidates: []
+    )
+    meaning = Flyd::IntentInterpreter::Result.new(
+      summary: "Open conversation",
+      desired_outcome: "Talk with Flyd",
+      requested_capability: "discuss"
+    )
+
+    Flyd::IntentInterpreter.stub(:call, meaning) do
+      ContextResolver.stub(:call, resolution) do
+        assert_enqueued_with(job: LlmStreamingJob) do
+          InterpretIntentJob.perform_now(intent.id)
+        end
+      end
+    end
+
+    intent.reload
+    assert_equal "accepted", intent.status
+    assert_equal Context.personal, intent.conversation.context
+    assert_equal "Let's just chat", intent.conversation.messages.last.content
+    assert_equal "Let's just chat", intent.conversation.primary_scene.title
   end
 
   test "accepts a confident project context and starts the conversation" do

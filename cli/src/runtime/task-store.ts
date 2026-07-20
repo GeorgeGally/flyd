@@ -1416,6 +1416,30 @@ export class PostgresTaskStore {
     });
   }
 
+  async cancelTask(taskKey: string, expectedRevision: number, input: {
+    reason: string;
+    idempotencyKey: string;
+  }): Promise<AgentTask> {
+    const reason = boundedText(input.reason, "Cancellation reason", 1_000);
+    return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.cancelled", async (client, row, revision) => {
+      const liveWorker = await client.query(
+        "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
+        [row.id],
+      );
+      if (liveWorker.rows[0]) throw new Error("Cannot cancel a task while a worker is still live");
+      await client.query(`UPDATE task_assignments SET status = 'cancelled',
+        ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+        WHERE agent_task_id = $1 AND status IN ('pending','blocked')`, [row.id]);
+      await client.query(`UPDATE task_grants SET status = 'revoked', decision_reason = COALESCE(decision_reason, $2),
+        decided_at = COALESCE(decided_at, NOW()), ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+        WHERE agent_task_id = $1 AND status IN ('proposed','approved')`, [row.id, reason]);
+      await client.query(`UPDATE agent_tasks SET status = 'cancelled', recommended_next_action = NULL,
+        outcome_summary = $1, cancelled_at = NOW(), revision = $2, updated_at = NOW() WHERE id = $3`,
+      [reason, revision, row.id]);
+      return { reason };
+    });
+  }
+
   async recordToolEscape(taskKey: string, expectedRevision: number, reason: string, idempotencyKey: string): Promise<AgentTask> {
     return this.mutateTask(taskKey, expectedRevision, idempotencyKey, "task.tool_escape", async (client, row, revision) => {
       const liveWorker = await client.query(

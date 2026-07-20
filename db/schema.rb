@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_20_203000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -180,6 +180,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_203000) do
     t.datetime "updated_at", null: false
     t.index ["expires_at"], name: "index_contexts_on_expires_at"
     t.index ["kind", "name"], name: "index_contexts_on_kind_and_name"
+    t.index ["kind", "name"], name: "index_contexts_on_unique_personal", unique: true, where: "(((kind)::text = 'topic'::text) AND ((name)::text = 'Personal'::text))"
     t.index ["status"], name: "index_contexts_on_status"
   end
 

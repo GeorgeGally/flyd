@@ -4,7 +4,7 @@ import { RAW_DIR, WIKI_DIR } from "./config.js";
 import { getInterestKeywords } from "./interests.js";
 import { searchGraph as defaultSearchGraph } from "./graph.js";
 import { scoreEvidence, corroborate, estimateSufficiency, type ScoredEvidence, type SufficiencyAssessment } from "./librarian.js";
-import { search } from "./qmd.js";
+import { search, searchLexical } from "./qmd.js";
 import {
   augmentWithGraph,
   buildRawEntries,
@@ -69,6 +69,11 @@ const defaults: BrainRetrievalDependencies = {
   now: () => new Date(),
 };
 
+const lexicalDefaults: BrainRetrievalDependencies = {
+  ...defaults,
+  searchRaw: async (query, keywords) => buildRawEntries(await searchLexical(query, QMD_RAW_COLLECTION), keywords),
+};
+
 function stableId(path: string, body: string): string {
   const digest = createHash("sha256").update(`${path}\0${body}`).digest("hex").slice(0, 16);
   return `memory_match:${digest}`;
@@ -113,6 +118,10 @@ export async function retrieveBrainEvidence(
       },
     })),
   };
+}
+
+export async function retrieveLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
+  return retrieveBrainEvidence(query, lexicalDefaults);
 }
 
 export async function retrieveRankedBrainEvidence(

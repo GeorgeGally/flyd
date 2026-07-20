@@ -965,6 +965,49 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     expect(failedEventsAfterReplay.rows[0].count).toBe(failedEventsBeforeReplay.rows[0].count);
   });
 
+  it("cancels an unstarted task and removes it from resumable work", async () => {
+    const task = await store.createTask({
+      projectName,
+      projectRoot,
+      intendedOutcome: "A task the user does not approve",
+      repository: {
+        root: projectRoot, name: projectName, remote: null, branch: "main",
+        head: "base", dirty: false, statusLines: [], statusDigest: "clean",
+      },
+      idempotencyKey: `cancel-task:${projectRoot}`,
+    });
+    const grant = await store.approveGrant(task.taskKey, task.revision, {
+      repositoryRoots: [projectRoot],
+      worktreePaths: [],
+      workerAdapters: ["codex"],
+      fileOperations: ["read", "write"],
+      commandClasses: ["test"],
+      verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"],
+      maxConcurrency: 1,
+      budget: { max_worker_runs: 1, max_runtime_minutes: 30 },
+      providerIdentity: "codex:local",
+      expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `cancel-grant:${task.taskKey}`,
+    });
+    const current = (await store.findTask(task.taskKey))!;
+
+    const cancelled = await store.cancelTask(task.taskKey, current.revision, {
+      reason: "The user did not approve this work",
+      idempotencyKey: `cancel:${task.taskKey}`,
+    });
+    const replay = await store.cancelTask(task.taskKey, current.revision, {
+      reason: "The user did not approve this work",
+      idempotencyKey: `cancel:${task.taskKey}`,
+    });
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(replay.status).toBe("cancelled");
+    expect(cancelled.outcomeSummary).toBe("The user did not approve this work");
+    expect(await store.findResumableTask(projectRoot)).toBeNull();
+    expect((await store.listGrants(task.id)).find((item) => item.grantKey === grant.grantKey)?.status).toBe("revoked");
+  });
+
   it("keeps a task running while another assignment worker remains live", async () => {
     const task = await store.createTask({
       projectName,

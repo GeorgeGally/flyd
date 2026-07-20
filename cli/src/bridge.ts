@@ -1,5 +1,5 @@
 import { pathToFileURL } from "url";
-import { retrieveBrainEvidence } from "./lib/brain-retrieval.js";
+import { retrieveLexicalBrainEvidence } from "./lib/brain-retrieval.js";
 
 type Retrieve = (query: string) => Promise<unknown>;
 type Write = (output: string) => unknown;
@@ -11,7 +11,7 @@ function option(args: string[], name: string): string | null {
 
 export async function runBridge(
   args: string[],
-  retrieve: Retrieve = retrieveBrainEvidence,
+  retrieve: Retrieve = retrieveLexicalBrainEvidence,
   write: Write = (output) => process.stdout.write(output),
 ): Promise<number> {
   const [command] = args;

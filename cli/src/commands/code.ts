@@ -1,7 +1,8 @@
 import { mkdir, rename, writeFile } from "fs/promises";
 import { join } from "path";
-import { FLYD_DIR } from "../lib/config.js";
-import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { FLYD_DIR, zodiacSign } from "../lib/config.js";
 import { currentPlanAssignments, planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { codexAdapter } from "../runtime/codex-adapter.js";
@@ -19,23 +20,47 @@ import { recoverInterruptedWorkers, workerProcessIsAlive } from "../runtime/reco
 import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
+import { runAgentSession, type AgentSituation } from "../runtime/agent-session.js";
+import { respondToConversation } from "../runtime/conversation-responder.js";
+import { retrieveFastBrainEvidence } from "../runtime/fast-brain-retrieval.js";
+import { isHoroscopeQuestion, verifiedHoroscopeEvidence } from "../runtime/personal-context-memory.js";
+import { actionableTaskNextAction } from "../runtime/orientation.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 
 export { detectOpenCode };
 
+const execFileAsync = promisify(execFile);
+
 export async function retrieveRuntimeMemory(query: string): Promise<MemoryEvidence> {
-  const result = await retrieveBrainEvidence(query);
-  return {
-    verdict: result.sufficiency.verdict,
-    matches: result.matches.map((match) => ({
-      id: match.id,
-      path: match.content.path,
-      excerpt: match.content.excerpt,
-      stale: match.content.stale,
-    })),
-  };
+  return retrieveFastBrainEvidence(query);
+}
+
+export async function retrieveAgentMemory(query: string): Promise<MemoryEvidence> {
+  const archive = await retrieveFastBrainEvidence(query);
+  if (!isHoroscopeQuestion(query)) return archive;
+
+  const pool = createRuntimePool();
+  try {
+    const result = await pool.query(
+      `SELECT status, fresh_until, payload
+       FROM intelligence_snapshots
+       WHERE provider = 'personal-context'
+       ORDER BY received_at DESC, created_at DESC
+       LIMIT 1`,
+    );
+    const horoscopes = verifiedHoroscopeEvidence(result.rows[0] ?? null, zodiacSign());
+    if (horoscopes.length === 0) return archive;
+    return {
+      verdict: "partial",
+      matches: [ ...horoscopes, ...archive.matches ].slice(0, 6),
+    };
+  } catch {
+    return archive;
+  } finally {
+    await pool.end();
+  }
 }
 
 export async function writeRuntimeContext(taskKey: string, context: ContextPackage): Promise<string> {
@@ -46,6 +71,53 @@ export async function writeRuntimeContext(taskKey: string, context: ContextPacka
   await writeFile(temporaryPath, context.markdown, { encoding: "utf8", mode: 0o600 });
   await rename(temporaryPath, path);
   return path;
+}
+
+export async function loadAgentSituation(): Promise<AgentSituation | null> {
+  const pool = createRuntimePool();
+  try {
+    const repository = await inspectRepository();
+    const store = new PostgresTaskStore(pool);
+    const resumable = await store.findResumableTask(repository.root);
+    const recent = resumable ?? (await store.listTasks(repository.root, 10))
+      .find((task) => task.status !== "cancelled") ?? null;
+    let latestCommit: string | null = null;
+    try {
+      const result = await execFileAsync("git", [ "-C", repository.root, "log", "-1", "--pretty=%s" ]);
+      latestCommit = result.stdout.trim() || null;
+    } catch {
+      latestCommit = null;
+    }
+    return {
+      project: repository.name,
+      branch: repository.branch,
+      head: repository.head.slice(0, 12),
+      dirty: repository.dirty,
+      changedFiles: repository.statusLines.length,
+      latestCommit,
+      outcome: recent?.intendedOutcome ?? null,
+      status: recent?.status ?? null,
+      nextAction: recent ? actionableTaskNextAction(recent) : null,
+    };
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function runAgent(): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Flyd requires an interactive terminal");
+  }
+
+  const result = await runAgentSession({
+    terminal: new NodeTerminal(),
+    retrieveMemory: retrieveAgentMemory,
+    respond: respondToConversation,
+    loadSituation: loadAgentSituation,
+  });
+
+  if (result.kind === "coding") await runCode(result.outcome);
+  if (result.kind === "resume") await runCode();
 }
 
 export async function runCode(outcome?: string): Promise<void> {

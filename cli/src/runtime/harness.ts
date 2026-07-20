@@ -107,6 +107,10 @@ interface TaskStore {
     repositorySnapshot: Record<string, unknown>;
     idempotencyKey: string;
   }): Promise<AgentTask>;
+  cancelTask(taskKey: string, expectedRevision: number, input: {
+    reason: string;
+    idempotencyKey: string;
+  }): Promise<AgentTask>;
   keepTaskOpen(taskKey: string, expectedRevision: number, input: {
     nextAction: string;
     repositorySnapshot: Record<string, unknown>;
@@ -475,19 +479,27 @@ export async function runContinuityHarness(input: {
         `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: grant-approved commands, including git diff --check\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
-        await deps.runtimeCommands.execute({
-          schemaVersion: 1,
-          action: "task.reject_grant",
-          actorSurface: "cli",
-          taskKey: task.taskKey,
-          expectedTaskRevision: task.revision,
-          grantKey: proposal.grantKey,
-          reason: "The user rejected the proposed task grant",
-          idempotencyKey: eventKey(task.taskKey, "grant-rejected"),
-        });
+        if (resumedTask) {
+          await deps.runtimeCommands.execute({
+            schemaVersion: 1,
+            action: "task.reject_grant",
+            actorSurface: "cli",
+            taskKey: task.taskKey,
+            expectedTaskRevision: task.revision,
+            grantKey: proposal.grantKey,
+            reason: "The user rejected the proposed task grant",
+            idempotencyKey: eventKey(task.taskKey, "grant-rejected"),
+          });
+          task = await currentTask(deps.store, task.taskKey);
+        } else {
+          task = await deps.store.cancelTask(task.taskKey, task.revision, {
+            reason: "The user rejected the proposed task grant",
+            idempotencyKey: eventKey(task.taskKey, "cancelled-after-grant-rejection"),
+          });
+        }
         await deps.store.finishTaskSession(sessionKey, sessionResult());
         sessionKey = null;
-        return { status: "awaiting_grant", taskKey: task.taskKey };
+        return { status: task.status, taskKey: task.taskKey };
       }
       const approval = await deps.runtimeCommands.execute({
         schemaVersion: 1,

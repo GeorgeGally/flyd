@@ -26,6 +26,8 @@ class InterpretIntentJob < ApplicationJob
 
     if resolution.owner && !resolution.requires_confirmation
       accept_in_owner(intent, resolution.owner, interpretation_text, meaning)
+    elsif meaning.requested_capability == "discuss"
+      accept_in_owner(intent, Context.personal, interpretation_text, meaning)
     else
       intent.update!(status: "clarification_required", resolved_contexts: [])
       ComposeSurfaceJob.enqueue(reason: "intent_clarification", active_intent_id: intent.id)
@@ -60,7 +62,7 @@ class InterpretIntentJob < ApplicationJob
     conversation = Conversation.active_for(owner).first || Conversation.start!(owner, summary: meaning.summary.truncate(120))
     scene = conversation.primary_scene
     scene&.update!(
-      title: meaning.summary.truncate(180),
+      title: (meaning.requested_capability == "discuss" ? interpretation_text : meaning.summary).truncate(180),
       summary: interpretation_text.truncate(1_000),
       desired_outcome: meaning.desired_outcome.truncate(1_000),
       intent: intent,

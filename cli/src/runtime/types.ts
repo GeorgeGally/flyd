@@ -28,6 +28,7 @@ export interface MemoryMatchSummary {
   path: string;
   excerpt: string;
   stale: boolean;
+  kind?: "archive" | "horoscope";
 }
 
 export interface MemoryEvidence {

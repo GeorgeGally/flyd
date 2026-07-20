@@ -27,7 +27,7 @@ import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
-import { runCode } from "./commands/code.js";
+import { runAgent, runCode } from "./commands/code.js";
 import {
   runTaskComplete,
   runTaskAcceptance,
@@ -55,10 +55,10 @@ program
   .action(() => runSetup());
 
 program
-  .argument("[text]", "capture text to raw store (no args — coding harness)")
+  .argument("[text]", "capture text to raw store (no args — personal agent)")
   .action(async (text?: string) => {
     if (!text) {
-      await runCode();
+      await runAgent();
       return;
     }
     await runCapture(text);

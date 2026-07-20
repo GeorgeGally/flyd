@@ -81,6 +81,10 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     findTask: vi.fn(async () => currentTask),
     completeTask: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "completed" }; return currentTask; }),
     completeLocalTask: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "completed" }; return currentTask; }),
+    cancelTask: vi.fn(async () => {
+      currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "cancelled", recommendedNextAction: null };
+      return currentTask;
+    }),
     keepTaskOpen: vi.fn(async (_key: string, _revision: number, input: { nextAction: string }) => {
       currentTask = {
         ...currentTask,
@@ -450,16 +454,40 @@ describe("runContinuityHarness", () => {
     expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringContaining("No healthy worker satisfies"));
   });
 
-  it("stops before worker creation when the task grant is rejected", async () => {
+  it("cancels a brand-new task when its grant is rejected", async () => {
     const deps = dependencies();
     deps.terminal.confirm.mockResolvedValue(false);
 
     const result = await runContinuityHarness({ outcome: "Implement continuity", deps });
 
-    expect(result.status).toBe("awaiting_grant");
+    expect(result.status).toBe("cancelled");
+    expect(deps.store.cancelTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.any(Number),
+      expect.objectContaining({ reason: "The user rejected the proposed task grant" }),
+    );
+    expect(deps.runtimeCommands.execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "task.reject_grant" }),
+    );
     expect(deps.store.createWorker).not.toHaveBeenCalled();
     expect(deps.runWorker).not.toHaveBeenCalled();
     expect(deps.store.finishTaskSession).toHaveBeenCalled();
+  });
+
+  it("rejects a resumed task grant without cancelling the user's existing work", async () => {
+    const deps = dependencies();
+    const existing = task({ revision: 4 });
+    deps.store.findResumableTask.mockResolvedValue(existing);
+    deps.store.findTask.mockResolvedValue(existing);
+    deps.terminal.confirm.mockResolvedValue(false);
+
+    const result = await runContinuityHarness({ deps });
+
+    expect(result.status).toBe("awaiting_grant");
+    expect(deps.runtimeCommands.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "task.reject_grant" }),
+    );
+    expect(deps.store.cancelTask).not.toHaveBeenCalled();
   });
 
   it("keeps a failed worker task open with an exact re-entry point", async () => {

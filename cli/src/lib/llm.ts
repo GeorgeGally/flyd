@@ -17,6 +17,18 @@ export async function query(prompt: string, model?: string, system?: string): Pr
   return isOpenAIModel(m) ? queryOpenAI(prompt, m, system) : queryAnthropic(prompt, m, system);
 }
 
+export async function streamQuery(
+  prompt: string,
+  onToken: (token: string) => void,
+  model?: string,
+  system?: string,
+): Promise<string> {
+  const m = model ?? defaultModel();
+  return isOpenAIModel(m)
+    ? streamOpenAI(prompt, onToken, m, system)
+    : streamAnthropic(prompt, onToken, m, system);
+}
+
 export async function agentLoop(
   system: string,
   userMessage: string,
@@ -59,6 +71,60 @@ async function queryAnthropic(prompt: string, model: string, system?: string): P
   });
   if (!res.content.length) throw new Error("Anthropic returned empty content");
   return res.content[0].type === "text" ? res.content[0].text : "";
+}
+
+async function streamOpenAI(
+  prompt: string,
+  onToken: (token: string) => void,
+  model: string,
+  system?: string,
+): Promise<string> {
+  const { default: OpenAI } = await import("openai");
+  const client = new OpenAI({ apiKey: getKey("OPENAI_API_KEY") });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages: any[] = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: prompt });
+  const stream = await client.chat.completions.create({
+    model,
+    max_tokens: 2048,
+    temperature: 0.2,
+    messages,
+    stream: true,
+  });
+  let full = "";
+  for await (const chunk of stream) {
+    const token = chunk.choices[0]?.delta?.content ?? "";
+    if (!token) continue;
+    full += token;
+    onToken(token);
+  }
+  return full;
+}
+
+async function streamAnthropic(
+  prompt: string,
+  onToken: (token: string) => void,
+  model: string,
+  system?: string,
+): Promise<string> {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
+  let full = "";
+  const stream = client.messages
+    .stream({
+      model,
+      max_tokens: 2048,
+      temperature: 0.2,
+      system,
+      messages: [{ role: "user", content: prompt }],
+    })
+    .on("text", (token) => {
+      full += token;
+      onToken(token);
+    });
+  await stream.finalMessage();
+  return full;
 }
 
 async function agentLoopAnthropic(
