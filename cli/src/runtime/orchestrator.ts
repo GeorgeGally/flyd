@@ -30,12 +30,19 @@ interface OrchestrationStore {
     executablePath: string;
     executableVersion: string;
     workingDirectory: string;
+    resumesWorkerSessionId?: string | null;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  findResumeSource?(assignmentKey: string): Promise<WorkerSession | null>;
+  claimWorkerStart?(workerKey: string, maxRuntimeMinutes: number, idempotencyKey: string): Promise<{
+    worker: WorkerSession;
+    deadlineAt: string;
+  }>;
   findWorker?(workerKey: string): Promise<WorkerSession | null>;
   transitionWorker(workerKey: string, update: {
     status: "running" | "completed" | "failed" | "interrupted";
     processId?: number | null;
+    processGroupId?: number | null;
     processIdentity?: string | null;
     externalSessionId?: string;
     exitStatus?: number;
@@ -44,6 +51,7 @@ interface OrchestrationStore {
     idempotencyKey: string;
   }): Promise<WorkerSession>;
   observeWorker?(workerKey: string): Promise<void>;
+  workerAuthority?(workerKey: string): Promise<boolean>;
   recordAssignmentVerification(
     assignmentKey: string,
     input: {
@@ -70,6 +78,15 @@ export interface OrchestrationResult {
   status: "integrated" | "blocked";
   summary: string;
   verification: Record<string, unknown>;
+}
+
+export function grantRuntimeTimeoutMs(grant: TaskGrant, now = Date.now()): number {
+  if (grant.status !== "approved") throw new Error("Worker start requires an approved task grant");
+  const budgetMs = Number(grant.budget.max_runtime_minutes ?? 90) * 60_000;
+  const expiryMs = grant.expiresAt ? new Date(grant.expiresAt).getTime() - now : budgetMs;
+  const timeoutMs = Math.min(budgetMs, expiryMs);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Task grant expired before worker start");
+  return timeoutMs;
 }
 
 function eventKey(prefix: string): string {
@@ -271,6 +288,7 @@ export async function orchestrateAssignments(input: {
     });
 
     const excluded = [...assignment.excludedAdapters];
+    let resumeSource = await input.deps.store.findResumeSource?.(assignment.assignmentKey) ?? null;
     const priorEvidenceDigests: string[] = [];
     for (;;) {
       const selected = routeWorker({
@@ -291,35 +309,51 @@ export async function orchestrateAssignments(input: {
         executablePath: selected.executable,
         executableVersion: selected.version,
         workingDirectory: worktree.path,
+        resumesWorkerSessionId: resumeSource?.id ?? null,
         idempotencyKey: eventKey(`worker-create:${assignment.assignmentKey}`),
       });
+      const assignmentCanWrite = input.grant.fileOperations.includes("write") &&
+        assignment.capabilityRequirements.includes("implementation");
       const args = adapter.buildArgs({
         assignment: nonInteractiveAssignment(assignment.instructions),
         projectRoot: worktree.path,
         taskKey: input.task.taskKey,
         contextPath: input.contextPath,
+        externalSessionId: resumeSource?.externalSessionId ?? undefined,
+        readOnly: !assignmentCanWrite,
       });
       let recordedSession: string | null = null;
       let lastPersistedObservationAt = 0;
       let workerTransitions = Promise.resolve(worker);
       const timeout = {} as {
-        reason?: "runtime" | "inactive";
+        reason?: "runtime" | "inactive" | "authority";
         control?: { command: WorkerCommand; worker: WorkerSession };
       };
       let adapterCrashed = false;
       let controlledWorker = false;
+      let terminalWorker: WorkerSession | null = null;
       let result;
       try {
+        const claim = await input.deps.store.claimWorkerStart?.(
+          worker.workerKey,
+          Number(input.grant.budget.max_runtime_minutes ?? 90),
+          eventKey(`worker-starting:${worker.workerKey}`),
+        );
+        const timeoutMs = claim
+          ? Math.max(1, new Date(claim.deadlineAt).getTime() - Date.now())
+          : grantRuntimeTimeoutMs(input.grant);
         result = await adapter.run({
           executable: selected.executable,
           args,
           cwd: worktree.path,
-          timeoutMs: Number(input.grant.budget.max_runtime_minutes ?? 90) * 60_000,
+          allowedReadPaths: [ input.contextPath ],
+          timeoutMs,
           inactivityTimeoutMs: Number(input.grant.budget.max_inactivity_minutes ?? 10) * 60_000,
           onStart: async (processId) => {
             workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
               status: "running",
               processId,
+              processGroupId: processId,
               processIdentity: processId ? readProcessIdentity(processId) : null,
               idempotencyKey: eventKey(`worker-running:${worker.workerKey}`),
             }));
@@ -343,6 +377,9 @@ export async function orchestrateAssignments(input: {
               return currentWorker;
             });
           },
+          onAuthorityCheck: input.deps.store.workerAuthority
+            ? () => input.deps.store.workerAuthority!(worker.workerKey)
+            : undefined,
           onTimeout: async (reason) => {
             const evidenceDigest = createHash("sha256")
               .update(`${assignment.assignmentKey}:${worker.workerKey}:${reason}`)
@@ -355,12 +392,18 @@ export async function orchestrateAssignments(input: {
                 remainingRuns: maxWorkerRuns - workerRuns,
                 replacementAvailable: false,
               }).reason
-              : "The worker exceeded the approved absolute runtime budget";
+              : reason === "authority"
+                ? "The worker's task grant expired or was revoked"
+                : "The worker exceeded the approved absolute runtime budget";
             timeout.reason = reason;
             timeout.control = await input.deps.store.queueWorkerCommand(
               worker.workerKey,
               "stop",
-              { trigger: reason === "inactive" ? "inactive" : "runtime_budget", evidence_digest: evidenceDigest, reason: explanation },
+              {
+                trigger: reason === "inactive" ? "inactive" : reason === "authority" ? "grant_authority" : "runtime_budget",
+                evidence_digest: evidenceDigest,
+                reason: explanation,
+              },
               eventKey(`${reason}-stop:${worker.workerKey}`),
             );
           },
@@ -389,15 +432,13 @@ export async function orchestrateAssignments(input: {
         activeCounts[selected.name] -= 1;
       }
       await workerTransitions;
-      controlledWorker ||= workerWasControlled(await input.deps.store.findWorker?.(worker.workerKey));
-      if (controlledWorker) {
-        throw new Error("Worker ended after an explicit control; Flyd will not retry it automatically");
-      }
       if (timeout.control) {
         const control = timeout.control;
         await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
         const reason = timeout.reason === "runtime"
           ? "The worker was stopped after exceeding the approved absolute runtime budget"
+          : timeout.reason === "authority"
+            ? "The worker was stopped because its task grant expired or was revoked"
           : "The worker was stopped after exceeding the approved inactivity threshold";
         const intervention = {
           action: "stop",
@@ -411,8 +452,12 @@ export async function orchestrateAssignments(input: {
         });
         throw new Error(intervention.reason);
       }
+      controlledWorker ||= workerWasControlled(await input.deps.store.findWorker?.(worker.workerKey));
+      if (controlledWorker) {
+        throw new Error("Worker ended after an explicit control; Flyd will not retry it automatically");
+      }
       if (!adapterCrashed) {
-        const terminalWorker = await input.deps.store.transitionWorker(worker.workerKey, {
+        terminalWorker = await input.deps.store.transitionWorker(worker.workerKey, {
           status: result.exitStatus === 0 ? "completed" : "failed",
           externalSessionId: result.externalSessionId ?? undefined,
           exitStatus: result.exitStatus,
@@ -428,7 +473,8 @@ export async function orchestrateAssignments(input: {
         worktreePath: worktree.path,
         baseHead: input.repository.head,
         commands: input.grant.verificationCommands,
-        requireChanges: assignment.capabilityRequirements.includes("implementation"),
+        requireChanges: assignmentCanWrite,
+        requireUnchanged: !assignmentCanWrite,
       });
       const outOfScopeFiles = filesOutsideScope(verification.changedFiles, assignment.declaredFileScope);
       if (outOfScopeFiles.length > 0) {
@@ -502,7 +548,12 @@ export async function orchestrateAssignments(input: {
         eventKey(`intervention:${worker.workerKey}`),
       );
       await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: null });
-      if (intervention.action === "replace") excluded.push(selected.name);
+      if (intervention.action === "replace") {
+        excluded.push(selected.name);
+        resumeSource = null;
+      } else {
+        resumeSource = terminalWorker ?? await input.deps.store.findWorker?.(worker.workerKey) ?? null;
+      }
     }
   };
 

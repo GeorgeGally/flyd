@@ -26,6 +26,8 @@ interface AgentTerminal {
 }
 
 interface AgentSessionDependencies {
+  sessionId?: string;
+  now?: () => Date;
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
   recoverActionRequest(): Promise<ActionableOutcome | null>;
@@ -82,7 +84,26 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };
-      if (input.kind === "coding") return input;
+      if (input.kind === "coding") {
+        const handoff: ActionableOutcome = {
+          outcome: input.outcome,
+          sourceSessionId: deps.sessionId ?? "current-session",
+          sourceTurn: history.length / 2,
+          recordedAt: (deps.now?.() ?? new Date()).toISOString(),
+        };
+        try {
+          await deps.recordTurn({
+            user: text,
+            assistant: "Handed to the supervised coding runtime.",
+            handoff,
+          });
+          return input;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.terminal.write(`Flyd could not preserve that handoff: ${message}\n`);
+          continue;
+        }
+      }
       if (input.kind === "contextual_action") {
         const handoff = await deps.recoverActionRequest();
         if (handoff) {

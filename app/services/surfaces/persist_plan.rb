@@ -32,7 +32,7 @@ module Surfaces
 
         Array(@plan.items).each_with_index do |item, position|
           scene = persist_scene(item)
-          surface.surface_items.create!(
+          surface_item = surface.surface_items.create!(
             scene: scene,
             item_key: item.id,
             kind: item.kind,
@@ -49,6 +49,7 @@ module Surfaces
             relationships: item.respond_to?(:relationships) ? item.relationships || [] : [],
             metadata: item.respond_to?(:metadata) ? item.metadata || {} : {}
           )
+          persist_task_recommendation(surface_item)
         end
 
         surface
@@ -56,6 +57,30 @@ module Surfaces
     end
 
     private
+
+    def persist_task_recommendation(item)
+      task_ref = Array(item.source_refs).map { |ref| ref.to_h.deep_stringify_keys }
+        .find { |ref| ref["type"] == "runtime_task" }
+      return unless task_ref
+
+      task = AgentTask.find_by(task_key: task_ref["id"])
+      revision = Integer(item.metadata["task_revision"], exception: false)
+      return unless task && revision == task.revision
+
+      action = Array(item.actions).map { |entry| entry.to_h.deep_stringify_keys }
+        .find { |entry| RuntimeTasks::ActionExecutor::TASK_ACTIONS.include?(entry["id"]) }
+      return unless action
+
+      digest = Digest::SHA256.hexdigest(JSON.generate(action))
+      TaskRecommendation.find_or_create_by!(surface_item: item, action_digest: digest) do |recommendation|
+        recommendation.agent_task = task
+        recommendation.release_key = "release_1c"
+        recommendation.task_revision = revision
+        recommendation.action_id = action.fetch("id")
+        recommendation.action = action["label"].presence || action.fetch("id")
+        recommendation.metadata = { "renderer" => item.renderer, "surface_id" => item.surface_id }
+      end
+    end
 
     def persist_scene(item)
       scene = Scene.find_or_initialize_by(scene_key: item.id)

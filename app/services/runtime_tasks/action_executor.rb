@@ -50,11 +50,22 @@ module RuntimeTasks
 
       validate_input!
       result = @bridge.call(runtime_request(binding))
+      record_recommendation_action
       enqueue_surface_refresh
       result
     end
 
     private
+
+    def record_recommendation_action
+      recommendation = @item.task_recommendations.where(disposition: "offered").order(:created_at, :id).first
+      return unless recommendation
+
+      recommendation.update!(
+        disposition: recommendation.action_id == @action_id ? "accepted" : "adapted",
+        acted_at: Time.current
+      )
+    end
 
     def validate_input!
       allowed = INPUT_FIELDS.fetch(@action_id)

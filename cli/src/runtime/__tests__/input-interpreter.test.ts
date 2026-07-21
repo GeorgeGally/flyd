@@ -14,6 +14,10 @@ describe("interpretAgentInput", () => {
   });
 
   it("routes concrete repository changes to the coding runtime", () => {
+    expect(interpretAgentInput("implement dark mode")).toEqual({
+      kind: "coding",
+      outcome: "implement dark mode",
+    });
     expect(interpretAgentInput("Fix chat so cmd+enter submits")).toEqual({
       kind: "coding",
       outcome: "Fix chat so cmd+enter submits",

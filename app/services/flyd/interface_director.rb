@@ -1,6 +1,9 @@
+require "set"
+
 module Flyd
   class InterfaceDirector
     MODES = %w[quiet conversation decision investigation action monitoring discovery].freeze
+    SCENE_CANDIDACY_WINDOW = 24.hours
 
     def self.call(state)
       new(state).call
@@ -66,8 +69,58 @@ module Flyd
 
     def active_scenes
       @active_scenes ||= Array(@state[:scenes]).select do |scene|
-        scene[:status].to_s == "active" && durable_scene?(scene)
+        scene[:status].to_s == "active" && durable_scene?(scene) && current_scene?(scene)
       end
+    end
+
+    PERSISTENT_SCENE_KINDS = %w[decision investigation build question].freeze
+
+    # Unresolved work remains eligible after presentation. Transient scenes
+    # yield once shown; explicit expiry and detached runtime evidence always win.
+    def current_scene?(scene)
+      return false unless live_runtime_scene?(scene)
+      return false if scene_expired?(scene)
+      return true if PERSISTENT_SCENE_KINDS.include?(scene[:kind].to_s)
+      return false if scene[:last_presented_at].present?
+
+      created_at = parse_time(scene[:created_at])
+      return true unless created_at
+
+      created_at >= SCENE_CANDIDACY_WINDOW.ago
+    end
+
+    def scene_expired?(scene)
+      raw_expiry = scene.dig(:metadata, :expires_at)
+      return false if raw_expiry.blank?
+
+      expires_at = parse_time(raw_expiry)
+      return true unless expires_at
+
+      expires_at.present? && expires_at <= Time.current
+    end
+
+    # Scenes keyed runtime:<task_key>:<renderer> reanimate cancelled or
+    # completed work unless their task is still part of the live situation.
+    def live_runtime_scene?(scene)
+      scene_key = scene[:scene_key].to_s
+      return true unless scene_key.start_with?("runtime:")
+
+      task_key = scene_key.split(":")[1].to_s
+      return true if task_key.empty?
+
+      live_runtime_task_keys.include?(task_key)
+    end
+
+    def live_runtime_task_keys
+      @live_runtime_task_keys ||= Array(@state.dig(:provider_state, :providers)).flat_map do |provider|
+        Array(provider[:data].to_h[:runtime_tasks]).map { |task| task[:id].to_s }
+      end.to_set
+    end
+
+    def parse_time(value)
+      Time.zone.parse(value.to_s) if value.present?
+    rescue ArgumentError, TypeError
+      nil
     end
 
     def durable_scene?(scene)
@@ -128,7 +181,7 @@ module Flyd
         discovery: {
           purpose: "Compose recent work, a personal daily signal, and fresh discoveries as one living stage.",
           focus_renderer: "discovery_scene",
-          maximum_items: 3
+          maximum_items: 12
         }
       }
     end

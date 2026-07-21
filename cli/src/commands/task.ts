@@ -1,9 +1,10 @@
-import { randomUUID } from "crypto";
-import { spawn } from "child_process";
+import { createHash, randomUUID } from "crypto";
+import { execFile, spawn } from "child_process";
 import { constants } from "fs";
 import { access, readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { promisify } from "util";
 import { createRuntimePool } from "../runtime/database.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
@@ -13,9 +14,11 @@ import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 import { hasControlTrialEvidence } from "../runtime/metrics.js";
-import { buildReleaseAcceptanceReport, type ReleaseAcceptanceReport } from "../runtime/release-acceptance.js";
+import type { ReleaseAcceptanceReport } from "../runtime/release-acceptance.js";
 import type { ReleaseAcceptanceObservationKind } from "../runtime/release-acceptance.js";
-import type { AgentTask, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
+import type { AgentTask, RepositorySnapshot, RuntimeMetrics, WorkerCommandKind, WorkerSession } from "../runtime/types.js";
+
+const execFileAsync = promisify(execFile);
 
 function commandService(store: PostgresTaskStore): RuntimeCommandService {
   return new RuntimeCommandService({
@@ -116,7 +119,7 @@ export function formatMetrics(metrics: RuntimeMetrics): string {
     lines.push("Release 1B control trial: insufficient evidence; no routed assignment, control, renewal, conflict, or integration has been recorded.");
   } else {
     lines.push(
-      `Routed assignments: ${metrics.routedAssignments} (Codex ${metrics.codexAssignments}, OpenCode ${metrics.openCodeAssignments})`,
+      `Routed assignments: ${metrics.routedAssignments} (Flyd ${metrics.flydAssignments})`,
       `Accepted automatic interventions: ${metrics.acceptedInterventions}`,
       `Controls: stop ${metrics.stopControls}, retry ${metrics.retryControls}, redirect ${metrics.redirectControls}, replace ${metrics.replaceControls}`,
       `Integration conflicts: ${metrics.integrationConflicts}`,
@@ -146,6 +149,34 @@ export function formatAcceptanceReport(report: ReleaseAcceptanceReport): string 
     lines.push("Release 1 is not qualified. Missing or failing persisted evidence cannot be treated as success.");
   }
   return lines.join("\n");
+}
+
+function camelizeKey(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_match, character: string) => character.toUpperCase());
+}
+
+export function normalizeRailsAcceptanceReport(value: unknown): ReleaseAcceptanceReport {
+  const transform = (candidate: unknown): unknown => {
+    if (Array.isArray(candidate)) return candidate.map(transform);
+    if (!candidate || typeof candidate !== "object") return candidate;
+    return Object.fromEntries(Object.entries(candidate as Record<string, unknown>)
+      .map(([key, nested]) => [camelizeKey(key), transform(nested)]));
+  };
+  return transform(value) as ReleaseAcceptanceReport;
+}
+
+async function loadRailsAcceptanceReport(repositoryRoot: string): Promise<ReleaseAcceptanceReport> {
+  const ruby = await resolveRepositoryRuby(repositoryRoot);
+  const result = await execFileAsync(ruby, [
+    "bin/rails", "runner", "puts JSON.generate(ReleaseAcceptance::Report.call)",
+  ], {
+    cwd: repositoryRoot,
+    env: cleanRubyEnvironment(process.env),
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 5 * 1024 * 1024,
+  });
+  return normalizeRailsAcceptanceReport(JSON.parse(result.stdout));
 }
 
 export async function runTaskList(): Promise<void> {
@@ -210,14 +241,8 @@ export async function runTaskMetrics(): Promise<void> {
 }
 
 export async function runTaskAcceptance(): Promise<void> {
-  const pool = createRuntimePool();
-  try {
-    const store = new PostgresTaskStore(pool);
-    const evidence = await store.releaseAcceptanceEvidence();
-    console.log(formatAcceptanceReport(buildReleaseAcceptanceReport(evidence)));
-  } finally {
-    await pool.end();
-  }
+  const repository = await inspectRepository();
+  console.log(formatAcceptanceReport(await loadRailsAcceptanceReport(repository.root)));
 }
 
 export async function runTaskAcceptanceReview(
@@ -231,13 +256,17 @@ export async function runTaskAcceptanceReview(
   const pool = createRuntimePool();
   try {
     const store = new PostgresTaskStore(pool);
+    const marker = await pool.query(`SELECT metadata->>'commit' AS commit
+      FROM release_markers WHERE release_key = 'release_1c' LIMIT 1`);
+    const commit = String(marker.rows[0]?.commit ?? "").trim();
+    if (!commit) throw new Error("Mark the Release 1C trial before recording an acceptance review");
     const kind: ReleaseAcceptanceObservationKind = review === "memory"
       ? "memory_safety"
       : "recommendation_rationale";
     await store.recordReleaseAcceptanceObservation({
       kind,
       passed: result === "passed",
-      evidence: { note: boundedNote },
+      evidence: { note: boundedNote, commit, release_key: "release_1c" },
       idempotencyKey: randomUUID(),
     });
     console.log(`${review} review recorded: ${result}`);
@@ -269,6 +298,12 @@ export function cleanRubyEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
   return clean;
 }
 
+export function assertCleanAcceptanceRepository(repository: Pick<RepositorySnapshot, "dirty" | "statusLines">): void {
+  if (!repository.dirty) return;
+  const detail = repository.statusLines.slice(0, 5).join(", ");
+  throw new Error(`Automated Release 1 acceptance requires a clean repository${detail ? ` (${detail})` : ""}`);
+}
+
 export async function resolveRepositoryRuby(
   repositoryRoot: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -287,6 +322,7 @@ export async function resolveRepositoryRuby(
 
 export async function runTaskAcceptanceVerification(): Promise<void> {
   const repository = await inspectRepository();
+  assertCleanAcceptanceRepository(repository);
   const packageJson = JSON.parse(await readFile(join(repository.root, "cli/package.json"), "utf8")) as {
     name?: string;
   };
@@ -312,6 +348,11 @@ export async function runTaskAcceptanceVerification(): Promise<void> {
       kind: "automated_acceptance",
       passed,
       evidence: {
+        release_key: "release_1c",
+        commit: repository.head,
+        required_suites: checks.map((check) => check.command),
+        runner: `${process.platform}/${process.arch}/node-${process.version}`,
+        artifact_digest: createHash("sha256").update(JSON.stringify(checks)).digest("hex"),
         idempotent: passed,
         permissions_enforced: passed,
         no_duplicate_effects: passed,
@@ -319,9 +360,7 @@ export async function runTaskAcceptanceVerification(): Promise<void> {
       },
       idempotencyKey: randomUUID(),
     });
-    console.log(formatAcceptanceReport(
-      buildReleaseAcceptanceReport(await store.releaseAcceptanceEvidence()),
-    ));
+    console.log(formatAcceptanceReport(await loadRailsAcceptanceReport(repository.root)));
   } finally {
     await pool.end();
   }

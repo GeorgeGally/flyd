@@ -55,6 +55,51 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_match(/re-entry/i, ready[:reason])
   end
 
+  test "a completed task earns the stage until its completion has been presented" do
+    candidate = Flyd::EvidenceCandidates.call(completed_task_state).first
+
+    assert_equal [ "action", "task_completion" ], candidate.values_at(:mode, :renderer)
+    assert_equal 1.0, candidate[:confidence]
+  end
+
+  test "a settled completion yields the stage once presented" do
+    state = completed_task_state(previous_items: [ {
+      id: "runtime:task-1:task_completion",
+      source_refs: [ { type: "runtime_task", id: "task-1" } ]
+    } ])
+
+    renderers = Flyd::EvidenceCandidates.call(state).map { |candidate| candidate[:renderer] }
+
+    assert_not_includes renderers, "task_completion"
+  end
+
+  test "a completed task with follow-up remaining holds the stage" do
+    state = completed_task_state(
+      next_action: "Review the failing verification command before closing.",
+      previous_items: [ {
+        id: "runtime:task-1:task_completion",
+        source_refs: [ { type: "runtime_task", id: "task-1" } ]
+      } ]
+    )
+
+    candidate = Flyd::EvidenceCandidates.call(state).first
+
+    assert_equal [ "action", "task_completion" ], candidate.values_at(:mode, :renderer)
+  end
+
+  test "a settled completion stays yielded even when another scene intervened" do
+    state = completed_task_state
+    state[:previous_surface][:items] = [ { id: "surface:activity:1", source_refs: [] } ]
+    state[:previous_surface][:recent_items] = [
+      { id: "surface:activity:1", source_refs: [] },
+      { id: "runtime:task-1:task_completion", source_refs: [ { type: "runtime_task", id: "task-1" } ] }
+    ]
+
+    renderers = Flyd::EvidenceCandidates.call(state).map { |candidate| candidate[:renderer] }
+
+    assert_not_includes renderers, "task_completion"
+  end
+
   test "keeps the latest user correction in the authoritative task context" do
     candidate = runtime_candidate(status: "ready", related: {
       task_artifacts: [ runtime_evidence("artifact-1", "task_artifact", verificationStatus: "verified") ],
@@ -134,6 +179,62 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal [ { type: "tension", id: "tension:launch" } ], candidates.first[:evidence_refs]
     assert_equal [ { type: "curiosity", id: "curiosity:adoption" } ], candidates.second[:evidence_refs]
     assert_equal [ { type: "signal", id: "signal:setup" } ], candidates.third[:evidence_refs]
+  end
+
+  test "stale outcome events do not drive monitoring candidacy" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "flyd-cli",
+          fresh: true,
+          errors: [],
+          data: {
+            recent_events: [ evidence("event", "event:casual", { outcome: "A casual conversation happened." }, generated_at: 20.hours.ago.iso8601) ]
+          }
+        } ]
+      }
+    )
+
+    assert_not_includes candidates.map { |candidate| candidate[:mode] }, "monitoring"
+  end
+
+  test "fresh outcome events can drive monitoring candidacy" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "flyd-cli",
+          fresh: true,
+          errors: [],
+          data: {
+            recent_events: [ evidence("event", "event:live", { outcome: "A worker just returned verified output." }, generated_at: 40.minutes.ago.iso8601) ]
+          }
+        } ]
+      }
+    )
+
+    assert_includes candidates.map { |candidate| candidate[:mode] }, "monitoring"
+  end
+
+  test "future-dated evidence outside clock skew cannot drive monitoring" do
+    candidates = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "flyd-cli",
+          fresh: true,
+          errors: [],
+          data: {
+            recent_events: [ evidence(
+              "event",
+              "event:future",
+              { outcome: "A worker will return in the future." },
+              generated_at: 1.hour.from_now.iso8601
+            ) ]
+          }
+        } ]
+      }
+    )
+
+    assert_not_includes candidates.map { |candidate| candidate[:mode] }, "monitoring"
   end
 
   test "does not manufacture urgency from goals and weak generated evidence" do
@@ -413,7 +514,7 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     )
 
     discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
-    assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:1], discovery[:evidence_refs].pluck(:id)
+    assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:1 activity:other], discovery[:evidence_refs].pluck(:id)
   end
 
   test "keeps personal anchors while rotating previously shown discoveries" do
@@ -460,6 +561,19 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
       runtime_tasks: [ runtime_evidence("task-1", "runtime_task", status: status, revision: 2) ]
     }.merge(related)
     Flyd::EvidenceCandidates.call(provider_state: { providers: [ { fresh: true, data: data } ] }).first
+  end
+
+  def completed_task_state(next_action: nil, previous_items: [])
+    content = { status: "completed", revision: 3, intendedOutcome: "Ship Rails parity" }
+    content[:recommendedNextAction] = next_action if next_action
+
+    {
+      provider_state: { providers: [ { fresh: true, data: {
+        runtime_tasks: [ runtime_evidence("task-1", "runtime_task", content) ],
+        task_artifacts: [ runtime_evidence("artifact-1", "task_artifact", verificationStatus: "verified") ]
+      } } ] },
+      previous_surface: { items: previous_items }
+    }
   end
 
   def runtime_evidence(id, type, content)

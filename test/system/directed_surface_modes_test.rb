@@ -498,7 +498,7 @@ class DirectedSurfaceModesTest < ApplicationSystemTestCase
     assert_text "Aries"
     assert_no_text "Evidence"
     assert_no_text "499 points"
-    assert_no_text "Model rationale"
+    assert_text "Model rationale"
     assert_link "Open", href: "https://example.com/memex"
     page.find(".surface-object[data-position='1']").click
     assert_selector ".surface-object[data-position='1'].is-runtime-focus"

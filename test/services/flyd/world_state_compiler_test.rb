@@ -76,6 +76,21 @@ class Flyd::WorldStateCompilerTest < ActiveSupport::TestCase
     assert_includes result.reference_registry, "memory_match:memory_match:work"
   end
 
+  test "serializes scene expiry metadata for interface direction" do
+    scene = Scene.create!(
+      scene_key: "expiring-decision",
+      kind: "decision",
+      status: "active",
+      title: "Choose a release direction",
+      metadata: { "expires_at" => 10.minutes.from_now.iso8601 }
+    )
+
+    result = Flyd::WorldStateCompiler.call(state_provider: FakeProvider.new({ providers: [] }))
+    snapshot = result.state[:scenes].find { |candidate| candidate[:id] == scene.id }
+
+    assert_equal scene.metadata["expires_at"], snapshot.dig(:metadata, :expires_at)
+  end
+
   test "budgeting retains representative evidence from every provider collection" do
     provider = FakeProvider.new({
       providers: [

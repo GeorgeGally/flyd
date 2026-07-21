@@ -9,6 +9,7 @@ class SurfaceItem < ApplicationRecord
   belongs_to :scene, optional: true
   has_many :context_corrections, dependent: :destroy
   has_many :surface_feedbacks, dependent: :destroy
+  has_many :task_recommendations, dependent: :destroy
 
   validates :item_key, :title, presence: true
   validates :item_key, uniqueness: { scope: :surface_id }

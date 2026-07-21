@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { runAgentSession } from "../agent-session.js";
+import { createConversationMemorySession, retrieveRecentActionableOutcome } from "../conversation-memory.js";
 import type { MemoryEvidence } from "../types.js";
 
 function terminal(answers: string[]) {
@@ -104,18 +108,49 @@ describe("runAgentSession", () => {
 
   it("hands a concrete coding outcome to the existing supervised runtime", async () => {
     const ui = terminal(["Fix the broken chat"]);
+    const recordTurn = vi.fn(async () => undefined);
 
     const result = await runAgentSession({
+      sessionId: "direct-session",
+      now: () => new Date("2026-07-21T01:00:00.000Z"),
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
       recoverActionRequest: vi.fn(async () => null),
-      recordTurn: vi.fn(async () => undefined),
+      recordTurn,
       respond: vi.fn(),
       loadSituation: vi.fn(async () => null),
     });
 
     expect(result).toEqual({ kind: "coding", outcome: "Fix the broken chat" });
+    expect(recordTurn).toHaveBeenCalledWith({
+      user: "Fix the broken chat",
+      assistant: "Handed to the supervised coding runtime.",
+      handoff: {
+        outcome: "Fix the broken chat",
+        sourceSessionId: "direct-session",
+        sourceTurn: 0,
+        recordedAt: "2026-07-21T01:00:00.000Z",
+      },
+    });
     expect(ui.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not enter the runtime when a direct coding handoff cannot be persisted", async () => {
+    const ui = terminal(["Implement dark mode", "/exit"]);
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => {
+        throw new Error("disk unavailable");
+      }),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("could not preserve that handoff"));
   });
 
   it("hands inspect-then-implement requests to the supervised runtime without chatting", async () => {
@@ -174,6 +209,32 @@ describe("runAgentSession", () => {
       expect(ui.close).toHaveBeenCalledOnce();
     },
   );
+
+  it("resolves the real persisted cross-session skill request without a fabricated handoff", async () => {
+    const flydDir = await mkdtemp(join(tmpdir(), "flyd-agent-handoff-"));
+    try {
+      const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+      const previous = createConversationMemorySession({ flydDir, id: "previous", now: () => new Date("2026-07-21T01:00:00Z") });
+      await previous.recordTurn({ user: outcome, assistant: "I will review it." });
+      const current = createConversationMemorySession({ flydDir, id: "current", now: () => new Date("2026-07-21T01:03:00Z") });
+      await current.recordTurn({ user: "what were we talking about", assistant: "The i-have-adhd skill." });
+
+      const result = await runAgentSession({
+        terminal: terminal(["ok implement then"]),
+        retrieveMemory: vi.fn(async () => noMemory),
+        recoverActionRequest: () => retrieveRecentActionableOutcome({ flydDir, now: () => new Date("2026-07-21T01:04:00Z") }),
+        recordTurn: current.recordTurn,
+        respond: vi.fn(),
+        loadSituation: vi.fn(async () => null),
+      });
+
+      expect(result).toEqual({ kind: "coding", outcome });
+      await expect(retrieveRecentActionableOutcome({ flydDir, now: () => new Date("2026-07-21T01:05:00Z") }))
+        .resolves.toMatchObject({ outcome });
+    } finally {
+      await rm(flydDir, { recursive: true, force: true });
+    }
+  });
 
   it("keeps a contextual action in conversation when no coding referent exists", async () => {
     const ui = terminal(["do it", "/exit"]);

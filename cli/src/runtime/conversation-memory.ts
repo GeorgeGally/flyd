@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { mkdir, readFile, readdir, rename, writeFile } from "fs/promises";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { FLYD_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { extractKeywords } from "../lib/retrieval.js";
@@ -45,6 +45,7 @@ interface ConversationRetrievalOptions {
   flydDir?: string;
   excludeSessionId?: string;
   now?: () => Date;
+  projectPath?: string;
 }
 
 export interface ConversationMemorySession {
@@ -59,6 +60,7 @@ const MAX_MATCHES = 3;
 const MAX_EXCERPT_CHARS = 6_000;
 const MAX_MERGED_EVIDENCE_CHARS = 12_000;
 const MAX_ACTION_AGE_MS = 24 * 60 * 60 * 1_000;
+const ACTION_AMBIGUITY_WINDOW_MS = 5 * 60 * 1_000;
 const LOW_INFORMATION_TERMS = new Set([
   "chat", "current", "currently", "hello", "latest", "recent", "thanks", "thank", "today",
 ]);
@@ -158,11 +160,12 @@ function wikiIndexMarkdown(record: ConversationRecord): string {
 }
 
 async function persistRecord(flydDir: string, record: ConversationRecord): Promise<void> {
-  await atomicWrite(statePath(flydDir, record.id), `${JSON.stringify(record, null, 2)}\n`);
   await Promise.all([
     atomicWrite(transcriptPath(flydDir, record.id), transcriptMarkdown(record)),
     atomicWrite(wikiIndexPath(flydDir, record.id), wikiIndexMarkdown(record)),
   ]);
+  // The canonical JSON is the commit point used for executable handoff recovery.
+  await atomicWrite(statePath(flydDir, record.id), `${JSON.stringify(record, null, 2)}\n`);
 }
 
 export function createConversationMemorySession(
@@ -173,7 +176,7 @@ export function createConversationMemorySession(
   const startedAt = now().toISOString();
   const generatedId = `${startedAt.replace(/[^0-9]/g, "").slice(0, 17)}-${randomUUID()}`;
   const id = safeSessionId(options.id ?? generatedId);
-  const record: ConversationRecord = {
+  let record: ConversationRecord = {
     version: 1,
     id,
     project: cleanInline(options.project ?? PROJECT.name, 500),
@@ -188,15 +191,22 @@ export function createConversationMemorySession(
     id,
     async recordTurn(turn) {
       const recordedAt = now().toISOString();
-      if (record.exchanges.length === 0) record.title = sessionTitle(turn.user);
-      record.updatedAt = recordedAt;
-      record.exchanges.push({
-        user: turn.user,
-        assistant: turn.assistant,
-        recordedAt,
-        ...(turn.handoff ? { handoff: turn.handoff } : {}),
-      });
-      await persistRecord(flydDir, record);
+      const candidate: ConversationRecord = {
+        ...record,
+        title: record.exchanges.length === 0 ? sessionTitle(turn.user) : record.title,
+        updatedAt: recordedAt,
+        exchanges: [
+          ...record.exchanges,
+          {
+            user: turn.user,
+            assistant: turn.assistant,
+            recordedAt,
+            ...(turn.handoff ? { handoff: turn.handoff } : {}),
+          },
+        ],
+      };
+      await persistRecord(flydDir, candidate);
+      record = candidate;
     },
   };
 }
@@ -229,26 +239,47 @@ export async function retrieveRecentActionableOutcome(
 ): Promise<ActionableOutcome | null> {
   const flydDir = options.flydDir ?? FLYD_DIR;
   const now = options.now?.() ?? new Date();
+  const projectPath = resolve(options.projectPath ?? PROJECT.path);
   const records = (await readRecords(flydDir))
     .filter((record) => record.id !== options.excludeSessionId)
-    .filter((record) => now.getTime() - new Date(record.updatedAt).getTime() <= MAX_ACTION_AGE_MS);
-
+    .filter((record) => resolve(record.projectPath) === projectPath);
+  const candidates: ActionableOutcome[] = [];
   for (const record of records) {
     for (let index = record.exchanges.length - 1; index >= 0; index -= 1) {
       const exchange = record.exchanges[index];
-      if (exchange.handoff) return exchange.handoff;
+      const recordedAt = exchange.handoff?.recordedAt ?? exchange.recordedAt;
+      const age = now.getTime() - new Date(recordedAt).getTime();
+      if (!Number.isFinite(age) || age < 0 || age > MAX_ACTION_AGE_MS) continue;
+      if (exchange.handoff) {
+        candidates.push(exchange.handoff);
+        continue;
+      }
       const input = interpretAgentInput(exchange.user);
       if (input.kind === "coding") {
-        return {
+        candidates.push({
           outcome: input.outcome,
           sourceSessionId: record.id,
           sourceTurn: index,
           recordedAt: exchange.recordedAt,
-        };
+        });
       }
     }
   }
-  return null;
+  const seenOutcomes = new Set<string>();
+  const unique = candidates
+    .sort((left, right) => right.recordedAt.localeCompare(left.recordedAt))
+    .filter((candidate) => {
+      if (seenOutcomes.has(candidate.outcome)) return false;
+      seenOutcomes.add(candidate.outcome);
+      return true;
+    });
+  const latest = unique[0];
+  if (!latest) return null;
+  const competing = unique[1];
+  if (competing && new Date(latest.recordedAt).getTime() - new Date(competing.recordedAt).getTime() < ACTION_AMBIGUITY_WINDOW_MS) {
+    return null;
+  }
+  return latest;
 }
 
 function countKeywordMatches(record: ConversationRecord, keywords: string[]): number {

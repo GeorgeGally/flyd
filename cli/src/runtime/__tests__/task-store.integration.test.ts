@@ -20,6 +20,7 @@ async function cleanProject(): Promise<void> {
       await pool.query(`DELETE FROM runtime_delivery_receipts
         WHERE runtime_event_id IN (SELECT id FROM runtime_events WHERE agent_task_id = ANY($1::bigint[]))`, [taskIds]);
       await pool.query("DELETE FROM runtime_events WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
+      await pool.query("DELETE FROM task_recommendations WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_sessions WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM worker_commands WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
       await pool.query("DELETE FROM task_artifacts WHERE agent_task_id = ANY($1::bigint[])", [taskIds]);
@@ -114,7 +115,18 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     expect(resumed?.revision).toBe(2);
 
     const sessionKey = await store.startTaskSession(task.id, true, { head: "a" });
+    const sessionTask = await store.findTask(task.taskKey);
+    await store.offerTaskRecommendation(sessionKey, {
+      taskKey: task.taskKey,
+      taskRevision: sessionTask!.revision,
+      action: sessionTask!.recommendedNextAction!,
+    });
+    await store.actOnTaskRecommendation(sessionKey, "adapted");
     await store.finishTaskSession(sessionKey, { interpretation: "focused_corrected" });
+    const recommendation = await pool.query(`SELECT disposition, acted_at FROM task_recommendations
+      WHERE task_session_id = (SELECT id FROM task_sessions WHERE session_key = $1)`, [sessionKey]);
+    expect(recommendation.rows[0]).toMatchObject({ disposition: "adapted" });
+    expect(recommendation.rows[0].acted_at).toBeTruthy();
 
     await expect(store.recordOrientation(task.taskKey, 0, {
       contextSnapshot: {}, repositorySnapshot: {}, recommendedNextAction: "stale", idempotencyKey: "stale-orientation",
@@ -383,6 +395,16 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       VALUES ($1, $2, 'ended', TRUE, 'focused_corrected', FALSE, FALSE, '{}'::jsonb,
        NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '2 minutes', NOW(), NOW())
       RETURNING id`, [taskId, randomUUID()]);
+    await pool.query(`INSERT INTO task_recommendations
+      (agent_task_id, task_session_id, release_key, task_revision, action, action_digest,
+       disposition, metadata, acted_at, created_at, updated_at)
+      VALUES ($1, $2, 'release_1c', 1, 'Continue the verified task', $3,
+       'adapted', '{}'::jsonb, NOW() - INTERVAL '2 minutes',
+       NOW() - INTERVAL '9 minutes', NOW())`, [
+      taskId,
+      realSession.rows[0].id,
+      "d".repeat(64),
+    ]);
     const worker = await pool.query(`INSERT INTO worker_sessions
       (agent_task_id, task_grant_id, task_assignment_id, worker_key, status, adapter,
        working_directory, assignment_revision, capabilities, started_at, ended_at,
@@ -414,9 +436,11 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       VALUES ($1, $2, 'worker.completed', 1, '{}'::jsonb, NOW() - INTERVAL '3 minutes',
        NOW() - INTERVAL '2 minutes', 0, NOW(), NOW()) RETURNING id`, [taskId, randomUUID()]);
     await pool.query(`INSERT INTO runtime_delivery_receipts
-      (runtime_event_id, client_id, acknowledged_at, delivery_latency_ms, created_at, updated_at)
-      VALUES ($1, 'acceptance-browser', NOW() - INTERVAL '2 minutes', 777, NOW(), NOW())`, [
+      (runtime_event_id, client_id, task_revision, binding_digest, acknowledged_at,
+       delivery_latency_ms, created_at, updated_at)
+      VALUES ($1, 'acceptance-browser', 1, $2, NOW() - INTERVAL '2 minutes', 777, NOW(), NOW())`, [
       event.rows[0].id,
+      "c".repeat(64),
     ]);
     await pool.query(`INSERT INTO task_sessions
       (agent_task_id, session_key, status, resumed, interpretation_status,
@@ -705,6 +729,53 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     })).rejects.toThrow("maximum concurrency");
   });
 
+  it("revokes running authority and durably queues a stop for every live worker", async () => {
+    const task = await store.createTask({
+      projectName,
+      projectRoot,
+      intendedOutcome: "Stop work when authority is revoked",
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "base", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `revocation-task:${projectRoot}`,
+    });
+    const grant = await store.approveGrant(task.taskKey, task.revision, {
+      repositoryRoots: [projectRoot], worktreePaths: [], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
+      maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 30 },
+      providerIdentity: "codex:local", expiresAt: new Date(Date.now() + 60_000),
+      idempotencyKey: `revocation-grant:${task.taskKey}`,
+    });
+    const worker = await store.createWorker({
+      taskKey: task.taskKey,
+      grantKey: grant.grantKey,
+      adapter: "codex",
+      executablePath: "/bin/codex",
+      executableVersion: "codex-cli 0.144.2",
+      workingDirectory: projectRoot,
+      idempotencyKey: `revocation-worker:${task.taskKey}`,
+    });
+    await store.transitionWorker(worker.workerKey, {
+      status: "running",
+      processId: process.pid,
+      processGroupId: process.pid,
+      idempotencyKey: `revocation-running:${worker.workerKey}`,
+    });
+    const current = (await store.findTask(task.taskKey))!;
+
+    await store.revokeGrant(task.taskKey, current.revision, grant.grantKey, {
+      reason: "The user revoked this task grant",
+      idempotencyKey: `revoke:${grant.grantKey}`,
+    });
+
+    expect(await store.workerAuthority(worker.workerKey)).toBe(false);
+    expect((await store.findWorker(worker.workerKey))?.status).toBe("stopping");
+    const commands = await pool.query(`SELECT kind, status, payload FROM worker_commands
+      WHERE worker_session_id = $1`, [worker.id]);
+    expect(commands.rows).toEqual([
+      expect.objectContaining({ kind: "stop", status: "queued", payload: expect.objectContaining({ trigger: "grant_revoked" }) }),
+    ]);
+  });
+
   it("requires every planned assignment to be integrated before task completion", async () => {
     const task = await store.createTask({
       projectName,
@@ -793,6 +864,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     expect(completed.status).toBe("completed");
     expect(await store.metrics(projectRoot)).toMatchObject({
       routedAssignments: 2,
+      flydAssignments: 0,
       codexAssignments: 2,
       openCodeAssignments: 0,
       acceptedInterventions: 0,
@@ -852,6 +924,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     await store.transitionWorker(worker.workerKey, {
       status: "running",
       processId: process.pid,
+      externalSessionId: "thread-control",
       idempotencyKey: `control-running:${task.taskKey}`,
     });
     const currentBeforeControl = await store.findTask(task.taskKey);
@@ -902,6 +975,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     await store.completeWorkerCommand(first.command.commandKey, {
       workerStatus: "interrupted",
     });
+    expect((await store.findResumeSource(planned.assignments[0].assignmentKey))?.id).toBe(worker.id);
     const afterLateExit = await store.transitionWorker(worker.workerKey, {
       status: "failed",
       exitStatus: 1,
@@ -933,6 +1007,32 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     );
     await store.completeWorkerCommand(replacement.command.commandKey, { workerStatus: null });
     expect((await store.listAssignments(task.id))[0].excludedAdapters).toContain("codex");
+    expect(await store.findResumeSource(planned.assignments[0].assignmentKey)).toBeNull();
+
+    await pool.query("UPDATE task_grants SET worker_adapters = '[\"codex\"]'::jsonb WHERE id = $1", [grant.id]);
+    await pool.query("UPDATE task_assignments SET excluded_adapters = '[]'::jsonb WHERE id = $1", [planned.assignments[0].id]);
+    const codexOnlyReplacement = await store.queueWorkerCommand(
+      worker.workerKey,
+      "replace",
+      {},
+      `replace-codex-only:${worker.workerKey}`,
+    );
+    await store.completeWorkerCommand(codexOnlyReplacement.command.commandKey, { workerStatus: null });
+    expect((await store.listAssignments(task.id))[0].excludedAdapters).not.toContain("codex");
+    await pool.query("UPDATE task_grants SET worker_adapters = '[\"codex\",\"opencode\"]'::jsonb WHERE id = $1", [grant.id]);
+
+    await expect(store.createWorker({
+      taskKey: task.taskKey,
+      grantKey: grant.grantKey,
+      assignmentKey: planned.assignments[0].assignmentKey,
+      adapter: "opencode",
+      capabilities: ["implementation"],
+      executablePath: "/bin/opencode",
+      executableVersion: "1.17.18",
+      workingDirectory: projectRoot,
+      resumesWorkerSessionId: worker.id,
+      idempotencyKey: `cross-adapter-resume:${worker.workerKey}`,
+    })).rejects.toThrow("resume source");
 
     const retry = await store.queueWorkerCommand(
       worker.workerKey,

@@ -103,6 +103,7 @@ class ComposeSurfaceJob < ApplicationJob
     end
 
     enqueue_broadcast(surface, log)
+    RecordPosttractionPresentationJob.perform_later(surface.id)
     self.class.finish_and_enqueue_pending
   rescue *RETRYABLE_ERRORS => error
     draft&.invalidate!(reason: error.message) if draft&.persisted? && draft.status == "draft"

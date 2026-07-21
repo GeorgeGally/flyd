@@ -81,7 +81,8 @@ describe("buildConversationPrompt", () => {
     expect(prompt.system).toContain("general knowledge");
     expect(prompt.system).toContain("Never reply with generic availability");
     expect(prompt.system).toContain("Never tell George to wait");
-    expect(prompt.system).toContain("cannot fetch, inspect, implement, run tools, or continue after this reply");
+    expect(prompt.system).toContain("Never claim Flyd cannot act");
+    expect(prompt.system).toContain("never replace execution with generic instructions");
     expect(prompt.system).toContain("does not belong in a task yet");
     expect(prompt.prompt).toContain("The first proof is that George chooses Flyd");
     expect(prompt.prompt).toContain("Repair the daily-driver loop");

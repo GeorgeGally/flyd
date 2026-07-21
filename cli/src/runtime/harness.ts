@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { actionableTaskNextAction, buildContextPackage, buildOrientation } from "./orientation.js";
-import { buildOpenCodeArgs, buildOpenCodePermissionConfig } from "./opencode-adapter.js";
 import type {
   AgentTask,
   ContextPackage,
@@ -13,6 +12,16 @@ import type {
 import type { RuntimeCommandResult } from "./runtime-command-contract.js";
 
 type Interpretation = "accepted" | "focused_corrected" | "replaced";
+const ORCHESTRATION_COMMAND_CLASSES = [ "inspect", "test", "lint", "build", "git_status", "git_diff" ];
+const RENEWAL_REQUIRED_ACTIONS = [
+  "destructive_operation", "external_write", "deploy", "publish", "purchase",
+  "secret_disclosure", "permission_change",
+];
+const ORCHESTRATION_BUDGET = {
+  max_worker_runs: 4,
+  max_runtime_minutes: 90,
+  max_inactivity_minutes: 10,
+};
 
 interface TaskStore {
   findResumableTask(projectRoot: string): Promise<AgentTask | null>;
@@ -72,6 +81,15 @@ interface TaskStore {
     idempotencyKey: string,
   ): Promise<TaskGrant>;
   startTaskSession(taskId: string, resumed: boolean, startupSnapshot: Record<string, unknown>): Promise<string>;
+  offerTaskRecommendation(sessionKey: string, input: {
+    taskKey: string;
+    taskRevision: number;
+    action: string;
+  }): Promise<void>;
+  actOnTaskRecommendation(
+    sessionKey: string,
+    disposition: "accepted" | "adapted" | "rejected",
+  ): Promise<void>;
   finishTaskSession(sessionKey: string, input: {
     interpretation: "pending" | Interpretation;
     manualContextRestatement?: boolean;
@@ -130,7 +148,17 @@ export interface HarnessDependencies {
   terminal: HarnessTerminal;
   inspectRepository(path?: string): Promise<RepositorySnapshot>;
   retrieveMemory(query: string): Promise<MemoryEvidence>;
-  detectOpenCode(): Promise<{ executable: string; version: string }>;
+  resolveRepositoryRoots?(outcome: string, primaryRoot: string): Promise<string[]>;
+  resolveVerificationCommands?(primaryRoot: string): Promise<string[]>;
+  detectWorker(): Promise<{ executable: string; version: string }>;
+  workerAdapterName: string;
+  buildWorkerArgs(input: {
+    assignment: string;
+    projectRoot: string;
+    taskKey: string;
+    contextPath: string;
+    externalSessionId?: string;
+  }): string[];
   recoverWorkers(projectRoot: string): Promise<number>;
   recoverSessions(projectRoot: string): Promise<number>;
   runWorker(input: {
@@ -141,7 +169,7 @@ export interface HarnessDependencies {
     externalSessionId?: string;
     contextPath: string;
     timeoutMs: number;
-    permissionConfig: ReturnType<typeof buildOpenCodePermissionConfig>;
+    permissionConfig: Record<string, unknown>;
     onStart?: (processId: number | null) => void | Promise<void>;
     onEvent?: (event: { sessionId: string | null }) => void;
   }): Promise<{ exitStatus: number; externalSessionId: string | null; output: string; error: string }>;
@@ -190,16 +218,37 @@ function eventKey(taskKey: string, event: string): string {
   return `${taskKey}:${event}:${randomUUID()}`;
 }
 
+function requestIsReadOnly(value: string): boolean {
+  const requestsChanges = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/i.test(value);
+  const requestsAssessment = /\b(analy[sz]e|assess|audit|explain|inspect|investigate|look at|review|status|summari[sz]e)\b/i.test(value);
+  return requestsAssessment && !requestsChanges;
+}
+
 function grantSupportsOrchestration(
   grant: TaskGrant,
   scope: NonNullable<HarnessDependencies["orchestrationGrantScope"]>,
+  repositoryRoots: string[],
+  verificationCommands: string[],
+  fileOperations: string[],
 ): boolean {
   const maxWorkerRuns = Number(grant.budget.max_worker_runs ?? 0);
 
-  return scope.workerAdapters.every((adapter) => grant.workerAdapters.includes(adapter))
-    && grant.worktreePaths.includes(scope.worktreeRoot)
-    && grant.maxConcurrency >= 2
-    && maxWorkerRuns >= 4;
+  const sameMembers = (left: string[], right: string[]) => left.length === right.length &&
+    left.every((value) => right.includes(value));
+
+  return sameMembers(scope.workerAdapters, grant.workerAdapters)
+    && sameMembers(repositoryRoots, grant.repositoryRoots)
+    && sameMembers(verificationCommands, grant.verificationCommands)
+    && sameMembers(ORCHESTRATION_COMMAND_CLASSES, grant.commandClasses)
+    && sameMembers(RENEWAL_REQUIRED_ACTIONS, grant.renewalRequiredActions)
+    && grant.fileOperations.length === fileOperations.length
+    && fileOperations.every((operation) => grant.fileOperations.includes(operation))
+    && sameMembers([ scope.worktreeRoot ], grant.worktreePaths)
+    && grant.maxConcurrency === 2
+    && maxWorkerRuns === ORCHESTRATION_BUDGET.max_worker_runs
+    && Number(grant.budget.max_runtime_minutes ?? 0) === ORCHESTRATION_BUDGET.max_runtime_minutes
+    && Number(grant.budget.max_inactivity_minutes ?? 0) === ORCHESTRATION_BUDGET.max_inactivity_minutes
+    && grant.providerIdentity === scope.providerIdentity;
 }
 
 async function currentTask(store: TaskStore, taskKey: string): Promise<AgentTask> {
@@ -354,6 +403,13 @@ export async function runContinuityHarness(input: {
       recommendedNextAction: resumedTask ? orientation.nextAction : outcome,
       idempotencyKey: eventKey(task.taskKey, "oriented"),
     });
+    if (task.recommendedNextAction?.trim()) {
+      await deps.store.offerTaskRecommendation(sessionKey, {
+        taskKey: task.taskKey,
+        taskRevision: task.revision,
+        action: task.recommendedNextAction,
+      });
+    }
 
     if (workerIsLive(previousWorker)) {
       deps.terminal.write(liveWorkerMessage(previousWorker));
@@ -363,6 +419,7 @@ export async function runContinuityHarness(input: {
     }
 
     if (resumedTask && !input.outcome?.trim() && requestsLocalProjectBriefing(resumedTask, orientation.nextAction)) {
+      await deps.store.actOnTaskRecommendation(sessionKey, "accepted");
       deps.terminal.write(renderLocalProjectBriefing({
         task: resumedTask,
         repository,
@@ -425,8 +482,17 @@ export async function runContinuityHarness(input: {
       }
     }
 
+    const repositoryRoots = deps.resolveRepositoryRoots
+      ? await deps.resolveRepositoryRoots(assignment, repository.root)
+      : [ repository.root ];
+    const verificationCommands = deps.resolveVerificationCommands
+      ? await deps.resolveVerificationCommands(repository.root)
+      : [ "git diff --check" ];
+    const fileOperations = requestIsReadOnly(assignment) ? [ "read" ] : [ "read", "write" ];
     let grant = await deps.store.approvedGrant(task.id);
-    if (grant && deps.orchestrationGrantScope && !grantSupportsOrchestration(grant, deps.orchestrationGrantScope)) {
+    if (grant && deps.orchestrationGrantScope && !grantSupportsOrchestration(
+      grant, deps.orchestrationGrantScope, repositoryRoots, verificationCommands, fileOperations,
+    )) {
       task = await deps.store.revokeGrant(task.taskKey, task.revision, grant.grantKey, {
         reason: "Release 1B orchestration requires renewed bounded authority",
         idempotencyKey: eventKey(task.taskKey, "grant-renewal"),
@@ -445,38 +511,52 @@ export async function runContinuityHarness(input: {
     }
     if (!grant) {
       const orchestrationScope = deps.orchestrationGrantScope;
-      const workerLabel = orchestrationScope ? "Flyd-routed Codex and OpenCode" : "OpenCode";
-      const providerLabel = orchestrationScope?.providerIdentity ?? "OpenCode configured provider";
+      const workerLabel = orchestrationScope?.workerAdapters.length === 1 && orchestrationScope.workerAdapters[0] === "flyd"
+        ? "Flyd native coding runtime"
+        : orchestrationScope
+          ? `Flyd-routed ${orchestrationScope.workerAdapters.join(" and ")}`
+        : "Flyd native coding runtime";
+      const providerLabel = orchestrationScope?.providerIdentity ?? "Flyd configured provider";
       const limitLabel = orchestrationScope
         ? "two isolated workers at a time, four total runs"
         : "one worker at a time, three runs";
       let proposal = await deps.store.proposedGrant(task.id);
+      if (proposal && orchestrationScope && !grantSupportsOrchestration(
+        proposal, orchestrationScope, repositoryRoots, verificationCommands, fileOperations,
+      )) {
+        await deps.store.rejectGrantProposal(
+          task.taskKey,
+          task.revision,
+          proposal.grantKey,
+          "The requested task scope changed before approval",
+          eventKey(task.taskKey, "stale-grant-proposal"),
+        );
+        task = await currentTask(deps.store, task.taskKey);
+        proposal = null;
+      }
       if (!proposal) {
         proposal = await deps.store.proposeGrant(task.taskKey, task.revision, {
-          repositoryRoots: [repository.root],
+          repositoryRoots,
           worktreePaths: orchestrationScope ? [orchestrationScope.worktreeRoot] : [],
-          workerAdapters: orchestrationScope?.workerAdapters ?? ["opencode"],
-          fileOperations: ["read", "write"],
-          commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
-          verificationCommands: ["git diff --check"],
-          renewalRequiredActions: [
-            "destructive_operation", "external_write", "deploy", "publish", "purchase",
-            "secret_disclosure", "permission_change",
-          ],
+          workerAdapters: orchestrationScope?.workerAdapters ?? [deps.workerAdapterName],
+          fileOperations,
+          commandClasses: ORCHESTRATION_COMMAND_CLASSES,
+          verificationCommands,
+          renewalRequiredActions: RENEWAL_REQUIRED_ACTIONS,
           maxConcurrency: orchestrationScope ? 2 : 1,
-          budget: {
-            max_worker_runs: orchestrationScope ? 4 : 3,
+          budget: orchestrationScope ? ORCHESTRATION_BUDGET : {
+            max_worker_runs: 3,
             max_runtime_minutes: 90,
             max_inactivity_minutes: 10,
           },
-          providerIdentity: orchestrationScope?.providerIdentity ?? "opencode-configured-provider",
+          providerIdentity: orchestrationScope?.providerIdentity ?? "flyd-configured-provider",
           expiresAt: new Date(deps.now().getTime() + 8 * 60 * 60 * 1000),
           idempotencyKey: eventKey(task.taskKey, "grant-proposed"),
         });
         task = await currentTask(deps.store, task.taskKey);
       }
       deps.terminal.write(
-        `\nProposed task grant\nRepository: ${repository.root}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: read/write isolated worktrees; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: grant-approved commands, including git diff --check\n`,
+        `\nProposed task grant\nRepositories: ${repositoryRoots.join(", ")}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: ${fileOperations.includes("write") ? "read/write isolated worktrees in the primary repository" : "read-only repository inspection"}; read additional repositories; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: ${verificationCommands.join(", ")}\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
         if (resumedTask) {
@@ -513,6 +593,11 @@ export async function runContinuityHarness(input: {
       grant = approval.data.grant as TaskGrant;
       task = await currentTask(deps.store, task.taskKey);
     }
+
+    await deps.store.actOnTaskRecommendation(
+      sessionKey,
+      interpretation === "accepted" ? "accepted" : interpretation === "focused_corrected" ? "adapted" : "rejected",
+    );
 
     const context = buildContextPackage({ task, repository, worker: previousWorker, memory });
     if (deps.orchestrate) {
@@ -580,18 +665,18 @@ export async function runContinuityHarness(input: {
     }
 
     let contextPath: string;
-    let openCode: { executable: string; version: string };
+    let workerRuntime: { executable: string; version: string };
     try {
       contextPath = await deps.writeContext(task.taskKey, context);
-      openCode = await deps.detectOpenCode();
+      workerRuntime = await deps.detectWorker();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
-        nextAction: `Prepare OpenCode worker: ${message}`,
+        nextAction: `Prepare Flyd worker: ${message}`,
         repositorySnapshot: repositoryState(repository),
         idempotencyKey: eventKey(task.taskKey, "worker-preparation-failed"),
       });
-      deps.terminal.write(`\nOpenCode could not start. ${task.recommendedNextAction}\n`);
+      deps.terminal.write(`\nFlyd worker could not start. ${task.recommendedNextAction}\n`);
       await deps.store.finishTaskSession(sessionKey, sessionResult());
       sessionKey = null;
       return { status: task.status, taskKey: task.taskKey };
@@ -601,9 +686,9 @@ export async function runContinuityHarness(input: {
       worker = await deps.store.createWorker({
         taskKey: task.taskKey,
         grantKey: grant.grantKey,
-        adapter: "opencode",
-        executablePath: openCode.executable,
-        executableVersion: openCode.version,
+        adapter: deps.workerAdapterName,
+        executablePath: workerRuntime.executable,
+        executableVersion: workerRuntime.version,
         workingDirectory: repository.root,
         idempotencyKey: eventKey(task.taskKey, "worker-queued"),
       });
@@ -621,28 +706,28 @@ export async function runContinuityHarness(input: {
 
     let workerTransitions = Promise.resolve<WorkerSession>(worker);
     let recordedSessionId: string | null = null;
-    const args = buildOpenCodeArgs({
+    const args = deps.buildWorkerArgs({
       assignment,
       projectRoot: repository.root,
       taskKey: task.taskKey,
       contextPath,
       externalSessionId: interruptedSessionId,
     });
-    deps.terminal.write(`\nOpenCode is working on: ${assignment}\n`);
+    deps.terminal.write(`\nFlyd is working on: ${assignment}\n`);
     let result: { exitStatus: number; externalSessionId: string | null; output: string; error: string };
     try {
       result = await deps.runWorker({
-        executable: openCode.executable,
+        executable: workerRuntime.executable,
         args,
         cwd: repository.root,
         assignment,
         externalSessionId: interruptedSessionId,
         contextPath,
         timeoutMs: 90 * 60 * 1000,
-        permissionConfig: buildOpenCodePermissionConfig({
+        permissionConfig: {
           fileOperations: grant.fileOperations,
           commandClasses: grant.commandClasses,
-        }),
+        },
         onStart: async (processId) => {
           workerTransitions = workerTransitions.then(() =>
             deps.store.transitionWorker(worker.workerKey, {

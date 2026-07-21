@@ -1,6 +1,6 @@
 import { execFile as nodeExecFile } from "child_process";
 import { createHash } from "crypto";
-import { mkdir, stat } from "fs/promises";
+import { mkdir, rm, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import { promisify } from "util";
@@ -63,13 +63,16 @@ export class GitWorktreeManager {
     const branchName = this.branchFor(input.taskKey, input.assignmentKey);
     if (await exists(path)) {
       try {
-        const [root, branch] = await Promise.all([
+        const [root, branch, origin] = await Promise.all([
           this.runGit([ "-C", path, "rev-parse", "--show-toplevel" ]),
           this.runGit([ "-C", path, "branch", "--show-current" ]),
+          this.runGit([ "-C", path, "remote", "get-url", "origin" ]),
         ]);
-        if (resolve(root.trim()) !== path || branch.trim() !== branchName) {
+        if (resolve(root.trim()) !== path || branch.trim() !== branchName ||
+          resolve(origin.trim()) !== resolve(input.repositoryRoot)) {
           throw new Error("mismatch");
         }
+        await this.runGit([ "-C", path, "merge-base", "--is-ancestor", input.baseHead, "HEAD" ]);
         return { path, branchName, baseHead: input.baseHead };
       } catch {
         throw new Error(`Flyd refuses to reuse an unrelated directory at ${path}`);
@@ -77,17 +80,14 @@ export class GitWorktreeManager {
     }
 
     await mkdir(resolve(path, ".."), { recursive: true, mode: 0o700 });
-    await this.runGit([
-      "-C", resolve(input.repositoryRoot),
-      "worktree", "add", "-b", branchName, path, input.baseHead,
-    ]);
+    await this.runGit([ "clone", "--no-hardlinks", "--no-checkout", resolve(input.repositoryRoot), path ]);
+    await this.runGit([ "-C", path, "checkout", "-b", branchName, input.baseHead ]);
     return { path, branchName, baseHead: input.baseHead };
   }
 
-  async remove(repositoryRoot: string, worktree: ManagedWorktree, force = false): Promise<void> {
-    const args = [ "-C", resolve(repositoryRoot), "worktree", "remove" ];
-    if (force) args.push("--force");
-    args.push(worktree.path);
-    await this.runGit(args);
+  async remove(_repositoryRoot: string, worktree: ManagedWorktree, _force = false): Promise<void> {
+    const path = resolve(worktree.path);
+    if (!path.startsWith(`${this.managedRoot}/`)) throw new Error("Managed clone path escaped its root");
+    await rm(path, { recursive: true, force: true });
   }
 }

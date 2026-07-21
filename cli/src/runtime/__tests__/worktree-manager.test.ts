@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
@@ -42,6 +42,7 @@ describe("GitWorktreeManager", () => {
     expect(worktree.path.startsWith(managedRoot)).toBe(true);
     expect(worktree.branchName).toMatch(/^flyd\/task-123\/assignme-[a-f0-9]{8}$/);
     expect(await readFile(join(repo.root, "README.md"), "utf8")).toBe("base\n");
+    expect((await stat(join(worktree.path, ".git"))).isDirectory()).toBe(true);
     await expect(execFileAsync("git", ["-C", worktree.path, "rev-parse", "HEAD"], { encoding: "utf8" }))
       .resolves.toMatchObject({ stdout: `${repo.head}\n` });
   });
@@ -61,5 +62,26 @@ describe("GitWorktreeManager", () => {
       assignmentKey: "assignment-12345678",
       baseHead: repo.head,
     })).rejects.toThrow("unrelated directory");
+  });
+
+  it("refuses to reuse an assignment clone from a different recorded base", async () => {
+    const repo = await repository();
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-managed-test-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const input = {
+      repositoryRoot: repo.root,
+      taskKey: "task-12345678",
+      assignmentKey: "assignment-12345678",
+      baseHead: repo.head,
+    };
+    await manager.prepare(input);
+    await writeFile(join(repo.root, "README.md"), "new main\n");
+    await execFileAsync("git", ["-C", repo.root, "add", "README.md"]);
+    await execFileAsync("git", ["-C", repo.root, "-c", "user.name=Flyd Test", "-c", "user.email=flyd@example.test", "commit", "-m", "new main"]);
+    const { stdout } = await execFileAsync("git", ["-C", repo.root, "rev-parse", "HEAD"], { encoding: "utf8" });
+
+    await expect(manager.prepare({ ...input, baseHead: stdout.trim() }))
+      .rejects.toThrow("unrelated directory");
   });
 });

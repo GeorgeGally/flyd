@@ -5,6 +5,8 @@ module Flyd
     MAX_REFERENCES = 5
     MAX_EPHEMERAL_AGE = 14.days
     MAX_ARCHIVE_DISCOVERY_AGE = 180.days
+    MONITORING_EVIDENCE_WINDOW = 12.hours
+    MONITORING_CLOCK_SKEW = 2.minutes
     EPHEMERAL_TYPES = %w[curiosity signal nudge event].freeze
     DISQUALIFIED_STATUSES = %w[contradicted superseded].freeze
 
@@ -17,17 +19,36 @@ module Flyd
     end
 
     def call
-      [
-        runtime_task_candidate,
+      runtime = runtime_task_candidate
+
+      candidates = [
+        runtime,
         memory_conversation_candidate,
         build_candidate("decision", decision_evidence, "Blocked or high-tension evidence may require a choice", 0.76),
         build_candidate("investigation", investigation_evidence, "Missing or conflicting evidence may require investigation", 0.72),
         build_candidate("monitoring", monitoring_evidence, "Unresolved or outcome-bearing evidence may require monitoring", 0.68),
         discovery_candidate
       ].compact
+
+      demote_ungrounded_candidates(candidates, has_runtime: runtime.present?)
     end
 
     private
+
+    # Evidence-only decision, investigation, and monitoring candidates
+    # frequently trigger modes the LLM cannot satisfy — they lack the exact
+    # runtime selectors the validator enforces.  Demote them below discovery
+    # so the LLM composes what it can, while genuine runtime work still takes
+    # the stage at full confidence.
+    def demote_ungrounded_candidates(candidates, has_runtime:)
+      return candidates if has_runtime
+
+      candidates.map do |candidate|
+        next candidate unless %w[decision investigation monitoring].include?(candidate[:mode].to_s)
+
+        candidate.merge(confidence: 0.35)
+      end
+    end
 
     def runtime_task_candidate
       task = collection(:runtime_tasks).first
@@ -35,6 +56,8 @@ module Flyd
 
       content = evidence_content(task)
       status = content[:status].to_s
+      return if settled_completion?(task, content, status)
+
       related = collection(:task_corrections).last(1) + case status
       when "awaiting_grant"
         collection(:task_grants).select { |grant| evidence_content(grant)[:status].to_s == "proposed" }
@@ -84,6 +107,29 @@ module Flyd
       else
         [ "action", "task_orientation", "The coding task is the most concrete current situation" ]
       end
+    end
+
+    # A completed task earns the stage once, then yields it: the outcome has
+    # been returned, and holding the stage for a day makes the portal look
+    # dead. Completion stays dominant only while genuine follow-up remains.
+    def settled_completion?(task, content, status)
+      RuntimeTasks::NextAction.settled?(status: status, recommended_next_action: content[:recommendedNextAction]) &&
+        completion_presented?(task)
+    end
+
+    def completion_presented?(task)
+      recent_surface_items.any? do |item|
+        item[:id].to_s.end_with?(":task_completion") &&
+          Array(item[:source_refs]).any? { |ref| ref[:type].to_s == "runtime_task" && ref[:id].to_s == task[:id].to_s }
+      end
+    end
+
+    # Presented means presented: a completion that earned the stage on any
+    # recent surface has had its moment, even if another scene intervened.
+    def recent_surface_items
+      previous = @state[:previous_surface].to_h
+      items = Array(previous[:recent_items])
+      items.any? ? items : Array(previous[:items])
     end
 
     def build_candidate(mode, evidence, reason, confidence)
@@ -157,8 +203,16 @@ module Flyd
       evidence_content(memory_assessments.first || {})[:verdict].to_s
     end
 
+    # Monitoring means a live, changing condition. Evidence that is merely
+    # recent enough to keep (MAX_EPHEMERAL_AGE) is still far too stale to
+    # drive the current interface — yesterday's record is not today's moment.
     def monitoring_evidence
-      unresolved_signals + supported_nudges + outcome_events
+      (unresolved_signals + supported_nudges + outcome_events).select do |item|
+        timestamp = evidence_timestamp(item)
+        timestamp.present? &&
+          timestamp >= MONITORING_EVIDENCE_WINDOW.ago &&
+          timestamp <= Time.current + MONITORING_CLOCK_SKEW
+      end
     end
 
     def unresolved_signals
@@ -187,17 +241,18 @@ module Flyd
 
     def discovery_evidence
       items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:discoveries) +
-        collection(:recent_events, :recentEvents) + collection(:reports) + memory_matches
+        collection(:recent_events, :recentEvents) + collection(:reports) + memory_matches +
+        collection(:quotes) + collection(:ideas)
       items.select do |item|
         discoverable?(item) && !previously_shown?(item)
       end.sort_by { |item| -discovery_score(item) }
     end
 
     def discovery_selection(items)
-      anchors = %w[activity horoscope discovery].filter_map do |type|
+      anchors = %w[activity horoscope discovery quote idea].filter_map do |type|
         items.find { |item| item[:type].to_s == type }
       end
-      (anchors + (items - anchors)).first(3)
+      (anchors + (items - anchors)).first(12)
     end
 
     def discoverable?(item)
@@ -221,7 +276,9 @@ module Flyd
       score = case item[:type].to_s
       when "activity" then 1_500
       when "horoscope" then 1_250
+      when "quote" then 1_100
       when "discovery" then 1_000
+      when "idea" then 950
       when "event" then 500
       else 100
       end

@@ -3,11 +3,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
+  assertCleanAcceptanceRepository,
   cleanRubyEnvironment,
   formatAcceptanceReport,
   formatMetrics,
   formatTask,
   formatWorker,
+  normalizeRailsAcceptanceReport,
   recoverLiveWorkersForStatus,
   resolveRepositoryRuby,
 } from "../task.js";
@@ -36,6 +38,27 @@ const worker: WorkerSession = {
 };
 
 describe("task command formatting", () => {
+  it("refuses to attribute acceptance checks to a commit with uncommitted changes", () => {
+    expect(() => assertCleanAcceptanceRepository({ dirty: true, statusLines: [" M cli/src/index.ts"] }))
+      .toThrow("requires a clean repository");
+    expect(() => assertCleanAcceptanceRepository({ dirty: false, statusLines: [] })).not.toThrow();
+  });
+
+  it("normalizes the Rails acceptance authority for CLI presentation", () => {
+    const report = normalizeRailsAcceptanceReport({
+      status: "insufficient_evidence",
+      generated_at: "2026-07-21T00:00:00Z",
+      primary_product_trial: { status: "insufficient_evidence", release1c_available_at: null, qualifying_weeks: [], qualifying_working_days: 0 },
+      technical_trial: { status: "insufficient_evidence", real_sessions: 0, resumed_sessions: 0 },
+      measures: [],
+      propagation: { status: "insufficient_evidence", p95_ms: null, sample_size: 0, target_ms: 2_000 },
+      automated_acceptance: { status: "insufficient_evidence", runs: 0 },
+    });
+
+    expect(report.primaryProductTrial.qualifyingWorkingDays).toBe(0);
+    expect(report.propagation.targetMs).toBe(2_000);
+  });
+
   it("removes inherited Ruby and Bundler overrides from acceptance checks", () => {
     const clean = cleanRubyEnvironment({
       PATH: "/usr/bin",
@@ -138,7 +161,7 @@ describe("task command formatting", () => {
       acceptedInterpretations: 0, correctedInterpretations: 0,
       replacedInterpretations: 0,
       manualContextRestatements: 0, toolEscapes: 0,
-      routedAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
+      routedAssignments: 0, flydAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
       acceptedInterventions: 0, stopControls: 0, retryControls: 0,
       redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
       permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,
@@ -172,14 +195,16 @@ describe("task command formatting", () => {
       tasks: 2, completedTasks: 1, sessions: 5, resumedSessions: 4, resumedWithoutRestatement: 3,
       acceptedInterpretations: 2, correctedInterpretations: 1,
       replacedInterpretations: 1, manualContextRestatements: 1, toolEscapes: 0,
-      routedAssignments: 2, codexAssignments: 1, openCodeAssignments: 1,
+      routedAssignments: 2, flydAssignments: 2, codexAssignments: 0, openCodeAssignments: 0,
       acceptedInterventions: 1, stopControls: 0, retryControls: 1,
       redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
       permissionRenewals: 1, verifiedIntegrations: 1, manualContextTransfers: 1,
     });
 
     expect(output).toContain("Resumed without context restatement: 75% (3/4)");
-    expect(output).toContain("Routed assignments: 2 (Codex 1, OpenCode 1)");
+    expect(output).toContain("Routed assignments: 2 (Flyd 2)");
+    expect(output).not.toContain("Codex");
+    expect(output).not.toContain("OpenCode");
     expect(output).toContain("Accepted automatic interventions: 1");
     expect(output).toContain("Controls: stop 0, retry 1, redirect 0, replace 0");
     expect(output).toContain("Verified integrations: 1");
@@ -192,7 +217,7 @@ describe("task command formatting", () => {
       tasks: 1, completedTasks: 0, sessions: 1, resumedSessions: 0, resumedWithoutRestatement: 0,
       acceptedInterpretations: 1, correctedInterpretations: 0, replacedInterpretations: 0,
       manualContextRestatements: 0, toolEscapes: 0,
-      routedAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
+      routedAssignments: 0, flydAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
       acceptedInterventions: 0, stopControls: 0, retryControls: 0,
       redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
       permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,

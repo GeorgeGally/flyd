@@ -9,14 +9,31 @@
       </div>
     <% end %>
     <div class="discovery-poster__body">
-      <div class="discovery-poster__source"><%= source.site_name.presence || item.metadata["source_label"].presence || display_title %></div>
+      <div class="discovery-poster__source">
+        <%= source.site_name.presence || item.metadata["source_label"].presence || display_title %>
+      </div>
       <h2 class="discovery-poster__title"><%= display_title %></h2>
+      <% if item.metadata["why_it_matters"].present? %>
+        <p class="discovery-poster__verdict"><%= item.metadata["why_it_matters"] %></p>
+      <% end %>
       <p class="discovery-poster__summary"><%= source.description.presence || item.summary %></p>
       <div class="discovery-poster__actions">
         <% if source.url.present? %>
           <%= link_to "Open", source.url, target: "_blank", rel: "noopener noreferrer" %>
         <% end %>
-        <%= render "surfaces/actions", item: item, context_project: context_project, actions: item.actions.reject { |action| (action["id"] || action[:id]) == "inspect_sources" } %>
+        <% item.actions.reject { |action| (action["id"] || action[:id]) == "inspect_sources" }.each do |action| %>
+          <% id = action["id"] || action[:id] %>
+          <% label = action["label"] || action[:label] || id.to_s.humanize %>
+          <% payload = action["payload"] || action[:payload] || {} %>
+          <% button_class = "font-medium underline decoration-line underline-offset-4 hover:decoration-ink cursor-pointer" %>
+          <% case id %>
+          <% when "discuss", "answer", "investigate", "build", "choose" %>
+            <% direct_params = id == "choose" ? { option_id: payload["option_id"] || payload[:option_id] } : {} %>
+            <%= button_to label, surface_item_action_path(item, action_id: id), method: :post, params: direct_params, class: button_class, form_class: "discovery-action-form" %>
+          <% when "dismiss", "resolve" %>
+            <%= button_to label, surface_item_feedbacks_path(item), method: :post, params: { signal: id, payload: payload }, class: button_class, form_class: "discovery-action-form" %>
+          <% end %>
+        <% end %>
       </div>
     </div>
   </article>

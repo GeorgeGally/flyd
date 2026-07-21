@@ -2,7 +2,7 @@
 
 ## Status
 
-Authoritative product PRD as of 17 July 2026.
+Authoritative product PRD as of 21 July 2026.
 
 This document supersedes `docs/product/flyd-v1-prd.md` as the product definition. The earlier PRD remains the specification for directed Rails surfaces where it does not conflict with this document.
 
@@ -23,7 +23,7 @@ This PRD incorporates the following explicit decisions:
 1. Flyd is a platform for personal agents, first proven as George's own agent.
 2. The product experience is one Flyd, while the architecture may coordinate many agents and models.
 3. Flyd should own the user experience of the work. Specialist products are workers behind it, not destinations the user must continually manage.
-4. The first wedge is an agent-native coding harness that is better than opening Codex or OpenCode directly because it has durable memory and understanding.
+4. The first wedge is a Flyd-native coding harness with durable memory and understanding. Models are replaceable intelligence providers; external coding harnesses are neither the product nor Flyd's execution substrate.
 5. Rails, CLI, and a later desktop application are capable surfaces over the same runtime. Rails must not be a watered-down viewer.
 6. The first unmistakable signs of intelligence are:
    - generating the right working interface and agent workflow from a loose outcome; and
@@ -93,7 +93,7 @@ When the work ends, Flyd records what changed, why, what was verified, and what 
 
 ### Definition
 
-The first product is a local, interactive agent harness that becomes the normal entry point for coding work. It coordinates Codex and OpenCode initially and is designed to add other workers without changing the user-facing product model.
+The first product is a local, interactive agent harness that becomes the normal entry point for coding work. Flyd owns the agent loop, tools, permissions, continuity, verification, and integration. It calls the configured model for intelligence without delegating agency to Codex, OpenCode, or another coding CLI.
 
 The harness is not a memory CLI with more commands. It is a persistent work session with an agent loop, task state, worker state, generated interface state, and a permission model.
 
@@ -127,11 +127,11 @@ Flyd converts the outcome into:
 
 #### 3. Coordinate specialist agents
 
-Flyd must provide adapters for Codex and OpenCode in the first release.
+Flyd must provide its own coding worker in the first release. The worker may use any configured model provider that satisfies Flyd's model protocol, but provider choice must not change the task, memory, tool, or interface contract.
 
 It must be able to:
 
-- select a worker based on capability and availability rather than branding;
+- select a Flyd worker assignment based on capability and current task state rather than provider branding;
 - start one or more workers with bounded assignments;
 - preserve the user's latest instructions as the authority;
 - inspect progress and outputs;
@@ -142,17 +142,17 @@ It must be able to:
 
 Workers do not write directly into Flyd's beliefs or user profile. Their outputs remain claims until verified by tools, tests, repository state, or user confirmation.
 
-The Release 1 worker adapter contract is:
+The Release 1 native worker contract is:
 
-- `capabilities`: executable, version, supported operations, and health;
+- `capabilities`: Flyd runtime version, supported operations, configured model identity, and health;
 - `start`: task grant, isolated working directory, context package, and assignment;
 - `observe`: stable worker ID, process/session ID, status, transcript events, and resource use;
 - `instruct`: focused follow-up tied to the current assignment revision;
 - `stop`: graceful stop followed by bounded forced termination;
-- `resume`: reconnect when the underlying worker supports it, otherwise start a replacement from the durable task state;
+- `resume`: reopen the exact Flyd session from durable messages and task state;
 - `complete`: process termination plus Flyd verification, never a worker's textual claim alone.
 
-Release 1 adapters supervise pinned local CLI executables through structured process arguments and PTY or machine-readable output where supported. The adapter records the executable and version used and fails closed when the installed version is outside its tested range. Each worker receives only the task grant available to Flyd. Parallel edits occur in Flyd-managed isolated worktrees; Flyd integrates verified work onto `main`, which remains the user's source-of-truth branch.
+Release 1 runs a Flyd-owned child process with machine-readable events and structured Flyd tools. Planning and execution use the same ordered provider chain: canonical `FLYD_MODEL_*` settings when present, otherwise the configured `OPENCODE_MODEL`, with configured OpenRouter as an explicit fallback. The model credential is available only to that process and is removed from every tool subprocess environment. A worker cannot claim completion before using approved repository evidence in that run. Filesystem and command access come from the task grant, not provider defaults. A task can approve multiple repository roots for context; only the primary Flyd-managed isolated clone is writable. Editing another repository requires its own isolated assignment so Flyd can verify and integrate every write. Review-only assignments receive read-only grants and must leave Git unchanged. Flyd independently runs repository-derived test, lint, and build checks before integrating accepted work onto `main`, which remains the user's source-of-truth branch.
 
 #### 4. Generate the working interface
 
@@ -211,14 +211,14 @@ Permissions are granted per capability, scope, destination, and duration. Trust 
 The first worker execution for a task requires an explicit **task grant**, unless an existing standing policy covers the exact scope. A task grant contains:
 
 - repository roots and permitted worktrees;
-- allowed worker adapters and maximum concurrency;
+- allowed Flyd worker capabilities and maximum concurrency;
 - permitted file operations and command classes;
 - test and verification commands that may run automatically;
 - cost or usage budget;
 - expiry at task completion, cancellation, time limit, or budget exhaustion;
 - actions that always require renewed approval.
 
-Confirming the task grant satisfies the existing requirement that OpenCode execution be approved before it starts. Within that grant, Flyd may start, stop, retry, or redirect workers without repeated confirmation. Scope expansion, writes outside approved roots, destructive operations, deployment, publication, purchases, secret disclosure, and permission changes always require a new approval unless a narrower standing policy explicitly permits them.
+Confirming the task grant authorizes Flyd's native worker before it starts. Within that grant, Flyd may start, stop, retry, or redirect workers without repeated confirmation. Scope expansion, writes outside approved roots, destructive operations, deployment, publication, purchases, secret disclosure, and permission changes always require a new approval unless a narrower standing policy explicitly permits them.
 
 #### 6. Learn from verified outcomes
 
@@ -331,7 +331,7 @@ Every derived claim retains provenance. Every surface can resolve the evidence u
 The first observation domain is coding work:
 
 - Flyd harness sessions;
-- Codex and OpenCode worker prompts, outputs, and status;
+- Flyd worker assignments, model/tool events, outputs, and status;
 - repository state, diffs, commits, tests, and local commands relevant to a task;
 - task decisions, corrections, approvals, and outcomes.
 
@@ -367,7 +367,7 @@ A later desktop application can provide operating-system observation, notificati
 
 ### Primary product test
 
-For two consecutive weeks, George starts Flyd before Codex or OpenCode on at least five working days per week and completes real coding work through it.
+For two consecutive weeks, George starts Flyd first on at least five working days per week and completes real coding work without escaping to another coding harness.
 
 ### First-release measures
 
@@ -409,7 +409,7 @@ Technical release-candidate measurement requires at least ten real coding sessio
 1. George gives Flyd an outcome without choosing an agent or workflow.
 2. Flyd retrieves relevant personal and project context.
 3. Flyd creates success criteria, a plan, worker assignments, and the appropriate interface.
-4. Codex and/or OpenCode perform bounded work.
+4. Flyd's native workers perform bounded work using the configured model.
 5. Flyd monitors, redirects when justified, and presents a grounded review.
 6. Verified completion updates the task and durable understanding.
 
@@ -458,21 +458,21 @@ Technical release-candidate measurement requires at least ten real coding sessio
 
 - canonical local agent runtime and event journal;
 - interactive Flyd coding harness;
-- one OpenCode worker adapter using the existing execution path;
+- one Flyd-native worker using the configured model and structured Flyd tools;
 - project and personal context compilation;
 - durable task, worker, decision, task-grant, and outcome state;
 - orientation, action, monitoring, review, and completion terminal renderers;
 - interruption and exact task resumption;
 - correction, provenance, diagnostics, and usage instrumentation.
 
-Dogfooding begins when Journey 1 passes. Release 1A is successful when Flyd is a better way to resume one real task than opening OpenCode directly.
+Dogfooding begins when Journey 1 passes. Release 1A is successful when Flyd is a reliable way to complete and resume one real coding task without leaving Flyd for another harness.
 
 Release 1A has a five-working-day continuity trial. Its measures are resume rate, interpretation acceptance, verified completion, and manual tool escape. Proactive-intervention and Rails-parity measures do not apply yet.
 
 ### Release 1B: Agent control and initiative
 
-- Codex worker adapter;
-- capability-based worker selection;
+- Flyd-native parallel worker execution;
+- capability-based assignment selection;
 - bounded parallel assignments and isolated worktrees;
 - worker monitoring, stop, retry, redirect, and replacement;
 - safe proactive intervention inside an approved task grant;
@@ -544,7 +544,7 @@ Each release must preserve the same runtime and product identity. Later surfaces
 - Rails `Surface`, `SurfaceItem`, `Scene`, `Intent`, and `Artifact` domains;
 - background world-state composition, validation, persistence, activation, and broadcast;
 - evidence provenance and reference validation;
-- OpenCode proposal, confirmation, execution, and outcome flow;
+- the existing proposal, confirmation, execution, and outcome flow;
 - Rails-to-archive event export;
 - controlled semantic renderer and action registries.
 
@@ -553,7 +553,7 @@ Each release must preserve the same runtime and product identity. Later surfaces
 - an interactive Flyd agent harness;
 - a canonical live activity journal shared by all surfaces;
 - durable agent-task and worker-session models;
-- worker adapters and a capability-based router;
+- a Flyd-native worker and capability-based assignment router;
 - context packages designed for execution rather than retrieval display;
 - monitoring and intervention loops for running agents;
 - a per-action autonomy and permission policy;
@@ -565,7 +565,7 @@ Each release must preserve the same runtime and product identity. Later surfaces
 
 ### Epic 0: Truth and baseline
 
-- instrument current Flyd, Codex, and OpenCode usage without collecting unrelated activity;
+- instrument Flyd use and explicit escapes to other coding tools without collecting unrelated activity;
 - define the intelligence-event rubric and daily-driver measures;
 - create real acceptance fixtures from active Flyd development work;
 - establish cost, latency, privacy, and reliability budgets.
@@ -584,7 +584,7 @@ Exit gate: PostgreSQL operational authority, archive evidence authority, transac
 ### Epic 2: Coding harness
 
 - implement the interactive `flyd` session;
-- implement the OpenCode adapter over the existing proposal and execution path;
+- implement the Flyd-native model/tool loop over the task-grant execution path;
 - compile startup orientation from memory and live repository evidence;
 - accept outcomes and corrections;
 - render orientation, plan, worker, decision, review, monitoring, and completion modes;
@@ -596,7 +596,7 @@ The five-day Release 1A continuity trial starts here. Later epics continue while
 
 ### Epic 3: Agent orchestration
 
-- implement the Codex adapter and extend the OpenCode adapter to the full worker lifecycle;
+- extend the Flyd-native worker to the full parallel assignment lifecycle;
 - add capability discovery, assignment, progress, stop, retry, redirect, and completion contracts;
 - verify worker claims against repository and test evidence;
 - handle concurrent and conflicting work safely.

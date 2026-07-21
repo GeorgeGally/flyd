@@ -1,23 +1,22 @@
 import { mkdir, rename, writeFile } from "fs/promises";
 import { join } from "path";
 import { execFile } from "child_process";
+import { fileURLToPath } from "url";
 import { promisify } from "util";
 import { FLYD_DIR, zodiacSign } from "../lib/config.js";
 import { currentPlanAssignments, planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
-import { codexAdapter } from "../runtime/codex-adapter.js";
 import { createRuntimePool } from "../runtime/database.js";
+import { createFlydWorkerAdapter } from "../runtime/flyd-worker-adapter.js";
+import { loadFlydWorkerConfigs } from "../runtime/flyd-worker-config.js";
+import { createFlydTextGenerator } from "../runtime/flyd-worker-process.js";
 import { runContinuityHarness } from "../runtime/harness.js";
-import {
-  buildOpenCodePermissionConfig,
-  createOpenCodeAdapter,
-  detectOpenCode,
-  runOpenCode,
-} from "../runtime/opencode-adapter.js";
 import { orchestrateAssignments } from "../runtime/orchestrator.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
-import { recoverInterruptedWorkers, workerProcessIsAlive } from "../runtime/recovery.js";
+import { resolveRequestedRepositoryRoots } from "../runtime/repository-roots.js";
+import { recoverInterruptedWorkers, terminateWorkerProcessGroup, workerProcessIsAlive } from "../runtime/recovery.js";
 import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
+import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
 import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { runAgentSession, type AgentSituation } from "../runtime/agent-session.js";
@@ -36,9 +35,8 @@ import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
 
-export { detectOpenCode };
-
 const execFileAsync = promisify(execFile);
+const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 export async function retrieveRuntimeMemory(query: string): Promise<MemoryEvidence> {
   return retrieveFastBrainEvidence(query);
@@ -148,14 +146,13 @@ export async function runAgent(): Promise<void> {
   let result;
   try {
     result = await runAgentSession({
+      sessionId: conversation.id,
       terminal: new NodeTerminal(),
       retrieveMemory: (query) => retrieveAgentMemory(query, {
         excludeConversationSessionId: conversation.id,
         pool,
       }),
-      recoverActionRequest: () => retrieveRecentActionableOutcome({
-        excludeSessionId: conversation.id,
-      }),
+      recoverActionRequest: () => retrieveRecentActionableOutcome(),
       recordTurn: conversation.recordTurn,
       respond: respondToConversation,
       loadSituation: () => loadAgentSituation({ pool }),
@@ -173,10 +170,19 @@ export async function runCode(outcome?: string): Promise<void> {
     throw new Error("The Flyd coding harness requires an interactive terminal");
   }
 
+  const workerConfigs = loadFlydWorkerConfigs({ projectRoot: FLYD_APPLICATION_ROOT });
+  const [ workerConfig, ...fallbackWorkerConfigs ] = workerConfigs;
+  const generatePlan = createFlydTextGenerator(workerConfigs);
   const pool = createRuntimePool();
   const terminal = new NodeTerminal();
   const store = new PostgresTaskStore(pool);
   const manager = new GitWorktreeManager();
+  const sessionRoot = join(FLYD_DIR, "runtime", "worker-sessions");
+  const baseWorkerAdapter = createFlydWorkerAdapter({
+    config: workerConfig,
+    fallbackConfigs: fallbackWorkerConfigs,
+    sessionRoot,
+  });
   const runtimeCommands = new RuntimeCommandService({
     store,
     inspectRepository,
@@ -193,10 +199,19 @@ export async function runCode(outcome?: string): Promise<void> {
         terminal,
         inspectRepository,
         retrieveMemory: retrieveRuntimeMemory,
-        detectOpenCode,
+        resolveRepositoryRoots: (requestedOutcome, primaryRoot) =>
+          resolveRequestedRepositoryRoots(requestedOutcome, primaryRoot, inspectRepository),
+        resolveVerificationCommands: verificationCommandsForRepository,
+        detectWorker: async () => {
+          const health = await baseWorkerAdapter.detect();
+          return { executable: health.executable, version: health.version };
+        },
+        workerAdapterName: "flyd",
+        buildWorkerArgs: (command) => baseWorkerAdapter.buildArgs(command),
         recoverWorkers: async (projectRoot) => recoverInterruptedWorkers({
           workers: await store.liveWorkers(projectRoot),
           isProcessAlive: (_processId, worker) => workerProcessIsAlive(worker),
+          terminateProcessGroup: (worker) => terminateWorkerProcessGroup(worker),
           transition: (workerKey, update) => store.transitionWorker(workerKey, update),
         }),
         recoverSessions: (projectRoot) => store.recoverTaskSessions(projectRoot),
@@ -204,9 +219,9 @@ export async function runCode(outcome?: string): Promise<void> {
         now: () => new Date(),
         runtimeCommands,
         orchestrationGrantScope: {
-          workerAdapters: [ "codex", "opencode" ],
+          workerAdapters: [ "flyd" ],
           worktreeRoot: manager.managedRoot,
-          providerIdentity: "codex-local,opencode-configured-provider",
+          providerIdentity: workerConfigs.map((config) => config.providerIdentity).join(" -> "),
         },
         orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
           let assignments = currentPlanAssignments(task, await store.listAssignments(task.id), repository.head);
@@ -216,6 +231,7 @@ export async function runCode(outcome?: string): Promise<void> {
               nextAction: assignment,
               repository,
               memory,
+              generate: generatePlan,
             });
             const current = await store.findTask(task.taskKey);
             if (!current) throw new Error(`Task ${task.taskKey} disappeared before planning`);
@@ -227,11 +243,14 @@ export async function runCode(outcome?: string): Promise<void> {
             assignments = persisted.assignments;
           }
           const adapters = [
-            codexAdapter,
-            createOpenCodeAdapter(buildOpenCodePermissionConfig({
+            createFlydWorkerAdapter({
+              config: workerConfig,
+              fallbackConfigs: fallbackWorkerConfigs,
+              sessionRoot,
               fileOperations: grant.fileOperations,
               commandClasses: grant.commandClasses,
-            })),
+              repositoryRoots: grant.repositoryRoots.filter((root) => root !== repository.root),
+            }),
           ];
           return orchestrateAssignments({
             task,
@@ -243,8 +262,8 @@ export async function runCode(outcome?: string): Promise<void> {
             deps: { store, manager },
           });
         },
-        runWorker: ({ executable, args, cwd, timeoutMs, permissionConfig, onStart, onEvent }) =>
-          runOpenCode({ executable, args, cwd, timeoutMs, permissionConfig, onStart, onEvent }),
+        runWorker: ({ executable, args, cwd, timeoutMs, onStart, onEvent }) =>
+          baseWorkerAdapter.run({ executable, args, cwd, timeoutMs, onStart, onEvent }),
       },
     });
     process.stdout.write(`\nTask ${result.taskKey}: ${result.status}\n`);

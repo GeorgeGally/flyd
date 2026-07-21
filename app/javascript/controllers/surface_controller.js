@@ -95,7 +95,10 @@ export default class extends Controller {
 
   hideFailedImages() {
     this.element.querySelectorAll(".discovery-poster__image").forEach((image) => {
-      if (image.complete && image.naturalWidth === 0) this.hideBrokenImage({ currentTarget: image })
+      if (!image.complete) return
+      if (image.naturalWidth === 0 || image.naturalWidth < 5 || image.naturalHeight < 5) {
+        this.hideBrokenImage({ currentTarget: image })
+      }
     })
   }
 

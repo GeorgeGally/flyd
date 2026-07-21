@@ -32,6 +32,28 @@ class ReleaseAcceptance::EvidenceTest < ActiveSupport::TestCase
       started_at:,
       ended_at:
     )
+    task.task_recommendations.create!(
+      task_session: real_session,
+      release_key: marker.release_key,
+      task_revision: task.revision,
+      action: "Review the verified implementation",
+      action_digest: Digest::SHA256.hexdigest("Review the verified implementation"),
+      disposition: "adapted",
+      acted_at: ended_at
+    )
+    undelivered_surface = Surface.create!(status: "draft", generated_at: Time.current)
+    undelivered_item = undelivered_surface.surface_items.create!(
+      item_key: "runtime:undelivered", kind: "status", intent: "review",
+      renderer: "task_review", depth: "foreground", state: "presented",
+      title: "Undelivered recommendation", position: 0
+    )
+    task.task_recommendations.create!(
+      surface_item: undelivered_item,
+      release_key: marker.release_key,
+      task_revision: task.revision,
+      action: "This was composed but never reached a browser",
+      action_digest: Digest::SHA256.hexdigest("undelivered recommendation")
+    )
     worker = task.worker_sessions.create!(
       task_assignment: assignment,
       task_grant: grant,
@@ -64,11 +86,23 @@ class ReleaseAcceptance::EvidenceTest < ActiveSupport::TestCase
       broadcast_delivered_at: started_at + 46.minutes
     )
     AgentTask.where(id: task.id).update_all(revision: task.revision + 1)
+    task.reload
+    delivered_surface = Surface.create!(status: "draft", generated_at: Time.current)
+    delivered_item = delivered_surface.surface_items.create!(
+      item_key: "runtime:#{task.task_key}", kind: "status", intent: "review",
+      renderer: "task_review", depth: "foreground", state: "presented",
+      title: "Visible runtime state", position: 0,
+      source_refs: [ { "type" => "runtime_task", "id" => task.task_key } ],
+      actions: [], metadata: { "task_revision" => event.task_revision }
+    )
+    Surface.activate!(delivered_surface)
     event.runtime_delivery_receipts.create!(
       client_id: "acceptance-browser",
-      surface_id: 1,
+      surface_id: delivered_surface.id,
       acknowledged_at: event.occurred_at + 0.5.seconds,
-      delivery_latency_ms: 500
+      delivery_latency_ms: 500,
+      task_revision: event.task_revision,
+      binding_digest: RuntimeTasks::BindingDigest.call(task: task, item: delivered_item)
     )
     ReleaseAcceptanceObservation.create!(
       kind: "memory_safety",

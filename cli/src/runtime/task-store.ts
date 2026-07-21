@@ -115,7 +115,10 @@ function mapWorker(row: QueryResultRow): WorkerSession {
     taskAssignmentId: String(row.task_assignment_id), status: row.status, adapter: row.adapter,
     capabilities: row.capabilities ?? [], executablePath: row.executable_path, executableVersion: row.executable_version,
     workingDirectory: row.working_directory, externalSessionId: row.external_session_id,
-    processId: row.process_id == null ? null : Number(row.process_id), processIdentity: row.process_identity,
+    resumesWorkerSessionId: row.resumes_worker_session_id == null ? null : String(row.resumes_worker_session_id),
+    processId: row.process_id == null ? null : Number(row.process_id),
+    processGroupId: row.process_group_id == null ? null : Number(row.process_group_id),
+    processIdentity: row.process_identity,
     errorSummary: row.error_summary, output: row.output,
     exitStatus: row.exit_status == null ? null : Number(row.exit_status), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
     lastObservedAt: iso(row.last_observed_at ?? row.last_heartbeat_at), stopReason: row.stop_reason,
@@ -237,6 +240,9 @@ export class PostgresTaskStore {
           AND EXISTS (SELECT 1 FROM worker_sessions w WHERE w.agent_task_id = t.id)`, values),
       this.pool.query(`SELECT COUNT(*)::int AS routed_assignments,
         COUNT(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM worker_sessions w WHERE w.task_assignment_id = a.id AND w.adapter = 'flyd'
+        ))::int AS flyd_assignments,
+        COUNT(*) FILTER (WHERE EXISTS (
           SELECT 1 FROM worker_sessions w WHERE w.task_assignment_id = a.id AND w.adapter = 'codex'
         ))::int AS codex_assignments,
         COUNT(*) FILTER (WHERE EXISTS (
@@ -282,6 +288,7 @@ export class PostgresTaskStore {
       manualContextRestatements: Number(sessions.rows[0].manual_context_restatements),
       toolEscapes: Number(sessions.rows[0].tool_escapes),
       routedAssignments: Number(assignments.rows[0].routed_assignments),
+      flydAssignments: Number(assignments.rows[0].flyd_assignments),
       codexAssignments: Number(assignments.rows[0].codex_assignments),
       openCodeAssignments: Number(assignments.rows[0].opencode_assignments),
       acceptedInterventions: Number(controls.rows[0].accepted_interventions),
@@ -329,18 +336,37 @@ export class PostgresTaskStore {
           COUNT(*) FILTER (WHERE interpretation_status = 'accepted')::int AS accepted_interpretations,
           COUNT(*) FILTER (WHERE interpretation_status = 'focused_corrected')::int AS corrected_interpretations,
           COUNT(*) FILTER (WHERE interpretation_status = 'replaced')::int AS replaced_interpretations,
-          COUNT(*) FILTER (
-            WHERE resumed AND interpretation_status IN ('accepted', 'focused_corrected', 'replaced')
-          )::int AS recommended_actions,
-          COUNT(*) FILTER (
-            WHERE resumed AND interpretation_status IN ('accepted', 'focused_corrected')
-          )::int AS accepted_or_adapted_actions,
+          (SELECT COUNT(*)::int FROM task_recommendations recommendations
+            CROSS JOIN marker
+            WHERE recommendations.release_key = 'release_1c'
+              AND recommendations.created_at >= marker.available_at
+              AND (recommendations.task_session_id IN (SELECT id FROM real_sessions) OR EXISTS (
+                SELECT 1
+                FROM surface_items recommendation_items
+                JOIN runtime_delivery_receipts recommendation_receipts
+                  ON recommendation_receipts.surface_id = recommendation_items.surface_id
+                 AND recommendation_receipts.task_revision = recommendations.task_revision
+                WHERE recommendation_items.id = recommendations.surface_item_id
+              ))) AS recommended_actions,
+          (SELECT COUNT(*)::int FROM task_recommendations recommendations
+            CROSS JOIN marker
+            WHERE recommendations.release_key = 'release_1c'
+              AND recommendations.created_at >= marker.available_at
+              AND (recommendations.task_session_id IN (SELECT id FROM real_sessions) OR EXISTS (
+                SELECT 1
+                FROM surface_items recommendation_items
+                JOIN runtime_delivery_receipts recommendation_receipts
+                  ON recommendation_receipts.surface_id = recommendation_items.surface_id
+                 AND recommendation_receipts.task_revision = recommendations.task_revision
+                WHERE recommendation_items.id = recommendations.surface_item_id
+              ))
+              AND recommendations.disposition IN ('accepted', 'adapted')) AS accepted_or_adapted_actions,
           COALESCE(array_agg(DISTINCT to_char(
             timezone($1, started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD'
           )) FILTER (WHERE started_at IS NOT NULL), ARRAY[]::text[]) AS real_session_dates
         FROM real_sessions`, [timeZone]),
       this.pool.query(`WITH marker AS (
-          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+          SELECT available_at, metadata->>'commit' AS commit FROM release_markers WHERE release_key = 'release_1c'
         )
         SELECT COUNT(DISTINCT date_trunc(
           'week', timezone($1, commands.created_at AT TIME ZONE 'UTC')
@@ -358,7 +384,7 @@ export class PostgresTaskStore {
           AND commands.payload ? 'evidence_digest'
           AND assignments.status = 'integrated'`, [timeZone]),
       this.pool.query(`WITH marker AS (
-          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+          SELECT available_at, metadata->>'commit' AS commit FROM release_markers WHERE release_key = 'release_1c'
         )
         SELECT COUNT(*)::int AS completed,
           COUNT(*) FILTER (
@@ -378,6 +404,8 @@ export class PostgresTaskStore {
             ON events.agent_task_id = real_sessions.agent_task_id
             AND events.occurred_at BETWEEN real_sessions.started_at AND real_sessions.ended_at
           JOIN runtime_delivery_receipts receipts ON receipts.runtime_event_id = events.id
+            AND receipts.task_revision = events.task_revision
+            AND NULLIF(receipts.binding_digest, '') IS NOT NULL
           GROUP BY real_sessions.id, events.id
         )
         SELECT COUNT(DISTINCT session_id)::int AS parity_count,
@@ -387,22 +415,24 @@ export class PostgresTaskStore {
           ) AS latencies
         FROM visible_events`),
       this.pool.query(`WITH marker AS (
-          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+          SELECT available_at, metadata->>'commit' AS commit FROM release_markers WHERE release_key = 'release_1c'
         )
         SELECT observations.kind, observations.passed
         FROM release_acceptance_observations observations
         CROSS JOIN marker
         WHERE observations.kind IN ('memory_safety', 'recommendation_rationale')
           AND observations.observed_at >= marker.available_at
+          AND (marker.commit IS NULL OR observations.evidence->>'commit' = marker.commit)
         ORDER BY observations.observed_at, observations.id`),
       this.pool.query(`WITH marker AS (
-          SELECT available_at FROM release_markers WHERE release_key = 'release_1c'
+          SELECT available_at, metadata->>'commit' AS commit FROM release_markers WHERE release_key = 'release_1c'
         )
         SELECT observations.passed, observations.evidence
         FROM release_acceptance_observations observations
         CROSS JOIN marker
         WHERE observations.kind = 'automated_acceptance'
           AND observations.observed_at >= marker.available_at
+          AND (marker.commit IS NULL OR observations.evidence->>'commit' = marker.commit)
         ORDER BY observations.observed_at, observations.id`),
     ]);
     const session = sessions.rows[0];
@@ -537,11 +567,28 @@ export class PostgresTaskStore {
         "UPDATE task_grants SET status = 'revoked', ended_at = NOW(), updated_at = NOW() WHERE id = $1",
         [grant.rows[0].id],
       );
+      const workers = await client.query(`SELECT id, worker_key FROM worker_sessions
+        WHERE task_grant_id = $1 AND status IN ('queued','starting','running','stopping')
+        FOR UPDATE`, [grant.rows[0].id]);
+      for (const worker of workers.rows) {
+        await client.query(`INSERT INTO worker_commands
+          (agent_task_id, worker_session_id, command_key, kind, status, idempotency_key, payload, created_at, updated_at)
+          VALUES ($1, $2, $3, 'stop', 'queued', $4, $5::jsonb, NOW(), NOW())
+          ON CONFLICT (idempotency_key) DO NOTHING`, [
+          row.id,
+          worker.id,
+          randomUUID(),
+          `${input.idempotencyKey}:stop:${worker.worker_key}`,
+          JSON.stringify({ trigger: "grant_revoked", reason: input.reason }),
+        ]);
+      }
+      await client.query(`UPDATE worker_sessions SET status = 'stopping', stop_reason = 'grant_revoked', updated_at = NOW()
+        WHERE task_grant_id = $1 AND status IN ('queued','starting','running')`, [grant.rows[0].id]);
       await client.query(
         "UPDATE agent_tasks SET status = 'awaiting_grant', recommended_next_action = $1, revision = $2, updated_at = NOW() WHERE id = $3",
         [input.reason, revision, row.id],
       );
-      return { grant_key: grantKey, reason: input.reason };
+      return { grant_key: grantKey, reason: input.reason, stopped_worker_keys: workers.rows.map((worker) => worker.worker_key) };
     });
   }
 
@@ -1090,6 +1137,7 @@ export class PostgresTaskStore {
     executablePath: string;
     executableVersion: string;
     workingDirectory: string;
+    resumesWorkerSessionId?: string | null;
     idempotencyKey: string;
   }): Promise<WorkerSession> {
     return withTransaction(this.pool, async (client) => {
@@ -1148,12 +1196,18 @@ export class PostgresTaskStore {
         throw new Error("Task grant worker-run budget is exhausted");
       }
       const revision = Number(task.revision) + 1;
+      if (input.resumesWorkerSessionId) {
+        const source = await client.query(`SELECT 1 FROM worker_sessions
+          WHERE id = $1 AND task_assignment_id = $2 AND adapter = $3
+            AND external_session_id IS NOT NULL`, [input.resumesWorkerSessionId, assignment.id, input.adapter]);
+        if (!source.rows[0]) throw new Error("Worker resume source must belong to the assignment and have a provider session");
+      }
       const result = await client.query(`INSERT INTO worker_sessions
         (agent_task_id, task_grant_id, task_assignment_id, worker_key, status, adapter, capabilities,
-         executable_path, executable_version, working_directory, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, 'queued', $5, $6::jsonb, $7, $8, $9, NOW(), NOW()) RETURNING *`,
+         executable_path, executable_version, working_directory, resumes_worker_session_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'queued', $5, $6::jsonb, $7, $8, $9, $10, NOW(), NOW()) RETURNING *`,
       [task.id, grant.id, assignment.id, randomUUID(), input.adapter, JSON.stringify(capabilities),
-        input.executablePath, input.executableVersion, input.workingDirectory]);
+        input.executablePath, input.executableVersion, input.workingDirectory, input.resumesWorkerSessionId ?? null]);
       await client.query(
         "UPDATE task_assignments SET status = 'running', started_at = COALESCE(started_at, NOW()), updated_at = NOW() WHERE id = $1",
         [assignment.id],
@@ -1176,6 +1230,7 @@ export class PostgresTaskStore {
   async transitionWorker(workerKey: string, update: {
     status: "running" | "completed" | "failed" | "interrupted";
     processId?: number | null;
+    processGroupId?: number | null;
     processIdentity?: string | null;
     externalSessionId?: string;
     exitStatus?: number;
@@ -1211,12 +1266,13 @@ export class PostgresTaskStore {
       }
       const revision = Number(current.revision) + 1;
       const result = await client.query(`UPDATE worker_sessions SET status = $2::varchar, process_id = COALESCE($3::bigint, process_id),
-        process_identity = COALESCE($4, process_identity), external_session_id = COALESCE($5, external_session_id),
-        exit_status = COALESCE($6, exit_status), output = COALESCE($7, output),
-        error_summary = COALESCE($8, error_summary), started_at = CASE WHEN $2::varchar = 'running' THEN COALESCE(started_at, NOW()) ELSE started_at END,
+        process_group_id = COALESCE($4::bigint, process_group_id),
+        process_identity = COALESCE($5, process_identity), external_session_id = COALESCE($6, external_session_id),
+        exit_status = COALESCE($7, exit_status), output = COALESCE($8, output),
+        error_summary = COALESCE($9, error_summary), started_at = CASE WHEN $2::varchar = 'running' THEN COALESCE(started_at, NOW()) ELSE started_at END,
         ended_at = CASE WHEN $2::varchar IN ('completed','failed','interrupted') THEN NOW() ELSE ended_at END,
-        last_heartbeat_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
-      [current.id, update.status, update.processId ?? null, update.processIdentity ?? null, update.externalSessionId ?? null,
+        last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [current.id, update.status, update.processId ?? null, update.processGroupId ?? null, update.processIdentity ?? null, update.externalSessionId ?? null,
         update.exitStatus ?? null, update.output ?? null, update.error ?? null]);
       const liveWorkers = await client.query(
         "SELECT 1 FROM worker_sessions WHERE agent_task_id = $1 AND status IN ('queued','starting','running','stopping') LIMIT 1",
@@ -1237,6 +1293,67 @@ export class PostgresTaskStore {
       }, current.task_grant_id, current.id);
       return mapWorker(result.rows[0]);
     });
+  }
+
+  async claimWorkerStart(
+    workerKey: string,
+    maxRuntimeMinutes: number,
+    idempotencyKey: string,
+  ): Promise<{ worker: WorkerSession; deadlineAt: string }> {
+    return withTransaction(this.pool, async (client) => {
+      await this.lockIdempotency(client, idempotencyKey);
+      const existing = await client.query(`SELECT workers.*, events.payload->>'deadline_at' AS claimed_deadline
+        FROM runtime_events events
+        JOIN worker_sessions workers ON workers.id = events.worker_session_id
+        WHERE events.idempotency_key = $1 LIMIT 1`, [idempotencyKey]);
+      if (existing.rows[0]) {
+        return { worker: mapWorker(existing.rows[0]), deadlineAt: existing.rows[0].claimed_deadline };
+      }
+      const result = await client.query(`SELECT workers.*, tasks.revision, grants.status AS grant_status,
+          grants.expires_at, NOW() AS database_now
+        FROM worker_sessions workers
+        JOIN agent_tasks tasks ON tasks.id = workers.agent_task_id
+        JOIN task_grants grants ON grants.id = workers.task_grant_id
+        WHERE workers.worker_key = $1
+        FOR UPDATE OF workers, tasks, grants`, [workerKey]);
+      const row = result.rows[0];
+      if (!row) throw new Error(`Unknown worker ${workerKey}`);
+      if (row.status !== "queued") throw new Error(`Worker start claim requires queued status, got ${row.status}`);
+      const databaseNow = new Date(row.database_now);
+      const expiresAt = new Date(row.expires_at);
+      if (row.grant_status !== "approved" || expiresAt.getTime() <= databaseNow.getTime()) {
+        throw new Error("Task grant expired or was revoked before worker start");
+      }
+      const deadline = new Date(Math.min(
+        expiresAt.getTime(),
+        databaseNow.getTime() + maxRuntimeMinutes * 60_000,
+      ));
+      const workerResult = await client.query(`UPDATE worker_sessions
+        SET status = 'starting', last_heartbeat_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [row.id]);
+      const revision = Number(row.revision) + 1;
+      await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, row.agent_task_id]);
+      await this.insertEvent(client, row.agent_task_id, revision, "worker.starting", idempotencyKey, {
+        worker_key: workerKey,
+        deadline_at: deadline.toISOString(),
+      }, row.task_grant_id, row.id);
+      return { worker: mapWorker(workerResult.rows[0]), deadlineAt: deadline.toISOString() };
+    });
+  }
+
+  async findResumeSource(assignmentKey: string): Promise<WorkerSession | null> {
+    const result = await this.pool.query(`SELECT workers.*, commands.kind AS resume_command_kind
+      FROM worker_commands commands
+      JOIN worker_sessions workers ON workers.id = commands.worker_session_id
+      JOIN task_assignments assignments ON assignments.id = workers.task_assignment_id
+      WHERE assignments.assignment_key = $1
+        AND commands.kind IN ('retry', 'redirect', 'replace')
+        AND commands.status = 'completed'
+      ORDER BY commands.completed_at DESC NULLS LAST, commands.id DESC
+      LIMIT 1`, [assignmentKey]);
+    const row = result.rows[0];
+    if (!row || row.resume_command_kind === "replace" || !row.external_session_id) return null;
+    return mapWorker(row);
   }
 
   async observeWorker(workerKey: string): Promise<void> {
@@ -1263,6 +1380,28 @@ export class PostgresTaskStore {
     });
   }
 
+  async workerAuthority(workerKey: string): Promise<boolean> {
+    return withTransaction(this.pool, async (client) => {
+      const result = await client.query(`SELECT grants.id, grants.status, grants.expires_at
+        FROM worker_sessions workers
+        JOIN task_grants grants ON grants.id = workers.task_grant_id
+        WHERE workers.worker_key = $1
+        FOR UPDATE OF grants`, [workerKey]);
+      const grant = result.rows[0];
+      if (!grant) return false;
+      if (grant.status !== "approved") return false;
+      const current = await client.query("SELECT NOW() AS database_now");
+      if (new Date(grant.expires_at).getTime() > new Date(current.rows[0].database_now).getTime()) {
+        await client.query(`UPDATE worker_sessions SET last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
+          WHERE worker_key = $1 AND status IN ('starting','running','stopping')`, [workerKey]);
+        return true;
+      }
+      await client.query(`UPDATE task_grants SET status = 'expired', ended_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'approved'`, [grant.id]);
+      return false;
+    });
+  }
+
   async queueWorkerCommand(
     workerKey: string,
     kind: WorkerCommandKind,
@@ -1281,8 +1420,9 @@ export class PostgresTaskStore {
         return { command: mapWorkerCommand(existing.rows[0]), worker: mapWorker(worker.rows[0]) };
       }
       const result = await client.query(`SELECT w.*, t.revision AS task_revision, g.status AS grant_status,
-          g.expires_at AS grant_expires_at, a.instructions AS assignment_instructions,
-          a.excluded_adapters AS assignment_excluded_adapters, a.revision AS current_assignment_revision
+          g.expires_at AS grant_expires_at, g.worker_adapters AS grant_worker_adapters, a.instructions AS assignment_instructions,
+          a.excluded_adapters AS assignment_excluded_adapters, a.revision AS current_assignment_revision,
+          NOW() AS database_now
         FROM worker_sessions w
         JOIN agent_tasks t ON t.id = w.agent_task_id
         JOIN task_grants g ON g.id = w.task_grant_id
@@ -1301,15 +1441,27 @@ export class PostgresTaskStore {
           worker: mapWorker(worker),
         };
       }
+      if (kind === "stop") {
+        const pendingStop = await client.query(`SELECT * FROM worker_commands
+          WHERE worker_session_id = $1 AND kind = 'stop' AND status IN ('queued','dispatched')
+          ORDER BY created_at DESC LIMIT 1`, [worker.id]);
+        if (pendingStop.rows[0]) {
+          return { command: mapWorkerCommand(pendingStop.rows[0]), worker: mapWorker(worker) };
+        }
+      }
       if (expectedTaskRevision != null && Number(worker.task_revision) !== expectedTaskRevision) {
         throw new RevisionConflictError(
           `Task revision ${worker.task_revision} does not match expected revision ${expectedTaskRevision}`,
         );
       }
-      if (worker.grant_status !== "approved" || new Date(worker.grant_expires_at).getTime() <= Date.now()) {
+      if (kind !== "stop" && (worker.grant_status !== "approved" ||
+          new Date(worker.grant_expires_at).getTime() <= new Date(worker.database_now).getTime())) {
         throw new Error("Worker control requires an approved unexpired task grant");
       }
       const live = [ "queued", "starting", "running", "stopping" ].includes(worker.status);
+      if ([ "retry", "redirect" ].includes(kind) && !worker.external_session_id) {
+        throw new Error(`${kind} requires a captured provider session`);
+      }
       if ([ "stop", "redirect" ].includes(kind) && !live) {
         throw new Error(`${kind} requires a live worker`);
       }
@@ -1325,7 +1477,11 @@ export class PostgresTaskStore {
       ]);
       const assignmentRevision = Number(worker.current_assignment_revision) + 1;
       const excluded = Array.isArray(worker.assignment_excluded_adapters) ? worker.assignment_excluded_adapters : [];
-      const updatedExcluded = kind === "replace" ? [...new Set([...excluded, worker.adapter])] : excluded;
+      const grantAdapters = Array.isArray(worker.grant_worker_adapters) ? worker.grant_worker_adapters : [];
+      const replacementHasAlternative = grantAdapters.some((adapter: string) => adapter !== worker.adapter && !excluded.includes(adapter));
+      const updatedExcluded = kind === "replace" && replacementHasAlternative
+        ? [...new Set([...excluded, worker.adapter])]
+        : excluded;
       await client.query(`UPDATE task_assignments SET status = $2, instructions = $3,
         excluded_adapters = $4::jsonb, revision = $5, updated_at = NOW() WHERE id = $1`, [
         worker.task_assignment_id,
@@ -1560,9 +1716,9 @@ export class PostgresTaskStore {
       const qualifiesAsResume = resumed && previous.rows[0]?.old_enough === true;
       const sessionKey = randomUUID();
       const revision = Number(task.rows[0].revision) + 1;
-      await client.query(`INSERT INTO task_sessions
+      const session = await client.query(`INSERT INTO task_sessions
         (agent_task_id, session_key, status, resumed, startup_snapshot, started_at, created_at, updated_at)
-        VALUES ($1, $2, 'active', $3, $4::jsonb, NOW(), NOW(), NOW())`,
+        VALUES ($1, $2, 'active', $3, $4::jsonb, NOW(), NOW(), NOW()) RETURNING id`,
       [taskId, sessionKey, qualifiesAsResume, JSON.stringify(startupSnapshot)]);
       await client.query("UPDATE agent_tasks SET revision = $1, updated_at = NOW() WHERE id = $2", [revision, taskId]);
       await this.insertEvent(client, taskId, revision, "task_session.started", `task-session-start:${sessionKey}`, {
@@ -1571,6 +1727,47 @@ export class PostgresTaskStore {
       });
       return sessionKey;
     });
+  }
+
+  async offerTaskRecommendation(sessionKey: string, input: {
+    taskKey: string;
+    taskRevision: number;
+    action: string;
+  }): Promise<void> {
+    const action = boundedText(input.action, "Recommended action", 4_000);
+    const digest = createHash("sha256").update(action).digest("hex");
+    await withTransaction(this.pool, async (client) => {
+      const result = await client.query(`SELECT sessions.id, sessions.agent_task_id, sessions.resumed,
+          sessions.status, tasks.task_key, tasks.revision
+        FROM task_sessions sessions
+        JOIN agent_tasks tasks ON tasks.id = sessions.agent_task_id
+        WHERE sessions.session_key = $1 FOR UPDATE OF sessions, tasks`, [sessionKey]);
+      const row = result.rows[0];
+      if (!row || row.status !== "active") throw new Error("Task recommendation requires an active task session");
+      if (row.task_key !== input.taskKey || Number(row.revision) !== input.taskRevision) {
+        throw new Error("Task recommendation does not match the displayed task revision");
+      }
+      await client.query(`INSERT INTO task_recommendations
+        (agent_task_id, task_session_id, release_key, task_revision, action, action_digest,
+         disposition, metadata, created_at, updated_at)
+        VALUES ($1, $2, 'release_1c', $3, $4, $5, 'offered', $6::jsonb, NOW(), NOW())
+        ON CONFLICT (task_session_id, action_digest) DO NOTHING`, [
+        row.agent_task_id, row.id, input.taskRevision, action, digest,
+        JSON.stringify({ resumed: row.resumed }),
+      ]);
+    });
+  }
+
+  async actOnTaskRecommendation(
+    sessionKey: string,
+    disposition: "accepted" | "adapted" | "rejected",
+  ): Promise<void> {
+    await this.pool.query(`UPDATE task_recommendations recommendations
+      SET disposition = $2::text, acted_at = NOW(), updated_at = NOW()
+      FROM task_sessions sessions
+      WHERE sessions.session_key = $1
+        AND recommendations.task_session_id = sessions.id
+        AND recommendations.disposition = 'offered'`, [sessionKey, disposition]);
   }
 
   async finishTaskSession(sessionKey: string, input: {

@@ -1,6 +1,6 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { execFile as nodeExecFile } from "child_process";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, open, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
@@ -98,6 +98,9 @@ export async function integrateVerifiedResults(input: {
   if (!unchanged(input.baseSnapshot, currentSource)) {
     return { status: "blocked", reason: "Source repository changed after assignments started", changedFiles: [], patchDigest: null };
   }
+  if (currentSource.branch !== "main") {
+    return { status: "blocked", reason: "Implementation results can only integrate into main", changedFiles: [], patchDigest: null };
+  }
 
   const integrationWorktree = await input.manager.prepare({
     repositoryRoot: input.repositoryRoot,
@@ -121,23 +124,90 @@ export async function integrateVerifiedResults(input: {
         verification,
       };
     }
-    if (!unchanged(input.baseSnapshot, await inspectRepository(input.repositoryRoot))) {
+    await execFileAsync("git", [ "-C", integrationWorktree.path, "add", "--all" ], { encoding: "utf8", timeout: 30_000 });
+    await execFileAsync("git", [
+      "-C", integrationWorktree.path,
+      "-c", "user.name=Flyd Runtime",
+      "-c", "user.email=runtime@flyd.local",
+      "commit", "-m", `flyd: integrate ${input.taskKey}`,
+    ], { encoding: "utf8", timeout: 30_000 });
+    const { stdout: integrationHeadOutput } = await execFileAsync(
+      "git", [ "-C", integrationWorktree.path, "rev-parse", "HEAD" ], { encoding: "utf8", timeout: 10_000 },
+    );
+    const integrationHead = integrationHeadOutput.trim();
+    const { stdout: gitDirectoryOutput } = await execFileAsync(
+      "git", [ "-C", input.repositoryRoot, "rev-parse", "--absolute-git-dir" ], { encoding: "utf8", timeout: 10_000 },
+    );
+    const lockPath = join(gitDirectoryOutput.trim(), "flyd-integration.lock");
+    let lock;
+    try {
+      lock = await open(lockPath, "wx", 0o600);
+    } catch {
       return {
         status: "blocked",
-        reason: "Source repository changed after assignments started",
+        reason: "Another Flyd integration is already in progress",
         changedFiles: verification.changedFiles,
         patchDigest: verification.patchDigest,
         verification,
       };
     }
-    await applyPatch(input.repositoryRoot, verification.patch, true);
-    await applyPatch(input.repositoryRoot, verification.patch);
+    try {
+      if (!unchanged(input.baseSnapshot, await inspectRepository(input.repositoryRoot))) {
+        return {
+          status: "blocked",
+          reason: "Source repository changed after assignments started",
+          changedFiles: verification.changedFiles,
+          patchDigest: verification.patchDigest,
+          verification,
+        };
+      }
+      await execFileAsync("git", [
+        "-C", input.repositoryRoot, "fetch", "--no-tags", integrationWorktree.path, integrationHead,
+      ], { encoding: "utf8", timeout: 30_000 });
+      if (!unchanged(input.baseSnapshot, await inspectRepository(input.repositoryRoot))) {
+        return {
+          status: "blocked",
+          reason: "Source repository changed during integration",
+          changedFiles: verification.changedFiles,
+          patchDigest: verification.patchDigest,
+          verification,
+        };
+      }
+      await execFileAsync("git", [
+        "-C", input.repositoryRoot, "merge", "--ff-only", "--no-edit", "FETCH_HEAD",
+      ], { encoding: "utf8", timeout: 30_000 });
+    } finally {
+      await lock.close();
+      await unlink(lockPath).catch(() => undefined);
+    }
+    const finalSnapshot = await inspectRepository(input.repositoryRoot);
+    const [{ stdout: parentOutput }, { stdout: finalNames }, { stdout: finalPatch }] = await Promise.all([
+      execFileAsync("git", [ "-C", input.repositoryRoot, "rev-parse", "HEAD^" ], { encoding: "utf8", timeout: 10_000 }),
+      execFileAsync("git", [ "-C", input.repositoryRoot, "diff", "--name-only", input.baseSnapshot.head, "HEAD", "--" ], { encoding: "utf8", timeout: 10_000 }),
+      execFileAsync("git", [ "-C", input.repositoryRoot, "diff", "--binary", "--full-index", input.baseSnapshot.head, "HEAD", "--" ], {
+        encoding: "utf8", timeout: 30_000, maxBuffer: 50 * 1024 * 1024,
+      }),
+    ]);
+    const finalFiles = finalNames.trim() ? finalNames.trim().split("\n").sort() : [];
+    const finalDigest = createHash("sha256").update(finalPatch).digest("hex");
+    if (finalSnapshot.branch !== "main" || finalSnapshot.head !== integrationHead || finalSnapshot.dirty ||
+      parentOutput.trim() !== input.baseSnapshot.head || JSON.stringify(finalFiles) !== JSON.stringify(verification.changedFiles) ||
+      finalDigest !== verification.patchDigest) {
+      return {
+        status: "blocked",
+        reason: "Source repository did not match the verified integration result after merge",
+        changedFiles: finalFiles,
+        patchDigest: finalDigest,
+        repositorySnapshot: finalSnapshot,
+        verification,
+      };
+    }
     return {
       status: "integrated",
       reason: null,
       changedFiles: verification.changedFiles,
       patchDigest: verification.patchDigest,
-      repositorySnapshot: await inspectRepository(input.repositoryRoot),
+      repositorySnapshot: finalSnapshot,
       verification,
     };
   } finally {

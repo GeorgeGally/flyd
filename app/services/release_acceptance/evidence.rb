@@ -12,11 +12,14 @@ module ReleaseAcceptance
 
       sessions = real_sessions(marker.available_at)
       session_ids = sessions.select(:id)
-      recommendations = sessions.where(resumed: true, interpretation_status: %w[accepted focused_corrected replaced])
       completed = AgentTask.where(status: "completed", completed_at: marker.available_at..)
       observations = ReleaseAcceptanceObservation.where(observed_at: marker.available_at..).order(:observed_at, :id)
+      if marker.metadata["commit"].present?
+        observations = observations.where("evidence->>'commit' = ?", marker.metadata["commit"])
+      end
       delivery_evidence = delivery_evidence(marker.available_at)
       intervention_weeks = accepted_intervention_weeks(marker.available_at)
+      recommendations = visible_recommendations(marker: marker, session_ids: session_ids)
 
       {
         release1c_available_at: marker.available_at.iso8601,
@@ -28,7 +31,7 @@ module ReleaseAcceptance
         corrected_interpretations: sessions.where(interpretation_status: "focused_corrected").count,
         replaced_interpretations: sessions.where(interpretation_status: "replaced").count,
         recommended_actions: recommendations.count,
-        accepted_or_adapted_actions: recommendations.where(interpretation_status: %w[accepted focused_corrected]).count,
+        accepted_or_adapted_actions: recommendations.where(disposition: %w[accepted adapted]).count,
         accepted_intervention_weeks: intervention_weeks.length,
         accepted_intervention_week_dates: intervention_weeks.map(&:to_s),
         completed_tasks: completed.count,
@@ -80,6 +83,25 @@ module ReleaseAcceptance
         .uniq
     end
 
+    def visible_recommendations(marker:, session_ids:)
+      recommendations = TaskRecommendation.where(
+        release_key: marker.release_key,
+        created_at: marker.available_at..
+      )
+      recommendations.where(task_session_id: session_ids).or(
+        recommendations.where(<<~SQL.squish)
+          EXISTS (
+            SELECT 1
+            FROM surface_items recommendation_items
+            JOIN runtime_delivery_receipts recommendation_receipts
+              ON recommendation_receipts.surface_id = recommendation_items.surface_id
+              AND recommendation_receipts.task_revision = task_recommendations.task_revision
+            WHERE recommendation_items.id = task_recommendations.surface_item_id
+          )
+        SQL
+      )
+    end
+
     def delivery_evidence(available_at)
       sql = ActiveRecord::Base.sanitize_sql_array([ <<~SQL.squish, available_at, QUALIFYING_ARTIFACT_KINDS ])
         WITH real_sessions AS (
@@ -106,6 +128,8 @@ module ReleaseAcceptance
           ON events.agent_task_id = real_sessions.agent_task_id
           AND events.occurred_at BETWEEN real_sessions.started_at AND real_sessions.ended_at
         JOIN runtime_delivery_receipts receipts ON receipts.runtime_event_id = events.id
+          AND receipts.task_revision = events.task_revision
+          AND NULLIF(receipts.binding_digest, '') IS NOT NULL
         GROUP BY real_sessions.id, events.id
         ORDER BY events.id
       SQL

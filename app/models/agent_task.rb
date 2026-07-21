@@ -9,6 +9,7 @@ class AgentTask < ApplicationRecord
   has_many :worker_sessions, dependent: :destroy
   has_many :worker_commands, dependent: :destroy
   has_many :task_sessions, dependent: :destroy
+  has_many :task_recommendations, dependent: :destroy
   has_many :runtime_events, dependent: :destroy
   has_many :task_artifacts, dependent: :destroy
   has_many :task_corrections, dependent: :delete_all

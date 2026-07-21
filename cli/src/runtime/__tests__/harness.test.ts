@@ -20,18 +20,18 @@ function task(overrides: Partial<AgentTask> = {}): AgentTask {
 
 const grant: TaskGrant = {
   id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-  repositoryRoots: [repository.root], worktreePaths: [], workerAdapters: ["opencode"],
+  repositoryRoots: [repository.root], worktreePaths: [], workerAdapters: ["flyd"],
   fileOperations: ["read", "write"], commandClasses: ["test", "git_status"],
   verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
-  maxConcurrency: 1, budget: { max_worker_runs: 3 }, providerIdentity: "opencode-configured-provider",
+  maxConcurrency: 1, budget: { max_worker_runs: 3 }, providerIdentity: "flyd-configured-provider",
   approvedAt: "2026-07-17T00:01:00.000Z", expiresAt: "2026-07-17T08:00:00.000Z",
   decisionReason: null, decidedAt: "2026-07-17T00:01:00.000Z",
 };
 
 const worker: WorkerSession = {
   id: "3", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "4",
-  status: "queued", adapter: "opencode", capabilities: ["implementation"],
-  executablePath: "/bin/opencode", executableVersion: "1.17.18", workingDirectory: repository.root,
+  status: "queued", adapter: "flyd", capabilities: ["implementation"],
+  executablePath: "/usr/bin/node", executableVersion: "native-1", workingDirectory: repository.root,
   externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
   startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
 };
@@ -75,6 +75,8 @@ function dependencies(overrides: Record<string, unknown> = {}) {
       _idempotencyKey: string,
     ) => ({ ...grant, status: "revoked" as const })),
     startTaskSession: vi.fn(async () => "session-1"),
+    offerTaskRecommendation: vi.fn(async () => undefined),
+    actOnTaskRecommendation: vi.fn(async () => undefined),
     finishTaskSession: vi.fn(async () => undefined),
     createWorker: vi.fn(async () => { currentTask = { ...currentTask, revision: currentTask.revision + 1, status: "running" }; return worker; }),
     transitionWorker: vi.fn(async () => worker),
@@ -125,7 +127,9 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     store, terminal, runtimeCommands,
     inspectRepository: vi.fn(async () => repository),
     retrieveMemory: vi.fn(async () => ({ verdict: "partial" as const, matches: [] })),
-    detectOpenCode: vi.fn(async () => ({ executable: "/bin/opencode", version: "1.17.18" })),
+    detectWorker: vi.fn(async () => ({ executable: "/usr/bin/node", version: "native-1" })),
+    workerAdapterName: "flyd",
+    buildWorkerArgs: vi.fn(() => [ "/app/flyd-worker-process.js" ]),
     recoverWorkers: vi.fn(async () => 0),
     recoverSessions: vi.fn(async () => 0),
     runWorker: vi.fn(async () => ({ exitStatus: 0, externalSessionId: "ses_1", output: "Implemented it", error: "" })),
@@ -232,10 +236,17 @@ describe("runContinuityHarness", () => {
     const worktreeRoot = "/tmp/flyd-worktrees";
     const orchestrationGrant = {
       ...grant,
+      fileOperations: ["read"],
       worktreePaths: [worktreeRoot],
       workerAdapters: ["codex", "opencode"],
+      providerIdentity: "codex:local,opencode:local",
+      commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
+      renewalRequiredActions: [
+        "destructive_operation", "external_write", "deploy", "publish", "purchase",
+        "secret_disclosure", "permission_change",
+      ],
       maxConcurrency: 2,
-      budget: { max_worker_runs: 4 },
+      budget: { max_worker_runs: 4, max_runtime_minutes: 90, max_inactivity_minutes: 10 },
     };
     const deps = dependencies({
       orchestrationGrantScope: {
@@ -274,7 +285,105 @@ describe("runContinuityHarness", () => {
     expect(deps.store.createWorker).toHaveBeenCalled();
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ cwd: repository.root, externalSessionId: undefined }));
     expect(deps.store.completeTask).toHaveBeenCalledWith("task-1", expect.any(Number), expect.objectContaining({ summary: "Implemented it" }));
+    expect(deps.store.offerTaskRecommendation).toHaveBeenCalledWith("session-1", expect.objectContaining({ action: "Implement continuity" }));
+    expect(deps.store.actOnTaskRecommendation).toHaveBeenCalledWith("session-1", "accepted");
     expect(deps.store.finishTaskSession).toHaveBeenCalledWith("session-1", expect.objectContaining({ interpretation: "accepted" }));
+  });
+
+  it("includes every requested repository in the bounded grant", async () => {
+    const sharedRoot = "/work/shared";
+    const deps = dependencies({
+      resolveRepositoryRoots: vi.fn(async () => [ repository.root, sharedRoot ]),
+    });
+
+    await runContinuityHarness({ outcome: `Update ${sharedRoot} and Flyd`, deps });
+
+    expect(deps.store.proposeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({
+        repositoryRoots: [ repository.root, sharedRoot ],
+      }),
+    );
+    expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringContaining(sharedRoot));
+  });
+
+  it("resolves repository grants from the effective resumed correction", async () => {
+    const resolveRepositoryRoots = vi.fn(async () => [ repository.root ]);
+    const deps = dependencies({
+      resolveRepositoryRoots,
+    });
+    deps.store.findResumableTask.mockResolvedValue(task({ status: "ready", revision: 4 }));
+    deps.store.approvedGrant.mockResolvedValue(grant);
+
+    await runContinuityHarness({ outcome: "Update /work/other-repository instead", deps });
+
+    expect(resolveRepositoryRoots).toHaveBeenCalledWith(
+      "Update /work/other-repository instead",
+      repository.root,
+    );
+  });
+
+  it("proposes repository-derived verification commands for independent integration checks", async () => {
+    const commands = [ "git diff --check", "bin/rails test" ];
+    const deps = dependencies({
+      resolveVerificationCommands: vi.fn(async () => commands),
+    });
+
+    await runContinuityHarness({ outcome: "Implement continuity", deps });
+
+    expect(deps.store.proposeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({ verificationCommands: commands }),
+    );
+  });
+
+  it("does not grant writes for a review-only outcome", async () => {
+    const deps = dependencies();
+
+    await runContinuityHarness({ outcome: "Review the current implementation", deps });
+
+    expect(deps.store.proposeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({ fileOperations: [ "read" ] }),
+    );
+  });
+
+  it("revokes a stale pending proposal before displaying and approving the current scope", async () => {
+    const deps = dependencies({
+      orchestrationGrantScope: {
+        workerAdapters: ["flyd"],
+        worktreeRoot: "/tmp/flyd-worktrees",
+        providerIdentity: "models.example.test/current",
+      },
+      orchestrate: vi.fn(async () => ({
+        status: "integrated" as const, summary: "Reviewed", verification: { passed: true },
+      })),
+    });
+    deps.store.proposedGrant.mockResolvedValue({
+      ...grant,
+      status: "proposed",
+      fileOperations: ["read"],
+      commandClasses: ["inspect", "test", "lint", "build", "git_status", "git_diff"],
+      renewalRequiredActions: [
+        "destructive_operation", "external_write", "deploy", "publish", "purchase",
+        "secret_disclosure", "permission_change",
+      ],
+      worktreePaths: ["/tmp/flyd-worktrees"],
+      workerAdapters: ["flyd"],
+      maxConcurrency: 2,
+      budget: { max_worker_runs: 5, max_runtime_minutes: 90, max_inactivity_minutes: 10 },
+      providerIdentity: "models.example.test/current",
+    });
+
+    await runContinuityHarness({ outcome: "Review the current implementation", deps });
+
+    expect(deps.store.rejectGrantProposal).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), "grant-1",
+      "The requested task scope changed before approval", expect.any(String),
+    );
+    expect(deps.store.proposeGrant).toHaveBeenCalledWith(
+      "task-1", expect.any(Number), expect.objectContaining({
+        fileOperations: ["read"],
+        providerIdentity: "models.example.test/current",
+      }),
+    );
   });
 
   it("does not record successful worker diagnostics as an error", async () => {
@@ -295,7 +404,7 @@ describe("runContinuityHarness", () => {
     }));
   });
 
-  it("resumes an interrupted OpenCode session with a focused correction", async () => {
+  it("resumes an interrupted Flyd session with a focused correction", async () => {
     const deps = dependencies();
     const existing = task({ status: "ready", revision: 4, recommendedNextAction: "Old action" });
     const interrupted = { ...worker, status: "interrupted" as const, externalSessionId: "ses_old" };
@@ -309,6 +418,7 @@ describe("runContinuityHarness", () => {
 
     expect(deps.store.recordCorrection).toHaveBeenCalledWith("task-1", expect.any(Number), "Continue with the migration first", expect.any(Object));
     expect(deps.runWorker).toHaveBeenCalledWith(expect.objectContaining({ externalSessionId: "ses_old", assignment: "Continue with the migration first" }));
+    expect(deps.store.actOnTaskRecommendation).toHaveBeenCalledWith("session-1", "adapted");
     expect(deps.store.finishTaskSession).toHaveBeenCalledWith("session-1", expect.objectContaining({ interpretation: "focused_corrected" }));
   });
 
@@ -325,6 +435,7 @@ describe("runContinuityHarness", () => {
       interpretation: "replaced",
       manualContextRestatement: true,
     }));
+    expect(deps.store.actOnTaskRecommendation).toHaveBeenCalledWith("session-1", "rejected");
   });
 
   it("treats an explicit new outcome as the authoritative correction for an active task", async () => {
@@ -469,6 +580,7 @@ describe("runContinuityHarness", () => {
     expect(deps.runtimeCommands.execute).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: "task.reject_grant" }),
     );
+    expect(deps.store.actOnTaskRecommendation).not.toHaveBeenCalled();
     expect(deps.store.createWorker).not.toHaveBeenCalled();
     expect(deps.runWorker).not.toHaveBeenCalled();
     expect(deps.store.finishTaskSession).toHaveBeenCalled();
@@ -501,21 +613,21 @@ describe("runContinuityHarness", () => {
   });
 
   it("preserves a launch failure as a resumable task instead of leaving it running", async () => {
-    const deps = dependencies({ runWorker: vi.fn(async () => { throw new Error("OpenCode disappeared"); }) });
+    const deps = dependencies({ runWorker: vi.fn(async () => { throw new Error("Flyd worker disappeared"); }) });
 
     const result = await runContinuityHarness({ outcome: "Implement continuity", deps });
 
     expect(result.status).toBe("ready");
     expect(deps.store.transitionWorker).toHaveBeenCalledWith("worker-1", expect.objectContaining({
       status: "failed",
-      error: "OpenCode disappeared",
+      error: "Flyd worker disappeared",
     }));
     expect(deps.store.keepTaskOpen).toHaveBeenCalledWith("task-1", expect.any(Number), expect.objectContaining({
-      nextAction: "Investigate worker failure: OpenCode disappeared",
+      nextAction: "Investigate worker failure: Flyd worker disappeared",
     }));
   });
 
-  it("journals the external OpenCode session as soon as it is observed", async () => {
+  it("journals the external Flyd session as soon as it is observed", async () => {
     const runWorker = vi.fn(async (input: {
       onStart?: (processId: number | null) => void;
       onEvent?: (event: { sessionId: string | null }) => void;
@@ -581,15 +693,15 @@ describe("runContinuityHarness", () => {
     expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringContaining("Memory retrieval is unavailable"));
   });
 
-  it("preserves an exact re-entry point when OpenCode discovery fails", async () => {
-    const deps = dependencies({ detectOpenCode: vi.fn(async () => { throw new Error("OpenCode is not installed"); }) });
+  it("preserves an exact re-entry point when Flyd worker discovery fails", async () => {
+    const deps = dependencies({ detectWorker: vi.fn(async () => { throw new Error("Flyd worker is unavailable"); }) });
 
     const result = await runContinuityHarness({ outcome: "Implement continuity", deps });
 
     expect(result.status).toBe("ready");
     expect(deps.store.createWorker).not.toHaveBeenCalled();
     expect(deps.store.keepTaskOpen).toHaveBeenCalledWith("task-1", expect.any(Number), expect.objectContaining({
-      nextAction: "Prepare OpenCode worker: OpenCode is not installed",
+      nextAction: "Prepare Flyd worker: Flyd worker is unavailable",
     }));
   });
 });

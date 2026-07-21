@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { orchestrateAssignments } from "../orchestrator.js";
+import { grantRuntimeTimeoutMs, orchestrateAssignments } from "../orchestrator.js";
 import { buildCodexArgs, parseCodexEvent, runCodex } from "../codex-adapter.js";
 import { buildOpenCodeArgs, parseOpenCodeEvent, runOpenCode } from "../opencode-adapter.js";
 import { inspectRepository } from "../repository-inspector.js";
@@ -80,6 +80,17 @@ afterEach(async () => {
 });
 
 describe("orchestrateAssignments", () => {
+  it("caps worker runtime at the grant expiry and refuses an expired start", () => {
+    const grant = {
+      status: "approved",
+      budget: { max_runtime_minutes: 90 },
+      expiresAt: "2026-07-21T02:05:00.000Z",
+    } as unknown as TaskGrant;
+
+    expect(grantRuntimeTimeoutMs(grant, Date.parse("2026-07-21T02:00:00.000Z"))).toBe(5 * 60_000);
+    expect(() => grantRuntimeTimeoutMs(grant, Date.parse("2026-07-21T02:06:00.000Z")))
+      .toThrow("expired before worker start");
+  });
   it("blocks a resumed assignment whose recorded base no longer matches main", async () => {
     const repo = await repository();
     const snapshot = await inspectRepository(repo.root);
@@ -148,8 +159,10 @@ describe("orchestrateAssignments", () => {
     });
     const assignments = [
       assignment("1", "Implement", ["implementation", "testing"], "one.txt"),
-      assignment("2", "Review", ["review", "testing"], "two.txt"),
+      assignment("2", "Review", ["implementation", "testing"], "two.txt"),
     ];
+    assignments[0].excludedAdapters = ["codex"];
+    assignments[1].excludedAdapters = ["opencode"];
     const workers: WorkerSession[] = [];
     const transitionOrder: string[] = [];
     const store = {
@@ -222,7 +235,7 @@ describe("orchestrateAssignments", () => {
       contextPath: "/tmp/context.md",
       adapters: [
         adapter("opencode", ["implementation", "testing", "resume"], "one.txt", concurrency, workersReleased),
-        adapter("codex", ["review", "testing", "resume"], "two.txt", concurrency, workersReleased),
+        adapter("codex", ["implementation", "review", "testing", "resume"], "two.txt", concurrency, workersReleased),
       ],
       deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
     });
@@ -245,6 +258,114 @@ describe("orchestrateAssignments", () => {
         transitionOrder.join(","),
       ).toBeLessThan(transitionOrder.indexOf(`${worker.workerKey}:terminal`));
     }
+  });
+
+  it("retries a failed worker by resuming the provider session captured by that run", async () => {
+    const repo = await repository();
+    const snapshot = await inspectRepository(repo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
+    roots.push(managedRoot);
+    const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
+    const workers: WorkerSession[] = [];
+    const commandInputs: Array<{ externalSessionId?: string }> = [];
+    let runCount = 0;
+    const retryCommand = {
+      id: "1", commandKey: "retry-worker-1", agentTaskId: "1", workerSessionId: "1",
+      kind: "retry" as const, status: "queued" as const, idempotencyKey: "retry-worker-1",
+      payload: {}, dispatchedAt: null, completedAt: null, errorSummary: null,
+    };
+    const store = {
+      updateAssignmentWorkspace: vi.fn(async () => undefined),
+      createWorker: vi.fn(async (input: Record<string, unknown>) => {
+        const worker: WorkerSession = {
+          id: String(workers.length + 1), workerKey: `worker-${workers.length + 1}`,
+          agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1", status: "queued",
+          adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
+          externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
+          output: null, exitStatus: null, startedAt: null, endedAt: null,
+          lastObservedAt: null, stopReason: null,
+        };
+        workers.push(worker);
+        return worker;
+      }),
+      transitionWorker: vi.fn(async (workerKey: string, update: Record<string, unknown>) => {
+        const worker = workers.find((candidate) => candidate.workerKey === workerKey)!;
+        Object.assign(worker, {
+          status: update.status,
+          externalSessionId: update.externalSessionId ?? worker.externalSessionId,
+          exitStatus: update.exitStatus ?? worker.exitStatus,
+        });
+        return worker;
+      }),
+      findWorker: vi.fn(async (workerKey: string) => workers.find((candidate) => candidate.workerKey === workerKey) ?? null),
+      recordAssignmentVerification: vi.fn(async () => undefined),
+      queueWorkerCommand: vi.fn(async (workerKey: string) => ({
+        command: retryCommand,
+        worker: workers.find((candidate) => candidate.workerKey === workerKey)!,
+      })),
+      completeWorkerCommand: vi.fn(async () => ({
+        ...retryCommand,
+        status: "completed" as const,
+        dispatchedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      })),
+      recordTaskIntegration: vi.fn(async () => undefined),
+    };
+    const retrying: WorkerAdapter = {
+      name: "codex",
+      capabilities: ["implementation", "resume"],
+      detect: async () => ({
+        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        capabilities: ["implementation", "resume"],
+      }),
+      buildArgs: (input) => {
+        commandInputs.push({ externalSessionId: input.externalSessionId });
+        return [];
+      },
+      parseEvent: () => null,
+      run: async (input) => {
+        runCount += 1;
+        await input.onStart?.(120 + runCount);
+        if (runCount === 1) {
+          input.onEvent?.({ type: "session", sessionId: "retry-thread", text: null });
+          return { exitStatus: 1, externalSessionId: "retry-thread", output: "", error: "temporary failure" };
+        }
+        await writeFile(join(input.cwd, "one.txt"), "resumed worker changed\n");
+        return { exitStatus: 0, externalSessionId: "retry-thread", output: "resumed", error: "" };
+      },
+    };
+    const task: AgentTask = {
+      id: "1", taskKey: "task-retry", projectId: "1", projectName: "test", projectRoot: repo.root,
+      status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {}, repositorySnapshot: {},
+      recommendedNextAction: null, outcomeSummary: null, verificationResult: {}, revision: 1,
+      startedAt: new Date().toISOString(), completedAt: null, updatedAt: new Date().toISOString(),
+    };
+    const grant: TaskGrant = {
+      id: "2", grantKey: "grant-retry", agentTaskId: "1", status: "approved", scopeDigest: "digest",
+      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"], maxConcurrency: 1,
+      budget: { max_worker_runs: 2, max_runtime_minutes: 90 }, providerIdentity: "local",
+      approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
+    };
+
+    const result = await orchestrateAssignments({
+      task, grant, assignments, repository: snapshot, contextPath: "/tmp/context.md",
+      adapters: [retrying], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
+    });
+
+    expect(result.status, JSON.stringify(result)).toBe("integrated");
+    expect(commandInputs).toEqual([
+      { externalSessionId: undefined },
+      { externalSessionId: "retry-thread" },
+    ]);
+    expect(store.queueWorkerCommand).toHaveBeenCalledWith(
+      "worker-1", "retry", expect.any(Object), expect.any(String),
+    );
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("resumed worker changed\n");
   });
 
   it("launches real adapter processes, replaces a failed worker, and integrates both verified patches", async () => {
@@ -558,6 +679,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       }),
       recordAssignmentVerification: vi.fn(async () => undefined),
       queueWorkerCommand: vi.fn(async () => ({ command, worker: { ...worker, status: "stopping" as const } })),
+      findWorker: vi.fn(async () => ({ ...worker, status: "stopping" as const })),
       completeWorkerCommand: vi.fn(async () => ({ ...command, status: "completed" as const })),
       recordTaskIntegration: vi.fn(async () => undefined),
     };

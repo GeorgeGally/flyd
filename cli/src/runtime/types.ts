@@ -116,7 +116,9 @@ export interface WorkerSession {
   executableVersion: string | null;
   workingDirectory: string;
   externalSessionId: string | null;
+  resumesWorkerSessionId?: string | null;
   processId: number | null;
+  processGroupId?: number | null;
   processIdentity: string | null;
   errorSummary: string | null;
   output: string | null;
@@ -222,6 +224,7 @@ export interface RuntimeMetrics {
   manualContextRestatements: number;
   toolEscapes: number;
   routedAssignments: number;
+  flydAssignments: number;
   codexAssignments: number;
   openCodeAssignments: number;
   acceptedInterventions: number;

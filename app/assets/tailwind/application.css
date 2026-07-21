@@ -1206,6 +1206,22 @@
     font-size: clamp(0.62rem, 1.6cqi, 0.78rem);
   }
 
+  .discovery-poster__age {
+    font-family: var(--font-mono);
+    margin-left: 0.6rem;
+    opacity: 0.55;
+  }
+
+  .discovery-poster__verdict {
+    margin-top: 0.5rem;
+    border-left: 2px solid var(--signal);
+    padding-left: 0.8rem;
+    max-width: 52ch;
+    color: #e8e0d0;
+    font-size: clamp(0.75rem, 1.8cqi, 0.88rem);
+    line-height: 1.32;
+  }
+
   .discovery-poster__title {
     overflow-wrap: anywhere;
     font-size: clamp(1.4rem, 6.2cqi, 3.25rem);
@@ -1232,9 +1248,17 @@
   }
 
   .discovery-poster__actions a,
-  .discovery-poster__actions button {
+  .discovery-poster__actions button,
+  .discovery-poster__actions .discovery-action-form input[type="submit"] {
     border-bottom: 1px solid currentColor;
     padding-bottom: 0.15rem;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+  }
+
+  .discovery-action-form {
+    display: inline;
   }
 
   .discovery-scene[data-variant="activity"] .discovery-poster {

@@ -75,11 +75,6 @@ function allRecorded(values: boolean[]): GateStatus {
   return values.every(Boolean) ? "passed" : "failed";
 }
 
-function latestRecorded(values: boolean[]): GateStatus {
-  if (values.length === 0) return "insufficient_evidence";
-  return values.at(-1) ? "passed" : "failed";
-}
-
 function overall(statuses: GateStatus[]): ReleaseAcceptanceReport["status"] {
   if (statuses.includes("failed")) return "failed";
   if (statuses.includes("insufficient_evidence")) return "insufficient_evidence";
@@ -227,7 +222,7 @@ export function buildReleaseAcceptanceReport(
       result: `${evidence.rationaleReviews.length} reviews`,
     },
   ];
-  const automatedStatus = latestRecorded(evidence.automatedAcceptanceRuns.map((run) =>
+  const automatedStatus = allRecorded(evidence.automatedAcceptanceRuns.map((run) =>
     run.idempotent && run.permissionsEnforced && run.noDuplicateEffects
   ));
   const statuses = [

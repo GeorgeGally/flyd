@@ -45,10 +45,11 @@ export async function controlWorker(input: {
   if ([ "completed", "failed", "cancelled" ].includes(command.status)) return command;
 
   const shouldStop = [ "stop", "redirect", "replace" ].includes(input.kind);
-  if (shouldStop && worker.processId && input.deps.isProcessAlive(worker)) {
-    input.deps.signal(worker.processId, "SIGTERM");
+  const processGroupId = worker.processGroupId ?? worker.processId;
+  if (shouldStop && processGroupId && input.deps.isProcessAlive(worker)) {
+    input.deps.signal(processGroupId, "SIGTERM");
     await input.deps.wait(input.killGraceMs ?? 5_000);
-    if (input.deps.isProcessAlive(worker)) input.deps.signal(worker.processId, "SIGKILL");
+    if (input.deps.isProcessAlive(worker)) input.deps.signal(processGroupId, "SIGKILL");
   }
   const workerStatus = input.kind === "stop"
     ? "stopped"
@@ -65,7 +66,11 @@ export function defaultWorkerControlDependencies(store: ControlStore) {
     store,
     isProcessAlive: (worker: WorkerSession) => workerProcessIsAlive(worker),
     signal: (processId: number, signal: NodeJS.Signals) => {
-      process.kill(processId, signal);
+      try {
+        process.kill(-processId, signal);
+      } catch {
+        process.kill(processId, signal);
+      }
     },
     wait: (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
   };

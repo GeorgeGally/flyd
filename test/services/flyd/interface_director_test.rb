@@ -40,6 +40,82 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal [ "decision", "conversation", "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
   end
 
+  test "a presented unresolved decision remains eligible" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "decision:architecture", kind: "decision", status: "active", project_id: 1,
+        created_at: 1.hour.ago.iso8601, last_presented_at: 30.minutes.ago.iso8601
+      } ],
+      builds: []
+    )
+
+    assert_equal "decision", directive[:suggested_mode]
+  end
+
+  test "an explicitly expired decision scene stops driving decision candidacy" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "decision:architecture", kind: "decision", status: "active", project_id: 1,
+        created_at: 3.days.ago.iso8601,
+        metadata: { expires_at: 1.minute.ago.iso8601 }
+      } ],
+      builds: []
+    )
+
+    assert_equal "quiet", directive[:suggested_mode]
+  end
+
+  test "a malformed explicit expiry fails closed" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "decision:architecture", kind: "decision", status: "active", project_id: 1,
+        created_at: 1.hour.ago.iso8601,
+        metadata: { expires_at: "not-a-time" }
+      } ],
+      builds: []
+    )
+
+    assert_equal "quiet", directive[:suggested_mode]
+  end
+
+  test "a fresh unanswered decision scene earns decision candidacy" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "decision:architecture", kind: "decision", status: "active", project_id: 1,
+        created_at: 1.hour.ago.iso8601
+      } ],
+      builds: []
+    )
+
+    assert_equal "decision", directive[:suggested_mode]
+  end
+
+  test "a runtime scene whose task is no longer live evidence earns nothing" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "runtime:dead-task:task_plan", kind: "decision", status: "active", project_id: 1,
+        created_at: 30.minutes.ago.iso8601
+      } ],
+      provider_state: { providers: [ { data: { runtime_tasks: [ { id: "other-live-task" } ] } } ] },
+      builds: []
+    )
+
+    assert_equal "quiet", directive[:suggested_mode]
+  end
+
+  test "a runtime scene backed by a live task keeps its candidacy" do
+    directive = Flyd::InterfaceDirector.call(
+      scenes: [ {
+        scene_key: "runtime:live-task:task_plan", kind: "decision", status: "active", project_id: 1,
+        created_at: 30.minutes.ago.iso8601
+      } ],
+      provider_state: { providers: [ { data: { runtime_tasks: [ { id: "live-task" } ] } } ] },
+      builds: []
+    )
+
+    assert_equal "decision", directive[:suggested_mode]
+  end
+
   test "uncertainty becomes an investigation interface" do
     directive = Flyd::InterfaceDirector.call(
       active_intent: { requested_capability: "investigate" },
@@ -133,6 +209,7 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal "discovery", directive[:suggested_mode]
     assert_equal [ "discovery", "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
     assert_equal "discovery_scene", directive.dig(:grammars, :discovery, :focus_renderer)
+    assert_equal 12, directive.dig(:grammars, :discovery, :maximum_items)
   end
 
   test "ready work still outranks discovery" do

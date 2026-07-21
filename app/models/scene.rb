@@ -16,6 +16,7 @@ class Scene < ApplicationRecord
   validates :scene_key, uniqueness: true
   validates :kind, inclusion: { in: KINDS }
   validates :status, inclusion: { in: STATUSES }
+  validate :valid_expiry_metadata
 
   scope :active, -> { where(status: "active") }
   scope :continuable, -> { active.where.not(conversation_id: nil).order(updated_at: :desc) }
@@ -53,6 +54,15 @@ class Scene < ApplicationRecord
   end
 
   private
+
+  def valid_expiry_metadata
+    value = metadata.to_h["expires_at"]
+    return if value.blank?
+
+    Time.iso8601(value.to_s)
+  rescue ArgumentError
+    errors.add(:metadata, "expires_at must be an ISO8601 timestamp")
+  end
 
   def normalized_kind(candidate)
     value = candidate.to_s

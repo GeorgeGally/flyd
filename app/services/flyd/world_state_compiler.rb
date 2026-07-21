@@ -95,7 +95,9 @@ module Flyd
           context_id: scene.context_id,
           conversation_id: scene.conversation_id,
           resolved_artifact_id: scene.resolved_artifact_id,
+          metadata: scene.metadata.to_h.deep_symbolize_keys,
           last_presented_at: scene.last_presented_at&.iso8601,
+          created_at: scene.created_at&.iso8601,
           updated_at: scene.updated_at&.iso8601
         }
       end
@@ -281,17 +283,22 @@ module Flyd
         understanding: surface.understanding.to_s.truncate(600),
         current_intention: surface.current_intention.to_s.truncate(400),
         generated_at: surface.generated_at&.iso8601,
-        items: surface.items.first(3).map do |item|
-          {
-            id: item.item_key,
-            scene_id: item.scene_id,
-            kind: item.kind,
-            title: item.title,
-            state: item.state,
-            context_refs: item.context_refs,
-            source_refs: item.source_refs
-          }
+        items: surface.items.first(3).map { |item| surface_item_snapshot(item) },
+        recent_items: Surface.newest_first.limit(4).flat_map do |recent|
+          recent.items.map { |item| surface_item_snapshot(item) }
         end
+      }
+    end
+
+    def surface_item_snapshot(item)
+      {
+        id: item.item_key,
+        scene_id: item.scene_id,
+        kind: item.kind,
+        title: item.title,
+        state: item.state,
+        context_refs: item.context_refs,
+        source_refs: item.source_refs
       }
     end
 

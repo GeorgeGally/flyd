@@ -156,6 +156,54 @@ describe("conversation memory", () => {
     });
   });
 
+  it("uses the actionable turn timestamp instead of a later session update", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    let current = new Date("2026-07-19T01:00:00.000Z");
+    const session = createConversationMemorySession({ flydDir, id: "stale-action", now: () => current });
+    await session.recordTurn({ user: "Implement the old request", assistant: "Not yet." });
+    current = new Date("2026-07-21T02:14:00.000Z");
+    await session.recordTurn({ user: "Hello again", assistant: "Hello." });
+
+    await expect(retrieveRecentActionableOutcome({
+      flydDir,
+      now: () => new Date("2026-07-21T02:15:00.000Z"),
+    })).resolves.toBeNull();
+  });
+
+  it("does not execute an actionable request recovered from a different repository", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const session = createConversationMemorySession({
+      flydDir,
+      id: "other-project-action",
+      projectPath: "/Users/george/other-project",
+      now: () => new Date("2026-07-21T02:10:00.000Z"),
+    });
+    await session.recordTurn({ user: "Implement the other project request", assistant: "Not yet." });
+
+    await expect(retrieveRecentActionableOutcome({
+      flydDir,
+      projectPath: "/Users/george/flyd",
+      now: () => new Date("2026-07-21T02:11:00.000Z"),
+    })).resolves.toBeNull();
+  });
+
+  it("refuses an ambiguous contextual action when two different requests are equally recent", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const first = createConversationMemorySession({
+      flydDir, id: "first-action", now: () => new Date("2026-07-21T02:10:00.000Z"),
+    });
+    const second = createConversationMemorySession({
+      flydDir, id: "second-action", now: () => new Date("2026-07-21T02:12:00.000Z"),
+    });
+    await first.recordTurn({ user: "Implement the first request", assistant: "Not yet." });
+    await second.recordTurn({ user: "Implement the second request", assistant: "Not yet." });
+
+    await expect(retrieveRecentActionableOutcome({
+      flydDir,
+      now: () => new Date("2026-07-21T02:13:00.000Z"),
+    })).resolves.toBeNull();
+  });
+
   it("skips continuation-only sessions when recovering conversational context", async () => {
     const flydDir = await temporaryFlydDirectory();
     const substantive = createConversationMemorySession({

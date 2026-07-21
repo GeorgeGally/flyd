@@ -36,6 +36,7 @@ export interface WorkerCommandInput {
   taskKey: string;
   contextPath?: string;
   externalSessionId?: string;
+  readOnly?: boolean;
 }
 
 export interface WorkerRunInput {
@@ -48,7 +49,10 @@ export interface WorkerRunInput {
   onEvent?: (event: WorkerEvent) => void;
   onStart?: (processId: number | null) => void | Promise<void>;
   onActivity?: () => void | Promise<void>;
-  onTimeout?: (reason: "runtime" | "inactive") => void | Promise<void>;
+  onAuthorityCheck?: () => boolean | Promise<boolean>;
+  authorityCheckIntervalMs?: number;
+  allowedReadPaths?: string[];
+  onTimeout?: (reason: "runtime" | "inactive" | "authority") => void | Promise<void>;
 }
 
 export interface WorkerAdapter {
@@ -98,14 +102,23 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
 }): Promise<WorkerRunResult> {
   const spawn = input.spawn ?? (nodeSpawn as unknown as WorkerSpawn);
   const env = { ...sanitizeWorkerEnvironment(), ...input.extraEnvironment };
-  const child = spawn(input.executable, input.args, { cwd: input.cwd, env, stdio: "pipe" });
-  child.kill("SIGSTOP");
+  const child = spawn(input.executable, input.args, { cwd: input.cwd, env, stdio: "pipe", detached: true });
+  const signalWorkerGroup = (signal: NodeJS.Signals) => {
+    if (input.spawn || !child.pid) return child.kill(signal);
+    try {
+      process.kill(-child.pid, signal);
+      return true;
+    } catch {
+      return child.kill(signal);
+    }
+  };
+  signalWorkerGroup("SIGSTOP");
   child.stdin?.end();
 
   let stdoutBuffer = "";
   let output = "";
   let error = "";
-  let timeoutReason: "runtime" | "inactive" | null = null;
+  let timeoutReason: "runtime" | "inactive" | "authority" | null = null;
   let externalSessionId: string | null = null;
   let markActivity = () => undefined;
   const consume = (line: string) => {
@@ -133,39 +146,49 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
     let forceTimer: NodeJS.Timeout | undefined;
     let inactivityTimer: NodeJS.Timeout | undefined;
     let runtimeTimer: NodeJS.Timeout | undefined;
+    let authorityTimer: NodeJS.Timeout | undefined;
+    let childClosed = false;
+    let timeoutJournal: Promise<void> = Promise.resolve();
     const clearTimers = () => {
       if (runtimeTimer) clearTimeout(runtimeTimer);
       if (inactivityTimer) clearTimeout(inactivityTimer);
       if (forceTimer) clearTimeout(forceTimer);
+      if (authorityTimer) clearInterval(authorityTimer);
     };
     const finish = (code: number | null, forced = false) => {
       if (settled) return;
       settled = true;
       clearTimers();
-      if (stdoutBuffer) consume(stdoutBuffer);
-      if (timeoutReason === "runtime") {
-        error = `${error}${error ? "\n" : ""}${input.label} timed out after ${input.timeoutMs}ms`;
-      }
-      if (timeoutReason === "inactive") {
-        error = `${error}${error ? "\n" : ""}${input.label} was inactive for ${input.inactivityTimeoutMs}ms`;
-      }
-      if (forced) error = `${error}${error ? "\n" : ""}${input.label} required forced termination`;
-      resolve({ exitStatus: code ?? 1, externalSessionId, output, error });
+      void timeoutJournal.finally(() => {
+        if (stdoutBuffer) consume(stdoutBuffer);
+        if (timeoutReason === "runtime") {
+          error = `${error}${error ? "\n" : ""}${input.label} timed out after ${input.timeoutMs}ms`;
+        }
+        if (timeoutReason === "inactive") {
+          error = `${error}${error ? "\n" : ""}${input.label} was inactive for ${input.inactivityTimeoutMs}ms`;
+        }
+        if (timeoutReason === "authority") {
+          error = `${error}${error ? "\n" : ""}${input.label} lost its approved task authority`;
+        }
+        if (forced) error = `${error}${error ? "\n" : ""}${input.label} required forced termination`;
+        resolve({ exitStatus: code ?? 1, externalSessionId, output, error });
+      });
     };
-    const terminate = (reason: "runtime" | "inactive") => {
+    const terminate = (reason: "runtime" | "inactive" | "authority") => {
       if (settled || timeoutReason) return;
       timeoutReason = reason;
       if (runtimeTimer) clearTimeout(runtimeTimer);
       if (inactivityTimer) clearTimeout(inactivityTimer);
-      Promise.resolve(input.onTimeout?.(reason)).catch((timeoutError) => {
+      timeoutJournal = Promise.resolve(input.onTimeout?.(reason)).catch((timeoutError) => {
         error = `${error}${error ? "\n" : ""}Failed to journal timeout: ${
           timeoutError instanceof Error ? timeoutError.message : String(timeoutError)
         }`;
-      }).finally(() => {
-        if (settled) return;
-        child.kill("SIGTERM");
+      });
+      void timeoutJournal.finally(() => {
+        if (childClosed) return;
+        signalWorkerGroup("SIGTERM");
         forceTimer = setTimeout(() => {
-          child.kill("SIGKILL");
+          signalWorkerGroup("SIGKILL");
           finish(null, true);
         }, input.killGraceMs ?? 5_000);
       });
@@ -180,6 +203,13 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
       Promise.resolve(input.onActivity?.()).catch(() => undefined);
     };
     runtimeTimer = setTimeout(() => terminate("runtime"), input.timeoutMs);
+    if (input.onAuthorityCheck) {
+      authorityTimer = setInterval(() => {
+        Promise.resolve(input.onAuthorityCheck?.()).then((authorized) => {
+          if (!authorized) terminate("authority");
+        }).catch(() => terminate("authority"));
+      }, input.authorityCheckIntervalMs ?? 1_000);
+    }
     resetInactivityTimer();
     child.once("error", (spawnError) => {
       if (settled) return;
@@ -187,11 +217,14 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
       clearTimers();
       reject(spawnError);
     });
-    child.once("close", (code) => finish(code));
+    child.once("close", (code) => {
+      childClosed = true;
+      finish(code);
+    });
     Promise.resolve(input.onStart?.(child.pid ?? null)).then(
-      () => child.kill("SIGCONT"),
+      () => signalWorkerGroup("SIGCONT"),
       (startError) => {
-        child.kill("SIGKILL");
+        signalWorkerGroup("SIGKILL");
         if (settled) return;
         settled = true;
         clearTimers();

@@ -174,7 +174,7 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/must focus a notification/, error.message)
   end
 
-  test "discovery accepts up to three grounded discovery scenes" do
+  test "discovery accepts up to twelve grounded discovery scenes" do
     payload = valid_payload
     payload[:surface_mode] = "discovery"
     payload[:items].first.merge!(
@@ -195,15 +195,16 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_equal "From your archive", result["items"].first.dig("metadata", "source_label")
     assert_equal "Published 14 Jul 2026", result["items"].first.dig("metadata", "provenance")
 
-    payload[:items] = [ payload[:items].first, payload[:items].first.deep_dup.merge(id: "second"), payload[:items].first.deep_dup.merge(id: "third") ]
+    base = payload[:items].first
+    payload[:items] = (2..12).map { |n| base.deep_dup.merge(id: "item-#{n}") }.unshift(base)
     result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
-    assert_equal 3, result["items"].length
+    assert_equal 12, result["items"].length
 
-    payload[:items] << payload[:items].first.deep_dup.merge(id: "fourth")
+    payload[:items] << base.deep_dup.merge(id: "thirteenth")
     error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
       Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
     end
-    assert_match(/supports at most 3 items/, error.message)
+    assert_match(/supports at most 12 items/, error.message)
 
     payload[:items] = [ payload[:items].first ]
     payload[:items].first[:source_refs] = []

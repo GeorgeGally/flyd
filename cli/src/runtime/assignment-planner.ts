@@ -1,4 +1,3 @@
-import { query } from "../lib/llm.js";
 import type { AgentTask, MemoryEvidence, RepositorySnapshot, TaskAssignment } from "./types.js";
 import type { WorkerCapability } from "./worker-adapter.js";
 
@@ -161,9 +160,8 @@ export async function planAssignments(input: {
   nextAction?: string;
   repository: RepositorySnapshot;
   memory: MemoryEvidence;
-  generate?: (prompt: string) => Promise<string>;
+  generate: (prompt: string) => Promise<string>;
 }): Promise<AssignmentPlan> {
-  const generate = input.generate ?? ((prompt) => query(prompt));
   const evidence = input.memory.matches.slice(0, 5).map((match) => `${match.path}: ${match.excerpt}`);
   const prompt = [
     "Return strict JSON only with keys successCriteria, verificationCriteria, assignments.",
@@ -178,7 +176,7 @@ export async function planAssignments(input: {
   ].join("\n");
 
   try {
-    return parsePlan(await generate(prompt)) ?? fallbackPlan(input.outcome, input.nextAction);
+    return parsePlan(await input.generate(prompt)) ?? fallbackPlan(input.outcome, input.nextAction);
   } catch {
     return fallbackPlan(input.outcome, input.nextAction);
   }

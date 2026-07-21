@@ -44,6 +44,9 @@ class RuntimeTasks::ActionExecutorTest < ActiveSupport::TestCase
       ],
       actions: [ task_action("approve_task_grant", "grant_key" => @grant.grant_key) ]
     )
+    recommendation = item.task_recommendations.create!(agent_task: @task, release_key: "release_1c",
+      task_revision: @task.revision, action: "Approve", action_id: "approve_task_grant",
+      action_digest: Digest::SHA256.hexdigest("approve"))
 
     RuntimeTasks::ActionExecutor.call(
       item: item,
@@ -55,6 +58,8 @@ class RuntimeTasks::ActionExecutorTest < ActiveSupport::TestCase
     assert_equal "task.approve_grant", @bridge.requests.first.fetch(:action)
     assert_equal @grant.grant_key, @bridge.requests.first.fetch(:grantKey)
     assert_equal @task.revision, @bridge.requests.first.fetch(:expectedTaskRevision)
+    assert_equal "accepted", recommendation.reload.disposition
+    assert recommendation.acted_at
   end
 
   test "accepts only the bounded user-authored redirect instruction" do

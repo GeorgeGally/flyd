@@ -2,6 +2,7 @@ class TaskSession < ApplicationRecord
   INTERPRETATIONS = %w[pending accepted focused_corrected replaced].freeze
 
   belongs_to :agent_task
+  has_many :task_recommendations, dependent: :destroy
 
   before_validation :assign_session_key, on: :create
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_21_123000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -349,9 +349,12 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
     t.integer "delivery_latency_ms", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "task_revision", null: false
+    t.string "binding_digest"
     t.index ["runtime_event_id", "client_id"], name: "index_runtime_delivery_receipts_on_event_and_client", unique: true
     t.index ["runtime_event_id"], name: "index_runtime_delivery_receipts_on_runtime_event_id"
     t.check_constraint "delivery_latency_ms >= 0", name: "runtime_delivery_receipts_latency_check"
+    t.check_constraint "task_revision >= 0", name: "runtime_delivery_receipts_task_revision_check"
   end
 
   create_table "runtime_delivery_states", force: :cascade do |t|
@@ -620,6 +623,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
     t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'approved'::character varying, 'expired'::character varying, 'revoked'::character varying, 'exhausted'::character varying, 'completed'::character varying]::text[])", name: "task_grants_status_check"
   end
 
+  create_table "task_recommendations", force: :cascade do |t|
+    t.bigint "agent_task_id", null: false
+    t.bigint "task_session_id"
+    t.string "release_key", null: false
+    t.bigint "task_revision", null: false
+    t.text "action", null: false
+    t.string "action_digest", null: false
+    t.string "disposition", default: "offered", null: false
+    t.datetime "acted_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "surface_item_id"
+    t.string "action_id"
+    t.index ["agent_task_id"], name: "index_task_recommendations_on_agent_task_id"
+    t.index ["release_key", "created_at"], name: "index_task_recommendations_on_release_key_and_created_at"
+    t.index ["surface_item_id"], name: "index_task_recommendations_on_surface_item_id"
+    t.index ["task_session_id", "action_digest"], name: "idx_on_task_session_id_action_digest_7c697bc9ba", unique: true
+    t.index ["task_session_id"], name: "index_task_recommendations_on_task_session_id"
+    t.check_constraint "disposition::text = ANY (ARRAY['offered'::character varying, 'accepted'::character varying, 'adapted'::character varying, 'rejected'::character varying]::text[])", name: "task_recommendations_disposition_check"
+    t.check_constraint "task_revision >= 0", name: "task_recommendations_revision_check"
+    t.check_constraint "task_session_id IS NOT NULL OR surface_item_id IS NOT NULL", name: "task_recommendations_source_check"
+  end
+
   create_table "task_sessions", force: :cascade do |t|
     t.bigint "agent_task_id", null: false
     t.string "session_key", null: false
@@ -689,6 +716,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
     t.datetime "last_observed_at"
     t.text "stop_reason"
     t.string "process_identity"
+    t.bigint "process_group_id"
     t.index ["agent_task_id"], name: "index_worker_sessions_on_agent_task_id"
     t.index ["resumes_worker_session_id"], name: "index_worker_sessions_on_resumes_worker_session_id"
     t.index ["task_assignment_id"], name: "index_worker_sessions_on_task_assignment_id"
@@ -748,6 +776,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_204000) do
   add_foreign_key "task_corrections", "agent_tasks"
   add_foreign_key "task_corrections", "task_corrections", column: "supersedes_task_correction_id"
   add_foreign_key "task_grants", "agent_tasks"
+  add_foreign_key "task_recommendations", "agent_tasks"
+  add_foreign_key "task_recommendations", "surface_items"
+  add_foreign_key "task_recommendations", "task_sessions"
   add_foreign_key "task_sessions", "agent_tasks"
   add_foreign_key "worker_commands", "agent_tasks"
   add_foreign_key "worker_commands", "worker_sessions"

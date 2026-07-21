@@ -100,10 +100,14 @@ cd cli && npm run export-state -- --stdout
 - `cli/src/runtime/harness.ts` — continuity, interpretation, grant, and user-confirmation boundary
 - `cli/src/runtime/assignment-planner.ts` — bounded one-or-two assignment planning
 - `cli/src/runtime/orchestrator.ts` — capability routing, lifecycle, intervention, verification, and integration
-- `cli/src/runtime/codex-adapter.ts` — pinned strict Codex worker adapter
+- `cli/src/runtime/flyd-worker-adapter.ts` — Flyd-native worker process boundary
+- `cli/src/runtime/flyd-worker-loop.ts` — resumable model/tool execution loop
+- `cli/src/runtime/flyd-worker-tools.ts` — grant-scoped repository, command, and network tools
+- `cli/src/runtime/flyd-worker-config.ts` — configured model/provider resolution
+- `cli/src/runtime/repository-roots.ts` — explicit multi-repository grant discovery
+- `cli/src/runtime/verification-commands.ts` — repository-derived independent verification commands
 - `cli/src/runtime/task-store.ts` — PostgreSQL task, grant, worker, event, and session authority
 - `cli/src/runtime/archive-outbox.ts` — idempotent runtime outcome delivery into `~/.flyd/raw`
-- `cli/src/runtime/opencode-adapter.ts` — structured OpenCode worker adapter
 - `cli/src/runtime/worktree-manager.ts` — Flyd-managed assignment isolation
 - `cli/src/runtime/result-verifier.ts` — independent patch and command evidence
 - `cli/src/runtime/result-integrator.ts` — unchanged-main integration boundary
@@ -131,5 +135,6 @@ cd cli && npm run export-state -- --stdout
 - Large archive queries can be slow while the local QMD index or embedding model warms up.
 - Production web and worker processes must share the configured `FLYD_DIR` volume for Rails-to-CLI memory parity.
 - The current context resolver still assumes project-shaped persistence after interpretation.
-- Codex adapter support is pinned to 0.144.x and 0.145.0-alpha.x, and OpenCode to 1.17.x; other versions fail closed until tested.
+- The native worker currently uses an OpenAI-compatible chat-completions provider; broader provider protocols still need first-class support.
+- Additional repositories are grant-scoped context; each repository that needs edits requires its own isolated assignment and integration boundary.
 - The local propagation target is below two seconds, but production latency still needs measurement under the Release 1C dogfood window.

@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static values = { eventId: Number, surfaceId: Number }
+  static values = { eventId: Number, surfaceId: Number, bindingDigest: String }
 
   connect() {
     if (!this.hasEventIdValue || this.acknowledged()) return
@@ -20,6 +20,7 @@ export default class extends Controller {
         body: JSON.stringify({
           runtime_event_id: this.eventIdValue,
           surface_id: this.hasSurfaceIdValue ? this.surfaceIdValue : null,
+          binding_digest: this.hasBindingDigestValue ? this.bindingDigestValue : null,
           client_id: this.clientId()
         })
       })

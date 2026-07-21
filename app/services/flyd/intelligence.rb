@@ -215,16 +215,16 @@ module Flyd
         }
 
         Grammar requirements:
-        - decision: focus renderer decision_scene, 2-4 options, and exactly one choose action for each option. Every choose payload must contain the exact displayed option id and label. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis only when recommendation is present. When an option corresponds to supplied image evidence, bind its exact intent attachment id as attachment_id and include that same intent_attachment reference in source_refs so the real object becomes the interface.
+        - decision: focus renderer decision_scene, 2-4 options, and exactly one choose action for each option. Every choose action payload must be exactly {"option_id":"the exact displayed option id","option_label":"the exact displayed option label"}. When recommending an option, place it first in metadata.options; the editorial renderer gives the first option recommendation emphasis only when recommendation is present. When an option corresponds to supplied image evidence, bind its exact intent attachment id as attachment_id and include that same intent_attachment reference in source_refs so the real object becomes the interface.
         - investigation: focus kind must be question, insight, or scene; focus renderer investigation_scene; include known/unknown evidence and a next_question; investigate action payload must be {"question":"metadata.next_question"}.
         - action: focus renderer action_scene. When readiness is ready, include exactly one build action whose instructions exactly equal metadata.proposed_action. When readiness is blocked or running, include no build action. Never imply execution before confirmation.
         - conversation: focus renderer conversation when no live conversation is already supplied; at most one supporting item.
         - quiet: exactly one calm focus item and no action unless the user must genuinely respond.
         - monitoring: at most two items and a precise trigger for future action.
-        - discovery: one to three insights or artifacts using discovery_scene, each with an exact source reference. Prefer a mix of recent personal activity, today's horoscope, and current stories when supplied. Preserve facts, names, dates, and links from the evidence; do not embellish them.
+        - discovery: one to twelve insights or artifacts using discovery_scene, each with an exact source reference. Prefer a mix of recent personal activity, today's horoscope, and current stories when supplied. Every discovery item must include metadata.why_it_matters: a one-line grounded connection to the user's recent work, interests, or ongoing context. Preserve facts, names, dates, and links from the evidence; do not embellish them.
         - runtime task: use the renderer named by the runtime candidate. Include exactly one runtime_task source reference, every displayed grant/assignment/worker/artifact as its exact source reference, and metadata.task_revision copied from runtime_task.content.revision. Every task action payload must contain task_key and task_revision copied exactly from that evidence. task_plan also requires one task_grant source and exactly one approve_task_grant plus one reject_task_grant action, both carrying its exact grant_key. worker actions carry an exact displayed worker_key. task_review may offer confirm_task_completion with a grounded summary, and correct_task with the exact claim being corrected. Never invent runtime state, selectors, progress, output, or verification.
 
-        Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract. Maximum three items, except conversation and monitoring allow at most two, and quiet exactly one. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
+        Never use a provider evidence type such as goal, tension, signal, curiosity, nudge, report, or event as an item kind. Use only the item kinds listed in the JSON contract.         Maximum twelve items for discovery, three for decision and investigation, two for conversation and monitoring, one for quiet and action. Item ids are created by you or reused from existing scene_key values. Context and source references must use exact ids present in the supplied state. Media attachment ids must also appear as explicit intent_attachment source references. Do not include private reasoning.
       PROMPT
     end
 
@@ -289,6 +289,8 @@ module Flyd
       content = task[:content].to_h.deep_symbolize_keys
       task_key = task[:id].to_s
       status = content[:status].to_s
+      return if settled_runtime_completion?(state, task_key, content, status)
+
       revision = content[:revision].to_i
       related, renderer, mode, kind, intent = runtime_fallback_direction(collections, status)
       related = Array(collections[:task_corrections]).last(1) + related
@@ -322,6 +324,22 @@ module Flyd
         items: [ item ],
         relationships: []
       )
+    end
+
+    # Same rule as EvidenceCandidates: a settled completion earns the stage
+    # once and then yields it, so the portal moves on to the present situation
+    # instead of holding a stale outcome for the whole completion window.
+    def settled_runtime_completion?(state, task_key, content, status)
+      return false unless RuntimeTasks::NextAction.settled?(status: status, recommended_next_action: content[:recommendedNextAction])
+
+      previous = state&.dig(:previous_surface).to_h
+      items = previous[:recent_items] || previous["recent_items"] || previous[:items] || previous["items"] || []
+      Array(items).any? do |item|
+        item_id = item[:id] || item["id"]
+        refs = item[:source_refs] || item["source_refs"] || []
+        item_id.to_s.end_with?(":task_completion") &&
+          refs.any? { |ref| (ref[:type] || ref["type"]).to_s == "runtime_task" && (ref[:id] || ref["id"]).to_s == task_key }
+      end
     end
 
     def runtime_fallback_direction(collections, status)

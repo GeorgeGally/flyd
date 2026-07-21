@@ -112,6 +112,29 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("new main reality\n");
   });
 
+  it("blocks implementation integration outside main", async () => {
+    const repo = await repository();
+    await execFileAsync("git", ["-C", repo.root, "checkout", "-b", "feature"]);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const worktree = await manager.prepare({ repositoryRoot: repo.root, taskKey: "task-feature", assignmentKey: "one", baseHead: repo.head });
+    await writeFile(join(worktree.path, "one.txt"), "worker change\n");
+    const result = await verifyWorkerResult({ worktreePath: worktree.path, baseHead: repo.head, commands: ["git diff --check"] });
+
+    const integration = await integrateVerifiedResults({
+      repositoryRoot: repo.root,
+      taskKey: "task-feature",
+      baseSnapshot: await inspectRepository(repo.root),
+      results: [result],
+      verificationCommands: ["git diff --check"],
+      manager,
+    });
+
+    expect(integration).toMatchObject({ status: "blocked", reason: "Implementation results can only integrate into main" });
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
+  });
+
   it("accepts a verified read-only result when an already-dirty source is unchanged", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));

@@ -166,7 +166,7 @@ Proposed work occupies the primary plane. It requires:
 - readiness state;
 - an executable build-review action.
 
-Selecting the action creates a proposed build and opens the confirmation boundary. OpenCode does not run until explicit confirmation.
+Selecting the action creates a proposed build and opens the confirmation boundary. Flyd's native worker does not run until explicit confirmation.
 
 ### Monitoring
 
@@ -196,13 +196,13 @@ Context correction preserves provenance and repairs only the affected message se
 
 Capabilities create reviewable proposals at genuine approval boundaries. Execution status and verified outcomes return as evidence. Durable results are stored as artifacts and linked to the scene they resolve or update.
 
-OpenCode is the first V1 executor:
+Flyd's native worker is the first V1 executor:
 
 ```text
 action scene
 → reviewable proposed build
 → explicit confirmation
-→ OpenCode execution
+→ Flyd model/tool loop
 → durable success/failure artifact
 → scene resolution
 → conversation outcome
@@ -213,7 +213,7 @@ The architecture can support additional specialist capabilities later without ma
 
 ## Release 1A continuity runtime
 
-The coding harness uses PostgreSQL as the live operational authority. `AgentTask`, `TaskGrant`, `WorkerSession`, `TaskSession`, and `RuntimeEvent` preserve the current outcome, approved scope, OpenCode process/session identity, corrections, verification, exact re-entry point, and dogfood measurements.
+The coding harness uses PostgreSQL as the live operational authority. `AgentTask`, `TaskGrant`, `WorkerSession`, `TaskSession`, and `RuntimeEvent` preserve the current outcome, approved scope, Flyd process/session identity, corrections, verification, exact re-entry point, and dogfood measurements.
 
 Running `flyd` in a Git repository:
 
@@ -223,27 +223,27 @@ Running `flyd` in a Git repository:
 4. retrieves bounded project and personal memory evidence;
 5. lets the user correct Flyd's interpretation;
 6. requires a repository-scoped task grant before the first worker;
-7. persists and pauses the worker process before allowing OpenCode to execute;
-8. runs OpenCode through structured arguments and a tested executable version;
+7. persists and pauses the Flyd worker process before allowing it to execute;
+8. runs planning and execution through the configured model chain inside Flyd's resumable structured-tool loop;
 9. records each worker transition with the task revision;
 10. requires a successful worker, repository inspection, and user confirmation before completion;
 11. drains correction and verified-outcome events idempotently into `~/.flyd/raw`.
 
-The worker can edit only the single approved repository root in Release 1A. The approved scope has an eight-hour expiry, one-worker concurrency, three-run budget, provider identity, explicit verification command, and actions that require renewed approval. Flyd supplies an inline, deny-by-default OpenCode permission policy: external directories, subagents, network tools, ungranted shell commands, and inherited credentials are denied, while repository editing and the task grant's inspection, test, lint, build, and Git-read command classes are allowed.
+The worker can operate only inside repository roots named by the task grant. Flyd can be launched from any Git repository; that repository becomes the primary isolated editing target. Absolute paths named in the effective assignment or correction can add other Git roots to the grant. Additional roots remain read-only until Flyd creates a separately verified assignment for them. Review-only work receives no write tool and its command sandbox denies repository mutation. The scope has an eight-hour expiry, bounded concurrency and runs, provider identity, repository-derived verification commands, and actions that require renewed approval. Flyd exposes structured read, edit, search, command, and explicitly referenced network tools. Ungranted paths, shell composition, commands, network hosts, inherited credentials, and oversized model-visible tool results are denied or bounded.
 
 A worker report is retained as evidence but is not promoted to a verified outcome by itself. `flyd task status` exposes the exact next action, while `flyd task metrics` reports the rolling five-working-day window and missing trial data rather than manufacturing success. Resume measurement follows the PRD's 30-minute threshold and excludes sessions that never ran a worker.
 
 ## Release 1B supervised agent runtime
 
-Release 1B adds durable `TaskAssignment` and `WorkerCommand` records while keeping PostgreSQL authoritative. Flyd plans one or two bounded assignments, discovers pinned Codex and OpenCode adapters, routes by declared capability and current load, and gives each editing worker a deterministic managed worktree under the approved root.
+Release 1B adds durable `TaskAssignment` and `WorkerCommand` records while keeping PostgreSQL authoritative. Flyd plans one or two bounded assignments, routes them through its native worker by declared capability and current load, and gives each editing worker a deterministic managed clone under the approved root.
 
-Codex runs with strict configuration, workspace-write sandboxing, network disabled, and no inherited rules or interactive approval. OpenCode receives a deny-by-default permission document derived from the same task grant. Both adapters use a common process supervisor that sanitizes credentials, journals the process before allowing it to continue, captures structured session identity, and enforces a bounded shutdown.
+The model connection receives context and tool schemas, never ambient machine authority. Flyd executes tools itself, sanitizes credentials from command environments, journals the worker before allowing it to continue, persists exact Flyd session identity, and enforces bounded shutdown through the common process supervisor.
 
 Flyd may retry failed verification or replace a failed worker only when the current grant, capability set, evidence digest, and remaining run budget permit it. Every control is persisted before a process signal. `flyd task workers`, `stop`, `retry`, `redirect`, and `replace` expose the same durable control identities to the operator. Repeated intervention on identical evidence is refused, and scope expansion or repository drift escalates instead of widening authority.
 
-Each worker result is independently reconstructed from Git rather than trusted from its report. Flyd records the patch, changed files, base and resulting heads, verification commands, exit statuses, and output digests. Results with overlapping files or inconsistent bases are blocked. The combined patch is applied and verified in a temporary integration worktree; only an unchanged clean source branch may receive that same verified patch. A planned task cannot complete until all assignments are marked integrated and the user confirms the repository outcome.
+Each worker result is independently reconstructed from Git rather than trusted from its report. Flyd records the patch, changed files, base and resulting heads, repository-derived test, lint, and build commands, exit statuses, and output digests. Review assignments fail if they change files. Results with overlapping files or inconsistent bases are blocked. The combined patch is applied and verified in a temporary integration worktree; only an unchanged clean source branch may receive that same verified patch. A planned task cannot complete until all assignments are marked integrated and the user confirms the repository outcome.
 
-Existing narrower Release 1A grants are revoked and shown for renewed approval before Codex, managed worktrees, higher concurrency, or a larger run budget become available. `flyd task metrics` reports real routed assignments, adapter use, accepted evidence-backed interventions, controls, conflicts, grant renewals, verified integrations, and manual context transfer. It does not infer trial success from prompts or worker claims.
+Existing narrower Release 1A grants are revoked and shown for renewed approval before managed clones, higher concurrency, or a larger run budget become available. `flyd task metrics` reports real Flyd assignments, accepted evidence-backed interventions, controls, conflicts, grant renewals, verified integrations, and manual context transfer. It does not infer trial success from prompts or worker claims.
 
 `flyd task acceptance` and Rails `GET /release_acceptance` expose the same global, fail-closed Release 1 gate. A real session qualifies only when a worker starts during that session and produces a verified repository, test, log, or code artifact before the session ends. Resumed-session interpretation records measure accepted or directly adapted re-entry recommendations. Evidence-backed automatic worker controls measure proactive interventions. Browser delivery receipts measure p95 committed-event-to-visible-client latency without counting duplicate tabs as duplicate events. The qualifying window starts only after the persisted `release_1c` marker.
 
@@ -268,7 +268,7 @@ The core directed-interface loop is implemented for decision, investigation, act
 - faster incremental retrieval and indexing across very large archives;
 - native microphone, camera, and screen capture;
 - transcription and vision understanding for binary media;
-- execution capabilities beyond OpenCode;
+- execution capabilities beyond the native coding tool set;
 - richer artifact editing and execution workflows;
 - deeper resurfacing and longitudinal learning;
 - continued refinement of the final spatial visual language.

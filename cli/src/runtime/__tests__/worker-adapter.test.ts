@@ -123,6 +123,45 @@ describe("worker adapter contract", () => {
     expect(result.error).toContain("Test worker timed out");
   });
 
+  it("waits for authority-loss persistence even when the child exits immediately", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      pid: number;
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.pid = 77;
+    child.kill = vi.fn(() => true);
+    let finishJournal!: () => void;
+    const journal = new Promise<void>((resolve) => {
+      finishJournal = resolve;
+    });
+    const resultPromise = runJsonWorkerProcess({
+      executable: "/bin/worker", args: ["run"], cwd: "/work/flyd",
+      timeoutMs: 1_000, authorityCheckIntervalMs: 1,
+      label: "Authority race worker", spawn: vi.fn(() => child), parseEvent: () => null,
+      onAuthorityCheck: async () => false,
+      onTimeout: async () => journal,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    child.emit("close", 0);
+    let resolved = false;
+    void resultPromise.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    finishJournal();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitStatus: 0,
+      error: expect.stringContaining("lost its approved task authority"),
+    });
+  });
+
   it("resets inactivity on worker output without extending the absolute runtime", async () => {
     vi.useFakeTimers();
     try {
@@ -204,6 +243,50 @@ describe("worker adapter contract", () => {
         error: expect.stringContaining("inactive"),
       });
       expect(onTimeout).toHaveBeenCalledWith("inactive");
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("terminates the worker group when persisted task authority is lost", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        stderr: PassThrough;
+        pid: number;
+        kill: (signal?: NodeJS.Signals) => boolean;
+      };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 76;
+      child.kill = vi.fn(() => true);
+      const onTimeout = vi.fn();
+      const resultPromise = runJsonWorkerProcess({
+        executable: "/bin/worker",
+        args: ["run"],
+        cwd: "/work/flyd",
+        timeoutMs: 1_000,
+        killGraceMs: 2,
+        authorityCheckIntervalMs: 10,
+        label: "Revoked worker",
+        spawn: vi.fn(() => child),
+        parseEvent: () => null,
+        onAuthorityCheck: async () => false,
+        onTimeout,
+      });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(12);
+      await vi.advanceTimersByTimeAsync(2);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        exitStatus: 1,
+        error: expect.stringContaining("lost its approved task authority"),
+      });
+      expect(onTimeout).toHaveBeenCalledWith("authority");
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
       expect(child.kill).toHaveBeenCalledWith("SIGKILL");
     } finally {
