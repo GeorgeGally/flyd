@@ -44,6 +44,23 @@ describe("interpretAgentInput", () => {
     });
   });
 
+  it("routes inspect-then-implement requests to the coding runtime", () => {
+    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+
+    expect(interpretAgentInput(outcome)).toEqual({
+      kind: "coding",
+      outcome,
+    });
+    expect(interpretAgentInput("Check out this GitHub repo and integrate it: https://github.com/example/tool")).toEqual({
+      kind: "coding",
+      outcome: "Check out this GitHub repo and integrate it: https://github.com/example/tool",
+    });
+    expect(interpretAgentInput("Look at this plugin, then add it to Flyd")).toEqual({
+      kind: "coding",
+      outcome: "Look at this plugin, then add it to Flyd",
+    });
+  });
+
   it("keeps ordinary personal actions in conversation", () => {
     expect(interpretAgentInput("Build me a travel itinerary")).toEqual({
       kind: "conversation",
@@ -76,6 +93,10 @@ describe("interpretAgentInput", () => {
     expect(interpretAgentInput("How should we fix the memory system?")).toEqual({
       kind: "conversation",
       message: "How should we fix the memory system?",
+    });
+    expect(interpretAgentInput("Take a look at this skill")).toEqual({
+      kind: "conversation",
+      message: "Take a look at this skill",
     });
   });
 });

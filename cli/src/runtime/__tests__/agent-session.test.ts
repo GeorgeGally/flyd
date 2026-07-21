@@ -108,6 +108,26 @@ describe("runAgentSession", () => {
     expect(ui.close).toHaveBeenCalledOnce();
   });
 
+  it("hands inspect-then-implement requests to the supervised runtime without chatting", async () => {
+    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+    const ui = terminal([outcome]);
+    const retrieveMemory = vi.fn(async () => noMemory);
+    const respond = vi.fn();
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory,
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "coding", outcome });
+    expect(retrieveMemory).not.toHaveBeenCalled();
+    expect(respond).not.toHaveBeenCalled();
+    expect(ui.close).toHaveBeenCalledOnce();
+  });
+
   it("lets the user explicitly resume unfinished coding work", async () => {
     const ui = terminal(["/resume"]);
 
