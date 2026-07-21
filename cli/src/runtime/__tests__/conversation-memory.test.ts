@@ -148,7 +148,12 @@ describe("conversation memory", () => {
       flydDir,
       excludeSessionId: "current-session",
       now: () => new Date("2026-07-21T02:15:00.000Z"),
-    })).resolves.toBe(outcome);
+    })).resolves.toEqual({
+      outcome,
+      sourceSessionId: "unfinished-work",
+      sourceTurn: 0,
+      recordedAt: "2026-07-21T01:55:00.000Z",
+    });
   });
 
   it("skips continuation-only sessions when recovering conversational context", async () => {

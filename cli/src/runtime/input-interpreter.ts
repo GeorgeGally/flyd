@@ -1,6 +1,7 @@
 export type AgentInput =
   | { kind: "conversation"; message: string }
   | { kind: "coding"; outcome: string }
+  | { kind: "contextual_action"; message: string }
   | { kind: "continue"; message: string }
   | { kind: "resume" }
   | { kind: "exit" };
@@ -9,6 +10,7 @@ const ACTION_OPENING = /^(?:(?:please|can you|could you|would you|i need you to|
 const INSPECT_THEN_ACTION = /^(?:(?:please|can you|could you|would you|i need you to|i want you to)\s+)?(?:take a look at|look at|check out|inspect|review)\b[\s\S]*?\b(?:and|then)\s+(?:implement|integrate|install|add|adapt|port|wire|fix|build|apply)\b/i;
 const CODE_SIGNAL = /\b(?:api|app|backend|branch|broken|bug|chat|class|cli|cmd\+enter|code|commit|controller|css|database|debugger|deploy|failing|file|flyd|frontend|function|github|html|implementation|integration|javascript|library|method|migration|model|npm|package|patch|plugin|pr|prd|pull request|rails|repo|repository|route|ruby|runtime|schema|skill|spec|test|typescript|view|website|worker)\b/i;
 const NATURAL_CONTINUATION = /^(?:continue|conrtinue|carry on|keep going)(?:\s+(?:with\s+)?(?:that|it|this))?[.!]?$/i;
+const CONTEXTUAL_ACTION = /^(?:(?:ok|okay|yes|right|fine)[,.!]?\s+)?(?:(?:no[,.!]?\s+)?(?:you\s+)?)?(?:implement(?:\s+(?:it|that|this))?|do it|go ahead|make it happen|build it|fix it)(?:\s+(?:then|now))?[.!]*$/i;
 
 export function interpretAgentInput(input: string): AgentInput {
   const text = input.trim();
@@ -17,6 +19,7 @@ export function interpretAgentInput(input: string): AgentInput {
   if ([ "/exit", "/quit", "exit", "quit" ].includes(normalized)) return { kind: "exit" };
   if (normalized === "/resume") return { kind: "resume" };
   if (NATURAL_CONTINUATION.test(text)) return { kind: "continue", message: text };
+  if (CONTEXTUAL_ACTION.test(text)) return { kind: "contextual_action", message: text };
   if (normalized.startsWith("/code ")) {
     return { kind: "coding", outcome: text.slice("/code ".length).trim() };
   }

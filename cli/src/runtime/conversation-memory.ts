@@ -12,6 +12,14 @@ interface ConversationExchange {
   user: string;
   assistant: string;
   recordedAt: string;
+  handoff?: ActionableOutcome;
+}
+
+export interface ActionableOutcome {
+  outcome: string;
+  sourceSessionId: string;
+  sourceTurn: number;
+  recordedAt: string;
 }
 
 interface ConversationRecord {
@@ -41,7 +49,7 @@ interface ConversationRetrievalOptions {
 
 export interface ConversationMemorySession {
   id: string;
-  recordTurn(turn: { user: string; assistant: string }): Promise<void>;
+  recordTurn(turn: { user: string; assistant: string; handoff?: ActionableOutcome }): Promise<void>;
 }
 
 export const CONTINUITY_QUESTION =
@@ -186,6 +194,7 @@ export function createConversationMemorySession(
         user: turn.user,
         assistant: turn.assistant,
         recordedAt,
+        ...(turn.handoff ? { handoff: turn.handoff } : {}),
       });
       await persistRecord(flydDir, record);
     },
@@ -217,7 +226,7 @@ async function readRecords(flydDir: string): Promise<ConversationRecord[]> {
 
 export async function retrieveRecentActionableOutcome(
   options: ConversationRetrievalOptions = {},
-): Promise<string | null> {
+): Promise<ActionableOutcome | null> {
   const flydDir = options.flydDir ?? FLYD_DIR;
   const now = options.now?.() ?? new Date();
   const records = (await readRecords(flydDir))
@@ -225,9 +234,18 @@ export async function retrieveRecentActionableOutcome(
     .filter((record) => now.getTime() - new Date(record.updatedAt).getTime() <= MAX_ACTION_AGE_MS);
 
   for (const record of records) {
-    for (const exchange of record.exchanges.slice().reverse()) {
+    for (let index = record.exchanges.length - 1; index >= 0; index -= 1) {
+      const exchange = record.exchanges[index];
+      if (exchange.handoff) return exchange.handoff;
       const input = interpretAgentInput(exchange.user);
-      if (input.kind === "coding") return input.outcome;
+      if (input.kind === "coding") {
+        return {
+          outcome: input.outcome,
+          sourceSessionId: record.id,
+          sourceTurn: index,
+          recordedAt: exchange.recordedAt,
+        };
+      }
     }
   }
   return null;

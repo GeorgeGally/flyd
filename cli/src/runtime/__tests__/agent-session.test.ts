@@ -11,6 +11,12 @@ function terminal(answers: string[]) {
 }
 
 const noMemory: MemoryEvidence = { verdict: "insufficient", matches: [] };
+const actionable = (outcome: string) => ({
+  outcome,
+  sourceSessionId: "previous-session",
+  sourceTurn: 0,
+  recordedAt: "2026-07-21T01:00:00.000Z",
+});
 
 describe("runAgentSession", () => {
   it("answers conversational input without creating or resuming a coding task", async () => {
@@ -133,6 +139,90 @@ describe("runAgentSession", () => {
     expect(ui.close).toHaveBeenCalledOnce();
   });
 
+  it.each(["ok implement then", "no you implement!"])(
+    "resolves %s to the exact persisted actionable request",
+    async (command) => {
+      const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+      const ui = terminal(["what were we talking about", command]);
+      const recordTurn = vi.fn(async () => undefined);
+      const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
+        const answer = "We were discussing the i-have-adhd GitHub skill.";
+        onToken(answer);
+        return answer;
+      });
+
+      const result = await runAgentSession({
+        terminal: ui,
+        retrieveMemory: vi.fn(async () => noMemory),
+        recoverActionRequest: vi.fn(async () => ({
+          outcome,
+          sourceSessionId: "previous-session",
+          sourceTurn: 3,
+          recordedAt: "2026-07-21T01:00:00.000Z",
+        })),
+        recordTurn,
+        respond,
+        loadSituation: vi.fn(async () => null),
+      });
+
+      expect(result).toEqual({ kind: "coding", outcome });
+      expect(respond).toHaveBeenCalledOnce();
+      expect(recordTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+        user: command,
+        handoff: expect.objectContaining({ outcome, sourceSessionId: "previous-session" }),
+      }));
+      expect(ui.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps a contextual action in conversation when no coding referent exists", async () => {
+    const ui = terminal(["do it", "/exit"]);
+    const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
+      const answer = "What should I act on?";
+      onToken(answer);
+      return answer;
+    });
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(respond).toHaveBeenCalledOnce();
+  });
+
+  it("does not enter the coding runtime when contextual handoff persistence fails", async () => {
+    const ui = terminal(["ok implement then", "/exit"]);
+    const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
+      onToken("I could not preserve that handoff.");
+      return "I could not preserve that handoff.";
+    });
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => ({
+        outcome: "Implement https://github.com/ayghri/i-have-adhd",
+        sourceSessionId: "previous-session",
+        sourceTurn: 1,
+        recordedAt: "2026-07-21T01:00:00.000Z",
+      })),
+      recordTurn: vi.fn(async (turn) => {
+        if ("handoff" in turn) throw new Error("disk unavailable");
+      }),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("could not preserve that handoff"));
+  });
+
   it("lets the user explicitly resume unfinished coding work", async () => {
     const ui = terminal(["/resume"]);
 
@@ -189,7 +279,7 @@ describe("runAgentSession", () => {
     const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
     const ui = terminal(["conrtinue."]);
     const retrieveMemory = vi.fn(async () => noMemory);
-    const recoverActionRequest = vi.fn(async () => outcome);
+    const recoverActionRequest = vi.fn(async () => actionable(outcome));
     const respond = vi.fn();
 
     const result = await runAgentSession({
@@ -209,7 +299,7 @@ describe("runAgentSession", () => {
 
   it("keeps natural continuation in the active conversation when history exists", async () => {
     const ui = terminal(["Let's discuss the artwork release", "continue.", "/exit"]);
-    const recoverActionRequest = vi.fn(async () => "Fix an older coding task");
+    const recoverActionRequest = vi.fn(async () => actionable("Fix an older coding task"));
     const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
       onToken("Conversation response");
       return "Conversation response";

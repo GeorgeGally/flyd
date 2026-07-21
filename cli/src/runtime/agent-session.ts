@@ -1,4 +1,5 @@
 import { interpretAgentInput } from "./input-interpreter.js";
+import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
 
 export interface AgentSituation {
@@ -27,8 +28,8 @@ interface AgentTerminal {
 interface AgentSessionDependencies {
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
-  recoverActionRequest(): Promise<string | null>;
-  recordTurn(turn: { user: string; assistant: string }): Promise<void>;
+  recoverActionRequest(): Promise<ActionableOutcome | null>;
+  recordTurn(turn: { user: string; assistant: string; handoff?: ActionableOutcome }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
   respond(input: {
     message: string;
@@ -78,10 +79,27 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       const text = (await deps.terminal.ask("\nYou >")).trim();
       if (!text) continue;
 
-      const input = interpretAgentInput(text);
+      let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };
       if (input.kind === "coding") return input;
+      if (input.kind === "contextual_action") {
+        const handoff = await deps.recoverActionRequest();
+        if (handoff) {
+          try {
+            await deps.recordTurn({
+              user: input.message,
+              assistant: "Handed to the supervised coding runtime.",
+              handoff,
+            });
+            return { kind: "coding", outcome: handoff.outcome };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            deps.terminal.write(`Flyd could not preserve that handoff: ${message}\n`);
+          }
+        }
+        input = { kind: "conversation", message: input.message };
+      }
       if (input.kind === "continue" && history.length === 0) {
         try {
           situation = await deps.loadSituation();
@@ -90,7 +108,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         }
         if (hasUnfinishedTask(situation)) return { kind: "resume" };
         const outcome = await deps.recoverActionRequest();
-        if (outcome) return { kind: "coding", outcome };
+        if (outcome) return { kind: "coding", outcome: outcome.outcome };
       }
 
       deps.terminal.write("\nFlyd > ");

@@ -100,6 +100,21 @@ describe("interpretAgentInput", () => {
     });
   });
 
+  it("keeps deictic execution commands unresolved until the session can prove their referent", () => {
+    expect(interpretAgentInput("ok implement then")).toEqual({
+      kind: "contextual_action",
+      message: "ok implement then",
+    });
+    expect(interpretAgentInput("no you implement!")).toEqual({
+      kind: "contextual_action",
+      message: "no you implement!",
+    });
+    expect(interpretAgentInput("do it")).toEqual({
+      kind: "contextual_action",
+      message: "do it",
+    });
+  });
+
   it("does not mistake questions about coding for permission to edit", () => {
     expect(interpretAgentInput("Why is the chat so slow?")).toEqual({
       kind: "conversation",
