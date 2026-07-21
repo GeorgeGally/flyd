@@ -47,8 +47,10 @@ module ReleaseAcceptance
             (evidence[:completed_tasks_with_verified_outcome_and_reentry] == evidence[:completed_tasks] ? "passed" : "failed"),
           "#{evidence[:completed_tasks_with_verified_outcome_and_reentry]}/#{evidence[:completed_tasks]}"),
         measure("cross_surface_parity", "CLI and Rails expose the same committed task state",
-          evidence[:parity_evidence_count].zero? || propagation_status == "insufficient_evidence" ? "insufficient_evidence" :
-            (evidence[:parity_evidence_count] >= evidence[:real_sessions] && propagation_status == "passed" ? "passed" : "failed"),
+          evidence[:real_sessions].zero? ||
+            evidence[:parity_evidence_count] < evidence[:real_sessions] ||
+            propagation_status == "insufficient_evidence" ? "insufficient_evidence" :
+            (propagation_status == "passed" ? "passed" : "failed"),
           "#{evidence[:parity_evidence_count]} observations"),
         measure("memory_safety", "No stale or unsupported memory confirmed as current",
           all_recorded(evidence[:memory_safety_reviews]), "#{evidence[:memory_safety_reviews].length} reviews"),

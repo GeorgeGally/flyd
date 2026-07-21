@@ -102,6 +102,17 @@ describe("Release 1 acceptance report", () => {
     expect(report.propagation.status).toBe("insufficient_evidence");
   });
 
+  it("treats partial parity coverage as missing evidence rather than a failed comparison", () => {
+    const report = buildReleaseAcceptanceReport(evidence({
+      realSessions: 3,
+      parityEvidenceCount: 2,
+      propagationLatenciesMs: Array.from({ length: 24 }, () => 200),
+    }), new Date("2026-07-20T00:00:00.000Z"));
+
+    expect(report.measures.find((measure) => measure.key === "cross_surface_parity")?.status)
+      .toBe("insufficient_evidence");
+  });
+
   it("does not fail provisional ratios or a partial first week", () => {
     const report = buildReleaseAcceptanceReport(evidence({
       release1cAvailableAt: "2026-07-08T00:00:00.000Z",

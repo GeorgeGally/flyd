@@ -207,9 +207,11 @@ export function buildReleaseAcceptanceReport(
     {
       key: "cross_surface_parity",
       label: "CLI and Rails expose the same committed task state",
-      status: evidence.parityEvidenceCount === 0 || propagationStatus === "insufficient_evidence"
+      status: evidence.realSessions === 0 ||
+        evidence.parityEvidenceCount < evidence.realSessions ||
+        propagationStatus === "insufficient_evidence"
         ? "insufficient_evidence"
-        : evidence.parityEvidenceCount >= evidence.realSessions && propagationStatus === "passed" ? "passed" : "failed",
+        : propagationStatus === "passed" ? "passed" : "failed",
       result: `${evidence.parityEvidenceCount} observations`,
     },
     {

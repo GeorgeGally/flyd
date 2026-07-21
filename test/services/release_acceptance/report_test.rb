@@ -45,6 +45,19 @@ class ReleaseAcceptance::ReportTest < ActiveSupport::TestCase
     assert_equal "insufficient_evidence", report.dig(:propagation, :status)
   end
 
+  test "treats partial parity coverage as missing evidence rather than a failed comparison" do
+    evidence = complete_evidence.merge(
+      real_sessions: 3,
+      parity_evidence_count: 2,
+      propagation_latencies_ms: Array.new(24, 200)
+    )
+
+    report = ReleaseAcceptance::Report.build(evidence, now: Time.utc(2026, 7, 20))
+
+    parity = report[:measures].find { |measure| measure[:key] == "cross_surface_parity" }
+    assert_equal "insufficient_evidence", parity[:status]
+  end
+
   test "reports a failed elapsed trial even when another measure is missing" do
     evidence = complete_evidence.merge(
       real_session_dates: ["2026-07-06"],
