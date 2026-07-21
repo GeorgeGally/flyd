@@ -25,6 +25,7 @@ import { respondToConversation } from "../runtime/conversation-responder.js";
 import {
   createConversationMemorySession,
   mergeAgentMemoryEvidence,
+  retrieveRecentActionableOutcome,
   retrieveRecentConversationEvidence,
 } from "../runtime/conversation-memory.js";
 import { retrieveFastBrainEvidence } from "../runtime/fast-brain-retrieval.js";
@@ -151,6 +152,9 @@ export async function runAgent(): Promise<void> {
       retrieveMemory: (query) => retrieveAgentMemory(query, {
         excludeConversationSessionId: conversation.id,
         pool,
+      }),
+      recoverActionRequest: () => retrieveRecentActionableOutcome({
+        excludeSessionId: conversation.id,
       }),
       recordTurn: conversation.recordTurn,
       respond: respondToConversation,

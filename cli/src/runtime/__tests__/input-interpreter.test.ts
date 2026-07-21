@@ -85,6 +85,21 @@ describe("interpretAgentInput", () => {
     expect(interpretAgentInput("/exit")).toEqual({ kind: "exit" });
   });
 
+  it("recognizes natural continuation requests, including the observed typo", () => {
+    expect(interpretAgentInput("continue.")).toEqual({
+      kind: "continue",
+      message: "continue.",
+    });
+    expect(interpretAgentInput("conrtinue.")).toEqual({
+      kind: "continue",
+      message: "conrtinue.",
+    });
+    expect(interpretAgentInput("keep going")).toEqual({
+      kind: "continue",
+      message: "keep going",
+    });
+  });
+
   it("does not mistake questions about coding for permission to edit", () => {
     expect(interpretAgentInput("Why is the chat so slow?")).toEqual({
       kind: "conversation",

@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import { FLYD_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { extractKeywords } from "../lib/retrieval.js";
+import { interpretAgentInput } from "./input-interpreter.js";
 import type { MemoryEvidence, MemoryMatchSummary } from "./types.js";
 
 interface ConversationExchange {
@@ -44,11 +45,12 @@ export interface ConversationMemorySession {
 }
 
 export const CONTINUITY_QUESTION =
-  /\b(?:what were we (?:just )?talking about|what did we (?:just )?(?:discuss|talk about)|before this|previous conversation|last conversation|earlier conversation|where did we leave off)\b/i;
+  /(?:\b(?:what were we (?:just )?talking about|what did we (?:just )?(?:discuss|talk about)|before this|previous conversation|last conversation|earlier conversation|where did we leave off)\b|^(?:continue|conrtinue|carry on|keep going)(?:\s+(?:with\s+)?(?:that|it|this))?[.!]?$)/i;
 const MAX_SCANNED_SESSIONS = 100;
 const MAX_MATCHES = 3;
 const MAX_EXCERPT_CHARS = 6_000;
 const MAX_MERGED_EVIDENCE_CHARS = 12_000;
+const MAX_ACTION_AGE_MS = 24 * 60 * 60 * 1_000;
 const LOW_INFORMATION_TERMS = new Set([
   "chat", "current", "currently", "hello", "latest", "recent", "thanks", "thank", "today",
 ]);
@@ -213,6 +215,24 @@ async function readRecords(flydDir: string): Promise<ConversationRecord[]> {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
+export async function retrieveRecentActionableOutcome(
+  options: ConversationRetrievalOptions = {},
+): Promise<string | null> {
+  const flydDir = options.flydDir ?? FLYD_DIR;
+  const now = options.now?.() ?? new Date();
+  const records = (await readRecords(flydDir))
+    .filter((record) => record.id !== options.excludeSessionId)
+    .filter((record) => now.getTime() - new Date(record.updatedAt).getTime() <= MAX_ACTION_AGE_MS);
+
+  for (const record of records) {
+    for (const exchange of record.exchanges.slice().reverse()) {
+      const input = interpretAgentInput(exchange.user);
+      if (input.kind === "coding") return input.outcome;
+    }
+  }
+  return null;
+}
+
 function countKeywordMatches(record: ConversationRecord, keywords: string[]): number {
   const content = record.exchanges
     .map((exchange) => `${exchange.user}\n${exchange.assistant}`)
@@ -280,7 +300,9 @@ export async function retrieveRecentConversationEvidence(
     .filter((record) => record.id !== options.excludeSessionId);
 
   const ranked = continuityQuestion
-    ? records.slice(0, 1)
+    ? records
+      .filter((record) => record.exchanges.some((exchange) => !CONTINUITY_QUESTION.test(exchange.user.trim())))
+      .slice(0, 1)
     : records
       .map((record) => ({ record, score: countKeywordMatches(record, keywords) }))
       .filter(({ score }) => score > 0)

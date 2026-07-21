@@ -25,6 +25,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory,
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn,
       respond,
       loadSituation: vi.fn(async () => null),
@@ -57,6 +58,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond,
       loadSituation: vi.fn(async () => null),
@@ -84,6 +86,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond,
       loadSituation: vi.fn(async () => null),
@@ -99,6 +102,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => null),
@@ -117,6 +121,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory,
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond,
       loadSituation: vi.fn(async () => null),
@@ -134,6 +139,7 @@ describe("runAgentSession", () => {
     const result = await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => ({
@@ -152,12 +158,84 @@ describe("runAgentSession", () => {
     expect(result).toEqual({ kind: "resume" });
   });
 
+  it("resumes unfinished coding work from natural continuation language", async () => {
+    const ui = terminal(["continue."]);
+    const recoverActionRequest = vi.fn(async () => null);
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest,
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "Implement continuity",
+        outcome: "Implement continuity",
+        status: "ready",
+        nextAction: "Run the focused tests",
+      })),
+    });
+
+    expect(result).toEqual({ kind: "resume" });
+    expect(recoverActionRequest).not.toHaveBeenCalled();
+  });
+
+  it("recovers a recent actionable request when natural continuation has no durable task", async () => {
+    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+    const ui = terminal(["conrtinue."]);
+    const retrieveMemory = vi.fn(async () => noMemory);
+    const recoverActionRequest = vi.fn(async () => outcome);
+    const respond = vi.fn();
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory,
+      recoverActionRequest,
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "coding", outcome });
+    expect(recoverActionRequest).toHaveBeenCalledOnce();
+    expect(retrieveMemory).not.toHaveBeenCalled();
+    expect(respond).not.toHaveBeenCalled();
+  });
+
+  it("keeps natural continuation in the active conversation when history exists", async () => {
+    const ui = terminal(["Let's discuss the artwork release", "continue.", "/exit"]);
+    const recoverActionRequest = vi.fn(async () => "Fix an older coding task");
+    const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
+      onToken("Conversation response");
+      return "Conversation response";
+    });
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest,
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(respond).toHaveBeenCalledTimes(2);
+    expect(recoverActionRequest).not.toHaveBeenCalled();
+  });
+
   it("shows unfinished work as context without forcing it to resume", async () => {
     const ui = terminal(["What is the risk?", "/exit"]);
 
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
         onToken("The current risk is stale state.");
@@ -186,6 +264,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(),
       loadSituation: vi.fn(async () => ({
@@ -215,6 +294,7 @@ describe("runAgentSession", () => {
     await runAgentSession({
       terminal: ui,
       retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
         onToken("Answer");

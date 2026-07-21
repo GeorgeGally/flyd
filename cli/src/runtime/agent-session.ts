@@ -27,6 +27,7 @@ interface AgentTerminal {
 interface AgentSessionDependencies {
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
+  recoverActionRequest(): Promise<string | null>;
   recordTurn(turn: { user: string; assistant: string }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
   respond(input: {
@@ -46,11 +47,17 @@ export type AgentSessionResult =
 const MAX_HISTORY_TURNS = 12;
 
 function situationLine(situation: AgentSituation): string {
-  const unfinished = [ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? "");
-  if (!situation.outcome || !unfinished) return "";
+  if (!hasUnfinishedTask(situation)) return "";
   const repository = `${situation.project} · ${situation.branch}`;
   const next = situation.nextAction ? ` Next: ${situation.nextAction}` : "";
   return `Unfinished coding work: ${situation.outcome}. ${repository}.${next}\n`;
+}
+
+function hasUnfinishedTask(situation: AgentSituation | null): boolean {
+  return Boolean(
+    situation?.outcome &&
+    [ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? ""),
+  );
 }
 
 export async function runAgentSession(deps: AgentSessionDependencies): Promise<AgentSessionResult> {
@@ -75,6 +82,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };
       if (input.kind === "coding") return input;
+      if (input.kind === "continue" && history.length === 0) {
+        try {
+          situation = await deps.loadSituation();
+        } catch {
+          // Continue from persisted conversation when live task state is unavailable.
+        }
+        if (hasUnfinishedTask(situation)) return { kind: "resume" };
+        const outcome = await deps.recoverActionRequest();
+        if (outcome) return { kind: "coding", outcome };
+      }
 
       deps.terminal.write("\nFlyd > ");
       try {

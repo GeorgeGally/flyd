@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createConversationMemorySession,
   mergeAgentMemoryEvidence,
+  retrieveRecentActionableOutcome,
   retrieveRecentConversationEvidence,
 } from "../conversation-memory.js";
 
@@ -118,6 +119,66 @@ describe("conversation memory", () => {
       },
     );
 
+    expect(evidence.matches[0]?.excerpt).toContain("artwork release");
+  });
+
+  it("recovers the latest actionable request across a continuation-only session", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
+    const workSession = createConversationMemorySession({
+      flydDir,
+      id: "unfinished-work",
+      now: () => new Date("2026-07-21T01:55:00.000Z"),
+    });
+    await workSession.recordTurn({
+      user: outcome,
+      assistant: "Please hold on for a moment.",
+    });
+    const continuationSession = createConversationMemorySession({
+      flydDir,
+      id: "failed-continuation",
+      now: () => new Date("2026-07-21T02:14:00.000Z"),
+    });
+    await continuationSession.recordTurn({
+      user: "conrtinue.",
+      assistant: "What topic or project are you looking to continue with?",
+    });
+
+    await expect(retrieveRecentActionableOutcome({
+      flydDir,
+      excludeSessionId: "current-session",
+      now: () => new Date("2026-07-21T02:15:00.000Z"),
+    })).resolves.toBe(outcome);
+  });
+
+  it("skips continuation-only sessions when recovering conversational context", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const substantive = createConversationMemorySession({
+      flydDir,
+      id: "substantive-conversation",
+      now: () => new Date("2026-07-21T01:55:00.000Z"),
+    });
+    await substantive.recordTurn({
+      user: "I need the artwork release to feel like the work itself.",
+      assistant: "Then presentation is part of the artwork, not a wrapper around it.",
+    });
+    const failedContinuation = createConversationMemorySession({
+      flydDir,
+      id: "continuation-only",
+      now: () => new Date("2026-07-21T02:14:00.000Z"),
+    });
+    await failedContinuation.recordTurn({
+      user: "conrtinue.",
+      assistant: "What topic are you looking to continue with?",
+    });
+
+    const evidence = await retrieveRecentConversationEvidence("continue.", {
+      flydDir,
+      excludeSessionId: "current-session",
+      now: () => new Date("2026-07-21T02:15:00.000Z"),
+    });
+
+    expect(evidence.matches[0]?.path).toBe("conversations/substantive-conversation");
     expect(evidence.matches[0]?.excerpt).toContain("artwork release");
   });
 
