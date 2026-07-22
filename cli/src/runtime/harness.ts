@@ -307,7 +307,7 @@ function liveWorkerMessage(worker: WorkerSession): string {
 function requestsLocalProjectBriefing(task: AgentTask, nextAction: string): boolean {
   const outcome = task.intendedOutcome.toLowerCase();
   const text = `${outcome}\n${nextAction}`.toLowerCase();
-  const asksForStatus = /\b(status|review|assess|inspect|look at|summari[sz]e|current state|what'?s going on)\b/.test(text);
+  const asksForStatus = /\b(status|overview|current state|what'?s going on)\b/.test(text);
   const asksForEdits = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/.test(outcome);
   return asksForStatus && !asksForEdits;
 }
@@ -420,10 +420,11 @@ export async function runContinuityHarness(input: {
       return { status: "running", taskKey: task.taskKey };
     }
 
-    if (resumedTask && !input.outcome?.trim() && requestsLocalProjectBriefing(resumedTask, orientation.nextAction)) {
+    const briefingTask = resumedTask ?? task;
+    if ((!resumedTask || !input.outcome?.trim()) && requestsLocalProjectBriefing(briefingTask, orientation.nextAction)) {
       await deps.store.actOnTaskRecommendation(sessionKey, "accepted");
       deps.terminal.write(renderLocalProjectBriefing({
-        task: resumedTask,
+        task: briefingTask,
         repository,
         worker: previousWorker,
         recoveredWorkers,

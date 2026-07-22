@@ -42,7 +42,10 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     findResumableTask: vi.fn(async (): Promise<AgentTask | null> => null),
     latestWorker: vi.fn(async (): Promise<WorkerSession | null> => null),
     proposedGrant: vi.fn(async (): Promise<TaskGrant | null> => null),
-    createTask: vi.fn(async () => currentTask),
+    createTask: vi.fn(async (input: { intendedOutcome: string }) => {
+      currentTask = { ...currentTask, intendedOutcome: input.intendedOutcome };
+      return currentTask;
+    }),
     recordOrientation: vi.fn(async (_key: string, _revision: number, input: { recommendedNextAction: string }) => {
       currentTask = { ...currentTask, revision: currentTask.revision + 1, recommendedNextAction: input.recommendedNextAction };
       return currentTask;
@@ -140,6 +143,34 @@ function dependencies(overrides: Record<string, unknown> = {}) {
 }
 
 describe("runContinuityHarness", () => {
+  it("handles a fresh overview request locally instead of asking for a coding grant", async () => {
+    const deps = dependencies();
+
+    const result = await runContinuityHarness({ outcome: "i want a general overview of the project", deps });
+
+    const writes = deps.terminal.write.mock.calls.map(([text]) => text).join("\n");
+    expect(writes).toContain("Flyd Daily Agent");
+    expect(writes).toContain("Project brief");
+    expect(writes).toContain("Handled locally");
+    expect(writes).not.toContain("Proposed task grant");
+    expect(deps.terminal.confirm).not.toHaveBeenCalled();
+    expect(deps.store.proposeGrant).not.toHaveBeenCalled();
+    expect(deps.store.createWorker).not.toHaveBeenCalled();
+    expect(deps.runWorker).not.toHaveBeenCalled();
+    expect(deps.store.completeLocalTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.any(Number),
+      expect.objectContaining({
+        summary: expect.stringContaining("Reviewed project status locally"),
+        verification: expect.objectContaining({
+          local_project_briefing: true,
+          worker_launched: false,
+        }),
+      }),
+    );
+    expect(result.status).toBe("completed");
+  });
+
   it("delegates an approved task to the Release 1B orchestrator when available", async () => {
     const orchestrate = vi.fn(async () => ({
       status: "integrated" as const,
