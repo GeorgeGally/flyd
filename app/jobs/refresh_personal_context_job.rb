@@ -40,7 +40,7 @@ class RefreshPersonalContextJob < ApplicationJob
   end
 
   def scanner
-    @scanner ||= LocalActivity::Scanner.new(root: configuration.fetch(:local_activity_root))
+    @scanner ||= LocalActivity::Scanner.new(root: configuration.fetch(:local_activity_root), exclude: [ Rails.root ])
   end
 
   def horoscope_client
@@ -65,14 +65,23 @@ class RefreshPersonalContextJob < ApplicationJob
       "generatedAt" => updated_at.iso8601,
       "evidenceRefs" => [],
       "content" => {
-        "title" => "Continue #{project_name}",
-        "description" => activity[:summary].presence || "Recent work in #{project_name}.",
+        "title" => "#{project_name} changed",
+        "description" => humanize_commit_subject(activity[:summary]) || "Recent work in #{project_name}.",
         "projectName" => project_name,
         "path" => activity.fetch(:path),
         "branch" => activity[:branch],
         "updatedAt" => updated_at.iso8601
       }.compact
     }
+  end
+
+  def humanize_commit_subject(summary)
+    return if summary.blank?
+
+    stripped = summary.sub(/\A\w+(\([^)]*\))?!?:\s*/, "").squish
+    return if stripped.blank?
+
+    stripped[0].upcase + stripped[1..].to_s
   end
 
   def horoscope_evidence(horoscope)

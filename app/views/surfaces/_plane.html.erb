@@ -14,7 +14,7 @@
 <% if active_conversation %>
   <% visible_items = visible_items.reject { |item| item.renderer == "conversation" || item.scene_id == conversation_scene&.id }.first(2) %>
 <% else %>
-  <% visible_items = visible_items.first(surface_mode == "quiet" ? 1 : (surface_mode == "discovery" ? 12 : 3)) %>
+  <% visible_items = visible_items.first(surface_mode == "quiet" ? 1 : (surface_mode == "discovery" ? 4 : 3)) %>
 <% end %>
 <% project_ids = visible_items.flat_map(&:context_refs).filter_map do |ref|
      type = ref["type"] || ref[:type]

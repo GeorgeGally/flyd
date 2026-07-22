@@ -25,7 +25,7 @@ module Flyd
     end
 
     def directed_payload
-      items = directed_references.first(3).each_with_index.map do |raw_reference, index|
+      items = directed_references.first(4).each_with_index.map do |raw_reference, index|
         reference = raw_reference.deep_stringify_keys
         {
           "id" => "surface:#{reference.fetch("id")}",
@@ -34,7 +34,7 @@ module Flyd
           "title" => "Discovery",
           "summary" => "Grounded evidence selected by Flyd.",
           "renderer" => "discovery_scene",
-          "depth" => %w[foreground middle background].fetch(index),
+          "depth" => %w[foreground middle background receded].fetch(index),
           "context_refs" => [],
           "source_refs" => [ reference ],
           "actions" => actions_for(reference.fetch("type")),
@@ -85,7 +85,7 @@ module Flyd
     end
 
     def actions_for(type)
-      return [ { "id" => "discuss", "label" => "Continue", "payload" => {} } ] if type.to_s == "activity"
+      return [ { "id" => "discuss", "label" => "Look closer", "payload" => {} } ] if type.to_s == "activity"
       return [] if type.to_s == "horoscope"
 
       [ { "id" => "discuss", "label" => "Discuss", "payload" => {} } ]

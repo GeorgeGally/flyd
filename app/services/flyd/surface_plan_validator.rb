@@ -16,7 +16,7 @@ module Flyd
       "investigation" => 3,
       "action" => 3,
       "monitoring" => 2,
-      "discovery" => 12,
+      "discovery" => 4,
       "idle" => 1,
       "interaction" => 2,
       "build" => 3

@@ -174,7 +174,7 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_match(/must focus a notification/, error.message)
   end
 
-  test "discovery accepts up to twelve grounded discovery scenes" do
+  test "discovery accepts up to four grounded discovery scenes" do
     payload = valid_payload
     payload[:surface_mode] = "discovery"
     payload[:items].first.merge!(
@@ -196,15 +196,15 @@ class Flyd::SurfacePlanValidatorTest < ActiveSupport::TestCase
     assert_equal "Published 14 Jul 2026", result["items"].first.dig("metadata", "provenance")
 
     base = payload[:items].first
-    payload[:items] = (2..12).map { |n| base.deep_dup.merge(id: "item-#{n}") }.unshift(base)
+    payload[:items] = (2..4).map { |n| base.deep_dup.merge(id: "item-#{n}") }.unshift(base)
     result = Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
-    assert_equal 12, result["items"].length
+    assert_equal 4, result["items"].length
 
-    payload[:items] << base.deep_dup.merge(id: "thirteenth")
+    payload[:items] << base.deep_dup.merge(id: "fifth")
     error = assert_raises(Flyd::SurfacePlanValidator::ValidationError) do
       Flyd::SurfacePlanValidator.call(payload: payload, reference_registry: [ "project:1", "goal:goal:ship" ])
     end
-    assert_match(/supports at most 12 items/, error.message)
+    assert_match(/supports at most 4 items/, error.message)
 
     payload[:items] = [ payload[:items].first ]
     payload[:items].first[:source_refs] = []

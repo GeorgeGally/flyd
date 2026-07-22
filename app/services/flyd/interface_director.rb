@@ -181,7 +181,7 @@ module Flyd
         discovery: {
           purpose: "Compose recent work, a personal daily signal, and fresh discoveries as one living stage.",
           focus_renderer: "discovery_scene",
-          maximum_items: 12
+          maximum_items: 4
         }
       }
     end

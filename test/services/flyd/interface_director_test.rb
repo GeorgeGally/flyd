@@ -209,7 +209,7 @@ class Flyd::InterfaceDirectorTest < ActiveSupport::TestCase
     assert_equal "discovery", directive[:suggested_mode]
     assert_equal [ "discovery", "quiet" ], directive[:candidates].map { |candidate| candidate[:mode] }
     assert_equal "discovery_scene", directive.dig(:grammars, :discovery, :focus_renderer)
-    assert_equal 12, directive.dig(:grammars, :discovery, :maximum_items)
+    assert_equal 4, directive.dig(:grammars, :discovery, :maximum_items)
   end
 
   test "ready work still outranks discovery" do

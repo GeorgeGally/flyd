@@ -570,7 +570,7 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     )
 
     discovery = candidates.find { |candidate| candidate[:mode] == "discovery" }
-    assert_equal %w[activity:flyd horoscope:aries:today discovery:feed:1 activity:other], discovery[:evidence_refs].pluck(:id)
+    assert_equal %w[activity:flyd activity:other horoscope:aries:today discovery:feed:1], discovery[:evidence_refs].pluck(:id)
   end
 
   test "keeps personal anchors while rotating previously shown discoveries" do

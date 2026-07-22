@@ -858,28 +858,101 @@
   }
 
   .surface-composition--poster-deck {
-    display: flex;
-    align-items: stretch;
-    gap: clamp(0.7rem, 1.4vw, 1.35rem);
-    overflow-x: auto;
+    position: relative;
+    display: block;
   }
 
   .surface-composition--poster-deck > .surface-object {
-    flex: 0.78 1 0;
-    min-width: clamp(13rem, 20vw, 18rem);
+    position: absolute !important;
     cursor: pointer;
     outline: 0;
-    transition: flex 700ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 450ms ease, transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: top 700ms cubic-bezier(0.2, 0.8, 0.2, 1), left 700ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      right 700ms cubic-bezier(0.2, 0.8, 0.2, 1), bottom 700ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      width 700ms cubic-bezier(0.2, 0.8, 0.2, 1), height 700ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 450ms ease;
   }
 
   .surface-composition--poster-deck > .surface-object.is-runtime-focus {
-    flex: 1.65 1 0;
-    min-width: clamp(20rem, 34vw, 30rem);
+    top: 0;
+    left: 0;
+    width: 68%;
+    height: 100%;
+    z-index: 6 !important;
+    opacity: 1;
+    box-shadow: 0 30px 70px -25px rgb(0 0 0 / 40%);
   }
 
   .surface-composition--poster-deck > .surface-object.is-runtime-support {
-    opacity: 0.78;
-    transform: translateY(clamp(0.8rem, 2vh, 1.5rem));
+    border: 1px solid var(--line);
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="0"] {
+    top: 2%;
+    left: 68%;
+    width: 30%;
+    height: 32%;
+    z-index: 2 !important;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="1"] {
+    top: 38%;
+    left: 70%;
+    width: 28%;
+    height: 26%;
+    z-index: 3 !important;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="2"] {
+    top: 68%;
+    left: 74%;
+    width: 22%;
+    height: 18%;
+    z-index: 4 !important;
+    opacity: 0.85;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="3"] {
+    top: auto;
+    left: auto;
+    right: 4%;
+    bottom: 2%;
+    width: 12%;
+    height: 10%;
+    z-index: 5 !important;
+    opacity: 0.55;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="3"] .discovery-scene {
+    position: relative;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="3"] .discovery-poster__body {
+    display: none;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="3"] .discovery-scene::after {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding-block: 0.75rem;
+    background: rgb(17 17 15 / 58%);
+    color: #f5f1e8;
+    content: attr(data-spine-label);
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1;
+    overflow: hidden;
+    text-orientation: mixed;
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+  }
+
+  .surface-composition--poster-deck > .surface-object.is-runtime-support[data-position="3"] .discovery-scene[data-variant="horoscope"]::after {
+    background: transparent;
+    color: #171b2a;
+    font-weight: 400;
   }
 
   .surface-composition--working-scene {

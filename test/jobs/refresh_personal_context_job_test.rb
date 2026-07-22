@@ -31,7 +31,7 @@ class RefreshPersonalContextJobTest < ActiveJob::TestCase
     end
 
     snapshot = IntelligenceState::PersonalContextProvider.new.snapshot
-    assert_equal "Continue Flyd", snapshot.data[:activities].first.dig("content", "title")
+    assert_equal "Flyd changed", snapshot.data[:activities].first.dig("content", "title")
     assert_equal "Aries", snapshot.data[:horoscopes].first.dig("content", "title")
     assert_equal [ { reason: "personal_context_refresh" } ], calls
   end

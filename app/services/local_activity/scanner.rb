@@ -6,21 +6,27 @@ module LocalActivity
     DEFAULT_LIMIT = 12
     GIT_TIMEOUT = 2.seconds
 
-    def initialize(root:, git_reader: nil, limit: DEFAULT_LIMIT)
+    def initialize(root:, git_reader: nil, limit: DEFAULT_LIMIT, exclude: [])
       @root = Pathname(root).expand_path
       @git_reader = git_reader || method(:git_activity)
       @limit = limit
+      @excluded = Array(exclude).map { |path| Pathname(path).expand_path }
     end
 
     def fetch
       return [] unless @root.directory?
 
-      @root.children.select(&:directory?).filter_map { |directory| activity_for(directory) }
+      @root.children.select(&:directory?).reject { |directory| excluded?(directory) }
+        .filter_map { |directory| activity_for(directory) }
         .sort_by { |activity| -activity.fetch(:updated_at).to_f }
         .first(@limit)
     end
 
     private
+
+    def excluded?(directory)
+      @excluded.any? { |path| directory.expand_path == path }
+    end
 
     def activity_for(directory)
       details = if directory.join(".git").directory?

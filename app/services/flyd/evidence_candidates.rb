@@ -7,6 +7,7 @@ module Flyd
     MAX_ARCHIVE_DISCOVERY_AGE = 180.days
     MONITORING_EVIDENCE_WINDOW = 12.hours
     MONITORING_CLOCK_SKEW = 2.minutes
+    DISCOVERY_LIMIT = 4
     EPHEMERAL_TYPES = %w[curiosity signal nudge event].freeze
     DISQUALIFIED_STATUSES = %w[contradicted superseded].freeze
 
@@ -249,10 +250,7 @@ module Flyd
     end
 
     def discovery_selection(items)
-      anchors = %w[activity horoscope discovery quote fact idea].filter_map do |type|
-        items.find { |item| item[:type].to_s == type }
-      end
-      (anchors + (items - anchors)).first(12)
+      items.first(DISCOVERY_LIMIT)
     end
 
     def discoverable?(item)
@@ -275,14 +273,15 @@ module Flyd
       content = evidence_content(item)
       title = content[:title].to_s
       score = case item[:type].to_s
-      when "activity" then 1_500
-      when "horoscope" then 1_250
-      when "quote" then 1_100
-      when "discovery" then 1_000
-      when "idea" then 950
-      when "forecast" then 925
-      when "fact" then 900
-      when "event" then 500
+      when "report" then 1_400
+      when "event" then 1_300
+      when "forecast" then 1_200
+      when "activity" then 1_100
+      when "horoscope" then 700
+      when "discovery" then 500
+      when "idea" then 400
+      when "quote" then 380
+      when "fact" then 350
       else 100
       end
       score += Array(content[:topics]).compact_blank.size * 12
