@@ -2,9 +2,11 @@
 
 ## Status
 
-Proposed extension to `flyd-personal-agent-platform-prd.md` (21 July 2026).
+Directional shift from `flyd-personal-agent-platform-prd.md` (21 July 2026).
 
-The existing PRD remains authoritative. The coding harness remains the first wedge. This document defines a second wedge: overlay intelligence that moves through the computer rather than being a destination.
+The existing PRD defined Rails as Flyd's primary interface. The overlay architecture flips this: the TypeScript core is Flyd's intelligence runtime. Rails is legacy — an optional composition renderer that may be useful later or may be retired entirely. It is not Flyd Core and never will be again.
+
+The coding harness remains the first wedge. The overlay is a second wedge that proves Flyd can be present without being a destination.
 
 ## Revised thesis
 
@@ -14,7 +16,7 @@ The existing PRD remains authoritative. The coding harness remains the first wed
 
 - Existing software is usually its interface.
 - Augmentation appears when useful.
-- Scenes appear when necessary.
+- Scenes appear when necessary (deferred — may reuse Rails rendering or move to native).
 - Agents disappear into the background when work needs doing.
 
 Scenes are one possible manifestation of intelligence, not synonymous with it.
@@ -22,28 +24,49 @@ Scenes are one possible manifestation of intelligence, not synonymous with it.
 ## Architecture
 
 ```
-FLYD CORE — persistent intelligence (memory, beliefs, behaviours, skills, reasoning, policy, surface composition)
-│
-├── PRESENT (M0) — local, continuous, no cognition. OS notifications only. Never transmits or persists.
-│
-├── INVOKED (M2) — ⌃⌥. Environment + intent → cheapest sufficient resolution → native/augment/compose.
-│   ├── deterministic fast path ("type hello" → focused field, no LLM)
-│   ├── local/small model (paraphrase, entity extraction)
-│   └── frontier model (complex intent, multi-step reasoning)
-│
-├── LIVE (deferred) — ⌃×3. Persistent realtime session. Visually unambiguous. GPT-Realtime-2.
-│
-├── DELEGATED (existing + M5) — coding/research agents. Context envelope delegation, not bare prompts.
-│
-└── COMPOSED (existing + M5) — Flyd creates a surface. Escalation when existing interfaces can't express the problem.
+                         FLYD
+                          │
+                   TypeScript Core
+                  persistent daemon
+                          │
+         ┌────────────────┼────────────────┐
+         │                │                │
+      memory           reasoning         agents
+      retrieval         routing           coding
+      beliefs           models            workers
+      behaviours        intent            verification
+      personal          resolution        integration
+         │                │                │
+         └────────────────┼────────────────┘
+                          │
+                    core protocol
+                    HTTP + JSON
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+         Swift Mac Adapter        OpenCode / agents
+              │                       │
+     ┌────────┼────────┐          specialist
+     │        │        │          execution
+  PRESENT  INVOKED   LIVE
+     │        │       (deferred)
+     │   ⌃⌥ capture    │
+     │   + execute      │
+     │                  │
+  existing computer UI
+
+              optional (deferred)
+                 │
+          composition renderer
+          (native or legacy Rails)
 ```
 
 **Key principles:**
 
 - **The Mac adapter is a thin OS driver.** It captures, renders, and executes. It never decides. Flyd Core owns all intelligence.
-- **Use the cheapest sufficient machinery.** Intelligence is sparse; presence is continuous. That means PRESENT without cognition, deterministic routing, AX before vision, cache before re-analysis, memory gate before synthesis, and specialist delegation instead of one giant model.
-
-**M0 implements only PRESENT and INVOKED.** No speculative code for deferred states.
+- **Use the cheapest sufficient machinery.** Intelligence is sparse; presence is continuous. PRESENT without cognition, deterministic routing, AX before vision, cache before re-analysis, memory gate before synthesis, specialist delegation instead of one giant model.
+- **Flyd Core is the TypeScript runtime.** It already has memory (QMD + brain retrieval + graph + librarian), reasoning (LLM integration + agent loops + prompt infrastructure), personal context (interests, projects, taste profile), agent orchestration (PostgreSQL task store, harness, orchestrator, workers, verification, integration), and state export (13 evidence collections). Rails adds nothing the overlay needs.
+- **Rails is legacy.** It was built for a web-app-as-product architecture that no longer exists. It may be useful later as an optional composition renderer for surfaces, or it may be retired. It is not Flyd Core. No overlay code depends on it.
 
 ## Consciousness hierarchy
 
@@ -52,8 +75,8 @@ FLYD CORE — persistent intelligence (memory, beliefs, behaviours, skills, reas
 | PRESENT | Foreground app, window, focused element, UI structure, selection metadata. OS notification-based observation. | Always running | Zero | M0 |
 | INVOKED | One-shot intelligence. Environment capture + intent → deterministic routing → frontier resolution. | ⌃⌥ | Cheapest sufficient path | M2 |
 | LIVE | Persistent realtime session. Continuous voice, tool calls. Visually unambiguous state. | ⌃×3 (deferred) | GPT-Realtime-2 (expensive) | Deferred |
-| DELEGATED | Coding/research agents with verification, context envelopes, grant boundaries. | Explicit task creation | Per-task LLM usage | Existing + M5 |
-| COMPOSED | Flyd creates a surface. Multi-source synthesis, decisions, investigations. | INVOKED or LIVE escalation | One composition call | Existing + M5 |
+| DELEGATED | Coding/research agents with verification, context envelopes, grant boundaries. | Explicit task creation | Per-task LLM usage | Existing |
+| COMPOSED | Flyd creates a surface. Escalation when existing interfaces can't express the problem. | INVOKED or LIVE escalation | One composition call | Deferred |
 
 ## Privacy invariants (enforced in code from M0)
 
@@ -100,7 +123,7 @@ mac-adapter/
 │   ├── Audit/
 │   │   └── AuditRecorder.swift           # Local log: invocation_id, timestamp, context_sources, error (no raw content)
 │   └── Auth/
-│       └── AdapterAuth.swift             # First-launch keychain credential generation. Authenticates localhost sessions.
+│       └── AdapterAuth.swift             # First-launch keychain credential generation. Authenticates sessions with Flyd Core.
 └── Resources/Info.plist                   # Stable bundle ID + signing identity from day one
 ```
 
@@ -112,7 +135,7 @@ mac-adapter/
 4. Overlay window exists: hidden, non-activating, click-through, all-Spaces
 5. All 11 privacy invariants have passing tests
 6. ⌃⌥ registered; state machine: present → invoking → capturing → present. Re-press during invocation = cancel + restart.
-7. On ⌃⌥: status item blue (INVOKED), EnvironmentState captured, intent field appears at cursor. Enter logs capture to console. No Flyd connection needed.
+7. On ⌃⌥: status item blue (INVOKED), EnvironmentState captured, intent field appears at cursor. Enter logs capture to console. No Flyd Core connection needed.
 8. Adapter auth generates per-install Keychain credential on first launch
 9. Stable bundle ID + signing identity configured (prevents TCC invalidation)
 10. Audit recorder writes invocation records (meaning only, no raw content)
@@ -122,7 +145,7 @@ mac-adapter/
 
 ### M0 does NOT:
 
-- Connect to Flyd Rails (no network calls in M0)
+- Connect to Flyd Core (no network calls in M0)
 - Make any LLM calls
 - Execute any operations
 - Capture screenshots
@@ -131,6 +154,7 @@ mac-adapter/
 - Persist environment data
 - Have any user-configurable settings
 - Have stub classes for deferred systems
+- Touch any Rails code
 
 ## M1 — Reliable observation
 
@@ -163,27 +187,36 @@ mac-adapter/
 
 ## M2 — Pass-through intelligence (the existential test)
 
-**First Flyd Core changes. Must answer: does this feel magical?**
+**First Flyd Core changes. TypeScript only. No Rails code touched. Must answer: does this feel magical?**
 
-### Flyd Core additions (8-10 files)
+### What the TypeScript core already provides for M2
 
-| File | Type | Purpose |
-|------|------|---------|
-| `app/services/flyd/manifestation.rb` | New | `Data.define(:mode, :reasoning, :operations, :surface_plan)` |
-| `app/services/flyd/native_operation.rb` | New | `Data.define(:target, :kind, :text)` — target is `el_01` ref, kind is `insert_text/replace_text/replace_selection` |
-| `app/services/flyd/intelligence.rb` | Modified | Add `resolve(world_state, intent, environment:)` method. Separate LLM prompt for resolution. Existing `compose_surface` preserved unchanged. |
-| `app/services/flyd/manifestation_validator.rb` | New | Validates operations against environment refs. Rejects hallucinated targets, invalid kinds, empty text. |
-| `app/controllers/api/manifestations_controller.rb` | New | `POST /api/manifest`. Calls `resolve()`. Returns JSON. Records outcome as archive event (meaning only). |
-| `app/services/flyd/intent_router.rb` | New | Deterministic fast path first. "type hello" → STT cleanup → focused field. No LLM. Cheapest sufficient resolution. Ambiguous → local model → frontier model. |
-| `config/routes.rb` | Modified | Add `POST /api/manifest` route |
-| `app/services/intelligence_state/mac_provider.rb` | New | Optional: if we want environment evidence in WorldStateCompiler for memory/belief context |
+The TypeScript CLI (`cli/src/`) already has everything M2 needs — no Rails dependency required:
+
+| Need | Existing TypeScript capability |
+|------|-------------------------------|
+| Memory for resolution context | `brain-retrieval.ts` — hybrid QMD search, graph traversal, librarian corroboration |
+| Personal context | `interests.ts`, `config.ts` (project detection, taste profile), `personal-context-memory.ts` |
+| Active task state | `task-store.ts` — reads PostgreSQL directly (same tables Rails reads) |
+| LLM integration | `llm.ts` — OpenAI + Anthropic providers, streaming, agent loops, tool use. `flyd-worker-config.ts` — FLYD_MODEL chain with fallbacks |
+| World state | `export-state.ts` — 13 evidence collections (goals, tensions, signals, curiosity, nudges, reports, events, brain health, profile, knowledge, review, suggestions, capabilities) |
+| Communication | `runtime-bridge.ts` — JSON-in/JSON-out protocol. Trivially extended to HTTP. |
+| Provider chain | `FLYD_MODEL_*` → `OPENCODE_MODEL` → `OPENROUTER_MODEL` fallback |
+
+### New TypeScript Core files (3 files)
+
+| File | Purpose |
+|------|---------|
+| `cli/src/resolve.ts` | `resolve(worldState, environment, intent)` → `Resolution`. Calls LLM with resolution prompt. Returns native/augment/compose operations. |
+| `cli/src/resolve-types.ts` | `Manifestation`, `NativeOperation`, `AugmentOperation`, `Resolution` types. Resolution validator (rejects hallucinated refs, invalid kinds, empty text, invalid modes). |
+| `cli/src/server.ts` | Simple HTTP server. `POST /manifest`. Receives environment + intent from Swift adapter. Calls `resolve()`. Returns JSON. Records outcome as archive event (meaning only). Uses existing `FLYD_MODEL_*` provider chain. |
 
 ### Mac adapter additions (2 files)
 
 | File | Purpose |
 |------|---------|
 | `Sources/Execution/NativeExecutor.swift` | Resolves `el_01` via adapter-held invocation ref. Verifies fingerprint (t₂): app + window + element must still match capture. If ref can't safely resolve (element destroyed, AX tree restructured), fail with "Target no longer available." Never silently substitute a different focused element. Accepts element-level drift only when the same semantic target is reachable via AX role+description re-resolution. |
-| `Sources/Bridge/FlydClient.swift` | Per-install Keychain credential auth. HTTP POST to `/api/manifest`. Sends intent + environment. Receives resolution. Handles offline: "Cannot reach Flyd — start your Rails server." |
+| `Sources/Bridge/FlydClient.swift` | Per-install Keychain credential auth. HTTP POST to Flyd Core `/manifest`. Sends intent + environment. Receives resolution. Handles offline: "Cannot reach Flyd Core — is it running?" |
 
 ### Intent routing tiers
 
@@ -198,7 +231,8 @@ deterministic fast path (M2)
   no LLM call
 ↓
 frontier model (M2)
-  full Flyd::Intelligence.resolve with memory + beliefs + environment
+  full resolve() with memory + personal context + environment
+  uses existing FLYD_MODEL_* → OPENCODE_MODEL → OpenRouter chain
 ↓
 local/small model (architectural, deferred)
   paraphrase, entity extraction, simple rewrites
@@ -242,10 +276,9 @@ first byte → action rendered/executed
 6. No click, submit, delete, shell, or launch operations possible
 7. Environment context discarded after execution (adapter state + audit log + caches inspected for no lingering environment fields)
 8. Audit record contains meaning, not raw content
-9. Existing Flyd (Rails surface composition, CLI harness) works unchanged
-10. `GET /` never calls LLM or executes provider refresh synchronously (unchanged)
-11. Latency instrumentation reports actuals
-12. Measured drift rate across 100+ real invocations
+9. Existing CLI (coding harness, task store, memory, retrieval) works unchanged
+10. Latency instrumentation reports actuals
+11. Measured drift rate across 100+ real invocations
 
 ### Success criterion (qualitative, after one day of use)
 
@@ -272,9 +305,9 @@ first byte → action rendered/executed
 
 | Component | Purpose |
 |-----------|---------|
-| `app/services/flyd/augment_operation.rb` | `Data.define(:kind, :content, :placement, :options)`. Kind: `explanation/choice/annotation/control`. Placement: `beside_selection/below_element/cursor`. |
-| `Flyd::Intelligence` prompt extended | Augment mode grammar |
-| `ManifestationValidator` extended | Augment payload validation |
+| `cli/src/resolve-types.ts` extended | `AugmentOperation` type: kind (`explanation/choice/annotation/control`), content, placement (`beside_selection/below_element/cursor`), options. |
+| `cli/src/resolve.ts` prompt extended | Augment mode grammar in the resolution LLM prompt |
+| Resolution validator extended | Augment payload validation |
 | `Sources/UI/AugmentPanel.swift` | NSPanel. Never steals application focus. Interactive augmentations (choices, controls) receive mouse input without becoming the active application. Non-interactive augmentations (explanations, annotations) remain click-through (`ignoresMouseEvents=true`). 2-4 options max. Auto-dissolves on interaction or 30s. canJoinAllSpaces. |
 
 ### Note for M3: manifestation timeline
@@ -301,28 +334,27 @@ From fork analysis: augmentation can be temporally orchestrated. The response re
 - M0 privacy invariants remain enforced regardless of settings
 - **Retention settings govern derived knowledge and invoked interactions, never raw PRESENT observations.** PRESENT never persists — full stop. No setting can weaken this.
 
-## M5 — Compose escalation
+## M5 — Compose escalation (deferred)
 
-**Connect overlay to existing Rails surface pipeline.**
+**When existing interfaces + augmentation can't express the problem, escalate to a Flyd surface.** Implementation deferred — M2 is the existential test.
 
-### Additions
+### Options for compose rendering
 
-- `Flyd::Intelligence.resolve` returns `mode: "compose"` with a surface plan
-- Surface created via existing `PersistPlan` + `Surface.activate!`
-- Response includes `surface_url`
-- Mac adapter opens browser to surface URL
+| Option | Description | When |
+|--------|-------------|------|
+| Reuse legacy Rails surfaces | Existing `app/views/surfaces/` renderers. Browser-based. Quickest path. | If Rails still runs and surface rendering is needed before native rendering exists |
+| Native Swift rendering | Render decision/investigation/comparison surfaces natively in the Mac adapter. No browser, no Rails. | Preferred long-term — keeps the user in context |
+| WebView overlay | Embed a WKWebView in an NSPanel. Renders HTML without leaving the application context. | Middle ground if native rendering is too expensive |
 
-**Note:** Browser launch is an M5 implementation shortcut, not the composed-interface architecture. Long term, COMPOSE routes to a Flyd manifestation host — not necessarily a browser and not necessarily leaving the current software context. The M5 shortcut is pragmatic for V1 but does not recreate the old "Flyd is a destination" pattern as permanent architecture.
+Whichever path is chosen: browser launch is an implementation shortcut, not the architecture. COMPOSE routes to a Flyd manifestation host — not necessarily a browser and not necessarily leaving the current software context.
 
-### DELEGATED integration
+### DELEGATED integration (existing)
 
-- Delegation sends context envelopes, not bare prompts
-- Envelope: intent + world_state + observation refs + memory + goal + grant + capabilities
-- Specialist returns resolution, not UI. Flyd decides manifestation.
+The coding harness (`cli/src/runtime/`) already handles DELEGATED: specialist workers with verification, isolated worktrees, grant boundaries, and context envelopes. The overlay can invoke delegation by routing a resolution through the existing task store — no new infrastructure needed beyond the intent router in M2.
 
 ## Contracts
 
-### Environment capture (Mac Adapter → Flyd)
+### Environment capture (Mac Adapter → Flyd Core)
 
 ```json
 {
@@ -370,7 +402,7 @@ From fork analysis: augmentation can be temporally orchestrated. The response re
 }
 ```
 
-### Resolution contract (Flyd → Mac Adapter)
+### Resolution contract (Flyd Core → Mac Adapter)
 
 ```json
 {
@@ -382,7 +414,7 @@ From fork analysis: augmentation can be temporally orchestrated. The response re
 }
 ```
 
-### Delegation envelope (Flyd → Specialist, M5)
+### Delegation envelope (Flyd → Specialist)
 
 ```json
 {
@@ -404,18 +436,23 @@ From fork analysis: augmentation can be temporally orchestrated. The response re
 | AX ref staleness during LLM roundtrip | High | App+window fingerprint. Element-level tolerance. Re-resolve by AX role+description. Measure drift rate in M2. |
 | Semantic neighbourhood extraction complexity | High | M1 provides patterns for Mail.app/Gmail. Other apps get partial context marked `sufficiency: partial`. Acceptable. |
 | TCC permission denial = product death | High | M0's only job: make this state clear, guide user. No product without Accessibility. Honest error handling. |
-| Compose escalation pulls user from their context | Medium | Only triggers when existing interfaces genuinely fail. Acceptable tradeoff. Deferred to M5. |
 | Latency (1.5-6s) makes product feel slow | Medium | Deterministic fast path for common operations. Prewarm perception. Instrument and optimize in M2. M0-M1 prove capture is fast before we add LLM. |
+| Compose escalation requires rendering infrastructure | Low (deferred) | Surface composition is deferred to M5+. Multiple options exist (legacy Rails, native Swift, WebView). Decision deferred until M2 proves the primitive is worth building more of. |
 
-## What this plan does NOT change
+## What is NOT changed (existing TypeScript core unaffected)
 
-- Existing Rails intelligence pipeline (`compose_surface`, `WorldStateCompiler`, `InterfaceDirector`)
-- Existing surface rendering (all renderers)
-- Existing CLI coding harness (worker lifecycle, task store, grant model, verification)
-- Existing memory, beliefs, behaviours, scenes, models
-- `GET /` behavior (no LLM call, no provider refresh)
-- The existing PRD's product thesis, founder decisions, and product promise
+- `cli/src/runtime/` — coding harness, task store, worker lifecycle, grant model, verification
+- `cli/src/lib/` — memory, retrieval, librarian, graph, attention, tension, staleness
+- `cli/src/export-state.ts` — intelligence state export
+- `cli/src/bridge.ts` — targeted retrieval bridge
+- `cli/src/runtime-bridge.ts` — PostgreSQL command bridge
+- Existing `~/.flyd/` directory structure (raw, wiki, context, plans)
 - The coding harness as the first wedge (overlay is a second wedge)
+- M0-M1 touch zero Flyd Core code — they're Swift only
+
+## What is deliberately left alone
+
+- **Rails** — `app/`, `config/`, `db/`, `lib/` — untouched. Not deleted. Not depended on. The overlay has zero Rails dependencies. Rails remains on disk as legacy code that may be useful for surface rendering in M5+ or may be retired entirely when native rendering exists.
 
 ## Implementation principle
 
