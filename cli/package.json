@@ -10,6 +10,9 @@
     "build": "tsc && node scripts/postbuild.mjs",
     "dev": "tsx src/index.ts",
     "export-state": "tsx src/export-state.ts",
+    "core": "tsx src/server.ts start",
+    "core:stop": "tsx src/server.ts stop",
+    "core:status": "tsx src/server.ts status",
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run build"

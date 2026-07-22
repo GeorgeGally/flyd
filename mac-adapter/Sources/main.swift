@@ -13,6 +13,8 @@ let accessibilityInspector = AccessibilityInspector.shared
 let stateMachine = InvocationStateMachine.shared
 let auditRecorder = AuditRecorder.shared
 let auth = AdapterAuth.shared
+let flydClient = FlydClient.shared
+let executor = NativeExecutor.shared
 
 let invocationPanel = InvocationPanel()
 
@@ -36,11 +38,18 @@ func startFlyd() {
     stateMachine.onShortcutPressed = {
         handleInvocation()
     }
-
-    stateMachine.onShortcutReleased = {
-    }
+    stateMachine.onShortcutReleased = {}
 
     stateMachine.start()
+
+    Task {
+        let healthy = await flydClient.healthCheck()
+        if healthy {
+            print("[Flyd] Connected to Flyd Core")
+        } else {
+            print("[Flyd] Flyd Core not running — pass-through disabled. Invocations will log locally.")
+        }
+    }
 
     print("[Flyd] Agent started. Press ⌃⌥ to invoke.")
 }
@@ -56,57 +65,17 @@ func handleInvocation() {
     }
 
     let invocationId = state.startInvocation()
-
     stateMachine.startPrewarm()
-
     state.transition(to: .awaitingIntent)
 
     invocationPanel.onIntentSubmitted = { intent in
-        stateMachine.captureIntent(intent: intent)
-
-        if stateMachine.hasFocusDrift() {
-            print("[Flyd] WARNING: Focus drifted between t₀ and t₁")
-        }
-
-        guard let environment = accessibilityInspector.captureEnvironment() else {
-            state.cancelInvocation()
-            auditRecorder.record(invocationId: invocationId, contextSources: ["none"], error: "Failed to capture environment")
-            return
-        }
-
-        state.transition(to: .executing)
-
-        if !stateMachine.verifyPreExecution() {
-            print("[Flyd] WARNING: App/window changed before execution")
-        }
-
-        let contextSources = [
-            "app:\(environment.application.bundleId)",
-            "element:\(environment.focusedElement.role)",
-            "sufficiency:\(environment.sufficiency.rawValue)",
-        ]
-
-        print("[Flyd] ===== INVOCATION \(invocationId.prefix(8)) =====")
-        print("[Flyd] App: \(environment.application.name) (\(environment.application.bundleId))")
-        print("[Flyd] Element: \(environment.focusedElement.role) — \(environment.focusedElement.description)")
-        print("[Flyd] Selection: \(environment.focusedElement.selectedText.prefix(80))")
-        print("[Flyd] Intent: \(intent)")
-        print("[Flyd] =====================================")
-
-        auditRecorder.record(
-            invocationId: invocationId,
-            contextSources: contextSources,
-            error: nil
-        )
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            state.transition(to: .present)
-        }
+        Task { await processInvocation(invocationId: invocationId, intent: intent) }
     }
 
     invocationPanel.onCancelled = {
         state.cancelInvocation()
         stateMachine.cancel()
+        executor.clearInvocationRefs()
         auditRecorder.record(
             invocationId: invocationId,
             contextSources: ["cancelled"],
@@ -115,6 +84,136 @@ func handleInvocation() {
     }
 
     invocationPanel.show()
+}
+
+func processInvocation(invocationId: String, intent: String) async {
+    stateMachine.captureIntent(intent: intent)
+
+    if stateMachine.hasFocusDrift() {
+        print("[Flyd] WARNING: Focus drifted between t₀ and t₁")
+    }
+
+    guard let environment = accessibilityInspector.captureEnvironment() else {
+        state.cancelInvocation()
+        auditRecorder.record(invocationId: invocationId, contextSources: ["none"], error: "Failed to capture environment")
+        return
+    }
+
+    state.transition(to: .resolving)
+
+    if !stateMachine.verifyPreExecution() {
+        print("[Flyd] WARNING: App/window changed before execution")
+    }
+
+    let contextSources = [
+        "app:\(environment.application.bundleId)",
+        "element:\(environment.focusedElement.role)",
+        "sufficiency:\(environment.sufficiency.rawValue)",
+    ]
+
+    print("[Flyd] ===== INVOCATION \(invocationId.prefix(8)) =====")
+    print("[Flyd] App: \(environment.application.name) (\(environment.application.bundleId))")
+    print("[Flyd] Element: \(environment.focusedElement.role) — \(environment.focusedElement.description)")
+    print("[Flyd] Intent: \(intent)")
+    print("[Flyd] =====================================")
+
+    guard let fingerprint = InvocationFingerprint(
+        app: environment.application.bundleId,
+        surface: environment.surface?.host,
+        window: "win_01",
+        element: environment.focusedElement.ref,
+        capturedAt: Date()
+    ) as InvocationFingerprint? else { return }
+
+    let response = await flydClient.sendManifest(
+        invocationId: invocationId,
+        environment: environment,
+        intent: intent,
+        fingerprint: fingerprint
+    )
+
+    guard let resolution = response else {
+        print("[Flyd] No response from Flyd Core — running locally")
+        print("[Flyd] Resolution: requires_compose (no Flyd Core connection)")
+
+        auditRecorder.record(
+            invocationId: invocationId,
+            contextSources: contextSources,
+            error: "Flyd Core unreachable"
+        )
+
+        await MainActor.run {
+            state.transition(to: .present)
+        }
+        return
+    }
+
+    state.transition(to: .executing)
+
+    print("[Flyd] Resolution: \(resolution.mode) — \(resolution.rationale)")
+
+    switch resolution.mode {
+    case "native":
+        await executeNativeOperations(resolution: resolution, fingerprint: fingerprint)
+
+    case "requires_augment":
+        await showAugmentations(
+            invocationId: invocationId,
+            resolution: resolution,
+            fingerprint: fingerprint
+        )
+
+    case "requires_compose":
+        print("[Flyd] Compose requested: \(resolution.composeRationale ?? "no rationale")")
+
+    default:
+        print("[Flyd] Unknown mode: \(resolution.mode)")
+    }
+
+    auditRecorder.record(
+        invocationId: invocationId,
+        contextSources: contextSources,
+        error: nil
+    )
+
+    executor.clearInvocationRefs()
+
+    await MainActor.run {
+        state.transition(to: .present)
+    }
+}
+
+func executeNativeOperations(
+    resolution: FlydClient.ResolutionResponse,
+    fingerprint: InvocationFingerprint
+) async {
+    for op in resolution.operations {
+        let resolved = ResolvedOperation(target: op.target, kind: op.kind, text: op.text)
+        let result = await executor.execute(operation: resolved, fingerprint: fingerprint)
+
+        if result.success {
+            print("[Flyd] Executed: \(op.kind) → \(op.text.prefix(40))...")
+        } else {
+            print("[Flyd] Failed: \(op.kind) — \(result.error ?? "unknown error")")
+        }
+
+        await flydClient.sendOutcome(
+            resolutionId: resolution.resolutionId,
+            invocationId: resolution.invocationId,
+            status: result.success ? "succeeded" : "failed",
+            correction: result.error
+        )
+    }
+}
+
+func buildFingerprint(from environment: EnvironmentState) -> InvocationFingerprint {
+    return InvocationFingerprint(
+        app: environment.application.bundleId,
+        surface: environment.surface?.host,
+        window: "win_01",
+        element: environment.focusedElement.ref,
+        capturedAt: Date()
+    )
 }
 
 func showPermissionsWindow() {
