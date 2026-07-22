@@ -15,6 +15,7 @@ let auditRecorder = AuditRecorder.shared
 let auth = AdapterAuth.shared
 let flydClient = FlydClient.shared
 let executor = NativeExecutor.shared
+let configManager = ConfigManager.shared
 
 let invocationPanel = InvocationPanel()
 

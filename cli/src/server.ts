@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import { memoryGate } from "./memory-gate.js";
+import { provisionalLearn, createMemoryReceipt, acknowledgeLearning } from "./memory-receipt.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -7,6 +8,9 @@ import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
+
+const intentHistory: Array<{ intent: string; timestamp: string }> = [];
+let lastResolved: { intent: string; resolutionMode: string; environmentSummary: string } | null = null;
 
 interface ManifestRequestBody {
   invocation_id: string;
@@ -84,6 +88,18 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     }
 
     sendJson(res, 200, resolution);
+
+    intentHistory.push({
+      intent: parsed.intent,
+      timestamp: new Date().toISOString(),
+    });
+    if (intentHistory.length > 100) intentHistory.shift();
+
+    lastResolved = {
+      intent: parsed.intent,
+      resolutionMode: resolution.mode,
+      environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+    };
   } catch (err) {
     sendJson(res, 500, {
       error: err instanceof Error ? err.message : "Internal server error",
@@ -128,6 +144,38 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
     `[Flyd Core] Outcome received: ${outcome.resolutionId.slice(0, 8)} → ${outcome.status}` +
       (outcome.correction ? ` (correction: ${outcome.correction})` : "")
   );
+
+  if (lastResolved) {
+    const gateResult = memoryGate({
+      intent: lastResolved.intent,
+      resolutionMode: lastResolved.resolutionMode,
+      outcomeStatus: outcome.status,
+      correction: outcome.correction,
+      intentHistory: intentHistory.slice(-20),
+      topicCount: intentHistory.length,
+    });
+
+    if (gateResult.shouldRemember) {
+      const receipt = createMemoryReceipt(
+        lastResolved.intent,
+        lastResolved.resolutionMode,
+        outcome.status,
+        lastResolved.environmentSummary,
+        outcome.correction,
+        gateResult.reason
+      );
+      console.log(`[MemoryGate] REMEMBER (${gateResult.category}/${gateResult.confidence}): ${gateResult.reason}`);
+
+      const learning = provisionalLearn(lastResolved.intent);
+      if (learning) {
+        console.log(`[MemoryGate] Provisional learning: ${learning.domain}=${learning.value}`);
+      }
+    } else {
+      console.log(`[MemoryGate] DISCARD (${gateResult.category}): ${gateResult.reason}`);
+    }
+
+    lastResolved = null;
+  }
 
   sendJson(res, 200, { acknowledged: true });
 }

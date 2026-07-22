@@ -1,8 +1,10 @@
 import AppKit
+import SwiftUI
 
 final class StatusItem {
     private var statusItem: NSStatusItem?
     private var dotView: StatusDotView?
+    private var menu: NSMenu?
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -21,6 +23,8 @@ final class StatusItem {
 
         updateColor(for: FlydState.shared.mode)
 
+        setupMenu()
+
         NotificationCenter.default.addObserver(
             forName: .flydModeDidChange,
             object: nil,
@@ -28,6 +32,88 @@ final class StatusItem {
         ) { [weak self] _ in
             self?.updateColor(for: FlydState.shared.mode)
         }
+    }
+
+    private func setupMenu() {
+        let menu = NSMenu()
+
+        let privacyItem = NSMenuItem(
+            title: "Privacy Settings...",
+            action: #selector(openPrivacySettings),
+            keyEquivalent: ","
+        )
+        privacyItem.target = self
+        menu.addItem(privacyItem)
+
+        let auditItem = NSMenuItem(
+            title: "Invocation History...",
+            action: #selector(openAuditTrail),
+            keyEquivalent: ""
+        )
+        auditItem.target = self
+        menu.addItem(auditItem)
+
+        menu.addItem(.separator())
+
+        let incognitoItem = NSMenuItem(
+            title: "Incognito Mode",
+            action: #selector(toggleIncognito),
+            keyEquivalent: ""
+        )
+        incognitoItem.target = self
+        incognitoItem.state = ConfigManager.shared.config.incognito ? .on : .off
+        menu.addItem(incognitoItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: "Quit Flyd",
+            action: #selector(quitApp),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        self.menu = menu
+        statusItem?.menu = menu
+    }
+
+    @objc private func openPrivacySettings() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Flyd — Privacy Settings"
+        window.center()
+        window.contentView = NSHostingView(rootView: PrivacySettingsView())
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func openAuditTrail() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Flyd — Invocation History"
+        window.center()
+        window.contentView = NSHostingView(rootView: AuditTrailView())
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func toggleIncognito() {
+        let newValue = !ConfigManager.shared.config.incognito
+        ConfigManager.shared.setIncognito(newValue)
+        if let item = menu?.items.first(where: { $0.title == "Incognito Mode" }) {
+            item.state = newValue ? .on : .off
+        }
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 
     private func updateColor(for mode: FlydMode) {
