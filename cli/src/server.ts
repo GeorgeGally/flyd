@@ -88,6 +88,25 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
+    if (resolution.mode === "requires_compose") {
+      try {
+        const composeRes = await fetch("http://127.0.0.1:3000/api/compose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent: parsed.intent,
+            environment: parsed.environment,
+          }),
+        });
+        if (composeRes.ok) {
+          const composeBody = await composeRes.json();
+          resolution.composeUrl = composeBody.surface_url;
+        }
+      } catch {
+        console.warn("[Flyd Core] Could not reach Rails for compose escalation");
+      }
+    }
+
     sendJson(res, 200, resolution);
 
     intentHistory.push({

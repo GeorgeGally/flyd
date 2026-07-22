@@ -110,6 +110,7 @@ final class FlydClient {
         let operations: [OperationPayload]
         let augmentations: [AugmentPayload]?
         let composeRationale: String?
+        let composeUrl: String?
 
         enum CodingKeys: String, CodingKey {
             case resolutionId = "resolution_id"
@@ -119,6 +120,7 @@ final class FlydClient {
             case operations
             case augmentations
             case composeRationale = "compose_rationale"
+            case composeUrl = "compose_url"
         }
     }
 

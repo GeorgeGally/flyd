@@ -169,6 +169,14 @@ func processInvocation(invocationId: String, intent: String) async {
 
     case "requires_compose":
         print("[Flyd] Compose requested: \(resolution.composeRationale ?? "no rationale")")
+        if let url = resolution.composeUrl, let surfaceURL = URL(string: url) {
+            NSWorkspace.shared.open(surfaceURL)
+        } else {
+            print("[Flyd] No compose URL returned — opening surface")
+            if let surfaceURL = URL(string: "http://127.0.0.1:3000/surface") {
+                NSWorkspace.shared.open(surfaceURL)
+            }
+        }
 
     default:
         print("[Flyd] Unknown mode: \(resolution.mode)")

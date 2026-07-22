@@ -25,6 +25,7 @@ export interface Resolution {
   operations: NativeOperation[];
   augmentations?: AugmentOperation[];
   composeRationale?: string;
+  composeUrl?: string;
 }
 
 export interface ResolutionOutcome {
