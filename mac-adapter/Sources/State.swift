@@ -71,10 +71,12 @@ final class FlydState: @unchecked Sendable {
 
     func cancelInvocation() {
         lock.lock()
-        _phase = .cancelled
+        _mode = .present
+        _phase = .idle
         _invocationId = nil
         lock.unlock()
         DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .flydModeDidChange, object: nil)
             NotificationCenter.default.post(name: .flydPhaseDidChange, object: nil)
         }
     }

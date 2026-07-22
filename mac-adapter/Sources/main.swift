@@ -95,6 +95,9 @@ func processInvocation(invocationId: String, intent: String) async {
 
     guard let environment = accessibilityInspector.captureEnvironment() else {
         state.cancelInvocation()
+        stateMachine.cancel()
+        executor.clearInvocationRefs()
+        invocationPanel.dismiss()
         auditRecorder.record(invocationId: invocationId, contextSources: ["none"], error: "Failed to capture environment")
         return
     }

@@ -41,7 +41,6 @@ final class NativeExecutor {
         var focusedRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef)
         guard result == .success, let element = focusedRef else { return nil }
-
         return (element as! AXUIElement)
     }
 
@@ -57,29 +56,35 @@ final class NativeExecutor {
 
         switch operation.kind {
         case "insert_text":
-            return await insertText(element, text: operation.text)
+            return insertText(element, text: operation.text)
         case "replace_text":
-            return await replaceText(element, text: operation.text)
+            return replaceText(element, text: operation.text)
         case "replace_selection":
-            return await replaceSelection(element, text: operation.text)
+            return replaceSelection(element, text: operation.text)
         default:
             return ExecutionResult(success: false, error: "Unknown operation kind: \(operation.kind)")
         }
     }
 
-    private func insertText(_ element: AXUIElement, text: String) async -> ExecutionResult {
-        AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef)
-        return ExecutionResult(success: true, error: nil)
+    private func insertText(_ element: AXUIElement, text: String) -> ExecutionResult {
+        var range: CFTypeRef?
+        let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &range)
+        guard rangeResult == .success else {
+            let setResult = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+            return ExecutionResult(success: setResult == .success, error: setResult != .success ? "AX error: \(setResult.rawValue)" : nil)
+        }
+        let setResult = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+        return ExecutionResult(success: setResult == .success, error: setResult != .success ? "AX error: \(setResult.rawValue)" : nil)
     }
 
-    private func replaceText(_ element: AXUIElement, text: String) async -> ExecutionResult {
-        AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef)
-        return ExecutionResult(success: true, error: nil)
+    private func replaceText(_ element: AXUIElement, text: String) -> ExecutionResult {
+        let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef)
+        return ExecutionResult(success: setResult == .success, error: setResult != .success ? "AX error: \(setResult.rawValue)" : nil)
     }
 
-    private func replaceSelection(_ element: AXUIElement, text: String) async -> ExecutionResult {
-        AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
-        return ExecutionResult(success: true, error: nil)
+    private func replaceSelection(_ element: AXUIElement, text: String) -> ExecutionResult {
+        let setResult = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+        return ExecutionResult(success: setResult == .success, error: setResult != .success ? "AX error: \(setResult.rawValue)" : nil)
     }
 
     func clearInvocationRefs() {

@@ -106,6 +106,8 @@ final class AccessibilityInspector {
     func captureSemanticNeighbourhood() -> EnvironmentState.SemanticNeighbourhood? {
         let bundleId = ApplicationMonitor.shared.foregroundApp?.bundleId ?? ""
 
+        PrivacyInvariants.capturedAXNodeCount = 0
+
         switch bundleId {
         case "com.apple.mail":
             return mailAppContext()
@@ -119,8 +121,16 @@ final class AccessibilityInspector {
         }
     }
 
+    private func canCollectNode() -> Bool {
+        PrivacyInvariants.capturedAXNodeCount += 1
+        return PrivacyInvariants.capturedAXNodeCount <= maxNodeCount
+    }
+
     private func mailAppContext() -> EnvironmentState.SemanticNeighbourhood {
         var context: [String: String] = [:]
+        guard canCollectNode() else {
+            return EnvironmentState.SemanticNeighbourhood(parentType: "email_thread", context: [:])
+        }
         if let window = AXUIElementCreateApplication(pid) as AXUIElement? {
             context["subject"] = axAttribute(window, kAXTitleAttribute as CFString) ?? ""
         }
@@ -132,6 +142,9 @@ final class AccessibilityInspector {
 
     private func gmailContext() -> EnvironmentState.SemanticNeighbourhood {
         var context: [String: String] = [:]
+        guard canCollectNode() else {
+            return EnvironmentState.SemanticNeighbourhood(parentType: "email_thread", context: [:])
+        }
         if let window = AXUIElementCreateApplication(pid) as AXUIElement? {
             context["subject"] = axAttribute(window, kAXTitleAttribute as CFString) ?? ""
         }
@@ -142,6 +155,9 @@ final class AccessibilityInspector {
     }
 
     private func partialContext() -> EnvironmentState.SemanticNeighbourhood {
+        guard canCollectNode() else {
+            return EnvironmentState.SemanticNeighbourhood(parentType: nil, context: [:])
+        }
         return EnvironmentState.SemanticNeighbourhood(
             parentType: nil,
             context: [:]

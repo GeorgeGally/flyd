@@ -20,12 +20,38 @@ final class InvocationStateMachine {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    private var t0Fingerprint: InvocationFingerprint?
-    private var t0ScreenHash: UInt64?
-    private var t1Fingerprint: InvocationFingerprint?
-    private var t1ScreenHash: UInt64?
-    private var currentScreenImage: CGImage?
+    private let checkpointLock = NSLock()
+    private var _t0Fingerprint: InvocationFingerprint?
+    private var _t0ScreenHash: UInt64?
+    private var _t1Fingerprint: InvocationFingerprint?
+    private var _t1ScreenHash: UInt64?
+    private var _currentScreenImage: CGImage?
     private var prewarmTask: Task<Void, Never>?
+
+    private var t0Fingerprint: InvocationFingerprint? {
+        get { checkpointLock.withLock { _t0Fingerprint } }
+        set { checkpointLock.withLock { _t0Fingerprint = newValue } }
+    }
+
+    private var t0ScreenHash: UInt64? {
+        get { checkpointLock.withLock { _t0ScreenHash } }
+        set { checkpointLock.withLock { _t0ScreenHash = newValue } }
+    }
+
+    private var t1Fingerprint: InvocationFingerprint? {
+        get { checkpointLock.withLock { _t1Fingerprint } }
+        set { checkpointLock.withLock { _t1Fingerprint = newValue } }
+    }
+
+    private var t1ScreenHash: UInt64? {
+        get { checkpointLock.withLock { _t1ScreenHash } }
+        set { checkpointLock.withLock { _t1ScreenHash = newValue } }
+    }
+
+    private var currentScreenImage: CGImage? {
+        get { checkpointLock.withLock { _currentScreenImage } }
+        set { checkpointLock.withLock { _currentScreenImage = newValue } }
+    }
 
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?

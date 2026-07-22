@@ -47,10 +47,8 @@ final class PermissionGate {
     }
 
     var hasScreenRecording: Bool {
-        if #available(macOS 15.0, *) {
-            return false
-        }
-        return CGPreflightScreenCaptureAccess()
+        let granted = CGPreflightScreenCaptureAccess()
+        return granted
     }
 
     var hasMicrophone: Bool {
