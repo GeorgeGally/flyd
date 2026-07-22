@@ -372,10 +372,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     const assignment = await pool.query(`INSERT INTO task_assignments
       (agent_task_id, assignment_key, status, title, instructions, success_criteria,
        capability_requirements, dependency_keys, declared_file_scope, excluded_adapters,
-       verification_result, integration_result, revision, created_at, updated_at)
+       verification_result, integration_result, repository_root, revision, created_at, updated_at)
       VALUES ($1, $2, 'integrated', 'Implement', 'Implement and verify', '[]'::jsonb,
        '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '{}'::jsonb,
-       1, NOW(), NOW()) RETURNING id`, [taskId, randomUUID()]);
+       $3, 1, NOW(), NOW()) RETURNING id`, [taskId, randomUUID(), projectRoot]);
     const grant = await pool.query(`INSERT INTO task_grants
       (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths,
        worker_adapters, file_operations, command_classes, verification_commands,
@@ -657,6 +657,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       assignments: [
         {
           key: "implementation",
+          repositoryRoot: projectRoot,
           title: "Implement",
           instructions: "Implement the change",
           capabilityRequirements: ["implementation", "testing"],
@@ -665,6 +666,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
         },
         {
           key: "review",
+          repositoryRoot: `${projectRoot}/companion`,
           title: "Review",
           instructions: "Review the implementation",
           capabilityRequirements: ["review"],
@@ -673,6 +675,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
         },
       ],
       baseHead: "base",
+      repositoryHeads: {
+        [projectRoot]: "base",
+        [`${projectRoot}/companion`]: "companion-base",
+      },
       idempotencyKey: `plan:${task.taskKey}`,
     });
     const duplicate = await store.persistAssignmentPlan(task.taskKey, task.revision, {
@@ -688,6 +694,10 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     expect(duplicate.assignments.map((assignment) => assignment.assignmentKey))
       .toEqual(planned.assignments.map((assignment) => assignment.assignmentKey));
     expect(planned.assignments).toHaveLength(2);
+    expect(planned.assignments.map((assignment) => [assignment.repositoryRoot, assignment.baseHead])).toEqual([
+      [projectRoot, "base"],
+      [`${projectRoot}/companion`, "companion-base"],
+    ]);
     expect(planned.task.successCriteria).toEqual(["Both assignments verify"]);
 
     const grant = await store.approveGrant(task.taskKey, planned.task.revision, {
@@ -856,7 +866,39 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       }),
     ]);
     const ready = await store.findTask(task.taskKey);
-    const completed = await store.completeTask(task.taskKey, ready!.revision, {
+    const corrected = await store.recordCorrection(task.taskKey, ready!.revision, "Change the implementation", {
+      repositorySnapshot: { head: "result", status_digest: "changed" },
+      originalClaim: "Review the verified integrated result",
+      actorSurface: "cli",
+      idempotencyKey: `integrated-correction:${task.taskKey}`,
+    });
+    expect(corrected.verificationResult).toEqual({});
+    expect(corrected.recommendedNextAction).toBe("Change the implementation");
+
+    const correctedAssignments = await store.listAssignments(task.id);
+    expect(correctedAssignments.every((item) => item.status === "integrated")).toBe(true);
+    const replanned = await store.persistAssignmentPlan(task.taskKey, corrected.revision, {
+      successCriteria: ["Corrected"],
+      verificationCriteria: ["git diff --check"],
+      source: "fallback",
+      assignments: [{
+        key: "corrected", title: "Corrected work", instructions: "Change the implementation",
+        capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["."],
+      }],
+      baseHead: "result",
+      idempotencyKey: `integrated-replan:${task.taskKey}`,
+    });
+    expect(replanned.assignments).toHaveLength(1);
+
+    await store.recordAssignmentVerification(replanned.assignments[0].assignmentKey, {
+      status: "verified", result: { passed: true }, idempotencyKey: `corrected-verified:${task.taskKey}`,
+    });
+    await store.recordTaskIntegration(task.taskKey, {
+      result: { status: "integrated", reason: null, changedFiles: ["one.txt"], patchDigest: "corrected-digest" },
+      idempotencyKey: `corrected-integration:${task.taskKey}`,
+    });
+    const correctedReady = await store.findTask(task.taskKey);
+    const completed = await store.completeTask(task.taskKey, correctedReady!.revision, {
       summary: "Integrated", verification: { confirmed_by: "user" },
       repositorySnapshot: { head: "result", status_digest: "changed" },
       idempotencyKey: `integrated-complete:${task.taskKey}`,
@@ -874,7 +916,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       replaceControls: 0,
       integrationConflicts: 0,
       permissionRenewals: 0,
-      verifiedIntegrations: 1,
+      verifiedIntegrations: 2,
       manualContextTransfers: 0,
     });
   });
@@ -952,6 +994,7 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
     ]);
     expect(duplicate.command.commandKey).toBe(first.command.commandKey);
     expect(first.worker.status).toBe("stopping");
+    expect(await store.workerAuthority(worker.workerKey)).toBe(false);
     expect((await store.liveWorkers(projectRoot)).map((item) => item.workerKey)).toContain(worker.workerKey);
     expect((await store.listWorkers(task.id))[0]).toMatchObject({
       workerKey: worker.workerKey,

@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { execFile as nodeExecFile } from "child_process";
+import { execFile as nodeExecFile, spawn } from "child_process";
 import { mkdtemp, readdir, realpath, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { delimiter, join, resolve } from "path";
@@ -116,7 +116,7 @@ async function runVerificationCommand(
       "(allow file-write* (subpath \"/dev\"))",
       "(allow file-write* (subpath \"/private/var/run\"))",
     ].join("\n");
-    const result = await execFileAsync("/usr/bin/sandbox-exec", [ "-p", profile, executable, ...args ], {
+    const result = await runContainedProcess("/usr/bin/sandbox-exec", [ "-p", profile, executable, ...args ], {
       cwd,
       env: {
         PATH: process.env.PATH,
@@ -125,12 +125,11 @@ async function runVerificationCommand(
         TMPDIR: home,
         HOME: home,
       },
-      encoding: "utf8",
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
+      timeoutMs,
     });
     stdout = result.stdout;
     stderr = result.stderr;
+    exitStatus = result.exitStatus;
   } catch (error) {
     const failure = error as Error & { code?: number | string; stdout?: string; stderr?: string };
     stdout = failure.stdout ?? "";
@@ -148,6 +147,80 @@ async function runVerificationCommand(
     stderr,
     outputDigest: createHash("sha256").update(`${stdout}\n${stderr}`).digest("hex"),
   };
+}
+
+const MAX_COMMAND_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+async function runContainedProcess(
+  executable: string,
+  args: string[],
+  input: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
+): Promise<{ exitStatus: number; stdout: string; stderr: string }> {
+  const child = spawn(executable, args, {
+    cwd: input.cwd,
+    env: input.env,
+    stdio: [ "ignore", "pipe", "pipe" ],
+    detached: true,
+  });
+  let stdout = Buffer.alloc(0);
+  let stderr = Buffer.alloc(0);
+  const append = (current: Buffer, chunk: Buffer | string) => Buffer.concat([current, Buffer.from(chunk)])
+    .subarray(0, MAX_COMMAND_OUTPUT_BYTES);
+  child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+  child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+
+  const groupAlive = () => {
+    if (!child.pid) return false;
+    try {
+      process.kill(-child.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const signalGroup = (signal: NodeJS.Signals) => {
+    if (!child.pid) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      child.kill(signal);
+    }
+  };
+  const waitForGroupExit = async (maximumMs: number) => {
+    const deadline = Date.now() + maximumMs;
+    while (groupAlive() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  };
+
+  return new Promise((resolveResult) => {
+    let timedOut = false;
+    let settled = false;
+    let forceTimer: NodeJS.Timeout | undefined;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      signalGroup("SIGTERM");
+      forceTimer = setTimeout(() => signalGroup("SIGKILL"), 500);
+    }, input.timeoutMs);
+    const finish = async (code: number | null, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (forceTimer) clearTimeout(forceTimer);
+      signalGroup("SIGTERM");
+      await waitForGroupExit(500);
+      if (groupAlive()) {
+        signalGroup("SIGKILL");
+        await waitForGroupExit(500);
+      }
+      const extra = error?.message ?? (timedOut ? `Verification command timed out after ${input.timeoutMs}ms` : "");
+      resolveResult({
+        exitStatus: timedOut || error ? 1 : code ?? 1,
+        stdout: stdout.toString("utf8"),
+        stderr: [stderr.toString("utf8"), extra].filter(Boolean).join("\n"),
+      });
+    };
+    child.once("error", (error) => { void finish(1, error); });
+    child.once("close", (code) => { void finish(code); });
+  });
 }
 
 async function assertNoEscapingSymlinks(root: string, directory = root): Promise<void> {
@@ -178,8 +251,10 @@ export async function verifyWorkerResult(input: {
   const commands: VerificationCommandResult[] = [];
   for (const command of input.commands) {
     commands.push(await runVerificationCommand(input.worktreePath, command, input.commandTimeoutMs ?? 15 * 60 * 1000));
+    await assertNoEscapingSymlinks(canonicalWorktree);
   }
 
+  await assertNoEscapingSymlinks(canonicalWorktree);
   await execFileAsync("git", [ "-C", input.worktreePath, "add", "-N", "--", "." ], {
     encoding: "utf8",
     timeout: 10_000,
@@ -196,6 +271,7 @@ export async function verifyWorkerResult(input: {
   const changedFiles = names.trim() ? names.trim().split("\n").sort() : [];
   return {
     passed: commands.every((command) => command.exitStatus === 0) &&
+      head.trim() === input.baseHead &&
       (!input.requireChanges || changedFiles.length > 0) &&
       (!input.requireUnchanged || changedFiles.length === 0),
     worktreePath: input.worktreePath,

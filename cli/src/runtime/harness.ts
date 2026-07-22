@@ -358,6 +358,8 @@ export async function runContinuityHarness(input: {
     const recoveredWorkers = await deps.recoverWorkers(repository.root);
     const recoveredSessions = await deps.recoverSessions(repository.root);
     const resumedTask = await deps.store.findResumableTask(repository.root);
+    const resumableIntegrationIsCurrent = resumedTask?.verificationResult.integrated === true &&
+      Number(resumedTask.verificationResult.integration_revision) === resumedTask.revision;
     const previousWorker = resumedTask ? await deps.store.latestWorker(resumedTask.id) : null;
     const outcome = input.outcome?.trim() || resumedTask?.intendedOutcome ||
       (await deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
@@ -486,7 +488,9 @@ export async function runContinuityHarness(input: {
       ? await deps.resolveRepositoryRoots(assignment, repository.root)
       : [ repository.root ];
     const verificationCommands = deps.resolveVerificationCommands
-      ? await deps.resolveVerificationCommands(repository.root)
+      ? [...new Set((await Promise.all(repositoryRoots.map((root) => (
+          deps.resolveVerificationCommands!(root)
+        )))).flat())]
       : [ "git diff --check" ];
     const fileOperations = requestIsReadOnly(assignment) ? [ "read" ] : [ "read", "write" ];
     let grant = await deps.store.approvedGrant(task.id);
@@ -602,7 +606,7 @@ export async function runContinuityHarness(input: {
     const context = buildContextPackage({ task, repository, worker: previousWorker, memory });
     if (deps.orchestrate) {
       let orchestration;
-      if (task.verificationResult.integrated === true) {
+      if (resumableIntegrationIsCurrent && interpretation === "accepted") {
         const changedFiles = Array.isArray(task.verificationResult.changed_files)
           ? task.verificationResult.changed_files
           : [];

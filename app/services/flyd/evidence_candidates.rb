@@ -242,14 +242,14 @@ module Flyd
     def discovery_evidence
       items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:discoveries) +
         collection(:recent_events, :recentEvents) + collection(:reports) + memory_matches +
-        collection(:quotes) + collection(:ideas)
+        collection(:quotes) + collection(:ideas) + collection(:facts)
       items.select do |item|
         discoverable?(item) && !previously_shown?(item)
       end.sort_by { |item| -discovery_score(item) }
     end
 
     def discovery_selection(items)
-      anchors = %w[activity horoscope discovery quote idea].filter_map do |type|
+      anchors = %w[activity horoscope discovery quote fact idea].filter_map do |type|
         items.find { |item| item[:type].to_s == type }
       end
       (anchors + (items - anchors)).first(12)
@@ -279,6 +279,7 @@ module Flyd
       when "quote" then 1_100
       when "discovery" then 1_000
       when "idea" then 950
+      when "fact" then 900
       when "event" then 500
       else 100
       end

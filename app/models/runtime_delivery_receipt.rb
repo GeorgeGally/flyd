@@ -1,5 +1,6 @@
 class RuntimeDeliveryReceipt < ApplicationRecord
   belongs_to :runtime_event
+  belongs_to :surface_item
 
   validates :client_id, presence: true
   validates :acknowledged_at, presence: true

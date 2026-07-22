@@ -171,6 +171,7 @@ describe("runContinuityHarness", () => {
       revision: 4,
       verificationResult: {
         integrated: true,
+        integration_revision: 4,
         changed_files: ["app/models/task.rb"],
         patch_digest: "digest",
       },
@@ -196,6 +197,35 @@ describe("runContinuityHarness", () => {
       }),
     );
     expect(result.status).toBe("completed");
+  });
+
+  it("reruns orchestration when integrated evidence belongs to an older revision", async () => {
+    const orchestrate = vi.fn(async () => ({
+      status: "integrated" as const,
+      summary: "Fresh integration",
+      verification: { passed: true },
+    }));
+    const deps = dependencies({ orchestrate });
+    let staleTask = task({
+      status: "ready",
+      revision: 4,
+      verificationResult: {
+        integrated: true,
+        integration_revision: 3,
+        changed_files: ["old.txt"],
+      },
+    });
+    deps.store.findResumableTask.mockResolvedValue(staleTask);
+    deps.store.recordOrientation.mockImplementation(async () => {
+      staleTask = { ...staleTask, revision: staleTask.revision + 1 };
+      return staleTask;
+    });
+    deps.store.findTask.mockImplementation(async () => staleTask);
+    deps.store.approvedGrant.mockResolvedValue(grant);
+
+    await runContinuityHarness({ outcome: "Implement continuity", deps });
+
+    expect(orchestrate).toHaveBeenCalledOnce();
   });
 
   it("renews a narrower Release 1A grant before starting Release 1B orchestration", async () => {

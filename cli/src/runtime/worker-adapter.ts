@@ -103,6 +103,15 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
   const spawn = input.spawn ?? (nodeSpawn as unknown as WorkerSpawn);
   const env = { ...sanitizeWorkerEnvironment(), ...input.extraEnvironment };
   const child = spawn(input.executable, input.args, { cwd: input.cwd, env, stdio: "pipe", detached: true });
+  const processGroupAlive = () => {
+    if (input.spawn || !child.pid) return false;
+    try {
+      process.kill(-child.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const signalWorkerGroup = (signal: NodeJS.Signals) => {
     if (input.spawn || !child.pid) return child.kill(signal);
     try {
@@ -174,6 +183,21 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
         resolve({ exitStatus: code ?? 1, externalSessionId, output, error });
       });
     };
+    const waitForProcessGroupExit = async (timeoutMs: number) => {
+      const deadline = Date.now() + timeoutMs;
+      while (processGroupAlive() && Date.now() < deadline) {
+        await new Promise((wait) => setTimeout(wait, 10));
+      }
+      return !processGroupAlive();
+    };
+    const finishAfterDescendants = async (code: number | null) => {
+      if (!processGroupAlive()) return finish(code);
+      signalWorkerGroup("SIGTERM");
+      if (await waitForProcessGroupExit(input.killGraceMs ?? 5_000)) return finish(code);
+      signalWorkerGroup("SIGKILL");
+      if (await waitForProcessGroupExit(input.killGraceMs ?? 5_000)) return finish(code);
+      finish(null, true);
+    };
     const terminate = (reason: "runtime" | "inactive" | "authority") => {
       if (settled || timeoutReason) return;
       timeoutReason = reason;
@@ -219,7 +243,7 @@ export async function runJsonWorkerProcess(input: WorkerRunInput & {
     });
     child.once("close", (code) => {
       childClosed = true;
-      finish(code);
+      void finishAfterDescendants(code);
     });
     Promise.resolve(input.onStart?.(child.pid ?? null)).then(
       () => signalWorkerGroup("SIGCONT"),

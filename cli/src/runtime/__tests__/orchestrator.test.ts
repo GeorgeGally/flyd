@@ -4,10 +4,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { grantRuntimeTimeoutMs, orchestrateAssignments } from "../orchestrator.js";
+import { grantRuntimeTimeoutMs, integrateRepositoryGroups, orchestrateAssignments } from "../orchestrator.js";
 import { buildCodexArgs, parseCodexEvent, runCodex } from "../codex-adapter.js";
 import { buildOpenCodeArgs, parseOpenCodeEvent, runOpenCode } from "../opencode-adapter.js";
 import { inspectRepository } from "../repository-inspector.js";
+import { integrateVerifiedResults } from "../result-integrator.js";
+import { verifyWorkerResult } from "../result-verifier.js";
 import type { AgentTask, TaskAssignment, TaskGrant, WorkerSession } from "../types.js";
 import type { WorkerAdapter, WorkerRunInput } from "../worker-adapter.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
@@ -91,6 +93,46 @@ describe("orchestrateAssignments", () => {
     expect(() => grantRuntimeTimeoutMs(grant, Date.parse("2026-07-21T02:06:00.000Z")))
       .toThrow("expired before worker start");
   });
+
+  it("restores the first repository when the second repository integration blocks", async () => {
+    const firstRepo = await repository();
+    const secondRepo = await repository();
+    const firstSnapshot = await inspectRepository(firstRepo.root);
+    const secondSnapshot = await inspectRepository(secondRepo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-rollback-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const firstWorktree = await manager.prepare({ repositoryRoot: firstRepo.root, taskKey: "rollback-task", assignmentKey: "first", baseHead: firstRepo.head });
+    const secondWorktree = await manager.prepare({ repositoryRoot: secondRepo.root, taskKey: "rollback-task", assignmentKey: "second", baseHead: secondRepo.head });
+    await writeFile(join(firstWorktree.path, "one.txt"), "first integrated\n");
+    await writeFile(join(secondWorktree.path, "two.txt"), "second candidate\n");
+    const [firstResult, secondResult] = await Promise.all([
+      verifyWorkerResult({ worktreePath: firstWorktree.path, baseHead: firstRepo.head, commands: ["git diff --check"] }),
+      verifyWorkerResult({ worktreePath: secondWorktree.path, baseHead: secondRepo.head, commands: ["git diff --check"] }),
+    ]);
+    let integrations = 0;
+
+    const result = await integrateRepositoryGroups({
+      groups: [
+        { repositoryRoot: firstSnapshot.root, results: [firstResult], verificationCommands: ["git diff --check"] },
+        { repositoryRoot: secondSnapshot.root, results: [secondResult], verificationCommands: ["git diff --check"] },
+      ],
+      taskKey: "rollback-task",
+      primaryRepositoryRoot: firstSnapshot.root,
+      repositorySnapshots: new Map([[firstSnapshot.root, firstSnapshot], [secondSnapshot.root, secondSnapshot]]),
+      manager,
+      integrate: async (input) => {
+        integrations += 1;
+        return integrations === 1
+          ? integrateVerifiedResults(input)
+          : { status: "blocked", reason: "second repository changed", changedFiles: [], patchDigest: null };
+      },
+    });
+
+    expect(result).toMatchObject({ status: "blocked", reason: expect.stringContaining("second repository changed") });
+    expect(await readFile(join(firstRepo.root, "one.txt"), "utf8")).toBe("one base\n");
+    expect(await readFile(join(secondRepo.root, "two.txt"), "utf8")).toBe("two base\n");
+  });
   it("blocks a resumed assignment whose recorded base no longer matches main", async () => {
     const repo = await repository();
     const snapshot = await inspectRepository(repo.root);
@@ -147,8 +189,9 @@ describe("orchestrateAssignments", () => {
     expect(neverRun.run).not.toHaveBeenCalled();
   });
 
-  it("routes and runs two disjoint assignments concurrently, verifies, and integrates main", async () => {
+  it("runs assignments concurrently and integrates each approved repository", async () => {
     const repo = await repository();
+    const secondRepo = await repository();
     const snapshot = await inspectRepository(repo.root);
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
     roots.push(managedRoot);
@@ -161,6 +204,10 @@ describe("orchestrateAssignments", () => {
       assignment("1", "Implement", ["implementation", "testing"], "one.txt"),
       assignment("2", "Review", ["implementation", "testing"], "two.txt"),
     ];
+    assignments[0].repositoryRoot = repo.root;
+    assignments[0].baseHead = repo.head;
+    assignments[1].repositoryRoot = secondRepo.root;
+    assignments[1].baseHead = secondRepo.head;
     assignments[0].excludedAdapters = ["codex"];
     assignments[1].excludedAdapters = ["opencode"];
     const workers: WorkerSession[] = [];
@@ -220,8 +267,9 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
-      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      repositoryRoots: [repo.root, secondRepo.root], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
+      fileOperations: ["read", "write"], commandClasses: ["test"],
+      verificationCommands: ["grep -q 'opencode changed' one.txt", "grep -q 'codex changed' two.txt"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       decisionReason: null, decidedAt: new Date().toISOString(),
@@ -232,6 +280,10 @@ describe("orchestrateAssignments", () => {
       grant,
       assignments,
       repository: snapshot,
+      verificationCommandsByRepository: {
+        [repo.root]: ["grep -q 'opencode changed' one.txt"],
+        [secondRepo.root]: ["grep -q 'codex changed' two.txt"],
+      },
       contextPath: "/tmp/context.md",
       adapters: [
         adapter("opencode", ["implementation", "testing", "resume"], "one.txt", concurrency, workersReleased),
@@ -249,7 +301,8 @@ describe("orchestrateAssignments", () => {
     expect(result.summary).toContain("## Review\n\ncodex done");
     expect(concurrency.maximum).toBe(2);
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("opencode changed\n");
-    expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("codex changed\n");
+    expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("two base\n");
+    expect(await readFile(join(secondRepo.root, "two.txt"), "utf8")).toBe("codex changed\n");
     expect(store.recordAssignmentVerification).toHaveBeenCalledTimes(2);
     expect(store.recordTaskIntegration).toHaveBeenCalledOnce();
     for (const worker of workers) {

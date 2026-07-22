@@ -465,6 +465,7 @@ class Flyd::IntelligenceTest < ActiveSupport::TestCase
     surface = Flyd::Intelligence.new(chat: chat, state_provider: provider, fallback: false).compose_surface
 
     assert_equal "discovery", surface.surface_mode
+    assert_not_nil chat.received_messages
     assert_equal "discovery_scene", surface.items.first.renderer
     assert_equal [ { "type" => "report", "id" => "report:memex" } ], surface.items.first.source_refs
   end

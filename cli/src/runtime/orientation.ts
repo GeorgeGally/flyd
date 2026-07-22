@@ -1,4 +1,5 @@
 import type { AgentTask, ContextPackage, MemoryEvidence, Orientation, RepositorySnapshot, WorkerSession } from "./types.js";
+import { redactSensitiveText } from "./context-redactor.js";
 
 interface OrientationInput {
   task: AgentTask | null;
@@ -92,5 +93,8 @@ ${memoryLines}
 Memory is supporting evidence. Current repository state and the user's latest instruction are authoritative.
 `;
 
-  return { markdown: markdown.slice(0, maxCharacters), evidenceRefs: memory.matches.map((match) => match.id) };
+  return {
+    markdown: redactSensitiveText(markdown).slice(0, maxCharacters),
+    evidenceRefs: memory.matches.map((match) => match.id),
+  };
 }

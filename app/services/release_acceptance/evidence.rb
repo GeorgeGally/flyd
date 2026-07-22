@@ -94,7 +94,7 @@ module ReleaseAcceptance
             SELECT 1
             FROM surface_items recommendation_items
             JOIN runtime_delivery_receipts recommendation_receipts
-              ON recommendation_receipts.surface_id = recommendation_items.surface_id
+              ON recommendation_receipts.surface_item_id = recommendation_items.id
               AND recommendation_receipts.task_revision = task_recommendations.task_revision
             WHERE recommendation_items.id = task_recommendations.surface_item_id
           )
@@ -129,6 +129,7 @@ module ReleaseAcceptance
           AND events.occurred_at BETWEEN real_sessions.started_at AND real_sessions.ended_at
         JOIN runtime_delivery_receipts receipts ON receipts.runtime_event_id = events.id
           AND receipts.task_revision = events.task_revision
+          AND receipts.surface_item_id IS NOT NULL
           AND NULLIF(receipts.binding_digest, '') IS NOT NULL
         GROUP BY real_sessions.id, events.id
         ORDER BY events.id

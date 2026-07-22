@@ -50,6 +50,7 @@ function mapAssignment(row: QueryResultRow): TaskAssignment {
   return {
     id: String(row.id), assignmentKey: row.assignment_key, agentTaskId: String(row.agent_task_id),
     status: row.status, title: row.title, instructions: row.instructions,
+    repositoryRoot: row.repository_root,
     successCriteria: row.success_criteria ?? [], capabilityRequirements: row.capability_requirements ?? [],
     dependencyKeys: row.dependency_keys ?? [], declaredFileScope: row.declared_file_scope ?? [],
     excludedAdapters: row.excluded_adapters ?? [], worktreePath: row.worktree_path, branchName: row.branch_name,
@@ -719,16 +720,22 @@ export class PostgresTaskStore {
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
       if (existing) return existing;
       const task = await this.lockTask(client, taskKey);
+      const plannedAssignmentKeys = Array.isArray(task.plan?.assignment_keys) ? task.plan.assignment_keys : [];
       if (input.result.status === "integrated") {
-        const unverified = await client.query(
-          "SELECT 1 FROM task_assignments WHERE agent_task_id = $1 AND status <> 'verified' LIMIT 1",
-          [task.id],
-        );
+        const unverified = plannedAssignmentKeys.length > 0
+          ? await client.query(`SELECT 1 FROM task_assignments
+              WHERE agent_task_id = $1 AND assignment_key = ANY($2::varchar[])
+                AND status <> 'verified' LIMIT 1`, [task.id, plannedAssignmentKeys])
+          : await client.query(
+            "SELECT 1 FROM task_assignments WHERE agent_task_id = $1 AND status <> 'verified' LIMIT 1",
+            [task.id],
+          );
         if (unverified.rows[0]) throw new Error("Task integration requires every assignment to be independently verified");
       }
       const revision = Number(task.revision) + 1;
       const verification = {
         integrated: input.result.status === "integrated",
+        integration_revision: revision,
         changed_files: input.result.changedFiles,
         patch_digest: input.result.patchDigest,
         reason: input.result.reason,
@@ -744,9 +751,16 @@ export class PostgresTaskStore {
         revision,
       ]);
       if (input.result.status === "integrated") {
-        await client.query(`UPDATE task_assignments SET status = 'integrated',
-          integration_result = $2::jsonb, ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
-          WHERE agent_task_id = $1 AND status = 'verified'`, [task.id, JSON.stringify(verification)]);
+        if (plannedAssignmentKeys.length > 0) {
+          await client.query(`UPDATE task_assignments SET status = 'integrated',
+            integration_result = $2::jsonb, ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+            WHERE agent_task_id = $1 AND status = 'verified'
+              AND assignment_key = ANY($3::varchar[])`, [task.id, JSON.stringify(verification), plannedAssignmentKeys]);
+        } else {
+          await client.query(`UPDATE task_assignments SET status = 'integrated',
+            integration_result = $2::jsonb, ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+            WHERE agent_task_id = $1 AND status = 'verified'`, [task.id, JSON.stringify(verification)]);
+        }
       }
       await this.insertEvent(client, task.id, revision, `task.integration_${input.result.status}`, input.idempotencyKey, verification);
       return this.loadTask(client, taskKey);
@@ -759,6 +773,7 @@ export class PostgresTaskStore {
     source: "model" | "fallback";
     assignments: Array<{
       key: string;
+      repositoryRoot?: string;
       title: string;
       instructions: string;
       capabilityRequirements: string[];
@@ -766,6 +781,7 @@ export class PostgresTaskStore {
       declaredFileScope: string[];
     }>;
     baseHead: string;
+    repositoryHeads?: Record<string, string>;
     idempotencyKey: string;
   }): Promise<{ task: AgentTask; assignments: TaskAssignment[] }> {
     return withTransaction(this.pool, async (client) => {
@@ -785,14 +801,21 @@ export class PostgresTaskStore {
       if (input.assignments.length < 1 || input.assignments.length > 2) {
         throw new Error("Assignment plan must contain one or two assignments");
       }
+      const project = await client.query("SELECT root_path FROM projects WHERE id = $1", [task.project_id]);
+      const primaryRoot = project.rows[0]?.root_path;
+      if (!primaryRoot) throw new Error(`Task ${taskKey} has no project repository root`);
       const revision = expectedRevision + 1;
       const keyMap = new Map(input.assignments.map((assignment) => [assignment.key, randomUUID()]));
       const stored: TaskAssignment[] = [];
       for (const assignment of input.assignments) {
+        const repositoryRoot = assignment.repositoryRoot ?? primaryRoot;
+        const baseHead = input.repositoryHeads?.[repositoryRoot] ??
+          (repositoryRoot === primaryRoot ? input.baseHead : undefined);
+        if (!baseHead) throw new Error(`Assignment ${assignment.key} has no base head for ${repositoryRoot}`);
         const result = await client.query(`INSERT INTO task_assignments
           (agent_task_id, assignment_key, title, instructions, success_criteria, capability_requirements,
-           dependency_keys, declared_file_scope, base_head, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW(), NOW())
+           dependency_keys, declared_file_scope, repository_root, base_head, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, NOW(), NOW())
           RETURNING *`, [
           task.id,
           keyMap.get(assignment.key),
@@ -802,7 +825,8 @@ export class PostgresTaskStore {
           JSON.stringify(assignment.capabilityRequirements),
           JSON.stringify(assignment.dependencyKeys.map((key) => keyMap.get(key))),
           JSON.stringify(assignment.declaredFileScope),
-          input.baseHead,
+          repositoryRoot,
+          baseHead,
         ]);
         stored.push(mapAssignment(result.rows[0]));
       }
@@ -898,7 +922,8 @@ export class PostgresTaskStore {
       ]);
       const contextSnapshot = { ...context, corrections: [...corrections, correctionRecord].slice(-20) };
       await client.query(`UPDATE agent_tasks SET context_snapshot = $1::jsonb, repository_snapshot = $2::jsonb,
-        recommended_next_action = $3, revision = $4, updated_at = NOW() WHERE id = $5`,
+        recommended_next_action = $3, verification_result = '{}'::jsonb, status = 'ready', completed_at = NULL,
+        revision = $4, updated_at = NOW() WHERE id = $5`,
       [JSON.stringify(contextSnapshot), JSON.stringify(input.repositorySnapshot), correctedValue, revision, row.id]);
       return correctionRecord;
     });
@@ -1165,12 +1190,15 @@ export class PostgresTaskStore {
         ? await client.query("SELECT * FROM task_assignments WHERE assignment_key = $1 AND agent_task_id = $2 FOR UPDATE", [input.assignmentKey, task.id])
         : await client.query("SELECT * FROM task_assignments WHERE agent_task_id = $1 ORDER BY created_at LIMIT 1 FOR UPDATE", [task.id]);
       if (!assignmentResult.rows[0] && !input.assignmentKey) {
+        const project = await client.query("SELECT root_path FROM projects WHERE id = $1", [task.project_id]);
+        const repositoryRoot = project.rows[0]?.root_path;
+        if (!repositoryRoot) throw new Error(`Task ${input.taskKey} has no project repository root`);
         assignmentResult = await client.query(`INSERT INTO task_assignments
           (agent_task_id, assignment_key, title, instructions, success_criteria, capability_requirements,
-           declared_file_scope, base_head, created_at, updated_at)
+           declared_file_scope, repository_root, base_head, created_at, updated_at)
           VALUES ($1, $2, 'Primary assignment', $3, '[]'::jsonb, '["implementation"]'::jsonb,
-            '["."]'::jsonb, $4, NOW(), NOW()) RETURNING *`, [
-          task.id, randomUUID(), task.intended_outcome, task.repository_snapshot?.head ?? null,
+            '["."]'::jsonb, $4, $5, NOW(), NOW()) RETURNING *`, [
+          task.id, randomUUID(), task.intended_outcome, repositoryRoot, task.repository_snapshot?.head ?? null,
         ]);
       }
       const assignment = assignmentResult.rows[0];
@@ -1382,18 +1410,23 @@ export class PostgresTaskStore {
 
   async workerAuthority(workerKey: string): Promise<boolean> {
     return withTransaction(this.pool, async (client) => {
-      const result = await client.query(`SELECT grants.id, grants.status, grants.expires_at
+      const result = await client.query(`SELECT grants.id, grants.status, grants.expires_at, workers.status AS worker_status,
+          EXISTS (SELECT 1 FROM worker_commands commands
+            WHERE commands.worker_session_id = workers.id
+              AND commands.kind IN ('stop','redirect','replace')
+              AND commands.status IN ('queued','dispatched')) AS has_terminating_control
         FROM worker_sessions workers
         JOIN task_grants grants ON grants.id = workers.task_grant_id
         WHERE workers.worker_key = $1
-        FOR UPDATE OF grants`, [workerKey]);
+        FOR UPDATE OF grants, workers`, [workerKey]);
       const grant = result.rows[0];
       if (!grant) return false;
       if (grant.status !== "approved") return false;
+      if (![ "starting", "running" ].includes(grant.worker_status) || grant.has_terminating_control) return false;
       const current = await client.query("SELECT NOW() AS database_now");
       if (new Date(grant.expires_at).getTime() > new Date(current.rows[0].database_now).getTime()) {
         await client.query(`UPDATE worker_sessions SET last_observed_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
-          WHERE worker_key = $1 AND status IN ('starting','running','stopping')`, [workerKey]);
+          WHERE worker_key = $1 AND status IN ('starting','running')`, [workerKey]);
         return true;
       }
       await client.query(`UPDATE task_grants SET status = 'expired', ended_at = NOW(), updated_at = NOW()
@@ -1443,7 +1476,7 @@ export class PostgresTaskStore {
       }
       if (kind === "stop") {
         const pendingStop = await client.query(`SELECT * FROM worker_commands
-          WHERE worker_session_id = $1 AND kind = 'stop' AND status IN ('queued','dispatched')
+          WHERE worker_session_id = $1 AND kind IN ('stop','redirect','replace') AND status IN ('queued','dispatched')
           ORDER BY created_at DESC LIMIT 1`, [worker.id]);
         if (pendingStop.rows[0]) {
           return { command: mapWorkerCommand(pendingStop.rows[0]), worker: mapWorker(worker) };

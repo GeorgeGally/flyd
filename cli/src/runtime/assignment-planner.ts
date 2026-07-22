@@ -1,16 +1,18 @@
 import type { AgentTask, MemoryEvidence, RepositorySnapshot, TaskAssignment } from "./types.js";
 import type { WorkerCapability } from "./worker-adapter.js";
+import { redactSensitiveText } from "./context-redactor.js";
 
 const ALLOWED_CAPABILITIES = new Set<WorkerCapability>([
   "analysis", "implementation", "review", "testing", "resume",
 ]);
 const PLAN_KEYS = [ "successCriteria", "verificationCriteria", "assignments" ];
 const ASSIGNMENT_KEYS = [
-  "key", "title", "instructions", "capabilityRequirements", "dependencyKeys", "declaredFileScope",
+  "key", "repositoryRoot", "title", "instructions", "capabilityRequirements", "dependencyKeys", "declaredFileScope",
 ];
 
 export interface PlannedAssignment {
   key: string;
+  repositoryRoot: string;
   title: string;
   instructions: string;
   capabilityRequirements: WorkerCapability[];
@@ -64,7 +66,7 @@ function hasDependencyCycle(assignments: PlannedAssignment[]): boolean {
   return assignments.some((assignment) => visit(assignment.key));
 }
 
-function parsePlan(raw: string): AssignmentPlan | null {
+function parsePlan(raw: string, repositoryRoots: Set<string>): AssignmentPlan | null {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || !exactKeys(parsed, PLAN_KEYS)) return null;
@@ -76,6 +78,7 @@ function parsePlan(raw: string): AssignmentPlan | null {
       const assignment = value as Record<string, unknown>;
       if (!exactKeys(assignment, ASSIGNMENT_KEYS)) return null;
       if (![assignment.key, assignment.title, assignment.instructions].every((item) => typeof item === "string" && item.trim())) return null;
+      if (typeof assignment.repositoryRoot !== "string" || !repositoryRoots.has(assignment.repositoryRoot)) return null;
       if (!strings(assignment.capabilityRequirements) ||
           !assignment.capabilityRequirements.every((capability) => ALLOWED_CAPABILITIES.has(capability as WorkerCapability))) return null;
       if (!Array.isArray(assignment.dependencyKeys) ||
@@ -84,6 +87,7 @@ function parsePlan(raw: string): AssignmentPlan | null {
           !assignment.declaredFileScope.every(safeFileScope)) return null;
       assignments.push({
         key: assignment.key as string,
+        repositoryRoot: assignment.repositoryRoot,
         title: assignment.title as string,
         instructions: assignment.instructions as string,
         capabilityRequirements: assignment.capabilityRequirements as WorkerCapability[],
@@ -95,7 +99,8 @@ function parsePlan(raw: string): AssignmentPlan | null {
     if (hasDependencyCycle(assignments)) return null;
     for (let index = 0; index < assignments.length; index += 1) {
       for (let other = index + 1; other < assignments.length; other += 1) {
-        if (scopesOverlap(assignments[index].declaredFileScope, assignments[other].declaredFileScope)) return null;
+        if (assignments[index].repositoryRoot === assignments[other].repositoryRoot &&
+            scopesOverlap(assignments[index].declaredFileScope, assignments[other].declaredFileScope)) return null;
       }
     }
     return {
@@ -109,7 +114,7 @@ function parsePlan(raw: string): AssignmentPlan | null {
   }
 }
 
-function fallbackPlan(outcome: string, nextAction = outcome): AssignmentPlan {
+function fallbackPlan(outcome: string, repository: RepositorySnapshot, nextAction = outcome): AssignmentPlan {
   const intent = `${outcome}\n${nextAction}`;
   const requestsChanges = /\b(add|build|change|create|delete|fix|implement|make|migrate|modify|move|refactor|remove|repair|replace|resolve|update|write)\b/i
     .test(intent);
@@ -126,6 +131,7 @@ function fallbackPlan(outcome: string, nextAction = outcome): AssignmentPlan {
       : "The repository verification commands pass"],
     assignments: [{
       key: "primary",
+      repositoryRoot: repository.root,
       title: nextAction,
       instructions: nextAction,
       capabilityRequirements: readOnly ? [ "analysis", "review" ] : [ "implementation", "testing" ],
@@ -141,7 +147,7 @@ const RUNNABLE_ASSIGNMENT_STATUSES = new Set([ "pending", "running", "verified" 
 export function currentPlanAssignments(
   task: Pick<AgentTask, "plan">,
   assignments: TaskAssignment[],
-  repositoryHead: string,
+  repositoryHeads: string | ReadonlyMap<string, string>,
 ): TaskAssignment[] {
   const keys = Array.isArray(task.plan.assignment_keys)
     ? task.plan.assignment_keys.filter((key): key is string => typeof key === "string")
@@ -151,7 +157,9 @@ export function currentPlanAssignments(
     : assignments;
   return current.filter((assignment) => (
     RUNNABLE_ASSIGNMENT_STATUSES.has(assignment.status)
-      && assignment.baseHead === repositoryHead
+      && assignment.baseHead === (typeof repositoryHeads === "string"
+        ? repositoryHeads
+        : assignment.repositoryRoot ? repositoryHeads.get(assignment.repositoryRoot) : undefined)
   ));
 }
 
@@ -159,25 +167,31 @@ export async function planAssignments(input: {
   outcome: string;
   nextAction?: string;
   repository: RepositorySnapshot;
+  repositories?: RepositorySnapshot[];
   memory: MemoryEvidence;
   generate: (prompt: string) => Promise<string>;
 }): Promise<AssignmentPlan> {
-  const evidence = input.memory.matches.slice(0, 5).map((match) => `${match.path}: ${match.excerpt}`);
+  const repositories = input.repositories?.length ? input.repositories : [input.repository];
+  const repositoryRoots = new Set(repositories.map((repository) => repository.root));
+  const safe = redactSensitiveText;
+  const evidence = input.memory.matches.slice(0, 5).map((match) => safe(`${match.path}: ${match.excerpt}`));
   const prompt = [
     "Return strict JSON only with keys successCriteria, verificationCriteria, assignments.",
     "Create one assignment unless two assignments are genuinely independent with non-overlapping file scopes.",
     "At most two assignments. Capabilities: analysis, implementation, review, testing, resume.",
     "Status, assessment, explanation, and review-only outcomes must not request implementation unless edits are explicitly requested.",
-    "Each assignment must contain exactly: key, title, instructions, capabilityRequirements, dependencyKeys, declaredFileScope.",
-    `Intended outcome: ${input.outcome}`,
-    `Current assignment: ${input.nextAction ?? input.outcome}`,
-    `Repository: ${input.repository.name} at ${input.repository.head}`,
+    "Each assignment must contain exactly: key, repositoryRoot, title, instructions, capabilityRequirements, dependencyKeys, declaredFileScope.",
+    "repositoryRoot must exactly match one of the approved repositories below.",
+    `Intended outcome: ${safe(input.outcome)}`,
+    `Current assignment: ${safe(input.nextAction ?? input.outcome)}`,
+    `Primary repository: ${safe(input.repository.name)} at ${input.repository.head}`,
+    `Approved repositories:\n${repositories.map((repository) => safe(`${repository.root} (${repository.name} at ${repository.head})`)).join("\n")}`,
     `Relevant evidence:\n${evidence.join("\n") || "none"}`,
   ].join("\n");
 
   try {
-    return parsePlan(await input.generate(prompt)) ?? fallbackPlan(input.outcome, input.nextAction);
+    return parsePlan(await input.generate(prompt), repositoryRoots) ?? fallbackPlan(input.outcome, input.repository, input.nextAction);
   } catch {
-    return fallbackPlan(input.outcome, input.nextAction);
+    return fallbackPlan(input.outcome, input.repository, input.nextAction);
   }
 }

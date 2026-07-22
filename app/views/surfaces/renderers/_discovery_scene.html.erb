@@ -25,7 +25,7 @@
           <% id = action["id"] || action[:id] %>
           <% label = action["label"] || action[:label] || id.to_s.humanize %>
           <% payload = action["payload"] || action[:payload] || {} %>
-          <% button_class = "font-medium underline decoration-line underline-offset-4 hover:decoration-ink cursor-pointer" %>
+          <% button_class = "font-medium cursor-pointer" %>
           <% case id %>
           <% when "discuss", "answer", "investigate", "build", "choose" %>
             <% direct_params = id == "choose" ? { option_id: payload["option_id"] || payload[:option_id] } : {} %>

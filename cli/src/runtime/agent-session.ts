@@ -84,6 +84,13 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };
+      if (input.kind === "conversation") {
+        const codeTerms = /\b(?:codebase|repo|repository|architecture|code|source|project|app|application|branch|commit|test|migration|deploy|refactor|implement|debug|bug|fix|feature|merge|PR|pull request|worker|backend|frontend|runtime)\b/i;
+        const explorerVerbs = /\b(?:what|how|where|show|tell|explain|describe|look|see|check|explore|examine|inspect|review|audit|survey|assess|evaluate|analyze|study|walk|dive|familiarize|overview|status|state|progress|going on)\b/i;
+        if (codeTerms.test(text) && explorerVerbs.test(text)) {
+          input = { kind: "coding", outcome: text };
+        }
+      }
       if (input.kind === "coding") {
         const handoff: ActionableOutcome = {
           outcome: input.outcome,

@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdtemp, rm, symlink, writeFile } from "fs/promises";
+import { access, mkdtemp, rm, symlink, writeFile } from "fs/promises";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
@@ -147,6 +147,67 @@ describe("verifyWorkerResult", () => {
       baseHead: repo.head,
       commands: ["git diff --check"],
     })).rejects.toThrow("escaping symlink");
+  });
+
+  it("rejects an escaping symlink created by a verification command", async () => {
+    const repo = await repository();
+
+    await expect(verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: [
+        `node -e "require('fs').symlinkSync('/etc/hosts','escaped-after-test')"`,
+      ],
+    })).rejects.toThrow("escaping symlink");
+  });
+
+  it("fails verification when a command changes the assignment HEAD", async () => {
+    const repo = await repository();
+
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: [
+        "git -c user.name=Flyd -c user.email=flyd@example.test commit --allow-empty -m changed-head",
+      ],
+    });
+
+    expect(result.head).not.toBe(repo.head);
+    expect(result.passed).toBe(false);
+  });
+
+  it("terminates verification descendants before extracting the patch", async () => {
+    const repo = await repository();
+
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: [
+        `node -e "const{spawn}=require('child_process');spawn(process.execPath,['-e',\`setTimeout(()=>require('fs').writeFileSync('late.txt','late'),250)\`],{stdio:'ignore'}).unref()"`,
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(result.commands[0].exitStatus, JSON.stringify(result.commands[0])).toBe(0);
+    await expect(access(join(repo.root, "late.txt"))).rejects.toThrow();
+  });
+
+  it("force kills a verification command that ignores SIGTERM", async () => {
+    const repo = await repository();
+    const startedAt = Date.now();
+
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commandTimeoutMs: 100,
+      commands: [
+        `node -e "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"`,
+      ],
+    });
+
+    expect(result.commands[0].exitStatus).not.toBe(0);
+    expect(result.commands[0].stderr).toContain("timed out");
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it("removes inherited secrets and denies verifier network access", async () => {

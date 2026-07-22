@@ -1,8 +1,15 @@
 import { createHash, randomUUID } from "crypto";
-import { integrateVerifiedResults, type IntegrationResult } from "./result-integrator.js";
+import { realpath } from "fs/promises";
+import {
+  integrateVerifiedResults,
+  preflightVerifiedResults,
+  rollbackIntegratedResult,
+  type IntegrationResult,
+} from "./result-integrator.js";
 import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
 import { chooseIntervention } from "./intervention-policy.js";
 import { readProcessIdentity } from "./recovery.js";
+import { inspectRepository } from "./repository-inspector.js";
 import { routeWorker } from "./worker-router.js";
 import type {
   AgentTask,
@@ -67,7 +74,9 @@ interface OrchestrationStore {
     payload: Record<string, unknown>,
     idempotencyKey: string,
   ): Promise<{ command: WorkerCommand; worker: WorkerSession }>;
-  completeWorkerCommand(commandKey: string, input: { workerStatus: "stopped" | null }): Promise<WorkerCommand>;
+  completeWorkerCommand(commandKey: string, input: {
+    workerStatus: "stopped" | "interrupted" | "replaced" | null;
+  }): Promise<WorkerCommand>;
   recordTaskIntegration(
     taskKey: string,
     input: { result: IntegrationResult; idempotencyKey: string },
@@ -224,11 +233,110 @@ function verificationArtifacts(
   return artifacts;
 }
 
+interface RepositoryIntegrationGroup {
+  repositoryRoot: string;
+  results: VerifiedWorkerResult[];
+  verificationCommands: string[];
+}
+
+export async function integrateRepositoryGroups(input: {
+  groups: RepositoryIntegrationGroup[];
+  taskKey: string;
+  primaryRepositoryRoot: string;
+  repositorySnapshots: ReadonlyMap<string, RepositorySnapshot>;
+  manager: GitWorktreeManager;
+  integrate?: typeof integrateVerifiedResults;
+}): Promise<IntegrationResult> {
+  const integrate = input.integrate ?? integrateVerifiedResults;
+  const preflightResults = await Promise.all(input.groups.map(async (group) => ({
+    repositoryRoot: group.repositoryRoot,
+    result: await preflightVerifiedResults({
+      repositoryRoot: group.repositoryRoot,
+      taskKey: input.taskKey,
+      baseSnapshot: input.repositorySnapshots.get(group.repositoryRoot)!,
+      results: group.results,
+      verificationCommands: group.verificationCommands,
+      manager: input.manager,
+    }),
+  })));
+  const blockedPreflight = preflightResults.find(({ result }) => result.status === "blocked");
+  if (blockedPreflight) {
+    return {
+      status: "blocked",
+      reason: `${blockedPreflight.repositoryRoot}: ${blockedPreflight.result.reason ?? "Integration preflight blocked"}`,
+      changedFiles: preflightResults.flatMap(({ repositoryRoot, result }) => (
+        result.changedFiles.map((file) => `${repositoryRoot}:${file}`)
+      )),
+      patchDigest: null,
+    };
+  }
+
+  const repositoryResults: Array<{ repositoryRoot: string; result: IntegrationResult }> = [];
+  for (const group of input.groups) {
+    let result: IntegrationResult;
+    try {
+      result = await integrate({
+        repositoryRoot: group.repositoryRoot,
+        taskKey: input.taskKey,
+        baseSnapshot: input.repositorySnapshots.get(group.repositoryRoot)!,
+        results: group.results,
+        verificationCommands: group.verificationCommands,
+        manager: input.manager,
+      });
+    } catch (error) {
+      result = {
+        status: "blocked", reason: error instanceof Error ? error.message : String(error),
+        changedFiles: [], patchDigest: null,
+      };
+    }
+    repositoryResults.push({ repositoryRoot: group.repositoryRoot, result });
+    if (result.status === "blocked") {
+      try {
+        for (const completed of repositoryResults.slice(0, -1).reverse()) {
+          await rollbackIntegratedResult({
+            repositoryRoot: completed.repositoryRoot,
+            baseSnapshot: input.repositorySnapshots.get(completed.repositoryRoot)!,
+            integration: completed.result,
+          });
+        }
+      } catch (rollbackError) {
+        result.reason = `${result.reason ?? "Integration blocked"}. Compensating rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
+      }
+      break;
+    }
+  }
+
+  const blocked = repositoryResults.find(({ result }) => result.status === "blocked");
+  if (blocked) {
+    return {
+      status: "blocked",
+      reason: `${blocked.repositoryRoot}: ${blocked.result.reason ?? "Integration blocked"}`,
+      changedFiles: repositoryResults.flatMap(({ repositoryRoot, result }) => (
+        result.changedFiles.map((file) => `${repositoryRoot}:${file}`)
+      )),
+      patchDigest: null,
+    };
+  }
+  if (repositoryResults.length === 1) return repositoryResults[0].result;
+  return {
+    status: "integrated",
+    reason: null,
+    changedFiles: repositoryResults.flatMap(({ repositoryRoot, result }) => (
+      result.changedFiles.map((file) => `${repositoryRoot}:${file}`)
+    )),
+    patchDigest: createHash("sha256").update(repositoryResults.map(({ repositoryRoot, result }) => (
+      `${repositoryRoot}:${result.patchDigest ?? ""}`
+    )).join("\n")).digest("hex"),
+    repositorySnapshot: repositoryResults.find(({ repositoryRoot }) => repositoryRoot === input.primaryRepositoryRoot)?.result.repositorySnapshot,
+  };
+}
+
 export async function orchestrateAssignments(input: {
   task: AgentTask;
   grant: TaskGrant;
   assignments: TaskAssignment[];
   repository: RepositorySnapshot;
+  verificationCommandsByRepository?: Record<string, string[]>;
   contextPath: string;
   adapters: WorkerAdapter[];
   deps: { store: OrchestrationStore; manager: GitWorktreeManager };
@@ -244,16 +352,41 @@ export async function orchestrateAssignments(input: {
   const adapters = new Map(input.adapters.map((adapter) => [adapter.name, adapter]));
   const activeCounts: Record<string, number> = {};
   const verified = new Map<string, VerifiedWorkerResult>();
+  const primaryRepositoryRoot = await realpath(input.repository.root);
+  const approvedRepositoryRoots = new Set(await Promise.all(input.grant.repositoryRoots.map((root) => realpath(root))));
+  const verificationCommandsByRepository = new Map<string, string[]>();
+  for (const [root, commands] of Object.entries(input.verificationCommandsByRepository ?? {})) {
+    verificationCommandsByRepository.set(await realpath(root), commands);
+  }
+  const repositorySnapshots = new Map<string, RepositorySnapshot>([[primaryRepositoryRoot, input.repository]]);
+  const assignmentRepositories = new Map<string, string>();
   const workerOutcomes = new Map<string, string>();
   const completed = new Set<string>();
   const remaining = new Map(input.assignments.map((assignment) => [assignment.assignmentKey, assignment]));
   let workerRuns = 0;
   const maxWorkerRuns = Number(input.grant.budget.max_worker_runs ?? input.assignments.length);
 
+  for (const assignment of input.assignments) {
+    const repositoryRoot = await realpath(assignment.repositoryRoot ?? input.repository.root);
+    if (!approvedRepositoryRoots.has(repositoryRoot)) {
+      return {
+        status: "blocked",
+        summary: `Assignment ${assignment.title} targets a repository outside the approved task grant`,
+        verification: { passed: false },
+      };
+    }
+    assignmentRepositories.set(assignment.assignmentKey, repositoryRoot);
+    if (!repositorySnapshots.has(repositoryRoot)) {
+      repositorySnapshots.set(repositoryRoot, await inspectRepository(repositoryRoot));
+    }
+  }
+
   const runAssignment = async (assignment: TaskAssignment): Promise<void> => {
-    if (assignment.baseHead && assignment.baseHead !== input.repository.head) {
+    const repositoryRoot = assignmentRepositories.get(assignment.assignmentKey)!;
+    const repository = repositorySnapshots.get(repositoryRoot)!;
+    if (assignment.baseHead && assignment.baseHead !== repository.head) {
       const evidenceDigest = createHash("sha256")
-        .update(`${assignment.assignmentKey}:${assignment.baseHead}:${input.repository.head}`)
+        .update(`${assignment.assignmentKey}:${assignment.baseHead}:${repository.head}`)
         .digest("hex");
       const intervention = chooseIntervention({
         trigger: "repository_changed",
@@ -267,7 +400,7 @@ export async function orchestrateAssignments(input: {
         result: {
           passed: false,
           recorded_base_head: assignment.baseHead,
-          current_head: input.repository.head,
+          current_head: repository.head,
           intervention,
         },
         idempotencyKey: eventKey(`assignment-stale:${assignment.assignmentKey}`),
@@ -275,10 +408,10 @@ export async function orchestrateAssignments(input: {
       throw new Error(intervention.reason);
     }
     const worktree = await input.deps.manager.prepare({
-      repositoryRoot: input.repository.root,
+      repositoryRoot,
       taskKey: input.task.taskKey,
       assignmentKey: assignment.assignmentKey,
-      baseHead: input.repository.head,
+      baseHead: repository.head,
     });
     await input.deps.store.updateAssignmentWorkspace(assignment.assignmentKey, {
       worktreePath: worktree.path,
@@ -434,7 +567,12 @@ export async function orchestrateAssignments(input: {
       await workerTransitions;
       if (timeout.control) {
         const control = timeout.control;
-        await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus: "stopped" });
+        const workerStatus = control.command.kind === "redirect"
+          ? "interrupted"
+          : control.command.kind === "replace"
+            ? "replaced"
+            : "stopped";
+        await input.deps.store.completeWorkerCommand(control.command.commandKey, { workerStatus });
         const reason = timeout.reason === "runtime"
           ? "The worker was stopped after exceeding the approved absolute runtime budget"
           : timeout.reason === "authority"
@@ -471,8 +609,8 @@ export async function orchestrateAssignments(input: {
       }
       const verification = await verifyWorkerResult({
         worktreePath: worktree.path,
-        baseHead: input.repository.head,
-        commands: input.grant.verificationCommands,
+        baseHead: repository.head,
+        commands: verificationCommandsByRepository.get(repositoryRoot) ?? input.grant.verificationCommands,
         requireChanges: assignmentCanWrite,
         requireUnchanged: !assignmentCanWrite,
       });
@@ -579,12 +717,20 @@ export async function orchestrateAssignments(input: {
 
   let integration: IntegrationResult;
   try {
-    integration = await integrateVerifiedResults({
-      repositoryRoot: input.repository.root,
+    const assignmentGroups = new Map<string, TaskAssignment[]>();
+    for (const assignment of input.assignments) {
+      const repositoryRoot = assignmentRepositories.get(assignment.assignmentKey)!;
+      assignmentGroups.set(repositoryRoot, [...(assignmentGroups.get(repositoryRoot) ?? []), assignment]);
+    }
+    integration = await integrateRepositoryGroups({
+      groups: [...assignmentGroups].map(([repositoryRoot, assignments]) => ({
+        repositoryRoot,
+        results: assignments.map((assignment) => verified.get(assignment.assignmentKey)!),
+        verificationCommands: verificationCommandsByRepository.get(repositoryRoot) ?? input.grant.verificationCommands,
+      })),
       taskKey: input.task.taskKey,
-      baseSnapshot: input.repository,
-      results: input.assignments.map((assignment) => verified.get(assignment.assignmentKey)!),
-      verificationCommands: input.grant.verificationCommands,
+      primaryRepositoryRoot,
+      repositorySnapshots,
       manager: input.deps.manager,
     });
   } catch (error) {

@@ -7,8 +7,9 @@ class TaskAssignment < ApplicationRecord
   has_many :worker_sessions, dependent: :restrict_with_error
 
   before_validation :assign_assignment_key, on: :create
+  before_validation :assign_repository_root, on: :create
 
-  validates :assignment_key, :title, :instructions, presence: true
+  validates :assignment_key, :title, :instructions, :repository_root, presence: true
   validates :assignment_key, uniqueness: true
   validates :status, inclusion: { in: STATUSES }
   validates :revision, numericality: { only_integer: true, greater_than: 0 }
@@ -22,6 +23,10 @@ class TaskAssignment < ApplicationRecord
 
   def assign_assignment_key
     self.assignment_key ||= SecureRandom.uuid
+  end
+
+  def assign_repository_root
+    self.repository_root ||= agent_task&.project&.root_path
   end
 
   def dependency_keys_are_valid

@@ -5,7 +5,7 @@ import { join } from "path";
 import { promisify } from "util";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectRepository } from "../repository-inspector.js";
-import { integrateVerifiedResults } from "../result-integrator.js";
+import { integrateVerifiedResults, preflightVerifiedResults, rollbackIntegratedResult } from "../result-integrator.js";
 import { verifyWorkerResult } from "../result-verifier.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
@@ -29,6 +29,49 @@ afterEach(async () => {
 });
 
 describe("integrateVerifiedResults", () => {
+  it("preflights the combined patch without touching main", async () => {
+    const repo = await repository();
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-preflight-managed-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const worktree = await manager.prepare({ repositoryRoot: repo.root, taskKey: "task-preflight", assignmentKey: "one", baseHead: repo.head });
+    await writeFile(join(worktree.path, "one.txt"), "candidate change\n");
+    const result = await verifyWorkerResult({ worktreePath: worktree.path, baseHead: repo.head, commands: ["git diff --check"] });
+
+    const preflight = await preflightVerifiedResults({
+      repositoryRoot: repo.root,
+      taskKey: "task-preflight",
+      baseSnapshot: await inspectRepository(repo.root),
+      results: [result],
+      verificationCommands: ["node -e \"process.exit(9)\""],
+      manager,
+    });
+
+    expect(preflight).toMatchObject({ status: "blocked", reason: "Combined assignment result failed preflight verification" });
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
+  });
+
+  it("restores an earlier repository when a later repository integration blocks", async () => {
+    const repo = await repository();
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-rollback-managed-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const worktree = await manager.prepare({ repositoryRoot: repo.root, taskKey: "task-rollback", assignmentKey: "one", baseHead: repo.head });
+    await writeFile(join(worktree.path, "one.txt"), "integrated then rolled back\n");
+    const result = await verifyWorkerResult({ worktreePath: worktree.path, baseHead: repo.head, commands: ["git diff --check"] });
+    const baseSnapshot = await inspectRepository(repo.root);
+    const integration = await integrateVerifiedResults({
+      repositoryRoot: repo.root, taskKey: "task-rollback", baseSnapshot,
+      results: [result], verificationCommands: ["git diff --check"], manager,
+    });
+
+    expect(integration.status).toBe("integrated");
+    await rollbackIntegratedResult({ repositoryRoot: repo.root, baseSnapshot, integration });
+
+    expect((await inspectRepository(repo.root)).head).toBe(repo.head);
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
+  });
+
   it("proves disjoint patches together before applying them to unchanged main", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));

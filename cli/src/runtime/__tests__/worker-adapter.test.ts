@@ -293,4 +293,38 @@ describe("worker adapter contract", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not complete while descendants from the worker process group remain alive", async () => {
+    let processGroupId: number | null = null;
+    const result = await runJsonWorkerProcess({
+      executable: process.execPath,
+      args: [
+        "-e",
+        `const { spawn } = require("child_process");
+         const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+         child.unref();`,
+      ],
+      cwd: process.cwd(),
+      timeoutMs: 2_000,
+      killGraceMs: 25,
+      label: "Descendant worker",
+      parseEvent: () => null,
+      onStart: (pid) => {
+        processGroupId = pid;
+      },
+    });
+
+    expect(result.exitStatus).toBe(0);
+    expect(processGroupId).not.toBeNull();
+    let descendantSurvived = false;
+    try {
+      process.kill(-processGroupId!, 0);
+      descendantSurvived = true;
+    } catch {
+      descendantSurvived = false;
+    } finally {
+      if (descendantSurvived) process.kill(-processGroupId!, "SIGKILL");
+    }
+    expect(descendantSurvived).toBe(false);
+  });
 });

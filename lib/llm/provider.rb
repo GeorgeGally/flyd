@@ -41,7 +41,7 @@ module Llm
           model: model,
           messages: messages,
           temperature: 0.2,
-          max_tokens: 4096,
+          max_tokens: 8192,
           stream: ->(chunk, _bytesize) {
             token = chunk.dig("choices", 0, "delta", "content")
             if token

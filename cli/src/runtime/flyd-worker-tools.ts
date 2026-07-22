@@ -1,9 +1,10 @@
 import { execFile as nodeExecFile } from "child_process";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { promisify } from "util";
 import { sanitizeWorkerEnvironment } from "./worker-adapter.js";
+import { redactSensitiveText } from "./context-redactor.js";
 
 export interface FlydToolDefinition {
   type: "function";
@@ -52,9 +53,10 @@ const COMMAND_PATTERNS: Record<string, RegExp[]> = {
 const MAX_TOOL_RESULT_CHARACTERS = 48 * 1024;
 
 function boundedToolResult(value: string): string {
-  if (value.length <= MAX_TOOL_RESULT_CHARACTERS) return value;
-  const omitted = value.length - MAX_TOOL_RESULT_CHARACTERS;
-  return `${value.slice(0, MAX_TOOL_RESULT_CHARACTERS)}\n...[truncated ${omitted} characters]`;
+  const redacted = redactSensitiveText(value);
+  if (redacted.length <= MAX_TOOL_RESULT_CHARACTERS) return redacted;
+  const omitted = redacted.length - MAX_TOOL_RESULT_CHARACTERS;
+  return `${redacted.slice(0, MAX_TOOL_RESULT_CHARACTERS)}\n...[truncated ${omitted} characters]`;
 }
 
 export function buildToolCommandSandboxProfile(input: {
@@ -84,6 +86,7 @@ export function buildToolCommandSandboxProfile(input: {
     `(allow file-write* (subpath ${JSON.stringify(input.temporaryHome)}))`,
     '(allow file-write* (subpath "/dev"))',
     '(allow file-write* (subpath "/private/var/run"))',
+    ...input.writableRepositoryRoots.map((path) => `(deny file-write* (subpath ${JSON.stringify(join(path, ".git"))}))`),
   ].join("\n");
 }
 
@@ -189,7 +192,7 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 function isSensitiveCredentialPath(path: string): boolean {
-  const segments = path.split(sep);
+  const segments = path.split(sep).map((segment) => segment.toLowerCase());
   const name = segments.at(-1)?.toLowerCase() ?? "";
   if (segments.includes(".git")) return true;
   if (name === ".env" || (name.startsWith(".env.") && ![ ".env.example", ".env.sample", ".env.template" ].includes(name))) return true;
@@ -239,12 +242,14 @@ async function safeProjectPath(
   }
   const existing = await nearestExistingPath(candidate);
   const resolvedExisting = await realpath(existing);
+  if (isSensitiveCredentialPath(resolvedExisting)) throw new Error("Path is a sensitive credential path");
   if (!roots.some((root) => isWithin(root, resolvedExisting))) throw new Error("Path resolves outside the task grant");
   if (requireWritable && !writableRoots.some((root) => isWithin(root, resolvedExisting))) {
     throw new Error("Path resolves outside a writable assignment root");
   }
   if (!allowMissing) {
     const resolvedCandidate = await realpath(candidate);
+    if (isSensitiveCredentialPath(resolvedCandidate)) throw new Error("Path is a sensitive credential path");
     if (!roots.some((root) => isWithin(root, resolvedCandidate))) throw new Error("Path resolves outside the task grant");
     return resolvedCandidate;
   }
@@ -302,6 +307,7 @@ export function createFlydWorkerTools(input: {
   allowedNetworkUrls?: string[];
   run?: CommandRunner;
   fetch?: typeof fetch;
+  fetchTimeoutMs?: number;
 }): {
   definitions: FlydToolDefinition[];
   execute(name: string, args: Record<string, unknown>): Promise<string>;
@@ -324,6 +330,8 @@ export function createFlydWorkerTools(input: {
     definitions.push(
       { type: "function", function: { name: "write_file", description: "Create or replace a UTF-8 file in the assigned repository.", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: [ "path", "content" ], additionalProperties: false } } },
       { type: "function", function: { name: "edit_file", description: "Replace one exact text block in a repository file. Fails unless the old text occurs exactly once.", parameters: { type: "object", properties: { path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" } }, required: [ "path", "old_text", "new_text" ], additionalProperties: false } } },
+      { type: "function", function: { name: "move_file", description: "Move one regular file within the writable assignment repository.", parameters: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: [ "from", "to" ], additionalProperties: false } } },
+      { type: "function", function: { name: "delete_file", description: "Delete one regular file from the writable assignment repository.", parameters: { type: "object", properties: { path: { type: "string" } }, required: [ "path" ], additionalProperties: false } } },
     );
   }
   if (hosts.size > 0) {
@@ -382,6 +390,32 @@ export function createFlydWorkerTools(input: {
         await writeFile(path, `${content.slice(0, first)}${newText}${content.slice(first + oldText.length)}`, "utf8");
         return `Edited ${relative(input.projectRoot, path)}`;
       }
+      if (name === "move_file") {
+        if (!canWrite) throw new Error("The task grant does not allow writes");
+        const source = await safeProjectPath(
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "from"), false, true,
+        );
+        if (!(await lstat(source)).isFile()) throw new Error("move_file only supports regular files");
+        const destination = await safeProjectPath(
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "to"), true, true,
+        );
+        await lstat(destination).then(
+          () => { throw new Error("move_file destination already exists"); },
+          () => undefined,
+        );
+        await mkdir(dirname(destination), { recursive: true });
+        await rename(source, destination);
+        return `Moved ${relative(input.projectRoot, source)} to ${relative(input.projectRoot, destination)}`;
+      }
+      if (name === "delete_file") {
+        if (!canWrite) throw new Error("The task grant does not allow writes");
+        const path = await safeProjectPath(
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), false, true,
+        );
+        if (!(await lstat(path)).isFile()) throw new Error("delete_file only supports regular files");
+        await unlink(path);
+        return `Deleted ${relative(input.projectRoot, path)}`;
+      }
       if (name === "run_command") {
         const command = stringArgument(args, "command").trim();
         if (!allowedPatterns.some((pattern) => pattern.test(command))) {
@@ -403,20 +437,64 @@ export function createFlydWorkerTools(input: {
         return boundedToolResult([ `exit ${result.exitStatus}`, result.stdout, result.stderr ].filter(Boolean).join("\n"));
       }
       if (name === "fetch_url") {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), input.fetchTimeoutMs ?? 30_000);
         let url = new URL(stringArgument(args, "url"));
         let response: Response | null = null;
-        for (let redirects = 0; redirects <= 5; redirects += 1) {
-          if (url.protocol !== "https:" || !hosts.has(url.host)) throw new Error("URL is outside the task grant");
-          response = await (input.fetch ?? fetch)(url, { redirect: "manual" });
-          if (response.status < 300 || response.status >= 400) break;
-          const location = response.headers.get("location");
-          if (!location) throw new Error(`Fetch redirect ${response.status} omitted a location`);
-          url = new URL(location, url);
+        const abortable = <T>(operation: Promise<T>): Promise<T> => new Promise((resolvePromise, rejectPromise) => {
+          const abort = () => rejectPromise(new Error("Fetch timed out"));
+          if (controller.signal.aborted) return abort();
+          controller.signal.addEventListener("abort", abort, { once: true });
+          operation.then(
+            (value) => {
+              controller.signal.removeEventListener("abort", abort);
+              resolvePromise(value);
+            },
+            (error) => {
+              controller.signal.removeEventListener("abort", abort);
+              rejectPromise(error);
+            },
+          );
+        });
+        try {
+          for (let redirects = 0; redirects <= 5; redirects += 1) {
+            if (url.protocol !== "https:" || !hosts.has(url.host)) throw new Error("URL is outside the task grant");
+            response = await abortable((input.fetch ?? fetch)(url, { redirect: "manual", signal: controller.signal }));
+            if (response.status < 300 || response.status >= 400) break;
+            const location = response.headers.get("location");
+            if (!location) throw new Error(`Fetch redirect ${response.status} omitted a location`);
+            url = new URL(location, url);
+          }
+          if (!response || (response.status >= 300 && response.status < 400)) throw new Error("Fetch exceeded the redirect limit");
+          if (!response.ok) throw new Error(`Fetch failed with HTTP ${response.status}`);
+          const declaredLength = Number(response.headers.get("content-length"));
+          if (Number.isFinite(declaredLength) && declaredLength > MAX_TOOL_RESULT_CHARACTERS) {
+            throw new Error("Fetch response is too large");
+          }
+          if (!response.body) return "";
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let bytes = 0;
+          let body = "";
+          try {
+            for (;;) {
+              const chunk = await abortable(reader.read());
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > MAX_TOOL_RESULT_CHARACTERS) throw new Error("Fetch response is too large");
+              body += decoder.decode(chunk.value, { stream: true });
+            }
+            body += decoder.decode();
+          } finally {
+            await reader.cancel().catch(() => undefined);
+          }
+          return boundedToolResult(body);
+        } catch (error) {
+          if (controller.signal.aborted) throw new Error("Fetch timed out");
+          throw error;
+        } finally {
+          clearTimeout(timeout);
         }
-        if (!response || (response.status >= 300 && response.status < 400)) throw new Error("Fetch exceeded the redirect limit");
-        if (!response.ok) throw new Error(`Fetch failed with HTTP ${response.status}`);
-        const body = await response.text();
-        return boundedToolResult(body);
       }
       throw new Error(`Unknown Flyd tool: ${name}`);
     },

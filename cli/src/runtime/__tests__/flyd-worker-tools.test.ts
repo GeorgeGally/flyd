@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "fs/promises";
+import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it, vi } from "vitest";
@@ -25,6 +25,7 @@ describe("Flyd worker tools", () => {
     expect(profile).toContain('(deny file-read* (subpath "/Users"))');
     expect(profile).toContain('(allow file-read* (subpath "/Users/george/code/app"))');
     expect(profile).toContain('(allow file-write* (subpath "/Users/george/code/app"))');
+    expect(profile).toContain('(deny file-write* (subpath "/Users/george/code/app/.git"))');
     expect(profile).not.toContain('(allow file-write* (subpath "/Users/george/code/shared"))');
     expect(profile).not.toContain("FLYD_WORKER_API_KEY");
   });
@@ -146,6 +147,59 @@ describe("Flyd worker tools", () => {
     await expect(tools.execute("read_file", { path: ".env.example" })).resolves.toBe("API_KEY=\n");
   });
 
+  it("rejects credential and Git administration paths reached through symlinks", async () => {
+    const { projectRoot } = await fixture();
+    await writeFile(join(projectRoot, ".env"), "API_KEY=private\n", "utf8");
+    await mkdir(join(projectRoot, ".git"));
+    await writeFile(join(projectRoot, ".git", "HEAD"), "ref: refs/heads/main\n", "utf8");
+    await symlink(".env", join(projectRoot, "environment.txt"));
+    await symlink(".git/HEAD", join(projectRoot, "head.txt"));
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read", "write" ],
+      commandClasses: [],
+    });
+
+    await expect(tools.execute("read_file", { path: "environment.txt" }))
+      .rejects.toThrow("sensitive credential path");
+    await expect(tools.execute("write_file", { path: "head.txt", content: "corrupt\n" }))
+      .rejects.toThrow("sensitive credential path");
+    await expect(readFile(join(projectRoot, ".git", "HEAD"), "utf8"))
+      .resolves.toBe("ref: refs/heads/main\n");
+  });
+
+  it("redacts secrets emitted by approved repository commands", async () => {
+    const { projectRoot } = await fixture();
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read" ],
+      commandClasses: [ "inspect" ],
+      run: vi.fn(async () => ({ stdout: "API_KEY=command-secret-value", stderr: "", exitStatus: 0 })),
+    });
+
+    const output = await tools.execute("run_command", { command: "rg API_KEY ." });
+
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("command-secret-value");
+  });
+
+  it("deletes and moves regular files only inside a writable assignment root", async () => {
+    const { projectRoot } = await fixture();
+    await writeFile(join(projectRoot, "obsolete.txt"), "remove me\n", "utf8");
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read", "write" ],
+      commandClasses: [],
+    });
+
+    await tools.execute("move_file", { from: "README.md", to: "docs/README.md" });
+    await tools.execute("delete_file", { path: "obsolete.txt" });
+
+    await expect(readFile(join(projectRoot, "docs", "README.md"), "utf8")).resolves.toBe("old text\n");
+    await expect(access(join(projectRoot, "README.md"))).rejects.toThrow();
+    await expect(access(join(projectRoot, "obsolete.txt"))).rejects.toThrow();
+  });
+
   it("runs approved commands with provider credentials removed", async () => {
     const { projectRoot } = await fixture();
     const run = vi.fn(async (_command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => ({
@@ -234,5 +288,39 @@ describe("Flyd worker tools", () => {
 
     await expect(tools.execute("fetch_url", { url: "https://github.com/example/project" }))
       .rejects.toThrow("URL is outside the task grant");
+  });
+
+  it("rejects remote responses that declare a body larger than the tool budget", async () => {
+    const { projectRoot } = await fixture();
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read" ],
+      commandClasses: [],
+      allowedNetworkUrls: [ "https://example.test/article" ],
+      fetch: vi.fn(async () => new Response("small", {
+        headers: { "content-length": "1000000" },
+      })),
+    });
+
+    await expect(tools.execute("fetch_url", { url: "https://example.test/article" }))
+      .rejects.toThrow(/too large/i);
+  });
+
+  it("aborts a stalled remote response at one operation deadline", async () => {
+    const { projectRoot } = await fixture();
+    const fetch = vi.fn((_url: URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    }));
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read" ],
+      commandClasses: [],
+      allowedNetworkUrls: [ "https://example.test/article" ],
+      fetch: fetch as typeof globalThis.fetch,
+      fetchTimeoutMs: 10,
+    });
+
+    await expect(tools.execute("fetch_url", { url: "https://example.test/article" }))
+      .rejects.toThrow(/timed out/i);
   });
 });

@@ -10,6 +10,7 @@ class SurfaceItem < ApplicationRecord
   has_many :context_corrections, dependent: :destroy
   has_many :surface_feedbacks, dependent: :destroy
   has_many :task_recommendations, dependent: :destroy
+  has_many :runtime_delivery_receipts, dependent: :restrict_with_exception
 
   validates :item_key, :title, presence: true
   validates :item_key, uniqueness: { scope: :surface_id }

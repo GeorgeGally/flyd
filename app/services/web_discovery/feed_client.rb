@@ -45,9 +45,10 @@ module WebDiscovery
       guid = node_text(entry, "guid", "id").presence || url
       published_at = parsed_time(node_text(entry, "pubDate", "published", "updated", "date")) || Time.current
       html = node_text(entry, "description", "summary", "content", "encoded")
-      description = clean_html(html)
-      image_url = absolute_url(feed_uri, entry_image(entry, html))
       reddit = source[:kind] == "reddit"
+      description = clean_html(html)
+      description = strip_reddit_boilerplate(description) if reddit
+      image_url = absolute_url(feed_uri, entry_image(entry, html))
 
       {
         id: Digest::SHA256.hexdigest("#{source[:name]}|#{guid}").first(20),
@@ -90,6 +91,12 @@ module WebDiscovery
 
     def clean_html(value)
       Nokogiri::HTML.fragment(value.to_s).text.squish.presence&.truncate(500)
+    end
+
+    def strip_reddit_boilerplate(text)
+      return text if text.blank?
+
+      text.sub(%r{\s*submitted by /u/\S+(?:\s+to\s+/?r/\S+)?\s*\[link\]\s*\[comments\]\s*\z}i, "").presence || text
     end
 
     def source_uri(source)

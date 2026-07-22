@@ -8,6 +8,8 @@ export default class extends Controller {
     this.handleGlobalKeydown = this.handleGlobalKeydown.bind(this)
     document.addEventListener("turbo:morph", this.handleMorph)
     document.addEventListener("keydown", this.handleGlobalKeydown)
+    this.streamObserver = new MutationObserver(() => this.handleMorph())
+    this.streamObserver.observe(this.element, { childList: true, subtree: true })
     this.applySemanticLayout(this.element.dataset.intentActive === "true")
     this.applyRuntimeFocus()
     this.hideFailedImages()
@@ -17,6 +19,7 @@ export default class extends Controller {
   disconnect() {
     document.removeEventListener("turbo:morph", this.handleMorph)
     document.removeEventListener("keydown", this.handleGlobalKeydown)
+    this.streamObserver?.disconnect()
   }
 
   handleMorph() {
@@ -113,12 +116,15 @@ export default class extends Controller {
     if (!this.posterDeck()) return
 
     const focusKey = this.planeTarget.dataset.runtimeFocusKey || this.planeTarget.dataset.surfaceFocusKey
+    let focusedItem = null
     this.itemTargets.forEach((item) => {
       const focused = item.dataset.itemKey === focusKey
       item.classList.toggle("is-runtime-focus", focused)
       item.classList.toggle("is-runtime-support", !focused)
       item.setAttribute("aria-current", focused ? "true" : "false")
+      if (focused) focusedItem = item
     })
+    focusedItem?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" })
   }
 
   posterDeck() {

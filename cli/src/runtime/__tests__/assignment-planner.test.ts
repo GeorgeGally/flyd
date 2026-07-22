@@ -33,6 +33,23 @@ describe("assignment planner", () => {
     expect(plan.successCriteria).toEqual(["The intended outcome is implemented and independently verified"]);
   });
 
+  it("redacts credentials before asking the planner model", async () => {
+    let prompt = "";
+    await planAssignments({
+      outcome: "Fix deployment with API_KEY=super-secret-value",
+      repository,
+      memory: { verdict: "sufficient", matches: [{ id: "memory-1", path: "notes", excerpt: "token: hidden-token-value", stale: false }] },
+      generate: async (value) => {
+        prompt = value;
+        throw new Error("stop after capture");
+      },
+    });
+
+    expect(prompt).not.toContain("super-secret-value");
+    expect(prompt).not.toContain("hidden-token-value");
+    expect(prompt).toContain("[REDACTED]");
+  });
+
   it("falls back to read-only analysis for a project status request", async () => {
     const plan = await planAssignments({
       outcome: "I want you to look at the status of this project",
@@ -88,6 +105,7 @@ describe("assignment planner", () => {
         assignments: [
           {
             key: "adapter",
+            repositoryRoot: repository.root,
             title: "Implement adapter",
             instructions: "Implement the Codex adapter contract",
             capabilityRequirements: ["implementation", "testing"],
@@ -96,6 +114,7 @@ describe("assignment planner", () => {
           },
           {
             key: "docs",
+            repositoryRoot: repository.root,
             title: "Document controls",
             instructions: "Document worker controls",
             capabilityRequirements: ["analysis", "implementation"],
@@ -114,27 +133,27 @@ describe("assignment planner", () => {
     {
       name: "overlapping scopes",
       assignments: [
-        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["cli/src"] },
-        { key: "two", title: "Two", instructions: "Two", capabilityRequirements: ["testing"], dependencyKeys: [], declaredFileScope: ["cli/src/runtime"] },
+        { key: "one", repositoryRoot: repository.root, title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["cli/src"] },
+        { key: "two", repositoryRoot: repository.root, title: "Two", instructions: "Two", capabilityRequirements: ["testing"], dependencyKeys: [], declaredFileScope: ["cli/src/runtime"] },
       ],
     },
     {
       name: "dependency cycle",
       assignments: [
-        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: ["two"], declaredFileScope: ["app"] },
-        { key: "two", title: "Two", instructions: "Two", capabilityRequirements: ["testing"], dependencyKeys: ["one"], declaredFileScope: ["test"] },
+        { key: "one", repositoryRoot: repository.root, title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: ["two"], declaredFileScope: ["app"] },
+        { key: "two", repositoryRoot: repository.root, title: "Two", instructions: "Two", capabilityRequirements: ["testing"], dependencyKeys: ["one"], declaredFileScope: ["test"] },
       ],
     },
     {
       name: "unsupported capability",
       assignments: [
-        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["deploy"], dependencyKeys: [], declaredFileScope: ["app"] },
+        { key: "one", repositoryRoot: repository.root, title: "One", instructions: "One", capabilityRequirements: ["deploy"], dependencyKeys: [], declaredFileScope: ["app"] },
       ],
     },
     {
       name: "scope outside the repository",
       assignments: [
-        { key: "one", title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["../secrets"] },
+        { key: "one", repositoryRoot: repository.root, title: "One", instructions: "One", capabilityRequirements: ["implementation"], dependencyKeys: [], declaredFileScope: ["../secrets"] },
       ],
     },
   ])("rejects $name instead of trusting an unsafe plan", async ({ assignments }) => {
@@ -151,6 +170,69 @@ describe("assignment planner", () => {
 
     expect(plan.source).toBe("fallback");
     expect(plan.assignments).toHaveLength(1);
+  });
+
+  it("accepts overlapping relative scopes when assignments target different approved repositories", async () => {
+    const secondRepository = { ...repository, root: "/work/skill", name: "skill", head: "def456" };
+    const plan = await planAssignments({
+      outcome: "Update Flyd and install the companion skill",
+      repository,
+      repositories: [repository, secondRepository],
+      memory: { verdict: "sufficient", matches: [] },
+      generate: async () => JSON.stringify({
+        successCriteria: ["Both repositories are updated"],
+        verificationCriteria: ["Run each repository's tests"],
+        assignments: [
+          {
+            key: "flyd",
+            repositoryRoot: repository.root,
+            title: "Update Flyd",
+            instructions: "Update the Flyd integration",
+            capabilityRequirements: ["implementation", "testing"],
+            dependencyKeys: [],
+            declaredFileScope: ["."],
+          },
+          {
+            key: "skill",
+            repositoryRoot: secondRepository.root,
+            title: "Update skill",
+            instructions: "Update the companion skill",
+            capabilityRequirements: ["implementation", "testing"],
+            dependencyKeys: [],
+            declaredFileScope: ["."],
+          },
+        ],
+      }),
+    });
+
+    expect(plan.source).toBe("model");
+    expect(plan.assignments.map((assignment) => assignment.repositoryRoot))
+      .toEqual([repository.root, secondRepository.root]);
+  });
+
+  it("rejects a model plan that targets a repository outside the approved set", async () => {
+    const plan = await planAssignments({
+      outcome: "Update another repository",
+      repository,
+      repositories: [repository],
+      memory: { verdict: "sufficient", matches: [] },
+      generate: async () => JSON.stringify({
+        successCriteria: ["Done"],
+        verificationCriteria: ["Tests pass"],
+        assignments: [{
+          key: "outside",
+          repositoryRoot: "/work/not-approved",
+          title: "Update outside repository",
+          instructions: "Change files outside the grant",
+          capabilityRequirements: ["implementation"],
+          dependencyKeys: [],
+          declaredFileScope: ["."],
+        }],
+      }),
+    });
+
+    expect(plan.source).toBe("fallback");
+    expect(plan.assignments[0].repositoryRoot).toBe(repository.root);
   });
 
   it("selects only runnable assignments from the task's current plan", () => {

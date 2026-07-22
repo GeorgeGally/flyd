@@ -5,6 +5,8 @@ module RuntimeTasks
       raise BindingPresenter::BindingError, "Runtime digest task does not match its item" unless binding.task == task
 
       payload = {
+        surface_item_id: item.id,
+        surface_item_key: item.item_key,
         task_key: task.task_key,
         task_revision: task.revision,
         workers: binding.workers.sort_by(&:worker_key).map do |worker|

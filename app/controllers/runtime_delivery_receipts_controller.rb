@@ -3,8 +3,9 @@ class RuntimeDeliveryReceiptsController < ApplicationController
     event = RuntimeEvent.find(params.require(:runtime_event_id))
     return head :unprocessable_entity unless event.broadcast_delivered_at?
     surface = Surface.find_by(id: params.require(:surface_id))
-    item = surface&.items&.find { |candidate| bound_to_event?(candidate, event) }
+    item = surface&.items&.find_by(id: params[:surface_item_id])
     return head :unprocessable_entity unless surface&.active? && item
+    return head :unprocessable_entity unless bound_to_event?(item, event)
     return head :unprocessable_entity unless item.metadata["task_revision"] == event.task_revision
     return head :unprocessable_entity unless event.agent_task.revision == event.task_revision
 
@@ -17,6 +18,7 @@ class RuntimeDeliveryReceiptsController < ApplicationController
       client_id: params.require(:client_id).to_s.first(120)
     ) do |record|
       record.surface_id = surface.id
+      record.surface_item = item
       record.task_revision = event.task_revision
       record.binding_digest = binding_digest
       record.acknowledged_at = acknowledged_at

@@ -20,6 +20,66 @@ export interface IntegrationResult {
   verification?: VerifiedWorkerResult;
 }
 
+export async function preflightVerifiedResults(input: {
+  repositoryRoot: string;
+  taskKey: string;
+  baseSnapshot: RepositorySnapshot;
+  results: VerifiedWorkerResult[];
+  verificationCommands: string[];
+  manager: GitWorktreeManager;
+}): Promise<IntegrationResult> {
+  if (input.results.length === 0 || input.results.some((result) => !result.passed)) {
+    return { status: "blocked", reason: "Every assignment must pass independent verification", changedFiles: [], patchDigest: null };
+  }
+  if (input.results.some((result) => result.baseHead !== input.baseSnapshot.head)) {
+    return { status: "blocked", reason: "Assignments do not share the recorded base head", changedFiles: [], patchDigest: null };
+  }
+  const overlaps = overlappingFiles(input.results);
+  if (overlaps.length > 0) {
+    return { status: "blocked", reason: `Assignments changed overlapping files: ${overlaps.join(", ")}`, changedFiles: overlaps, patchDigest: null };
+  }
+  const currentSource = await inspectRepository(input.repositoryRoot);
+  const changedFiles = [...new Set(input.results.flatMap((result) => result.changedFiles))].sort();
+  if (!sameRepositoryState(input.baseSnapshot, currentSource)) {
+    return { status: "blocked", reason: "Source repository changed after assignments started", changedFiles: [], patchDigest: null };
+  }
+  if (changedFiles.length === 0) {
+    return {
+      status: "integrated", reason: null, changedFiles: [], patchDigest: input.results[0].patchDigest,
+      repositorySnapshot: currentSource, verification: input.results[0],
+    };
+  }
+  if (currentSource.branch !== "main") {
+    return { status: "blocked", reason: "Implementation results can only integrate into main", changedFiles: [], patchDigest: null };
+  }
+
+  const preflightWorktree = await input.manager.prepare({
+    repositoryRoot: input.repositoryRoot,
+    taskKey: input.taskKey,
+    assignmentKey: `preflight-${randomUUID()}`,
+    baseHead: input.baseSnapshot.head,
+  });
+  try {
+    for (const result of input.results) await applyPatch(preflightWorktree.path, result.patch);
+    const verification = await verifyWorkerResult({
+      worktreePath: preflightWorktree.path,
+      baseHead: input.baseSnapshot.head,
+      commands: input.verificationCommands,
+    });
+    return verification.passed
+      ? {
+          status: "integrated", reason: null, changedFiles: verification.changedFiles,
+          patchDigest: verification.patchDigest, repositorySnapshot: currentSource, verification,
+        }
+      : {
+          status: "blocked", reason: "Combined assignment result failed preflight verification",
+          changedFiles: verification.changedFiles, patchDigest: verification.patchDigest, verification,
+        };
+  } finally {
+    await input.manager.remove(input.repositoryRoot, preflightWorktree, true);
+  }
+}
+
 function overlappingFiles(results: VerifiedWorkerResult[]): string[] {
   const counts = new Map<string, number>();
   for (const file of results.flatMap((result) => result.changedFiles)) {
@@ -212,5 +272,26 @@ export async function integrateVerifiedResults(input: {
     };
   } finally {
     await input.manager.remove(input.repositoryRoot, integrationWorktree, true);
+  }
+}
+
+export async function rollbackIntegratedResult(input: {
+  repositoryRoot: string;
+  baseSnapshot: RepositorySnapshot;
+  integration: IntegrationResult;
+}): Promise<void> {
+  if (input.integration.status !== "integrated" || input.integration.changedFiles.length === 0) return;
+  const integratedSnapshot = input.integration.repositorySnapshot;
+  if (!integratedSnapshot) throw new Error("Integrated repository snapshot is missing");
+  const current = await inspectRepository(input.repositoryRoot);
+  if (current.dirty || current.branch !== integratedSnapshot.branch || current.head !== integratedSnapshot.head) {
+    throw new Error(`Cannot roll back ${input.repositoryRoot} because it changed after Flyd integration`);
+  }
+  await execFileAsync("git", [ "-C", input.repositoryRoot, "reset", "--hard", input.baseSnapshot.head ], {
+    encoding: "utf8", timeout: 30_000,
+  });
+  const restored = await inspectRepository(input.repositoryRoot);
+  if (!sameRepositoryState(input.baseSnapshot, restored)) {
+    throw new Error(`Flyd could not restore ${input.repositoryRoot} to its recorded base state`);
   }
 }

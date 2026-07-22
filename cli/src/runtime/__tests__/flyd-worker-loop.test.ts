@@ -107,6 +107,42 @@ describe("Flyd native worker loop", () => {
     ]));
   });
 
+  it("does not treat a denied tool call as repository evidence", async () => {
+    const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-denied-evidence-"));
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: "denied", name: "read_file", arguments: { path: ".env" } }],
+      })
+      .mockResolvedValueOnce({ content: "The repository is safe.", toolCalls: [] })
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: "allowed", name: "read_file", arguments: { path: "README.md" } }],
+      })
+      .mockResolvedValueOnce({ content: "README evidence confirms the result.", toolCalls: [] });
+    const execute = vi.fn()
+      .mockRejectedValueOnce(new Error("Path is a sensitive credential path"))
+      .mockResolvedValueOnce("# Repository");
+
+    const result = await runFlydWorkerLoop({
+      assignment: "Review the repository",
+      taskKey: "task-1",
+      projectRoot: "/work/project",
+      sessionRoot,
+      client: { complete },
+      tools: {
+        definitions: [ { type: "function", function: { name: "read_file", description: "Read", parameters: {} } } ],
+        execute,
+      },
+      emit: () => undefined,
+      sessionId: "flyd-session-denied-evidence",
+      maxTurns: 4,
+    });
+
+    expect(result.output).toBe("README evidence confirms the result.");
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a resume ID that could escape the session store", async () => {
     await expect(runFlydWorkerLoop({
       assignment: "Continue",
@@ -119,5 +155,30 @@ describe("Flyd native worker loop", () => {
       sessionId: "../../outside",
       resume: true,
     })).rejects.toThrow("Invalid Flyd session ID");
+  });
+
+  it("redacts credentials from model messages and persisted sessions", async () => {
+    const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-redaction-"));
+    const complete = vi.fn(async (_input: { messages: Array<Record<string, unknown>> }) => ({ content: "Done", toolCalls: [] }));
+
+    await runFlydWorkerLoop({
+      assignment: "Use API_KEY=super-secret-value",
+      context: "Authorization: Bearer hidden-token-value",
+      taskKey: "task-redacted",
+      projectRoot: "/work/project",
+      sessionRoot,
+      client: { complete },
+      tools: { definitions: [], execute: vi.fn() },
+      emit: () => undefined,
+      sessionId: "flyd-session-redacted",
+    });
+
+    const modelInput = JSON.stringify(complete.mock.calls[0][0]);
+    const persisted = await readFile(join(sessionRoot, "flyd-session-redacted.json"), "utf8");
+    for (const text of [modelInput, persisted]) {
+      expect(text).not.toContain("super-secret-value");
+      expect(text).not.toContain("hidden-token-value");
+      expect(text).toContain("[REDACTED]");
+    }
   });
 });

@@ -117,4 +117,25 @@ describe("buildOrientation", () => {
     expect(context.markdown.length).toBeLessThanOrEqual(2_000);
     expect(context.evidenceRefs).toEqual(["memory:1"]);
   });
+
+  it("redacts secrets before task and memory context can leave the local boundary", () => {
+    const context = buildContextPackage({
+      task: { ...task, intendedOutcome: "Use API_KEY=task-secret-value without exposing it" },
+      repository,
+      worker,
+      memory: {
+        verdict: "sufficient",
+        matches: [{
+          id: "memory:secret",
+          path: "private-note.md",
+          excerpt: "OPENROUTER_API_KEY=sk-or-v1-memory-secret-value",
+          stale: false,
+        }],
+      },
+    });
+
+    expect(context.markdown).toContain("[REDACTED]");
+    expect(context.markdown).not.toContain("task-secret-value");
+    expect(context.markdown).not.toContain("sk-or-v1-memory-secret-value");
+  });
 });

@@ -33,12 +33,37 @@ class RuntimeDeliveryReceiptsControllerTest < ActionDispatch::IntegrationTest
     )
     Surface.activate!(surface)
     binding_digest = RuntimeTasks::BindingDigest.call(task: task, item: item)
+    other_item = surface.surface_items.create!(
+      item_key: "runtime:#{task.task_key}:other",
+      kind: "status",
+      intent: "review",
+      renderer: "task_review",
+      depth: "middle",
+      state: "presented",
+      title: "Different recommendation",
+      position: 1,
+      source_refs: [ { "type" => "runtime_task", "id" => task.task_key } ],
+      actions: [ { "id" => "different", "label" => "Different" } ],
+      metadata: { "task_revision" => event.task_revision }
+    )
+
+    assert_no_difference("RuntimeDeliveryReceipt.count") do
+      post runtime_delivery_receipts_path, params: {
+        runtime_event_id: event.id,
+        client_id: "wrong-item",
+        surface_id: surface.id,
+        surface_item_id: other_item.id,
+        binding_digest: binding_digest
+      }, as: :json
+    end
+    assert_response :unprocessable_entity
 
     assert_difference("RuntimeDeliveryReceipt.count", 1) do
       post runtime_delivery_receipts_path, params: {
         runtime_event_id: event.id,
         client_id: "browser-test",
         surface_id: surface.id,
+        surface_item_id: item.id,
         binding_digest: binding_digest
       }, as: :json
     end
@@ -47,6 +72,7 @@ class RuntimeDeliveryReceiptsControllerTest < ActionDispatch::IntegrationTest
         runtime_event_id: event.id,
         client_id: "browser-test",
         surface_id: surface.id,
+        surface_item_id: item.id,
         binding_digest: binding_digest
       }, as: :json
     end
@@ -55,17 +81,18 @@ class RuntimeDeliveryReceiptsControllerTest < ActionDispatch::IntegrationTest
     receipt = RuntimeDeliveryReceipt.find_by!(runtime_event: event, client_id: "browser-test")
     assert_operator receipt.delivery_latency_ms, :>=, 0
     assert_equal surface.id, receipt.surface_id
+    assert_equal item, receipt.surface_item
     assert_equal event.task_revision, receipt.task_revision
     assert_match(/\A[0-9a-f]{64}\z/, receipt.binding_digest)
   end
 
-  test "rejects a receipt for a different rendered task revision or digest" do
+  test "rejects a receipt for a different rendered task revision" do
     project = Project.create!(name: "Stale receipt test", root_path: "/tmp/flyd-stale-receipt-test")
     task = AgentTask.create!(project: project, task_key: SecureRandom.uuid, status: "ready", intended_outcome: "Reject stale parity", revision: 2)
     event = RuntimeEvent.create!(agent_task: task, event_type: "task.oriented", task_revision: 2,
       occurred_at: Time.current - 0.05, broadcast_delivered_at: Time.current)
     surface = Surface.create!(status: "draft", generated_at: Time.current)
-    surface.surface_items.create!(item_key: "runtime:#{task.task_key}", kind: "status", intent: "review",
+    item = surface.surface_items.create!(item_key: "runtime:#{task.task_key}", kind: "status", intent: "review",
       renderer: "task_review", depth: "foreground", state: "presented", title: "Stale task", position: 0,
       source_refs: [ { "type" => "runtime_task", "id" => task.task_key } ], actions: [],
       metadata: { "task_revision" => 1 })
@@ -73,11 +100,45 @@ class RuntimeDeliveryReceiptsControllerTest < ActionDispatch::IntegrationTest
 
     post runtime_delivery_receipts_path, params: {
       runtime_event_id: event.id, client_id: "browser-test", surface_id: surface.id,
+      surface_item_id: item.id,
       binding_digest: Digest::SHA256.hexdigest("wrong")
     }, as: :json
 
     assert_response :unprocessable_entity
     assert_not RuntimeDeliveryReceipt.exists?(runtime_event: event)
+  end
+
+  test "rejects the wrong digest and an item bound to another task" do
+    project = Project.create!(name: "Exact receipt test", root_path: "/tmp/flyd-exact-receipt-test")
+    task = AgentTask.create!(project: project, task_key: SecureRandom.uuid, status: "ready",
+      intended_outcome: "Bind exact evidence", revision: 1)
+    other_task = AgentTask.create!(project: Project.create!(name: "Other receipt project", root_path: "/tmp/flyd-other-receipt-test"),
+      task_key: SecureRandom.uuid, status: "ready", intended_outcome: "Other task", revision: 1)
+    event = RuntimeEvent.create!(agent_task: task, event_type: "task.oriented", task_revision: 1,
+      occurred_at: Time.current - 0.05, broadcast_delivered_at: Time.current)
+    surface = Surface.create!(status: "draft", generated_at: Time.current)
+    valid_item = surface.surface_items.create!(item_key: "runtime:#{task.task_key}", kind: "status", intent: "review",
+      renderer: "task_review", depth: "foreground", state: "presented", title: "Exact task", position: 0,
+      source_refs: [ { "type" => "runtime_task", "id" => task.task_key } ], actions: [],
+      metadata: { "task_revision" => 1 })
+    other_item = surface.surface_items.create!(item_key: "runtime:#{other_task.task_key}", kind: "status", intent: "review",
+      renderer: "task_review", depth: "middle", state: "presented", title: "Other task", position: 1,
+      source_refs: [ { "type" => "runtime_task", "id" => other_task.task_key } ], actions: [],
+      metadata: { "task_revision" => 1 })
+    Surface.activate!(surface)
+
+    [
+      [valid_item, Digest::SHA256.hexdigest("wrong")],
+      [other_item, Digest::SHA256.hexdigest("other")],
+    ].each do |item, digest|
+      assert_no_difference("RuntimeDeliveryReceipt.count") do
+        post runtime_delivery_receipts_path, params: {
+          runtime_event_id: event.id, client_id: "browser-#{item.id}", surface_id: surface.id,
+          surface_item_id: item.id, binding_digest: digest
+        }, as: :json
+      end
+      assert_response :unprocessable_entity
+    end
   end
 
   test "does not acknowledge an event that was never broadcast" do

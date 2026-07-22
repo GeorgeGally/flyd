@@ -99,6 +99,7 @@ class ReleaseAcceptance::EvidenceTest < ActiveSupport::TestCase
     event.runtime_delivery_receipts.create!(
       client_id: "acceptance-browser",
       surface_id: delivered_surface.id,
+      surface_item: delivered_item,
       acknowledged_at: event.occurred_at + 0.5.seconds,
       delivery_latency_ms: 500,
       task_revision: event.task_revision,

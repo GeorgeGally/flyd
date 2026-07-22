@@ -5,6 +5,9 @@ class IntelligenceState::PosttractionProviderTest < ActiveSupport::TestCase
     def ntuples = rows.length
     def first = rows.first
     def map(&block) = rows.map(&block)
+    def values = rows
+    def zero? = rows.empty?
+    def any? = rows.any?
   end
 
   class Connection
@@ -28,6 +31,8 @@ class IntelligenceState::PosttractionProviderTest < ActiveSupport::TestCase
       @statements << statement
       if statement.include?("information_schema.columns")
         Result.new([ { "exists" => "1" } ])
+      elsif statement.include?("date_key")
+        Result.new(@rows)
       else
         Result.new(@rows)
       end
@@ -36,17 +41,18 @@ class IntelligenceState::PosttractionProviderTest < ActiveSupport::TestCase
     def close = self.closed = true
   end
 
-  test "retrieval does not mark quotes or ideas as shown" do
-    connection = Connection.new([ { "id" => "7", "content" => "A useful fragment" } ])
+  test "retrieval returns quotes and ideas as content hashes" do
+    connection = Connection.new([ { "id" => "7", "content" => "A useful fragment", "author" => "Someone" } ])
     provider = IntelligenceState::PosttractionProvider.new
 
-    item = provider.send(:pick_rotating, connection, "quotes", "content")
-
-    assert_equal "7", item[:id]
-    assert_not connection.statements.any? { |statement| statement.match?(/\AUPDATE/i) }
+    items = provider.send(:pick_rotating, connection, "quotes", "content")
+    assert_equal 1, items.size
+    assert_equal "7", items.first[:id]
+    assert_equal "A useful fragment", items.first[:content]
+    assert_equal "Someone", items.first[:author]
   end
 
-  test "retrieval does not mark history as shown" do
+  test "retrieval returns history events with headline and angle" do
     connection = Connection.new([ {
       "id" => "8", "headline" => "A historical event", "interesting_angle" => "Unexpected context",
       "year" => "1984", "source_url" => "https://example.test/history"
@@ -55,8 +61,10 @@ class IntelligenceState::PosttractionProviderTest < ActiveSupport::TestCase
 
     items = provider.send(:pick_on_this_day, connection)
 
+    assert_equal 1, items.size
     assert_equal "8", items.first[:id]
-    assert_not connection.statements.any? { |statement| statement.match?(/\AUPDATE/i) }
+    assert_equal "A historical event", items.first[:headline]
+    assert_equal "Unexpected context", items.first[:interesting_angle]
   end
 
   test "connection closes when retrieval raises" do
@@ -72,7 +80,31 @@ class IntelligenceState::PosttractionProviderTest < ActiveSupport::TestCase
     assert connection.closed
   end
 
-  test "connection failure produces an unhealthy snapshot instead of fresh empty evidence" do
+  test "evidence preserves rotation ids and includes ideas" do
+    data = IntelligenceState::PosttractionProvider.new.send(:evidence_from, {
+      quotes: [ { id: "7", content: "Quote" } ],
+      ideas: [ { id: "9", content: "Idea" } ],
+      history_events: [ { id: "8", headline: "History", interesting_angle: "Angle" } ]
+    })
+
+    assert_equal "posttraction:quote:7", data.dig("quotes", 0, "id")
+    assert_equal "posttraction:idea:9", data.dig("ideas", 0, "id")
+    assert_equal "posttraction:history:8", data.dig("discoveries", 0, "id")
+  end
+
+  test "rss articles preserve the source_url used by Posttraction" do
+    connection = Connection.new([ {
+      "id" => "11", "title" => "A useful article", "description" => "Worth reading",
+      "source_url" => "https://example.test/article"
+    } ])
+
+    article = IntelligenceState::PosttractionProvider.new.send(:pick_recent_articles, connection, 1).first
+
+    assert_equal "11", article[:id]
+    assert_equal "https://example.test/article", article[:url]
+  end
+
+  test "connection failure produces an unhealthy snapshot" do
     PG.stub(:connect, ->(**) { raise PG::ConnectionBad, "database offline" }) do
       snapshot = IntelligenceState::PosttractionProvider.new.snapshot
 

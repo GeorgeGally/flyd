@@ -40,6 +40,7 @@
            data-controller="runtime-delivery"
            data-runtime-delivery-event-id-value="<%= runtime_event.id %>"
            data-runtime-delivery-surface-id-value="<%= surface.id %>"
+           data-runtime-delivery-surface-item-id-value="<%= runtime_delivery_item.id %>"
            data-runtime-delivery-binding-digest-value="<%= runtime_binding_digest %>"
          <% end %>
          data-surface-focus-key="<%= active_conversation ? "conversation:#{active_conversation.id}" : surface.focus_item_id %>"

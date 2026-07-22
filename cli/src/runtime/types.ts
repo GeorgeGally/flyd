@@ -68,6 +68,7 @@ export interface TaskAssignment {
   status: AssignmentStatus;
   title: string;
   instructions: string;
+  repositoryRoot?: string | null;
   successCriteria: string[];
   capabilityRequirements: import("./worker-adapter.js").WorkerCapability[];
   dependencyKeys: string[];

@@ -224,12 +224,21 @@ export async function runCode(outcome?: string): Promise<void> {
           providerIdentity: workerConfigs.map((config) => config.providerIdentity).join(" -> "),
         },
         orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
-          let assignments = currentPlanAssignments(task, await store.listAssignments(task.id), repository.head);
+          const repositories = await Promise.all(grant.repositoryRoots.map((root) => (
+            root === repository.root ? Promise.resolve(repository) : inspectRepository(root)
+          )));
+          const verificationCommandsByRepository = Object.fromEntries(await Promise.all(repositories.map(async (snapshot) => [
+            snapshot.root,
+            await verificationCommandsForRepository(snapshot.root),
+          ])));
+          const repositoryHeads = new Map(repositories.map((snapshot) => [snapshot.root, snapshot.head]));
+          let assignments = currentPlanAssignments(task, await store.listAssignments(task.id), repositoryHeads);
           if (assignments.length === 0) {
             const plan = await planAssignments({
               outcome: task.intendedOutcome,
               nextAction: assignment,
               repository,
+              repositories,
               memory,
               generate: generatePlan,
             });
@@ -238,7 +247,8 @@ export async function runCode(outcome?: string): Promise<void> {
             const persisted = await store.persistAssignmentPlan(task.taskKey, current.revision, {
               ...plan,
               baseHead: repository.head,
-              idempotencyKey: `task-plan:${task.taskKey}:${current.revision}:${repository.head}`,
+              repositoryHeads: Object.fromEntries(repositoryHeads),
+              idempotencyKey: `task-plan:${task.taskKey}:${current.revision}:${[...repositoryHeads.values()].join(":")}`,
             });
             assignments = persisted.assignments;
           }
@@ -249,7 +259,7 @@ export async function runCode(outcome?: string): Promise<void> {
               sessionRoot,
               fileOperations: grant.fileOperations,
               commandClasses: grant.commandClasses,
-              repositoryRoots: grant.repositoryRoots.filter((root) => root !== repository.root),
+              repositoryRoots: grant.repositoryRoots,
             }),
           ];
           return orchestrateAssignments({
@@ -257,6 +267,7 @@ export async function runCode(outcome?: string): Promise<void> {
             grant,
             assignments,
             repository,
+            verificationCommandsByRepository,
             contextPath,
             adapters,
             deps: { store, manager },

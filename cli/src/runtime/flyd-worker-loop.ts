@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { join } from "path";
 import type { FlydToolDefinition } from "./flyd-worker-tools.js";
+import { redactSensitiveText } from "./context-redactor.js";
 
 interface FlydToolCall {
   id: string;
@@ -28,6 +29,7 @@ interface FlydWorkerState {
 const SYSTEM_PROMPT = `You are Flyd's native coding worker. Flyd, not an external coding harness, owns this loop and every tool you can use.
 
 Inspect the repository, implement the assigned outcome, and verify it. Act directly through the supplied structured tools. Do not give the user instructions to do the work. Do not claim you cannot act. Do not ask questions or pause for confirmation. Make conservative assumptions from repository evidence. Never access paths or commands outside the task grant. Finish with a concise factual summary of changes and verification.`;
+const EVIDENCE_TOOLS = new Set([ "list_files", "read_file", "search", "run_command" ]);
 
 async function persistState(sessionRoot: string, state: FlydWorkerState): Promise<void> {
   await mkdir(sessionRoot, { recursive: true, mode: 0o700 });
@@ -64,11 +66,12 @@ export async function runFlydWorkerLoop(input: {
     : { sessionId, taskKey: input.taskKey, projectRoot: input.projectRoot, messages: [] };
   if (state.taskKey !== input.taskKey) throw new Error("Flyd session belongs to a different task");
   if (state.projectRoot !== input.projectRoot) throw new Error("Flyd session belongs to a different assignment repository");
-  const context = input.context?.trim() ? `\n\nFlyd context:\n${input.context.trim()}` : "";
-  state.messages.push({ role: "user", content: `${input.assignment.trim()}${context}` });
+  const assignment = redactSensitiveText(input.assignment.trim());
+  const context = input.context?.trim() ? `\n\nFlyd context:\n${redactSensitiveText(input.context.trim())}` : "";
+  state.messages.push({ role: "user", content: `${assignment}${context}` });
   await persistState(input.sessionRoot, state);
   input.emit({ type: "session.started", sessionId, text: null });
-  let usedToolThisRun = false;
+  let usedRepositoryEvidence = false;
 
   for (let turn = 0; turn < (input.maxTurns ?? 32); turn += 1) {
     const completion = await input.client.complete({
@@ -89,13 +92,13 @@ export async function runFlydWorkerLoop(input: {
     if (completion.toolCalls.length === 0) {
       const output = completion.content?.trim();
       if (!output) throw new Error("Flyd worker returned no result");
-      if (!usedToolThisRun && input.tools.definitions.length > 0) {
+      if (!usedRepositoryEvidence && input.tools.definitions.length > 0) {
         state.messages.push({
           role: "user",
-          content: "You have not inspected the repository or used an approved tool in this run. Do not claim completion. Use the supplied tools now, ground the work in repository evidence, verify the result, and only then provide a final answer.",
+          content: "You have not inspected the repository or used an approved tool. Do not describe what you would do — use the supplied tools to examine the codebase, gather evidence, verify, and only then provide a final answer.",
         });
         await persistState(input.sessionRoot, state);
-        input.emit({ type: "worker.correction", sessionId, text: "Repository evidence required" });
+        input.emit({ type: "worker.correction", sessionId, text: "More repository evidence required" });
         continue;
       }
       input.emit({ type: "agent_message", sessionId, text: output });
@@ -103,11 +106,11 @@ export async function runFlydWorkerLoop(input: {
     }
 
     for (const call of completion.toolCalls) {
-      usedToolThisRun = true;
       input.emit({ type: "tool.started", sessionId, text: call.name });
       let result: string;
       try {
         result = await input.tools.execute(call.name, call.arguments);
+        if (EVIDENCE_TOOLS.has(call.name)) usedRepositoryEvidence = true;
       } catch (error) {
         result = `Tool error: ${error instanceof Error ? error.message : String(error)}`;
       }
