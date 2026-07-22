@@ -46,6 +46,10 @@ class SurfacesController < ApplicationController
     if web_discovery_enabled? && (web_snapshot.nil? || !web_snapshot.fresh?)
       enqueue_without_blocking { RefreshWebDiscoveryJob.enqueue }
     end
+    last30days_snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::Last30DaysProvider::PROVIDER)
+    if last30days_reports_enabled? && (last30days_snapshot.nil? || !last30days_snapshot.fresh?)
+      enqueue_without_blocking { RefreshLast30DaysReportsJob.enqueue }
+    end
 
     explicit_interaction = params[:conversation_id].present? || @intent&.conversation_id.present?
     interaction_changed = explicit_interaction && @conversation && @surface.metadata["active_conversation_id"].to_i != @conversation.id
@@ -76,5 +80,9 @@ class SurfacesController < ApplicationController
 
   def personal_context_enabled?
     Rails.application.config_for(:flyd).fetch(:personal_context_enabled, true)
+  end
+
+  def last30days_reports_enabled?
+    Rails.application.config_for(:flyd).fetch(:last30days_reports_enabled, true)
   end
 end

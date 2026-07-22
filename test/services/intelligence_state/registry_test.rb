@@ -35,4 +35,10 @@ class IntelligenceState::RegistryTest < ActiveSupport::TestCase
     assert_empty query_provider.queries
     assert_equal [ "base" ], result[:providers].map { |provider| provider[:source] }
   end
+
+  test "includes last30days reports in the default provider set" do
+    provider_sources = IntelligenceState::Registry.new.snapshot[:providers].map { |provider| provider[:source] }
+
+    assert_includes provider_sources, "last30days"
+  end
 end

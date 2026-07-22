@@ -5,6 +5,7 @@ class ScheduleIntelligenceRefreshJob < ApplicationJob
     RefreshIntelligenceStateJob.enqueue
     RefreshPersonalContextJob.enqueue if personal_context_enabled?
     RefreshWebDiscoveryJob.enqueue if web_discovery_enabled?
+    RefreshLast30DaysReportsJob.enqueue if last30days_reports_enabled?
   end
 
   private
@@ -15,5 +16,9 @@ class ScheduleIntelligenceRefreshJob < ApplicationJob
 
   def personal_context_enabled?
     Rails.application.config_for(:flyd).fetch(:personal_context_enabled, true)
+  end
+
+  def last30days_reports_enabled?
+    Rails.application.config_for(:flyd).fetch(:last30days_reports_enabled, true)
   end
 end

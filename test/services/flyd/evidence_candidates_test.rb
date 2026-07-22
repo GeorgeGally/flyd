@@ -403,6 +403,33 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal "report:research", candidates.first.dig(:evidence_refs, 0, :id)
   end
 
+  test "last30days reports are discovery candidates with exact report references" do
+    candidate = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "last30days",
+          fresh: true,
+          data: {
+            reports: [ evidence(
+              "report",
+              "report:last30days:ai-agents",
+              {
+                title: "Last 30 days: AI agents",
+                excerpt: "Developers are comparing agent reliability across tool loops.",
+                topics: [ "agent reliability" ],
+                sourceStatus: { reddit: "ok" }
+              },
+              confidence: 0.86
+            ) ]
+          }
+        } ]
+      }
+    ).first
+
+    assert_equal "discovery", candidate[:mode]
+    assert_equal [ { type: "report", id: "report:last30days:ai-agents" } ], candidate[:evidence_refs]
+  end
+
   test "does not present stale web news as current discovery" do
     candidates = Flyd::EvidenceCandidates.call(
       provider_state: {

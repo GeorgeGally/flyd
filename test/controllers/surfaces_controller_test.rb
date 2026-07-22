@@ -8,6 +8,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     Rails.cache.delete(RefreshIntelligenceStateJob::LOCK_KEY)
     Rails.cache.delete(RefreshPersonalContextJob::LOCK_KEY) if defined?(RefreshPersonalContextJob::LOCK_KEY)
     Rails.cache.delete(RefreshWebDiscoveryJob::LOCK_KEY) if defined?(RefreshWebDiscoveryJob::LOCK_KEY)
+    Rails.cache.delete(RefreshLast30DaysReportsJob::LOCK_KEY) if defined?(RefreshLast30DaysReportsJob::LOCK_KEY)
     Surface.delete_all
     @surface = Surface.fallback!
   end
@@ -29,6 +30,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_enqueued_jobs 1, only: RefreshIntelligenceStateJob
     assert_enqueued_jobs 1, only: RefreshPersonalContextJob
     assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob
+    assert_enqueued_jobs 1, only: RefreshLast30DaysReportsJob
     assert_enqueued_jobs 1, only: ComposeSurfaceJob
     assert_response :success
   end

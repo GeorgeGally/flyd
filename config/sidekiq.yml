@@ -10,6 +10,11 @@
       class: RefreshWebDiscoveryJob
       queue: default
       description: "Refresh current stories for grounded Flyd discovery"
+    last30days_reports_refresh:
+      cron: "27 * * * *"
+      class: RefreshLast30DaysReportsJob
+      queue: default
+      description: "Refresh saved last30days report evidence for Flyd discovery"
     attachment_cleanup:
       cron: "17 2 * * *"
       class: PurgeExpiredIntentAttachmentsJob

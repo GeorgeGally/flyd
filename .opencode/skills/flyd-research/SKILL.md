@@ -11,7 +11,7 @@ Grow flyd's knowledge by researching topics and storing findings as permanent ca
 
 1. **Check memory** — run `flyd ask "tell me about <topic>"` to see what flyd already knows
 2. **Assess** — if evidence exists and is current (<30d), return it directly
-3. **Research gaps** — if evidence is thin, stale, or missing, run `flyd research "<topic>"` (this stores the result permanently)
+3. **Research gaps** — if evidence is thin, stale, or missing, run `flyd research "<topic>"` (this stores the result permanently). If the user needs current community discussion, market chatter, competitor signal, or "what people are saying now", use `/last30days <topic>` and ask it for the versioned agent JSON export so Rails can ingest the saved report.
 4. **Return** — present the findings, noting what came from memory vs fresh research
 
 **Example:**
