@@ -10,7 +10,7 @@ const PORT = 4815;
 const HOST = "127.0.0.1";
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
-let lastResolved: { intent: string; resolutionMode: string; environmentSummary: string } | null = null;
+const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string }>();
 
 interface ManifestRequestBody {
   invocation_id: string;
@@ -32,6 +32,7 @@ function parseBody(req: IncomingMessage): Promise<string> {
     req.on("data", (chunk: Buffer) => {
       data += chunk.toString();
       if (data.length > 64 * 1024) {
+        req.destroy();
         reject(new Error("Request body too large"));
       }
     });
@@ -95,11 +96,11 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     });
     if (intentHistory.length > 100) intentHistory.shift();
 
-    lastResolved = {
+    resolvedContexts.set(parsed.invocation_id, {
       intent: parsed.intent,
       resolutionMode: resolution.mode,
       environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
-    };
+    });
   } catch (err) {
     sendJson(res, 500, {
       error: err instanceof Error ? err.message : "Internal server error",
@@ -145,10 +146,13 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
       (outcome.correction ? ` (correction: ${outcome.correction})` : "")
   );
 
-  if (lastResolved) {
+  const resolved = resolvedContexts.get(outcome.invocationId);
+  if (resolved) {
+    resolvedContexts.delete(outcome.invocationId);
+
     const gateResult = memoryGate({
-      intent: lastResolved.intent,
-      resolutionMode: lastResolved.resolutionMode,
+      intent: resolved.intent,
+      resolutionMode: resolved.resolutionMode,
       outcomeStatus: outcome.status,
       correction: outcome.correction,
       intentHistory: intentHistory.slice(-20),
@@ -157,24 +161,24 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
 
     if (gateResult.shouldRemember) {
       const receipt = createMemoryReceipt(
-        lastResolved.intent,
-        lastResolved.resolutionMode,
+        resolved.intent,
+        resolved.resolutionMode,
         outcome.status,
-        lastResolved.environmentSummary,
+        resolved.environmentSummary,
         outcome.correction,
         gateResult.reason
       );
       console.log(`[MemoryGate] REMEMBER (${gateResult.category}/${gateResult.confidence}): ${gateResult.reason}`);
 
-      const learning = provisionalLearn(lastResolved.intent);
+      const learning = provisionalLearn(resolved.intent);
       if (learning) {
         console.log(`[MemoryGate] Provisional learning: ${learning.domain}=${learning.value}`);
       }
     } else {
       console.log(`[MemoryGate] DISCARD (${gateResult.category}): ${gateResult.reason}`);
     }
-
-    lastResolved = null;
+  } else {
+    console.warn(`[Flyd Core] Outcome received with no matching manifest: ${outcome.invocationId.slice(0, 8)}`);
   }
 
   sendJson(res, 200, { acknowledged: true });
@@ -203,9 +207,13 @@ export function startServer(port: number = PORT, host: string = HOST): Promise<v
         case "/manifest/outcome":
           handleOutcome(req, res);
           break;
-        case "/health":
-          handleHealth(req, res);
-          break;
+      case "/health":
+        handleHealth(req, res);
+        break;
+      case "/shutdown":
+        sendJson(res, 200, { status: "shutting_down" });
+        process.nextTick(() => process.exit(0));
+        break;
         default:
           sendJson(res, 404, { error: "Not found" });
       }
@@ -260,8 +268,9 @@ async function main() {
       break;
     case "stop": {
       try {
-        await fetch(`http://${HOST}:${PORT}/health`);
-        console.log("[Flyd Core] Server is running. Send SIGTERM to stop.");
+        const res = await fetch(`http://${HOST}:${PORT}/shutdown`, { method: "POST" });
+        if (res.ok) console.log("[Flyd Core] Server stopped.");
+        else console.log("[Flyd Core] Server returned unexpected status.");
       } catch {
         console.log("[Flyd Core] Server is not running.");
       }

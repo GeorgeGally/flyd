@@ -29,12 +29,11 @@ const PREFERENCE_PATTERNS = [
 
 const CORRECTION_PATTERNS = [
   /no[,\s].*(that'?s?\s+not|wrong|incorrect|bad)/i,
-  /actually/i,
+  /actually[,]?\s+(it'?s|that'?s|you'?re|you\s+should|i\s+meant)/i,
   /that'?s?\s+not\s+(right|correct|what\s+i\s+(meant|wanted|asked))/i,
   /fix\s+that/i,
   /try\s+again/i,
   /redo/i,
-  /redo\s+that/i,
 ];
 
 const TEACHING_PATTERNS = [
@@ -101,22 +100,28 @@ export function memoryGate(input: MemoryGateInput): MemoryGateResult {
     };
   }
 
-  if (input.outcomeStatus === "succeeded" && input.topicCount >= 3) {
-    const hoursAgo = input.intentHistory
-      .filter((h) => {
-        const then = new Date(h.timestamp).getTime();
-        const now = Date.now();
-        return (now - then) < 24 * 60 * 60 * 1000;
-      })
-      .length;
+  if (input.outcomeStatus === "succeeded" && input.topicCount >= 5) {
+    const recentInLast24h = input.intentHistory.filter((h) => {
+      const then = new Date(h.timestamp).getTime();
+      const now = Date.now();
+      return (now - then) < 24 * 60 * 60 * 1000;
+    });
 
-    if (hoursAgo >= 2 && hoursAgo % 3 === 0) {
-      return {
-        shouldRemember: true,
-        reason: "Recurring routine detected",
-        confidence: "medium",
-        category: "recurring_routine",
-      };
+    const hourBuckets = new Map<number, number>();
+    for (const h of recentInLast24h) {
+      const hour = new Date(h.timestamp).getHours();
+      hourBuckets.set(hour, (hourBuckets.get(hour) || 0) + 1);
+    }
+
+    for (const [, count] of hourBuckets) {
+      if (count >= 3) {
+        return {
+          shouldRemember: true,
+          reason: "Recurring routine detected (3+ intents in same hour window)",
+          confidence: "medium",
+          category: "recurring_routine",
+        };
+      }
     }
   }
 

@@ -170,18 +170,28 @@ export function synthesizeLearnings(): { beliefs: BeliefRecord[]; behaviours: Be
         newBeliefs.push(belief);
       }
 
-      const behaviour: BehaviourRecord = {
-        id: crypto.randomUUID(),
-        pattern: learning.domain,
-        response: String(learning.value),
-        context: "overlay_invocation",
-        confidence: 0.7,
-        firstObserved: new Date().toISOString(),
-        lastUsed: new Date().toISOString(),
-        useCount: 1,
-      };
-      BEHAVIOUR_STORE.push(behaviour);
-      newBehaviours.push(behaviour);
+      const existingBehaviour = BEHAVIOUR_STORE.find(
+        (b) => b.pattern === learning.domain && b.response === String(learning.value)
+      );
+
+      if (existingBehaviour) {
+        existingBehaviour.useCount++;
+        existingBehaviour.lastUsed = new Date().toISOString();
+        existingBehaviour.confidence = Math.min(existingBehaviour.confidence + 0.03, 1.0);
+      } else {
+        const behaviour: BehaviourRecord = {
+          id: crypto.randomUUID(),
+          pattern: learning.domain,
+          response: String(learning.value),
+          context: "overlay_invocation",
+          confidence: 0.7,
+          firstObserved: new Date().toISOString(),
+          lastUsed: new Date().toISOString(),
+          useCount: 1,
+        };
+        BEHAVIOUR_STORE.push(behaviour);
+        newBehaviours.push(behaviour);
+      }
     }
   }
 

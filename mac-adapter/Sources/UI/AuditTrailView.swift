@@ -77,7 +77,7 @@ struct AuditTrailView: View {
                 Button("Close") {
                     NSApplication.shared.keyWindow?.close()
                 }
-                .keyboardShortcut(.return)
+                .keyboardShortcut(.escape)
             }
             .padding(.top, 8)
         }
@@ -126,18 +126,21 @@ private class AuditTrailViewModel: ObservableObject {
 
         let decoder = JSONDecoder()
 
+        let cutoff = Date().addingTimeInterval(-Double(ConfigManager.shared.auditRetentionDays) * 86400)
+
         records = files
             .filter { $0.pathExtension == "json" }
             .compactMap { url -> AuditRecordViewModel? in
                 guard let data = try? Data(contentsOf: url),
-                      let record = try? decoder.decode(RawAuditRecord.self, from: data) else { return nil }
+                      let record = try? decoder.decode(RawAuditRecord.self, from: data),
+                      record.timestamp > cutoff else { return nil }
 
                 let status: String
                 let color: Color
                 if record.error != nil {
                     status = "Error"
                     color = .red
-                } else if record.contextSources.contains("cancelled") {
+                } else if record.contextSources.first(where: { $0 == "cancelled" }) != nil {
                     status = "Cancelled"
                     color = .orange
                 } else {

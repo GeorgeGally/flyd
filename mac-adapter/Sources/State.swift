@@ -85,4 +85,5 @@ final class FlydState: @unchecked Sendable {
 extension Notification.Name {
     static let flydModeDidChange = Notification.Name("FlydModeDidChange")
     static let flydPhaseDidChange = Notification.Name("FlydPhaseDidChange")
+    static let flydConfigDidChange = Notification.Name("FlydConfigDidChange")
 }

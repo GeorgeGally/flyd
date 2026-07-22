@@ -29,7 +29,7 @@ struct PrivacySettingsView: View {
                 Button("Close") {
                     NSApplication.shared.keyWindow?.close()
                 }
-                .keyboardShortcut(.return)
+                .keyboardShortcut(.escape)
             }
             .padding(.top, 8)
         }
@@ -177,6 +177,17 @@ private class PrivacySettingsViewModel: ObservableObject {
     @Published var incognito: Bool = false
 
     init() {
+        refresh()
+        NotificationCenter.default.addObserver(
+            forName: .flydConfigDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func refresh() {
         let config = ConfigManager.shared.config
         retention = config.retention
         excludedApps = config.excludedApps

@@ -5,6 +5,8 @@ final class StatusItem {
     private var statusItem: NSStatusItem?
     private var dotView: StatusDotView?
     private var menu: NSMenu?
+    private weak var privacyWindow: NSWindow?
+    private weak var auditWindow: NSWindow?
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -79,6 +81,10 @@ final class StatusItem {
     }
 
     @objc private func openPrivacySettings() {
+        if let window = privacyWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
             styleMask: [.titled, .closable, .resizable],
@@ -89,9 +95,14 @@ final class StatusItem {
         window.center()
         window.contentView = NSHostingView(rootView: PrivacySettingsView())
         window.makeKeyAndOrderFront(nil)
+        privacyWindow = window
     }
 
     @objc private func openAuditTrail() {
+        if let window = auditWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.titled, .closable, .resizable],
@@ -102,13 +113,18 @@ final class StatusItem {
         window.center()
         window.contentView = NSHostingView(rootView: AuditTrailView())
         window.makeKeyAndOrderFront(nil)
+        auditWindow = window
     }
 
     @objc private func toggleIncognito() {
         let newValue = !ConfigManager.shared.config.incognito
         ConfigManager.shared.setIncognito(newValue)
+        updateIncognitoMenuItem()
+    }
+
+    private func updateIncognitoMenuItem() {
         if let item = menu?.items.first(where: { $0.title == "Incognito Mode" }) {
-            item.state = newValue ? .on : .off
+            item.state = ConfigManager.shared.config.incognito ? .on : .off
         }
     }
 

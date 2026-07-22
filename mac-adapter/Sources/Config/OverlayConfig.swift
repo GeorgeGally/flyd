@@ -66,8 +66,18 @@ final class ConfigManager {
     }
 
     func save() {
-        guard let data = try? JSONEncoder().encode(config) else { return }
-        try? data.write(to: configURL, options: .atomic)
+        guard let data = try? JSONEncoder().encode(config) else {
+            print("[ConfigManager] ERROR: Failed to encode config")
+            return
+        }
+        do {
+            try data.write(to: configURL, options: .atomic)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .flydConfigDidChange, object: nil)
+            }
+        } catch {
+            print("[ConfigManager] ERROR: Failed to write config: \(error.localizedDescription)")
+        }
     }
 
     func setRetention(_ mode: OverlayConfig.RetentionMode) {
@@ -99,9 +109,13 @@ final class ConfigManager {
         }
     }
 
+    func isBundleExcluded(_ bundleId: String) -> Bool {
+        config.excludedApps.contains(bundleId)
+    }
+
     var isAppExcluded: Bool {
         guard let bundleId = ApplicationMonitor.shared.foregroundApp?.bundleId else { return false }
-        return config.excludedApps.contains(bundleId)
+        return isBundleExcluded(bundleId)
     }
 
     var auditRetentionDays: Int {
