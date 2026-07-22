@@ -26,7 +26,16 @@
               data-surface-target="launcher"
               data-action="surface#openIntent"></button>
     </div>
-    <%= link_to "System", projects_path, class: "flyd-system-link" %>
+    <nav class="flyd-stage__sources" aria-label="Flyd sources">
+      <% if @last30days_snapshot %>
+        <% report_count = Array(@last30days_snapshot.data[:reports]).length %>
+        <span class="flyd-source-chip"
+              title="<%= Rails.application.config_for(:flyd).fetch(:last30days_report_directory) %>">
+          Last 30 Days · <%= report_count.zero? ? "no reports yet" : pluralize(report_count, "report") %>
+        </span>
+      <% end %>
+      <%= link_to "System", projects_path, class: "flyd-system-link" %>
+    </nav>
   </header>
 
   <main class="flyd-stage__scene">

@@ -9,6 +9,7 @@ class SurfacesController < ApplicationController
     @intent = Intent.find_by(id: params[:intent_id])
     @conversation = resolve_conversation
     @preferred_project = Project.active.find_by(id: params[:project_id])
+    @last30days_snapshot = IntelligenceState::Last30DaysProvider.new.snapshot if last30days_reports_enabled?
 
     prepare_next_surface
   end

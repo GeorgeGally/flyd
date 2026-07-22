@@ -35,6 +35,24 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "root shows the last30days report source status" do
+    get root_url
+
+    assert_response :success
+    assert_select ".flyd-source-chip", text: /Last 30 Days/
+    assert_select ".flyd-source-chip", text: /no reports yet/
+  end
+
+  test "root shows ingested last30days report count" do
+    IntelligenceState::Last30DaysProvider.new.persist!(reports: [ last30days_report ])
+
+    get root_url
+
+    assert_response :success
+    assert_select ".flyd-source-chip", text: /Last 30 Days/
+    assert_select ".flyd-source-chip", text: /1 report/
+  end
+
   test "fresh provider state queues fallback surface composition" do
     IntelligenceState::CliProvider.new.persist!(provider_payload)
 
@@ -121,6 +139,22 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
       "review" => [],
       "suggestions" => [],
       "capabilities" => []
+    }
+  end
+
+  def last30days_report
+    {
+      "id" => "report:last30days:ai-agents",
+      "type" => "report",
+      "source" => "last30days",
+      "epistemicStatus" => "observation",
+      "confidence" => 0.86,
+      "generatedAt" => Time.current.iso8601,
+      "evidenceRefs" => [],
+      "content" => {
+        "title" => "Last 30 days: AI agents",
+        "excerpt" => "Developers are comparing agent reliability across tool loops."
+      }
     }
   end
 end
