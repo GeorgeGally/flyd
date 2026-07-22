@@ -104,13 +104,13 @@ Architectural constraints, not configurable settings. Each invariant is concrete
 mac-adapter/
 ├── Sources/
 │   ├── main.swift                        # Agent entry point (LSUIElement=true, no dock)
-│   ├── State.swift                       # FlydState enum: present, invoked
+│   ├── State.swift                       # FlydMode enum: present, invoked. InvocationPhase enum: idle, capturing, awaitingIntent, resolving, executing, cancelled.
 │   ├── Privacy/PrivacyInvariants.swift   # Enforced constraints, falsifiable
 │   ├── Permissions/
 │   │   ├── PermissionGate.swift          # TCC state: Accessibility, Screen Recording, Microphone
 │   │   └── PermissionsView.swift         # Shows what each permission enables + how to grant
 │   ├── Environment/
-│   │   ├── EnvironmentState.swift        # Struct: app, surface, window, focusedElement, uiStructure, selectionMetadata, clipboardChanged, timestamp
+│   │   ├── EnvironmentState.swift        # Struct: app, surface, window, focusedElement, uiStructure, selectionMetadata, timestamp
 │   │   ├── ApplicationMonitor.swift      # NSWorkspace notification-based foreground app tracking
 │   │   └── AccessibilityInspector.swift  # AXObserver → focused element + bounded neighbourhood. Ephemeral refs (el_01).
 │   ├── Capture/
@@ -119,7 +119,8 @@ mac-adapter/
 │   │                                      # Re-invocation = interrupt (cancel current, start new).
 │   ├── UI/
 │   │   ├── StatusItem.swift              # Menu bar: grey=present, blue=invoked, red=error
-│   │   └── OverlayWindow.swift           # Hidden NSPanel (non-activating, ignoresMouseEvents=true, canJoinAllSpaces)
+│   │   ├── OverlayWindow.swift           # Hidden NSPanel. Click-through (ignoresMouseEvents=true). Annotations, passive visuals, augmentations without interaction. canJoinAllSpaces.
+│   │   └── InvocationPanel.swift         # NSPanel at cursor. Non-activating but can become key to receive typed intent. Enter submits, Escape cancels. Dismisses when invocation completes.
 │   ├── Audit/
 │   │   └── AuditRecorder.swift           # Local log: invocation_id, timestamp, context_sources, error (no raw content)
 │   └── Auth/
@@ -166,24 +167,23 @@ mac-adapter/
 |-----------|---------|
 | `ObservationCoordinator` | Deduplicate observation requests. Only one expensive analysis per source. Coalesce new observations while analysis runs. Stale candidates dropped. Latest meaningful state wins. |
 | `ScreenFingerprint` | Tiny grayscale hash for change detection. Cursor blinks, animations, JPEG noise don't invalidate context. Same revision → reuse semantic interpretation. |
-| `ScreenCaptureKit` integration | On-demand screenshot. Only when AX context is insufficient AND fingerprint indicates meaningful change. ~1280px downsized. Excludes own windows. |
+| `ScreenCaptureKit` integration | On-demand screenshot. Only when AX context is insufficient. Captured screenshot → fingerprint hash → if unchanged within this invocation, reuse current-invocation analysis. If changed or first capture, run OCR/VLM. ~1280px downsized. Excludes own windows. No cross-invocation caching — environment data disappears after invocation. |
 | Time-indexed capture | t₀ = ⌃⌥ press freeze (fingerprint + prewarm). t₁ = Enter key (intent complete, verify + refresh context). t₂ = pre-execution fingerprint check. |
-| Prewarm perception | AX read + cache check + screen fingerprint starts at ⌃⌥ press, before user finishes typing. Context ready by Enter. VLM fallback only if AX insufficient. |
+| Prewarm perception | AX read starts at ⌃⌥ press. If AX insufficient, capture screenshot + compute fingerprint. Context ready by Enter. VLM only if OCR fingerprint confirms meaningful change from any prior capture within this invocation. |
 | `ShortcutMonitor` → `InvocationStateMachine` | Renamed. Full lifecycle: present → invoking → capturing → resolving → executing → present. Cancellation at any state. Interrupt on re-invocation. |
 | Semantic neighbourhood extraction | Bounded parent container context. Patterns for Mail.app and Gmail. Other apps get partial context marked as `sufficiency: partial`. |
 
 ### M1 exit criteria
 
-1. ⌃⌥ press: prewarm begins (AX read, fingerprint check, cache hit/no-hit). Intent field appears at cursor.
-2. Enter (intent complete): full context packet ready within 100ms of intent submission
-3. ScreenCaptureKit only fires when AX context is insufficient AND fingerprint indicates meaningful change
-4. Same screen fingerprint → no re-capture on subsequent invocations
-5. Focus drift between t₀ and t₁ is detectable
-6. Context packet matches environment capture contract (see Contracts section)
-7. Cursor blinks and animations don't trigger false screen-change detection
-8. Invocation fingerprint (app + window + element) captured and verifiable
-9. Intent field accepts text, Enter submits (t₁), Escape cancels
-10. Rapid re-invocation cancels current and starts fresh
+1. ⌃⌥ press: prewarm begins (AX read). Intent field appears at cursor.
+2. Screen capture pipeline: AX sufficient? → stop. No → capture screenshot → fingerprint → unchanged within invocation? reuse → changed? OCR/VLM.
+3. Enter (intent complete): full context packet ready within 100ms of intent submission
+4. Focus drift between t₀ and t₁ is detectable
+5. Context packet matches environment capture contract (see Contracts section)
+6. Cursor blinks and animations don't trigger false screen-change detection
+7. Invocation fingerprint (app + window + element) captured and verifiable
+8. Intent field accepts text, Enter submits (t₁), Escape cancels
+9. Rapid re-invocation cancels current and starts fresh
 
 ## M2 — Pass-through intelligence (the existential test)
 
@@ -207,16 +207,60 @@ The TypeScript CLI (`cli/src/`) already has everything M2 needs — no Rails dep
 
 | File | Purpose |
 |------|---------|
-| `cli/src/resolve.ts` | `resolve(worldState, environment, intent)` → `Resolution`. Calls LLM with resolution prompt. Returns native/augment/compose operations. |
-| `cli/src/resolve-types.ts` | `Manifestation`, `NativeOperation`, `AugmentOperation`, `Resolution` types. Resolution validator (rejects hallucinated refs, invalid kinds, empty text, invalid modes). |
-| `cli/src/server.ts` | Simple HTTP server. `POST /manifest`. Receives environment + intent from Swift adapter. Calls `resolve()`. Returns JSON. Records outcome as archive event (meaning only). Uses existing `FLYD_MODEL_*` provider chain. |
+| `cli/src/resolve.ts` | `resolve(worldState, environment, intent)` → `Resolution`. Calls LLM with resolution prompt. M2 produces native operations only. May recognize `requires_augment` and `requires_compose` as mode values (returning a rationale, no payload), but does not produce augment or compose payloads. |
+| `cli/src/resolve-types.ts` | `NativeOperation`, `Resolution` types. Resolution validator (rejects hallucinated refs, invalid kinds, empty text, invalid modes). `AugmentOperation` type added in M3. |
+| `cli/src/server.ts` | Simple HTTP daemon. Two endpoints. `POST /manifest` — receives environment + intent, returns proposed resolution. `POST /manifest/outcome` — receives execution result (succeeded/rejected/failed/cancelled). Loopback only (127.0.0.1). Single instance. Graceful shutdown. Uses existing `FLYD_MODEL_*` provider chain. |
 
 ### Mac adapter additions (2 files)
 
 | File | Purpose |
 |------|---------|
 | `Sources/Execution/NativeExecutor.swift` | Resolves `el_01` via adapter-held invocation ref. Verifies fingerprint (t₂): app + window + element must still match capture. If ref can't safely resolve (element destroyed, AX tree restructured), fail with "Target no longer available." Never silently substitute a different focused element. Accepts element-level drift only when the same semantic target is reachable via AX role+description re-resolution. |
-| `Sources/Bridge/FlydClient.swift` | Per-install Keychain credential auth. HTTP POST to Flyd Core `/manifest`. Sends intent + environment. Receives resolution. Handles offline: "Cannot reach Flyd Core — is it running?" |
+| `Sources/Bridge/FlydClient.swift` | Per-install Keychain credential auth. HTTP POST to Flyd Core `/manifest` and `/manifest/outcome`. Sends intent + environment. Receives proposed resolution. Reports execution outcome. Handles offline: "Cannot reach Flyd Core — is it running?" |
+
+### Daemon contract
+
+The TypeScript server must satisfy a minimal operational contract from M2:
+
+- **Loopback only.** Bind to `127.0.0.1`. No external network exposure.
+- **Single instance.** Second launch attempt detects existing process and fails cleanly. No port conflicts.
+- **Graceful shutdown.** SIGTERM → drain in-flight requests → exit. SIGINT → same.
+- **Start/stop/status.** `flyd core start` / `flyd core stop` / `flyd core status` — CLI commands for lifecycle management.
+- **Authenticated requests.** The Mac adapter generates a per-install credential on first launch and stores it in macOS Keychain. The TypeScript daemon reads the same Keychain entry to validate incoming requests. No request is processed without a matching credential.
+
+### Invocation correlation
+
+Every request carries an `invocation_id` and receives a `resolution_id`:
+
+```
+POST /manifest
+{
+  "invocation_id": "uuid",
+  "environment_revision": 4,
+  ...
+}
+
+Response:
+{
+  "resolution_id": "uuid",
+  "invocation_id": "uuid (echoed)",
+  ...
+}
+```
+
+The Swift adapter discards any response whose `invocation_id` doesn't match the active invocation. This prevents late responses (from cancelled invocations) from acting on the wrong computer state.
+
+```
+POST /manifest/outcome
+{
+  "resolution_id": "uuid",
+  "invocation_id": "uuid",
+  "status": "succeeded" | "rejected" | "failed" | "cancelled",
+  "correction": null | "user feedback"
+}
+```
+
+The outcome endpoint feeds `MemoryGate` in M2.5 — intent → resolution → actual result → correction → learning.
 
 ### Intent routing tiers
 
@@ -246,7 +290,7 @@ local/small model (architectural, deferred)
 3. **Write-only Phase 1.** `insert_text`, `replace_text`, `replace_selection`. No click, submit, delete, shell, launch.
 4. **Character limit.** 2000 char max per operation.
 5. **Content threshold.** Replace operations affecting >75% of element content prompt confirmation.
-6. **Single invocation.** ⌃⌥ ignored while in flight. 10s timeout. Re-invocation cancels current.
+6. **Single invocation at a time.** Re-invocation cancels current and starts fresh. 10s timeout.
 7. **Environment discarded.** Environment structs deallocated after execution. Only meaning persists.
 8. **Undo primitive.** Text operations are reversible. "Undo" banner appears after execution. Prefer reversible over confirmed actions.
 9. **Adapter auth.** Every request authenticated with per-install Keychain credential.
@@ -294,7 +338,7 @@ first byte → action rendered/executed
 |-----------|---------|
 | `MemoryGate` | Cheap significance check (no LLM). Explicit preference, correction, repeated topic, multi-step teaching, confirmation, recurring routine → pass. Generic Q&A → discard. |
 | `MemoryReceipt` | First-class provenance struct: WHAT Flyd believes, WHY, WHEN changed, WHAT evidence changed it. Self-contained evidence (raw session can be deleted). |
-| Provisional learning | Synchronous, ~500ms. "always keep answers short" → immediately: `interaction_style = keyboard`. Acknowledge to user. |
+| Provisional learning | Synchronous, ~500ms. "always keep answers short" → immediately: `response_verbosity = concise`. Acknowledge to user. |
 | Async synthesis | Batched, later. Deduplicate, reconcile, persist to beliefs/behaviours store. |
 
 ## M3 — Augment + designer companion
@@ -406,11 +450,24 @@ The coding harness (`cli/src/runtime/`) already handles DELEGATED: specialist wo
 
 ```json
 {
+  "resolution_id": "uuid",
+  "invocation_id": "uuid (echoed from request)",
   "mode": "native",
-  "reasoning": "Replying to Farza's email about Tuesday catch-up.",
+  "rationale": "Replying to Farza's email about Tuesday catch-up.",
   "operations": [
     { "target": "el_01", "kind": "insert_text", "text": "Hey Farza — Tuesday works great! What time were you thinking?" }
   ]
+}
+```
+
+### Outcome contract (Mac Adapter → Flyd Core)
+
+```json
+{
+  "resolution_id": "uuid",
+  "invocation_id": "uuid",
+  "status": "succeeded",
+  "correction": null
 }
 ```
 
