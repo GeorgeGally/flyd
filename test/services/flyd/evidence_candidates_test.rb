@@ -430,6 +430,35 @@ class Flyd::EvidenceCandidatesTest < ActiveSupport::TestCase
     assert_equal [ { type: "report", id: "report:last30days:ai-agents" } ], candidate[:evidence_refs]
   end
 
+  test "fresh weather forecasts are discovery candidates with exact forecast references" do
+    candidate = Flyd::EvidenceCandidates.call(
+      provider_state: {
+        providers: [ {
+          source: "weather",
+          fresh: true,
+          data: {
+            forecasts: [ evidence(
+              "forecast",
+              "forecast:weather:-5.1477:119.4327:2026-07-22T06:00:00Z",
+              {
+                title: "Makassar weather",
+                description: "28°C and partly cloudy.",
+                condition: "Partly cloudy",
+                temperature: 28,
+                temperatureUnit: "°C",
+                locationLabel: "Makassar"
+              },
+              confidence: 0.95
+            ) ]
+          }
+        } ]
+      }
+    ).first
+
+    assert_equal "discovery", candidate[:mode]
+    assert_equal [ { type: "forecast", id: "forecast:weather:-5.1477:119.4327:2026-07-22T06:00:00Z" } ], candidate[:evidence_refs]
+  end
+
   test "does not present stale web news as current discovery" do
     candidates = Flyd::EvidenceCandidates.call(
       provider_state: {

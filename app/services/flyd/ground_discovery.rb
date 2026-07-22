@@ -79,6 +79,7 @@ module Flyd
       when "discovery" then ground_current_story(item, content)
       when "activity" then ground_activity(item, content)
       when "horoscope" then ground_horoscope(item, content)
+      when "forecast" then ground_forecast(item, content)
       else ground_archive_item(item, content)
       end
     end
@@ -122,6 +123,14 @@ module Flyd
       item["metadata"]["source_label"] = "Today"
       item["metadata"]["variant"] = "horoscope"
       item["metadata"]["provenance"] = formatted_date(content[:date])
+    end
+
+    def ground_forecast(item, content)
+      item["summary"] = content[:description].presence || item["summary"]
+      item["metadata"]["source_label"] = [ "Weather", content[:locationLabel] || content[:location_label] ].compact_blank.join(" · ")
+      item["metadata"]["variant"] = "weather"
+      item["metadata"]["provenance"] = formatted_date(content[:observedAt] || content[:observed_at])
+      item["metadata"]["why_it_matters"] = "Local conditions can shape what is worth doing now."
     end
 
     def ground_archive_item(item, content)

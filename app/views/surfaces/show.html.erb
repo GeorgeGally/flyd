@@ -34,6 +34,22 @@
           Last 30 Days · <%= report_count.zero? ? "no reports yet" : pluralize(report_count, "report") %>
         </span>
       <% end %>
+      <% if @weather_snapshot %>
+        <% forecast = Array(@weather_snapshot.data[:forecasts]).first %>
+        <% weather_content = forecast.to_h["content"].to_h %>
+        <% weather_status = if weather_content.present?
+             temperature = weather_content["temperature"]
+             unit = weather_content["temperatureUnit"].presence || "°C"
+             condition = weather_content["condition"].presence
+             [ "#{temperature}#{unit}", condition ].compact_blank.join(" · ")
+           else
+             Rails.application.config_for(:flyd)[:weather_location].present? ? "waiting" : "set location"
+           end %>
+        <span class="flyd-source-chip"
+              title="Set FLYD_WEATHER_LOCATION to latitude,longitude,label">
+          Weather · <%= weather_status %>
+        </span>
+      <% end %>
       <%= link_to "System", projects_path, class: "flyd-system-link" %>
     </nav>
   </header>

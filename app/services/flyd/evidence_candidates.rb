@@ -240,7 +240,7 @@ module Flyd
     end
 
     def discovery_evidence
-      items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:discoveries) +
+      items = fresh_collection(:activities) + fresh_collection(:horoscopes) + fresh_collection(:forecasts) + fresh_collection(:discoveries) +
         collection(:recent_events, :recentEvents) + collection(:reports) + memory_matches +
         collection(:quotes) + collection(:ideas) + collection(:facts)
       items.select do |item|
@@ -261,10 +261,11 @@ module Flyd
       return false if item[:confidence].to_f < 0.7
 
       content = evidence_content(item)
-      return false if content.values_at(:title, :excerpt).compact_blank.empty?
+      return false if content.values_at(:title, :excerpt, :description).compact_blank.empty?
       return false if polluted_test_evidence?(content)
       return content[:description].to_s.length >= 40 if item[:type].to_s == "discovery"
       return true if item[:type].to_s == "report"
+      return true if item[:type].to_s == "forecast"
 
       timestamp = evidence_timestamp(item)
       timestamp.present? && timestamp >= MAX_ARCHIVE_DISCOVERY_AGE.ago
@@ -279,6 +280,7 @@ module Flyd
       when "quote" then 1_100
       when "discovery" then 1_000
       when "idea" then 950
+      when "forecast" then 925
       when "fact" then 900
       when "event" then 500
       else 100

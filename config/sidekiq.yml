@@ -15,6 +15,11 @@
       class: RefreshLast30DaysReportsJob
       queue: default
       description: "Refresh saved last30days report evidence for Flyd discovery"
+    weather_refresh:
+      cron: "*/30 * * * *"
+      class: RefreshWeatherJob
+      queue: default
+      description: "Refresh configured local weather for Flyd context"
     attachment_cleanup:
       cron: "17 2 * * *"
       class: PurgeExpiredIntentAttachmentsJob

@@ -118,12 +118,15 @@ class RefreshWebDiscoveryJobTest < ActiveJob::TestCase
     Rails.cache.delete(RefreshPersonalContextJob::LOCK_KEY) if defined?(RefreshPersonalContextJob::LOCK_KEY)
     Rails.cache.delete(RefreshWebDiscoveryJob::LOCK_KEY) if defined?(RefreshWebDiscoveryJob::LOCK_KEY)
     Rails.cache.delete(RefreshLast30DaysReportsJob::LOCK_KEY) if defined?(RefreshLast30DaysReportsJob::LOCK_KEY)
+    Rails.cache.delete(RefreshWeatherJob::LOCK_KEY) if defined?(RefreshWeatherJob::LOCK_KEY)
 
     assert_enqueued_jobs 1, only: RefreshIntelligenceStateJob do
       assert_enqueued_jobs 1, only: RefreshPersonalContextJob do
         assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob do
           assert_enqueued_jobs 1, only: RefreshLast30DaysReportsJob do
-            ScheduleIntelligenceRefreshJob.perform_now
+            assert_enqueued_jobs 0, only: RefreshWeatherJob do
+              ScheduleIntelligenceRefreshJob.perform_now
+            end
           end
         end
       end

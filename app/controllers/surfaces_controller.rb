@@ -10,6 +10,7 @@ class SurfacesController < ApplicationController
     @conversation = resolve_conversation
     @preferred_project = Project.active.find_by(id: params[:project_id])
     @last30days_snapshot = IntelligenceState::Last30DaysProvider.new.snapshot if last30days_reports_enabled?
+    @weather_snapshot = IntelligenceState::WeatherProvider.new.snapshot if weather_enabled?
 
     prepare_next_surface
   end
@@ -51,6 +52,10 @@ class SurfacesController < ApplicationController
     if last30days_reports_enabled? && (last30days_snapshot.nil? || !last30days_snapshot.fresh?)
       enqueue_without_blocking { RefreshLast30DaysReportsJob.enqueue }
     end
+    weather_snapshot = IntelligenceSnapshot.latest_for(IntelligenceState::WeatherProvider::PROVIDER)
+    if weather_enabled? && weather_location_configured? && (weather_snapshot.nil? || !weather_snapshot.fresh?)
+      enqueue_without_blocking { RefreshWeatherJob.enqueue }
+    end
 
     explicit_interaction = params[:conversation_id].present? || @intent&.conversation_id.present?
     interaction_changed = explicit_interaction && @conversation && @surface.metadata["active_conversation_id"].to_i != @conversation.id
@@ -85,5 +90,13 @@ class SurfacesController < ApplicationController
 
   def last30days_reports_enabled?
     Rails.application.config_for(:flyd).fetch(:last30days_reports_enabled, true)
+  end
+
+  def weather_enabled?
+    Rails.application.config_for(:flyd).fetch(:weather_enabled, true)
+  end
+
+  def weather_location_configured?
+    Rails.application.config_for(:flyd)[:weather_location].present?
   end
 end

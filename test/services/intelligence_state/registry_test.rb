@@ -41,4 +41,10 @@ class IntelligenceState::RegistryTest < ActiveSupport::TestCase
 
     assert_includes provider_sources, "last30days"
   end
+
+  test "includes weather forecasts in the default provider set" do
+    provider_sources = IntelligenceState::Registry.new.snapshot[:providers].map { |provider| provider[:source] }
+
+    assert_includes provider_sources, "weather"
+  end
 end

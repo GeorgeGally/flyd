@@ -12,6 +12,9 @@ shared: &shared
   personal_context_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_PERSONAL_CONTEXT", "true")) %>
   last30days_reports_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_LAST30DAYS_REPORTS", "true")) %>
   last30days_report_directory: <%= ENV.fetch("LAST30DAYS_MEMORY_DIR", File.join(Dir.home, "Documents", "Last30Days")) %>
+  weather_enabled: <%= ActiveModel::Type::Boolean.new.cast(ENV.fetch("FLYD_WEATHER", "true")) %>
+  weather_location: <%= ENV["FLYD_WEATHER_LOCATION"] %>
+  weather_api_key: <%= ENV["FLYD_WEATHER_API_KEY"] %>
   local_activity_root: <%= ENV.fetch("FLYD_PROJECTS_DIR", File.join(Dir.home, "Documents")) %>
   zodiac_sign: <%= ENV["FLYD_ZODIAC_SIGN"] %>
 

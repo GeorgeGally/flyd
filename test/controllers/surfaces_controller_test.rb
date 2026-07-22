@@ -9,6 +9,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     Rails.cache.delete(RefreshPersonalContextJob::LOCK_KEY) if defined?(RefreshPersonalContextJob::LOCK_KEY)
     Rails.cache.delete(RefreshWebDiscoveryJob::LOCK_KEY) if defined?(RefreshWebDiscoveryJob::LOCK_KEY)
     Rails.cache.delete(RefreshLast30DaysReportsJob::LOCK_KEY) if defined?(RefreshLast30DaysReportsJob::LOCK_KEY)
+    Rails.cache.delete(RefreshWeatherJob::LOCK_KEY) if defined?(RefreshWeatherJob::LOCK_KEY)
     Surface.delete_all
     @surface = Surface.fallback!
   end
@@ -31,6 +32,7 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_enqueued_jobs 1, only: RefreshPersonalContextJob
     assert_enqueued_jobs 1, only: RefreshWebDiscoveryJob
     assert_enqueued_jobs 1, only: RefreshLast30DaysReportsJob
+    assert_enqueued_jobs 0, only: RefreshWeatherJob
     assert_enqueued_jobs 1, only: ComposeSurfaceJob
     assert_response :success
   end
@@ -51,6 +53,25 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select ".flyd-source-chip", text: /Last 30 Days/
     assert_select ".flyd-source-chip", text: /1 report/
+  end
+
+  test "root shows weather setup status when location is not configured" do
+    get root_url
+
+    assert_response :success
+    assert_select ".flyd-source-chip", text: /Weather/
+    assert_select ".flyd-source-chip", text: /set location/
+  end
+
+  test "root shows current weather when a forecast is available" do
+    IntelligenceState::WeatherProvider.new.persist!(forecasts: [ weather_forecast ])
+
+    get root_url
+
+    assert_response :success
+    assert_select ".flyd-source-chip", text: /Weather/
+    assert_select ".flyd-source-chip", text: /28°C/
+    assert_select ".flyd-source-chip", text: /Partly cloudy/
   end
 
   test "fresh provider state queues fallback surface composition" do
@@ -154,6 +175,26 @@ class SurfacesControllerTest < ActionDispatch::IntegrationTest
       "content" => {
         "title" => "Last 30 days: AI agents",
         "excerpt" => "Developers are comparing agent reliability across tool loops."
+      }
+    }
+  end
+
+  def weather_forecast
+    {
+      "id" => "forecast:weather:-5.1477:119.4327:2026-07-22T06:00:00Z",
+      "type" => "forecast",
+      "source" => "weather",
+      "epistemicStatus" => "observation",
+      "confidence" => 0.95,
+      "generatedAt" => Time.current.iso8601,
+      "evidenceRefs" => [],
+      "content" => {
+        "title" => "Makassar weather",
+        "description" => "28°C and partly cloudy.",
+        "temperature" => 28,
+        "temperatureUnit" => "°C",
+        "condition" => "Partly cloudy",
+        "locationLabel" => "Makassar"
       }
     }
   end
