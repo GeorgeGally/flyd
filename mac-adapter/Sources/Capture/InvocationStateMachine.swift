@@ -54,6 +54,8 @@ final class InvocationStateMachine {
         set { checkpointLock.withLock { _currentScreenImage = newValue } }
     }
 
+    private var currentRevision: Int = 0
+
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
@@ -182,6 +184,14 @@ final class InvocationStateMachine {
         prewarmTask?.cancel()
         resetCheckpoints()
         onCancelled?()
+    }
+
+    func setRevision(_ revision: Int) {
+        checkpointLock.withLock { currentRevision = revision }
+    }
+
+    func isRevisionCurrent(_ revision: Int) -> Bool {
+        checkpointLock.withLock { revision == currentRevision }
     }
 
     func hasFocusDrift() -> Bool {

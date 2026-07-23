@@ -26,7 +26,7 @@ function loadAuthToken(): string | null {
 const AUTH_TOKEN = loadAuthToken();
 
 function checkAuth(req: IncomingMessage): boolean {
-  if (!AUTH_TOKEN) return true;
+  if (!AUTH_TOKEN) return false;
   const auth = req.headers.authorization || "";
   return auth === `Bearer ${AUTH_TOKEN}`;
 }

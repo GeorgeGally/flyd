@@ -105,6 +105,7 @@ final class FlydClient {
     struct ResolutionResponse: Codable {
         let resolutionId: String
         let invocationId: String
+        let environmentRevision: Int
         let mode: String
         let rationale: String
         let operations: [OperationPayload]
@@ -115,6 +116,7 @@ final class FlydClient {
         enum CodingKeys: String, CodingKey {
             case resolutionId = "resolution_id"
             case invocationId = "invocation_id"
+            case environmentRevision = "environment_revision"
             case mode
             case rationale
             case operations
@@ -172,13 +174,14 @@ final class FlydClient {
 
     func sendManifest(
         invocationId: String,
+        environmentRevision: Int,
         environment: EnvironmentState,
         intent: String,
         fingerprint: InvocationFingerprint
     ) async -> ResolutionResponse? {
         let payload = ManifestPayload(
             invocationId: invocationId,
-            environmentRevision: 1,
+            environmentRevision: environmentRevision,
             environment: buildEnvironmentPayload(from: environment),
             intent: intent,
             modality: "text",

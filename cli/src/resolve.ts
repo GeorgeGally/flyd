@@ -131,6 +131,7 @@ function parseResolutionResponse(
   return {
     resolutionId: parsed.resolution_id || randomUUID(),
     invocationId,
+    environmentRevision: 0,
     mode: (parsed.mode as ResolutionMode) || "native",
     rationale: parsed.rationale || "Resolved intent.",
     operations: Array.isArray(parsed.operations)
@@ -156,6 +157,7 @@ const DETERMINISTIC_PATTERNS: Array<{
       return {
         resolutionId: randomUUID(),
         invocationId,
+        environmentRevision: 0,
         mode: "native",
         rationale: "Typing text into the focused field.",
         operations: [{ target: "el_01", kind: "insert_text", text }],
@@ -167,6 +169,7 @@ const DETERMINISTIC_PATTERNS: Array<{
     resolve: (_intent, _env, invocationId) => ({
       resolutionId: randomUUID(),
       invocationId,
+      environmentRevision: 0,
       mode: "native",
       rationale: "Simple greeting.",
       operations: [{ target: "el_01", kind: "insert_text", text: "Hello! " }],
@@ -178,11 +181,12 @@ export async function resolve(
   manifest: ManifestRequest,
   model?: string
 ): Promise<Resolution> {
-  const { invocation_id, environment, intent } = manifest;
+  const { invocation_id, environment_revision, environment, intent } = manifest;
 
   for (const pattern of DETERMINISTIC_PATTERNS) {
     if (pattern.match(intent, environment)) {
       const resolution = pattern.resolve(intent, environment, invocation_id);
+      resolution.environmentRevision = environment_revision;
       const validationError = validateResolution(resolution);
       if (!validationError) return resolution;
     }
@@ -196,12 +200,14 @@ export async function resolve(
   try {
     const response = await query(prompt, model, systemPrompt);
     const resolution = parseResolutionResponse(response, invocation_id);
+    resolution.environmentRevision = environment_revision;
 
     const validationError = validateResolution(resolution);
     if (validationError) {
       return {
         resolutionId: randomUUID(),
         invocationId: invocation_id,
+        environmentRevision: environment_revision,
         mode: "requires_compose",
         rationale: `Resolution validation failed: ${validationError.error}`,
         operations: [],
@@ -214,6 +220,7 @@ export async function resolve(
     return {
       resolutionId: randomUUID(),
       invocationId: invocation_id,
+      environmentRevision: environment_revision,
       mode: "requires_compose",
       rationale: "Resolution failed.",
       operations: [],

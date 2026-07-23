@@ -20,6 +20,7 @@ export type ResolutionMode = "native" | "requires_augment" | "requires_compose";
 export interface Resolution {
   resolutionId: string;
   invocationId: string;
+  environmentRevision: number;
   mode: ResolutionMode;
   rationale: string;
   operations: NativeOperation[];

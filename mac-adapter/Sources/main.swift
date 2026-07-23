@@ -115,12 +115,18 @@ func handleInvocation() {
         return
     }
 
-    let invocationId = state.startInvocation()
+    let (invocationId, revision) = state.startInvocation()
+    stateMachine.setRevision(revision)
     stateMachine.startPrewarm()
+
+    if let element = accessibilityInspector.capturedAXElement() {
+        executor.registerElement(ref: "el_01", element: element)
+    }
+
     state.transition(to: .awaitingIntent)
 
     invocationPanel.onIntentSubmitted = { intent in
-        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, intent: intent) }
+        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, revision: revision, intent: intent) }
     }
 
     invocationPanel.onCancelled = {
@@ -138,7 +144,7 @@ func handleInvocation() {
     invocationPanel.show()
 }
 
-func processInvocation(invocationId: String, intent: String) async {
+func processInvocation(invocationId: String, revision: Int, intent: String) async {
     stateMachine.captureIntent(intent: intent)
 
     if stateMachine.hasFocusDrift() {
@@ -182,6 +188,7 @@ func processInvocation(invocationId: String, intent: String) async {
 
     let response = await flydClient.sendManifest(
         invocationId: invocationId,
+        environmentRevision: revision,
         environment: environment,
         intent: intent,
         fingerprint: fingerprint
@@ -206,6 +213,20 @@ func processInvocation(invocationId: String, intent: String) async {
     state.transition(to: .executing)
 
     print("[Flyd] Resolution: \(resolution.mode) — \(resolution.rationale)")
+
+    if !InvocationStateMachine.shared.isRevisionCurrent(resolution.environmentRevision) {
+        print("[Flyd] Discarding stale resolution — revision \(resolution.environmentRevision) is not current")
+        await flydClient.sendOutcome(
+            resolutionId: resolution.resolutionId,
+            invocationId: resolution.invocationId,
+            status: "failed",
+            correction: "Stale resolution — superseded by newer invocation"
+        )
+        await MainActor.run {
+            state.transition(to: .present)
+        }
+        return
+    }
 
     switch resolution.mode {
     case "native":

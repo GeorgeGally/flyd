@@ -21,6 +21,7 @@ final class FlydState: @unchecked Sendable {
     private var _mode: FlydMode = .present
     private var _phase: InvocationPhase = .idle
     private var _invocationId: String?
+    private var _currentRevision: Int = 0
 
     var mode: FlydMode {
         lock.withLock { _mode }
@@ -32,6 +33,10 @@ final class FlydState: @unchecked Sendable {
 
     var invocationId: String? {
         lock.withLock { _invocationId }
+    }
+
+    var revision: Int {
+        lock.withLock { _currentRevision }
     }
 
     func transition(to mode: FlydMode) {
@@ -59,14 +64,15 @@ final class FlydState: @unchecked Sendable {
         }
     }
 
-    func startInvocation() -> String {
+    func startInvocation() -> (invocationId: String, revision: Int) {
         lock.lock()
         defer { lock.unlock() }
+        _currentRevision += 1
         let id = UUID().uuidString
         _invocationId = id
         _mode = .invoked
         _phase = .capturing
-        return id
+        return (id, _currentRevision)
     }
 
     func cancelInvocation() {

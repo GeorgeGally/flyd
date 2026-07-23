@@ -45,10 +45,34 @@ final class NativeExecutor {
         return (element as! AXUIElement)
     }
 
+    static let safeEditableRoles: Set<String> = [
+        "AXTextArea",
+        "AXTextField",
+        "AXSearchField",
+    ]
+
+    private func isEditable(_ element: AXUIElement) -> Bool {
+        var roleValue: CFTypeRef?
+        let roleResult = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        guard roleResult == .success, let role = roleValue as? String else { return false }
+
+        guard Self.safeEditableRoles.contains(role) else { return false }
+
+        var enabledValue: CFTypeRef?
+        let enabledResult = AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabledValue)
+        if enabledResult == .success, let enabled = enabledValue as? Bool, !enabled { return false }
+
+        return true
+    }
+
     func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint) async -> ExecutionResult {
-        let element = resolveElement(ref: operation.target, expectedRole: "AXTextArea")
+        let element = resolveElement(ref: operation.target, expectedRole: nil)
         guard let element else {
             return ExecutionResult(success: false, error: "Target no longer available — element not found")
+        }
+
+        guard isEditable(element) else {
+            return ExecutionResult(success: false, error: "Element is not an editable text field")
         }
 
         switch operation.kind {

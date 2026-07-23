@@ -87,6 +87,8 @@ final class AccessibilityInspector {
         guard result == .success, let focused = focusedRef else { return nil }
         let focusedElement = focused as! AXUIElement
 
+        currentElementRef = focusedElement
+
         let role = axAttribute(focusedElement, kAXRoleAttribute as CFString) ?? "unknown"
         let desc = axAttribute(focusedElement, kAXDescriptionAttribute as CFString) ?? ""
         let value = axAttribute(focusedElement, kAXValueAttribute as CFString) ?? ""
@@ -101,6 +103,10 @@ final class AccessibilityInspector {
             placeholder: placeholder,
             selectedText: selectedText
         )
+    }
+
+    func capturedAXElement() -> AXUIElement? {
+        currentElementRef
     }
 
     func captureSemanticNeighbourhood() -> EnvironmentState.SemanticNeighbourhood? {

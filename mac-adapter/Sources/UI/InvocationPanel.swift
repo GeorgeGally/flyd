@@ -1,9 +1,18 @@
 import AppKit
 
 final class InvocationPanel {
+    enum State {
+        case textInput
+        case listening
+        case processing
+        case error(message: String)
+    }
+
     private var panel: NSPanel?
     private var textField: NSTextField?
     private var promptLabel: NSTextField?
+    private var localEventMonitor: Any?
+    private var currentState: State = .textInput
 
     var onIntentSubmitted: ((String) -> Void)?
     var onCancelled: (() -> Void)?
@@ -39,6 +48,45 @@ final class InvocationPanel {
         panel.orderFront(nil)
 
         self.panel = panel
+        self.currentState = .textInput
+
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                self?.handleEscape()
+                return nil
+            }
+            return event
+        }
+    }
+
+    func updateState(_ state: State) {
+        currentState = state
+        guard let label = promptLabel else { return }
+
+        switch state {
+        case .textInput:
+            label.stringValue = "What do you want Flyd to do?"
+            label.textColor = .secondaryLabelColor
+            textField?.isHidden = false
+        case .listening:
+            label.stringValue = "Listening..."
+            label.textColor = .systemBlue
+        case .processing:
+            label.stringValue = "Thinking..."
+            label.textColor = .secondaryLabelColor
+        case .error(let message):
+            label.stringValue = message
+            label.textColor = .systemRed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                if case .error = self?.currentState {
+                    self?.cancel()
+                }
+            }
+        }
+    }
+
+    func fillIntent(_ text: String) {
+        textField?.stringValue = text
     }
 
     private func buildContent(in view: NSView, panel: NSPanel) {
@@ -65,6 +113,10 @@ final class InvocationPanel {
     }
 
     func dismiss() {
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localEventMonitor = nil
+        }
         textField?.resignFirstResponder()
         panel?.orderOut(nil)
         panel = nil
@@ -72,11 +124,27 @@ final class InvocationPanel {
         promptLabel = nil
     }
 
+    private func handleEscape() {
+        cancel()
+    }
+
+    private func cancel() {
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localEventMonitor = nil
+        }
+        onCancelled?()
+        dismiss()
+    }
+
     @objc private func textFieldAction() {
         guard let text = textField?.stringValue, !text.trimmingCharacters(in: .whitespaces).isEmpty else {
-            onCancelled?()
-            dismiss()
+            cancel()
             return
+        }
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            localEventMonitor = nil
         }
         onIntentSubmitted?(text)
         dismiss()
