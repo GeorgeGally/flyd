@@ -1,123 +1,124 @@
-import SwiftUI
+import AppKit
+import ApplicationServices
 
-struct PermissionsView: View {
-    @StateObject private var viewModel = PermissionsViewModel()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Flyd needs Accessibility to work.")
-                .font(.headline)
-
-            Text("Screen Recording and Microphone are optional. Flyd never observes without your explicit invocation.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            Divider()
-
-            PermissionRow(
-                label: "Accessibility",
-                explanation: "Allows Flyd to read the focused element and nearby context in any application.",
-                granted: viewModel.accessibilityGranted,
-                onGrant: { PermissionGate.shared.openSystemSettings(for: .accessibility) }
-            )
-
-            PermissionRow(
-                label: "Screen Recording",
-                explanation: "Allows Flyd to capture screenshots when accessibility context is insufficient.",
-                granted: viewModel.screenRecordingGranted,
-                onGrant: {
-                    PermissionGate.shared.requestScreenCapturePermission()
-                    PermissionGate.shared.openSystemSettings(for: .screenRecording)
-                }
-            )
-
-            PermissionRow(
-                label: "Microphone",
-                explanation: "Required for future voice mode. Not used yet.",
-                granted: viewModel.microphoneGranted,
-                onGrant: { PermissionGate.shared.openSystemSettings(for: .microphone) }
-            )
-
-            Spacer()
-
-            HStack {
-                if viewModel.accessibilityGranted {
-                    Button("Continue") {
-                        if let window = NSApplication.shared.windows.first(where: {
-                            $0.title.contains("Permissions")
-                        }) {
-                            window.close()
-                        }
-                    }
-                    .keyboardShortcut(.return)
-                } else {
-                    Text("Open System Settings → Privacy & Security → Accessibility and enable Flyd.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-            }
-        }
-        .padding()
-        .frame(width: 420, height: 320)
-    }
-}
-
-private class PermissionsViewModel: ObservableObject {
-    @Published var accessibilityGranted = false
-    @Published var screenRecordingGranted = false
-    @Published var microphoneGranted = false
+final class PermissionsViewController: NSViewController {
+    private var accessibilityStatus: NSTextField!
+    private var screenRecordingStatus: NSTextField!
+    private var microphoneStatus: NSTextField!
+    private var continueButton: NSButton!
     private var timer: Timer?
 
-    init() {
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 280))
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        let titleLabel = NSTextField(labelWithString: "Flyd needs Accessibility to work.")
+        titleLabel.font = .boldSystemFont(ofSize: 14)
+        titleLabel.frame = NSRect(x: 20, y: 240, width: 360, height: 20)
+        view.addSubview(titleLabel)
+
+        let subtitleLabel = NSTextField(wrappingLabelWithString: "Screen Recording and Microphone are optional. Flyd never observes without your explicit invocation.")
+        subtitleLabel.font = .systemFont(ofSize: 11)
+        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.frame = NSRect(x: 20, y: 210, width: 360, height: 30)
+        view.addSubview(subtitleLabel)
+
+        var y = addPermissionRow(y: 175, label: "Accessibility", explanation: "Reads the focused element and nearby context in any app.", tag: 0)
+        y = addPermissionRow(y: y, label: "Screen Recording", explanation: "Captures screenshots when accessibility context is insufficient.", tag: 1)
+        y = addPermissionRow(y: y, label: "Microphone", explanation: "Required for future voice mode. Not used yet.", tag: 2)
+
+        continueButton = NSButton(frame: NSRect(x: 20, y: y - 30, width: 360, height: 28))
+        continueButton.title = "Continue"
+        continueButton.bezelStyle = .rounded
+        continueButton.isEnabled = false
+        continueButton.target = self
+        continueButton.action = #selector(continueTapped)
+        view.addSubview(continueButton)
+
+        let quitButton = NSButton(frame: NSRect(x: 320, y: y - 30, width: 60, height: 28))
+        quitButton.title = "Quit"
+        quitButton.bezelStyle = .inline
+        quitButton.target = self
+        quitButton.action = #selector(quitTapped)
+        view.addSubview(quitButton)
+
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.refresh()
+            DispatchQueue.main.async { self?.refresh() }
         }
     }
 
-    func refresh() {
-        let g = PermissionGate.shared
-        accessibilityGranted = g.hasAccessibility
-        screenRecordingGranted = g.hasScreenRecording
-        microphoneGranted = g.hasMicrophone
-    }
-}
+    @discardableResult
+    private func addPermissionRow(y: CGFloat, label: String, explanation: String, tag: Int) -> CGFloat {
+        let statusLabel = NSTextField(labelWithString: "○")
+        statusLabel.font = .systemFont(ofSize: 16)
+        statusLabel.frame = NSRect(x: 20, y: y + 18, width: 20, height: 20)
+        view.addSubview(statusLabel)
 
-private struct PermissionRow: View {
-    let label: String
-    let explanation: String
-    let granted: Bool
-    let onGrant: () -> Void
+        let nameLabel = NSTextField(labelWithString: label)
+        nameLabel.font = .boldSystemFont(ofSize: 12)
+        nameLabel.frame = NSRect(x: 44, y: y + 38, width: 200, height: 16)
+        view.addSubview(nameLabel)
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(granted ? .green : .secondary)
-                .font(.title3)
+        let descLabel = NSTextField(wrappingLabelWithString: explanation)
+        descLabel.font = .systemFont(ofSize: 10)
+        descLabel.textColor = .secondaryLabelColor
+        descLabel.frame = NSRect(x: 44, y: y + 20, width: 220, height: 20)
+        view.addSubview(descLabel)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.body)
-                    .fontWeight(.medium)
-                Text(explanation)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        let grantButton = NSButton(frame: NSRect(x: 300, y: y + 22, width: 80, height: 22))
+        grantButton.title = "Grant"
+        grantButton.bezelStyle = .rounded
+        grantButton.controlSize = .small
+        grantButton.tag = tag
+        grantButton.target = self
+        grantButton.action = #selector(grantTapped(_:))
+        view.addSubview(grantButton)
 
-            Spacer()
-
-            if !granted {
-                Button("Grant") { onGrant() }
-                    .controlSize(.small)
-            }
+        switch tag {
+        case 0: accessibilityStatus = statusLabel; grantButton.isHidden = true
+        case 1: screenRecordingStatus = statusLabel
+        case 2: microphoneStatus = statusLabel
+        default: break
         }
-        .padding(.vertical, 4)
+
+        return y - 60
+    }
+
+    @objc private func grantTapped(_ sender: NSButton) {
+        switch sender.tag {
+        case 0:
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+        case 1:
+            PermissionGate.shared.requestScreenCapturePermission()
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+        case 2:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+        default: break
+        }
+    }
+
+    private func refresh() {
+        let gate = PermissionGate.shared
+        accessibilityStatus?.stringValue = gate.hasAccessibility ? "●" : "○"
+        accessibilityStatus?.textColor = gate.hasAccessibility ? .systemGreen : .secondaryLabelColor
+        screenRecordingStatus?.stringValue = gate.hasScreenRecording ? "●" : "○"
+        screenRecordingStatus?.textColor = gate.hasScreenRecording ? .systemGreen : .secondaryLabelColor
+        microphoneStatus?.stringValue = gate.hasMicrophone ? "●" : "○"
+        microphoneStatus?.textColor = gate.hasMicrophone ? .systemGreen : .secondaryLabelColor
+        continueButton?.isEnabled = gate.hasAccessibility
+    }
+
+    @objc private func continueTapped() {
+        timer?.invalidate()
+        view.window?.close()
+    }
+
+    @objc private func quitTapped() {
+        NSApplication.shared.terminate(nil)
     }
 }

@@ -304,7 +304,7 @@ func showPermissionsWindow() {
     window.level = .floating
     window.collectionBehavior = [.canJoinAllSpaces]
     window.hidesOnDeactivate = false
-    window.contentView = NSHostingView(rootView: PermissionsView())
+    window.contentView = PermissionsViewController().view
 
     window.makeKeyAndOrderFront(nil)
 
