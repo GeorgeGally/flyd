@@ -3,6 +3,7 @@ import Foundation
 enum FlydMode: Equatable {
     case present
     case invoked
+    case live
 }
 
 enum InvocationPhase: Equatable {

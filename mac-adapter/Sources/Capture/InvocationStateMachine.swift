@@ -25,6 +25,11 @@ final class InvocationStateMachine {
     private var holdTimer: DispatchWorkItem?
     private var isVoiceInvocation = false
 
+    private let ctrlKeyCode: CGKeyCode = 0x3B
+    private var ctrlPressTimestamps: [TimeInterval] = []
+    private let triplePressWindow: TimeInterval = 0.5
+    private var liveDebounceUntil: TimeInterval = 0
+
     private let checkpointLock = NSLock()
     private var _t0Fingerprint: InvocationFingerprint?
     private var _t0ScreenHash: UInt64?
@@ -66,6 +71,8 @@ final class InvocationStateMachine {
     var onVoiceIntentReady: ((String) -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
+    var onLiveEnter: (() -> Void)?
+    var onLiveExit: (() -> Void)?
 
     deinit {
         stop()
@@ -232,6 +239,33 @@ private func stateMachineEventCallback(
     let machine = Unmanaged<InvocationStateMachine>.fromOpaque(refcon).takeUnretainedValue()
 
     switch type {
+    case .keyDown:
+        if event.getIntegerValueField(.keyboardEventKeycode) == Int64(machine.ctrlKeyCode) {
+            let now = ProcessInfo.processInfo.systemUptime
+            if now >= machine.liveDebounceUntil {
+                machine.ctrlPressTimestamps.append(now)
+                machine.ctrlPressTimestamps = machine.ctrlPressTimestamps.suffix(3)
+
+                if machine.ctrlPressTimestamps.count == 3 {
+                    let firstPress = machine.ctrlPressTimestamps[0]
+                    let lastPress = machine.ctrlPressTimestamps[2]
+                    if lastPress - firstPress <= machine.triplePressWindow {
+                        machine.ctrlPressTimestamps = []
+                        machine.liveDebounceUntil = now + 0.3
+
+                        let isLive = FlydState.shared.mode == .live
+                        DispatchQueue.main.async {
+                            if isLive {
+                                machine.onLiveExit?()
+                            } else {
+                                machine.onLiveEnter?()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
     case .flagsChanged:
         let flags = event.flags
         let targetFlags = machine.configuration.modifiers

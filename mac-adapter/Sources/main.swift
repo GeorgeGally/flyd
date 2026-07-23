@@ -18,6 +18,7 @@ let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
 let voiceRelay = VoiceTranscriptionRelay.shared
+let liveBridge = LiveAudioBridge.shared
 
 let invocationPanel = InvocationPanel()
 var activeInvocationTask: Task<Void, Never>?
@@ -64,6 +65,14 @@ func startFlyd() {
         activeInvocationTask = Task {
             await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
         }
+    }
+
+    stateMachine.onLiveEnter = {
+        handleLiveEnter()
+    }
+
+    stateMachine.onLiveExit = {
+        handleLiveExit()
     }
 
     stateMachine.start()
@@ -126,6 +135,54 @@ func repoRoot() -> String {
         }
     }
     return FileManager.default.currentDirectoryPath
+}
+
+func handleLiveEnter() {
+    if !PermissionGate.shared.hasMicrophone {
+        PermissionGate.shared.requestMicrophonePermission()
+    }
+
+    state.transition(to: .live)
+    _ = liveBridge.start()
+
+    liveBridge.onResolveOperations = { callId, ops in
+        Task {
+            let (invocationId, revision) = state.startInvocation()
+            stateMachine.setRevision(revision)
+
+            var outcomeStatus = "succeeded"
+            for opDict in ops {
+                guard let target = opDict["target"] as? String,
+                      let kind = opDict["kind"] as? String,
+                      let text = opDict["text"] as? String else { continue }
+
+                guard target == "el_01" else { outcomeStatus = "failed"; continue }
+                guard InvocationStateMachine.shared.verifyPreExecution() else { outcomeStatus = "failed"; continue }
+
+                let resolved = ResolvedOperation(target: target, kind: kind, text: text)
+                let fp = InvocationFingerprint(app: "flyd-live", surface: nil, window: "live_01", element: "el_01", capturedAt: Date())
+                let result = await executor.execute(operation: resolved, fingerprint: fp)
+                if !result.success { outcomeStatus = "failed" }
+                print("[Flyd LIVE] \(kind) → \(result.success ? "ok" : "FAIL: \(result.error ?? "")")")
+            }
+
+            print("[Flyd LIVE] Resolve complete — \(outcomeStatus)")
+        }
+    }
+
+    liveBridge.onError = { error in
+        print("[Flyd LIVE] Error: \(error)")
+    }
+
+    print("[Flyd] LIVE session entered")
+}
+
+func handleLiveExit() {
+    liveBridge.stop()
+    voiceCapture.stop()
+    voiceRelay.disconnect()
+    state.transition(to: .present)
+    print("[Flyd] LIVE session exited")
 }
 
 func handleVoiceInvocation() {
