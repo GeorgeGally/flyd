@@ -1,7 +1,10 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { memoryGate } from "./memory-gate.js";
-import { provisionalLearn, createMemoryReceipt, acknowledgeLearning } from "./memory-receipt.js";
+import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings } from "./memory-receipt.js";
+import { persistReceipt, persistLearnings } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
+import { isDelegationIntent, buildDelegationEnvelope } from "./delegation.js";
+import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
 import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
@@ -89,22 +92,18 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     }
 
     if (resolution.mode === "requires_compose") {
-      try {
-        const composeRes = await fetch("http://127.0.0.1:3000/api/compose", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            intent: parsed.intent,
-            environment: parsed.environment,
-          }),
-        });
-        if (composeRes.ok) {
-          const composeBody = await composeRes.json();
-          resolution.composeUrl = composeBody.surface_url;
-        }
-      } catch {
-        console.warn("[Flyd Core] Could not reach Rails for compose escalation");
-      }
+      resolution.composeUrl = "http://127.0.0.1:3000/surface";
+    }
+
+    if (isDelegationIntent(parsed.intent)) {
+      const worldState = buildIntelligenceState();
+      const envelope = buildDelegationEnvelope(
+        parsed.intent,
+        worldState as unknown as Record<string, unknown>,
+        parsed.environment.focused_element ? ["el_01"] : [],
+        parsed.environment.application?.bundle_id || null
+      );
+      (resolution as unknown as Record<string, unknown>).delegationEnvelope = envelope;
     }
 
     sendJson(res, 200, resolution);
@@ -188,6 +187,7 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
         gateResult.reason
       );
       console.log(`[MemoryGate] REMEMBER (${gateResult.category}/${gateResult.confidence}): ${gateResult.reason}`);
+      persistReceipt(receipt);
 
       const learning = provisionalLearn(resolved.intent);
       if (learning) {
@@ -233,6 +233,36 @@ export function startServer(port: number = PORT, host: string = HOST): Promise<v
         sendJson(res, 200, { status: "shutting_down" });
         process.nextTick(() => process.exit(0));
         break;
+      case "/learnings/pending":
+        sendJson(res, 200, { learnings: getPendingLearnings() });
+        break;
+      case "/learnings/acknowledge": {
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then((body) => {
+          try {
+            const { learningId } = JSON.parse(body);
+            const ok = acknowledgeLearning(learningId);
+            sendJson(res, ok ? 200 : 404, ok ? { acknowledged: true } : { error: "Learning not found" });
+          } catch { sendJson(res, 400, { error: "Invalid JSON" }); }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/learnings/synthesize": {
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        const result = synthesizeLearnings();
+        if (result.beliefs.length > 0 || result.behaviours.length > 0) {
+          persistLearnings(
+            result.beliefs.map(b => ({ ...b })),
+            result.behaviours.map(b => ({ ...b }))
+          );
+        }
+        sendJson(res, 200, {
+          synthesized: result.beliefs.length + result.behaviours.length,
+          beliefs: result.beliefs.length,
+          behaviours: result.behaviours.length,
+        });
+        break;
+      }
         default:
           sendJson(res, 404, { error: "Not found" });
       }
