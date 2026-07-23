@@ -44,6 +44,8 @@ func startFlyd() {
 
     stateMachine.start()
 
+    launchCore()
+
     Task {
         let healthy = await flydClient.healthCheck()
         if healthy {
@@ -54,6 +56,52 @@ func startFlyd() {
     }
 
     print("[Flyd] Agent started. Press ⌃⌥ to invoke.")
+}
+
+func launchCore() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["npm", "run", "core", "--silent"]
+    process.currentDirectoryURL = URL(fileURLWithPath: resolveCliDir())
+    process.environment = ProcessInfo.processInfo.environment
+
+    process.terminationHandler = { proc in
+        if proc.terminationStatus != 0 {
+            print("[Flyd] Core exited with status \(proc.terminationStatus) — restarting in 2s...")
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                launchCore()
+            }
+        }
+    }
+
+    do {
+        try process.run()
+        print("[Flyd] Core launched (pid \(process.processIdentifier))")
+    } catch {
+        print("[Flyd] Could not launch Core: \(error.localizedDescription)")
+    }
+}
+
+func resolveCliDir() -> String {
+    if let envPath = ProcessInfo.processInfo.environment["FLYD_CLI_DIR"] {
+        return envPath
+    }
+
+    let repoPath = repoRoot()
+    return repoPath.appending("/cli")
+}
+
+func repoRoot() -> String {
+    if let bundlePath = Bundle.main.resourcePath {
+        var path = bundlePath
+        for _ in 0...8 {
+            if FileManager.default.fileExists(atPath: path + "/cli/package.json") {
+                return path
+            }
+            path = (path as NSString).deletingLastPathComponent
+        }
+    }
+    return FileManager.default.currentDirectoryPath
 }
 
 func handleInvocation() {
