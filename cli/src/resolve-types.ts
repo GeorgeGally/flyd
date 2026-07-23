@@ -26,6 +26,7 @@ export interface Resolution {
   augmentations?: AugmentOperation[];
   composeRationale?: string;
   composeUrl?: string;
+  delegationEnvelope?: Record<string, unknown>;
 }
 
 export interface ResolutionOutcome {

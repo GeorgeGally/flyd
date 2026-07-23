@@ -13,7 +13,14 @@ const PORT = 4815;
 const HOST = "127.0.0.1";
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
-const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string }>();
+const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; timestamp: number }>();
+
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [key, ctx] of resolvedContexts) {
+    if (ctx.timestamp < cutoff) resolvedContexts.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
 
 interface ManifestRequestBody {
   invocation_id: string;
@@ -71,6 +78,11 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  if (!parsed.environment || !parsed.environment.application) {
+    sendJson(res, 400, { error: "Missing environment payload" });
+    return;
+  }
+
   try {
     const config = loadFlydWorkerConfig();
     const resolution = await resolve(
@@ -100,10 +112,10 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       const envelope = buildDelegationEnvelope(
         parsed.intent,
         worldState as unknown as Record<string, unknown>,
-        parsed.environment.focused_element ? ["el_01"] : [],
+        parsed.environment.focused_element?.ref ? [parsed.environment.focused_element.ref] : [],
         parsed.environment.application?.bundle_id || null
       );
-      (resolution as unknown as Record<string, unknown>).delegationEnvelope = envelope;
+      resolution.delegationEnvelope = envelope as unknown as Record<string, unknown>;
     }
 
     sendJson(res, 200, resolution);
@@ -118,6 +130,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       intent: parsed.intent,
       resolutionMode: resolution.mode,
       environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+      timestamp: Date.now(),
     });
   } catch (err) {
     sendJson(res, 500, {
@@ -149,7 +162,7 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
   }
 
   if (!outcome.resolutionId || !outcome.invocationId) {
-    sendJson(res, 400, { error: "Missing resolution_id or invocation_id" });
+    sendJson(res, 400, { error: "Missing resolutionId or invocationId" });
     return;
   }
 

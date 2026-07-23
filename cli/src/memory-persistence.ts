@@ -1,9 +1,14 @@
 import { writeFile, mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { MemoryReceipt } from "./memory-receipt.js";
 
 const OVERLAY_RAW_DIR = join(homedir(), ".flyd", "raw", "overlay");
+
+function receiptShort(): string {
+  return randomUUID().slice(0, 8);
+}
 
 async function ensureDir() {
   await mkdir(OVERLAY_RAW_DIR, { recursive: true });
@@ -56,7 +61,7 @@ export async function persistLearnings(
     await ensureDir();
 
     const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `synthesis-${isoDate}.json`;
+    const filename = `synthesis-${isoDate}-${receiptShort()}.json`;
     const filepath = join(OVERLAY_RAW_DIR, filename);
 
     const content = JSON.stringify(
