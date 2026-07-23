@@ -18,6 +18,7 @@ let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 
 let invocationPanel = InvocationPanel()
+var activeInvocationTask: Task<Void, Never>?
 
 if !permissionGate.allRequiredGranted() {
     showPermissionsWindow()
@@ -59,6 +60,7 @@ func handleInvocation() {
     let currentPhase = state.phase
 
     if currentPhase != .idle {
+        activeInvocationTask?.cancel()
         state.cancelInvocation()
         stateMachine.cancel()
         invocationPanel.dismiss()
@@ -70,10 +72,11 @@ func handleInvocation() {
     state.transition(to: .awaitingIntent)
 
     invocationPanel.onIntentSubmitted = { intent in
-        Task { await processInvocation(invocationId: invocationId, intent: intent) }
+        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, intent: intent) }
     }
 
     invocationPanel.onCancelled = {
+        activeInvocationTask?.cancel()
         state.cancelInvocation()
         stateMachine.cancel()
         executor.clearInvocationRefs()
@@ -138,7 +141,6 @@ func processInvocation(invocationId: String, intent: String) async {
 
     guard let resolution = response else {
         print("[Flyd] No response from Flyd Core — running locally")
-        print("[Flyd] Resolution: requires_compose (no Flyd Core connection)")
 
         auditRecorder.record(
             invocationId: invocationId,
@@ -147,6 +149,7 @@ func processInvocation(invocationId: String, intent: String) async {
         )
 
         await MainActor.run {
+            invocationPanel.dismiss()
             state.transition(to: .present)
         }
         return
@@ -189,6 +192,7 @@ func processInvocation(invocationId: String, intent: String) async {
     )
 
     executor.clearInvocationRefs()
+    stateMachine.resetCheckpoints()
 
     await MainActor.run {
         state.transition(to: .present)
@@ -199,6 +203,17 @@ func executeNativeOperations(
     resolution: FlydClient.ResolutionResponse,
     fingerprint: InvocationFingerprint
 ) async {
+    guard InvocationStateMachine.shared.verifyPreExecution() else {
+        print("[Flyd] Aborting: target no longer available")
+        await flydClient.sendOutcome(
+            resolutionId: resolution.resolutionId,
+            invocationId: resolution.invocationId,
+            status: "failed",
+            correction: "Target no longer available — app or window changed"
+        )
+        return
+    }
+
     for op in resolution.operations {
         let resolved = ResolvedOperation(target: op.target, kind: op.kind, text: op.text)
         let result = await executor.execute(operation: resolved, fingerprint: fingerprint)

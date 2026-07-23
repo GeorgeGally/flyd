@@ -135,34 +135,32 @@ func showAugmentations(
 
     await MainActor.run {
         let augmentPanel = AugmentPanel()
+        let placement = NSRect(
+            x: NSEvent.mouseLocation.x,
+            y: NSEvent.mouseLocation.y,
+            width: 0,
+            height: 0
+        )
+
+        augmentPanel.onOptionSelected = { index, value in
+            print("[Flyd] Augment option selected: \(index) — \(value)")
+            Task {
+                await flydClient.sendOutcome(
+                    resolutionId: resolution.resolutionId,
+                    invocationId: invocationId,
+                    status: "succeeded",
+                    correction: "user selected augment option: \(value)"
+                )
+            }
+        }
 
         for augmentation in augmentations {
-            let placement = NSRect(
-                x: NSEvent.mouseLocation.x,
-                y: NSEvent.mouseLocation.y,
-                width: 0,
-                height: 0
-            )
-
             augmentPanel.show(
                 content: augmentation.content,
                 options: augmentation.options,
                 placement: augmentation.placement,
                 beside: placement
             )
-
-            augmentPanel.onOptionSelected = { index, value in
-                print("[Flyd] Augment option selected: \(index) — \(value)")
-
-                Task {
-                    await flydClient.sendOutcome(
-                        resolutionId: resolution.resolutionId,
-                        invocationId: invocationId,
-                        status: "succeeded",
-                        correction: "user selected augment option: \(value)"
-                    )
-                }
-            }
         }
     }
 }

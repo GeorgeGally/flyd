@@ -60,6 +60,20 @@ final class AdapterAuth {
     private func generateCredential() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        let credential = bytes.map { String(format: "%02x", $0) }.joined()
+
+        writeTokenToFile(credential)
+        return credential
+    }
+
+    private func writeTokenToFile(_ token: String) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let overlayDir = home.appendingPathComponent(".flyd/overlay")
+        try? FileManager.default.createDirectory(at: overlayDir, withIntermediateDirectories: true)
+        let tokenPath = overlayDir.appendingPathComponent("auth-token")
+        try? token.write(to: tokenPath, atomically: true, encoding: .utf8)
+        var attrs = try? FileManager.default.attributesOfItem(atPath: tokenPath.path)
+        attrs?[.posixPermissions] = 0o600
+        try? FileManager.default.setAttributes(attrs ?? [:], ofItemAtPath: tokenPath.path)
     }
 }

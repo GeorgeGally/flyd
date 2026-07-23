@@ -19,6 +19,7 @@ final class InvocationStateMachine {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    var wasPressed = false
 
     private let checkpointLock = NSLock()
     private var _t0Fingerprint: InvocationFingerprint?
@@ -188,7 +189,7 @@ final class InvocationStateMachine {
         return !t0.appAndWindowMatch(t1)
     }
 
-    private func resetCheckpoints() {
+    func resetCheckpoints() {
         t0Fingerprint = nil
         t0ScreenHash = nil
         t1Fingerprint = nil
@@ -204,7 +205,8 @@ private func stateMachineEventCallback(
     event: CGEvent,
     refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
-    let machine = Unmanaged<InvocationStateMachine>.fromOpaque(refcon!).takeUnretainedValue()
+    guard let refcon else { return Unmanaged.passUnretained(event) }
+    let machine = Unmanaged<InvocationStateMachine>.fromOpaque(refcon).takeUnretainedValue()
 
     switch type {
     case .flagsChanged:
@@ -212,10 +214,14 @@ private func stateMachineEventCallback(
         let targetFlags = machine.configuration.modifiers
 
         if flags.intersection(targetFlags) == targetFlags {
-            DispatchQueue.main.async {
-                machine.onShortcutPressed?()
+            if !machine.wasPressed {
+                machine.wasPressed = true
+                DispatchQueue.main.async {
+                    machine.onShortcutPressed?()
+                }
             }
-        } else {
+        } else if machine.wasPressed {
+            machine.wasPressed = false
             DispatchQueue.main.async {
                 machine.onShortcutReleased?()
             }

@@ -15,6 +15,8 @@ final class ScreenCaptureManager {
     func captureScreenshot() async -> CGImage? {
         guard PermissionGate.shared.hasScreenRecording else { return nil }
 
+        stop()
+
         let content = try? await SCShareableContent.current
         guard let content, let display = content.displays.first else { return nil }
 
@@ -45,6 +47,7 @@ final class ScreenCaptureManager {
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
             do {
                 try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+                try stream.startCapture()
             } catch {
                 resume(nil)
                 return

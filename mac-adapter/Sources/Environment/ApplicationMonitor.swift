@@ -4,7 +4,12 @@ import ApplicationServices
 final class ApplicationMonitor {
     static let shared = ApplicationMonitor()
 
-    private var currentApp: EnvironmentState.ApplicationInfo?
+    private let lock = NSLock()
+    private var _currentApp: EnvironmentState.ApplicationInfo?
+    private var currentApp: EnvironmentState.ApplicationInfo? {
+        get { lock.withLock { _currentApp } }
+        set { lock.withLock { _currentApp = newValue } }
+    }
 
     var excludedBundleIds: Set<String> = [
         "com.flyd.overlay",

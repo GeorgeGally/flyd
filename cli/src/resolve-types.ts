@@ -75,6 +75,9 @@ export function validateResolution(resolution: Resolution): ResolutionError | nu
       if (!op.target.startsWith("el_")) {
         return { error: `Invalid element ref: ${op.target}. Must start with 'el_'`, code: "invalid_ref" };
       }
+      if (op.target !== "el_01") {
+        return { error: `Unknown element ref: ${op.target}. Must target captured ref 'el_01'`, code: "invalid_ref" };
+      }
     }
   }
 

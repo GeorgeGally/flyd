@@ -1,4 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { memoryGate } from "./memory-gate.js";
 import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings } from "./memory-receipt.js";
 import { persistReceipt, persistLearnings } from "./memory-persistence.js";
@@ -11,6 +14,27 @@ import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
+const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
+
+function loadAuthToken(): string | null {
+  try {
+    return readFileSync(AUTH_TOKEN_PATH, "utf-8").trim();
+  } catch {
+    return null;
+  }
+}
+const AUTH_TOKEN = loadAuthToken();
+
+function checkAuth(req: IncomingMessage): boolean {
+  if (!AUTH_TOKEN) return true;
+  const auth = req.headers.authorization || "";
+  return auth === `Bearer ${AUTH_TOKEN}`;
+}
+
+function sendUnauthorized(res: ServerResponse) {
+  res.writeHead(401, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Unauthorized" }));
+}
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
 const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; timestamp: number }>();
@@ -133,9 +157,8 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       timestamp: Date.now(),
     });
   } catch (err) {
-    sendJson(res, 500, {
-      error: err instanceof Error ? err.message : "Internal server error",
-    });
+    console.error("[Flyd Core] Manifest resolution failed:", err);
+    sendJson(res, 500, { error: "Resolution failed" });
   }
 }
 
@@ -222,7 +245,7 @@ function handleHealth(_req: IncomingMessage, res: ServerResponse) {
 
 let serverInstance: ReturnType<typeof createServer> | null = null;
 
-export function startServer(port: number = PORT, host: string = HOST): Promise<void> {
+export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     if (serverInstance) {
       reject(new Error("Server is already running"));
@@ -233,23 +256,20 @@ export function startServer(port: number = PORT, host: string = HOST): Promise<v
       const url = new URL(req.url || "/", `http://${host}:${port}`);
 
       switch (url.pathname) {
-        case "/manifest":
-          handleManifest(req, res);
-          break;
-        case "/manifest/outcome":
-          handleOutcome(req, res);
-          break;
-      case "/health":
-        handleHealth(req, res);
+      case "/manifest":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleManifest(req, res);
         break;
-      case "/shutdown":
-        sendJson(res, 200, { status: "shutting_down" });
-        process.nextTick(() => process.exit(0));
+      case "/manifest/outcome":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleOutcome(req, res);
         break;
       case "/learnings/pending":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
         sendJson(res, 200, { learnings: getPendingLearnings() });
         break;
       case "/learnings/acknowledge": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         parseBody(req).then((body) => {
           try {
@@ -261,6 +281,7 @@ export function startServer(port: number = PORT, host: string = HOST): Promise<v
         break;
       }
       case "/learnings/synthesize": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         const result = synthesizeLearnings();
         if (result.beliefs.length > 0 || result.behaviours.length > 0) {
@@ -276,6 +297,14 @@ export function startServer(port: number = PORT, host: string = HOST): Promise<v
         });
         break;
       }
+      case "/health":
+        handleHealth(req, res);
+        break;
+      case "/shutdown":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        sendJson(res, 200, { status: "shutting_down" });
+        process.nextTick(() => process.exit(0));
+        break;
         default:
           sendJson(res, 404, { error: "Not found" });
       }

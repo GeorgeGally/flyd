@@ -28,6 +28,7 @@ final class NativeExecutor {
     }
 
     private func attemptReResolution(ref: String, expectedRole: String?) -> AXUIElement? {
+        guard ref == "el_01" else { return nil }
         guard let inspector = AccessibilityInspector.shared as AccessibilityInspector? else { return nil }
         let focused = inspector.captureFocusedElement()
 
@@ -45,10 +46,6 @@ final class NativeExecutor {
     }
 
     func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint) async -> ExecutionResult {
-        guard InvocationStateMachine.shared.verifyPreExecution() else {
-            return ExecutionResult(success: false, error: "Target no longer available — app or window changed")
-        }
-
         let element = resolveElement(ref: operation.target, expectedRole: "AXTextArea")
         guard let element else {
             return ExecutionResult(success: false, error: "Target no longer available — element not found")
