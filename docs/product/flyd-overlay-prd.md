@@ -2,9 +2,7 @@
 
 ## Status
 
-Proposed extension to `flyd-personal-agent-platform-prd.md` (21 July 2026).
-
-The existing PRD remains authoritative. The coding harness remains the first wedge. This document defines a second wedge: overlay intelligence that moves through the computer rather than being a destination.
+**Shipped: 2026-07-23.** M0-M2 hardware + substantial M3/M4/M5-adjacent functionality including voice INVOKED, LIVE mode, memory gate, and user agency configuration. See implementation notes below.
 
 ## Revised thesis
 

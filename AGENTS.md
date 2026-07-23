@@ -9,26 +9,55 @@
 
 ## Product architecture
 
-**The interface is the intelligence expressed.**
+**Flyd has no primary interface. It has a primary presence.**
 
-Flyd is the intelligence. The default experience is an intelligence-generated `Surface`. Projects, conversations, messages, decisions, beliefs, behaviours, goals, tensions, curiosity, reports, and events are evidence and persistence structures, not the product.
+Flyd Core is the intelligence runtime — now implemented in TypeScript (`cli/`). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders UI, and executes operations. Rails (`flyd/`) remains as the optional composed-surface renderer and legacy subsystem.
+
+### Interaction modes
+
+| Mode | Trigger | Description |
+|------|---------|-------------|
+| PRESENT | Always on | OS notification-based foreground observation. No cognition, no network, no persistence. |
+| INVOKED (text) | ⌃⌥ tap | One-shot text invocation. Intent field → resolution → native/augment/compose. |
+| INVOKED (voice) | ⌃⌥ hold (>300ms) | Push-to-talk → `gpt-realtime-whisper` transcription → same `/manifest` pipeline. |
+| LIVE | Ctrl×3 (triple-press) | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. |
+| DELEGATED | Explicit task creation | Coding/research agents with context envelopes, grant boundaries. |
+| COMPOSED | Escalation from INVOKED/LIVE | Flyd creates a full surface. Only when existing interfaces can't express the problem. |
+
+**Voice is a modality. LIVE is a consciousness/runtime state.**
+
+### Architecture
+
+```
+Swift macOS adapter (thin OS driver)
+    ├── PRESENT: NSWorkspace + AXObserver — observation only
+    ├── INVOKED text/voice: environment capture → local WS relay → TypeScript Core
+    ├── LIVE: audio I/O → local WS relay → TypeScript Core → OpenAI Realtime
+    └── Execution: NativeExecutor (AX refs + fingerprint verification)
+
+TypeScript Core (intelligence, memory, resolution)
+    ├── HTTP server :4815 — manifest, learnings, health
+    ├── Transcription WS :4816 — gpt-realtime-whisper relay
+    ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
+    ├── Memory: memory-gate → memory-receipt → belief/behaviour stores
+    └── Delegation: intent pattern matching → capability envelope
+
+Rails (legacy composition, optional)
+    └── Surface rendering, existing subsystems — not the intelligence core
+```
+
+### Privacy invariants (enforced in code)
+
+11 falsifiable constraints — see `mac-adapter/Sources/Privacy/PrivacyInvariants.swift` for the canonical list. Key guarantees: no screenshots in PRESENT, no environment persistence after invocation, no raw audio storage, mic only during explicit user action.
 
 Guardrails:
-
 - Do not introduce project-first or conversation-first primary navigation.
 - Do not make stored records visible merely because they exist.
 - Homepage work must flow through persisted `Surface` records composed by `Flyd::Intelligence`.
 - `GET /` must never call an LLM or execute provider refresh work synchronously.
-- Surface composition, provider refresh, and live broadcast must run through background jobs.
-- Retrieval, scoring, rules, and validation may support Flyd; they must not replace Flyd's judgment about what the user should experience.
-- External or legacy intelligence sources must implement `IntelligenceState::Provider` and persist shared snapshots in PostgreSQL.
+- New overlay logic must not default to Rails.
 - Provider output is evidence supplied to Flyd, never direct UI instructions.
-- Chat is one renderer within a surface, never the application shell.
-- Global input should be interpreted before context is persisted. Project selection is a correction mechanism, not a prerequisite for thought.
-- Layout semantics belong to Flyd's surface composition; renderers only present the plan.
-- New modalities must enter through the universal intent model rather than separate product modes.
-
-See `docs/product/flyd-personal-agent-platform-prd.md` and `docs/architecture/intelligence-generated-interface.md`.
+- The Swift adapter never decides what to do — all intelligence routes through TypeScript Core.
 
 ## Structure
 

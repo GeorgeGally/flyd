@@ -70,6 +70,57 @@ The runtime listener verifies the TypeScript bridge, replays committed task even
 - Codex and OpenCode worker adapters
 - OpenAI / Anthropic providers
 
+## Overlay (macOS)
+
+Flyd has a native macOS overlay that provides ambient intelligence — acting inside existing software rather than being a separate destination.
+
+### Architecture
+
+```
+Swift macOS adapter (thin OS driver)  ←→  TypeScript Core (intelligence)
+    :4815 HTTP — manifest/resolution
+    :4816 WS   — gpt-realtime-whisper transcription
+    :4817 WS   — gpt-realtime-2.1 LIVE sessions
+```
+
+### Shortcuts
+
+| Shortcut | Mode | Description |
+|----------|------|-------------|
+| ⌃⌥ tap | INVOKED (text) | Type an intent, press Enter. Flyd resolves it into operations. |
+| ⌃⌥ hold (>300ms) | INVOKED (voice) | Push-to-talk. `gpt-realtime-whisper` transcribes. Same resolution pipeline. |
+| Ctrl×3 | LIVE | Persistent realtime voice session with `gpt-realtime-2.1`. Ctrl×3 again to exit. |
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FLYD_MODEL` | `gpt-4o-mini` | Resolution LLM model |
+| `FLYD_TRANSCRIPTION_MODEL` | `gpt-realtime-whisper` | Voice transcription model |
+| `FLYD_REALTIME_MODEL` | `gpt-realtime-2.1` | LIVE session model |
+| `FLYD_MODEL_API_KEY` | (from env) | OpenAI API key |
+| `FLYD_CLI_DIR` | (auto-detected) | Path to cli/ directory |
+
+### Build & run
+
+```bash
+cd mac-adapter && swift build
+# Start TypeScript Core:
+cd cli && npm run core
+# In another terminal, run the Mac adapter:
+cd mac-adapter && swift run
+```
+
+A menu bar dot indicates state: grey (PRESENT), blue (INVOKED), green (LIVE), red (error).
+
+### Safety
+
+All operations go through TypeScript Core's `resolve()` → `validateResolution()` pipeline. Execution is grounded in per-invocation AX element refs with fingerprint verification. The same safety gates apply to text, voice, and LIVE.
+
+### Privacy
+
+11 falsifiable invariants enforced in code. PRESENT never captures, transmits, or persists. Raw audio is never stored. Mic is only active during voice INVOKED or LIVE.
+
 ## Testing
 
 ```bash
