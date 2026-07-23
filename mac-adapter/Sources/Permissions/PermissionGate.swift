@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import ScreenCaptureKit
 
 final class PermissionGate {
     static let shared = PermissionGate()
@@ -64,7 +65,13 @@ final class PermissionGate {
     }
 
     func allRequiredGranted() -> Bool {
-        hasAccessibility && hasScreenRecording
+        hasAccessibility
+    }
+
+    func requestScreenCapturePermission() {
+        Task {
+            _ = try? await SCShareableContent.current
+        }
     }
 
     func openSystemSettings(for permission: Permission) {

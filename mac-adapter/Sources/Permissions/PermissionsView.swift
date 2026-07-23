@@ -5,10 +5,10 @@ struct PermissionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Flyd needs these permissions to work.")
+            Text("Flyd needs Accessibility to work.")
                 .font(.headline)
 
-            Text("Each permission enables a specific capability. Flyd never observes without your explicit invocation.")
+            Text("Screen Recording and Microphone are optional for advanced features. Flyd never observes without your explicit invocation.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
@@ -17,16 +17,31 @@ struct PermissionsView: View {
             ForEach(PermissionGate.Permission.allCases, id: \.self) { permission in
                 PermissionRow(
                     permission: permission,
-                    granted: viewModel.status(for: permission)
+                    granted: viewModel.status(for: permission),
+                    onGrant: {
+                        if permission == .screenRecording {
+                            viewModel.requestScreenCapture()
+                        }
+                        PermissionGate.shared.openSystemSettings(for: permission)
+                    }
                 )
             }
 
             Spacer()
 
             HStack {
-                Text("Press ⌃⌥ anytime to ask Flyd something.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if viewModel.status(for: .accessibility) {
+                    Button("Continue") {
+                        if let window = NSApplication.shared.windows.first(where: { $0.title.contains("Permissions") }) {
+                            window.close()
+                        }
+                    }
+                    .keyboardShortcut(.return)
+                } else {
+                    Text("Grant Accessibility permission to continue.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 Spacer()
 
@@ -41,14 +56,27 @@ struct PermissionsView: View {
 }
 
 private class PermissionsViewModel: ObservableObject {
+    private var timer: Timer?
+
+    init() {
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
+
     func status(for permission: PermissionGate.Permission) -> Bool {
         PermissionGate.shared.status(for: permission)
+    }
+
+    func requestScreenCapture() {
+        PermissionGate.shared.requestScreenCapturePermission()
     }
 }
 
 private struct PermissionRow: View {
     let permission: PermissionGate.Permission
     let granted: Bool
+    let onGrant: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -70,10 +98,8 @@ private struct PermissionRow: View {
             Spacer()
 
             if !granted {
-                Button("Grant") {
-                    PermissionGate.shared.openSystemSettings(for: permission)
-                }
-                .controlSize(.small)
+                Button("Grant") { onGrant() }
+                    .controlSize(.small)
             }
         }
         .padding(.vertical, 4)

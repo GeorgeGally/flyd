@@ -20,7 +20,7 @@ let configManager = ConfigManager.shared
 let invocationPanel = InvocationPanel()
 var activeInvocationTask: Task<Void, Never>?
 
-if !permissionGate.allRequiredGranted() {
+if !permissionGate.hasAccessibility {
     showPermissionsWindow()
 } else {
     startFlyd()
@@ -308,7 +308,7 @@ func showPermissionsWindow() {
     window.makeKeyAndOrderFront(nil)
 
     Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-        if permissionGate.allRequiredGranted() {
+        if permissionGate.hasAccessibility {
             timer.invalidate()
             window.close()
             startFlyd()
