@@ -292,18 +292,18 @@ func buildFingerprint(from environment: EnvironmentState) -> InvocationFingerpri
 }
 
 func showPermissionsWindow() {
-    let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 400, height: 320),
-        styleMask: [.titled, .closable, .miniaturizable],
+    let window = NSPanel(
+        contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
+        styleMask: [.titled, .closable, .nonactivatingPanel],
         backing: .buffered,
         defer: false
     )
     window.title = "Flyd — Permissions"
     window.center()
+    window.isFloatingPanel = true
+    window.level = .floating
+    window.collectionBehavior = [.canJoinAllSpaces, .transient]
     window.contentView = NSHostingView(rootView: PermissionsView())
-
-    let appDelegate = PermissionsAppDelegate()
-    app.delegate = appDelegate
 
     window.makeKeyAndOrderFront(nil)
 
@@ -313,11 +313,5 @@ func showPermissionsWindow() {
             window.close()
             startFlyd()
         }
-    }
-}
-
-final class PermissionsAppDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
     }
 }

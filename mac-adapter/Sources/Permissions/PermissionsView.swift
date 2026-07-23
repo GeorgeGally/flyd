@@ -1,80 +1,97 @@
 import SwiftUI
 
 struct PermissionsView: View {
-    @ObservedObject private var viewModel = PermissionsViewModel()
+    @StateObject private var viewModel = PermissionsViewModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Flyd needs Accessibility to work.")
                 .font(.headline)
 
-            Text("Screen Recording and Microphone are optional for advanced features. Flyd never observes without your explicit invocation.")
+            Text("Screen Recording and Microphone are optional. Flyd never observes without your explicit invocation.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
             Divider()
 
-            ForEach(PermissionGate.Permission.allCases, id: \.self) { permission in
-                PermissionRow(
-                    permission: permission,
-                    granted: viewModel.status(for: permission),
-                    onGrant: {
-                        if permission == .screenRecording {
-                            viewModel.requestScreenCapture()
-                        }
-                        PermissionGate.shared.openSystemSettings(for: permission)
-                    }
-                )
-            }
+            PermissionRow(
+                label: "Accessibility",
+                explanation: "Allows Flyd to read the focused element and nearby context in any application.",
+                granted: viewModel.accessibilityGranted,
+                onGrant: { PermissionGate.shared.openSystemSettings(for: .accessibility) }
+            )
+
+            PermissionRow(
+                label: "Screen Recording",
+                explanation: "Allows Flyd to capture screenshots when accessibility context is insufficient.",
+                granted: viewModel.screenRecordingGranted,
+                onGrant: {
+                    PermissionGate.shared.requestScreenCapturePermission()
+                    PermissionGate.shared.openSystemSettings(for: .screenRecording)
+                }
+            )
+
+            PermissionRow(
+                label: "Microphone",
+                explanation: "Required for future voice mode. Not used yet.",
+                granted: viewModel.microphoneGranted,
+                onGrant: { PermissionGate.shared.openSystemSettings(for: .microphone) }
+            )
 
             Spacer()
 
             HStack {
-                if viewModel.status(for: .accessibility) {
+                if viewModel.accessibilityGranted {
                     Button("Continue") {
-                        if let window = NSApplication.shared.windows.first(where: { $0.title.contains("Permissions") }) {
+                        if let window = NSApplication.shared.windows.first(where: {
+                            $0.title.contains("Permissions")
+                        }) {
                             window.close()
                         }
                     }
                     .keyboardShortcut(.return)
                 } else {
-                    Text("Grant Accessibility permission to continue.")
+                    Text("Open System Settings → Privacy & Security → Accessibility and enable Flyd.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 Spacer()
 
-                Button("Quit Flyd") {
+                Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
             }
         }
         .padding()
-        .frame(width: 400, height: 320)
+        .frame(width: 420, height: 320)
     }
 }
 
 private class PermissionsViewModel: ObservableObject {
+    @Published var accessibilityGranted = false
+    @Published var screenRecordingGranted = false
+    @Published var microphoneGranted = false
     private var timer: Timer?
 
     init() {
+        refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.refresh()
         }
     }
 
-    func status(for permission: PermissionGate.Permission) -> Bool {
-        PermissionGate.shared.status(for: permission)
-    }
-
-    func requestScreenCapture() {
-        PermissionGate.shared.requestScreenCapturePermission()
+    func refresh() {
+        let g = PermissionGate.shared
+        accessibilityGranted = g.hasAccessibility
+        screenRecordingGranted = g.hasScreenRecording
+        microphoneGranted = g.hasMicrophone
     }
 }
 
 private struct PermissionRow: View {
-    let permission: PermissionGate.Permission
+    let label: String
+    let explanation: String
     let granted: Bool
     let onGrant: () -> Void
 
@@ -85,11 +102,10 @@ private struct PermissionRow: View {
                 .font(.title3)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(permission.displayName)
+                Text(label)
                     .font(.body)
                     .fontWeight(.medium)
-
-                Text(permission.explanation)
+                Text(explanation)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -105,5 +121,3 @@ private struct PermissionRow: View {
         .padding(.vertical, 4)
     }
 }
-
-
