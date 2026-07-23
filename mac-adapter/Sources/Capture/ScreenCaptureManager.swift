@@ -47,7 +47,7 @@ final class ScreenCaptureManager {
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
             do {
                 try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
-                try stream.startCapture()
+                stream.startCapture()
             } catch {
                 resume(nil)
                 return
