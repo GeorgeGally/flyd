@@ -41,10 +41,17 @@ flyd/                    # Rails 8 + Hotwire intelligence surface
   lib/                   LLM providers, subsystems, utilities
   test/                  Test suite
 
+  docs/solutions/         Documented solutions to past problems (bugs, best practices,
+                          workflow patterns) with YAML frontmatter (module, tags, problem_type)
+
   cli/                   TypeScript personal-agent harness and memory services
     src/runtime/         Tasks, planning, routing, workers, controls, verification, and recovery
     src/export-state.ts  Versioned intelligence-state export
     package.json         npm dependencies and CLI commands
+
+  mac-adapter/           Swift Mac overlay adapter (thin OS driver — capture, render, execute)
+    Sources/             Agent, state machine, privacy, permissions, environment, capture,
+                         execution, bridge, UI, audit, auth, config
 ```
 
 ## Commands
