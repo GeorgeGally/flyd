@@ -8,10 +8,13 @@ enum FlydMode: Equatable {
 enum InvocationPhase: Equatable {
     case idle
     case capturing
+    case listening
     case awaitingIntent
+    case transcribing
     case resolving
     case executing
     case cancelled
+    case error
 }
 
 final class FlydState: @unchecked Sendable {

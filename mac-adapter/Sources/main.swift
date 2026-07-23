@@ -16,6 +16,8 @@ let auth = AdapterAuth.shared
 let flydClient = FlydClient.shared
 let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
+let voiceCapture = VoiceCapture.shared
+let voiceRelay = VoiceTranscriptionRelay.shared
 
 let invocationPanel = InvocationPanel()
 var activeInvocationTask: Task<Void, Never>?
@@ -40,7 +42,29 @@ func startFlyd() {
     stateMachine.onShortcutPressed = {
         handleInvocation()
     }
-    stateMachine.onShortcutReleased = {}
+    stateMachine.onShortcutReleased = {
+        if stateMachine.isVoiceInvocation {
+            handleVoiceRelease()
+        } else {
+            // tap — text invocations are handled by the panel's onIntentSubmitted
+        }
+    }
+    stateMachine.onShortcutHoldDetected = {
+        handleVoiceInvocation()
+    }
+
+    stateMachine.onVoiceIntentReady = { transcript in
+        let (invocationId, revision) = state.startInvocation()
+        stateMachine.setRevision(revision)
+        stateMachine.startPrewarm()
+        if let element = accessibilityInspector.capturedAXElement() {
+            executor.registerElement(ref: "el_01", element: element)
+        }
+        invocationPanel.updateState(.processing)
+        activeInvocationTask = Task {
+            await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
+        }
+    }
 
     stateMachine.start()
 
@@ -104,6 +128,57 @@ func repoRoot() -> String {
     return FileManager.default.currentDirectoryPath
 }
 
+func handleVoiceInvocation() {
+    guard PermissionGate.shared.hasMicrophone else {
+        PermissionGate.shared.requestMicrophonePermission()
+        invocationPanel.show()
+        invocationPanel.updateState(.error(message: "Microphone permission required for voice"))
+        return
+    }
+
+    invocationPanel.show()
+    invocationPanel.updateState(.listening)
+
+    _ = voiceCapture.start()
+
+    voiceRelay.connect()
+    voiceRelay.onTranscriptDelta = { delta in
+        DispatchQueue.main.async {
+            invocationPanel.fillIntent(invocationPanel.currentIntent + delta)
+        }
+    }
+    voiceRelay.onComplete = { [weak stateMachine] transcript in
+        DispatchQueue.main.async {
+            voiceCapture.stop()
+            voiceRelay.disconnect()
+            stateMachine?.voiceIntentReceived(transcript)
+        }
+    }
+    voiceRelay.onError = { error in
+        DispatchQueue.main.async {
+            voiceCapture.stop()
+            voiceRelay.disconnect()
+            print("[Flyd] Voice transcription error: \(error)")
+            invocationPanel.updateState(.error(message: "Voice error — try typing instead"))
+        }
+    }
+
+    voiceCapture.onAudioChunk = { chunk in
+        voiceRelay.sendAudioChunk(chunk)
+    }
+
+    voiceCapture.onError = { error in
+        DispatchQueue.main.async {
+            print("[Flyd] Voice capture error: \(error)")
+            invocationPanel.updateState(.error(message: error))
+        }
+    }
+}
+
+func handleVoiceRelease() {
+    voiceRelay.commitAudio()
+}
+
 func handleInvocation() {
     let currentPhase = state.phase
 
@@ -126,7 +201,7 @@ func handleInvocation() {
     state.transition(to: .awaitingIntent)
 
     invocationPanel.onIntentSubmitted = { intent in
-        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, revision: revision, intent: intent) }
+        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, revision: revision, modality: "text", intent: intent) }
     }
 
     invocationPanel.onCancelled = {
@@ -144,7 +219,7 @@ func handleInvocation() {
     invocationPanel.show()
 }
 
-func processInvocation(invocationId: String, revision: Int, intent: String) async {
+func processInvocation(invocationId: String, revision: Int, modality: String, intent: String) async {
     stateMachine.captureIntent(intent: intent)
 
     if stateMachine.hasFocusDrift() {
@@ -191,6 +266,7 @@ func processInvocation(invocationId: String, revision: Int, intent: String) asyn
         environmentRevision: revision,
         environment: environment,
         intent: intent,
+        modality: modality,
         fingerprint: fingerprint
     )
 

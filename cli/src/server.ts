@@ -11,6 +11,7 @@ import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
 import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
+import { startTranscriptionServer, stopTranscriptionServer } from "./transcription.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -321,6 +322,13 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
     server.listen(port, host, () => {
       serverInstance = server;
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
+
+      startTranscriptionServer().then(() => {
+        console.log(`[Flyd Core] Transcription server ready`);
+      }).catch((err) => {
+        console.warn(`[Flyd Core] Transcription server failed to start:`, err.message);
+      });
+
       resolvePromise();
     });
   });
@@ -339,7 +347,7 @@ export function stopServer(): Promise<void> {
       } else {
         serverInstance = null;
         console.log("[Flyd Core] Server stopped");
-        resolvePromise();
+        stopTranscriptionServer().then(resolvePromise);
       }
     });
   });

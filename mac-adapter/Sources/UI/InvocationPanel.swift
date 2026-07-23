@@ -85,6 +85,10 @@ final class InvocationPanel {
         }
     }
 
+    var currentIntent: String {
+        textField?.stringValue ?? ""
+    }
+
     func fillIntent(_ text: String) {
         textField?.stringValue = text
     }

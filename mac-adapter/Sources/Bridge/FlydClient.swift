@@ -177,6 +177,7 @@ final class FlydClient {
         environmentRevision: Int,
         environment: EnvironmentState,
         intent: String,
+        modality: String,
         fingerprint: InvocationFingerprint
     ) async -> ResolutionResponse? {
         let payload = ManifestPayload(
@@ -184,7 +185,7 @@ final class FlydClient {
             environmentRevision: environmentRevision,
             environment: buildEnvironmentPayload(from: environment),
             intent: intent,
-            modality: "text",
+            modality: modality,
             invocationFingerprint: FingerprintPayload(
                 app: fingerprint.app,
                 surface: fingerprint.surface,

@@ -21,6 +21,10 @@ final class InvocationStateMachine {
     private var runLoopSource: CFRunLoopSource?
     var wasPressed = false
 
+    private let holdThreshold: TimeInterval = 0.3
+    private var holdTimer: DispatchWorkItem?
+    private var isVoiceInvocation = false
+
     private let checkpointLock = NSLock()
     private var _t0Fingerprint: InvocationFingerprint?
     private var _t0ScreenHash: UInt64?
@@ -58,6 +62,8 @@ final class InvocationStateMachine {
 
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
+    var onShortcutHoldDetected: (() -> Void)?
+    var onVoiceIntentReady: ((String) -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -182,8 +188,15 @@ final class InvocationStateMachine {
 
     func cancel() {
         prewarmTask?.cancel()
+        holdTimer?.cancel()
+        holdTimer = nil
+        isVoiceInvocation = false
         resetCheckpoints()
         onCancelled?()
+    }
+
+    func voiceIntentReceived(_ transcript: String) {
+        onVoiceIntentReady?(transcript)
     }
 
     func setRevision(_ revision: Int) {
@@ -226,12 +239,26 @@ private func stateMachineEventCallback(
         if flags.intersection(targetFlags) == targetFlags {
             if !machine.wasPressed {
                 machine.wasPressed = true
+                machine.isVoiceInvocation = false
+
+                let holdItem = DispatchWorkItem {
+                    machine.isVoiceInvocation = true
+                    DispatchQueue.main.async {
+                        machine.onShortcutHoldDetected?()
+                    }
+                }
+                machine.holdTimer = holdItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + machine.holdThreshold, execute: holdItem)
+
                 DispatchQueue.main.async {
                     machine.onShortcutPressed?()
                 }
             }
         } else if machine.wasPressed {
             machine.wasPressed = false
+            machine.holdTimer?.cancel()
+            machine.holdTimer = nil
+
             DispatchQueue.main.async {
                 machine.onShortcutReleased?()
             }

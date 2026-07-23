@@ -44,6 +44,7 @@ enum PrivacyInvariants {
     static var lastScreenCapturePhase: InvocationPhase = .idle
     static var hasEverStoredEnvironment: Bool = false
     static var lastAXRefInvocationId: String?
+    static var audioEngineActive: Bool = false
 
     static func verifyAll() -> [(Int, Bool, String)] {
         all.map { invariant in
@@ -107,7 +108,14 @@ enum PrivacyInvariants {
     }
 
     static func verifyMicIndicator() -> (Bool, String) {
-        return (true, "Mic indicator verified at code review — no audio path in M0")
+        if audioEngineActive {
+            let mode = FlydState.shared.mode
+            let phase = FlydState.shared.phase
+            if mode == .invoked && phase == .listening { return (true, "Audio active during voice invocation") }
+            if mode == .live { return (true, "Audio active during LIVE session") }
+            return (false, "Audio engine active outside voice/LIVE state")
+        }
+        return (true, "Audio engine inactive")
     }
 
     static func verifyTelemetryLimits() -> (Bool, String) {

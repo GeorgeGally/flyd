@@ -25,11 +25,13 @@
     "@tobilu/qmd": "^2.5.3",
     "commander": "^12.0.0",
     "openai": "^4.0.0",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/pg": "^8.20.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^4.1.10"
