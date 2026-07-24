@@ -23,6 +23,7 @@ final class InvocationStateMachine {
 
     private let holdThreshold: TimeInterval = 0.3
     private var holdTimer: DispatchWorkItem?
+    private var holdTimerDidFire = false
     private var isVoiceInvocation = false
 
     private let ctrlKeyCode: CGKeyCode = 0x3B
@@ -198,6 +199,7 @@ final class InvocationStateMachine {
         prewarmTask?.cancel()
         holdTimer?.cancel()
         holdTimer = nil
+        holdTimerDidFire = false
         isVoiceInvocation = false
         resetCheckpoints()
         onCancelled?()
@@ -247,7 +249,7 @@ private func stateMachineEventCallback(
         // Ctrl triple-press detection (rising edge only)
         let ctrlDown = flags.contains(.maskControl)
         if ctrlDown && !machine.wasCtrlDown {
-            let now = ProcessInfo.processInfo.systemUptime
+            let now = Date().timeIntervalSinceReferenceDate
             if now >= machine.liveDebounceUntil {
                 machine.ctrlPressTimestamps.append(now)
                 machine.ctrlPressTimestamps = machine.ctrlPressTimestamps.suffix(3)
@@ -258,6 +260,10 @@ private func stateMachineEventCallback(
                     if lastPress - firstPress <= machine.triplePressWindow {
                         machine.ctrlPressTimestamps = []
                         machine.liveDebounceUntil = now + 0.3
+                        machine.wasPressed = false
+                        machine.holdTimer?.cancel()
+                        machine.holdTimer = nil
+                        machine.holdTimerDidFire = false
 
                         let isLive = FlydState.shared.mode == .live
                         DispatchQueue.main.async {
@@ -278,8 +284,10 @@ private func stateMachineEventCallback(
             if !machine.wasPressed {
                 machine.wasPressed = true
                 machine.isVoiceInvocation = false
+                machine.holdTimerDidFire = false
 
                 let holdItem = DispatchWorkItem {
+                    machine.holdTimerDidFire = true
                     machine.isVoiceInvocation = true
                     DispatchQueue.main.async {
                         machine.onShortcutHoldDetected?()
@@ -297,7 +305,13 @@ private func stateMachineEventCallback(
             machine.holdTimer?.cancel()
             machine.holdTimer = nil
 
+            let timerFired = machine.holdTimerDidFire
+            machine.holdTimerDidFire = false
+
             DispatchQueue.main.async {
+                if timerFired {
+                    machine.isVoiceInvocation = true
+                }
                 machine.onShortcutReleased?()
             }
         }

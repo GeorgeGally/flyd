@@ -50,6 +50,7 @@ final class LiveAudioBridge {
         engine.inputNode.removeTap(onBus: 0)
         playerNode.stop()
         engine.stop()
+        engine.reset()
 
         relaySocket?.cancel(with: .normalClosure, reason: nil)
         relaySocket = nil

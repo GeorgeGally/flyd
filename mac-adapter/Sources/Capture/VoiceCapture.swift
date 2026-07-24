@@ -48,6 +48,7 @@ final class VoiceCapture {
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        engine.reset()
 
         PrivacyInvariants.audioEngineActive = false
 
