@@ -21,16 +21,17 @@ final class InvocationStateMachine {
     private var runLoopSource: CFRunLoopSource?
     var wasPressed = false
 
-    private let holdThreshold: TimeInterval = 0.3
-    private var holdTimer: DispatchWorkItem?
-    private var holdTimerDidFire = false
-    private var isVoiceInvocation = false
+    fileprivate let holdThreshold: TimeInterval = 0.3
+    fileprivate var holdTimer: DispatchWorkItem?
+    fileprivate var holdTimerDidFire = false
+    fileprivate(set) var isVoiceInvocation = false
 
     private let ctrlKeyCode: CGKeyCode = 0x3B
-    private var ctrlPressTimestamps: [TimeInterval] = []
-    private let triplePressWindow: TimeInterval = 0.5
-    private var liveDebounceUntil: TimeInterval = 0
-    private var wasCtrlDown = false
+    fileprivate var ctrlPressTimestamps: [TimeInterval] = []
+    fileprivate let triplePressWindow: TimeInterval = 0.5
+    fileprivate var liveDebounceUntil: TimeInterval = 0
+    file    private var wasCtrlDown = false
+    private(set) var transcriptionSessionId: Int = -1
 
     private let checkpointLock = NSLock()
     private var _t0Fingerprint: InvocationFingerprint?
@@ -81,8 +82,20 @@ final class InvocationStateMachine {
     }
 
     func start() {
+        if eventTap != nil {
+            writeKeyboardDiagnostic(status: "already-running")
+            return
+        }
+
         guard PermissionGate.shared.hasAccessibility else {
             print("[Flyd] Cannot start keyboard monitor: Accessibility permission not granted")
+            writeKeyboardDiagnostic(status: "not-started", error: "Accessibility permission is not granted")
+            return
+        }
+
+        guard PermissionGate.shared.hasKeyboardShortcut else {
+            print("[Flyd] Cannot start keyboard monitor: Keyboard shortcut permission not granted")
+            writeKeyboardDiagnostic(status: "not-started", error: "Keyboard shortcut permission is not granted")
             return
         }
 
@@ -105,11 +118,23 @@ final class InvocationStateMachine {
 
         guard let eventTap else {
             print("[Flyd] Failed to create CGEvent tap")
+            writeKeyboardDiagnostic(status: "not-started", error: "Could not create event tap")
             return
         }
 
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), runLoopSource, .commonModes)
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        print("[Flyd] Keyboard monitor started. Press ⌃⌥ to invoke.")
+        writeKeyboardDiagnostic(status: "running")
+    }
+
+    func reenableEventTap() {
+        guard let eventTap else { return }
+
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        print("[Flyd] Keyboard monitor re-enabled")
+        writeKeyboardDiagnostic(status: "running", eventType: "tap-reenabled")
     }
 
     func stop() {
@@ -123,6 +148,7 @@ final class InvocationStateMachine {
             self.eventTap = nil
         }
         resetCheckpoints()
+        writeKeyboardDiagnostic(status: "stopped")
     }
 
     func startPrewarm() {
@@ -201,12 +227,18 @@ final class InvocationStateMachine {
         holdTimer = nil
         holdTimerDidFire = false
         isVoiceInvocation = false
+        transcriptionSessionId += 1
         resetCheckpoints()
         onCancelled?()
     }
 
     func voiceIntentReceived(_ transcript: String) {
         onVoiceIntentReady?(transcript)
+    }
+
+    func nextTranscriptionSessionId() -> Int {
+        transcriptionSessionId += 1
+        return transcriptionSessionId
     }
 
     func setRevision(_ revision: Int) {
@@ -230,6 +262,56 @@ final class InvocationStateMachine {
         currentScreenImage = nil
         prewarmTask = nil
     }
+
+    fileprivate func writeKeyboardDiagnostic(status: String, error: String? = nil, eventType: String? = nil, flags: CGEventFlags? = nil) {
+        let snapshot = KeyboardMonitorSnapshot(
+            bundleURL: Bundle.main.bundleURL.path,
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "none",
+            executableURL: Bundle.main.executableURL?.path ?? "none",
+            processIdentifier: ProcessInfo.processInfo.processIdentifier,
+            status: status,
+            accessibility: PermissionGate.shared.hasAccessibility,
+            keyboardShortcut: PermissionGate.shared.hasKeyboardShortcut,
+            eventTapCreated: eventTap != nil,
+            eventTapEnabled: eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false,
+            eventType: eventType,
+            flagsRawValue: flags?.rawValue,
+            error: error,
+            capturedAt: Date()
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        let directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".flyd/overlay", isDirectory: true)
+        let fileURL = directoryURL.appendingPathComponent("keyboard-diagnostic.json")
+
+        do {
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let data = try encoder.encode(snapshot)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            print("[Flyd] Could not write keyboard diagnostic: \(error.localizedDescription)")
+        }
+    }
+}
+
+private struct KeyboardMonitorSnapshot: Encodable {
+    let bundleURL: String
+    let bundleIdentifier: String
+    let executableURL: String
+    let processIdentifier: Int32
+    let status: String
+    let accessibility: Bool
+    let keyboardShortcut: Bool
+    let eventTapCreated: Bool
+    let eventTapEnabled: Bool
+    let eventType: String?
+    let flagsRawValue: UInt64?
+    let error: String?
+    let capturedAt: Date
 }
 
 private func stateMachineEventCallback(
@@ -242,8 +324,12 @@ private func stateMachineEventCallback(
     let machine = Unmanaged<InvocationStateMachine>.fromOpaque(refcon).takeUnretainedValue()
 
     switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+        machine.reenableEventTap()
+
     case .flagsChanged:
         let flags = event.flags
+        machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
         let targetFlags = machine.configuration.modifiers
 
         // Ctrl triple-press detection (rising edge only)
@@ -297,6 +383,7 @@ private func stateMachineEventCallback(
                 DispatchQueue.main.asyncAfter(deadline: .now() + machine.holdThreshold, execute: holdItem)
 
                 DispatchQueue.main.async {
+                    machine.writeKeyboardDiagnostic(status: "running", eventType: "shortcut-pressed", flags: flags)
                     machine.onShortcutPressed?()
                 }
             }

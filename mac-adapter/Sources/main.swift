@@ -1,8 +1,47 @@
 import AppKit
+import ApplicationServices
+import CoreGraphics
+import Darwin
 import SwiftUI
+
+// Top-level `let`s in main.swift run as sequential statements, not hoisted like normal
+// globals — this must be bound before any code path (including the early startFlyd()
+// check below) can reach launchCore(), or it's an uninitialized-global crash.
+let coreLogFileURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".flyd/overlay/core-launch.log", isDirectory: false)
+
+func openCoreLogHandle() -> FileHandle {
+    let directoryURL = coreLogFileURL.deletingLastPathComponent()
+    try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    if !FileManager.default.fileExists(atPath: coreLogFileURL.path) {
+        FileManager.default.createFile(atPath: coreLogFileURL.path, contents: nil)
+    }
+    let handle = (try? FileHandle(forWritingTo: coreLogFileURL)) ?? FileHandle.nullDevice
+    handle.seekToEndOfFile()
+    return handle
+}
+
+func appendCoreLog(_ message: String) {
+    print("[Flyd] \(message)")
+    let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
+    guard let data = line.data(using: .utf8) else { return }
+    let handle = openCoreLogHandle()
+    handle.write(data)
+    try? handle.close()
+}
+
+if CommandLine.arguments.contains("--permission-diagnostic") {
+    printPermissionDiagnostic()
+    exit(0)
+}
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+
+if !isRunningFromAppBundle() {
+    openInstalledAppFromRawExecutable()
+    exit(0)
+}
 
 let state = FlydState.shared
 let permissionGate = PermissionGate.shared
@@ -22,16 +61,55 @@ let liveBridge = LiveAudioBridge.shared
 
 let invocationPanel = InvocationPanel()
 var activeInvocationTask: Task<Void, Never>?
+var setupWindow: NSWindow?
+var flydStarted = false
+var suppressNextShortcutRelease = false
+let setupCompletedKey = "FlydSetupCompleted"
 
-if !permissionGate.hasAccessibility {
+statusItem.onInvoke = {
+    if !flydStarted {
+        startFlyd(closeSetup: false)
+    }
+    if flydStarted {
+        handleInvocation()
+    }
+}
+statusItem.onOpenSetup = {
     showPermissionsWindow()
+}
+statusItem.onRestartFlyd = {
+    restartFlyd()
+}
+statusItem.start()
+
+if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {
+    startFlyd(closeSetup: false)
 } else {
-    startFlyd()
+    showPermissionsWindow()
 }
 
 app.run()
 
-func startFlyd() {
+func startFlyd(closeSetup: Bool = true) {
+    permissionGate.writeDiagnosticSnapshot()
+
+    if flydStarted {
+        if closeSetup {
+            setupWindow?.close()
+        }
+        return
+    }
+
+    guard permissionGate.allRequiredGranted() else {
+        showPermissionsWindow()
+        return
+    }
+
+    flydStarted = true
+    if closeSetup {
+        setupWindow?.close()
+    }
+
     _ = auth.credential()
 
     statusItem.start()
@@ -41,13 +119,18 @@ func startFlyd() {
     accessibilityInspector.start()
 
     stateMachine.onShortcutPressed = {
-        handleInvocation()
+        handleShortcutPress()
     }
     stateMachine.onShortcutReleased = {
+        if suppressNextShortcutRelease {
+            suppressNextShortcutRelease = false
+            return
+        }
+
         if stateMachine.isVoiceInvocation {
             handleVoiceRelease()
         } else {
-            // tap — text invocations are handled by the panel's onIntentSubmitted
+            handleInvocation()
         }
     }
     stateMachine.onShortcutHoldDetected = {
@@ -93,14 +176,22 @@ func startFlyd() {
 
 func launchCore() {
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["npm", "run", "core", "--silent"]
+    // GUI-launched apps don't inherit the user's shell PATH (no ~/.zshrc, no nvm/homebrew/.local/bin),
+    // so `env npm` fails silently. Route through a login shell to pick up the real PATH.
+    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    process.arguments = ["-l", "-c", "npm run core --silent"]
     process.currentDirectoryURL = URL(fileURLWithPath: resolveCliDir())
     process.environment = ProcessInfo.processInfo.environment
 
+    let logHandle = openCoreLogHandle()
+    process.standardOutput = logHandle
+    process.standardError = logHandle
+    appendCoreLog("Launching Core — cwd=\(resolveCliDir())")
+
     process.terminationHandler = { proc in
+        appendCoreLog("Core exited with status \(proc.terminationStatus)")
         if proc.terminationStatus != 0 {
-            print("[Flyd] Core exited with status \(proc.terminationStatus) — restarting in 2s...")
+            appendCoreLog("Restarting in 2s...")
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 launchCore()
             }
@@ -109,9 +200,9 @@ func launchCore() {
 
     do {
         try process.run()
-        print("[Flyd] Core launched (pid \(process.processIdentifier))")
+        appendCoreLog("Core process started (pid \(process.processIdentifier))")
     } catch {
-        print("[Flyd] Could not launch Core: \(error.localizedDescription)")
+        appendCoreLog("Could not launch Core: \(error.localizedDescription)")
     }
 }
 
@@ -125,6 +216,14 @@ func resolveCliDir() -> String {
 }
 
 func repoRoot() -> String {
+    // The installed app in ~/Applications is copied out of the repo, so walking up from
+    // its own bundle path can never find cli/package.json. The Makefile bakes the real
+    // repo path in at build time (FlydRepoRoot) — trust that first.
+    if let bakedRoot = Bundle.main.infoDictionary?["FlydRepoRoot"] as? String,
+       FileManager.default.fileExists(atPath: bakedRoot + "/cli/package.json") {
+        return bakedRoot
+    }
+
     if let bundlePath = Bundle.main.resourcePath {
         var path = bundlePath
         for _ in 0...8 {
@@ -147,7 +246,7 @@ func handleLiveEnter() {
 
     liveBridge.onResolveOperations = { callId, ops in
         Task {
-            let (invocationId, revision) = state.startInvocation()
+            let (_, revision) = state.startInvocation()
             stateMachine.setRevision(revision)
 
             var outcomeStatus = "succeeded"
@@ -186,6 +285,8 @@ func handleLiveExit() {
 }
 
 func handleVoiceInvocation() {
+    guard state.phase == .idle else { return }
+
     guard PermissionGate.shared.hasMicrophone else {
         PermissionGate.shared.requestMicrophonePermission()
         invocationPanel.show()
@@ -193,22 +294,79 @@ func handleVoiceInvocation() {
         return
     }
 
+    let (invocationId, revision) = state.startInvocation()
+    stateMachine.setRevision(revision)
+    stateMachine.startPrewarm()
+
+    if let element = accessibilityInspector.capturedAXElement() {
+        executor.registerElement(ref: "el_01", element: element)
+    }
+
+    state.transition(to: .listening)
     invocationPanel.show()
-    invocationPanel.updateState(.listening)
+    invocationPanel.updateState(.recording)
 
-    _ = voiceCapture.start()
-
-    voiceRelay.connect()
+    let sessionId = stateMachine.nextTranscriptionSessionId()
+    voiceRelay.connect(sessionId: sessionId)
     voiceRelay.onTranscriptDelta = { delta in
         DispatchQueue.main.async {
             invocationPanel.fillIntent(invocationPanel.currentIntent + delta)
         }
     }
-    voiceRelay.onComplete = { [weak stateMachine] transcript in
+    voiceRelay.onComplete = { [weak self] transcript in
         DispatchQueue.main.async {
             voiceCapture.stop()
             voiceRelay.disconnect()
-            stateMachine?.voiceIntentReceived(transcript)
+
+            let state = self
+            let isDictation = VoiceIntentRouter.isPlainDictation(transcript)
+            let hasSelection = VoiceIntentRouter.hasSelectedText(transcript)
+            let focusedEditable = accessibilityInspector.captureFocusedElement() != nil
+                && NativeExecutor.safeEditableRoles.contains(accessibilityInspector.captureFocusedElement()?.role ?? "")
+
+            if isDictation && focusedEditable && !hasSelection {
+                invocationPanel.updateState(.executing)
+                Task {
+                    let fingerprint = InvocationFingerprint(
+                        app: ApplicationMonitor.shared.foregroundApp?.bundleId ?? "unknown",
+                        surface: nil, window: "win_01", element: "el_01", capturedAt: Date()
+                    )
+                    let op = ResolvedOperation(target: "el_01", kind: "insert_text", text: transcript)
+                    let result = await executor.execute(operation: op, fingerprint: fingerprint)
+                    if result.success {
+                        print("[Flyd] Voice dictation inserted directly: \(transcript.prefix(40))...")
+                        await MainActor.run {
+                            state.transition(to: .present)
+                            invocationPanel.dismiss()
+                            executor.clearInvocationRefs()
+                            stateMachine.resetCheckpoints()
+                        }
+                    } else {
+                        print("[Flyd] Voice dictation failed: \(result.error ?? "") — falling back to Core")
+                        invocationPanel.updateState(.resolving)
+                        let (invocationId, revision) = state.startInvocation()
+                        stateMachine.setRevision(revision)
+                        stateMachine.startPrewarm()
+                        if let element = accessibilityInspector.capturedAXElement() {
+                            executor.registerElement(ref: "el_01", element: element)
+                        }
+                        activeInvocationTask = Task {
+                            await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
+                        }
+                    }
+                }
+            } else {
+                invocationPanel.updateState(.resolving)
+                let (invocationId, revision) = state.startInvocation()
+                stateMachine.setRevision(revision)
+                stateMachine.startPrewarm()
+                if let element = accessibilityInspector.capturedAXElement() {
+                    executor.registerElement(ref: "el_01", element: element)
+                }
+                activeInvocationTask = Task {
+                    await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
+                }
+            }
         }
     }
     voiceRelay.onError = { error in
@@ -216,7 +374,11 @@ func handleVoiceInvocation() {
             voiceCapture.stop()
             voiceRelay.disconnect()
             print("[Flyd] Voice transcription error: \(error)")
-            invocationPanel.updateState(.error(message: "Voice error — try typing instead"))
+            let isConnectionFailure = error.localizedCaseInsensitiveContains("connect")
+            let message = isConnectionFailure
+                ? "Flyd Core isn't running — try typing instead"
+                : "Voice error — try typing instead"
+            invocationPanel.updateState(.error(message: message))
         }
     }
 
@@ -230,10 +392,25 @@ func handleVoiceInvocation() {
             invocationPanel.updateState(.error(message: error))
         }
     }
+
+    _ = voiceCapture.start()
 }
 
 func handleVoiceRelease() {
     voiceRelay.commitAudio()
+}
+
+func handleShortcutPress() {
+    guard state.phase != .idle else { return }
+
+    suppressNextShortcutRelease = true
+    activeInvocationTask?.cancel()
+    state.cancelInvocation()
+    stateMachine.cancel()
+    invocationPanel.dismiss()
+    voiceCapture.stop()
+    voiceRelay.disconnect()
+    executor.clearInvocationRefs()
 }
 
 func handleInvocation() {
@@ -258,6 +435,7 @@ func handleInvocation() {
     state.transition(to: .awaitingIntent)
 
     invocationPanel.onIntentSubmitted = { intent in
+        invocationPanel.updateState(.processing)
         activeInvocationTask = Task { await processInvocation(invocationId: invocationId, revision: revision, modality: "text", intent: intent) }
     }
 
@@ -330,15 +508,53 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
     guard let resolution = response else {
         print("[Flyd] No response from Flyd Core — running locally")
 
-        auditRecorder.record(
-            invocationId: invocationId,
-            contextSources: contextSources,
-            error: "Flyd Core unreachable"
-        )
+        let isDictation = modality == "voice" && VoiceIntentRouter.isPlainDictation(intent)
+        let hasSelection = VoiceIntentRouter.hasSelectedText(intent)
+        let focusedEditable = environment.focusedElement.role != "unknown"
+            && NativeExecutor.safeEditableRoles.contains(environment.focusedElement.role)
+
+        if isDictation && focusedEditable && !hasSelection {
+            let op = ResolvedOperation(target: "el_01", kind: "insert_text", text: intent)
+            let fp = InvocationFingerprint(
+                app: environment.application.bundleId,
+                surface: environment.surface?.host,
+                window: "win_01",
+                element: "el_01",
+                capturedAt: Date()
+            )
+            let result = await executor.execute(operation: op, fingerprint: fp)
+            if result.success {
+                print("[Flyd] Voice dictation fallback inserted: \(intent.prefix(40))...")
+                auditRecorder.record(
+                    invocationId: invocationId,
+                    contextSources: contextSources,
+                    error: "Core unreachable — inserted raw transcript"
+                )
+            } else {
+                print("[Flyd] Voice dictation fallback failed: \(result.error ?? "unknown")")
+                auditRecorder.record(
+                    invocationId: invocationId,
+                    contextSources: contextSources,
+                    error: "Core unreachable — fallback also failed: \(result.error ?? "")"
+                )
+            }
+        } else {
+            auditRecorder.record(
+                invocationId: invocationId,
+                contextSources: contextSources,
+                error: "Flyd Core unreachable"
+            )
+
+            await MainActor.run {
+                invocationPanel.updateState(.error(message: "Flyd Core isn't running — try again in a moment"))
+            }
+        }
 
         await MainActor.run {
-            invocationPanel.dismiss()
             state.transition(to: .present)
+            executor.clearInvocationRefs()
+            stateMachine.resetCheckpoints()
+            invocationPanel.dismiss()
         }
         return
     }
@@ -356,6 +572,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
             correction: "Stale resolution — superseded by newer invocation"
         )
         await MainActor.run {
+            invocationPanel.dismiss()
             state.transition(to: .present)
         }
         return
@@ -397,6 +614,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
     stateMachine.resetCheckpoints()
 
     await MainActor.run {
+        invocationPanel.dismiss()
         state.transition(to: .present)
     }
 }
@@ -446,27 +664,74 @@ func buildFingerprint(from environment: EnvironmentState) -> InvocationFingerpri
 }
 
 func showPermissionsWindow() {
-    let window = NSPanel(
-        contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
-        styleMask: [.titled, .closable, .nonactivatingPanel],
+    if let window = setupWindow {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        return
+    }
+
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 740, height: 680),
+        styleMask: [.titled, .closable, .miniaturizable],
         backing: .buffered,
         defer: false
     )
-    window.title = "Flyd — Permissions"
+    window.title = "Flyd Setup"
     window.center()
-    window.isFloatingPanel = true
-    window.level = .floating
-    window.collectionBehavior = [.canJoinAllSpaces]
-    window.hidesOnDeactivate = false
-    window.contentView = PermissionsViewController().view
-
-    window.makeKeyAndOrderFront(nil)
-
-    Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-        if permissionGate.hasAccessibility {
-            timer.invalidate()
-            window.close()
+    window.isReleasedWhenClosed = false
+    window.collectionBehavior = [.moveToActiveSpace]
+    window.contentViewController = PermissionsViewController(
+        onContinue: {
+            UserDefaults.standard.set(true, forKey: setupCompletedKey)
             startFlyd()
+        },
+        onQuit: {
+            NSApplication.shared.terminate(nil)
         }
+    )
+
+    setupWindow = window
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
+}
+
+func restartFlyd() {
+    if let bundleURL = Bundle.main.bundleURL as URL? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", bundleURL.path]
+        try? process.run()
     }
+    NSApplication.shared.terminate(nil)
+}
+
+func isRunningFromAppBundle() -> Bool {
+    Bundle.main.bundleURL.pathExtension == "app"
+}
+
+func openInstalledAppFromRawExecutable() {
+    let installedAppURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Applications/Flyd.app")
+
+    if FileManager.default.fileExists(atPath: installedAppURL.path) {
+        NSWorkspace.shared.open(installedAppURL)
+        print("[Flyd] Opened installed Flyd.app. Run `make run` from mac-adapter instead of launching .build/release/FlydMacAdapter directly.")
+    } else {
+        print("[Flyd] Flyd must run from an app bundle for macOS permissions. Run `make install` from mac-adapter first.")
+    }
+}
+
+func printPermissionDiagnostic() {
+    let bundleURL = Bundle.main.bundleURL.path
+    let bundleIdentifier = Bundle.main.bundleIdentifier ?? "none"
+    let executableURL = Bundle.main.executableURL?.path ?? "none"
+    let accessibility = AXIsProcessTrusted()
+    let screenRecording = CGPreflightScreenCaptureAccess()
+
+    print("bundleURL=\(bundleURL)")
+    print("bundleIdentifier=\(bundleIdentifier)")
+    print("executableURL=\(executableURL)")
+    print("accessibility=\(accessibility)")
+    print("screenRecording=\(screenRecording)")
 }

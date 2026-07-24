@@ -7,13 +7,22 @@ final class VoiceTranscriptionRelay {
     private var session: URLSession?
     private var isConnected = false
     private var transcriptBuffer = ""
+    private var preConnectBuffer: [Data] = []
+    private let maxPreConnectBytes = 48000
+    private var bufferedByteCount = 0
+
+    private var currentSessionId: Int = -1
 
     var onTranscriptDelta: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
-    func connect() {
+    func connect(sessionId: Int) {
         guard !isConnected else { return }
+
+        currentSessionId = sessionId
+        preConnectBuffer = []
+        bufferedByteCount = 0
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -29,15 +38,16 @@ final class VoiceTranscriptionRelay {
         sendStart()
         receive()
         isConnected = true
+
+        drainPreConnectBuffer()
     }
 
     func sendAudioChunk(_ data: Data) {
-        guard isConnected else { return }
-        let base64 = data.base64EncodedString()
-        let message = """
-        {"type":"audio","audio":"\(base64)"}
-        """
-        webSocket?.send(.string(message)) { _ in }
+        if !isConnected {
+            bufferChunk(data)
+            return
+        }
+        sendDirect(data)
     }
 
     func commitAudio() {
@@ -47,6 +57,10 @@ final class VoiceTranscriptionRelay {
 
     func disconnect() {
         isConnected = false
+        currentSessionId = -1
+        preConnectBuffer = []
+        bufferedByteCount = 0
+
         webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
         webSocket?.cancel(with: .normalClosure, reason: nil)
         webSocket = nil
@@ -54,11 +68,32 @@ final class VoiceTranscriptionRelay {
         transcriptBuffer = ""
     }
 
-    private func sendStart() {
+    private func bufferChunk(_ data: Data) {
+        let size = data.count
+        if bufferedByteCount + size > maxPreConnectBytes { return }
+        preConnectBuffer.append(data)
+        bufferedByteCount += size
+    }
+
+    private func drainPreConnectBuffer() {
+        let chunks = preConnectBuffer
+        preConnectBuffer = []
+        bufferedByteCount = 0
+        for chunk in chunks {
+            sendDirect(chunk)
+        }
+    }
+
+    private func sendDirect(_ data: Data) {
+        let base64 = data.base64EncodedString()
         let message = """
-        {"type":"start"}
+        {"type":"audio","audio":"\(base64)"}
         """
         webSocket?.send(.string(message)) { _ in }
+    }
+
+    private func sendStart() {
+        webSocket?.send(.string(#"{"type":"start"}"#)) { _ in }
     }
 
     private func receive() {
@@ -92,18 +127,23 @@ final class VoiceTranscriptionRelay {
             if let deltaText = json["text"] as? String {
                 transcriptBuffer += deltaText
                 DispatchQueue.main.async { [weak self] in
+                    guard self?.currentSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
                     self?.onTranscriptDelta?(deltaText)
                 }
             }
         case "complete":
             let fullText = json["text"] as? String ?? transcriptBuffer
             let finalText = fullText.isEmpty ? transcriptBuffer : fullText
+            let capturedSessionId = self.currentSessionId
             DispatchQueue.main.async { [weak self] in
-                self?.onComplete?(finalText)
+                guard let self, capturedSessionId >= 0,
+                      capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                self.onComplete?(finalText)
             }
         case "error":
             let msg = json["message"] as? String ?? "Unknown transcription error"
             DispatchQueue.main.async { [weak self] in
+                guard self?.currentSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
                 self?.onError?(msg)
             }
         default:
