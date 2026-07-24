@@ -29,6 +29,7 @@ final class InvocationStateMachine {
     private var ctrlPressTimestamps: [TimeInterval] = []
     private let triplePressWindow: TimeInterval = 0.5
     private var liveDebounceUntil: TimeInterval = 0
+    private var wasCtrlDown = false
 
     private let checkpointLock = NSLock()
     private var _t0Fingerprint: InvocationFingerprint?
@@ -239,8 +240,13 @@ private func stateMachineEventCallback(
     let machine = Unmanaged<InvocationStateMachine>.fromOpaque(refcon).takeUnretainedValue()
 
     switch type {
-    case .keyDown:
-        if event.getIntegerValueField(.keyboardEventKeycode) == Int64(machine.ctrlKeyCode) {
+    case .flagsChanged:
+        let flags = event.flags
+        let targetFlags = machine.configuration.modifiers
+
+        // Ctrl triple-press detection (rising edge only)
+        let ctrlDown = flags.contains(.maskControl)
+        if ctrlDown && !machine.wasCtrlDown {
             let now = ProcessInfo.processInfo.systemUptime
             if now >= machine.liveDebounceUntil {
                 machine.ctrlPressTimestamps.append(now)
@@ -265,11 +271,9 @@ private func stateMachineEventCallback(
                 }
             }
         }
+        machine.wasCtrlDown = ctrlDown
 
-    case .flagsChanged:
-        let flags = event.flags
-        let targetFlags = machine.configuration.modifiers
-
+        // ⌃⌥ shortcut detection (tap vs hold)
         if flags.intersection(targetFlags) == targetFlags {
             if !machine.wasPressed {
                 machine.wasPressed = true

@@ -1,9 +1,25 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import type { IncomingMessage } from "node:http";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { validateResolution } from "./resolve-types.js";
 
 const REALTIME_WS_PORT = 4817;
+const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
+
+function loadToken(): string | null {
+  try { return readFileSync(AUTH_TOKEN_PATH, "utf-8").trim(); } catch { return null; }
+}
+
+function wsAuth(req: IncomingMessage): boolean {
+  const token = loadToken();
+  if (!token) return false;
+  const auth = req.headers["authorization"] || "";
+  return auth === `Bearer ${token}`;
+}
 
 let wss: WebSocketServer | null = null;
 
@@ -11,7 +27,12 @@ export function startRealtimeServer(): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     if (wss) { resolvePromise(); return; }
 
-    wss = new WebSocketServer({ port: REALTIME_WS_PORT, host: "127.0.0.1" });
+    wss = new WebSocketServer({
+      port: REALTIME_WS_PORT,
+      host: "127.0.0.1",
+      maxPayload: 256 * 1024,
+      verifyClient: ({ req }: { req: IncomingMessage }) => wsAuth(req),
+    });
 
     wss.on("listening", () => {
       console.log(`[Flyd Core] Realtime WS listening on 127.0.0.1:${REALTIME_WS_PORT}`);
@@ -33,10 +54,9 @@ export function startRealtimeServer(): Promise<void> {
 
           switch (msg.type) {
           case "start":
-            openaiWs = await connectRealtime(adapterWs, msg.config);
+            openaiWs = await connectRealtime(adapterWs);
             sessionActive = true;
             break;
-
           case "audio":
             if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
               openaiWs.send(JSON.stringify({
@@ -45,42 +65,32 @@ export function startRealtimeServer(): Promise<void> {
               }));
             }
             break;
-
           case "stop":
             sessionActive = false;
-            if (openaiWs) {
-              openaiWs.close();
-              openaiWs = null;
-            }
+            if (openaiWs) { openaiWs.close(); openaiWs = null; }
             break;
           }
-        } catch (err) {
-          console.error(`[Flyd Core] Realtime error:`, err);
-          adapterWs.send(JSON.stringify({ type: "error", message: String(err) }));
+        } catch {
+          adapterWs.send(JSON.stringify({ type: "error", message: "Invalid message" }));
         }
       });
 
       adapterWs.on("close", () => {
         sessionActive = false;
-        if (openaiWs) {
-          openaiWs.close();
-          openaiWs = null;
-        }
+        if (openaiWs) { openaiWs.close(); openaiWs = null; }
         console.log(`[Flyd Core] Realtime session ${sessionId.slice(0, 8)} disconnected`);
       });
     });
   });
 }
 
-async function connectRealtime(
-  adapterWs: WebSocket,
-  config: { model?: string }
-): Promise<WebSocket> {
-  const model = config.model || process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
+async function connectRealtime(adapterWs: WebSocket): Promise<WebSocket> {
+  const model = process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
   const apiKey = process.env.FLYD_MODEL_API_KEY || process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    throw new Error("No OpenAI API key configured");
+    adapterWs.send(JSON.stringify({ type: "error", message: "Realtime not configured" }));
+    throw new Error("No API key configured");
   }
 
   return new Promise((resolvePromise, reject) => {
@@ -104,21 +114,19 @@ async function connectRealtime(
             output: { format: { type: "audio/pcm", rate: 24000 } },
             transcription: { model: "gpt-realtime-whisper" },
           },
-          tools: [
-            {
-              type: "function",
-              name: "flyd_resolve_intent",
-              description: "Execute a user intent on their computer. Returns concrete text operations targeting the focused element.",
-              parameters: {
-                type: "object",
-                properties: {
-                  intent: { type: "string", description: "What the user wants to accomplish" },
-                  environment_revision: { type: "number", description: "Current environment revision" },
-                },
-                required: ["intent", "environment_revision"],
+          tools: [{
+            type: "function",
+            name: "flyd_resolve_intent",
+            description: "Execute a user intent on their computer. Returns concrete text operations targeting the focused element.",
+            parameters: {
+              type: "object",
+              properties: {
+                intent: { type: "string", description: "What the user wants to accomplish" },
+                environment_revision: { type: "number", description: "Current environment revision" },
               },
+              required: ["intent", "environment_revision"],
             },
-          ],
+          }],
           tool_choice: "auto",
         },
       }));
@@ -128,29 +136,23 @@ async function connectRealtime(
     ws.on("message", (data) => {
       try {
         const ev = JSON.parse(data.toString());
-
         if (ev.type === "response.audio.delta") {
           adapterWs.send(JSON.stringify({ type: "audio_output", audio: ev.delta }));
         }
-
         if (ev.type === "response.audio_transcript.delta") {
           adapterWs.send(JSON.stringify({ type: "transcript_delta", text: ev.delta }));
         }
-
         if (ev.type === "response.done") {
-          handleToolCalls(adapterWs, ws, ev);
+          handleToolCalls(adapterWs, ws, ev as Record<string, unknown>);
         }
-
         if (ev.type === "error") {
-          adapterWs.send(JSON.stringify({ type: "error", message: ev.error?.message || "Realtime error" }));
+          adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service error" }));
         }
-      } catch {
-        // ignore malformed messages
-      }
+      } catch { /* ignore malformed */ }
     });
 
     ws.on("error", (err) => {
-      adapterWs.send(JSON.stringify({ type: "error", message: err.message }));
+      adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service error" }));
       reject(err);
     });
   });
@@ -165,10 +167,11 @@ async function handleToolCalls(
   if (!Array.isArray(output)) return;
 
   for (const item of output) {
-    if (item.type !== "function_call") continue;
-    if (item.name !== "flyd_resolve_intent") continue;
+    if ((item as Record<string, unknown>).type !== "function_call") continue;
+    if ((item as Record<string, unknown>).name !== "flyd_resolve_intent") continue;
 
-    const args = JSON.parse(item.arguments || "{}");
+    const args = JSON.parse((item as Record<string, unknown>).arguments as string || "{}");
+    const callId = (item as Record<string, unknown>).call_id as string;
     const { intent } = args;
 
     try {
@@ -200,7 +203,7 @@ async function handleToolCalls(
 
       adapterWs.send(JSON.stringify({
         type: "resolve_operations",
-        call_id: item.call_id,
+        call_id: callId,
         operations: opResults,
       }));
 
@@ -208,7 +211,7 @@ async function handleToolCalls(
         type: "conversation.item.create",
         item: {
           type: "function_call_output",
-          call_id: item.call_id,
+          call_id: callId,
           output: JSON.stringify({
             mode: validationError ? "failed" : "native",
             operations: opResults,
@@ -220,11 +223,8 @@ async function handleToolCalls(
       }));
 
       openaiWs.send(JSON.stringify({ type: "response.create" }));
-    } catch (err) {
-      adapterWs.send(JSON.stringify({
-        type: "error",
-        message: `Tool call failed: ${err}`,
-      }));
+    } catch {
+      adapterWs.send(JSON.stringify({ type: "error", message: "Tool call failed" }));
     }
   }
 }
@@ -232,14 +232,6 @@ async function handleToolCalls(
 export function stopRealtimeServer(): Promise<void> {
   return new Promise((resolvePromise) => {
     if (!wss) { resolvePromise(); return; }
-    wss.close(() => {
-      wss = null;
-      console.log("[Flyd Core] Realtime WS stopped");
-      resolvePromise();
-    });
+    wss.close(() => { wss = null; resolvePromise(); });
   });
-}
-
-export function isRealtimeServerRunning(): boolean {
-  return wss !== null;
 }

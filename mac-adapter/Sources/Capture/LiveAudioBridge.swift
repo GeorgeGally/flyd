@@ -64,14 +64,13 @@ final class LiveAudioBridge {
         session = URLSession(configuration: config)
 
         guard let url = URL(string: "ws://127.0.0.1:4817") else { return }
-        relaySocket = session?.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        let token = AdapterAuth.shared.credential()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        relaySocket = session?.webSocketTask(with: request)
         relaySocket?.resume()
 
-        let model = ProcessInfo.processInfo.environment["FLYD_REALTIME_MODEL"] ?? "gpt-realtime-2.1"
-        let startMsg = """
-        {"type":"start","config":{"model":"\(model)"}}
-        """
-        relaySocket?.send(.string(startMsg)) { _ in }
+        relaySocket?.send(.string(#"{"type":"start"}"#)) { _ in }
         receiveMessages()
     }
 

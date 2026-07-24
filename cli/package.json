@@ -24,6 +24,7 @@
     "@anthropic-ai/sdk": "^0.40.0",
     "@tobilu/qmd": "^2.5.3",
     "commander": "^12.0.0",
+    "dotenv": "^17.4.2",
     "openai": "^4.0.0",
     "pg": "^8.22.0",
     "ws": "^8.21.1"

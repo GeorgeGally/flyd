@@ -20,7 +20,10 @@ final class VoiceTranscriptionRelay {
         session = URLSession(configuration: config)
 
         guard let url = URL(string: "ws://127.0.0.1:4816") else { return }
-        webSocket = session?.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        let token = AdapterAuth.shared.credential()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        webSocket = session?.webSocketTask(with: request)
         webSocket?.resume()
 
         sendStart()
@@ -52,9 +55,8 @@ final class VoiceTranscriptionRelay {
     }
 
     private func sendStart() {
-        let model = ProcessInfo.processInfo.environment["FLYD_TRANSCRIPTION_MODEL"] ?? "gpt-realtime-whisper"
         let message = """
-        {"type":"start","config":{"model":"\(model)"}}
+        {"type":"start"}
         """
         webSocket?.send(.string(message)) { _ in }
     }

@@ -1,6 +1,11 @@
+import { config } from "dotenv";
+import { resolve as resolvePath, join } from "node:path";
+
+config({ path: resolvePath(join(process.cwd(), "..", ".env")) });
+config({ path: resolvePath(join(process.cwd(), ".env")) });
+
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
 import { memoryGate } from "./memory-gate.js";
 import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings } from "./memory-receipt.js";
@@ -114,7 +119,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     const resolution = await resolve(
       {
         invocation_id: parsed.invocation_id,
-        environment_revision: parsed.environment_revision || 1,
+        environment_revision: parsed.environment_revision ?? 1,
         environment: parsed.environment,
         intent: parsed.intent,
         modality: parsed.modality || "text",

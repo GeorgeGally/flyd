@@ -1,48 +1,43 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import type { IncomingMessage } from "node:http";
 
 const TRANSCRIPTION_WS_PORT = 4816;
+const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
+
+function loadToken(): string | null {
+  try { return readFileSync(AUTH_TOKEN_PATH, "utf-8").trim(); } catch { return null; }
+}
+
+function wsAuth(req: IncomingMessage): boolean {
+  const token = loadToken();
+  if (!token) return false;
+  const auth = req.headers["authorization"] || "";
+  return auth === `Bearer ${token}`;
+}
 
 let wss: WebSocketServer | null = null;
 
-interface TranscriptionSessionConfig {
-  model: string;
-}
-
-interface TranscriptionDelta {
-  type: "delta";
-  text: string;
-}
-
-interface TranscriptionComplete {
-  type: "complete";
-  text: string;
-}
-
-interface TranscriptionError {
-  type: "error";
-  message: string;
-}
-
-type TranscriptionEvent = TranscriptionDelta | TranscriptionComplete | TranscriptionError;
-
 export function startTranscriptionServer(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (wss) {
-      resolve();
-      return;
-    }
+    if (wss) { resolve(); return; }
 
-    wss = new WebSocketServer({ port: TRANSCRIPTION_WS_PORT, host: "127.0.0.1" });
+    wss = new WebSocketServer({
+      port: TRANSCRIPTION_WS_PORT,
+      host: "127.0.0.1",
+      maxPayload: 256 * 1024,
+      verifyClient: ({ req }: { req: IncomingMessage }) => wsAuth(req),
+    });
 
     wss.on("listening", () => {
       console.log(`[Flyd Core] Transcription WS listening on 127.0.0.1:${TRANSCRIPTION_WS_PORT}`);
       resolve();
     });
 
-    wss.on("error", (err) => {
-      reject(err);
-    });
+    wss.on("error", reject);
 
     wss.on("connection", (ws) => {
       const sessionId = randomUUID();
@@ -56,9 +51,8 @@ export function startTranscriptionServer(): Promise<void> {
 
           switch (msg.type) {
           case "start":
-            openaiWs = await connectOpenAIRealtime(ws, msg.config as TranscriptionSessionConfig);
+            openaiWs = await connectTranscription(ws);
             break;
-
           case "audio":
             if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
               openaiWs.send(JSON.stringify({
@@ -67,46 +61,35 @@ export function startTranscriptionServer(): Promise<void> {
               }));
             }
             break;
-
           case "commit":
             if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
               openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
             }
             break;
-
           case "stop":
-            if (openaiWs) {
-              openaiWs.close();
-              openaiWs = null;
-            }
+            if (openaiWs) { openaiWs.close(); openaiWs = null; }
             break;
           }
-        } catch (err) {
-          console.error(`[Flyd Core] Transcription error:`, err);
-          ws.send(JSON.stringify({ type: "error", message: String(err) }));
+        } catch {
+          ws.send(JSON.stringify({ type: "error", message: "Invalid message" }));
         }
       });
 
       ws.on("close", () => {
-        if (openaiWs) {
-          openaiWs.close();
-          openaiWs = null;
-        }
+        if (openaiWs) { openaiWs.close(); openaiWs = null; }
         console.log(`[Flyd Core] Transcription session ${sessionId.slice(0, 8)} disconnected`);
       });
     });
   });
 }
 
-async function connectOpenAIRealtime(
-  clientWs: WebSocket,
-  config: TranscriptionSessionConfig
-): Promise<WebSocket> {
-  const model = config.model || process.env.FLYD_TRANSCRIPTION_MODEL || "gpt-realtime-whisper";
+async function connectTranscription(clientWs: WebSocket): Promise<WebSocket> {
+  const model = process.env.FLYD_TRANSCRIPTION_MODEL || "gpt-realtime-whisper";
   const apiKey = process.env.FLYD_MODEL_API_KEY || process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    throw new Error("No OpenAI API key configured (set FLYD_MODEL_API_KEY or OPENAI_API_KEY)");
+    clientWs.send(JSON.stringify({ type: "error", message: "Transcription not configured" }));
+    throw new Error("No API key configured");
   }
 
   return new Promise((resolve, reject) => {
@@ -125,11 +108,7 @@ async function connectOpenAIRealtime(
           audio: {
             input: {
               format: { type: "audio/pcm", rate: 24000 },
-              transcription: {
-                model,
-                language: "en",
-                delay: "low",
-              },
+              transcription: { model, language: "en", delay: "low" },
             },
           },
         },
@@ -140,43 +119,25 @@ async function connectOpenAIRealtime(
     ws.on("message", (data) => {
       try {
         const ev = JSON.parse(data.toString());
-
         if (ev.type === "conversation.item.input_audio_transcription.delta") {
           clientWs.send(JSON.stringify({ type: "delta", text: ev.delta }));
         }
-
         if (ev.type === "conversation.item.input_audio_transcription.completed") {
           clientWs.send(JSON.stringify({ type: "complete", text: ev.transcript || "" }));
         }
-      } catch {
-        // ignore malformed messages
-      }
+      } catch { /* ignore malformed */ }
     });
 
     ws.on("error", (err) => {
-      clientWs.send(JSON.stringify({ type: "error", message: err.message }));
+      clientWs.send(JSON.stringify({ type: "error", message: "Transcription service error" }));
       reject(err);
     });
-
-    ws.on("close", () => { /* handled by caller */ });
   });
 }
 
 export function stopTranscriptionServer(): Promise<void> {
   return new Promise((resolve) => {
-    if (!wss) {
-      resolve();
-      return;
-    }
-
-    wss.close(() => {
-      wss = null;
-      console.log("[Flyd Core] Transcription WS stopped");
-      resolve();
-    });
+    if (!wss) { resolve(); return; }
+    wss.close(() => { wss = null; resolve(); });
   });
-}
-
-export function isTranscriptionServerRunning(): boolean {
-  return wss !== null;
 }
