@@ -403,7 +403,22 @@ func handleInvocation() {
 }
 
 func processInvocation(invocationId: String, revision: Int, modality: String, intent: String) async {
+    let traceStart = Date()
+    let deadlineTask = Task {
+        try? await Task.sleep(for: .seconds(10))
+        guard !Task.isCancelled else { return }
+        print("[Flyd] Invocation \(invocationId.prefix(8)) timed out")
+        await MainActor.run {
+            state.cancelInvocation()
+            stateMachine.cancel()
+            executor.clearInvocationRefs()
+            invocationPanel.updateState(.error(message: "Timed out — try again"))
+        }
+    }
+
     stateMachine.captureIntent(intent: intent)
+
+    let tCapture = Date().timeIntervalSince(traceStart)
 
     if stateMachine.hasFocusDrift() {
         print("[Flyd] WARNING: Focus drifted between t₀ and t₁")
@@ -523,6 +538,10 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         error: nil
     )
 
+    deadlineTask.cancel()
+    let traceTotal = Date().timeIntervalSince(traceStart)
+    print("[Flyd Trace] \(invocationId.prefix(8)): capture=\(String(format: "%.0f", tCapture*1000))ms total=\(String(format: "%.0f", traceTotal*1000))ms")
+
     executor.clearInvocationRefs()
     stateMachine.resetCheckpoints()
 
@@ -548,11 +567,26 @@ func executeNativeOperations(
     }
 
     for op in resolution.operations {
+        if executor.requiresConfirmation(kind: op.kind, text: op.text) {
+            let confirmed = await requestReplaceConfirmation(op: op)
+            guard confirmed else {
+                print("[Flyd] Replace confirmation denied for: \(op.kind)")
+                await flydClient.sendOutcome(
+                    resolutionId: resolution.resolutionId,
+                    invocationId: resolution.invocationId,
+                    status: "rejected",
+                    correction: "Replace confirmation denied by user"
+                )
+                continue
+            }
+        }
+
         let resolved = ResolvedOperation(target: op.target, kind: op.kind, text: op.text)
         let result = await executor.execute(operation: resolved, fingerprint: fingerprint)
 
         if result.success {
             print("[Flyd] Executed: \(op.kind) → \(op.text.prefix(40))...")
+            print("[Flyd] Undo available for invocation \(resolution.invocationId.prefix(8))")
         } else {
             print("[Flyd] Failed: \(op.kind) — \(result.error ?? "unknown error")")
         }
@@ -563,6 +597,21 @@ func executeNativeOperations(
             status: result.success ? "succeeded" : "failed",
             correction: result.error
         )
+    }
+}
+
+func requestReplaceConfirmation(op: FlydClient.OperationPayload) async -> Bool {
+    return await withCheckedContinuation { continuation in
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Replace content?"
+            alert.informativeText = "This will replace most of the current content. Continue?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            let response = alert.runModal()
+            continuation.resume(returning: response == .alertFirstButtonReturn)
+        }
     }
 }
 

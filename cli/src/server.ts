@@ -116,6 +116,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   try {
     const config = loadFlydWorkerConfig();
+    const startedAt = Date.now();
     const resolution = await resolve(
       {
         invocation_id: parsed.invocation_id,
@@ -125,8 +126,11 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         modality: parsed.modality || "text",
         invocation_fingerprint: parsed.invocation_fingerprint,
       },
-      config.model
+      config.model,
+      config.apiKey,
+      config.baseURL
     );
+    const modelMs = Date.now() - startedAt;
 
     const validationError = validateResolution(resolution);
     if (validationError) {
@@ -149,7 +153,10 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       resolution.delegationEnvelope = envelope as unknown as Record<string, unknown>;
     }
 
-    sendJson(res, 200, resolution);
+    sendJson(res, 200, {
+      ...resolution,
+      timing: { model_total_ms: modelMs },
+    });
 
     intentHistory.push({
       intent: parsed.intent,

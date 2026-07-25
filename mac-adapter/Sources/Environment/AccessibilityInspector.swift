@@ -109,6 +109,21 @@ final class AccessibilityInspector {
         currentElementRef
     }
 
+    var currentRole: String? {
+        guard let element = currentElementRef else { return nil }
+        return axAttribute(element, kAXRoleAttribute as CFString)
+    }
+
+    var currentIdentifier: String? {
+        guard let element = currentElementRef else { return nil }
+        return axAttribute(element, kAXIdentifierAttribute as CFString)
+    }
+
+    var currentDescription: String? {
+        guard let element = currentElementRef else { return nil }
+        return axAttribute(element, kAXDescriptionAttribute as CFString)
+    }
+
     func captureSemanticNeighbourhood() -> EnvironmentState.SemanticNeighbourhood? {
         let bundleId = ApplicationMonitor.shared.foregroundApp?.bundleId ?? ""
 

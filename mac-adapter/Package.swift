@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "FlydMacAdapter",
             path: "Sources"
-        )
+        ),
+        .testTarget(
+            name: "FlydMacAdapterTests",
+            dependencies: ["FlydMacAdapter"],
+            path: "Tests"
+        ),
     ]
 )

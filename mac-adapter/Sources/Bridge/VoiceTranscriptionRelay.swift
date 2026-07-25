@@ -3,10 +3,20 @@ import Foundation
 final class VoiceTranscriptionRelay {
     static let shared = VoiceTranscriptionRelay()
 
+    enum ConnectionState {
+        case disconnected
+        case connecting
+        case ready
+        case closing
+    }
+
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession?
-    private var isConnected = false
+    private var state: ConnectionState = .disconnected
     private var transcriptBuffer = ""
+    private var preReadyBuffer: [Data] = []
+    private let maxPreReadyBytes = 48000
+    private var bufferedByteCount = 0
 
     private var currentSessionId: Int = -1
 
@@ -15,9 +25,12 @@ final class VoiceTranscriptionRelay {
     var onError: ((String) -> Void)?
 
     func connect(sessionId: Int) {
-        guard !isConnected else { return }
+        guard state == .disconnected else { return }
 
         currentSessionId = sessionId
+        state = .connecting
+        preReadyBuffer = []
+        bufferedByteCount = 0
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -31,12 +44,75 @@ final class VoiceTranscriptionRelay {
         webSocket?.resume()
 
         sendStart()
-        receive()
-        isConnected = true
+        waitForReady()
     }
 
     func sendAudioChunk(_ data: Data) {
-        guard isConnected else { return }
+        switch state {
+        case .disconnected, .closing:
+            return
+        case .connecting:
+            if bufferedByteCount + data.count <= maxPreReadyBytes {
+                preReadyBuffer.append(data)
+                bufferedByteCount += data.count
+            }
+        case .ready:
+            sendDirect(data)
+        }
+    }
+
+    func commitAudio() {
+        guard state == .ready else { return }
+        webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
+    }
+
+    func disconnect() {
+        state = .closing
+        currentSessionId = -1
+        preReadyBuffer = []
+        bufferedByteCount = 0
+
+        webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
+        webSocket?.cancel(with: .normalClosure, reason: nil)
+        webSocket = nil
+        session = nil
+        transcriptBuffer = ""
+
+        state = .disconnected
+    }
+
+    private func sendStart() {
+        webSocket?.send(.string(#"{"type":"start"}"#)) { _ in }
+    }
+
+    private func waitForReady() {
+        webSocket?.receive { [weak self] result in
+            guard let self else { return }
+
+            switch result {
+            case .success:
+                self.state = .ready
+                self.drainPreReadyBuffer()
+                self.receive()
+
+            case .failure(let error):
+                self.state = .disconnected
+                self.onError?("Transcription connection error: \(error.localizedDescription)")
+                self.disconnect()
+            }
+        }
+    }
+
+    private func drainPreReadyBuffer() {
+        let chunks = preReadyBuffer
+        preReadyBuffer = []
+        bufferedByteCount = 0
+        for chunk in chunks {
+            sendDirect(chunk)
+        }
+    }
+
+    private func sendDirect(_ data: Data) {
         let base64 = data.base64EncodedString()
         let message = """
         {"type":"audio","audio":"\(base64)"}
@@ -44,29 +120,9 @@ final class VoiceTranscriptionRelay {
         webSocket?.send(.string(message)) { _ in }
     }
 
-    func commitAudio() {
-        guard isConnected else { return }
-        webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
-    }
-
-    func disconnect() {
-        isConnected = false
-        currentSessionId = -1
-
-        webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
-        webSocket?.cancel(with: .normalClosure, reason: nil)
-        webSocket = nil
-        session = nil
-        transcriptBuffer = ""
-    }
-
-    private func sendStart() {
-        webSocket?.send(.string(#"{"type":"start"}"#)) { _ in }
-    }
-
     private func receive() {
         webSocket?.receive { [weak self] result in
-            guard let self = self, self.isConnected else { return }
+            guard let self = self, self.state == .ready else { return }
 
             switch result {
             case .success(let message):

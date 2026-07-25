@@ -4,45 +4,49 @@ import ApplicationServices
 final class NativeExecutor {
     static let shared = NativeExecutor()
 
-    private var activeInvocationRefs: [String: AXUIElement] = [:]
+    private var activeTargets: [String: (element: AXUIElement, descriptor: TargetDescriptor)] = [:]
 
     func registerElement(ref: String, element: AXUIElement) {
-        activeInvocationRefs[ref] = element
+        guard let descriptor = TargetDescriptor.capture(
+            from: AccessibilityInspector.shared,
+            app: ApplicationMonitor.shared
+        ) else { return }
+        activeTargets[ref] = (element, descriptor)
     }
 
-    func resolveElement(ref: String, expectedRole: String?) -> AXUIElement? {
-        guard let stored = activeInvocationRefs[ref] else {
-            return attemptReResolution(ref: ref, expectedRole: expectedRole)
-        }
+    func resolveElement(ref: String) -> AXUIElement? {
+        guard let stored = activeTargets[ref] else { return nil }
 
         var roleValue: CFTypeRef?
-        let roleResult = AXUIElementCopyAttributeValue(stored, kAXRoleAttribute as CFString, &roleValue)
+        let roleResult = AXUIElementCopyAttributeValue(stored.element, kAXRoleAttribute as CFString, &roleValue)
+        guard roleResult == .success, let _ = roleValue as? String else { return nil }
 
-        if roleResult == .success,
-           let role = roleValue as? String,
-           expectedRole == nil || role == expectedRole {
-            return stored
-        }
+        guard stored.descriptor.matchesElement(stored.element) else { return nil }
+        guard stored.descriptor.matchesReality(currentApp: ApplicationMonitor.shared) else { return nil }
 
-        return attemptReResolution(ref: ref, expectedRole: expectedRole)
+        return stored.element
     }
 
-    private func attemptReResolution(ref: String, expectedRole: String?) -> AXUIElement? {
-        guard ref == "el_01" else { return nil }
-        guard let inspector = AccessibilityInspector.shared as AccessibilityInspector? else { return nil }
-        let focused = inspector.captureFocusedElement()
+    func currentTargetDescriptor(for ref: String) -> TargetDescriptor? {
+        activeTargets[ref]?.descriptor
+    }
 
-        if let expectedRole, focused?.role != expectedRole {
-            return nil
-        }
+    func currentElementDescriptor(for ref: String) -> (element: AXUIElement, role: String, value: String, selectedText: String)? {
+        guard let stored = activeTargets[ref] else { return nil }
 
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var roleValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(stored.element, kAXRoleAttribute as CFString, &roleValue) == .success,
+              let role = roleValue as? String else { return nil }
 
-        var focusedRef: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef)
-        guard result == .success, let element = focusedRef else { return nil }
-        return (element as! AXUIElement)
+        var valueRef: CFTypeRef?
+        let value = (AXUIElementCopyAttributeValue(stored.element, kAXValueAttribute as CFString, &valueRef) == .success)
+            ? (valueRef as? String ?? "") : ""
+
+        var selRef: CFTypeRef?
+        let selected = (AXUIElementCopyAttributeValue(stored.element, kAXSelectedTextAttribute as CFString, &selRef) == .success)
+            ? (selRef as? String ?? "") : ""
+
+        return (stored.element, role, value, selected)
     }
 
     static let safeEditableRoles: Set<String> = [
@@ -65,14 +69,40 @@ final class NativeExecutor {
         return true
     }
 
+    func requiresConfirmation(kind: String, text: String) -> Bool {
+        guard let descriptor = currentElementDescriptor(for: "el_01") else { return false }
+        return ReplacementGate.requiresConfirmation(
+            kind: kind,
+            existingValue: descriptor.value,
+            selectedText: descriptor.selectedText,
+            newText: text
+        )
+    }
+
     func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint) async -> ExecutionResult {
-        let element = resolveElement(ref: operation.target, expectedRole: nil)
+        return await execute(operation: operation, fingerprint: fingerprint, recordUndo: true)
+    }
+
+    func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint, recordUndo: Bool) async -> ExecutionResult {
+        let element = resolveElement(ref: operation.target)
         guard let element else {
             return ExecutionResult(success: false, error: "Target no longer available — element not found")
         }
 
         guard isEditable(element) else {
             return ExecutionResult(success: false, error: "Element is not an editable text field")
+        }
+
+        if recordUndo, let descriptor = activeTargets[operation.target]?.descriptor {
+            var valueRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+               let priorValue = valueRef as? String {
+                UndoManager.shared.register(
+                    target: descriptor,
+                    previousValue: priorValue,
+                    invocationId: FlydState.shared.invocationId ?? ""
+                )
+            }
         }
 
         switch operation.kind {
@@ -85,6 +115,18 @@ final class NativeExecutor {
         default:
             return ExecutionResult(success: false, error: "Unknown operation kind: \(operation.kind)")
         }
+    }
+
+    func undoLast(for invocationId: String) -> Bool {
+        guard let undo = UndoManager.shared.undo(for: invocationId) else { return false }
+        guard undo.target.matchesReality(currentApp: ApplicationMonitor.shared) else { return false }
+
+        guard let ref = activeTargets.first(where: { $0.value.descriptor == undo.target }) else {
+            return false
+        }
+
+        let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+        return setResult == .success
     }
 
     private func insertText(_ element: AXUIElement, text: String) -> ExecutionResult {
@@ -109,7 +151,7 @@ final class NativeExecutor {
     }
 
     func clearInvocationRefs() {
-        activeInvocationRefs.removeAll()
+        activeTargets.removeAll()
     }
 }
 
