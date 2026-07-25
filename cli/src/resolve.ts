@@ -146,6 +146,34 @@ function parseResolutionResponse(
   };
 }
 
+const QUESTION_STARTS = /^(what|how|why|who|when|where|can|could|shall|should|is|are|do|does|did|will|would|which|whose|whom)\b/i;
+const COMMAND_PREFIXES = [
+  "reply", "answer", "respond", "rewrite", "rephrase", "paraphrase",
+  "translate", "convert", "fix", "correct", "change", "replace", "edit", "modify",
+  "explain", "describe", "summarize", "analyze", "search", "find",
+  "look up", "look for", "tell me", "show me", "send", "compose", "draft",
+  "run", "execute", "build", "open", "close",
+];
+
+function isPlainDictation(intent: string, env: EnvironmentCapture): boolean {
+  const text = intent.trim();
+  if (!text) return false;
+
+  const lower = text.toLowerCase();
+  if (QUESTION_STARTS.test(lower)) return false;
+
+  for (const prefix of COMMAND_PREFIXES) {
+    if (lower.startsWith(prefix)) return false;
+  }
+
+  if (env.focused_element.selected_text && env.focused_element.selected_text.length > 0) {
+    const hasSelectionRef = /\b(this|that|selection|selected text)\b/i.test(lower);
+    if (hasSelectionRef) return false;
+  }
+
+  return true;
+}
+
 const DETERMINISTIC_PATTERNS: Array<{
   match: (intent: string, env: EnvironmentCapture) => boolean;
   resolve: (intent: string, env: EnvironmentCapture, invocationId: string) => Resolution;
@@ -175,11 +203,24 @@ const DETERMINISTIC_PATTERNS: Array<{
       operations: [{ target: "el_01", kind: "insert_text", text: "Hello! " }],
     }),
   },
+  {
+    match: (intent, env) => isPlainDictation(intent, env),
+    resolve: (intent, _env, invocationId) => ({
+      resolutionId: randomUUID(),
+      invocationId,
+      environmentRevision: 0,
+      mode: "native",
+      rationale: "Voice dictation — inserting transcribed text.",
+      operations: [{ target: "el_01", kind: "insert_text", text: intent.trim() }],
+    }),
+  },
 ];
 
 export async function resolve(
   manifest: ManifestRequest,
-  model?: string
+  model?: string,
+  apiKey?: string,
+  baseURL?: string
 ): Promise<Resolution> {
   const { invocation_id, environment_revision, environment, intent } = manifest;
 
@@ -198,7 +239,7 @@ export async function resolve(
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
 
   try {
-    const response = await query(prompt, model, systemPrompt);
+    const response = await query(prompt, model, systemPrompt, apiKey, baseURL);
     const resolution = parseResolutionResponse(response, invocation_id);
     resolution.environmentRevision = environment_revision;
 

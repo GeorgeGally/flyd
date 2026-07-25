@@ -313,59 +313,20 @@ func handleVoiceInvocation() {
             invocationPanel.fillIntent(invocationPanel.currentIntent + delta)
         }
     }
-    voiceRelay.onComplete = { [weak self] transcript in
+    voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
             voiceCapture.stop()
             voiceRelay.disconnect()
+            invocationPanel.updateState(.resolving)
 
-            let state = self
-            let isDictation = VoiceIntentRouter.isPlainDictation(transcript)
-            let hasSelection = VoiceIntentRouter.hasSelectedText(transcript)
-            let focusedEditable = accessibilityInspector.captureFocusedElement() != nil
-                && NativeExecutor.safeEditableRoles.contains(accessibilityInspector.captureFocusedElement()?.role ?? "")
-
-            if isDictation && focusedEditable && !hasSelection {
-                invocationPanel.updateState(.executing)
-                Task {
-                    let fingerprint = InvocationFingerprint(
-                        app: ApplicationMonitor.shared.foregroundApp?.bundleId ?? "unknown",
-                        surface: nil, window: "win_01", element: "el_01", capturedAt: Date()
-                    )
-                    let op = ResolvedOperation(target: "el_01", kind: "insert_text", text: transcript)
-                    let result = await executor.execute(operation: op, fingerprint: fingerprint)
-                    if result.success {
-                        print("[Flyd] Voice dictation inserted directly: \(transcript.prefix(40))...")
-                        await MainActor.run {
-                            state.transition(to: .present)
-                            invocationPanel.dismiss()
-                            executor.clearInvocationRefs()
-                            stateMachine.resetCheckpoints()
-                        }
-                    } else {
-                        print("[Flyd] Voice dictation failed: \(result.error ?? "") — falling back to Core")
-                        invocationPanel.updateState(.resolving)
-                        let (invocationId, revision) = state.startInvocation()
-                        stateMachine.setRevision(revision)
-                        stateMachine.startPrewarm()
-                        if let element = accessibilityInspector.capturedAXElement() {
-                            executor.registerElement(ref: "el_01", element: element)
-                        }
-                        activeInvocationTask = Task {
-                            await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
-                        }
-                    }
-                }
-            } else {
-                invocationPanel.updateState(.resolving)
-                let (invocationId, revision) = state.startInvocation()
-                stateMachine.setRevision(revision)
-                stateMachine.startPrewarm()
-                if let element = accessibilityInspector.capturedAXElement() {
-                    executor.registerElement(ref: "el_01", element: element)
-                }
-                activeInvocationTask = Task {
-                    await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
-                }
+            let (invocationId, revision) = state.startInvocation()
+            stateMachine.setRevision(revision)
+            stateMachine.startPrewarm()
+            if let element = accessibilityInspector.capturedAXElement() {
+                executor.registerElement(ref: "el_01", element: element)
+            }
+            activeInvocationTask = Task {
+                await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
             }
         }
     }
@@ -508,12 +469,10 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
     guard let resolution = response else {
         print("[Flyd] No response from Flyd Core — running locally")
 
-        let isDictation = modality == "voice" && VoiceIntentRouter.isPlainDictation(intent)
-        let hasSelection = VoiceIntentRouter.hasSelectedText(intent)
-        let focusedEditable = environment.focusedElement.role != "unknown"
+        let isEditable = environment.focusedElement.role != "unknown"
             && NativeExecutor.safeEditableRoles.contains(environment.focusedElement.role)
 
-        if isDictation && focusedEditable && !hasSelection {
+        if isEditable && InvocationStateMachine.shared.verifyPreExecution() {
             let op = ResolvedOperation(target: "el_01", kind: "insert_text", text: intent)
             let fp = InvocationFingerprint(
                 app: environment.application.bundleId,
@@ -524,18 +483,18 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
             )
             let result = await executor.execute(operation: op, fingerprint: fp)
             if result.success {
-                print("[Flyd] Voice dictation fallback inserted: \(intent.prefix(40))...")
+                print("[Flyd] Core unreachable — inserted raw transcript: \(intent.prefix(40))...")
                 auditRecorder.record(
                     invocationId: invocationId,
                     contextSources: contextSources,
                     error: "Core unreachable — inserted raw transcript"
                 )
             } else {
-                print("[Flyd] Voice dictation fallback failed: \(result.error ?? "unknown")")
+                print("[Flyd] Core unreachable — insertion failed: \(result.error ?? "unknown")")
                 auditRecorder.record(
                     invocationId: invocationId,
                     contextSources: contextSources,
-                    error: "Core unreachable — fallback also failed: \(result.error ?? "")"
+                    error: "Core unreachable — insertion failed: \(result.error ?? "")"
                 )
             }
         } else {

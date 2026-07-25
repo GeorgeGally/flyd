@@ -7,9 +7,6 @@ final class VoiceTranscriptionRelay {
     private var session: URLSession?
     private var isConnected = false
     private var transcriptBuffer = ""
-    private var preConnectBuffer: [Data] = []
-    private let maxPreConnectBytes = 48000
-    private var bufferedByteCount = 0
 
     private var currentSessionId: Int = -1
 
@@ -21,8 +18,6 @@ final class VoiceTranscriptionRelay {
         guard !isConnected else { return }
 
         currentSessionId = sessionId
-        preConnectBuffer = []
-        bufferedByteCount = 0
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -38,16 +33,15 @@ final class VoiceTranscriptionRelay {
         sendStart()
         receive()
         isConnected = true
-
-        drainPreConnectBuffer()
     }
 
     func sendAudioChunk(_ data: Data) {
-        if !isConnected {
-            bufferChunk(data)
-            return
-        }
-        sendDirect(data)
+        guard isConnected else { return }
+        let base64 = data.base64EncodedString()
+        let message = """
+        {"type":"audio","audio":"\(base64)"}
+        """
+        webSocket?.send(.string(message)) { _ in }
     }
 
     func commitAudio() {
@@ -58,38 +52,12 @@ final class VoiceTranscriptionRelay {
     func disconnect() {
         isConnected = false
         currentSessionId = -1
-        preConnectBuffer = []
-        bufferedByteCount = 0
 
         webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
         webSocket?.cancel(with: .normalClosure, reason: nil)
         webSocket = nil
         session = nil
         transcriptBuffer = ""
-    }
-
-    private func bufferChunk(_ data: Data) {
-        let size = data.count
-        if bufferedByteCount + size > maxPreConnectBytes { return }
-        preConnectBuffer.append(data)
-        bufferedByteCount += size
-    }
-
-    private func drainPreConnectBuffer() {
-        let chunks = preConnectBuffer
-        preConnectBuffer = []
-        bufferedByteCount = 0
-        for chunk in chunks {
-            sendDirect(chunk)
-        }
-    }
-
-    private func sendDirect(_ data: Data) {
-        let base64 = data.base64EncodedString()
-        let message = """
-        {"type":"audio","audio":"\(base64)"}
-        """
-        webSocket?.send(.string(message)) { _ in }
     }
 
     private func sendStart() {
