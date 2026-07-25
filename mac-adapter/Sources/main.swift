@@ -306,7 +306,7 @@ func handleVoiceInvocation() {
             voiceRelay.disconnect()
             invocationPanel.updateState(.resolving)
 
-            let (invocationId, revision) = state.startInvocation()
+    let (_, revision) = state.startInvocation()
             stateMachine.setRevision(revision)
             stateMachine.startPrewarm()
             if let element = accessibilityInspector.capturedAXElement() {

@@ -30,7 +30,7 @@ struct TargetDescriptor: Equatable {
 
     static func capture(from inspector: AccessibilityInspector, app: ApplicationMonitor?) -> TargetDescriptor? {
         guard let inspector = inspector as AccessibilityInspector? else { return nil }
-        guard let focused = inspector.capturedAXElement() else { return nil }
+        guard inspector.capturedAXElement() != nil else { return nil }
         guard let role = inspector.currentRole else { return nil }
 
         let appId = app?.foregroundApp?.bundleId ?? "unknown"
