@@ -30,7 +30,7 @@ final class InvocationStateMachine {
     fileprivate var ctrlPressTimestamps: [TimeInterval] = []
     fileprivate let triplePressWindow: TimeInterval = 0.5
     fileprivate var liveDebounceUntil: TimeInterval = 0
-    file    private var wasCtrlDown = false
+    fileprivate var wasCtrlDown = false
     private(set) var transcriptionSessionId: Int = -1
 
     private let checkpointLock = NSLock()
@@ -71,7 +71,6 @@ final class InvocationStateMachine {
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
-    var onVoiceIntentReady: ((String) -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
     var onLiveEnter: (() -> Void)?
@@ -230,10 +229,6 @@ final class InvocationStateMachine {
         transcriptionSessionId += 1
         resetCheckpoints()
         onCancelled?()
-    }
-
-    func voiceIntentReceived(_ transcript: String) {
-        onVoiceIntentReady?(transcript)
     }
 
     func nextTranscriptionSessionId() -> Int {

@@ -137,19 +137,6 @@ func startFlyd(closeSetup: Bool = true) {
         handleVoiceInvocation()
     }
 
-    stateMachine.onVoiceIntentReady = { transcript in
-        let (invocationId, revision) = state.startInvocation()
-        stateMachine.setRevision(revision)
-        stateMachine.startPrewarm()
-        if let element = accessibilityInspector.capturedAXElement() {
-            executor.registerElement(ref: "el_01", element: element)
-        }
-        invocationPanel.updateState(.processing)
-        activeInvocationTask = Task {
-            await processInvocation(invocationId: invocationId, revision: revision, modality: "voice", intent: transcript)
-        }
-    }
-
     stateMachine.onLiveEnter = {
         handleLiveEnter()
     }
@@ -467,49 +454,16 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
     )
 
     guard let resolution = response else {
-        print("[Flyd] No response from Flyd Core — running locally")
+        print("[Flyd] No response from Flyd Core — cannot resolve")
 
-        let isEditable = environment.focusedElement.role != "unknown"
-            && NativeExecutor.safeEditableRoles.contains(environment.focusedElement.role)
-
-        if isEditable && InvocationStateMachine.shared.verifyPreExecution() {
-            let op = ResolvedOperation(target: "el_01", kind: "insert_text", text: intent)
-            let fp = InvocationFingerprint(
-                app: environment.application.bundleId,
-                surface: environment.surface?.host,
-                window: "win_01",
-                element: "el_01",
-                capturedAt: Date()
-            )
-            let result = await executor.execute(operation: op, fingerprint: fp)
-            if result.success {
-                print("[Flyd] Core unreachable — inserted raw transcript: \(intent.prefix(40))...")
-                auditRecorder.record(
-                    invocationId: invocationId,
-                    contextSources: contextSources,
-                    error: "Core unreachable — inserted raw transcript"
-                )
-            } else {
-                print("[Flyd] Core unreachable — insertion failed: \(result.error ?? "unknown")")
-                auditRecorder.record(
-                    invocationId: invocationId,
-                    contextSources: contextSources,
-                    error: "Core unreachable — insertion failed: \(result.error ?? "")"
-                )
-            }
-        } else {
-            auditRecorder.record(
-                invocationId: invocationId,
-                contextSources: contextSources,
-                error: "Flyd Core unreachable"
-            )
-
-            await MainActor.run {
-                invocationPanel.updateState(.error(message: "Flyd Core isn't running — try again in a moment"))
-            }
-        }
+        auditRecorder.record(
+            invocationId: invocationId,
+            contextSources: contextSources,
+            error: "Flyd Core unreachable"
+        )
 
         await MainActor.run {
+            invocationPanel.updateState(.error(message: "Cannot reach Flyd — start your server"))
             state.transition(to: .present)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
