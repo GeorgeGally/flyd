@@ -490,7 +490,6 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
             state.transition(to: .present)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
-            invocationPanel.dismiss()
         }
         return
     }
