@@ -19,6 +19,7 @@ final class VoiceTranscriptionRelay {
     private var bufferedByteCount = 0
 
     private var currentSessionId: Int = -1
+    private var commitPending = false
 
     var onTranscriptDelta: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
@@ -62,8 +63,14 @@ final class VoiceTranscriptionRelay {
     }
 
     func commitAudio() {
-        guard state == .ready else { return }
-        webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
+        switch state {
+        case .ready:
+            webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
+        case .connecting:
+            commitPending = true
+        case .disconnected, .closing:
+            return
+        }
     }
 
     func disconnect() {
@@ -71,6 +78,7 @@ final class VoiceTranscriptionRelay {
         currentSessionId = -1
         preReadyBuffer = []
         bufferedByteCount = 0
+        commitPending = false
 
         webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
         webSocket?.cancel(with: .normalClosure, reason: nil)
@@ -88,11 +96,15 @@ final class VoiceTranscriptionRelay {
     private func waitForReady() {
         webSocket?.receive { [weak self] result in
             guard let self else { return }
+            guard self.state == .connecting else { return }
 
             switch result {
-            case .success:
+            case .success(let message):
                 self.state = .ready
                 self.drainPreReadyBuffer()
+                if case .string(let text) = message {
+                    self.handleWSMessage(text)
+                }
                 self.receive()
 
             case .failure(let error):
@@ -109,6 +121,10 @@ final class VoiceTranscriptionRelay {
         bufferedByteCount = 0
         for chunk in chunks {
             sendDirect(chunk)
+        }
+        if commitPending {
+            commitPending = false
+            webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
         }
     }
 
@@ -150,8 +166,10 @@ final class VoiceTranscriptionRelay {
         case "delta":
             if let deltaText = json["text"] as? String {
                 transcriptBuffer += deltaText
+                let capturedSessionId = self.currentSessionId
                 DispatchQueue.main.async { [weak self] in
-                    guard self?.currentSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                    guard capturedSessionId >= 0,
+                          capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
                     self?.onTranscriptDelta?(deltaText)
                 }
             }

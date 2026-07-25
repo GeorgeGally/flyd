@@ -20,6 +20,14 @@ struct TargetDescriptor: Equatable {
     let description: String?
     let capturedAt: ContinuousClock.Instant
 
+    static func == (lhs: TargetDescriptor, rhs: TargetDescriptor) -> Bool {
+        lhs.applicationId == rhs.applicationId &&
+        lhs.windowIdentity == rhs.windowIdentity &&
+        lhs.role == rhs.role &&
+        lhs.identifier == rhs.identifier &&
+        lhs.description == rhs.description
+    }
+
     static func capture(from inspector: AccessibilityInspector, app: ApplicationMonitor?) -> TargetDescriptor? {
         guard let inspector = inspector as AccessibilityInspector? else { return nil }
         guard let focused = inspector.capturedAXElement() else { return nil }

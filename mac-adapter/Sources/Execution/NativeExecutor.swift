@@ -100,6 +100,7 @@ final class NativeExecutor {
                 UndoManager.shared.register(
                     target: descriptor,
                     previousValue: priorValue,
+                    operationKind: operation.kind,
                     invocationId: FlydState.shared.invocationId ?? ""
                 )
             }
@@ -119,14 +120,34 @@ final class NativeExecutor {
 
     func undoLast(for invocationId: String) -> Bool {
         guard let undo = UndoManager.shared.undo(for: invocationId) else { return false }
-        guard undo.target.matchesReality(currentApp: ApplicationMonitor.shared) else { return false }
+        guard undo.target.matchesReality(currentApp: ApplicationMonitor.shared) else {
+            return false
+        }
 
         guard let ref = activeTargets.first(where: { $0.value.descriptor == undo.target }) else {
             return false
         }
 
-        let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
-        return setResult == .success
+        switch undo.operationKind {
+        case "replace_text", "replace_selection":
+            let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+            if setResult == .success {
+                UndoManager.shared.consume(for: invocationId)
+                return true
+            }
+            return false
+
+        case "insert_text":
+            let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+            if setResult == .success {
+                UndoManager.shared.consume(for: invocationId)
+                return true
+            }
+            return false
+
+        default:
+            return false
+        }
     }
 
     private func insertText(_ element: AXUIElement, text: String) -> ExecutionResult {

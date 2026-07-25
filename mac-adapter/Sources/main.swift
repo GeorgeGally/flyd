@@ -408,6 +408,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         try? await Task.sleep(for: .seconds(10))
         guard !Task.isCancelled else { return }
         print("[Flyd] Invocation \(invocationId.prefix(8)) timed out")
+        guard FlydState.shared.invocationId == invocationId else { return }
         await MainActor.run {
             state.cancelInvocation()
             stateMachine.cancel()
@@ -415,6 +416,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
             invocationPanel.updateState(.error(message: "Timed out — try again"))
         }
     }
+    defer { deadlineTask.cancel() }
 
     stateMachine.captureIntent(intent: intent)
 
@@ -467,6 +469,11 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         modality: modality,
         fingerprint: fingerprint
     )
+
+    guard !Task.isCancelled, FlydState.shared.invocationId == invocationId else {
+        print("[Flyd] Invocation \(invocationId.prefix(8)) cancelled during resolution")
+        return
+    }
 
     guard let resolution = response else {
         print("[Flyd] No response from Flyd Core — cannot resolve")
@@ -538,7 +545,6 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         error: nil
     )
 
-    deadlineTask.cancel()
     let traceTotal = Date().timeIntervalSince(traceStart)
     print("[Flyd Trace] \(invocationId.prefix(8)): capture=\(String(format: "%.0f", tCapture*1000))ms total=\(String(format: "%.0f", traceTotal*1000))ms")
 
