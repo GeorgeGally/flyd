@@ -410,6 +410,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         print("[Flyd] Invocation \(invocationId.prefix(8)) timed out")
         guard FlydState.shared.invocationId == invocationId else { return }
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             state.cancelInvocation()
             stateMachine.cancel()
             executor.clearInvocationRefs()

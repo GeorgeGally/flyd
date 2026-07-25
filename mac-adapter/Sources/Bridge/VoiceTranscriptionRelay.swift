@@ -10,6 +10,7 @@ final class VoiceTranscriptionRelay {
         case closing
     }
 
+    private let queue = DispatchQueue(label: "flyd.voice-relay", qos: .userInitiated)
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession?
     private var state: ConnectionState = .disconnected
@@ -17,100 +18,119 @@ final class VoiceTranscriptionRelay {
     private var preReadyBuffer: [Data] = []
     private let maxPreReadyBytes = 48000
     private var bufferedByteCount = 0
-
-    private var currentSessionId: Int = -1
     private var commitPending = false
+    private var currentSessionId: Int = -1
+    private var sessionToken: Int = 0
 
     var onTranscriptDelta: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
     func connect(sessionId: Int) {
-        guard state == .disconnected else { return }
+        queue.async { [weak self] in
+            guard let self, self.state == .disconnected else { return }
 
-        currentSessionId = sessionId
-        state = .connecting
-        preReadyBuffer = []
-        bufferedByteCount = 0
+            self.currentSessionId = sessionId
+            self.sessionToken += 1
+            self.state = .connecting
+            self.preReadyBuffer = []
+            self.bufferedByteCount = 0
+            self.commitPending = false
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        session = URLSession(configuration: config)
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 30
+            self.session = URLSession(configuration: config)
 
-        guard let url = URL(string: "ws://127.0.0.1:4816") else { return }
-        var request = URLRequest(url: url)
-        let token = AdapterAuth.shared.credential()
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        webSocket = session?.webSocketTask(with: request)
-        webSocket?.resume()
+            guard let url = URL(string: "ws://127.0.0.1:4816") else { return }
+            var request = URLRequest(url: url)
+            let token = AdapterAuth.shared.credential()
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            self.webSocket = self.session?.webSocketTask(with: request)
+            self.webSocket?.resume()
 
-        sendStart()
-        waitForReady()
+            self.sendStart()
+            self.waitForReady(token: self.sessionToken)
+        }
     }
 
     func sendAudioChunk(_ data: Data) {
-        switch state {
-        case .disconnected, .closing:
-            return
-        case .connecting:
-            if bufferedByteCount + data.count <= maxPreReadyBytes {
-                preReadyBuffer.append(data)
-                bufferedByteCount += data.count
+        queue.async { [weak self] in
+            guard let self else { return }
+            switch self.state {
+            case .disconnected, .closing:
+                return
+            case .connecting:
+                if self.bufferedByteCount + data.count <= self.maxPreReadyBytes {
+                    self.preReadyBuffer.append(data)
+                    self.bufferedByteCount += data.count
+                }
+            case .ready:
+                self.sendDirect(data)
             }
-        case .ready:
-            sendDirect(data)
         }
     }
 
     func commitAudio() {
-        switch state {
-        case .ready:
-            webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
-        case .connecting:
-            commitPending = true
-        case .disconnected, .closing:
-            return
+        queue.async { [weak self] in
+            guard let self else { return }
+            switch self.state {
+            case .ready:
+                self.webSocket?.send(.string(#"{"type":"commit"}"#)) { _ in }
+            case .connecting:
+                self.commitPending = true
+            case .disconnected, .closing:
+                return
+            }
         }
     }
 
     func disconnect() {
-        state = .closing
-        currentSessionId = -1
-        preReadyBuffer = []
-        bufferedByteCount = 0
-        commitPending = false
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.state = .closing
+            self.sessionToken += 1
+            self.currentSessionId = -1
+            self.preReadyBuffer = []
+            self.bufferedByteCount = 0
+            self.commitPending = false
 
-        webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
-        webSocket?.cancel(with: .normalClosure, reason: nil)
-        webSocket = nil
-        session = nil
-        transcriptBuffer = ""
+            self.webSocket?.send(.string(#"{"type":"stop"}"#)) { _ in }
+            self.webSocket?.cancel(with: .normalClosure, reason: nil)
+            self.webSocket = nil
+            self.session = nil
+            self.transcriptBuffer = ""
 
-        state = .disconnected
+            self.state = .disconnected
+        }
     }
 
     private func sendStart() {
         webSocket?.send(.string(#"{"type":"start"}"#)) { _ in }
     }
 
-    private func waitForReady() {
+    private func waitForReady(token: Int) {
         webSocket?.receive { [weak self] result in
             guard let self else { return }
-            guard self.state == .connecting else { return }
 
-            switch result {
-            case .success(let message):
-                self.state = .ready
-                self.drainPreReadyBuffer()
-                if case .string(let text) = message {
-                    self.handleWSMessage(text)
+            self.queue.async {
+                guard token == self.sessionToken, self.state == .connecting else { return }
+
+                switch result {
+                case .success(let message):
+                    self.state = .ready
+                    self.drainPreReadyBuffer()
+                    if case .string(let text) = message {
+                        self.handleWSMessage(text)
+                    }
+                    self.receive(token: token)
+
+                case .failure(let error):
+                    self.state = .disconnected
+                    DispatchQueue.main.async {
+                        self.onError?("Transcription connection error: \(error.localizedDescription)")
+                    }
+                    self.disconnect()
                 }
-                self.receive()
-
-            case .failure(let error):
-                self.state = .disconnected
-                self.onError?("Transcription connection error: \(error.localizedDescription)")
-                self.disconnect()
             }
         }
     }
@@ -136,23 +156,30 @@ final class VoiceTranscriptionRelay {
         webSocket?.send(.string(message)) { _ in }
     }
 
-    private func receive() {
+    private func receive(token: Int) {
         webSocket?.receive { [weak self] result in
-            guard let self = self, self.state == .ready else { return }
+            guard let self else { return }
 
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self.handleWSMessage(text)
-                default:
-                    break
+            self.queue.async {
+                guard token == self.sessionToken, self.state == .ready else { return }
+
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        self.handleWSMessage(text)
+                    default:
+                        break
+                    }
+                    self.receive(token: token)
+
+                case .failure(let error):
+                    self.state = .disconnected
+                    DispatchQueue.main.async {
+                        self.onError?("Transcription connection error: \(error.localizedDescription)")
+                    }
+                    self.disconnect()
                 }
-                self.receive()
-
-            case .failure(let error):
-                self.onError?("Transcription connection error: \(error.localizedDescription)")
-                self.disconnect()
             }
         }
     }
@@ -162,11 +189,12 @@ final class VoiceTranscriptionRelay {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else { return }
 
+        let capturedSessionId = self.currentSessionId
+
         switch type {
         case "delta":
             if let deltaText = json["text"] as? String {
                 transcriptBuffer += deltaText
-                let capturedSessionId = self.currentSessionId
                 DispatchQueue.main.async { [weak self] in
                     guard capturedSessionId >= 0,
                           capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
@@ -176,7 +204,6 @@ final class VoiceTranscriptionRelay {
         case "complete":
             let fullText = json["text"] as? String ?? transcriptBuffer
             let finalText = fullText.isEmpty ? transcriptBuffer : fullText
-            let capturedSessionId = self.currentSessionId
             DispatchQueue.main.async { [weak self] in
                 guard let self, capturedSessionId >= 0,
                       capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
@@ -185,7 +212,8 @@ final class VoiceTranscriptionRelay {
         case "error":
             let msg = json["message"] as? String ?? "Unknown transcription error"
             DispatchQueue.main.async { [weak self] in
-                guard self?.currentSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                guard capturedSessionId >= 0,
+                      capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
                 self?.onError?(msg)
             }
         default:

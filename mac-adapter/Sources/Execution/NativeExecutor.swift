@@ -101,6 +101,7 @@ final class NativeExecutor {
                     target: descriptor,
                     previousValue: priorValue,
                     operationKind: operation.kind,
+                    targetRef: operation.target,
                     invocationId: FlydState.shared.invocationId ?? ""
                 )
             }
@@ -124,13 +125,13 @@ final class NativeExecutor {
             return false
         }
 
-        guard let ref = activeTargets.first(where: { $0.value.descriptor == undo.target }) else {
+        guard let stored = activeTargets[undo.targetRef] else {
             return false
         }
 
         switch undo.operationKind {
         case "replace_text", "replace_selection":
-            let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+            let setResult = AXUIElementSetAttributeValue(stored.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
             if setResult == .success {
                 UndoManager.shared.consume(for: invocationId)
                 return true
@@ -138,7 +139,7 @@ final class NativeExecutor {
             return false
 
         case "insert_text":
-            let setResult = AXUIElementSetAttributeValue(ref.value.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+            let setResult = AXUIElementSetAttributeValue(stored.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
             if setResult == .success {
                 UndoManager.shared.consume(for: invocationId)
                 return true

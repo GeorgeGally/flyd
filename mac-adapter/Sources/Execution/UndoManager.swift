@@ -5,6 +5,7 @@ struct UndoRecord {
     let target: TargetDescriptor
     let previousValue: String
     let operationKind: String
+    let targetRef: String
     let expiresAt: Date
 
     static let ttl: TimeInterval = 30
@@ -17,12 +18,13 @@ final class UndoManager {
     private var records: [UndoRecord] = []
     private let maxRecords = 3
 
-    func register(target: TargetDescriptor, previousValue: String, operationKind: String, invocationId: String) {
+    func register(target: TargetDescriptor, previousValue: String, operationKind: String, targetRef: String, invocationId: String) {
         let record = UndoRecord(
             invocationId: invocationId,
             target: target,
             previousValue: previousValue,
             operationKind: operationKind,
+            targetRef: targetRef,
             expiresAt: Date().addingTimeInterval(UndoRecord.ttl)
         )
 
