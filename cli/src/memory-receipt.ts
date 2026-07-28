@@ -1,3 +1,9 @@
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { extractKeywords } from "./lib/retrieval.js";
+import { parse as parseFrontmatter } from "./lib/frontmatter.js";
+
 export interface MemoryReceipt {
   receiptId: string;
   generatedAt: string;
@@ -15,6 +21,9 @@ export interface MemoryReceipt {
     correction: string | null;
   };
   selfContained: boolean;
+  eventType: string;
+  derivedSignal: string;
+  topics: string[];
 }
 
 export interface ProvisionalLearning {
@@ -50,8 +59,8 @@ interface BehaviourRecord {
 }
 
 const PROVISIONAL_STORE: ProvisionalLearning[] = [];
-const BELIEF_STORE: BeliefRecord[] = [];
-const BEHAVIOUR_STORE: BehaviourRecord[] = [];
+let BELIEF_STORE: BeliefRecord[] = [];
+let BEHAVIOUR_STORE: BehaviourRecord[] = [];
 
 export function createMemoryReceipt(
   intent: string,
@@ -59,8 +68,10 @@ export function createMemoryReceipt(
   outcomeStatus: string,
   environmentSummary: string,
   correction: string | null,
-  gateReason: string
+  gateReason: string,
+  gateCategory: string
 ): MemoryReceipt {
+  const topics = extractKeywords(intent);
   return {
     receiptId: crypto.randomUUID(),
     generatedAt: new Date().toISOString(),
@@ -78,7 +89,22 @@ export function createMemoryReceipt(
       correction,
     },
     selfContained: true,
+    eventType: gateCategory,
+    derivedSignal: gateCategoryToSignal(gateCategory),
+    topics,
   };
+}
+
+function gateCategoryToSignal(category: string): string {
+  const map: Record<string, string> = {
+    explicit_preference: "preference",
+    correction: "correction_feedback",
+    repeated_topic: "recurring_interest",
+    teaching: "workflow_defined",
+    recurring_routine: "routine_detected",
+    confirmation: "confirmed",
+  };
+  return map[category] ?? "observation";
 }
 
 export function provisionalLearn(intent: string): ProvisionalLearning | null {
@@ -196,6 +222,81 @@ export function synthesizeLearnings(): { beliefs: BeliefRecord[]; behaviours: Be
   }
 
   return { beliefs: newBeliefs, behaviours: newBehaviours };
+}
+
+export function loadLearnings(): { beliefs: number; behaviours: number } {
+  const OVERLAY_DIR = join(homedir(), ".flyd", "raw", "overlay");
+  if (!existsSync(OVERLAY_DIR)) return { beliefs: 0, behaviours: 0 };
+
+  const beliefRecords: BeliefRecord[] = [];
+  const behaviourRecords: BehaviourRecord[] = [];
+
+  for (const entry of readdirSync(OVERLAY_DIR)) {
+    if (!entry.startsWith("synthesis-") || !entry.endsWith(".md")) continue;
+    const filepath = join(OVERLAY_DIR, entry);
+    const raw = readFileSync(filepath, "utf-8");
+    const fm = parseFrontmatter(raw);
+
+    const beliefsSection = raw.indexOf("## Synthesized Beliefs");
+    const behavioursSection = raw.indexOf("## Synthesized Behaviours");
+    if (beliefsSection < 0) continue;
+
+    const sectionEnd = behavioursSection > beliefsSection ? behavioursSection : raw.length;
+    const beliefBlock = raw.slice(beliefsSection, sectionEnd);
+
+    for (const line of beliefBlock.split("\n")) {
+      const m = line.match(/Subject:\*\* (.+?),.*Predicate:\*\* (.+?),.*Object:\*\* (.+?),.*Confidence:\*\* ([\d.]+)/);
+      if (m) {
+        const existing = beliefRecords.find(b => b.subject === m[1] && b.object === m[3]);
+        if (existing) {
+          existing.confidence = Math.max(existing.confidence, parseFloat(m[4]));
+          existing.observationCount++;
+        } else {
+          beliefRecords.push({
+            id: crypto.randomUUID(),
+            subject: m[1].trim(),
+            predicate: m[2].trim(),
+            object: m[3].trim(),
+            confidence: parseFloat(m[4]),
+            source: "flyd-overlay",
+            firstObserved: fm.timestamp ?? "",
+            lastUpdated: fm.timestamp ?? "",
+            observationCount: 1,
+            contradictoryCount: 0,
+          });
+        }
+      }
+    }
+
+    if (behavioursSection > 0) {
+      const behaviourBlock = raw.slice(behavioursSection);
+      for (const line of behaviourBlock.split("\n")) {
+        const m = line.match(/Pattern:\*\* (.+?),.*Response:\*\* (.+?),.*Context:\*\* (.+?),.*Confidence:\*\* ([\d.]+)/);
+        if (m) {
+          const existing = behaviourRecords.find(b => b.pattern === m[1] && b.response === m[2]);
+          if (existing) {
+            existing.confidence = Math.max(existing.confidence, parseFloat(m[4]));
+            existing.useCount++;
+          } else {
+            behaviourRecords.push({
+              id: crypto.randomUUID(),
+              pattern: m[1].trim(),
+              response: m[2].trim(),
+              context: m[3].trim(),
+              confidence: parseFloat(m[4]),
+              firstObserved: fm.timestamp ?? "",
+              lastUsed: fm.timestamp ?? "",
+              useCount: 1,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  BELIEF_STORE = beliefRecords;
+  BEHAVIOUR_STORE = behaviourRecords;
+  return { beliefs: beliefRecords.length, behaviours: behaviourRecords.length };
 }
 
 export function getBeliefs(): BeliefRecord[] {

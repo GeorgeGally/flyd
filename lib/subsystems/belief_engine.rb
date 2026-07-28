@@ -9,7 +9,21 @@ module Subsystems
       groups.each do |topic, decisions|
         belief = find_or_create_belief(topic, decisions)
         merge_sources!(belief, decisions)
+        link_decisions!(belief, decisions)
         belief.reinforce! if belief.persisted?
+      end
+    end
+
+    def link_decisions!(belief, decisions)
+      decisions.each do |decision|
+        MemoryEdge.find_or_create_by!(
+          source: decision,
+          target: belief,
+          relationship_type: "derived_from"
+        ) do |edge|
+          edge.confidence = 0.6
+          edge.citation_count = 1
+        end
       end
     end
 
@@ -24,6 +38,13 @@ module Subsystems
       @project.beliefs.active.each do |belief|
         if potentially_contradicts?(belief.statement, decision.content)
           belief.challenge!
+          MemoryEdge.find_or_create_by!(
+            source: decision,
+            target: belief,
+            relationship_type: "contradicts"
+          ) do |edge|
+            edge.confidence = 0.8
+          end
         end
       end
     end
@@ -67,8 +88,14 @@ module Subsystems
     end
 
     def merge_sources!(belief, decisions)
-      merged = (Array(belief.source_decision_ids).map(&:to_i) + decisions.map(&:id)).uniq
-      belief.update!(source_decision_ids: merged) if merged != Array(belief.source_decision_ids).map(&:to_i)
+      existing_ids = Array(belief.source_decision_ids).map(&:to_i)
+      new_ids = decisions.map(&:id) - existing_ids
+      return if new_ids.empty?
+
+      merged = (existing_ids + new_ids).uniq
+      belief.update!(source_decision_ids: merged)
+      new_decisions = decisions.select { |d| new_ids.include?(d.id) }
+      link_decisions!(belief, new_decisions)
     end
 
     def potentially_contradicts?(belief_statement, decision_content)

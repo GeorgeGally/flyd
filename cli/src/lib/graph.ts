@@ -347,6 +347,26 @@ export function rebuildGraph(): void {
     data.entities[relPath] = node;
   }
 
+  const contradictionsPath = join(WIKI_DIR, "meta", "contradictions.json");
+  if (existsSync(contradictionsPath)) {
+    try {
+      const raw = readFileSync(contradictionsPath, "utf8");
+      const contradictions: Array<{ from: string; to: string; type: string }> = JSON.parse(raw);
+      for (const c of contradictions) {
+        data.edges.push({
+          from: c.from,
+          to: c.to,
+          rel_type: c.type,
+          confidence: 0.9,
+          extraction: "llm-contradiction-detection",
+          source: "contradiction-manifest",
+        });
+      }
+    } catch {
+      // corrupted manifest — skip
+    }
+  }
+
   saveGraph(data);
 }
 

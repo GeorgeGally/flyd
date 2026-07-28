@@ -49,6 +49,7 @@ async function detectContradictions(maxPairs = 50): Promise<void> {
   console.log(`  checking ${pairs.length} entry pairs for contradictions...`);
 
   const findings: string[] = [];
+  const edges: Array<{ from: string; to: string; type: string }> = [];
   let checked = 0;
 
   for (const { a, b, type } of pairs) {
@@ -82,6 +83,7 @@ Respond with ONLY this JSON:
         const verdict = JSON.parse(jsonMatch[0]);
         if (verdict.verdict === "contradictory") {
           findings.push(`## ${aPath} vs ${bPath} (${type})\n**Verdict: contradictory** — ${verdict.reason}\n\nA:\n${aBody}\n\nB:\n${bBody}\n`);
+          edges.push({ from: aPath, to: bPath, type: "contradicts" });
         }
       }
     } catch {
@@ -93,13 +95,16 @@ Respond with ONLY this JSON:
   }
 
   const reportPath = join(metaDir, "contradictions.md");
+  const edgesPath = join(metaDir, "contradictions.json");
   if (findings.length > 0) {
     const report = `# Contradiction Report\n\nGenerated: ${new Date().toISOString()}\n\n${findings.join("\n---\n")}`;
     writeFileSync(reportPath, report, "utf8");
-    console.log(`\n  ${findings.length} contradiction(s) found — report written to meta/contradictions.md`);
+    writeFileSync(edgesPath, JSON.stringify(edges, null, 2), "utf8");
+    console.log(`\n  ${findings.length} contradiction(s) found — report written to meta/contradictions.md, edges to meta/contradictions.json`);
   } else {
     console.log(`\n  no contradictions found`);
     if (existsSync(reportPath)) rmSync(reportPath);
+    if (existsSync(edgesPath)) rmSync(edgesPath);
   }
 }
 

@@ -197,10 +197,99 @@ export function augmentWithGraph(
     }
   }
 
-  return entries.map(e => ({
+  const boosted = entries.map(e => ({
     ...e,
     score: Math.min(100, e.score + Math.round((pathBoost.get(e.path) ?? 0) * 100)),
   }));
+
+  if (process.env.FLYD_GRAPHDISCOVERY_ENABLED === "false") return boosted;
+
+  return discoverGraphNeighbors(boosted, graphResults);
+}
+
+function wikiPathForSlug(slug: string): string | null {
+  if (!existsSync(WIKI_DIR)) return null;
+  const clean = slug.replace(/\.md$/i, "").toLowerCase();
+  const candidates = walkWikiFiles();
+  for (const fullPath of candidates) {
+    const rel = fullPath.replace(WIKI_DIR + "/", "").toLowerCase();
+    if (rel.includes(clean) || rel.replace(/\.md$/i, "") === clean) {
+      return fullPath;
+    }
+  }
+  // Try as a direct relative path
+  const directPath = join(WIKI_DIR, slug);
+  if (existsSync(directPath)) return directPath;
+  const slugWithExt = join(WIKI_DIR, slug + ".md");
+  if (existsSync(slugWithExt)) return slugWithExt;
+  return null;
+}
+
+function readWikiEntry(fullPath: string): BaseEntry | null {
+  try {
+    const content = readFileSync(fullPath, "utf8");
+    const parsed = parse(content);
+    const body = parsed.body;
+    const relPath = fullPath.replace(WIKI_DIR + "/", "");
+    const score = Math.round(Math.min(90, 50 + body.split(/\s+/).length * 0.02));
+    return {
+      path: relPath,
+      body: body.slice(0, 500),
+      score: Math.max(MIN_SCORE, score),
+      metadata: parsed.metadata,
+      source: "wiki",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function discoverGraphNeighbors(
+  entries: BaseEntry[],
+  graphResults: Array<{ from: string; to: string; rel_type: string; confidence: number; source: string }>,
+): BaseEntry[] {
+  const existingPaths = new Set(entries.map(e => e.path.toLowerCase()));
+  const discovered: BaseEntry[] = [];
+  const budget = MAX_ENTRIES + 4;
+
+  for (const gr of graphResults) {
+    if (entries.length + discovered.length >= budget) break;
+
+    for (const entry of entries) {
+      if (entries.length + discovered.length >= budget) break;
+      const entryLower = entry.path.toLowerCase();
+
+      if (entryLower.includes(gr.from)) {
+        const neighborPath = wikiPathForSlug(gr.to);
+        if (neighborPath) {
+          const relPath = neighborPath.replace(WIKI_DIR + "/", "").toLowerCase();
+          if (!existingPaths.has(relPath)) {
+            const wikiEntry = readWikiEntry(neighborPath);
+            if (wikiEntry) {
+              discovered.push(wikiEntry);
+              existingPaths.add(wikiEntry.path.toLowerCase());
+            }
+          }
+        }
+      }
+
+      if (entryLower.includes(gr.to)) {
+        const neighborPath = wikiPathForSlug(gr.from);
+        if (neighborPath) {
+          const relPath = neighborPath.replace(WIKI_DIR + "/", "").toLowerCase();
+          if (!existingPaths.has(relPath)) {
+            const wikiEntry = readWikiEntry(neighborPath);
+            if (wikiEntry) {
+              discovered.push(wikiEntry);
+              existingPaths.add(wikiEntry.path.toLowerCase());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return [...entries, ...discovered].slice(0, MAX_ENTRIES);
 }
 
 export function mergeEntries(rawEntries: BaseEntry[], wikiEntries: BaseEntry[]): BaseEntry[] {

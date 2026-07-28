@@ -135,6 +135,7 @@ export function writeLinksToCapture(capturePath: string, suggestions: LinkSugges
 
 export function findNewCapturesSince(sinceTimestamp: number): string[] {
   if (!existsSync(RAW_DIR)) return [];
+
   const files = readdirSync(RAW_DIR).filter((f) => f.endsWith(".md")).sort();
   const results: string[] = [];
   for (const file of files) {
@@ -148,5 +149,22 @@ export function findNewCapturesSince(sinceTimestamp: number): string[] {
       // skip
     }
   }
+
+  const overlayDir = join(RAW_DIR, "overlay");
+  if (existsSync(overlayDir)) {
+    for (const file of readdirSync(overlayDir).sort()) {
+      if (!file.endsWith(".md")) continue;
+      const fullPath = join(overlayDir, file);
+      try {
+        const s = statSync(fullPath);
+        if (s.mtimeMs > sinceTimestamp || s.birthtimeMs > sinceTimestamp) {
+          results.push(`overlay/${file}`);
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
   return results;
 }

@@ -223,18 +223,26 @@ module Flyd
             {
               id: decision.id,
               content: decision.content.to_s.truncate(500),
+              epistemic_status: "inferred",
+              epistemic_confidence: decision.confidence,
+              freshness: decision.compute_decay_score.round(2),
               confidence: decision.confidence,
               source_message_id: decision.source_message_id,
+              contradiction_count: decision.memory_edges_as_source.where(relationship_type: "contradicts").count,
               created_at: decision.created_at&.iso8601
             }
           end,
-          beliefs: project.beliefs.order(updated_at: :desc).limit(MAX_MEMORIES_PER_PROJECT).reverse.map do |belief|
+          beliefs: project.beliefs.active.order(updated_at: :desc).limit(MAX_MEMORIES_PER_PROJECT).reverse.map do |belief|
             {
               id: belief.id,
               statement: belief.statement.to_s.truncate(500),
+              epistemic_status: belief.status,
+              epistemic_confidence: belief.confidence,
+              freshness: belief.compute_decay_score.round(2),
               confidence: belief.confidence,
               status: belief.status,
               source_decision_ids: belief.source_decision_ids,
+              contradiction_count: belief.memory_edges_as_target.where(relationship_type: "contradicts").count,
               updated_at: belief.updated_at&.iso8601
             }
           end

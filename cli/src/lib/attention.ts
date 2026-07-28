@@ -79,7 +79,8 @@ function extractTopicFromBody(body: string, metadata: Record<string, unknown>): 
 
 function daysAgo(dateStr: string): number {
   if (!dateStr) return 365;
-  const d = new Date(dateStr.replace(" ", "T") + "Z");
+  const normalized = dateStr.endsWith("Z") || dateStr.endsWith("z") ? dateStr : dateStr + "Z";
+  const d = new Date(dateStr.includes("T") ? normalized : dateStr.replace(" ", "T") + "Z");
   if (isNaN(d.getTime())) return 365;
   return Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
 }

@@ -1,6 +1,6 @@
 import { getActiveInterests } from "./interests.js";
 import { getStaleness, type StalenessResult } from "./staleness.js";
-import { decayedValue, getHalfLife } from "./decay.js";
+import { getHalfLife } from "./decay.js";
 
 export interface EvidenceEntry {
   path: string;
@@ -11,13 +11,25 @@ export interface EvidenceEntry {
   staleness: StalenessResult | null;
 }
 
+export interface ConfidenceProfile {
+  epistemicConfidence: number;
+  freshness: number;
+  interestAffinity: number;
+  retrievalUtility: number;
+  associationStrength: number;
+}
+
 export interface ScoredEvidence extends EvidenceEntry {
   librarianScore: number;
+  /** @deprecated — use confidenceProfile.epistemicConfidence instead */
   recencyWeight: number;
+  /** @deprecated — use confidenceProfile.freshness instead */
   reliabilityWeight: number;
+  /** @deprecated — use confidenceProfile.interestAffinity instead */
   interestBoost: number;
   corroborationCount: number;
   contradictionCount: number;
+  confidenceProfile: ConfidenceProfile;
 }
 
 export interface SufficiencyAssessment {
@@ -48,11 +60,13 @@ export function scoreEvidence(
     ? Math.max(0, Math.min(1, parsedConfidence))
     : defaultConfidence;
   const daysSince = entry.staleness?.daysSince ?? 0;
-  const recencyWeight = Math.max(0, 1 - daysSince / 730);
   const halfLife = getHalfLife(entry.metadata);
-  const reliabilityWeight = decayedValue(rawConfidence, daysSince, halfLife);
+
+  const epistemicConfidence = rawConfidence;
+  const freshness = Math.max(0, 1 - daysSince / Math.max(1, halfLife));
+
   const activeInterests = getActiveInterests();
-  const interestBoost = activeInterests.some(
+  const interestAffinity = activeInterests.some(
     (i) =>
       entry.body.toLowerCase().includes(i.topic.toLowerCase()) ||
       i.keywords.some((k) => entry.body.toLowerCase().includes(k.toLowerCase())),
@@ -65,22 +79,33 @@ export function scoreEvidence(
   const keywordHits = questionWords.filter((w) => cleanBody.includes(w)).length;
   const keywordDensity = questionWords.length > 0 ? keywordHits / questionWords.length : 0;
 
+  const retrievalUtility = 0.5;
+  const associationStrength = 0.0;
+
   const librarianScore = Math.min(
     1,
-    recencyWeight * 0.25 +
-      reliabilityWeight * 0.35 +
+    epistemicConfidence * 0.25 +
+      freshness * 0.25 +
       keywordDensity * 0.25 +
-      interestBoost,
+      interestAffinity * 0.15 +
+      associationStrength * 0.10,
   );
 
   return {
     ...entry,
     librarianScore: Math.round(librarianScore * 100) / 100,
-    recencyWeight: Math.round(recencyWeight * 100) / 100,
-    reliabilityWeight,
-    interestBoost: Math.round(interestBoost * 100) / 100,
+    recencyWeight: Math.round(freshness * 100) / 100,
+    reliabilityWeight: epistemicConfidence,
+    interestBoost: Math.round(interestAffinity * 100) / 100,
     corroborationCount: 0,
     contradictionCount: 0,
+    confidenceProfile: {
+      epistemicConfidence,
+      freshness: Math.round(freshness * 100) / 100,
+      interestAffinity: Math.round(interestAffinity * 100) / 100,
+      retrievalUtility,
+      associationStrength,
+    },
   };
 }
 
@@ -108,6 +133,22 @@ export function corroborate(
   return scored;
 }
 
+export function countContradictions(
+  scored: ScoredEvidence[],
+  graphResults: Array<{ from: string; to: string; rel_type: string; confidence: number; source: string }>,
+): ScoredEvidence[] {
+  for (const entry of scored) {
+    const entryLower = entry.path.toLowerCase();
+    for (const gr of graphResults) {
+      if (gr.rel_type !== "contradicts") continue;
+      if (entryLower.includes(gr.from) || entryLower.includes(gr.to)) {
+        entry.contradictionCount++;
+      }
+    }
+  }
+  return scored;
+}
+
 export function estimateSufficiency(
   entries: ScoredEvidence[],
   question: string,
@@ -116,9 +157,9 @@ export function estimateSufficiency(
     return { verdict: "insufficient", reason: "No evidence retrieved.", coverage: 0 };
   }
 
-  const highQuality = entries.filter((e) => e.librarianScore >= 0.6);
+  const highQuality = entries.filter((e) => e.confidenceProfile.epistemicConfidence >= 0.6);
   const mediumQuality = entries.filter(
-    (e) => e.librarianScore >= 0.4 && e.librarianScore < 0.6,
+    (e) => e.confidenceProfile.epistemicConfidence >= 0.4 && e.confidenceProfile.epistemicConfidence < 0.6,
   );
 
   const hasContradictions = entries.some((e) => e.contradictionCount > 0);
@@ -169,13 +210,14 @@ export function formatLibrarianSummary(
   lines.push("");
 
   const sorted = [...scored].sort((a, b) => b.librarianScore - a.librarianScore);
-  lines.push("| # | Source | Entry | Score | Recency | Reliability | Corroborations |");
-  lines.push("|---|--------|-------|-------|---------|-------------|----------------|");
+  lines.push("| # | Source | Entry | Score | Epistemic | Freshness | Affinity | Corroborations |");
+  lines.push("|---|--------|-------|-------|-----------|-----------|----------|----------------|");
   for (const e of sorted) {
     const src = e.source === "wiki" ? "W" : "R";
     const contra = e.contradictionCount > 0 ? ` ⚠${e.contradictionCount}` : "";
+    const p = e.confidenceProfile;
     lines.push(
-      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(e.recencyWeight * 100).toFixed(0)}% | ${(e.reliabilityWeight * 100).toFixed(0)}% | ${e.corroborationCount}${contra} |`,
+      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} |`,
     );
   }
 

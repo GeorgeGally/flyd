@@ -9,12 +9,16 @@ describe("createMemoryReceipt", () => {
       "succeeded",
       "Chrome — AXTextArea",
       null,
-      "explicit preference"
+      "explicit preference",
+      "explicit_preference"
     );
     expect(receipt.receiptId).toBeTruthy();
     expect(receipt.source).toBe("flyd-overlay");
     expect(receipt.belief.what).toBe("explicit preference");
     expect(receipt.selfContained).toBe(true);
+    expect(receipt.eventType).toBe("explicit_preference");
+    expect(receipt.derivedSignal).toBe("preference");
+    expect(receipt.topics).toContain("tabs");
   });
 
   it("includes correction when provided", () => {
@@ -24,11 +28,41 @@ describe("createMemoryReceipt", () => {
       "failed",
       "Chrome — AXTextArea",
       "not what I wanted",
-      "user correction"
+      "user correction",
+      "correction"
     );
     expect(receipt.selfContained).toBe(true);
     expect(receipt.belief.what).toBe("user correction");
     expect(receipt.evidence.correction).toBe("not what I wanted");
+    expect(receipt.eventType).toBe("correction");
+    expect(receipt.derivedSignal).toBe("correction_feedback");
+  });
+
+  it("produces empty topics for short generic intents", () => {
+    const receipt = createMemoryReceipt(
+      "hi",
+      "native",
+      "succeeded",
+      "",
+      null,
+      "generic",
+      "generic_qa"
+    );
+    expect(receipt.topics).toEqual([]);
+  });
+
+  it("extracts keywords as topics from intent text", () => {
+    const receipt = createMemoryReceipt(
+      "flyd should remember that George prefers dark mode",
+      "native",
+      "succeeded",
+      "",
+      null,
+      "explicit preference",
+      "explicit_preference"
+    );
+    expect(receipt.topics.length).toBeGreaterThan(0);
+    expect(receipt.topics).toContain("flyd");
   });
 });
 

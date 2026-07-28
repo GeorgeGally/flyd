@@ -1,10 +1,15 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { MemoryReceipt } from "./memory-receipt.js";
 
 const OVERLAY_RAW_DIR = join(homedir(), ".flyd", "raw", "overlay");
+const receiptFiles: string[] = [];
+
+export function trackReceiptWritten(filename: string) {
+  receiptFiles.push(filename);
+}
 
 function receiptShort(): string {
   return randomUUID().slice(0, 8);
@@ -22,11 +27,21 @@ export async function persistReceipt(receipt: MemoryReceipt): Promise<string | n
     const filename = `receipt-${isoDate}-${receipt.receiptId.slice(0, 8)}.md`;
     const filepath = join(OVERLAY_RAW_DIR, filename);
 
+    const timestamp = receipt.generatedAt.replace(/Z$/, "");
+    const topicLines = receipt.topics.length > 0
+      ? ["topics:"].concat(receipt.topics.map((t) => `  - ${t}`)).join("\n")
+      : "";
+
     const frontmatter = [
       "---",
       `id: ${receipt.receiptId}`,
+      `timestamp: ${timestamp}`,
       `generated_at: ${receipt.generatedAt}`,
       `source: ${receipt.source}`,
+      `event_type: ${receipt.eventType}`,
+      `outcome: ${receipt.evidence.outcome}`,
+      `signal: ${receipt.derivedSignal}`,
+      topicLines,
       `category: ${receipt.belief.what}`,
       `confidence: ${receipt.belief.why}`,
       `self_contained: ${receipt.selfContained}`,
@@ -43,9 +58,10 @@ export async function persistReceipt(receipt: MemoryReceipt): Promise<string | n
       `- **Outcome:** ${receipt.evidence.outcome}`,
       `- **Environment:** ${receipt.evidence.environmentSummary}`,
       receipt.evidence.correction ? `- **Correction:** ${receipt.evidence.correction}` : "",
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     await writeFile(filepath, frontmatter, "utf-8");
+    trackReceiptWritten(filename);
     return filepath;
   } catch (err) {
     console.warn("[MemoryGate] Failed to persist receipt:", err);
@@ -61,16 +77,42 @@ export async function persistLearnings(
     await ensureDir();
 
     const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `synthesis-${isoDate}-${receiptShort()}.json`;
+    const filename = `synthesis-${isoDate}-${receiptShort()}.md`;
     const filepath = join(OVERLAY_RAW_DIR, filename);
 
-    const content = JSON.stringify(
-      { generatedAt: new Date().toISOString(), beliefs, behaviours },
-      null,
-      2
+    const timestamp = new Date().toISOString().replace(/Z$/, "");
+    const derivedFromLines = receiptFiles.length > 0
+      ? ["derived_from:"].concat(receiptFiles.map((f) => `  - ${f}`)).join("\n")
+      : "";
+
+    const beliefLines = beliefs.map(
+      (b) => `- **Subject:** ${b.subject}, **Predicate:** ${b.predicate ?? "has_value"}, **Object:** ${b.object}, **Confidence:** ${b.confidence}`
+    );
+    const behaviourLines = behaviours.map(
+      (b) => `- **Pattern:** ${b.pattern}, **Response:** ${b.response}, **Context:** ${b.context ?? "overlay_invocation"}, **Confidence:** ${b.confidence}`
     );
 
-    await writeFile(filepath, content, "utf-8");
+    const frontmatter = [
+      "---",
+      `timestamp: ${timestamp}`,
+      `source: flyd-overlay-synthesis`,
+      `event_type: belief_synthesis`,
+      `outcome: confirmed`,
+      `promoted: false`,
+      `epistemic_status: inferred`,
+      derivedFromLines,
+      "---",
+      "",
+      "## Synthesized Beliefs",
+      ...beliefLines,
+      "",
+      "## Synthesized Behaviours",
+      ...behaviourLines,
+      "",
+    ].filter(Boolean).join("\n");
+
+    await writeFile(filepath, frontmatter, "utf-8");
+    receiptFiles.length = 0;
     return filepath;
   } catch (err) {
     console.warn("[MemoryGate] Failed to persist learnings:", err);

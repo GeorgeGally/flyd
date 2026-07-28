@@ -2,6 +2,8 @@ class Belief < ApplicationRecord
   include Decayable
 
   belongs_to :project, optional: true
+  has_many :memory_edges_as_source, class_name: "MemoryEdge", as: :source, dependent: :destroy
+  has_many :memory_edges_as_target, class_name: "MemoryEdge", as: :target, dependent: :destroy
 
   before_validation :set_default_status
 

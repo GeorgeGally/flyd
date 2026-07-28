@@ -3,7 +3,7 @@ import { join } from "path";
 import { RAW_DIR, WIKI_DIR } from "./config.js";
 import { getInterestKeywords } from "./interests.js";
 import { searchGraph as defaultSearchGraph } from "./graph.js";
-import { scoreEvidence, corroborate, estimateSufficiency, type ScoredEvidence, type SufficiencyAssessment } from "./librarian.js";
+import { scoreEvidence, corroborate, countContradictions, estimateSufficiency, type ScoredEvidence, type SufficiencyAssessment, type ConfidenceProfile } from "./librarian.js";
 import { search, searchLexical } from "./qmd.js";
 import {
   augmentWithGraph,
@@ -29,8 +29,9 @@ export interface MemoryMatch {
   id: string;
   type: "memory_match";
   source: "cli.retrieval";
-  epistemicStatus: "observation" | "user_confirmed";
+  epistemicStatus: string;
   confidence: number;
+  confidenceProfile: ConfidenceProfile;
   generatedAt: string;
   evidenceRefs: string[];
   content: {
@@ -120,10 +121,24 @@ function stableId(path: string, body: string): string {
   return `memory_match:${digest}`;
 }
 
-function memoryEpistemicStatus(entry: ScoredEvidence): "observation" | "user_confirmed" {
+const WIKI_STATUS_MAP: Record<string, string> = {
+  canon: "verified",
+  working: "working_assumption",
+  speculative: "speculative",
+  questioned: "questioned",
+  unresolved: "unresolved",
+  contradictory: "contradictory",
+  dormant: "dormant",
+  episodic: "episodic",
+};
+
+function memoryEpistemicStatus(entry: ScoredEvidence): string {
   if (entry.metadata.type === "conversation-index" || entry.metadata.promoted === false) return "observation";
-  if (entry.source === "wiki") return "user_confirmed";
   if (entry.metadata.type === "flyd-runtime-task-corrected") return "user_confirmed";
+  if (entry.source === "wiki") {
+    const status = entry.metadata.status as string | undefined;
+    return status && WIKI_STATUS_MAP[status] ? WIKI_STATUS_MAP[status] : "working_assumption";
+  }
   return "observation";
 }
 
@@ -145,6 +160,7 @@ export async function retrieveBrainEvidence(
       source: "cli.retrieval",
       epistemicStatus: memoryEpistemicStatus(entry),
       confidence: entry.librarianScore,
+      confidenceProfile: entry.confidenceProfile,
       generatedAt: ranked.generatedAt,
       evidenceRefs: [],
       content: {
@@ -187,12 +203,13 @@ export async function retrieveRankedBrainEvidence(
   ]);
   const cleanRaw = rawEntries.filter((entry) => !isPollutedCapture({ body: entry.body, metadata: entry.metadata }));
   let entries = mergeEntries(cleanRaw, wikiEntries);
-  entries = augmentWithGraph(entries, dependencies.searchGraph(searchQuery));
+  const graphResults = dependencies.searchGraph(searchQuery);
+  entries = augmentWithGraph(entries, graphResults);
 
-  const scored = corroborate(entries.map((entry) => scoreEvidence({
+  const scored = countContradictions(corroborate(entries.map((entry) => scoreEvidence({
     ...entry,
     staleness: getStaleness(join(entry.source === "wiki" ? WIKI_DIR : RAW_DIR, entry.path), entry.metadata),
-  }, keywords, query))).sort((a, b) => b.librarianScore - a.librarianScore).slice(0, MAX_ENTRIES);
+  }, keywords, query))), graphResults).sort((a, b) => b.librarianScore - a.librarianScore).slice(0, MAX_ENTRIES);
   const generatedAt = dependencies.now().toISOString();
 
   return {
