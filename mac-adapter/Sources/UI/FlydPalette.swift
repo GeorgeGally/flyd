@@ -17,6 +17,8 @@ enum FlydPalette {
     static let signalGreen = NSColor(calibratedRed: 0.435, green: 0.635, blue: 0.529, alpha: 1)
     static let signalRust = NSColor(calibratedRed: 0.788, green: 0.376, blue: 0.239, alpha: 1)
     static let line = paper.withAlphaComponent(0.14)
+    static let brassGlow = NSColor(calibratedRed: 0.890, green: 0.612, blue: 0.271, alpha: 1)
+    static let inkDeep = NSColor(calibratedRed: 0.059, green: 0.051, blue: 0.039, alpha: 1)
 
     static func monospace(_ size: CGFloat, weight: NSFont.Weight = .semibold) -> NSFont {
         .monospacedSystemFont(ofSize: size, weight: weight)

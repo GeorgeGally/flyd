@@ -141,6 +141,9 @@ func startFlyd(closeSetup: Bool = true) {
     stateMachine.onShortcutHoldDetected = {
         handleVoiceInvocation()
     }
+    stateMachine.onLiveToggle = {
+        LiveSessionController.shared.handleToggle()
+    }
 
     invocationPanel.onUndoRequested = { invocationId in
         let undone = executor.undoLast(for: invocationId)
@@ -239,6 +242,10 @@ func repoRoot() -> String {
 }
 
 func handleVoiceInvocation() {
+    if state.mode == .live {
+        LiveSessionController.shared.stop()
+    }
+
     suppressNextShortcutRelease = false
     guard state.phase == .idle else { return }
 
@@ -439,6 +446,10 @@ func resetVoiceCaptureCallbacks() {
 }
 
 func handleInvocation() {
+    if state.mode == .live {
+        LiveSessionController.shared.stop()
+    }
+
     let currentPhase = state.phase
 
     if currentPhase != .idle {
@@ -603,6 +614,36 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
 
     switch resolution.mode {
     case "native":
+        var reasons: [ConfirmationDecision.Reason] = []
+        if resolution.requiresConfirmation == true {
+            reasons.append(.executionConsequence)
+        }
+        for op in resolution.operations {
+            if executor.requiresReplacementConfirmation(kind: op.kind, text: op.text) {
+                reasons.append(.destructiveReplacement)
+                break
+            }
+        }
+        let decision = ConfirmationDecision(reasons: reasons)
+        if decision.requiresConfirmation {
+            let confirmed = await requestCombinedConfirmation(
+                rationale: resolution.rationale,
+                reasons: decision.reasons
+            )
+            guard confirmed else {
+                await flydClient.sendOutcome(
+                    resolutionId: resolution.resolutionId,
+                    invocationId: resolution.invocationId,
+                    status: "rejected",
+                    correction: "Confirmation denied by user"
+                )
+                await MainActor.run {
+                    invocationPanel.dismiss()
+                    state.transition(to: .present)
+                }
+                return
+            }
+        }
         let results = await executeNativeOperations(resolution: resolution, fingerprint: fingerprint)
         await MainActor.run {
             let preview = results
@@ -681,47 +722,50 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
     stateMachine.resetCheckpoints()
 
     await MainActor.run {
-        invocationPanel.dismiss()
+        invocationPanel.dismissUnlessShowingResult()
         state.transition(to: .present)
     }
 }
 
 func executeNativeOperations(
     resolution: FlydClient.ResolutionResponse,
-    fingerprint: InvocationFingerprint
+    fingerprint: InvocationFingerprint,
+    observedTarget: ObservedTarget? = nil
 ) async -> [(success: Bool, kind: String, text: String, message: String)] {
     var results: [(success: Bool, kind: String, text: String, message: String)] = []
-    guard InvocationStateMachine.shared.verifyPreExecution() else {
-        print("[Flyd] Aborting: target no longer available")
-        let fallbackText = resolution.operations.map(\.text).joined(separator: "\n\n")
-        if !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await copyTextToClipboard(fallbackText)
-            results.append((success: false, kind: "clipboard", text: fallbackText, message: "Target changed - copied result to clipboard"))
-        }
-        await flydClient.sendOutcome(
-            resolutionId: resolution.resolutionId,
-            invocationId: resolution.invocationId,
-            status: "failed",
-            correction: "Target no longer available — app or window changed"
-        )
-        return results
-    }
 
-    for op in resolution.operations {
-        if executor.requiresConfirmation(kind: op.kind, text: op.text) {
-            let confirmed = await requestReplaceConfirmation(op: op)
-            guard confirmed else {
-                print("[Flyd] Replace confirmation denied for: \(op.kind)")
+    if let target = observedTarget {
+        if !executor.verifyObservedTarget(target) {
+            print("[Flyd] Aborting LIVE execution: target verification failed")
+            for op in resolution.operations {
                 await flydClient.sendOutcome(
                     resolutionId: resolution.resolutionId,
                     invocationId: resolution.invocationId,
-                    status: "rejected",
-                    correction: "Replace confirmation denied by user"
+                    status: "failed",
+                    correction: "Target verification failed — app or window changed"
                 )
-                continue
             }
+            return results
         }
+    } else {
+        guard InvocationStateMachine.shared.verifyPreExecution() else {
+            print("[Flyd] Aborting: target no longer available")
+            let fallbackText = resolution.operations.map(\.text).joined(separator: "\n\n")
+            if !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                await copyTextToClipboard(fallbackText)
+                results.append((success: false, kind: "clipboard", text: fallbackText, message: "Target changed - copied result to clipboard"))
+            }
+            await flydClient.sendOutcome(
+                resolutionId: resolution.resolutionId,
+                invocationId: resolution.invocationId,
+                status: "failed",
+                correction: "Target no longer available — app or window changed"
+            )
+            return results
+        }
+    }
 
+    for op in resolution.operations {
         let resolved = ResolvedOperation(target: op.target, kind: op.kind, text: op.text)
         let result = await executor.execute(operation: resolved, fingerprint: fingerprint)
 
@@ -752,14 +796,15 @@ func copyTextToClipboard(_ text: String) async {
     }
 }
 
-func requestReplaceConfirmation(op: FlydClient.OperationPayload) async -> Bool {
+func requestCombinedConfirmation(rationale: String, reasons: [ConfirmationDecision.Reason]) async -> Bool {
+    let reasonText = reasons.map { $0.displayName }.joined(separator: ", ")
     return await withCheckedContinuation { continuation in
-        DispatchQueue.main.async {
+        Task { @MainActor in
             let alert = NSAlert()
-            alert.messageText = "Replace content?"
-            alert.informativeText = "This will replace most of the current content. Continue?"
+            alert.messageText = "Flyd wants to modify content"
+            alert.informativeText = "\(rationale)\n\nReasons: \(reasonText). Allow?"
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Allow")
             alert.addButton(withTitle: "Cancel")
             let response = alert.runModal()
             continuation.resume(returning: response == .alertFirstButtonReturn)

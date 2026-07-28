@@ -17,19 +17,28 @@ export async function synthesizeSpeech(text: string): Promise<Buffer> {
     throw new Error("No text to speak");
   }
 
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.FLYD_TTS_MODEL || DEFAULT_TTS_MODEL,
-      voice: process.env.FLYD_TTS_VOICE || DEFAULT_TTS_VOICE,
-      input: trimmed,
-      response_format: "aac",
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.FLYD_TTS_MODEL || DEFAULT_TTS_MODEL,
+        voice: process.env.FLYD_TTS_VOICE || DEFAULT_TTS_VOICE,
+        input: trimmed,
+        response_format: "aac",
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error("Speech synthesis timed out");
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Shipped: 2026-07-23.** M0-M2 hardware + substantial M3/M4/M5-adjacent functionality including voice INVOKED, LIVE mode, memory gate, and user agency configuration. See implementation notes below.
+**Shipped: 2026-07-28.** M0-M3 including text INVOKED, voice INVOKED, LIVE mode (real-time voice with gpt-realtime-2.1 via Ctrl×3), memory gate, and user agency configuration. DELEGATED server infrastructure dormant behind feature flag.
 
 ## Revised thesis
 
@@ -24,14 +24,14 @@ FLYD CORE — persistent intelligence (memory, beliefs, behaviours, skills, reas
 │
 ├── PRESENT (M0) — local, continuous, no cognition. OS notifications only. Never transmits or persists.
 │
-├── INVOKED (M2) — ⌃⌥. Environment + intent → cheapest sufficient resolution → native/augment/compose.
+├── INVOKED (M2) — fn double-tap. Environment + intent → cheapest sufficient resolution → native/augment/compose.
 │   ├── deterministic fast path ("type hello" → focused field, no LLM)
 │   ├── local/small model (paraphrase, entity extraction)
 │   └── frontier model (complex intent, multi-step reasoning)
 │
-├── LIVE (deferred) — ⌃×3. Persistent realtime session. Visually unambiguous. GPT-Realtime-2.
+├── LIVE (M3) — Ctrl×3. Persistent realtime session. Visually unambiguous. GPT-Realtime-2.
 │
-├── DELEGATED (existing + M5) — coding/research agents. Context envelope delegation, not bare prompts.
+├── DELEGATED (dormant) — server infrastructure behind FLYD_DELEGATION_ENABLED. Adapter not implemented.
 │
 └── COMPOSED (existing + M5) — Flyd creates a surface. Escalation when existing interfaces can't express the problem.
 ```
@@ -48,9 +48,9 @@ FLYD CORE — persistent intelligence (memory, beliefs, behaviours, skills, reas
 | Level | What | Trigger | Cost | Phase |
 |-------|------|---------|------|-------|
 | PRESENT | Foreground app, window, focused element, UI structure, selection metadata. OS notification-based observation. | Always running | Zero | M0 |
-| INVOKED | One-shot intelligence. Environment capture + intent → deterministic routing → frontier resolution. | ⌃⌥ | Cheapest sufficient path | M2 |
-| LIVE | Persistent realtime session. Continuous voice, tool calls. Visually unambiguous state. | ⌃×3 (deferred) | GPT-Realtime-2 (expensive) | Deferred |
-| DELEGATED | Coding/research agents with verification, context envelopes, grant boundaries. | Explicit task creation | Per-task LLM usage | Existing + M5 |
+| INVOKED | One-shot intelligence. Environment capture + intent → deterministic routing → frontier resolution. | fn double-tap | Cheapest sufficient path | M2 |
+| LIVE | Persistent realtime session. Continuous voice, tool calls. Visually unambiguous state. | Ctrl×3 | GPT-Realtime-2 (expensive) | M3 |
+| DELEGATED | Coding/research agents with verification, context envelopes, grant boundaries. | Server infrastructure dormant behind FLYD_DELEGATION_ENABLED. | Per-task LLM usage | Server only |
 | COMPOSED | Flyd creates a surface. Multi-source synthesis, decisions, investigations. | INVOKED or LIVE escalation | One composition call | Existing + M5 |
 
 ## Privacy invariants (enforced in code from M0)

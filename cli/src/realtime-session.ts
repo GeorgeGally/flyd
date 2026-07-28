@@ -58,6 +58,7 @@ export function startRealtimeServer(): Promise<void> {
 
       let openaiWs: WebSocket | null = null;
       let sessionActive = false;
+      const observationResolvers = new Map<string, (env: Record<string, unknown>) => void>();
 
       adapterWs.on("message", async (data) => {
         try {
@@ -65,8 +66,14 @@ export function startRealtimeServer(): Promise<void> {
 
           switch (msg.type) {
           case "start":
-            openaiWs = await connectRealtime(adapterWs);
-            sessionActive = true;
+            adapterWs.send(JSON.stringify({ type: "connecting" }));
+            try {
+              openaiWs = await connectRealtime(adapterWs, observationResolvers);
+              adapterWs.send(JSON.stringify({ type: "ready" }));
+              sessionActive = true;
+            } catch {
+              adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service unreachable" }));
+            }
             break;
           case "audio":
             if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
@@ -76,9 +83,17 @@ export function startRealtimeServer(): Promise<void> {
               }));
             }
             break;
+          case "observation":
+            if (msg.request_id && observationResolvers.has(msg.request_id)) {
+              const resolve = observationResolvers.get(msg.request_id)!;
+              observationResolvers.delete(msg.request_id);
+              resolve(msg);
+            }
+            break;
           case "stop":
             sessionActive = false;
             if (openaiWs) { openaiWs.close(); openaiWs = null; }
+            observationResolvers.clear();
             break;
           }
         } catch {
@@ -89,13 +104,17 @@ export function startRealtimeServer(): Promise<void> {
       adapterWs.on("close", () => {
         sessionActive = false;
         if (openaiWs) { openaiWs.close(); openaiWs = null; }
+        observationResolvers.clear();
         console.log(`[Flyd Core] Realtime session ${sessionId.slice(0, 8)} disconnected`);
       });
     });
   });
 }
 
-async function connectRealtime(adapterWs: WebSocket): Promise<WebSocket> {
+async function connectRealtime(
+  adapterWs: WebSocket,
+  observationResolvers: Map<string, (env: Record<string, unknown>) => void>
+): Promise<WebSocket> {
   const model = process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
   // Realtime WS is OpenAI-only — prefer OPENAI_API_KEY so FLYD_MODEL_API_KEY
   // can point at a non-OpenAI provider (e.g. OpenRouter) without breaking voice.
@@ -156,7 +175,7 @@ async function connectRealtime(adapterWs: WebSocket): Promise<WebSocket> {
           adapterWs.send(JSON.stringify({ type: "transcript_delta", text: ev.delta }));
         }
         if (ev.type === "response.done") {
-          handleToolCalls(adapterWs, ws, ev as Record<string, unknown>);
+          handleToolCalls(adapterWs, ws, ev as Record<string, unknown>, observationResolvers);
         }
         if (ev.type === "error") {
           adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service error" }));
@@ -214,7 +233,8 @@ export function buildResolveToolOutput(
 async function handleToolCalls(
   adapterWs: WebSocket,
   openaiWs: WebSocket,
-  responseEvent: Record<string, unknown>
+  responseEvent: Record<string, unknown>,
+  observationResolvers: Map<string, (env: Record<string, unknown>) => void>
 ) {
   const output = (responseEvent.response as Record<string, unknown>)?.output;
   if (!Array.isArray(output)) return;
@@ -228,25 +248,67 @@ async function handleToolCalls(
     const { intent } = args;
 
     try {
+      const requestId = randomUUID();
+
+      const observationPromise = new Promise<Record<string, unknown>>((resolve, reject) => {
+        observationResolvers.set(requestId, resolve);
+        setTimeout(() => {
+          if (observationResolvers.has(requestId)) {
+            observationResolvers.delete(requestId);
+            reject(new Error("Observation request timed out"));
+          }
+        }, 5000);
+      });
+
+      adapterWs.send(JSON.stringify({
+        type: "observation_request",
+        request_id: requestId,
+      }));
+
+      let observation: Record<string, unknown>;
+      try {
+        observation = await observationPromise;
+      } catch {
+        adapterWs.send(JSON.stringify({ type: "error", message: "Observation timed out" }));
+        continue;
+      }
+
       const manifest: ManifestRequest = {
         invocation_id: randomUUID(),
-        environment_revision: args.environment_revision || 1,
+        environment_revision: (observation.revision as number) || 1,
         environment: {
-          application: { bundle_id: "unknown", name: "LIVE session" },
-          window: { title: "LIVE", ref: "win_01" },
-          focused_element: { ref: "el_01", role: "AXTextArea", description: "LIVE target", value: "", placeholder: "", selected_text: "" },
+          application: {
+            bundle_id: (observation.environment as Record<string, unknown>)?.bundleId as string || "unknown",
+            name: "",
+          },
+          window: {
+            title: (observation.environment as Record<string, unknown>)?.windowTitle as string || "",
+            ref: "win_01",
+          },
+          focused_element: {
+            ref: "el_01",
+            role: (observation.environment as Record<string, unknown>)?.elementRole as string || "AXUnknown",
+            description: "",
+            value: "",
+            placeholder: "",
+            selected_text: "",
+          },
           selection: "",
-          sufficiency: "partial",
+          sufficiency: "partial" as const,
         },
         intent: intent || "",
         modality: "voice",
-        invocation_fingerprint: { app: "flyd-live", window: "live_01", element: "el_01" },
+        invocation_fingerprint: {
+          app: (observation.fingerprint as Record<string, unknown>)?.app as string || "unknown",
+          window: (observation.fingerprint as Record<string, unknown>)?.window as string || "win_01",
+          element: "el_01",
+        } as ManifestRequest["invocation_fingerprint"],
       };
 
       let workerConfig = null;
       try {
         workerConfig = loadFlydWorkerConfig();
-      } catch { /* not configured — fall back to defaultModel() */ }
+      } catch { /* not configured */ }
       const resolution = workerConfig
         ? await resolve(manifest, workerConfig.model, workerConfig.apiKey, workerConfig.baseURL)
         : await resolve(manifest);
@@ -254,10 +316,10 @@ async function handleToolCalls(
       const toolOutput = buildResolveToolOutput(resolution, validationError);
 
       adapterWs.send(JSON.stringify({
-        type: "resolve_operations",
+        type: "resolution_result",
         call_id: callId,
-        operations: toolOutput.operations,
-        augmentations: toolOutput.augmentations,
+        observation_id: (observation.observation_id as string) || "",
+        resolution,
       }));
 
       openaiWs.send(JSON.stringify({

@@ -185,6 +185,8 @@ final class StatusItem {
             color = .lightGray
         case .invoked:
             color = .systemBlue
+        case .live:
+            color = .systemGreen
         }
 
         if FlydState.shared.phase == .cancelled || FlydState.shared.phase == .error {

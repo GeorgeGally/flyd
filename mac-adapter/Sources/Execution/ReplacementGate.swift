@@ -2,7 +2,7 @@ import Foundation
 
 struct ReplacementGate {
 
-    static func requiresConfirmation(kind: String, existingValue: String, selectedText: String, newText: String) -> Bool {
+    static func requiresReplacementConfirmation(kind: String, existingValue: String, selectedText: String, newText: String) -> Bool {
         switch kind {
         case "replace_text":
             return true

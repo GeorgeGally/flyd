@@ -8,6 +8,41 @@ struct OverlayConfig: Codable {
     var replyMode: ReplyMode = .text
     var settingsVersion: Int = 1
 
+    init(
+        retention: RetentionMode = .balanced,
+        excludedApps: [String] = [],
+        redactionRules: [RedactionRule] = [],
+        incognito: Bool = false,
+        replyMode: ReplyMode = .text,
+        settingsVersion: Int = 1
+    ) {
+        self.retention = retention
+        self.excludedApps = excludedApps
+        self.redactionRules = redactionRules
+        self.incognito = incognito
+        self.replyMode = replyMode
+        self.settingsVersion = settingsVersion
+    }
+
+    // Decode field-by-field with fallbacks rather than relying on synthesized Decodable,
+    // which does NOT apply property defaults to missing keys — every field addition here
+    // would otherwise throw keyNotFound on any config.json written before that field
+    // existed, and ConfigManager.load()'s try? turns that single missing key into a full
+    // reset of every persisted setting, not just the new one.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        retention = try container.decodeIfPresent(RetentionMode.self, forKey: .retention) ?? .balanced
+        excludedApps = try container.decodeIfPresent([String].self, forKey: .excludedApps) ?? []
+        redactionRules = try container.decodeIfPresent([RedactionRule].self, forKey: .redactionRules) ?? []
+        incognito = try container.decodeIfPresent(Bool.self, forKey: .incognito) ?? false
+        replyMode = try container.decodeIfPresent(ReplyMode.self, forKey: .replyMode) ?? .text
+        settingsVersion = try container.decodeIfPresent(Int.self, forKey: .settingsVersion) ?? 1
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case retention, excludedApps, redactionRules, incognito, replyMode, settingsVersion
+    }
+
     enum ReplyMode: String, Codable, CaseIterable {
         case text = "text"
         case voice = "voice"

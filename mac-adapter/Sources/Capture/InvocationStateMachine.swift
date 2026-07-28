@@ -68,6 +68,7 @@ final class InvocationStateMachine {
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
+    var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -384,6 +385,11 @@ private func stateMachineEventCallback(
             machine.isVoiceInvocation = true
             DispatchQueue.main.async {
                 machine.onShortcutReleased?()
+            }
+        case .liveToggle:
+            guard FlydState.shared.mode != .invoked else { break }
+            DispatchQueue.main.async {
+                machine.onLiveToggle?()
             }
         case .none:
             break

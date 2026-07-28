@@ -13,16 +13,30 @@
 
 Flyd Core is the intelligence runtime — implemented in TypeScript (`cli/src/server.ts` + friends). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders UI, and executes operations. Rails (repo root: `app/`, `bin/rails`, `config/`, `db/`, `lib/`) remains as the optional composed-surface renderer and legacy subsystem — it belongs to the separate, older coding-agent platform, not the overlay.
 
-### Interaction modes
+### Adapter modes
 
-| Mode | Trigger | Description |
-|------|---------|-------------|
-| PRESENT | Always on | OS notification-based foreground observation. No cognition, no network, no persistence. |
-| INVOKED (text) | ⌃⌥ tap | One-shot text invocation. Intent field → resolution → native/augment/compose. |
-| INVOKED (voice) | ⌃⌥ hold (>300ms) | Push-to-talk → `gpt-realtime-whisper` transcription → same `/manifest` pipeline. |
-| LIVE | Ctrl×3 (triple-press) | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. |
-| DELEGATED | Explicit task creation | Coding/research agents with context envelopes, grant boundaries. |
-| COMPOSED | Escalation from INVOKED/LIVE | Flyd creates a full surface. Only when existing interfaces can't express the problem. |
+| Mode | Trigger | Status | Description |
+|------|---------|--------|-------------|
+| PRESENT | Always on | Shipped | OS notification-based foreground observation. No cognition, no network, no persistence. |
+| INVOKED (text) | Double-tap fn key | Shipped | One-shot text invocation. Intent field → resolution → native/augment/compose. |
+| INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk → `gpt-realtime-whisper` transcription → same `/manifest` pipeline. |
+| LIVE | Ctrl×3 (triple-press) | Shipped | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. MVP requires headphones. |
+
+### Resolution outcomes
+
+These are what Core returns — they are not adapter modes. A single INVOKED can produce any of them.
+
+| Outcome | Description | Status |
+|---------|-------------|--------|
+| Native | Text operations (insert, replace) executed in the focused element | Shipped |
+| Augment | Explanation, choice, or annotation cards overlaid on screen | Shipped |
+| Compose | Full Flyd surface opened via Rails composition server | Shipped (falls back to augment when Rails is unavailable) |
+
+### Deferred features
+
+| Feature | Status |
+|---------|--------|
+| DELEGATED | Server infrastructure dormant behind `FLYD_DELEGATION_ENABLED`. Adapter-side not implemented. `/manifest` does not produce delegation responses. |
 
 **Voice is a modality. LIVE is a consciousness/runtime state.**
 
@@ -32,15 +46,15 @@ Flyd Core is the intelligence runtime — implemented in TypeScript (`cli/src/se
 Swift macOS adapter (thin OS driver)
     ├── PRESENT: NSWorkspace + AXObserver — observation only
     ├── INVOKED text/voice: environment capture → local WS relay → TypeScript Core
-    ├── LIVE: audio I/O → local WS relay → TypeScript Core → OpenAI Realtime
+    ├── LIVE: audio I/O → LiveAudioBridge → TypeScript Core → OpenAI Realtime
     └── Execution: NativeExecutor (AX refs + fingerprint verification)
 
 TypeScript Core (intelligence, memory, resolution)
     ├── HTTP server :4815 — manifest, learnings, health
     ├── Transcription WS :4816 — gpt-realtime-whisper relay
     ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
-    ├── Memory: memory-gate → memory-receipt → belief/behaviour stores
-    └── Delegation: intent pattern matching → capability envelope
+    ├── Memory: unified pipeline — overlay outcomes feed daemon attention → brain retrieval (5-dimension confidence profile) → Rails world state (epistemic metadata)
+    └── Delegation: intent pattern matching → capability envelope (dormant behind FLYD_DELEGATION_ENABLED)
 
 Rails (legacy composition, optional)
     └── Surface rendering, existing subsystems — not the intelligence core
@@ -145,6 +159,11 @@ cd cli && npm run export-state -- --stdout
 - `mac-adapter/Sources/Capture/VoiceCapture.swift` — mic capture, level metering, FFT spectrum for voice UI
 - `mac-adapter/Sources/Bridge/FlydClient.swift` — HTTP client to Core's `/manifest` endpoint (port 4815)
 - `mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift` — WS client to Core's transcription relay (port 4816)
+- `mac-adapter/Sources/Bridge/LiveAudioBridge.swift` — WS client to Core's realtime relay (port 4817) for LIVE mode
+- `mac-adapter/Sources/Bridge/LiveSessionController.swift` — owns LIVE lifecycle: VoiceCapture, LiveAudioBridge, playback
+- `mac-adapter/Sources/Audio/StreamingAudioPlayer.swift` — streaming PCM audio playback for LIVE TTS
+- `mac-adapter/Sources/Execution/ConfirmationDecision.swift` — combined confirmation predicate for native execution
+- `mac-adapter/Sources/Execution/ObservedTarget.swift` — execution grounding for LIVE tool-call resolution
 - `mac-adapter/Sources/Auth/AdapterAuth.swift` — generates/reads the shared bearer token at `~/.flyd/overlay/auth-token`
 - `cli/src/server.ts` — Flyd Core: HTTP `/manifest` + WS servers, loads `AUTH_TOKEN` once at startup from the same shared file
 - `cli/src/resolve.ts` — manifest → operations/augmentations/compose resolution logic

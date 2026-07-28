@@ -1,4 +1,3 @@
-import { isDelegationIntent } from "./delegation.js";
 import type {
   ConsequenceAssessment,
   ConsequenceTarget,
@@ -60,9 +59,6 @@ export function assessConsequence(intent: string): ConsequenceAssessment {
   }
   if (hasFileObject) {
     return consequential(verbs, "file_system", "Consequential verb targeting the file system");
-  }
-  if (isDelegationIntent(text)) {
-    return consequential(verbs, "unknown", "Delegation-shaped intent with a consequential verb");
   }
   if (hasTextualObject) {
     return benign("Verb targets text in the focused element");

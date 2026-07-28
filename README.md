@@ -23,9 +23,9 @@ The Swift adapter never decides what to do — all intelligence routes through T
 
 | Shortcut | Mode | Description |
 |----------|------|-------------|
-| ⌃⌥ | INVOKED (text) | Type an intent, press Enter. Flyd resolves it into operations. |
-| fn+⌃ hold | INVOKED (voice) | Push-to-talk. `gpt-realtime-whisper` transcribes. Same resolution pipeline. |
-| Ctrl×3 | LIVE | Persistent realtime voice session with `gpt-realtime-2.1`. Ctrl×3 again to exit. |
+| Double-tap fn key | INVOKED (text) | Type an intent, press Enter. Flyd resolves it into operations. |
+| fn+Ctrl hold | INVOKED (voice) | Push-to-talk. `gpt-realtime-whisper` transcribes. Same resolution pipeline. |
+| Ctrl×3 | LIVE | Persistent realtime voice session with `gpt-realtime-2.1`. Ctrl×3 again to exit. Headphones required. |
 
 ### Configuration
 

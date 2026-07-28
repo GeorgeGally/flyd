@@ -122,7 +122,7 @@ final class InvocationPanel {
             showTextSurface(false)
             showVoiceSurface(true, level: 0.55)
             titleLabel?.stringValue = "Transcribing"
-            label.stringValue = "Working…"
+            label.stringValue = ""
             label.textColor = FlydPalette.brass
             statusDot?.set(color: FlydPalette.brass, pulsing: true)
             textField?.isEditable = false
@@ -139,7 +139,7 @@ final class InvocationPanel {
             showTextSurface(!wasVoiceSurface)
             showVoiceSurface(wasVoiceSurface, level: 0.45)
             titleLabel?.stringValue = "Thinking"
-            label.stringValue = "This won't take long"
+            label.stringValue = ""
             label.textColor = FlydPalette.paper.withAlphaComponent(0.6)
             statusDot?.set(color: FlydPalette.brass, pulsing: true)
             textField?.isEditable = false
@@ -396,6 +396,19 @@ final class InvocationPanel {
             bar.layer?.backgroundColor = FlydPalette.listenBlue.withAlphaComponent(0.55).cgColor
             voiceView.addSubview(bar)
             voiceBars.append(bar)
+        }
+    }
+
+    /// `.executing`/`.undoAvailable` own their own dismissal via an internal timer (and,
+    /// for `.undoAvailable`, a live ⌘Z key monitor) — calling this instead of `dismiss()`
+    /// after showing one of those states lets it actually stay on screen for its window
+    /// instead of being torn down by the caller on the very next run-loop turn.
+    func dismissUnlessShowingResult() {
+        switch currentState {
+        case .executing, .undoAvailable:
+            return
+        default:
+            dismiss()
         }
     }
 

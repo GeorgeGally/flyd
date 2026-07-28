@@ -1,134 +1,129 @@
 {
-  "reviewer": "correctness",
+  "reviewer": "adversarial",
   "findings": [
     {
-      "id": "corr-001",
-      "severity": "P0",
-      "file": "mac-adapter/Sources/Capture/InvocationStateMachine.swift",
-      "line": 242,
-      "title": "LIVE mode triple-press detection is non-functional — modifier keys don't generate keyDown events",
-      "evidence": "At line 242, the `case .keyDown:` branch checks `event.getIntegerValueField(.keyboardEventKeycode) == Int64(machine.ctrlKeyCode)` (0x3B, left Control key). In macOS, modifier keys generate `CGEventType.flagsChanged` events when pressed, not `CGEventType.keyDown` events. The CGEvent system routes modifier key state transitions exclusively through the flags-changed event type. This means the triple-press detection code on lines 243–267 will never execute. The `case .flagsChanged:` branch at line 269 handles modifier presses correctly, but triple-press logic is absent from it.",
-      "suggestedFix": "Move triple-press detection into the `flagsChanged` handler. Track Control-key-down transitions by maintaining a `wasCtrlDown: Bool` flag. On each transition from up→down, record a timestamp. Then apply the same triple-press window logic. Example: in `flagsChanged`, detect when the Control flag appears in the new flags but wasn't in the previous flags. Ensure `wasPressed` tracking doesn't interfere — create a separate `ctrlWasDown` flag. Also add a filter to reject triple-presses that occur while other modifiers (like Command) are simultaneously pressed, to avoid false positives from standard keyboard shortcuts like Cmd+Ctrl+F."
+      "id": "ADV-001",
+      "title": "Confirmation dialog orphaning: NSAlert survives task cancellation with degraded execution fallback",
+      "confidence": 95,
+      "severity": "high",
+      "source": "mac-adapter/Sources/main.swift:606-637 + 416-432",
+      "autofix_class": "manual",
+      "owner": "human",
+      "evidence": [
+        "Step 1: User invokes Flyd with a consequential intent (e.g., 'send this email'). Core returns mode='native' with requiresConfirmation=true or the executor flags a destructive replacement.",
+        "Step 2: processInvocation() enters the case 'native': branch at line 604. ConfirmationDecision.reasons is non-empty, so decision.requiresConfirmation is true.",
+        "Step 3: requestCombinedConfirmation() at line 788 creates an NSAlert and calls runModal(), which starts a nested NSRunLoop on the main thread. The processInvocation Task awaits the withCheckedContinuation.",
+        "Step 4: Before the user clicks Allow/Cancel, they press the fn key (triggered by handleShortcutPress if state.phase != .idle, or handleInvocation if currentPhase != .idle).",
+        "Step 5: handleShortcutPress() at line 416 fires: activeInvocationTask?.cancel() sets the cooperative cancellation flag on the Task; state.cancelInvocation() sets mode=present, phase=idle, invocationId=nil; stateMachine.cancel() calls resetCheckpoints() which nils t1Fingerprint; invocationPanel.dismiss() removes the invocation panel.",
+        "Step 6: The NSAlert remains visible — nothing in handleShortcutPress() dismisses it. The user sees a confirmation dialog for a cancelled invocation.",
+        "Step 7a: If user clicks 'Allow': the continuation resumes with confirmed=true. The guard at line 623 passes. executeNativeOperations() at line 638 is called. Inside, verifyPreExecution() at line 726 returns false (t1Fingerprint was nilled by resetCheckpoints). Text goes to clipboard as fallback. Outcome 'failed' is sent to Core.",
+        "Step 7b: If user clicks 'Cancel': the continuation resumes with confirmed=false. guard fails. Outcome 'rejected' sent. invocationPanel.dismiss() called on already-dismissed panel (harmless but noisy).",
+        "Step 8: In both cases, processInvocation continues past line 703 into audit/clear/reset/transition. state.transition(to: .present) is called but state is already .present (from cancelInvocation in Step 5). executor.clearInvocationRefs() and stateMachine.resetCheckpoints() are called again — redundant but harmless.",
+        "Root cause: requestCombinedConfirmation() at line 788 has no cancellation-awareness. The NSAlert runModal() creates a nested event loop that ignores Task cancellation. There is no check for Task.isCancelled inside the native branch after the confirmation await or before executeNativeOperations."
+      ],
+      "scenario": "Consequence: The user is confronted with an orphaned modal dialog after cancelling an invocation. While verifyPreExecution() prevents unauthorized text insertion (the text goes to clipboard instead), the UX is confusing and the state machine transitions are inconsistent. More critically: if future operation kinds (e.g., file operations, network requests) are added that don't check verifyPreExecution(), this orphaning pattern becomes a confirmation-bypass vector."
     },
     {
-      "id": "corr-002",
-      "severity": "P1",
-      "file": "mac-adapter/Sources/UI/InvocationPanel.swift",
-      "line": 20,
-      "title": "InvocationPanel.show() called while panel is already showing leaks the localEventMonitor and NSPanel",
-      "evidence": "In `main.swift`, `handleVoiceInvocation()` at line 196 calls `invocationPanel.show()` after `handleInvocation()` already called it at line 276. When show() executes a second time, line 32 creates a new NSPanel (the old one, never dismissed, remains as an orphaned floating window), and line 53 registers a new localEventMonitor, overwriting `self.localEventMonitor`. The prior monitor is never removed. This happens reliably: the user presses ⌃⌥, the text panel appears immediately, then after 300ms the hold timer fires → handleVoiceInvocation() → show() leaks both resources.",
-      "suggestedFix": "In `handleVoiceInvocation()`, check if the panel is already visible (e.g., `if panel != nil`) and only call `updateState(.listening)` instead of `show()`. Alternatively, add a guard at the top of `show()` that calls `dismiss()` first if `self.panel != nil` before creating a new panel. Example: `func show() { dismiss(); /* existing setup */ }`."
+      "id": "ADV-002",
+      "title": "AugmentPanel rendered on wrong monitor due to NSScreen.main in multi-display setups",
+      "confidence": 90,
+      "severity": "medium",
+      "source": "mac-adapter/Sources/UI/AugmentPanel.swift:362",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "evidence": [
+        "showAugmentations() at line 362: guard let screen = NSScreen.main else { return }",
+        "NSScreen.main returns the screen containing the key window. Flyd runs with NSApp.setActivationPolicy(.accessory), which means it has no visible menu bar and its key window behavior is unpredictable.",
+        "On a MacBook with an external display: if Flyd's last interaction was on the built-in display (e.g., setup window, status menu click), NSScreen.main resolves to the built-in display even when the user is working on the external monitor.",
+        "centerX and centerY at lines 368-369 are computed from screen.visibleFrame. The anchor at line 371 uses centerX. If the wrong screen is selected, the entire stacked panel layout is positioned on the wrong monitor — potentially offscreen if the external monitor has a different resolution or offset.",
+        "visibleFrame differs per screen: internal display has menu bar at top (visibleFrame.origin.y ≈ 0, height ≈ screenHeight - 22). External display typically has visibleFrame == frame (no menu bar). The Y-offset mismatch means panels can render behind or above the visible area.",
+        "The stackedFrames() function at line 32 clamps each frame to screenVisibleFrame, but the screenVisibleFrame parameter is from the wrong screen. Clamping to the wrong screen's bounds doesn't help when the anchor point is entirely on a different display."
+      ],
+      "scenario": "Concrete reproduction: MacBook Pro (1728x1117) + 27-inch external display (2560x1440, right of built-in). User works in Safari on external display, invokes Flyd. NSScreen.main returns built-in display because the status menu click registered there. Augment panes compute center from built-in's visibleFrame (centered at ~864, ~530) and appear on the wrong screen — invisible from the external display."
     },
     {
-      "id": "corr-003",
-      "severity": "P1",
-      "file": "mac-adapter/Sources/Capture/VoiceCapture.swift",
-      "line": 16,
-      "title": "Unprotected read of `isRunning` from audio rendering thread creates a data race",
-      "evidence": "`isRunning` (line 7, a non-atomic Bool property) is written in `start()` (line 35) and `stop()` (line 47), both on the main thread. It is read inside the audio tap callback (line 30: `guard let self = self, self.isRunning else { return }`), which executes on AVAudioEngine's real-time rendering thread. Swift provides no atomicity guarantee for Bool across threads — this is undefined behavior per the Swift memory model. The same pattern exists in `LiveAudioBridge.swift` line 11 (`isActive`) with the callback at line 29–31. While the practical risk of a crash is low, the compiler is permitted to optimize away the load or reorder it with other operations.",
-      "suggestedFix": "Use `os_unfair_lock` or an `AtomicBool` wrapper (from a library or a custom implementation using `OSAtomicCompareAndSwap32`) for both `isRunning` and `isActive`. Alternatively, since the tap callback already uses `[weak self]`, you can rely on `isRunning` only as a hint and move the guard after acquiring the `bufferLock`, or simply pass through the buffer and let the `bufferLock` handle synchronization — the engine being stopped guarantees no more callbacks after `engine.stop()` returns."
+      "id": "ADV-003",
+      "title": "TTS endpoint: unbounded memory allocation from OpenAI response with no size validation",
+      "confidence": 85,
+      "severity": "medium",
+      "source": "cli/src/tts.ts:48-49",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "evidence": [
+        "synthesizeSpeech() at line 48: const arrayBuffer = await response.arrayBuffer(); return Buffer.from(arrayBuffer); reads the ENTIRE response body into memory with no size limit.",
+        "While the input text is capped at MAX_TTS_CHARS=4000 (line 15), there is no guarantee that OpenAI's API response is proportional to input size. A 4000-char input could theoretically produce multi-MB AAC audio.",
+        "The fetch at line 22 uses AbortSignal.timeout(15_000) which limits total request duration, but a fast connection could deliver gigabytes in 15 seconds.",
+        "The Core HTTP server at line 83 constrains manifest body size (MANIFEST_BODY_LIMIT = 4MB), but there is no equivalent limit on the TTS response path. The response is streamed back to the Swift adapter via res.end(audio) with Content-Length audio.length — Node.js will buffer the entire response.",
+        "The Swift adapter's FlydClient.speak() at line 252 reads the data into a Data object (another full copy in memory), then SpeechPlayer plays it via AVAudioPlayer(data:). This is a third allocation.",
+        "A compromised or misconfigured upstream (MITM proxy, modified DNS, compromised CDN) could return arbitrarily large body from what appears to be api.openai.com."
+      ],
+      "scenario": "Attack: an attacker with network-position advantage intercepts the HTTPS connection (corporate proxy, local root CA) and returns a 200 OK with Content-Type: audio/aac and a 2GB body. Core's Node.js process allocates 2GB for the response → OOM crash. Even without malice: a legitimate OpenAI API anomaly (e.g., content-length mismatch, chunked encoding issue) could produce unexpected response sizes."
     },
     {
-      "id": "corr-004",
-      "severity": "P2",
-      "file": "mac-adapter/Sources/main.swift",
-      "line": 408,
-      "title": "TOCTOU between revision check and execution — new invocation can slip operations through stale execution",
-      "evidence": "`processInvocation()` checks `isRevisionCurrent(resolution.environmentRevision)` at line 350 and returns if stale. However, `executeNativeOperations()` at line 366 does not re-verify the revision. Between the revision check and the first `executor.execute()` call, a new invocation can start (another press, LIVE tool call, voice completion), incrementing `currentRevision` to a higher number. `executeNativeOperations()` calls `verifyPreExecution()` (line 408), but that only checks app/window fingerprint equality, not revision currency. If the new invocation targets the same app and window, the fingerprint passes. The old invocation's text operations then execute in the new invocation's context. The same gap exists in the LIVE `onResolveOperations` handler at lines 155–167, which checks `verifyPreExecution()` but not revision currency.",
-      "suggestedFix": "In `executeNativeOperations`, add a revision check before the operations loop: `guard InvocationStateMachine.shared.isRevisionCurrent(resolution.environmentRevision) else { ... send failed outcome; return }`. Similarly, in `handleLiveEnter`'s `onResolveOperations` handler, call `isRevisionCurrent(revision)` using the captured `revision` from line 150 before entering the ops loop. Store the revision alongside the callId to compare after any await points."
+      "id": "ADV-004",
+      "title": "LIVE: WebSocket server silent failure after startup — runtime errors go unhandled",
+      "confidence": 75,
+      "severity": "low",
+      "source": "cli/src/realtime-session.ts:37-55",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "evidence": [
+        "startRealtimeServer() at line 37 creates a WebSocketServer with wss.on('error', reject) at line 53. This only attaches an error handler during the promise-construction phase.",
+        "After the 'listening' event fires at line 48, the promise resolves and is never rejected again. The 'error' event handler (set at line 53) remains attached but the promise's reject function can no longer be called (the promise is already resolved).",
+        "If a runtime error occurs after listening (e.g., OS socket buffer exhaustion, EMFILE from too many connections, TLS handshake failure if that were supported), the error event fires but is swallowed — no log, no crash, no recovery.",
+        "The connection handler at line 55 handles individual connection errors (via the ws 'message' try/catch at line 90), but server-level errors have no handler after startup.",
+        "startServer() at line 530-535 in server.ts: if LIVE_ENABLED, startRealtimeServer() is called with a .catch() that logs the warning. But after the initial success, no further error monitoring exists.",
+        "wss.on('connection', ...) is the only event registered after error. If the server enters a bad state (e.g., half-closed socket from a kernel-level issue), no event fires and the server silently degrades."
+      ],
+      "scenario": "Concrete scenario: LIVE_ENABLED=true, server starts successfully on port 4817. After hours of operation, the macOS kernel hits a socket table limit. A new connection attempt triggers an 'error' event on the WSS instance. The error handler fires but the reject function is a no-op (promise already resolved). No log message, no status change, no restart. The server appears running but silently drops all new connections. Meanwhile, the health check at /health returns 'ok' because it doesn't check the WS server state."
     },
     {
-      "id": "corr-005",
-      "severity": "P2",
-      "file": "cli/src/server.ts",
-      "line": 351,
-      "title": "stopServer() can hang — WebSocket shutdown errors silently prevent promise resolution",
-      "evidence": "`stopServer()` at line 351 calls `serverInstance.close()`. On success (line 352-360), it chains `stopTranscriptionServer().then(() => stopRealtimeServer()).then(resolvePromise)`. If `stopTranscriptionServer()` rejects, `stopRealtimeServer()` is never called and `resolvePromise` is never invoked — the promise hangs forever. Separately, the SIGTERM handler at line 409 and SIGINT handler at line 415 call `await stopServer()` followed by `process.exit(0)` — if `stopServer()` rejects (throws from the await), the `.exit(0)` line is skipped and the process hangs instead of terminating.",
-      "suggestedFix": "Wrap the chain in a `.catch(() => resolvePromise())` or use `Promise.allSettled`: `Promise.allSettled([stopTranscriptionServer(), stopRealtimeServer()]).then(() => resolvePromise())`. For the signal handlers, wrap `await stopServer()` in a try/catch: `try { await stopServer(); } catch {} finally { process.exit(0); }`."
+      "id": "ADV-005",
+      "title": "processInvocation: no cancellation check after confirmation await — stale continuation executes past Task cancellation",
+      "confidence": 90,
+      "severity": "medium",
+      "source": "mac-adapter/Sources/main.swift:606-717",
+      "autofix_class": "manual",
+      "owner": "human",
+      "evidence": [
+        "The only Task.isCancelled guard in processInvocation is at line 562-568, BEFORE the switch(resolution.mode) block.",
+        "After entering case 'native': at line 605, there are zero checks for Task.isCancelled. The logic proceeds through: confirmation decision building (606-618), await requestCombinedConfirmation (619), execution (638), voice reply (654-663), audit (703-707), state cleanup (712-717).",
+        "If the Task is cancelled while awaiting requestCombinedConfirmation (e.g., handleShortcutPress at line 420 calls activeInvocationTask?.cancel()), the NSAlert continuation still resumes. The code at lines 623-717 all execute despite the Task being cancelled.",
+        "The guard at line 562-568 was designed to catch cancellation 'during resolution', which makes sense for the API call. But the confirmation dialog is a new async suspension point — a new cancellation opportunity — with no corresponding guard.",
+        "Contrast with the voice flow: cleanupVoiceInvocation() at line 405 calls activeInvocationTask?.cancel() explicitly, and the onComplete/onError callbacks on the voice relay check state.phase before proceeding. The text flow has no equivalent.",
+        "While verifyPreExecution() blocks actual text insertion (see ADV-001), the outcome-sending (line 624/756), state transitions (line 717), and audit recording (line 703) all execute on a cancelled Task, producing spurious side effects."
+      ],
+      "scenario": "Minimal fix: add guard Task.isCancelled after the await requestCombinedConfirmation() call. If cancelled, return early without executing operations. Additionally, dismiss the NSAlert (it needs its own reference for programmatic dismissal, which it currently lacks)."
     },
     {
-      "id": "corr-006",
-      "severity": "P2",
-      "file": "mac-adapter/Sources/Capture/InvocationStateMachine.swift",
-      "line": 278,
-      "title": "Hold timer callback races with shortcut release — both fire on main but order is non-deterministic",
-      "evidence": "The hold timer at line 278 fires after 300ms and sets `isVoiceInvocation = true` then dispatches `onShortcutHoldDetected?()` to main. If the user releases the shortcut at the ~300ms boundary, the `flagsChanged` handler fires `onShortcutReleased?()` on main as well — also on the same run loop iteration. The order depends on which queued block executes first. If `onShortcutReleased` fires first, `isVoiceInvocation` is still `false` (timer hasn't executed yet), so `handleVoiceRelease()` is not called. The timer then fires, setting `isVoiceInvocation = true` and calling `handleVoiceInvocation()`. Voice capture starts, but `commitAudio()` was never called. If the timer fires first, both `handleVoiceInvocation()` and `handleVoiceRelease()` execute: voice pipeline starts, then commit is sent immediately — this is the correct path. The problem is the first case: the user holds, starts speaking, but the release happens an instant before the timer triggers — they get the text panel instead of voice.",
-      "suggestedFix": "Add a window after the hold timer that treats a near-simultaneous release as a voice invocation. Store the timestamp of the last `flagsChanged` release. In the hold timer callback, check if release happened within ±50ms. Alternatively, invert the logic: always start a voice pipeline on press, then check 300ms later whether to commit (if released) or continue (if still held). Or store the latest state in an atomic flag structure that both callbacks check."
-    },
-    {
-      "id": "corr-007",
-      "severity": "P3",
-      "file": "mac-adapter/Sources/Execution/NativeExecutor.swift",
-      "line": 46,
-      "title": "Force-cast crash risk in attemptReResolution when AXAPI returns unexpected CFType",
-      "evidence": "At line 45, `return (element as! AXUIElement)` uses a force cast on the result of `AXUIElementCopyAttributeValue`. While `kAXFocusedUIElementAttribute` should always return an `AXUIElement`, a buggy application, sandbox issue, or permission revocation could cause it to return a different type. A force cast here would crash the entire process. The line 39 `(focused as! AXUIElement)` has the same issue.",
-      "suggestedFix": "Replace both with optional casts and return nil on failure: `guard let element = focusedRef as? AXUIElement else { return nil }` and `return element as? AXUIElement`."
-    },
-    {
-      "id": "corr-008",
-      "severity": "P3",
-      "file": "cli/src/server.ts",
-      "line": 117,
-      "title": "environment_revision || 1 treats 0 as falsy — silent fallthrough for any zero revision",
-      "evidence": "Line 117: `environment_revision: parsed.environment_revision || 1`. In JavaScript, `0 || 1` evaluates to 1. While the Swift-side revision counter starts at 1 (line 74 of State.swift: `_currentRevision += 1` before first use), any bug that produces revision 0 (uninitialized, corrupted state, network error mangling the JSON) would be silently corrected to 1, defeating the staleness check at line 350 of main.swift — a resolution with env_revision 0 would be treated as if it had revision 1 and might pass `isRevisionCurrent(1)` when it shouldn't.",
-      "suggestedFix": "Use explicit undefined check: `environment_revision: parsed.environment_revision !== undefined ? parsed.environment_revision : 1`, or better, require the field and reject requests with a missing or zero revision."
-    },
-    {
-      "id": "corr-009",
-      "severity": "P3",
-      "file": "mac-adapter/Sources/UI/InvocationPanel.swift",
-      "line": 53,
-      "title": "Escape key monitor suppresses ALL keyDown events while panel is showing",
-      "evidence": "`NSEvent.addLocalMonitorForEvents(matching: .keyDown)` at line 53 returns `nil` for Escape (keyCode 53) to consume the event, but returns the event unmodified for all other keyDowns. This means all non-Escape key events pass through to the system and the focused application. While this is intentional (the text field needs to receive typed characters), it means keyboard shortcuts in background applications (like Cmd+Tab) are NOT intercepted. This is fine for a floating panel that doesn't need to be modal, but a `NSEvent.addGlobalMonitorForEvents` would also capture events in other apps.",
-      "suggestedFix": "No fix needed for current behavior, but if the panel should block global shortcuts (e.g., prevent accidental Cmd+Q to the underlying app), switch to `addGlobalMonitorForEvents` for Escape detection and use `addLocalMonitorForEvents` only for text input."
-    },
-    {
-      "id": "corr-010",
-      "severity": "P3",
-      "file": "mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift",
-      "line": 31,
-      "title": "sendAudioChunk and commitAudio fire-and-forget — no error handling for failed sends",
-      "evidence": "Lines 37 and 42 use `webSocket?.send(...) { _ in }` with an empty completion handler. If the WebSocket is in a zombie state (half-closed, connection lost but not yet detected), audio chunks and commit signals are silently dropped. The user's voice data is lost, and the transcription server never receives a commit, so `onComplete` never fires. The user sees a perpetual 'Listening...' state with no error feedback. The `receive()` loop at line 62 will eventually detect the failure and call `onError`, but only on the next receive — which may never happen if the socket is write-only broken.",
-      "suggestedFix": "Implement a write-side watchdog: track the last successful send timestamp. On each `send()`, check the error in the completion handler. If any send fails, call `onError` and `disconnect()`. For `sendAudioChunk`, consider batching or using reliable delivery if audio quality matters. For `commitAudio`, retry once before failing."
+      "id": "ADV-006",
+      "title": "AugmentPanel rapid-fire: global monitor proliferation with no per-instance lifecycle bound",
+      "confidence": 60,
+      "severity": "low",
+      "source": "mac-adapter/Sources/UI/AugmentPanel.swift:218-220 + 351-396",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "evidence": [
+        "Each AugmentPanel.show() call at line 218 registers NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) — a system-wide tap that Apple limits (undocumented but observed: ~10-20 per process before silent failure).",
+        "showAugmentations() at line 359 dismisses old panels (which removes their monitors via dismiss() line 251-254), then creates new panels (which register new monitors). This is serialized on MainActor, so the old monitors are removed before new ones are added — safe for sequential calls.",
+        "However, the 0.35s entrance animation at line 230 runs asynchronously via NSAnimationContext.runAnimationGroup. If showAugmentations is called again during this animation window, dismiss() on the old panel may teardown its views (including clipView.layer) while CALayer animations are in flight. This produces a Core Animation 'implicit animation removed' warning but no crash.",
+        "The 30-second autoDismissTimer at line 222 is a repeating risk: if AugmentPanel instances accumulate (multiple rapid invocations each creating panels that don't trigger click-to-dismiss), timers could build up. But each new showAugmentations call dismisses old panels (invalidating timers), and click-to-dismiss removes them. In practice, only user-inactivity could accumulate timers.",
+        "No hard cap on active panels: line 374 maps augmentations to AugmentPanel instances 1:1 with no limit. If Core returns 50 augmentations (unlikely due to prompt constraints but possible if the LLM hallucinates), 50 NSPanels + 50 global monitors + 50 timers are created simultaneously."
+      ],
+      "scenario": "The immediate risk is low because prompt constraints limit augmentations to ~4 and MainActor serialization prevents race. The residual risk: if the LLM returns an excessive number of augmentations or if showAugmentations is called externally (e.g., from a future API endpoint), there is no defense-in-depth cap."
     }
   ],
   "residual_risks": [
-    {
-      "area": "Single AVAudioEngine instance conflict",
-      "risk": "Both VoiceCapture and LiveAudioBridge create separate AVAudioEngine instances and install taps on `engine.inputNode`. If both are somehow active simultaneously (e.g., voice INVOKED is inflight when triple-press toggles LIVE), the second engine's `installTap` will fail. Both guards (`isRunning` and `isActive`) prevent normal simultaneous use, but the race window in `handleLiveExit()` at lines 181–183 — which stops voiceCapture and liveBridge — could overlap with a transcription completion. The risk is low but worth monitoring.",
-      "confidence": "25"
-    },
-    {
-      "area": "WebSocket reconnection on transient failures",
-      "risk": "The VoiceTranscriptionRelay, LiveAudioBridge, and realtime-session all connect to localhost WS servers. If the Core process restarts (e.g., after the auto-restart at main.swift line 104), the adapter's existing WebSocket connections become stale. There is no reconnection logic — the adapter must be restarted or must detect the disconnect and re-establish. The `receive()` loop in all three relays detects failures through `.failure` cases, but this only triggers `onError` callbacks, not automatic reconnection. The adapter effectively enters a degraded state until the next invocation or manual restart.",
-      "confidence": "50"
-    },
-    {
-      "area": "Authorization token file race",
-      "risk": "server.ts loads `AUTH_TOKEN` at module-init time (line 28: `const AUTH_TOKEN = loadAuthToken()`). It's a singleton loaded once. If the auth token file is written/refreshed after process start, the old `null` token persists — all requests remain blocked. The adapter's `AdapterAuth` creates the token file on first access, but the timing window between adapter start and Core start means `AUTH_TOKEN` could be `null` at load time. Core would block all manifest requests until a manual restart.",
-      "confidence": "60"
-    }
+    "Codable migration: decodeIfPresent gracefully handles type mismatches by returning nil (all fields fall back to defaults), but a malicious config file that intentionally corrupts all fields could silently reset every user preference to defaults. The user would notice their settings were lost but would not know why.",
+    "Voice transcription timeout: startVoiceTranscriptionTimeout() sets a 20s timeout, but the Core-side transcription.ts transcribeBufferedAudio() at line 224-235 loops through fallback models with no timeout per model. Each OpenAI API call could hang for the default fetch timeout (~30s). With 4 fallback models, worst case is 2 minutes before the adapter's 20s timeout fires, producing a mismatch.",
+    "SpeechPlayer: AVAudioPlayer.stop() is documented to NOT call audioPlayerDidFinishPlaying. The guard at line 30 is correct for genuine finish events but provides no protection if a future iOS/macOS version changes this behavior (the guard would correctly prevent clearing a live player reference)."
   ],
   "testing_gaps": [
-    {
-      "behavior": "Triple-press Control detection for LIVE mode",
-      "reason": "The code path is dead — modifier keys don't route through `keyDown`. No test can pass this currently. A test should exist that verifies: (1) three Control presses within 500ms with no intervening non-modifier keys triggers LIVE, (2) three Control+C combos do NOT trigger LIVE, (3) debounce period prevents re-triggering."
-    },
-    {
-      "behavior": "Panel show() re-entrancy",
-      "reason": "The code doesn't guard against double-show. A test should verify: invoke text mode, then trigger voice hold — the panel should transition to listening state without creating a second window or leaking a monitor."
-    },
-    {
-      "behavior": "Rapid cancellation and re-invocation",
-      "reason": "The flow invoke → cancel → invoke should cleanly reset all state (phase=idle, revision incremented, invalidation check works). A test should verify that after cancel+re-invoke, the old response's revision is rejected and the new invocation connects to the panel correctly."
-    },
-    {
-      "behavior": "Audio pipeline initialization failure",
-      "reason": "If VoiceCapture.start() fails (microphone permission revoked mid-session, audio hardware unavailable), the error should propagate to the panel as an error state. The current code checks `PermissionGate.shared.hasMicrophone` before start but does not handle the case where permission exists but engine.start() throws. The `start()` function calls `onError?` on failure, so propagation exists, but should be tested with a simulated audio engine failure."
-    },
-    {
-      "behavior": "Graceful shutdown of all WS servers",
-      "reason": "SIGTERM/SIGINT should stop HTTP server + transcription WS + realtime WS, even if one of the WS servers fails to stop. Currently the chaining can hang. Test: start all three servers, simulate WS close failure, verify process.exit is still called."
-    }
+    "No test for NSAlert orphaning during task cancellation — requires UI-level integration test or manual scenario documentation",
+    "No multi-monitor test for AugmentPanel positioning — tests use hardcoded frames, never exercise NSScreen resolution",
+    "No TTS response size boundary test — no test sends a large/malformed response body to verify memory safety",
+    "No test for LIVE WebSocket server errors after startup — existing tests only verify connection establishment",
+    "No test for processInvocation cancellation during confirmation await — the replay/race condition requires structured concurrency testing",
+    "AugmentPanel rapid-dismiss lifecycle test only covers single panel — no test creates 20+ panels to verify resource cleanup"
   ]
 }

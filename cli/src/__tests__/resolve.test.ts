@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResolutionPrompt, enforceRoutePlacement, isIdentityIntent, parseResolutionResponse, routeIntent } from "../resolve.js";
+import { buildResolutionPrompt, enforceRoutePlacement, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext } from "../resolve.js";
 
 const env = {
   application: {
@@ -181,22 +181,24 @@ describe("buildResolutionPrompt", () => {
   const route = { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" } as const;
 
   it("injects retrieved memories as a MEMORIES block", () => {
-    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, [
-      { path: "raw/2026-01-01.md", excerpt: "User is building flyd, a personal memory overlay." },
-    ]);
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, {
+      current: [], relevant: [
+        { claimId: "a", content: "User is building flyd, a personal memory overlay.", kind: "observation", scope: "global", epistemicStatus: "observation", epistemicConfidence: 0.5, freshness: 1, sourceRefs: ["raw/2026-01-01.md"], relevance: 0.8 },
+      ], conflicts: [], gaps: [], sources: ["raw/2026-01-01.md"],
+    });
 
-    expect(prompt).toContain("RELEVANT MEMORIES");
+    expect(prompt).toContain("RELEVANT MEMORY");
     expect(prompt).toContain("User is building flyd, a personal memory overlay.");
     expect(prompt).not.toContain("raw/2026-01-01.md");
   });
 
   it("omits the memories block when nothing was retrieved", () => {
     const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route);
-    expect(prompt).not.toContain("RELEVANT MEMORIES");
+    expect(prompt).not.toContain("RELEVANT MEMORY");
   });
 
   it("describes the screen image and forbids blindness narration when a screenshot is attached", () => {
-    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, [], true);
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, { current: [], relevant: [], conflicts: [], gaps: [], sources: [] }, true);
     expect(prompt).toContain("SCREEN:");
     expect(prompt).toContain("NEVER narrate your own context visibility");
   });
@@ -208,7 +210,7 @@ describe("buildResolutionPrompt", () => {
   });
 
   it("injects compiled personal context bundles for identity questions", () => {
-    const prompt = buildResolutionPrompt(emptyWorldState, env, "what do you know about me", route, [], false, [
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what do you know about me", route, { current: [], relevant: [], conflicts: [], gaps: [], sources: [] }, false, [
       { name: "current_identity", body: "George is a creative technologist." },
     ]);
 
@@ -224,14 +226,16 @@ describe("buildResolutionPrompt", () => {
   });
 
   it("omits the memory status block when a memory was retrieved", () => {
-    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, [
-      { path: "raw/2026-01-01.md", excerpt: "User is building flyd." },
-    ]);
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, {
+      current: [], relevant: [
+        { claimId: "a", content: "User is building flyd.", kind: "observation", scope: "global", epistemicStatus: "observation", epistemicConfidence: 0.5, freshness: 1, sourceRefs: ["raw/2026-01-01.md"], relevance: 0.8 },
+      ], conflicts: [], gaps: [], sources: ["raw/2026-01-01.md"],
+    });
     expect(prompt).not.toContain("MEMORY STATUS");
   });
 
   it("omits the memory status block when personal context bundles are present", () => {
-    const prompt = buildResolutionPrompt(emptyWorldState, env, "who am I", route, [], false, [
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "who am I", route, { current: [], relevant: [], conflicts: [], gaps: [], sources: [] }, false, [
       { name: "current_identity", body: "George." },
     ]);
     expect(prompt).not.toContain("MEMORY STATUS");
@@ -264,5 +268,39 @@ describe("isIdentityIntent", () => {
     ]) {
       expect(isIdentityIntent(intent), intent).toBe(false);
     }
+  });
+});
+
+describe("shouldInjectPersonalContext", () => {
+  const askRoute = { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" } as const;
+  const draftRoute = { kind: "draft_insert", placement: "insert_at_cursor", scene: "email_reply" } as const;
+
+  it("injects for recall questions referencing the user's own life", () => {
+    for (const intent of [
+      "what am I doing on wednesday?",
+      "what is that project I was working on last year?",
+      "when is my next deadline",
+      "what did we decide about the overlay?",
+    ]) {
+      expect(shouldInjectPersonalContext(intent, askRoute), intent).toBe(true);
+    }
+  });
+
+  it("skips impersonal questions", () => {
+    for (const intent of [
+      "what is the difference between Flyd and Clicky?",
+      "explain this error",
+      "how does ring attention work",
+    ]) {
+      expect(shouldInjectPersonalContext(intent, askRoute), intent).toBe(false);
+    }
+  });
+
+  it("skips drafts even when they mention the user", () => {
+    expect(shouldInjectPersonalContext("reply saying I can do Thursday", draftRoute)).toBe(false);
+  });
+
+  it("still injects for identity intents on any route", () => {
+    expect(shouldInjectPersonalContext("write my bio", draftRoute)).toBe(true);
   });
 });

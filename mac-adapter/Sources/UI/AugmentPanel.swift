@@ -10,7 +10,9 @@ final class AugmentPanel {
 
     var onOptionSelected: ((Int, String) -> Void)?
 
-    static let panelWidth: CGFloat = 360
+    static let panelWidth: CGFloat = 400
+    static let panelCornerRadius: CGFloat = 16
+    static let borderInset: CGFloat = 1.5
     private static let contentInset: CGFloat = 24
     private static let topPadding: CGFloat = 36
     private static let bottomPadding: CGFloat = 20
@@ -49,6 +51,10 @@ final class AugmentPanel {
         return frames
     }
 
+    static func cardIsInteractive(kind: String, hasOptions: Bool) -> Bool {
+        return kind == "control" || hasOptions
+    }
+
     func show(
         content: String,
         options: [String]?,
@@ -58,7 +64,7 @@ final class AugmentPanel {
         dismiss()
 
         let hasOptions = (options?.count ?? 0) > 0
-        let isInteractive = kind == "control" || hasOptions
+        let isInteractive = Self.cardIsInteractive(kind: kind, hasOptions: hasOptions)
         let panelWidth = Self.panelWidth
         let contentInset = Self.contentInset
         let textWidth = panelWidth - contentInset * 2
@@ -77,50 +83,74 @@ final class AugmentPanel {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = isInteractive
         panel.ignoresMouseEvents = !isInteractive
+        panel.alphaValue = 0
 
         let contentView = panel.contentView!
         contentView.wantsLayer = true
         contentView.layer?.cornerRadius = 16
         contentView.layer?.cornerCurve = .continuous
         contentView.layer?.backgroundColor = NSColor.clear.cgColor
-        contentView.layer?.shadowColor = NSColor.black.cgColor
-        contentView.layer?.shadowOpacity = 0.4
-        contentView.layer?.shadowRadius = 20
-        contentView.layer?.shadowOffset = NSSize(width: 0, height: -8)
         contentView.layer?.masksToBounds = false
 
-        let blur = NSVisualEffectView(frame: contentView.bounds)
+        contentView.layer?.shadowColor = FlydPalette.brassGlow.withAlphaComponent(0.18).cgColor
+        contentView.layer?.shadowOpacity = 1
+        contentView.layer?.shadowRadius = 32
+        contentView.layer?.shadowOffset = NSSize(width: 0, height: 0)
+
+        let clipView = NSView(frame: contentView.bounds)
+        clipView.wantsLayer = true
+        clipView.layer?.cornerRadius = Self.panelCornerRadius
+        clipView.layer?.cornerCurve = .continuous
+        clipView.layer?.masksToBounds = true
+        contentView.addSubview(clipView)
+
+        let blur = NSVisualEffectView(frame: clipView.bounds)
         blur.autoresizingMask = [.width, .height]
         blur.material = .hudWindow
         blur.blendingMode = .behindWindow
         blur.state = .active
         blur.wantsLayer = true
-        blur.layer?.cornerRadius = 16
-        blur.layer?.cornerCurve = .continuous
         blur.layer?.masksToBounds = true
-        contentView.addSubview(blur)
+        clipView.addSubview(blur)
 
-        let tint = NSView(frame: contentView.bounds)
-        tint.autoresizingMask = [.width, .height]
-        tint.wantsLayer = true
-        tint.layer?.cornerRadius = 16
-        tint.layer?.cornerCurve = .continuous
-        tint.layer?.backgroundColor = FlydPalette.ink.withAlphaComponent(0.72).cgColor
-        contentView.addSubview(tint)
+        let gradient = CAGradientLayer()
+        gradient.frame = clipView.bounds
+        gradient.colors = [
+            FlydPalette.inkDeep.withAlphaComponent(0.82).cgColor,
+            FlydPalette.ink.withAlphaComponent(0.78).cgColor,
+        ]
+        gradient.locations = [0, 1]
+        gradient.cornerRadius = Self.panelCornerRadius
+        gradient.cornerCurve = .continuous
+        clipView.layer?.addSublayer(gradient)
 
-        let hairline = NSView(frame: contentView.bounds)
-        hairline.autoresizingMask = [.width, .height]
-        hairline.wantsLayer = true
-        hairline.layer?.cornerRadius = 16
-        hairline.layer?.cornerCurve = .continuous
-        hairline.layer?.borderWidth = 1
-        hairline.layer?.borderColor = FlydPalette.line.cgColor
-        contentView.addSubview(hairline)
+        let border = CAGradientLayer()
+        border.frame = clipView.bounds.insetBy(dx: -1, dy: -1)
+        border.cornerRadius = Self.panelCornerRadius
+        border.cornerCurve = .continuous
+        border.colors = [
+            FlydPalette.brassGlow.withAlphaComponent(0.5).cgColor,
+            FlydPalette.brass.withAlphaComponent(0.15).cgColor,
+        ]
+        border.locations = [0, 0.6]
+        border.startPoint = CGPoint(x: 0.5, y: 1)
+        border.endPoint = CGPoint(x: 0.5, y: 0)
+
+        let borderMask = CAShapeLayer()
+        let borderPath = CGMutablePath()
+        borderPath.addRect(border.bounds)
+        let innerPath = CGMutablePath()
+        innerPath.addRoundedRect(in: border.bounds.insetBy(dx: Self.borderInset, dy: Self.borderInset), cornerWidth: Self.panelCornerRadius - Self.borderInset, cornerHeight: Self.panelCornerRadius - Self.borderInset)
+        borderPath.addPath(innerPath)
+        borderMask.path = borderPath
+        borderMask.fillRule = .evenOdd
+        border.mask = borderMask
+        clipView.layer?.addSublayer(border)
 
         let headerY = panelHeight - 26
 
@@ -132,11 +162,8 @@ final class AugmentPanel {
             tracking: 1.6
         )
         eyebrow.frame = NSRect(x: contentInset, y: headerY, width: 100, height: 14)
-        contentView.addSubview(eyebrow)
+        clipView.addSubview(eyebrow)
 
-        // Non-interactive (click-through) cards omit the close button entirely — a prior
-        // attempt left it in place while ignoresMouseEvents=true, which makes the whole
-        // window transparent at the window-server level, so the button was visible but dead.
         if isInteractive {
             let closeButton = NSButton(frame: NSRect(x: panelWidth - 28, y: headerY, width: 14, height: 14))
             closeButton.title = ""
@@ -152,16 +179,24 @@ final class AugmentPanel {
             closeButton.attributedTitle = NSAttributedString(string: "✕", attributes: closeAttr)
             closeButton.target = self
             closeButton.action = #selector(closeClicked)
-            contentView.addSubview(closeButton)
+            clipView.addSubview(closeButton)
         }
 
-        let label = NSTextField(wrappingLabelWithString: content)
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = FlydPalette.paper.withAlphaComponent(0.88)
+        let label = NSTextField(wrappingLabelWithString: "")
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        label.attributedStringValue = NSAttributedString(
+            string: content,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 14),
+                .foregroundColor: FlydPalette.paper.withAlphaComponent(0.88),
+                .paragraphStyle: paragraphStyle,
+            ]
+        )
         label.backgroundColor = .clear
         label.isBordered = false
         label.frame = NSRect(x: contentInset, y: bottomPadding + optionHeight, width: textWidth, height: labelHeight)
-        contentView.addSubview(label)
+        clipView.addSubview(label)
         contentLabel = label
 
         if let options {
@@ -172,7 +207,7 @@ final class AugmentPanel {
                 button.target = self
                 button.action = #selector(optionClicked(_:))
                 button.tag = index
-                contentView.addSubview(button)
+                clipView.addSubview(button)
                 optionButtons.append(button)
             }
         }
@@ -195,6 +230,20 @@ final class AugmentPanel {
 
         panel.orderFront(nil)
         self.panel = panel
+
+        if !FlydPalette.reduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+
+                let scale = CATransform3DMakeScale(1.02, 1.02, 1)
+                clipView.layer?.transform = scale
+                clipView.layer?.animate(key: "transform", to: CATransform3DIdentity, duration: 0.35)
+            }
+        } else {
+            panel.alphaValue = 1
+        }
     }
 
     func dismiss() {
@@ -229,10 +278,31 @@ final class AugmentPanel {
     /// disagree on where words break, and boundingRect reliably undercounts by a line,
     /// clipping the last line of longer messages.
     private static func contentHeight(_ text: String, width: CGFloat) -> CGFloat {
-        let measuring = NSTextField(wrappingLabelWithString: text)
-        measuring.font = .systemFont(ofSize: 13)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        let measuring = NSTextField(wrappingLabelWithString: "")
+        measuring.attributedStringValue = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 14),
+                .paragraphStyle: paragraphStyle,
+            ]
+        )
         let size = measuring.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
         return min(ceil(size.height), 300)
+    }
+}
+
+private extension CALayer {
+    func animate(key: String, to toValue: Any, duration: CFTimeInterval) {
+        let anim = CABasicAnimation(keyPath: key)
+        anim.fromValue = presentation()?.value(forKey: key) ?? value(forKey: key)
+        anim.toValue = toValue
+        anim.duration = duration
+        anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        anim.fillMode = .backwards
+        add(anim, forKey: key)
+        setValue(toValue, forKey: key)
     }
 }
 
@@ -294,12 +364,17 @@ func showAugmentations(
         activeAugmentPanels.forEach { $0.dismiss() }
         activeAugmentPanels.removeAll()
 
-        guard let screen = NSScreen.main else { return }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.screens.first else { return }
 
-        let mouse = NSEvent.mouseLocation
-        let anchor = NSRect(x: mouse.x, y: mouse.y, width: 0, height: 0)
         let sizes = augmentations.map { AugmentPanel.measure(content: $0.content, options: $0.options) }
-        let frames = AugmentPanel.stackedFrames(sizes: sizes, anchorRect: anchor, screenVisibleFrame: screen.visibleFrame)
+        let totalHeight = sizes.map(\.height).reduce(0, +) + CGFloat(sizes.count - 1) * 12
+
+        let visibleFrame = screen.visibleFrame
+        let centerX = visibleFrame.midX
+        let centerY = visibleFrame.midY + totalHeight / 2
+
+        let anchor = NSRect(x: centerX - AugmentPanel.panelWidth / 2 - 12, y: centerY, width: 0, height: 0)
+        let frames = AugmentPanel.stackedFrames(sizes: sizes, anchorRect: anchor, screenVisibleFrame: visibleFrame)
 
         activeAugmentPanels = zip(augmentations, frames).map { augmentation, frame in
             let augmentPanel = AugmentPanel()

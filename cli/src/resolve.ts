@@ -77,32 +77,127 @@ export interface ManifestRequest {
   };
 }
 
-export interface RetrievedMemory {
-  path: string;
-  excerpt: string;
+export interface RetrievedClaim {
+  claimId: string;
+  content: string;
+  kind: "fact" | "preference" | "constraint" | "procedure" | "decision" | "hypothesis" | "state" | "observation";
+  scope: "global" | "project" | "task" | "session" | "environment";
+  epistemicStatus: string;
+  epistemicConfidence: number;
+  freshness: number;
+  sourceRefs: string[];
+  relevance: number;
+}
+
+export interface ConflictPair {
+  claimA: RetrievedClaim;
+  claimB: RetrievedClaim;
+}
+
+export interface KnowledgeGap {
+  question: string;
+  project?: string;
+  importance: "low" | "medium" | "high";
+  status: "open" | "resolved";
+}
+
+export interface MemoryPack {
+  current: RetrievedClaim[];
+  relevant: RetrievedClaim[];
+  conflicts: ConflictPair[];
+  gaps: KnowledgeGap[];
+  sources: string[];
 }
 
 const MEMORY_RETRIEVAL_TIMEOUT_MS = 1500;
 const MEMORY_EXCERPT_MAX_CHARS = 400;
 const MAX_MEMORIES = 5;
 
-export async function retrieveMemories(intent: string, _environment: EnvironmentCapture): Promise<RetrievedMemory[]> {
-  // Intent only — app name and window title poison the AND-joined lexical
-  // search (one token absent from the archive zeroes the whole query).
+function memoryKind(body: string, metadata: Record<string, unknown>): RetrievedClaim["kind"] {
+  const type = String(metadata.type ?? "");
+  if (type === "preference" || type === "constraint") return type;
+  if (type === "decision" || type === "goal") return "decision";
+  if (type === "project") return "state";
+  return "observation";
+}
+
+function memoryScope(metadata: Record<string, unknown>): RetrievedClaim["scope"] {
+  const scope = String(metadata.scope ?? "");
+  if (scope === "project" || scope === "task" || scope === "session") return scope;
+  if (metadata.type === "project" || metadata.type === "goal") return "project";
+  return "global";
+}
+
+export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture): Promise<MemoryPack> {
   const query = intent.trim();
-  if (!query) return [];
+  const empty: MemoryPack = { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
+  if (!query) return empty;
 
   try {
     const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
     const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
     const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query), timeout]);
-    if (!result) return [];
-    return result.matches.slice(0, MAX_MEMORIES).map((match) => ({
-      path: match.content.path,
-      excerpt: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
-    }));
+    if (!result) return empty;
+
+    const conflictingPaths = new Set<string>();
+    const relevant: RetrievedClaim[] = [];
+    const sources = new Set<string>();
+
+    for (const match of result.matches.slice(0, MAX_MEMORIES)) {
+      const p = match.confidenceProfile;
+      const claim: RetrievedClaim = {
+        claimId: match.id,
+        content: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+        kind: memoryKind(match.content as unknown as Record<string, unknown>, {}),
+        scope: "global",
+        epistemicStatus: match.epistemicStatus,
+        epistemicConfidence: p.epistemicConfidence,
+        freshness: p.freshness,
+        sourceRefs: [match.content.path],
+        relevance: match.confidence,
+      };
+      relevant.push(claim);
+      sources.add(match.content.path);
+
+      if (match.epistemicStatus === "contradictory") {
+        conflictingPaths.add(match.content.path);
+      }
+    }
+
+    const conflicts: ConflictPair[] = [];
+    const contradictory = result.matches.filter(m => m.epistemicStatus === "contradictory");
+    for (let i = 0; i < contradictory.length - 1; i++) {
+      for (let j = i + 1; j < contradictory.length; j++) {
+        conflicts.push({
+          claimA: {
+            claimId: contradictory[i].id,
+            content: contradictory[i].content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+            kind: "observation",
+            scope: "global",
+            epistemicStatus: contradictory[i].epistemicStatus,
+            epistemicConfidence: contradictory[i].confidenceProfile.epistemicConfidence,
+            freshness: contradictory[i].confidenceProfile.freshness,
+            sourceRefs: [contradictory[i].content.path],
+            relevance: contradictory[i].confidence,
+          },
+          claimB: {
+            claimId: contradictory[j].id,
+            content: contradictory[j].content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+            kind: "observation",
+            scope: "global",
+            epistemicStatus: contradictory[j].epistemicStatus,
+            epistemicConfidence: contradictory[j].confidenceProfile.epistemicConfidence,
+            freshness: contradictory[j].confidenceProfile.freshness,
+            sourceRefs: [contradictory[j].content.path],
+            relevance: contradictory[j].confidence,
+          },
+        });
+      }
+    }
+
+    return { current: [], relevant, conflicts, gaps: [], sources: [...sources] };
   } catch {
-    return [];
+    return empty;
   }
 }
 
@@ -112,8 +207,20 @@ export async function retrieveMemories(intent: string, _environment: Environment
 const IDENTITY_INTENT =
   /\b(who am i|about me\b|about myself|my (background|identity|bio|profile|memories|cv|resume)|what do you (know|remember|have) (about|on) me|do you (know|remember) me)\b/i;
 
+const FIRST_PERSON = /\b(i|me|my|mine|myself|we|our|us)\b/i;
+
 export function isIdentityIntent(intent: string): boolean {
   return IDENTITY_INTENT.test(intent);
+}
+
+// Bundles are cheap (~1k tokens) and the prompt instructs silent use, so err
+// broad: any answer-routed question that references the user's own life gets
+// personal context, not just explicit "about me" phrasings. Recall questions
+// like "what am I doing on wednesday?" or "what was that project last year?"
+// depend on this.
+export function shouldInjectPersonalContext(intent: string, route: IntentRoute): boolean {
+  if (isIdentityIntent(intent)) return true;
+  return route.kind === "ask_answer" && FIRST_PERSON.test(intent);
 }
 
 export function buildResolutionPrompt(
@@ -121,7 +228,7 @@ export function buildResolutionPrompt(
   environment: EnvironmentCapture,
   intent: string,
   route: IntentRoute,
-  memories: RetrievedMemory[] = [],
+  memoryPack: MemoryPack = { current: [], relevant: [], conflicts: [], gaps: [], sources: [] },
   hasScreenshot = false,
   personalContext: ContextBundle[] = [],
   consequence?: ConsequenceAssessment
@@ -169,15 +276,52 @@ export function buildResolutionPrompt(
     ? `\nRELEVANT CONTEXT:\n${knowledge.map((k) => `- ${k}`).join("\n")}`
     : "";
 
-  const memoriesBlock = memories.length > 0
-    ? `\nRELEVANT MEMORIES (from the user's personal knowledge base — use silently to inform your reply, never cite paths or say "according to my memory"):\n${memories.map((m) => `- ${m.excerpt.replace(/\s+/g, " ").trim()}`).join("\n")}`
-    : "";
+  const statusLabel = (epistemicStatus: string): string => {
+    const labels: Record<string, string> = {
+      verified: "verified · high confidence",
+      working_assumption: "working · medium confidence",
+      speculative: "speculative · low confidence",
+      questioned: "questioned",
+      unresolved: "unresolved",
+      contradictory: "contradictory · uncertain",
+      dormant: "dormant",
+      episodic: "episodic",
+      observation: "observed",
+      user_confirmed: "user-confirmed · high confidence",
+    };
+    return labels[epistemicStatus] ?? epistemicStatus;
+  };
+
+  const claimLines = memoryPack.relevant.map((c) => {
+    const label = statusLabel(c.epistemicStatus);
+    return `- [${label}] ${c.content}`;
+  });
+
+  const conflictLines = memoryPack.conflicts.map((pair) =>
+    `- ⚠ Competing claims:\n  a) [${statusLabel(pair.claimA.epistemicStatus)}] ${pair.claimA.content}\n  b) [${statusLabel(pair.claimB.epistemicStatus)}] ${pair.claimB.content}\n  CONFLICT — do not assume either. Ask if critical to this response.`
+  );
+
+  const gapLines = memoryPack.gaps.map((g) =>
+    `- [gap · ${g.importance}] ${g.question}`
+  );
+
+  const blocks: string[] = [];
+  if (claimLines.length > 0) {
+    blocks.push(`\nRELEVANT MEMORY (from the user's personal knowledge base — use silently to inform your reply, never cite paths or say "according to my memory"):\n${claimLines.join("\n")}`);
+  }
+  if (conflictLines.length > 0) {
+    blocks.push(`\nCONFLICTING CLAIMS:\n${conflictLines.join("\n")}`);
+  }
+  if (gapLines.length > 0) {
+    blocks.push(`\nKNOWN GAPS:\n${gapLines.join("\n")}`);
+  }
+  const memoriesBlock = blocks.join("");
 
   const personalContextBlock = personalContext.length > 0
     ? `\nPERSONAL CONTEXT (compiled from the user's own memory wiki — authoritative for questions about who the user is, their background, projects, and constraints; use silently, never cite file paths or bundle names):\n${personalContext.map((b) => b.body).join("\n\n")}`
     : "";
 
-  const memoryStatusBlock = memories.length === 0 && personalContext.length === 0
+  const memoryStatusBlock = memoryPack.relevant.length === 0 && personalContext.length === 0
     ? `\nMEMORY STATUS: The user HAS a personal memory system (flyd) and you are connected to it. Retrieval ran for this request and found nothing relevant. If the user asks about themselves or their data, say the memory search found nothing relevant to this question — NEVER claim you lack access to memory or personal information.`
     : "";
 
@@ -531,12 +675,9 @@ export async function resolve(
 
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
-  const [worldState, memories, personalContext, classified] = await Promise.all([
+  const [worldState, memoryPack, classified] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
-    retrieveMemories(intent, environment),
-    isIdentityIntent(intent)
-      ? Promise.resolve().then(() => readContextBundles()).catch(() => [] as ContextBundle[])
-      : Promise.resolve([] as ContextBundle[]),
+    buildMemoryPack(intent, environment),
     classifyRoute(
       intent,
       { appName: environment.application.name, elementRole: environment.focused_element.role },
@@ -548,6 +689,15 @@ export async function resolve(
   const regexRoute = routeIntent(intent, environment, modality);
   const route = classified?.route ?? regexRoute;
   const consequence = classified?.consequence ?? heuristicConsequence;
+
+  let personalContext: ContextBundle[] = [];
+  if (shouldInjectPersonalContext(intent, route)) {
+    try {
+      personalContext = readContextBundles();
+    } catch {
+      // bundles unavailable — retrieval and MEMORY STATUS still cover the prompt
+    }
+  }
 
   if (classified) {
     recordRouteSource("classifier");
@@ -562,7 +712,7 @@ export async function resolve(
   }
   recordLlmResolution();
 
-  const prompt = buildResolutionPrompt(worldState, environment, intent, route, memories, !!manifest.screenshot, personalContext, consequence);
+  const prompt = buildResolutionPrompt(worldState, environment, intent, route, memoryPack, !!manifest.screenshot, personalContext, consequence);
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
 
@@ -575,9 +725,6 @@ export async function resolve(
     resolution = enforceRoutePlacement(resolution, route);
     resolution.environmentRevision = environment_revision;
     resolution.consequence = consequence;
-    if (consequence.class === "consequential") {
-      resolution.requiresConfirmation = true;
-    }
 
     const validationError = validateResolution(resolution);
     if (validationError) {

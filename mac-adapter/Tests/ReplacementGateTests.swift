@@ -3,14 +3,14 @@ import XCTest
 
 final class ReplacementGateTests: XCTestCase {
 
-    func testReplaceTextAlwaysRequiresConfirmation() {
-        XCTAssertTrue(ReplacementGate.requiresConfirmation(
+    func testReplaceTextAlwaysRequiresReplacementConfirmation() {
+        XCTAssertTrue(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_text",
             existingValue: "Hello",
             selectedText: "",
             newText: "Hi"
         ))
-        XCTAssertTrue(ReplacementGate.requiresConfirmation(
+        XCTAssertTrue(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_text",
             existingValue: "",
             selectedText: "",
@@ -20,7 +20,7 @@ final class ReplacementGateTests: XCTestCase {
 
     func testReplaceSelectionGatesOnPercentage() {
         // Replacing 80% of existing content
-        XCTAssertTrue(ReplacementGate.requiresConfirmation(
+        XCTAssertTrue(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "AAAAABBBBB",
             selectedText: "AAAAABBBB",
@@ -28,7 +28,7 @@ final class ReplacementGateTests: XCTestCase {
         ))
 
         // Replacing 50% of existing content
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "AAAAABBBBB",
             selectedText: "AAAAA",
@@ -36,7 +36,7 @@ final class ReplacementGateTests: XCTestCase {
         ))
 
         // Replacing exactly 75% — should NOT trigger (gate is >75%, not >=75%)
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "ABC",
             selectedText: "AB",
@@ -45,7 +45,7 @@ final class ReplacementGateTests: XCTestCase {
     }
 
     func testReplaceSelectionEmptyValue() {
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "",
             selectedText: "anything",
@@ -53,8 +53,8 @@ final class ReplacementGateTests: XCTestCase {
         ))
     }
 
-    func testInsertTextNeverRequiresConfirmation() {
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+    func testInsertTextNeverRequiresReplacementConfirmation() {
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "insert_text",
             existingValue: "huge content here that would be 100% if it were replace",
             selectedText: "",
@@ -63,7 +63,7 @@ final class ReplacementGateTests: XCTestCase {
     }
 
     func testUnknownKindDoesNotRequireConfirmation() {
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "click",
             existingValue: "huge content",
             selectedText: "",
@@ -73,14 +73,14 @@ final class ReplacementGateTests: XCTestCase {
 
     func testEdgeCase75PercentExactly() {
         // 75% exactly — should NOT trigger (strict >75%)
-        XCTAssertFalse(ReplacementGate.requiresConfirmation(
+        XCTAssertFalse(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "ABCD",
             selectedText: "ABC",
             newText: "X"
         ))
         // 76% — should trigger
-        XCTAssertTrue(ReplacementGate.requiresConfirmation(
+        XCTAssertTrue(ReplacementGate.requiresReplacementConfirmation(
             kind: "replace_selection",
             existingValue: "ABCDEFGHIJKLMNOPQRSTUVWXY",
             selectedText: "ABCDEFGHIJKLMNOPQRS",

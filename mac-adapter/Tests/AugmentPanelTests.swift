@@ -47,4 +47,20 @@ final class AugmentPanelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.minY, screen.minY)
         XCTAssertLessThanOrEqual(frame.maxY, screen.maxY)
     }
+
+    func testCardIsInteractiveForControlKind() {
+        XCTAssertTrue(AugmentPanel.cardIsInteractive(kind: "control", hasOptions: false))
+    }
+
+    func testCardIsInteractiveWithOptions() {
+        XCTAssertTrue(AugmentPanel.cardIsInteractive(kind: "explanation", hasOptions: true))
+    }
+
+    func testCardIsNotInteractiveForExplanationWithoutOptions() {
+        XCTAssertFalse(AugmentPanel.cardIsInteractive(kind: "explanation", hasOptions: false))
+    }
+
+    func testCardIsNotInteractiveForAnnotationWithoutOptions() {
+        XCTAssertFalse(AugmentPanel.cardIsInteractive(kind: "annotation", hasOptions: false))
+    }
 }

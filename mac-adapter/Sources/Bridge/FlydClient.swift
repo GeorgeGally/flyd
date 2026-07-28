@@ -114,6 +114,7 @@ final class FlydClient {
         let augmentations: [AugmentPayload]?
         let composeRationale: String?
         let composeUrl: String?
+        let requiresConfirmation: Bool?
     }
 
     struct OperationPayload: Codable {

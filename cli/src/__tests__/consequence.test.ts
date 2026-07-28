@@ -49,8 +49,8 @@ describe("assessConsequence", () => {
     expect(result.verbs).toContain("send");
   });
 
-  it("marks delegation-shaped consequential intents", () => {
-    expect(assessConsequence("deploy the new build").class).toBe("consequential");
+  it("does not mark delegation intents as automatically consequential", () => {
+    expect(assessConsequence("delegate the deploy").class).toBe("benign");
   });
 
   it("always reports heuristic source", () => {

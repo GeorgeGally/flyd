@@ -74,17 +74,11 @@ export function buildDelegationEnvelope(
 
 export function isDelegationIntent(intent: string): boolean {
   const delegationPatterns = [
-    /diagnose\s+(this|the)\s+(crash|error|bug|issue|problem)/i,
-    /fix\s+(this|the)\s+(bug|error|issue|crash)/i,
-    /review\s+(this|the|my)\s+(code|pr|pull\s+request|diff)/i,
-    /implement\s+/i,
-    /build\s+(a|an)\s+/i,
-    /refactor\s+/i,
-    /write\s+(a|an|the)\s+(test|script|function|class|module)/i,
-    /investigate\s+/i,
-    /research\s+/i,
-    /optimize\s+/i,
-    /deploy\s+/i,
+    /delegate\s+/i,
+    /spawn\s+(a|an)\s+agent\s+(to|for)\s+/i,
+    /run\s+(a|an)\s+agent\s+(to|for)\s+/i,
+    /create\s+(a|an)\s+agent\s+(to|for)\s+/i,
+    /do\s+this\s+in\s+the\s+background/i,
   ];
 
   return delegationPatterns.some((p) => p.test(intent));

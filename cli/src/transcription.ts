@@ -14,6 +14,8 @@ const PUSH_TO_TALK_TRANSCRIPTION_FALLBACKS = [
   "gpt-4o-mini-transcribe",
   "whisper-1",
 ];
+const TRANSCRIPTION_PROMPT =
+  "The user's AI assistant is named Flyd (pronounced Floyd, spelled F-l-y-d). The user may ask Flyd questions or give Flyd commands.";
 
 function loadToken(): string | null {
   try { return readFileSync(AUTH_TOKEN_PATH, "utf-8").trim(); } catch { return null; }
@@ -110,6 +112,7 @@ async function checkTranscriptionModelAccess(apiKey: string): Promise<{ ok: bool
     const form = new FormData();
     form.append("model", model);
     form.append("response_format", "json");
+    form.append("prompt", TRANSCRIPTION_PROMPT);
     form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "voice-check.wav");
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -222,6 +225,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket): P
     const form = new FormData();
     form.append("model", model);
     form.append("response_format", "json");
+    form.append("prompt", TRANSCRIPTION_PROMPT);
     form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "voice.wav");
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {

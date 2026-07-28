@@ -8,7 +8,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { memoryGate } from "./memory-gate.js";
-import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings } from "./memory-receipt.js";
+import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings, loadLearnings } from "./memory-receipt.js";
 import { persistReceipt, persistLearnings } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
@@ -26,6 +26,7 @@ import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 const PORT = 4815;
 const HOST = "127.0.0.1";
 const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
+const DELEGATION_ENABLED = process.env.FLYD_DELEGATION_ENABLED === "true";
 
 function loadAuthToken(): string | null {
   try {
@@ -175,7 +176,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       }
     }
 
-    if (isDelegationIntent(parsed.intent)) {
+    if (isDelegationIntent(parsed.intent) && DELEGATION_ENABLED) {
       const worldState = buildIntelligenceState();
       const envelope = buildDelegationEnvelope(
         parsed.intent,
@@ -271,7 +272,8 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
         outcome.status,
         resolved.environmentSummary,
         outcome.correction,
-        gateResult.reason
+        gateResult.reason,
+        gateResult.category
       );
       console.log(`[MemoryGate] REMEMBER (${gateResult.category}/${gateResult.confidence}): ${gateResult.reason}`);
       persistReceipt(receipt);
@@ -291,6 +293,10 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
 }
 
 async function handleDelegationComplete(req: IncomingMessage, res: ServerResponse) {
+  if (!DELEGATION_ENABLED) {
+    sendJson(res, 501, { error: "delegation not enabled", hint: "set FLYD_DELEGATION_ENABLED=true" });
+    return;
+  }
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
@@ -357,6 +363,10 @@ async function handleDelegationComplete(req: IncomingMessage, res: ServerRespons
 }
 
 function handleDelegationCompletions(req: IncomingMessage, res: ServerResponse) {
+  if (!DELEGATION_ENABLED) {
+    sendJson(res, 501, { error: "delegation not enabled", hint: "set FLYD_DELEGATION_ENABLED=true" });
+    return;
+  }
   if (req.method !== "GET") {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
@@ -397,7 +407,7 @@ async function handleTts(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  if (!parsed.text || !parsed.text.trim()) {
+  if (typeof parsed.text !== "string" || !parsed.text.trim()) {
     sendJson(res, 400, { error: "Missing text" });
     return;
   }
@@ -511,6 +521,11 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       serverInstance = server;
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
 
+      const loaded = loadLearnings();
+      if (loaded.beliefs > 0 || loaded.behaviours > 0) {
+        console.log(`[Flyd Core] Loaded ${loaded.beliefs} beliefs, ${loaded.behaviours} behaviours from previous sessions`);
+      }
+
       startTranscriptionServer().then(() => {
         console.log(`[Flyd Core] Transcription server ready`);
       }).catch((err) => {
@@ -536,12 +551,21 @@ export function stopServer(): Promise<void> {
     }
 
     serverInstance.close((err) => {
+      serverInstance = null;
       if (err) {
-        reject(err);
+        console.warn("[Flyd Core] Server close error:", err.message);
+        resolvePromise();
       } else {
-        serverInstance = null;
         console.log("[Flyd Core] Server stopped");
-        stopTranscriptionServer().then(() => stopRealtimeServer()).then(resolvePromise);
+        const fallback = setTimeout(resolvePromise, 5000);
+        stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => {
+          clearTimeout(fallback);
+          resolvePromise();
+        }).catch((stopErr) => {
+          clearTimeout(fallback);
+          console.warn("[Flyd Core] Sub-server stop error:", stopErr?.message ?? stopErr);
+          resolvePromise();
+        });
       }
     });
   });

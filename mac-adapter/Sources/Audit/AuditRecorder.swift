@@ -44,4 +44,32 @@ final class AuditRecorder {
         }
         return message
     }
+
+    func recordLiveSessionStart(sessionId: String) {
+        let filename = "live-\(sessionId.prefix(8))-start.json"
+        let fileURL = directory.appendingPathComponent(filename)
+        let record: [String: String] = [
+            "type": "live_session_start",
+            "sessionId": sessionId,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+        ]
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        try? data.write(to: fileURL)
+    }
+
+    func recordLiveSessionEnd(sessionId: String, duration: TimeInterval, error: String? = nil) {
+        let filename = "live-\(sessionId.prefix(8))-end.json"
+        let fileURL = directory.appendingPathComponent(filename)
+        var record: [String: String] = [
+            "type": "live_session_end",
+            "sessionId": sessionId,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "duration": String(format: "%.1f", duration),
+        ]
+        if let error = error {
+            record["error"] = sanitize(error)
+        }
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        try? data.write(to: fileURL)
+    }
 }

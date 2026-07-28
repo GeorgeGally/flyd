@@ -128,4 +128,49 @@ final class ShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(event, .none)
     }
+
+    private func ctrlPress(_ state: inout ShortcutRoutingState, at time: TimeInterval) -> ShortcutRouteEvent {
+        let result = ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl], state: &state, now: time)
+        _ = ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: time + 0.02)
+        return result
+    }
+
+    func testTripleCtrlTapRoutesToLiveToggle() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), .liveToggle)
+    }
+
+    func testSlowCtrlPressesDoNotToggle() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 1.0), .none)
+    }
+
+    func testQuadCtrlPressFiresOnThird() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), .liveToggle)
+        XCTAssertEqual(ctrlPress(&state, at: 0.45), .none)
+    }
+
+    func testCtrlWithShiftDoesNotCount() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
+        let shiftCtrl = ShortcutRouter.route(
+            eventType: .flagsChanged,
+            flags: [.maskControl, .maskShift],
+            state: &state,
+            now: 0.15
+        )
+        XCTAssertEqual(shiftCtrl, .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), .none)
+    }
 }

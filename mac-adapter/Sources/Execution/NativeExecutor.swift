@@ -14,6 +14,10 @@ final class NativeExecutor {
         activeTargets[ref] = (element, descriptor)
     }
 
+    func registerObservedElement(ref: String, element: AXUIElement, descriptor: TargetDescriptor) {
+        activeTargets[ref] = (element, descriptor)
+    }
+
     func resolveElement(ref: String) -> AXUIElement? {
         guard let stored = activeTargets[ref] else { return nil }
 
@@ -69,14 +73,20 @@ final class NativeExecutor {
         return true
     }
 
-    func requiresConfirmation(kind: String, text: String) -> Bool {
+    func requiresReplacementConfirmation(kind: String, text: String) -> Bool {
         guard let descriptor = currentElementDescriptor(for: "el_01") else { return false }
-        return ReplacementGate.requiresConfirmation(
+        return ReplacementGate.requiresReplacementConfirmation(
             kind: kind,
             existingValue: descriptor.value,
             selectedText: descriptor.selectedText,
             newText: text
         )
+    }
+
+    func verifyObservedTarget(_ target: ObservedTarget) -> Bool {
+        let currentAppId = ApplicationMonitor.shared.foregroundApp?.bundleId ?? ""
+        if currentAppId != target.descriptor.applicationId { return false }
+        return target.descriptor.matchesElement(target.element)
     }
 
     func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint) async -> ExecutionResult {
