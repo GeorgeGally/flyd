@@ -68,7 +68,9 @@ createMemoryReceipt() → persistReceipt() → ~/.flyd/raw/overlay/*.md
     ↓
 provisionalLearn() → in-memory BELIEF_STORE/BEHAVIOUR_STORE
     ↓
-/learnings/synthesize → persistLearnings() → ~/.flyd/raw/overlay/synthesis-*.json
+/learnings/synthesize → persistLearnings() → ~/.flyd/raw/overlay/synthesis-*.md
+     ↓
+loadLearnings() on Core restart → repopulates BELIEF_STORE/BEHAVIOUR_STORE
 ```
 
 `export-state.ts` reads from both pipelines and exports unified evidence for Rails consumption.
@@ -117,3 +119,17 @@ No trigger fires when overlay outcomes suggest a new tension or resolved goal. T
 - Cross-device sync
 - NLP-based intent parsing in the attention loop
 - Automatic goal extraction from overlay outcomes
+
+## Plan 003 — Memory Convergence & Epistemic Integrity
+
+**Shipped 2026-07-28.** All five integration gaps between overlay and daemon are resolved:
+
+| Gap | Status |
+|-----|--------|
+| Receipt schema mismatch | RESOLVED — event-semantic frontmatter + `daysAgo()` fix |
+| Synthesis JSON dead end | RESOLVED — `.md` format + `loadLearnings()` on startup + `promoted: false` anti-corroboration |
+| BELIEF_STORE volatility | RESOLVED — file-backed store loaded on Core restart |
+| `findNewCapturesSince()` non-recursive | RESOLVED — explicit `raw/overlay/` scan |
+| Attention signals → resolver | DEFERRED — tracked for follow-up |
+
+Additionally shipped: epistemic status flattening fix (8 wiki statuses → distinct values), 5-dimension confidence profile (epistemic ≠ freshness ≠ utility), graph neighbor discovery (behind `FLYD_GRAPHDISCOVERY_ENABLED`), Memory Pack preserving metadata to intelligence, contradiction count population, and MemoryEdge operationalization in Rails.

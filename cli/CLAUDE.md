@@ -31,6 +31,35 @@ graph            →  wiki-link graph built from wiki/ (not raw)
 | `time_shape` | `stable`, `current`, `phase-specific`, `episodic` |
 | `life_phase` | `current`, `past`, `future` |
 
+### Epistemic status mapping (wiki status → retrieval boundary)
+
+| Wiki `status` | Epistemic status |
+|---|---|
+| `canon` | `verified` |
+| `working` | `working_assumption` |
+| `speculative` | `speculative` |
+| `questioned` | `questioned` |
+| `unresolved` | `unresolved` |
+| `contradictory` | `contradictory` |
+| `dormant` | `dormant` |
+| `episodic` | `episodic` |
+
+Raw captures → `observation`. Runtime corrections → `user_confirmed`.
+
+### Confidence dimensions
+
+Five independent dimensions on `MemoryMatch.confidenceProfile`:
+
+| Dimension | Meaning | Source |
+|---|---|---|
+| `epistemicConfidence` | How likely is this claim true? | Source authority + corroboration - contradiction. NO age decay. |
+| `freshness` | Is this still current? | `max(0, 1 - daysSince / halfLifeDays)`. Temporal decay lives here. |
+| `interestAffinity` | Does this match active interests? | Interest topic/keyword overlap. |
+| `retrievalUtility` | Has this helped in similar contexts? | 0.5 neutral — deferred until RetrievalTrace. |
+| `associationStrength` | How strong are graph edges? | Max graph edge confidence, 0 if no edges. |
+
+Composite `librarianScore` for ranking: `epistemic * 0.25 + freshness * 0.25 + keywordDensity * 0.25 + interestAffinity * 0.15 + associationStrength * 0.10`
+
 ## Runtime layout (`~/.flyd/`)
 
 ```
@@ -48,6 +77,9 @@ context/                current_identity, active_projects, current_constraints,
 - `walkWikiFiles()` skips `meta/` subdir, `rejected.md`, `index.md`. Files in `meta/` are invisible to retrieval.
 - `PERMANENT_IDENTITY_TYPES` (`education`, `skill`, `award`, `testimonial`) — `life_phase: past` does NOT bucket these as dormant. Career/project with `life_phase: past` → `dormant_context`.
 - Context bundles hard-cap at 12 items (`slice(0, 12)` in `compile-context.ts`).
+- `epistemicConfidence` never includes a `daysSince` term — it derives from source authority + corroboration - contradiction only. `freshness` is the sole temporal dimension.
+- `memoryEpistemicStatus()` maps 8 wiki statuses to distinct values (not flattened). A wiki entry with `status: speculative` produces `epistemicStatus: "speculative"`.
+- Synthesis files carry `promoted: false` and `epistemic_status: inferred` to prevent fake corroboration with source receipts.
 
 ## `frontmatter.ts` — custom mini-YAML, not full YAML
 
