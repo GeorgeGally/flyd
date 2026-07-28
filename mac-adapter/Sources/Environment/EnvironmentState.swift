@@ -46,6 +46,30 @@ struct EnvironmentState {
         case semantic
         case partial
     }
+
+    static func fallback(application: ApplicationInfo?, reason: String) -> EnvironmentState {
+        let appInfo = application ?? ApplicationInfo(bundleId: "unknown", name: "Unknown")
+
+        let focusedElement = FocusedElementInfo(
+            ref: "el_01",
+            role: "AXUnknown",
+            description: reason,
+            value: "",
+            placeholder: "",
+            selectedText: ""
+        )
+
+        return EnvironmentState(
+            application: appInfo,
+            surface: nil,
+            window: WindowInfo(title: appInfo.name, ref: "win_01"),
+            focusedElement: focusedElement,
+            semanticNeighbourhood: nil,
+            selection: "",
+            sufficiency: .partial,
+            timestamp: Date()
+        )
+    }
 }
 
 struct InvocationFingerprint: Codable {

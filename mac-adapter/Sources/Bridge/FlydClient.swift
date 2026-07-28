@@ -14,6 +14,7 @@ final class FlydClient {
         let environment: EnvironmentPayload
         let intent: String
         let modality: String
+        let screenshot: String?
         let invocationFingerprint: FingerprintPayload
 
         enum CodingKeys: String, CodingKey {
@@ -22,6 +23,7 @@ final class FlydClient {
             case environment
             case intent
             case modality
+            case screenshot
             case invocationFingerprint = "invocation_fingerprint"
         }
     }
@@ -112,18 +114,6 @@ final class FlydClient {
         let augmentations: [AugmentPayload]?
         let composeRationale: String?
         let composeUrl: String?
-
-        enum CodingKeys: String, CodingKey {
-            case resolutionId = "resolution_id"
-            case invocationId = "invocation_id"
-            case environmentRevision = "environment_revision"
-            case mode
-            case rationale
-            case operations
-            case augmentations
-            case composeRationale = "compose_rationale"
-            case composeUrl = "compose_url"
-        }
     }
 
     struct OperationPayload: Codable {
@@ -138,24 +128,11 @@ final class FlydClient {
         let placement: String
         let options: [String]?
         let temporalSpan: TemporalSpanPayload?
-
-        enum CodingKeys: String, CodingKey {
-            case kind
-            case content
-            case placement
-            case options
-            case temporalSpan = "temporal_span"
-        }
     }
 
     struct TemporalSpanPayload: Codable {
         let delayMs: Int
         let durationMs: Int
-
-        enum CodingKeys: String, CodingKey {
-            case delayMs = "delay_ms"
-            case durationMs = "duration_ms"
-        }
     }
 
     struct OutcomePayload: Codable {
@@ -163,13 +140,11 @@ final class FlydClient {
         let invocationId: String
         let status: String
         let correction: String?
+    }
 
-        enum CodingKeys: String, CodingKey {
-            case resolutionId = "resolution_id"
-            case invocationId = "invocation_id"
-            case status
-            case correction
-        }
+    struct VoiceStatusResponse: Codable {
+        let ok: Bool
+        let message: String?
     }
 
     func sendManifest(
@@ -178,6 +153,7 @@ final class FlydClient {
         environment: EnvironmentState,
         intent: String,
         modality: String,
+        screenshot: String? = nil,
         fingerprint: InvocationFingerprint
     ) async -> ResolutionResponse? {
         let payload = ManifestPayload(
@@ -186,6 +162,7 @@ final class FlydClient {
             environment: buildEnvironmentPayload(from: environment),
             intent: intent,
             modality: modality,
+            screenshot: screenshot,
             invocationFingerprint: FingerprintPayload(
                 app: fingerprint.app,
                 surface: fingerprint.surface,
@@ -227,6 +204,63 @@ final class FlydClient {
         }
     }
 
+    func waitForHealth(timeoutSeconds: TimeInterval = 4) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+        while Date() < deadline {
+            if await healthCheck() { return true }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        return await healthCheck()
+    }
+
+    func voiceStatus() async -> VoiceStatusResponse? {
+        guard let url = URL(string: "\(baseURL)/voice/status") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 6
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(VoiceStatusResponse.self, from: data)
+        } catch {
+            appendCoreLog("FlydClient /voice/status: request failed — \(error)")
+            return nil
+        }
+    }
+
+    func speak(text: String) async -> Data? {
+        guard let url = URL(string: "\(baseURL)/tts") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+
+        do {
+            request.httpBody = try JSONEncoder().encode(["text": text])
+        } catch {
+            return nil
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                let errorBody = String(data: data, encoding: .utf8) ?? "<empty>"
+                appendCoreLog("FlydClient /tts: server error — \(errorBody.prefix(300))")
+                return nil
+            }
+            return data
+        } catch {
+            appendCoreLog("FlydClient /tts: request failed — \(error)")
+            return nil
+        }
+    }
+
     private func post<T: Codable, R: Codable>(_ path: String, body: T) async -> R? {
         guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
 
@@ -234,11 +268,10 @@ final class FlydClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
+        request.timeoutInterval = 60
 
         do {
             let encoder = JSONEncoder()
-            encoder.keyEncodingStrategy = .convertToSnakeCase
             request.httpBody = try encoder.encode(body)
         } catch {
             print("[FlydClient] Failed to encode request: \(error)")
@@ -247,20 +280,27 @@ final class FlydClient {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else { return nil }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                appendCoreLog("FlydClient \(path): response was not HTTP")
+                return nil
+            }
 
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                return try decoder.decode(R.self, from: data)
+                do {
+                    return try decoder.decode(R.self, from: data)
+                } catch {
+                    let body = String(data: data, encoding: .utf8) ?? "<binary>"
+                    appendCoreLog("FlydClient \(path): decode failed: \(error) — body: \(body.prefix(500))")
+                    return nil
+                }
             }
 
-            if let errorBody = String(data: data, encoding: .utf8) {
-                print("[FlydClient] Server error (\(httpResponse.statusCode)): \(errorBody)")
-            }
+            let errorBody = String(data: data, encoding: .utf8) ?? "<empty>"
+            appendCoreLog("FlydClient \(path): server error (\(httpResponse.statusCode)): \(errorBody.prefix(500))")
             return nil
         } catch {
-            print("[FlydClient] Cannot reach Flyd Core — is it running? (\(error.localizedDescription))")
+            appendCoreLog("FlydClient \(path): request failed — \(error)")
             return nil
         }
     }

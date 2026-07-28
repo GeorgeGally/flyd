@@ -1,0 +1,134 @@
+{
+  "reviewer": "correctness",
+  "findings": [
+    {
+      "id": "corr-001",
+      "severity": "P0",
+      "file": "mac-adapter/Sources/Capture/InvocationStateMachine.swift",
+      "line": 242,
+      "title": "LIVE mode triple-press detection is non-functional — modifier keys don't generate keyDown events",
+      "evidence": "At line 242, the `case .keyDown:` branch checks `event.getIntegerValueField(.keyboardEventKeycode) == Int64(machine.ctrlKeyCode)` (0x3B, left Control key). In macOS, modifier keys generate `CGEventType.flagsChanged` events when pressed, not `CGEventType.keyDown` events. The CGEvent system routes modifier key state transitions exclusively through the flags-changed event type. This means the triple-press detection code on lines 243–267 will never execute. The `case .flagsChanged:` branch at line 269 handles modifier presses correctly, but triple-press logic is absent from it.",
+      "suggestedFix": "Move triple-press detection into the `flagsChanged` handler. Track Control-key-down transitions by maintaining a `wasCtrlDown: Bool` flag. On each transition from up→down, record a timestamp. Then apply the same triple-press window logic. Example: in `flagsChanged`, detect when the Control flag appears in the new flags but wasn't in the previous flags. Ensure `wasPressed` tracking doesn't interfere — create a separate `ctrlWasDown` flag. Also add a filter to reject triple-presses that occur while other modifiers (like Command) are simultaneously pressed, to avoid false positives from standard keyboard shortcuts like Cmd+Ctrl+F."
+    },
+    {
+      "id": "corr-002",
+      "severity": "P1",
+      "file": "mac-adapter/Sources/UI/InvocationPanel.swift",
+      "line": 20,
+      "title": "InvocationPanel.show() called while panel is already showing leaks the localEventMonitor and NSPanel",
+      "evidence": "In `main.swift`, `handleVoiceInvocation()` at line 196 calls `invocationPanel.show()` after `handleInvocation()` already called it at line 276. When show() executes a second time, line 32 creates a new NSPanel (the old one, never dismissed, remains as an orphaned floating window), and line 53 registers a new localEventMonitor, overwriting `self.localEventMonitor`. The prior monitor is never removed. This happens reliably: the user presses ⌃⌥, the text panel appears immediately, then after 300ms the hold timer fires → handleVoiceInvocation() → show() leaks both resources.",
+      "suggestedFix": "In `handleVoiceInvocation()`, check if the panel is already visible (e.g., `if panel != nil`) and only call `updateState(.listening)` instead of `show()`. Alternatively, add a guard at the top of `show()` that calls `dismiss()` first if `self.panel != nil` before creating a new panel. Example: `func show() { dismiss(); /* existing setup */ }`."
+    },
+    {
+      "id": "corr-003",
+      "severity": "P1",
+      "file": "mac-adapter/Sources/Capture/VoiceCapture.swift",
+      "line": 16,
+      "title": "Unprotected read of `isRunning` from audio rendering thread creates a data race",
+      "evidence": "`isRunning` (line 7, a non-atomic Bool property) is written in `start()` (line 35) and `stop()` (line 47), both on the main thread. It is read inside the audio tap callback (line 30: `guard let self = self, self.isRunning else { return }`), which executes on AVAudioEngine's real-time rendering thread. Swift provides no atomicity guarantee for Bool across threads — this is undefined behavior per the Swift memory model. The same pattern exists in `LiveAudioBridge.swift` line 11 (`isActive`) with the callback at line 29–31. While the practical risk of a crash is low, the compiler is permitted to optimize away the load or reorder it with other operations.",
+      "suggestedFix": "Use `os_unfair_lock` or an `AtomicBool` wrapper (from a library or a custom implementation using `OSAtomicCompareAndSwap32`) for both `isRunning` and `isActive`. Alternatively, since the tap callback already uses `[weak self]`, you can rely on `isRunning` only as a hint and move the guard after acquiring the `bufferLock`, or simply pass through the buffer and let the `bufferLock` handle synchronization — the engine being stopped guarantees no more callbacks after `engine.stop()` returns."
+    },
+    {
+      "id": "corr-004",
+      "severity": "P2",
+      "file": "mac-adapter/Sources/main.swift",
+      "line": 408,
+      "title": "TOCTOU between revision check and execution — new invocation can slip operations through stale execution",
+      "evidence": "`processInvocation()` checks `isRevisionCurrent(resolution.environmentRevision)` at line 350 and returns if stale. However, `executeNativeOperations()` at line 366 does not re-verify the revision. Between the revision check and the first `executor.execute()` call, a new invocation can start (another press, LIVE tool call, voice completion), incrementing `currentRevision` to a higher number. `executeNativeOperations()` calls `verifyPreExecution()` (line 408), but that only checks app/window fingerprint equality, not revision currency. If the new invocation targets the same app and window, the fingerprint passes. The old invocation's text operations then execute in the new invocation's context. The same gap exists in the LIVE `onResolveOperations` handler at lines 155–167, which checks `verifyPreExecution()` but not revision currency.",
+      "suggestedFix": "In `executeNativeOperations`, add a revision check before the operations loop: `guard InvocationStateMachine.shared.isRevisionCurrent(resolution.environmentRevision) else { ... send failed outcome; return }`. Similarly, in `handleLiveEnter`'s `onResolveOperations` handler, call `isRevisionCurrent(revision)` using the captured `revision` from line 150 before entering the ops loop. Store the revision alongside the callId to compare after any await points."
+    },
+    {
+      "id": "corr-005",
+      "severity": "P2",
+      "file": "cli/src/server.ts",
+      "line": 351,
+      "title": "stopServer() can hang — WebSocket shutdown errors silently prevent promise resolution",
+      "evidence": "`stopServer()` at line 351 calls `serverInstance.close()`. On success (line 352-360), it chains `stopTranscriptionServer().then(() => stopRealtimeServer()).then(resolvePromise)`. If `stopTranscriptionServer()` rejects, `stopRealtimeServer()` is never called and `resolvePromise` is never invoked — the promise hangs forever. Separately, the SIGTERM handler at line 409 and SIGINT handler at line 415 call `await stopServer()` followed by `process.exit(0)` — if `stopServer()` rejects (throws from the await), the `.exit(0)` line is skipped and the process hangs instead of terminating.",
+      "suggestedFix": "Wrap the chain in a `.catch(() => resolvePromise())` or use `Promise.allSettled`: `Promise.allSettled([stopTranscriptionServer(), stopRealtimeServer()]).then(() => resolvePromise())`. For the signal handlers, wrap `await stopServer()` in a try/catch: `try { await stopServer(); } catch {} finally { process.exit(0); }`."
+    },
+    {
+      "id": "corr-006",
+      "severity": "P2",
+      "file": "mac-adapter/Sources/Capture/InvocationStateMachine.swift",
+      "line": 278,
+      "title": "Hold timer callback races with shortcut release — both fire on main but order is non-deterministic",
+      "evidence": "The hold timer at line 278 fires after 300ms and sets `isVoiceInvocation = true` then dispatches `onShortcutHoldDetected?()` to main. If the user releases the shortcut at the ~300ms boundary, the `flagsChanged` handler fires `onShortcutReleased?()` on main as well — also on the same run loop iteration. The order depends on which queued block executes first. If `onShortcutReleased` fires first, `isVoiceInvocation` is still `false` (timer hasn't executed yet), so `handleVoiceRelease()` is not called. The timer then fires, setting `isVoiceInvocation = true` and calling `handleVoiceInvocation()`. Voice capture starts, but `commitAudio()` was never called. If the timer fires first, both `handleVoiceInvocation()` and `handleVoiceRelease()` execute: voice pipeline starts, then commit is sent immediately — this is the correct path. The problem is the first case: the user holds, starts speaking, but the release happens an instant before the timer triggers — they get the text panel instead of voice.",
+      "suggestedFix": "Add a window after the hold timer that treats a near-simultaneous release as a voice invocation. Store the timestamp of the last `flagsChanged` release. In the hold timer callback, check if release happened within ±50ms. Alternatively, invert the logic: always start a voice pipeline on press, then check 300ms later whether to commit (if released) or continue (if still held). Or store the latest state in an atomic flag structure that both callbacks check."
+    },
+    {
+      "id": "corr-007",
+      "severity": "P3",
+      "file": "mac-adapter/Sources/Execution/NativeExecutor.swift",
+      "line": 46,
+      "title": "Force-cast crash risk in attemptReResolution when AXAPI returns unexpected CFType",
+      "evidence": "At line 45, `return (element as! AXUIElement)` uses a force cast on the result of `AXUIElementCopyAttributeValue`. While `kAXFocusedUIElementAttribute` should always return an `AXUIElement`, a buggy application, sandbox issue, or permission revocation could cause it to return a different type. A force cast here would crash the entire process. The line 39 `(focused as! AXUIElement)` has the same issue.",
+      "suggestedFix": "Replace both with optional casts and return nil on failure: `guard let element = focusedRef as? AXUIElement else { return nil }` and `return element as? AXUIElement`."
+    },
+    {
+      "id": "corr-008",
+      "severity": "P3",
+      "file": "cli/src/server.ts",
+      "line": 117,
+      "title": "environment_revision || 1 treats 0 as falsy — silent fallthrough for any zero revision",
+      "evidence": "Line 117: `environment_revision: parsed.environment_revision || 1`. In JavaScript, `0 || 1` evaluates to 1. While the Swift-side revision counter starts at 1 (line 74 of State.swift: `_currentRevision += 1` before first use), any bug that produces revision 0 (uninitialized, corrupted state, network error mangling the JSON) would be silently corrected to 1, defeating the staleness check at line 350 of main.swift — a resolution with env_revision 0 would be treated as if it had revision 1 and might pass `isRevisionCurrent(1)` when it shouldn't.",
+      "suggestedFix": "Use explicit undefined check: `environment_revision: parsed.environment_revision !== undefined ? parsed.environment_revision : 1`, or better, require the field and reject requests with a missing or zero revision."
+    },
+    {
+      "id": "corr-009",
+      "severity": "P3",
+      "file": "mac-adapter/Sources/UI/InvocationPanel.swift",
+      "line": 53,
+      "title": "Escape key monitor suppresses ALL keyDown events while panel is showing",
+      "evidence": "`NSEvent.addLocalMonitorForEvents(matching: .keyDown)` at line 53 returns `nil` for Escape (keyCode 53) to consume the event, but returns the event unmodified for all other keyDowns. This means all non-Escape key events pass through to the system and the focused application. While this is intentional (the text field needs to receive typed characters), it means keyboard shortcuts in background applications (like Cmd+Tab) are NOT intercepted. This is fine for a floating panel that doesn't need to be modal, but a `NSEvent.addGlobalMonitorForEvents` would also capture events in other apps.",
+      "suggestedFix": "No fix needed for current behavior, but if the panel should block global shortcuts (e.g., prevent accidental Cmd+Q to the underlying app), switch to `addGlobalMonitorForEvents` for Escape detection and use `addLocalMonitorForEvents` only for text input."
+    },
+    {
+      "id": "corr-010",
+      "severity": "P3",
+      "file": "mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift",
+      "line": 31,
+      "title": "sendAudioChunk and commitAudio fire-and-forget — no error handling for failed sends",
+      "evidence": "Lines 37 and 42 use `webSocket?.send(...) { _ in }` with an empty completion handler. If the WebSocket is in a zombie state (half-closed, connection lost but not yet detected), audio chunks and commit signals are silently dropped. The user's voice data is lost, and the transcription server never receives a commit, so `onComplete` never fires. The user sees a perpetual 'Listening...' state with no error feedback. The `receive()` loop at line 62 will eventually detect the failure and call `onError`, but only on the next receive — which may never happen if the socket is write-only broken.",
+      "suggestedFix": "Implement a write-side watchdog: track the last successful send timestamp. On each `send()`, check the error in the completion handler. If any send fails, call `onError` and `disconnect()`. For `sendAudioChunk`, consider batching or using reliable delivery if audio quality matters. For `commitAudio`, retry once before failing."
+    }
+  ],
+  "residual_risks": [
+    {
+      "area": "Single AVAudioEngine instance conflict",
+      "risk": "Both VoiceCapture and LiveAudioBridge create separate AVAudioEngine instances and install taps on `engine.inputNode`. If both are somehow active simultaneously (e.g., voice INVOKED is inflight when triple-press toggles LIVE), the second engine's `installTap` will fail. Both guards (`isRunning` and `isActive`) prevent normal simultaneous use, but the race window in `handleLiveExit()` at lines 181–183 — which stops voiceCapture and liveBridge — could overlap with a transcription completion. The risk is low but worth monitoring.",
+      "confidence": "25"
+    },
+    {
+      "area": "WebSocket reconnection on transient failures",
+      "risk": "The VoiceTranscriptionRelay, LiveAudioBridge, and realtime-session all connect to localhost WS servers. If the Core process restarts (e.g., after the auto-restart at main.swift line 104), the adapter's existing WebSocket connections become stale. There is no reconnection logic — the adapter must be restarted or must detect the disconnect and re-establish. The `receive()` loop in all three relays detects failures through `.failure` cases, but this only triggers `onError` callbacks, not automatic reconnection. The adapter effectively enters a degraded state until the next invocation or manual restart.",
+      "confidence": "50"
+    },
+    {
+      "area": "Authorization token file race",
+      "risk": "server.ts loads `AUTH_TOKEN` at module-init time (line 28: `const AUTH_TOKEN = loadAuthToken()`). It's a singleton loaded once. If the auth token file is written/refreshed after process start, the old `null` token persists — all requests remain blocked. The adapter's `AdapterAuth` creates the token file on first access, but the timing window between adapter start and Core start means `AUTH_TOKEN` could be `null` at load time. Core would block all manifest requests until a manual restart.",
+      "confidence": "60"
+    }
+  ],
+  "testing_gaps": [
+    {
+      "behavior": "Triple-press Control detection for LIVE mode",
+      "reason": "The code path is dead — modifier keys don't route through `keyDown`. No test can pass this currently. A test should exist that verifies: (1) three Control presses within 500ms with no intervening non-modifier keys triggers LIVE, (2) three Control+C combos do NOT trigger LIVE, (3) debounce period prevents re-triggering."
+    },
+    {
+      "behavior": "Panel show() re-entrancy",
+      "reason": "The code doesn't guard against double-show. A test should verify: invoke text mode, then trigger voice hold — the panel should transition to listening state without creating a second window or leaking a monitor."
+    },
+    {
+      "behavior": "Rapid cancellation and re-invocation",
+      "reason": "The flow invoke → cancel → invoke should cleanly reset all state (phase=idle, revision incremented, invalidation check works). A test should verify that after cancel+re-invoke, the old response's revision is rejected and the new invocation connects to the panel correctly."
+    },
+    {
+      "behavior": "Audio pipeline initialization failure",
+      "reason": "If VoiceCapture.start() fails (microphone permission revoked mid-session, audio hardware unavailable), the error should propagate to the panel as an error state. The current code checks `PermissionGate.shared.hasMicrophone` before start but does not handle the case where permission exists but engine.start() throws. The `start()` function calls `onError?` on failure, so propagation exists, but should be tested with a simulated audio engine failure."
+    },
+    {
+      "behavior": "Graceful shutdown of all WS servers",
+      "reason": "SIGTERM/SIGINT should stop HTTP server + transcription WS + realtime WS, even if one of the WS servers fails to stop. Currently the chaining can hang. Test: start all three servers, simulate WS close failure, verify process.exit is still called."
+    }
+  ]
+}

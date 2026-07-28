@@ -18,7 +18,17 @@
 	<true/>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>Flyd uses Accessibility only when invoked so it can understand the focused app, field, and nearby context.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Flyd uses Apple Events only when needed to understand or act in the app you invoke it from.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Flyd uses the microphone only when you start voice input.</string>
+  <key>NSInputMonitoringUsageDescription</key>
+  <string>Flyd uses Input Monitoring only to hear the Control + Option shortcut.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Flyd captures the screen only when you invoke it and app context is not enough.</string>
 </dict>
 </plist>

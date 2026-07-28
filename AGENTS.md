@@ -11,7 +11,7 @@
 
 **Flyd has no primary interface. It has a primary presence.**
 
-Flyd Core is the intelligence runtime — now implemented in TypeScript (`cli/`). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders UI, and executes operations. Rails (`flyd/`) remains as the optional composed-surface renderer and legacy subsystem.
+Flyd Core is the intelligence runtime — implemented in TypeScript (`cli/src/server.ts` + friends). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders UI, and executes operations. Rails (repo root: `app/`, `bin/rails`, `config/`, `db/`, `lib/`) remains as the optional composed-surface renderer and legacy subsystem — it belongs to the separate, older coding-agent platform, not the overlay.
 
 ### Interaction modes
 
@@ -61,29 +61,50 @@ Guardrails:
 
 ## Structure
 
+Start here for the active product (the overlay): `mac-adapter/` and `cli/src/server.ts`.
+Everything under `flyd/`'s Rails tree and `cli/src/runtime/` is the older, secondary
+coding-agent platform — see `README.md`'s "Coding agent platform (legacy)" section.
+
 ```
-flyd/                    # Rails 8 + Hotwire intelligence surface
-  app/                   Rails application and intelligence interfaces
-  bin/rails              Rails CLI
-  config/                App configuration
-  db/                    Database schema and migrations
-  lib/                   LLM providers, subsystems, utilities
-  test/                  Test suite
+flyd/                    # repo root
+  mac-adapter/           Swift Mac overlay adapter (thin OS driver — capture, render, execute)
+    Makefile             build / bundle / install / run — always use `make run`, not `swift run`
+    Sources/              Agent, state machine, privacy, permissions, environment, capture,
+                          execution, bridge, UI, audit, auth, config
+
+  cli/                   TypeScript — dual role, see below
+    src/server.ts         "Flyd Core" — the overlay's backend (ports 4815/4816/4817)
+    src/resolve.ts         Manifest → operations resolution pipeline used by the overlay
+    src/transcription.ts    Voice transcription WS relay used by the overlay
+    src/realtime-session.ts LIVE session WS relay used by the overlay
+    src/runtime/           [legacy] Tasks, planning, routing, workers, controls, verification
+    src/export-state.ts    [legacy] Versioned intelligence-state export
+    package.json           npm dependencies and CLI commands (`npm run core` starts Flyd Core)
 
   docs/solutions/         Documented solutions to past problems (bugs, best practices,
                           workflow patterns) with YAML frontmatter (module, tags, problem_type)
 
-  cli/                   TypeScript personal-agent harness and memory services
-    src/runtime/         Tasks, planning, routing, workers, controls, verification, and recovery
-    src/export-state.ts  Versioned intelligence-state export
-    package.json         npm dependencies and CLI commands
-
-  mac-adapter/           Swift Mac overlay adapter (thin OS driver — capture, render, execute)
-    Sources/             Agent, state machine, privacy, permissions, environment, capture,
-                         execution, bridge, UI, audit, auth, config
+  app/                    [legacy] Rails application and intelligence interfaces
+  bin/rails               [legacy] Rails CLI
+  config/                 [legacy] App configuration
+  db/                     [legacy] Database schema and migrations
+  lib/                    [legacy] LLM providers, subsystems, utilities
+  test/                   [legacy] Test suite
 ```
 
 ## Commands
+
+### Overlay
+
+```bash
+cd mac-adapter && make run           # Build, sign, install to ~/Applications, launch — the only supported way to run it
+cd cli && npm run core                # Run Flyd Core standalone (backend only, no Mac app)
+cd cli && npm test                    # Run CLI tests (also covers Core)
+cd cli && npm run lint
+cd cli && npm run build
+```
+
+### Coding agent platform (legacy)
 
 ```bash
 bin/rails server                     # Start dev server
@@ -112,6 +133,24 @@ cd cli && npm run export-state -- --stdout
 ```
 
 ## Key Files
+
+### Overlay (active product)
+
+- `docs/product/flyd-overlay-prd.md` — authoritative overlay PRD
+- `mac-adapter/Sources/main.swift` — app entry point, invocation flow, panel lifecycle, Core process launch
+- `mac-adapter/Makefile` — build/bundle/install/run; bakes `FlydRepoRoot` into `Info.plist` at build time
+- `mac-adapter/Sources/UI/InvocationPanel.swift` — the "Ask Flyd" command bar (text input)
+- `mac-adapter/Sources/UI/AugmentPanel.swift` — `requires_augment` resolution mode UI
+- `mac-adapter/Sources/Permissions/PermissionsView.swift` — first-run onboarding (permissions, mic test, shortcut practice)
+- `mac-adapter/Sources/Capture/VoiceCapture.swift` — mic capture, level metering, FFT spectrum for voice UI
+- `mac-adapter/Sources/Bridge/FlydClient.swift` — HTTP client to Core's `/manifest` endpoint (port 4815)
+- `mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift` — WS client to Core's transcription relay (port 4816)
+- `mac-adapter/Sources/Auth/AdapterAuth.swift` — generates/reads the shared bearer token at `~/.flyd/overlay/auth-token`
+- `cli/src/server.ts` — Flyd Core: HTTP `/manifest` + WS servers, loads `AUTH_TOKEN` once at startup from the same shared file
+- `cli/src/resolve.ts` — manifest → operations/augmentations/compose resolution logic
+- `cli/src/transcription.ts`, `cli/src/realtime-session.ts` — voice WS relays
+
+### Coding agent platform (legacy)
 
 - `docs/architecture/intelligence-generated-interface.md` — product architecture and interface contract
 - `docs/product/flyd-personal-agent-platform-prd.md` — authoritative personal-agent platform PRD and release sequence
@@ -165,7 +204,66 @@ cd cli && npm run export-state -- --stdout
 - `lib/llm/provider.rb` — LLM provider abstraction
 - `lib/subsystems/` — memory, belief, and behaviour evidence systems
 
+## Overlay Gotchas
+
+### JSON key format — Core sends camelCase, Swift must match
+
+`server.ts:65` uses `JSON.stringify(body)` which produces camelCase. The Swift decoder in `FlydClient.post()` must NOT use `.convertFromSnakeCase` — properties match the JS keys directly. Response types (ResolutionResponse, AugmentPayload, etc.) should omit CodingKeys entirely since property names match server keys.
+
+Manifest REQUEST structs (ManifestPayload, EnvironmentPayload, etc.) DO use explicit CodingKeys mapping to snake_case (`invocationId = "invocation_id"`). The encoder no longer uses `.convertToSnakeCase`; the CodingKeys are the sole source of the key name.
+
+### Main thread safety — processInvocation runs on a background Task
+
+`handleInvocation()` and `handleVoiceInvocation()` create `Task { await processInvocation(...) }`. This runs on a cooperative background thread — NOT the main actor. Every AppKit call inside `processInvocation` must be wrapped in `await MainActor.run {}`:
+
+```swift
+await MainActor.run {
+    invocationPanel.dismiss()
+    state.transition(to: .present)
+}
+```
+
+`state.cancelInvocation()` and `stateMachine.cancel()` are thread-safe (they touch in-memory state, not AppKit). But `invocationPanel.dismiss()` and `invocationPanel.updateState()` are not — they call `NSPanel.orderOut()` and `NSTextField.stringValue =` which require the main thread.
+
+### No deadline task — let FlydClient timeout be the sole timeout
+
+The old `deadlineTask` in `processInvocation` fired after 10s, showed "Timed out — try again", then the error auto-dismiss (8s later) called `activeInvocationTask?.cancel()`. This cancelled the in-flight URLSession `data(for:)` call, producing `NSURLErrorCancelled (-999)` and showing "Cannot reach Flyd" — even though Core was running fine.
+
+Don't add a deadline task. `FlydClient.post()` has `request.timeoutInterval = 60` which is sufficient. The only timeout should be the network timeout.
+
+### AugmentPanel — mouse events, dragging, and multiple cards
+
+- `panel.ignoresMouseEvents` is `false` for interactive kinds (`choice`/`control` — has options or is a control) so their buttons and close button work, and `true` for non-interactive kinds (`explanation`/`annotation`) so the user can click through to the app underneath, per the PRD's click-through requirement. Non-interactive cards **omit the close button entirely** rather than leaving it visible-but-dead — a prior attempt gated the flag on `!hasOptions` without hiding the button, which broke it (`ignoresMouseEvents=true` makes the whole window transparent at the window-server level, so nothing inside it, including the close button, can receive clicks). The fix must hide the button, not just flip the flag.
+- `panel.isMovableByWindowBackground = true` enables dragging the card by its background (green-hued glass area, not the close button) — interactive cards only, since drag is itself a mouse event.
+- Card position must be clamped to `screen.visibleFrame` bounds — otherwise it renders off-screen near the bottom or right edge. `AugmentPanel.measure()` and `AugmentPanel.stackedFrames()` are pure functions (see `AugmentPanelTests.swift`) that compute size and clamped layout independently of any live `NSPanel`/`NSScreen`.
+- Multiple augmentations in one resolution each get their own `AugmentPanel` instance, stacked vertically from a single anchor point (`showAugmentations()` in `AugmentPanel.swift`) — do not reuse one panel instance across a loop calling `.show()` repeatedly. `.show()`'s first line is `dismiss()`, so reusing one instance silently drops every augmentation but the last.
+- Escape key and click-outside global monitor both dismiss the card.
+- 30-second auto-dismiss timer prevents orphaned cards.
+
+### Resolution prompt — general questions must route to augment mode
+
+The prompt in `resolve.ts` `buildResolutionPrompt()` instructs the LLM to use `requires_augment` for general questions (rule 4). Without this rule, the LLM inserts answers into the focused element (e.g., the browser URL bar) via `insert_text` operations. The prompt template includes separate JSON formats for `native`, `requires_augment`, and `requires_compose` modes so the LLM produces valid augmentations with `kind`, `content`, and `placement` fields.
+
+### Build & install cycle
+
+```bash
+make -C mac-adapter install    # builds → signs → copies to ~/Applications → kills old process
+```
+
+The old Core process is also killed (`lsof -ti tcp:4815,4816,4817 | xargs -r kill -9`). User must reopen `~/Applications/Flyd.app` — the adapter auto-launches Core. After kill, Core may take ~2s to restart before requests succeed.
+
+Do NOT run `xcodebuild` from Terminal — it invalidates TCC permissions. Use `make run` or `make install`.
+
 ## Known Issues
+
+### Overlay
+
+- Local dev signing (no Developer ID, no notarization) means every rebuild resets Accessibility/Input Monitoring/Screen Recording/Microphone grants — expected, re-grant after each `make run`.
+- Without `FLYD_MODEL_API_KEY` set in `cli/.env`, `resolve()` falls back to `requires_compose` (opens a browser tab) instead of answering inline — this is a Core config gap, not an adapter bug.
+- GUI-launched processes inherit a minimal `PATH` (no Homebrew, nvm, `.local/bin`) and a `/` working directory — never assume either is set; `main.swift` resolves both explicitly (login shell for `npm`, baked `FlydRepoRoot` for `cli/`).
+- Launching the raw `FlydMacAdapter` binary directly from Terminal (instead of via `open`/`make run`) can make macOS attribute TCC permission checks to the wrong "responsible process," showing grants as revoked even when they aren't — always test via `make run`.
+
+### Coding agent platform (legacy)
 
 - World state is bounded by serialized character count, not model-specific tokens.
 - Large archive queries can be slow while the local QMD index or embedding model warms up.

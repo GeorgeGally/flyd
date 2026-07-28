@@ -1,3 +1,5 @@
+import type { ConsequenceAssessment, HandoffReport } from "./verification-types.js";
+
 export interface NativeOperation {
   target: string;
   kind: "insert_text" | "replace_text" | "replace_selection";
@@ -28,6 +30,9 @@ export interface Resolution {
   composeRationale?: string;
   composeUrl?: string;
   delegationEnvelope?: Record<string, unknown>;
+  consequence?: ConsequenceAssessment;
+  requiresConfirmation?: boolean;
+  handoff?: HandoffReport;
 }
 
 export interface ResolutionOutcome {
@@ -90,6 +95,20 @@ export function validateResolution(resolution: Resolution): ResolutionError | nu
 
   if (resolution.mode === "requires_compose" && !resolution.composeRationale) {
     return { error: "Compose mode requires a rationale", code: "invalid_mode" };
+  }
+
+  // Consequential native resolutions must carry the confirmation flag so the
+  // gate cannot be silently dropped by a later refactor. The adapter decides
+  // how (or whether) to render confirmation; Core decides when it applies.
+  if (
+    resolution.consequence?.class === "consequential" &&
+    resolution.mode === "native" &&
+    resolution.requiresConfirmation !== true
+  ) {
+    return {
+      error: "Consequential native resolution missing requiresConfirmation",
+      code: "invalid_mode",
+    };
   }
 
   return null;

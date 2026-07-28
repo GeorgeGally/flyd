@@ -74,6 +74,47 @@ const lexicalDefaults: BrainRetrievalDependencies = {
   searchRaw: async (query, keywords) => buildRawEntries(await searchLexical(query, QMD_RAW_COLLECTION), keywords),
 };
 
+const FANOUT_KEYWORD_CAP = 4;
+
+export function mergeSearchResults(
+  batches: Array<Array<{ path: string; score: number }>>,
+): Array<{ path: string; score: number }> {
+  const byPath = new Map<string, number>();
+  for (const batch of batches) {
+    for (const result of batch) {
+      const existing = byPath.get(result.path);
+      if (existing === undefined || result.score > existing) byPath.set(result.path, result.score);
+    }
+  }
+  return [...byPath.entries()]
+    .map(([path, score]) => ({ path, score }))
+    .sort((a, b) => b.score - a.score);
+}
+
+// QMD's lexical search joins every token with AND, so one non-matching token
+// (a stop word, an app name) zeroes the whole query. When the full query
+// misses, retry each extracted keyword separately and merge.
+export function createResilientLexicalSearchRaw(
+  searchFn: (query: string, collection: string, limit?: number) => Promise<Array<{ path: string; score: number }>> = searchLexical,
+  buildEntries: typeof buildRawEntries = buildRawEntries,
+): BrainRetrievalDependencies["searchRaw"] {
+  return async (query, keywords) => {
+    const primary = buildEntries(await searchFn(query, QMD_RAW_COLLECTION), keywords);
+    if (primary.length > 0) return primary;
+    if (keywords.length === 0) return primary;
+
+    const batches = await Promise.all(
+      keywords.slice(0, FANOUT_KEYWORD_CAP).map((kw) => searchFn(kw, QMD_RAW_COLLECTION)),
+    );
+    return buildEntries(mergeSearchResults(batches), keywords, 1);
+  };
+}
+
+const resilientLexicalDefaults: BrainRetrievalDependencies = {
+  ...defaults,
+  searchRaw: createResilientLexicalSearchRaw(),
+};
+
 function stableId(path: string, body: string): string {
   const digest = createHash("sha256").update(`${path}\0${body}`).digest("hex").slice(0, 16);
   return `memory_match:${digest}`;
@@ -123,6 +164,10 @@ export async function retrieveBrainEvidence(
 
 export async function retrieveLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
   return retrieveBrainEvidence(query, lexicalDefaults);
+}
+
+export async function retrieveResilientLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
+  return retrieveBrainEvidence(query, resilientLexicalDefaults);
 }
 
 export async function retrieveRankedLexicalBrainEvidence(query: string): Promise<RankedBrainRetrieval> {

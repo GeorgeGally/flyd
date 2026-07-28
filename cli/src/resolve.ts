@@ -1,8 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./lib/llm.js";
+import { readContextBundles, type ContextBundle } from "./lib/context-bundles.js";
 import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
-import type { Resolution, NativeOperation, ResolutionMode } from "./resolve-types.js";
+import type { Resolution, NativeOperation, ResolutionMode, AugmentOperation } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
+import { assessConsequence } from "./consequence.js";
+import { classifyRoute, type RouterConfig } from "./router.js";
+import type { ConsequenceAssessment } from "./verification-types.js";
+import {
+  recordDeterministicResolution,
+  recordLlmResolution,
+  recordRouteSource,
+  recordRouteDivergence,
+  recordConsequentialFlagged,
+} from "./overlay-metrics.js";
 
 interface EnvironmentCapture {
   application: {
@@ -34,12 +45,30 @@ interface EnvironmentCapture {
   sufficiency: "semantic" | "partial";
 }
 
+export type IntentRouteKind = "dictate_insert" | "draft_insert" | "ask_answer";
+export type IntentPlacement = "insert_at_cursor" | "answer_panel";
+export type IntentScene =
+  | "clean_dictation"
+  | "email_reply"
+  | "support_reply"
+  | "code_review_comment"
+  | "meeting_note"
+  | "concise_answer";
+
+export interface IntentRoute {
+  kind: IntentRouteKind;
+  placement: IntentPlacement;
+  scene: IntentScene;
+}
+
 export interface ManifestRequest {
   invocation_id: string;
   environment_revision: number;
   environment: EnvironmentCapture;
   intent: string;
   modality: "text" | "voice";
+  /** Base64-encoded JPEG of the user's screen at invocation time (no data: prefix). */
+  screenshot?: string;
   invocation_fingerprint: {
     app: string;
     surface?: string;
@@ -48,10 +77,54 @@ export interface ManifestRequest {
   };
 }
 
-function buildResolutionPrompt(
+export interface RetrievedMemory {
+  path: string;
+  excerpt: string;
+}
+
+const MEMORY_RETRIEVAL_TIMEOUT_MS = 1500;
+const MEMORY_EXCERPT_MAX_CHARS = 400;
+const MAX_MEMORIES = 5;
+
+export async function retrieveMemories(intent: string, _environment: EnvironmentCapture): Promise<RetrievedMemory[]> {
+  // Intent only — app name and window title poison the AND-joined lexical
+  // search (one token absent from the archive zeroes the whole query).
+  const query = intent.trim();
+  if (!query) return [];
+
+  try {
+    const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
+    const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
+    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query), timeout]);
+    if (!result) return [];
+    return result.matches.slice(0, MAX_MEMORIES).map((match) => ({
+      path: match.content.path,
+      excerpt: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Modeled on MEMORY_OVERVIEW_QUESTION in runtime/shared-memory-retrieval.ts,
+// but scoped to the overlay path: questions about the user themselves get the
+// compiled context bundles injected on top of normal retrieval.
+const IDENTITY_INTENT =
+  /\b(who am i|about me\b|about myself|my (background|identity|bio|profile|memories|cv|resume)|what do you (know|remember|have) (about|on) me|do you (know|remember) me)\b/i;
+
+export function isIdentityIntent(intent: string): boolean {
+  return IDENTITY_INTENT.test(intent);
+}
+
+export function buildResolutionPrompt(
   worldState: IntelligenceState,
   environment: EnvironmentCapture,
-  intent: string
+  intent: string,
+  route: IntentRoute,
+  memories: RetrievedMemory[] = [],
+  hasScreenshot = false,
+  personalContext: ContextBundle[] = [],
+  consequence?: ConsequenceAssessment
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -71,7 +144,62 @@ function buildResolutionPrompt(
   const goals = worldState.goals.map((g) => g.content).filter(Boolean).slice(0, 3);
   const tensions = worldState.tensions.map((t) => t.content).filter(Boolean).slice(0, 2);
 
+  const summarizeEntry = (entry: Record<string, unknown>): string => {
+    const s = entry as Record<string, unknown>;
+    return String(s.description || s.title || s.name || s.summary || s.value || s.label || "");
+  };
+
+  const profile = worldState.profile
+    .map((p) => summarizeEntry(p.content))
+    .filter(Boolean)
+    .filter((s) => !/\d+\s+(wiki|graph|edge|page|node|file|entry|entries)/i.test(s))
+    .slice(0, 5);
+
+  const knowledge = worldState.knowledge
+    .map((k) => summarizeEntry(k.content))
+    .filter(Boolean)
+    .filter((s) => !/\d+\s+(wiki|graph|edge|page|node|file|entry|entries)/i.test(s))
+    .slice(0, 3);
+
+  const profileBlock = profile.length > 0
+    ? `\nABOUT THE USER:\n${profile.map((p) => `- ${p}`).join("\n")}`
+    : "";
+
+  const knowledgeBlock = knowledge.length > 0
+    ? `\nRELEVANT CONTEXT:\n${knowledge.map((k) => `- ${k}`).join("\n")}`
+    : "";
+
+  const memoriesBlock = memories.length > 0
+    ? `\nRELEVANT MEMORIES (from the user's personal knowledge base — use silently to inform your reply, never cite paths or say "according to my memory"):\n${memories.map((m) => `- ${m.excerpt.replace(/\s+/g, " ").trim()}`).join("\n")}`
+    : "";
+
+  const personalContextBlock = personalContext.length > 0
+    ? `\nPERSONAL CONTEXT (compiled from the user's own memory wiki — authoritative for questions about who the user is, their background, projects, and constraints; use silently, never cite file paths or bundle names):\n${personalContext.map((b) => b.body).join("\n\n")}`
+    : "";
+
+  const memoryStatusBlock = memories.length === 0 && personalContext.length === 0
+    ? `\nMEMORY STATUS: The user HAS a personal memory system (flyd) and you are connected to it. Retrieval ran for this request and found nothing relevant. If the user asks about themselves or their data, say the memory search found nothing relevant to this question — NEVER claim you lack access to memory or personal information.`
+    : "";
+
+  const screenshotBlock = hasScreenshot
+    ? `\nSCREEN: The attached image is the user's full screen at the moment they invoked you. Read it. Infer what they are working on, what is visible, and what they most likely mean — even when no text is selected and the focused element is empty.`
+    : "";
+
+  const sceneInstruction = scenePrompt(route.scene);
+
+  const consequenceBlock = consequence?.class === "consequential"
+    ? `\nCONSEQUENCE NOTE: Fulfilling this intent involves an action beyond the focused text field (${consequence.verbs.join(", ") || "external action"}). You DRAFT; you never perform that action — the user does. Never write copy implying the action already happened ("Sent!", "Deployed", "Deleted"). Produce the draft or the answer, nothing more.`
+    : "";
+
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
+
+The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}
+
+ROUTE DECISION:
+- Kind: ${route.kind}
+- Placement: ${route.placement}
+- Scene: ${route.scene}
+- Writing instruction: ${sceneInstruction}${consequenceBlock}
 
 CURRENT CONTEXT:
 - Application: ${app} (${bundleId})
@@ -90,32 +218,66 @@ ${tensions.length > 0 ? tensions.map((t) => `- ${t}`).join("\n") : "- No active 
 
 RESOLUTION RULES:
 1. You MUST target only the focused element ref "el_01". Never invent targets.
-2. Safe operations only: insert_text, replace_text, replace_selection.
+2. The ROUTE DECISION is authoritative. If placement is "insert_at_cursor", use mode "native" with insert_text. If placement is "answer_panel", use mode "requires_augment".
 3. Maximum 2000 characters per operation.
-4. If you can resolve the intent with the available context, return mode "native" with operations.
-5. If the intent would benefit from showing options/explanations but can be resolved, return mode "native".
-6. If the intent requires showing choices or explanations that cannot fit in text operations, return mode "requires_augment" with augmentations.
-7. If the intent genuinely requires a composed surface (investigation, comparison, multi-step workflow), return mode "requires_compose" with a rationale. This should be rare.
-8. If the selection is empty and the intent is to rewrite something, use replace_text on the full element value.
-9. If selection is non-empty and intent is to rewrite/replace, use replace_selection.
-10. For replies (email, chat), infer the reply content and use insert_text.
+4. If the intent is a GENERAL QUESTION that is unrelated to editing the focused element, return mode "requires_augment" with a concise answer. NEVER insert general knowledge answers into the focused element.
+5. If the intent requires showing choices or explanations that cannot fit in text operations, return mode "requires_augment" with augmentations.
+6. If the intent genuinely requires a composed surface (investigation, comparison, multi-step workflow), return mode "requires_compose" with a rationale. This should be rare.
+7. If the selection is empty and the intent is to rewrite something, use replace_text on the full element value.
+8. If selection is non-empty and intent is to rewrite/replace, use replace_selection.
+9. For replies (email, chat), infer the reply content and use insert_text.
+10. Drafts and replies should be concise, specific, and human. Avoid generic assistant preambles, database-like summaries, and overexplaining.
+11. Do not expose a translate mode. If the user asks for translated wording, treat it as draft text to insert.
+12. NEVER narrate your own context visibility. Forbidden: "I can see you are using X", "no text is selected", "I don't have a focused element", "if you select some code". An empty selection is NOT a reason to decline — answer the intent from the screen image, memories, and context. Only if the intent is genuinely unanswerable, ask ONE specific clarifying question instead.
 
 Respond with ONLY a JSON object in this format (no other text):
 
+For native (text editing) mode:
 {
   "resolution_id": "<uuid>",
   "invocation_id": "<echo from request>",
-  "mode": "native" | "requires_augment" | "requires_compose",
-  "rationale": "<one sentence explaining what you're doing>",
-  "operations": [
-    { "target": "el_01", "kind": "insert_text" | "replace_text" | "replace_selection", "text": "<content>" }
-  ],
-  "augmentations": [],
-  "compose_rationale": null
+  "mode": "native",
+  "rationale": "<one sentence>",
+  "operations": [{ "target": "el_01", "kind": "insert_text", "text": "<content>" }]
+}
+
+For augment (show answer to user) mode:
+{
+  "resolution_id": "<uuid>",
+  "invocation_id": "<echo from request>",
+  "mode": "requires_augment",
+  "rationale": "<one sentence>",
+  "augmentations": [{ "kind": "explanation", "content": "<answer text>", "placement": "cursor" }]
+}
+
+For compose (needs full surface) mode:
+{
+  "resolution_id": "<uuid>",
+  "invocation_id": "<echo from request>",
+  "mode": "requires_compose",
+  "rationale": "<one sentence>",
+  "composeRationale": "<why a composed surface is needed>"
 }`;
 }
 
-function parseResolutionResponse(
+function scenePrompt(scene: IntentScene): string {
+  switch (scene) {
+    case "email_reply":
+      return "Write a concise, specific email or chat reply. Match the thread context when available. No assistant preamble.";
+    case "support_reply":
+      return "Write a helpful support reply with acknowledgement and clear next steps. Do not promise facts not provided.";
+    case "code_review_comment":
+      return "Write a concise engineering comment that is specific, actionable, and respectful.";
+    case "meeting_note":
+      return "Write clear meeting-style notes with decisions and action items only if they were stated.";
+    case "concise_answer":
+      return "Answer directly in natural language. Keep it short unless the user asks for detail.";
+    case "clean_dictation":
+      return "Lightly clean dictation for readability while preserving the user's wording and meaning.";
+  }
+}
+
+export function parseResolutionResponse(
   raw: string,
   invocationId: string
 ): Resolution {
@@ -129,7 +291,7 @@ function parseResolutionResponse(
   const parsed = JSON.parse(jsonStr);
 
   return {
-    resolutionId: parsed.resolution_id || randomUUID(),
+    resolutionId: parsed.resolution_id || parsed.resolutionId || randomUUID(),
     invocationId,
     environmentRevision: 0,
     mode: (parsed.mode as ResolutionMode) || "native",
@@ -141,9 +303,86 @@ function parseResolutionResponse(
           text: (op.text as string) || "",
         }))
       : [],
-    augmentations: parsed.augmentations || [],
-    composeRationale: parsed.compose_rationale || undefined,
+    augmentations: normalizeAugmentations(parsed.augmentations),
+    composeRationale: parsed.compose_rationale || parsed.composeRationale || undefined,
   };
+}
+
+export function enforceRoutePlacement(resolution: Resolution, route: IntentRoute): Resolution {
+  if (route.placement === "answer_panel" && resolution.mode === "native") {
+    const content = firstOperationText(resolution) || resolution.rationale;
+    return {
+      ...resolution,
+      mode: "requires_augment",
+      rationale: resolution.rationale || "Answering in Flyd.",
+      operations: [],
+      augmentations: [{ kind: "explanation", content, placement: "cursor" }],
+      composeRationale: undefined,
+      composeUrl: undefined,
+    };
+  }
+
+  if (route.placement === "insert_at_cursor" && resolution.mode === "requires_augment") {
+    const text = firstAugmentationText(resolution) || resolution.rationale;
+    return {
+      ...resolution,
+      mode: "native",
+      rationale: resolution.rationale || "Writing into the focused field.",
+      operations: [{ target: "el_01", kind: "insert_text", text }],
+      augmentations: [],
+      composeRationale: undefined,
+      composeUrl: undefined,
+    };
+  }
+
+  return resolution;
+}
+
+function firstOperationText(resolution: Resolution): string {
+  return resolution.operations
+    .map((operation) => operation.text.trim())
+    .find(Boolean) || "";
+}
+
+function firstAugmentationText(resolution: Resolution): string {
+  return (resolution.augmentations || [])
+    .map((augmentation) => augmentation.content.trim())
+    .find(Boolean) || "";
+}
+
+function normalizeAugmentations(value: unknown): AugmentOperation[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: AugmentOperation[] = [];
+
+  for (const augmentation of value) {
+    if (!augmentation || typeof augmentation !== "object") continue;
+    const entry = augmentation as Record<string, unknown>;
+    const content = String(entry.content || entry.text || "").trim();
+    if (!content) continue;
+
+    const rawKind = String(entry.kind || entry.type || "explanation");
+    const kind: AugmentOperation["kind"] =
+      rawKind === "choice" || rawKind === "annotation" || rawKind === "control"
+        ? rawKind
+        : "explanation";
+
+    const rawPlacement = String(entry.placement || "cursor");
+    const placement: AugmentOperation["placement"] =
+      rawPlacement === "beside_selection" || rawPlacement === "below_element" || rawPlacement === "cursor"
+        ? rawPlacement
+        : "cursor";
+
+    const normalizedAugmentation: AugmentOperation = { kind, content, placement };
+    if (Array.isArray(entry.options)) {
+      normalizedAugmentation.options = entry.options
+        .filter((option): option is string => typeof option === "string")
+        .slice(0, 4);
+    }
+    normalized.push(normalizedAugmentation);
+  }
+
+  return normalized;
 }
 
 const QUESTION_STARTS = /^(what|how|why|who|when|where|can|could|shall|should|is|are|do|does|did|will|would|which|whose|whom)\b/i;
@@ -155,6 +394,53 @@ const COMMAND_PREFIXES = [
   "run", "execute", "build", "open", "close",
 ];
 
+const ANSWER_PREFIXES = /^(tell me|show me|explain|describe|summarize|analyze|search|find|look up|look for)\b/i;
+const DRAFT_PREFIXES = /^(reply|answer|respond|draft|compose|write|send|rewrite|rephrase|paraphrase|fix|correct|edit|change|replace|translate)\b/i;
+const SUPPORT_CONTEXT = /\b(support|customer|ticket|refund|bug report|issue)\b/i;
+const CODE_CONTEXT = /\b(code review|pull request|pr|diff|commit|bug|implementation)\b/i;
+const MEETING_CONTEXT = /\b(meeting|standup|notes|action items|decisions)\b/i;
+
+export function routeIntent(
+  intent: string,
+  env: EnvironmentCapture,
+  modality: ManifestRequest["modality"]
+): IntentRoute {
+  const text = intent.trim();
+  const lower = text.toLowerCase();
+
+  if (QUESTION_STARTS.test(lower) && !DRAFT_PREFIXES.test(lower)) {
+    return { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" };
+  }
+
+  if (ANSWER_PREFIXES.test(lower)) {
+    return { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" };
+  }
+
+  if (DRAFT_PREFIXES.test(lower)) {
+    return { kind: "draft_insert", placement: "insert_at_cursor", scene: draftScene(intent, env) };
+  }
+
+  if (modality === "voice" && isPlainDictation(intent, env)) {
+    return { kind: "dictate_insert", placement: "insert_at_cursor", scene: "clean_dictation" };
+  }
+
+  return { kind: "draft_insert", placement: "insert_at_cursor", scene: draftScene(intent, env) };
+}
+
+function draftScene(intent: string, env: EnvironmentCapture): IntentScene {
+  const haystack = [
+    intent,
+    env.application.name,
+    env.focused_element.description,
+    env.semantic_neighbourhood?.parent_type || "",
+  ].join(" ");
+
+  if (CODE_CONTEXT.test(haystack)) return "code_review_comment";
+  if (SUPPORT_CONTEXT.test(haystack)) return "support_reply";
+  if (MEETING_CONTEXT.test(haystack)) return "meeting_note";
+  return "email_reply";
+}
+
 function isPlainDictation(intent: string, env: EnvironmentCapture): boolean {
   const text = intent.trim();
   if (!text) return false;
@@ -163,7 +449,7 @@ function isPlainDictation(intent: string, env: EnvironmentCapture): boolean {
   if (QUESTION_STARTS.test(lower)) return false;
 
   for (const prefix of COMMAND_PREFIXES) {
-    if (lower.startsWith(prefix)) return false;
+    if (new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(lower)) return false;
   }
 
   if (env.focused_element.selected_text && env.focused_element.selected_text.length > 0) {
@@ -220,28 +506,78 @@ export async function resolve(
   manifest: ManifestRequest,
   model?: string,
   apiKey?: string,
-  baseURL?: string
+  baseURL?: string,
+  router?: RouterConfig | null
 ): Promise<Resolution> {
-  const { invocation_id, environment_revision, environment, intent } = manifest;
+  const { invocation_id, environment_revision, environment, intent, modality } = manifest;
 
-  for (const pattern of DETERMINISTIC_PATTERNS) {
-    if (pattern.match(intent, environment)) {
-      const resolution = pattern.resolve(intent, environment, invocation_id);
-      resolution.environmentRevision = environment_revision;
-      const validationError = validateResolution(resolution);
-      if (!validationError) return resolution;
+  // Heuristic consequence check gates the deterministic tier. The patterns
+  // below only insert literal text, but consequential intents must never
+  // skip model review — cheap insurance before operation kinds grow.
+  const heuristicConsequence = assessConsequence(intent);
+  if (heuristicConsequence.class === "benign") {
+    for (const pattern of DETERMINISTIC_PATTERNS) {
+      if (pattern.match(intent, environment)) {
+        const resolution = pattern.resolve(intent, environment, invocation_id);
+        resolution.environmentRevision = environment_revision;
+        const validationError = validateResolution(resolution);
+        if (!validationError) {
+          recordDeterministicResolution();
+          return resolution;
+        }
+      }
     }
   }
 
-  const worldState = buildIntelligenceState();
-  const prompt = buildResolutionPrompt(worldState, environment, intent);
+  // Classifier latency hides under the memory-retrieval budget; regex
+  // routing is the fallback, not the primary.
+  const [worldState, memories, personalContext, classified] = await Promise.all([
+    Promise.resolve().then(buildIntelligenceState),
+    retrieveMemories(intent, environment),
+    isIdentityIntent(intent)
+      ? Promise.resolve().then(() => readContextBundles()).catch(() => [] as ContextBundle[])
+      : Promise.resolve([] as ContextBundle[]),
+    classifyRoute(
+      intent,
+      { appName: environment.application.name, elementRole: environment.focused_element.role },
+      modality,
+      router ?? null
+    ),
+  ]);
+
+  const regexRoute = routeIntent(intent, environment, modality);
+  const route = classified?.route ?? regexRoute;
+  const consequence = classified?.consequence ?? heuristicConsequence;
+
+  if (classified) {
+    recordRouteSource("classifier");
+    if (classified.route.kind !== regexRoute.kind || classified.route.placement !== regexRoute.placement) {
+      recordRouteDivergence();
+    }
+  } else {
+    recordRouteSource(router ? "regex_fallback" : "regex_unconfigured");
+  }
+  if (consequence.class === "consequential") {
+    recordConsequentialFlagged();
+  }
+  recordLlmResolution();
+
+  const prompt = buildResolutionPrompt(worldState, environment, intent, route, memories, !!manifest.screenshot, personalContext, consequence);
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
 
   try {
-    const response = await query(prompt, model, systemPrompt, apiKey, baseURL);
-    const resolution = parseResolutionResponse(response, invocation_id);
+    const response = await query(prompt, model, systemPrompt, apiKey, baseURL, {
+      json: true,
+      images: manifest.screenshot ? [manifest.screenshot] : undefined,
+    });
+    let resolution = parseResolutionResponse(response, invocation_id);
+    resolution = enforceRoutePlacement(resolution, route);
     resolution.environmentRevision = environment_revision;
+    resolution.consequence = consequence;
+    if (consequence.class === "consequential") {
+      resolution.requiresConfirmation = true;
+    }
 
     const validationError = validateResolution(resolution);
     if (validationError) {

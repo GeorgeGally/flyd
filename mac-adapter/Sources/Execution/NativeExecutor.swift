@@ -99,6 +99,7 @@ final class NativeExecutor {
                let priorValue = valueRef as? String {
                 UndoManager.shared.register(
                     target: descriptor,
+                    element: element,
                     previousValue: priorValue,
                     operationKind: operation.kind,
                     targetRef: operation.target,
@@ -124,22 +125,13 @@ final class NativeExecutor {
         guard undo.target.matchesReality(currentApp: ApplicationMonitor.shared) else {
             return false
         }
-
-        guard let stored = activeTargets[undo.targetRef] else {
+        guard undo.target.matchesElement(undo.element) else {
             return false
         }
 
         switch undo.operationKind {
-        case "replace_text", "replace_selection":
-            let setResult = AXUIElementSetAttributeValue(stored.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
-            if setResult == .success {
-                UndoManager.shared.consume(for: invocationId)
-                return true
-            }
-            return false
-
-        case "insert_text":
-            let setResult = AXUIElementSetAttributeValue(stored.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
+        case "replace_text", "replace_selection", "insert_text":
+            let setResult = AXUIElementSetAttributeValue(undo.element, kAXValueAttribute as CFString, undo.previousValue as CFTypeRef)
             if setResult == .success {
                 UndoManager.shared.consume(for: invocationId)
                 return true

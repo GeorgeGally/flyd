@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bucketFor, scoreMatch, bundleBody } from "../compile-context.js";
+import { bucketFor, scoreMatch, bundleBody, normalizeConfidence, normalizeStatus } from "../compile-context.js";
 import type { MemoryMatch } from "../../lib/wiki.js";
 
 function makeMatch(
@@ -86,6 +86,72 @@ describe("bucketFor", () => {
   it("defaults to current_identity", () => {
     const m = makeMatch({ type: "person" });
     expect(bucketFor(m)).toBe("current_identity");
+  });
+
+  it("excludes topics and conversations folders from all bundles", () => {
+    expect(bucketFor(makeMatch({ type: "topic" }), "topics/memex.md")).toBeNull();
+    expect(bucketFor(makeMatch({ type: "conversation-index" }), "conversations/20260721.md")).toBeNull();
+  });
+
+  it("routes projects and goals folders to active_projects even for topic-typed pages", () => {
+    expect(bucketFor(makeMatch({ type: "topic", time_shape: "" }), "projects/tastemaker.md")).toBe("active_projects");
+    expect(bucketFor(makeMatch({ type: "goal", time_shape: "" }), "goals/launch-koko-pwa.md")).toBe("active_projects");
+  });
+
+  it("routes identity folders to current_identity", () => {
+    expect(bucketFor(makeMatch({ type: "career", time_shape: "" }), "career/riff.md")).toBe("current_identity");
+    expect(bucketFor(makeMatch({ type: "skill", time_shape: "" }), "skills/typescript.md")).toBe("current_identity");
+  });
+
+  it("excludes topic-typed pages outside mapped folders (tool docs)", () => {
+    expect(bucketFor(makeMatch({ type: "topic", time_shape: "" }), "flyd/plan-command.md")).toBeNull();
+  });
+
+  it("excludes root-level index pages from all bundles", () => {
+    expect(bucketFor(makeMatch({ type: "flyd" }), "flyd.md")).toBeNull();
+    expect(bucketFor(makeMatch({ type: "projects" }), "projects.md")).toBeNull();
+  });
+
+  it("keeps metadata rules ahead of folder fallback for dormant entries", () => {
+    expect(bucketFor(makeMatch({ type: "career", status: "dormant" }), "career/old-job.md")).toBe("dormant_context");
+  });
+});
+
+describe("normalizeStatus", () => {
+  it("defaults missing status to working", () => {
+    expect(normalizeStatus(undefined)).toBe("working");
+    expect(normalizeStatus("")).toBe("working");
+  });
+
+  it("maps ungoverned statuses like active to working", () => {
+    expect(normalizeStatus("active")).toBe("working");
+    expect(normalizeStatus("ACTIVE")).toBe("working");
+    expect(normalizeStatus("banana")).toBe("working");
+  });
+
+  it("passes governed statuses through lowercased", () => {
+    expect(normalizeStatus("canon")).toBe("canon");
+    expect(normalizeStatus("Dormant")).toBe("dormant");
+  });
+});
+
+describe("normalizeConfidence", () => {
+  it("maps confidence words to numbers", () => {
+    expect(normalizeConfidence("high")).toBe(0.9);
+    expect(normalizeConfidence("medium")).toBe(0.6);
+    expect(normalizeConfidence("low")).toBe(0.3);
+  });
+
+  it("passes finite numbers through clamped to [0,1]", () => {
+    expect(normalizeConfidence(0.7)).toBe(0.7);
+    expect(normalizeConfidence(3)).toBe(1);
+    expect(normalizeConfidence(-1)).toBe(0);
+  });
+
+  it("falls back to 0.5 for garbage", () => {
+    expect(normalizeConfidence("nonsense")).toBe(0.5);
+    expect(normalizeConfidence(undefined)).toBe(0.5);
+    expect(normalizeConfidence(NaN)).toBe(0.5);
   });
 });
 

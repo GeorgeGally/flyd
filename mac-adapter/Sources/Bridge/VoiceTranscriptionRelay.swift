@@ -16,7 +16,7 @@ final class VoiceTranscriptionRelay {
     private var state: ConnectionState = .disconnected
     private var transcriptBuffer = ""
     private var preReadyBuffer: [Data] = []
-    private let maxPreReadyBytes = 48000
+    private let maxPreReadyBytes = 480000
     private var bufferedByteCount = 0
     private var commitPending = false
     private var currentSessionId: Int = -1
@@ -192,6 +192,8 @@ final class VoiceTranscriptionRelay {
         let capturedSessionId = self.currentSessionId
 
         switch type {
+        case "ready":
+            break
         case "delta":
             if let deltaText = json["text"] as? String {
                 transcriptBuffer += deltaText

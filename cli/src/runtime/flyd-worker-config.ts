@@ -105,3 +105,51 @@ export function loadFlydWorkerConfigs(input: {
     all.findIndex((item) => item.providerIdentity === candidate.providerIdentity) === index
   );
 }
+
+export interface FlydRouterConfig {
+  model: string;
+  apiKey: string;
+  baseURL: string;
+}
+
+/**
+ * Optional flash-tier route classifier config. Returns null when
+ * FLYD_ROUTER_MODEL is unset — the resolver then falls back to regex
+ * routing. Key and base URL fall back to the main worker config so a
+ * single OpenRouter key can serve both models.
+ */
+export function loadFlydRouterConfig(input: {
+  projectRoot?: string;
+  environment?: NodeJS.ProcessEnv;
+  envFileText?: string;
+} = {}): FlydRouterConfig | null {
+  const environment = input.environment ?? process.env;
+  const fileEnvironment = input.envFileText === undefined
+    ? readProjectEnv(input.projectRoot)
+    : parseEnvFile(input.envFileText);
+  const values = { ...fileEnvironment, ...environment };
+
+  const model = values.FLYD_ROUTER_MODEL?.trim();
+  if (!model) return null;
+
+  let apiKey = values.FLYD_ROUTER_API_KEY?.trim();
+  let baseURL = values.FLYD_ROUTER_BASE_URL?.trim();
+
+  if (!apiKey || !baseURL) {
+    try {
+      const main = loadFlydWorkerConfig(input);
+      apiKey = apiKey || main.apiKey;
+      baseURL = baseURL || main.baseURL;
+    } catch {
+      // No main config either — router unusable without a key.
+    }
+  }
+
+  if (!apiKey) return null;
+
+  return {
+    model: MODEL_ALIASES[model.toLowerCase()] ?? model,
+    apiKey,
+    baseURL: normalizedBaseURL(baseURL || "https://openrouter.ai/api/v1"),
+  };
+}

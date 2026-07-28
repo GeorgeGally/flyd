@@ -57,11 +57,15 @@ let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
 let voiceRelay = VoiceTranscriptionRelay.shared
-let liveBridge = LiveAudioBridge.shared
 
 let invocationPanel = InvocationPanel()
+var activeAugmentPanels: [AugmentPanel] = []
 var activeInvocationTask: Task<Void, Never>?
+var voiceTranscriptionTimeout: DispatchWorkItem?
+var voiceHoldMonitor: Timer?
+var cachedVoiceStatus: FlydClient.VoiceStatusResponse?
 var setupWindow: NSWindow?
+var coreLaunched = false
 var flydStarted = false
 var suppressNextShortcutRelease = false
 let setupCompletedKey = "FlydSetupCompleted"
@@ -81,6 +85,7 @@ statusItem.onRestartFlyd = {
     restartFlyd()
 }
 statusItem.start()
+ensureCoreLaunched()
 
 if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {
     startFlyd(closeSetup: false)
@@ -137,28 +142,38 @@ func startFlyd(closeSetup: Bool = true) {
         handleVoiceInvocation()
     }
 
-    stateMachine.onLiveEnter = {
-        handleLiveEnter()
-    }
-
-    stateMachine.onLiveExit = {
-        handleLiveExit()
+    invocationPanel.onUndoRequested = { invocationId in
+        let undone = executor.undoLast(for: invocationId)
+        print("[Flyd] Undo \(invocationId.prefix(8)): \(undone ? "ok" : "failed — target no longer available")")
     }
 
     stateMachine.start()
-
-    launchCore()
 
     Task {
         let healthy = await flydClient.healthCheck()
         if healthy {
             print("[Flyd] Connected to Flyd Core")
+            if let voiceStatus = await flydClient.voiceStatus() {
+                await MainActor.run {
+                    cachedVoiceStatus = voiceStatus
+                    if !voiceStatus.ok {
+                        print("[Flyd] Voice setup unavailable: \(voiceStatus.message ?? "unknown")")
+                    }
+                }
+            }
         } else {
             print("[Flyd] Flyd Core not running — pass-through disabled. Invocations will log locally.")
         }
     }
 
-    print("[Flyd] Agent started. Press ⌃⌥ to invoke.")
+    print("[Flyd] Agent started. Double-tap fn for text or hold fn+⌃ for voice.")
+}
+
+func ensureCoreLaunched() {
+    guard !coreLaunched else { return }
+    coreLaunched = true
+    _ = auth.credential()
+    launchCore()
 }
 
 func launchCore() {
@@ -223,56 +238,15 @@ func repoRoot() -> String {
     return FileManager.default.currentDirectoryPath
 }
 
-func handleLiveEnter() {
-    if !PermissionGate.shared.hasMicrophone {
-        PermissionGate.shared.requestMicrophonePermission()
-    }
-
-    state.transition(to: .live)
-    _ = liveBridge.start()
-
-    liveBridge.onResolveOperations = { callId, ops in
-        Task {
-            let (_, revision) = state.startInvocation()
-            stateMachine.setRevision(revision)
-
-            var outcomeStatus = "succeeded"
-            for opDict in ops {
-                guard let target = opDict["target"] as? String,
-                      let kind = opDict["kind"] as? String,
-                      let text = opDict["text"] as? String else { continue }
-
-                guard target == "el_01" else { outcomeStatus = "failed"; continue }
-                guard InvocationStateMachine.shared.verifyPreExecution() else { outcomeStatus = "failed"; continue }
-
-                let resolved = ResolvedOperation(target: target, kind: kind, text: text)
-                let fp = InvocationFingerprint(app: "flyd-live", surface: nil, window: "live_01", element: "el_01", capturedAt: Date())
-                let result = await executor.execute(operation: resolved, fingerprint: fp)
-                if !result.success { outcomeStatus = "failed" }
-                print("[Flyd LIVE] \(kind) → \(result.success ? "ok" : "FAIL: \(result.error ?? "")")")
-            }
-
-            print("[Flyd LIVE] Resolve complete — \(outcomeStatus)")
-        }
-    }
-
-    liveBridge.onError = { error in
-        print("[Flyd LIVE] Error: \(error)")
-    }
-
-    print("[Flyd] LIVE session entered")
-}
-
-func handleLiveExit() {
-    liveBridge.stop()
-    voiceCapture.stop()
-    voiceRelay.disconnect()
-    state.transition(to: .present)
-    print("[Flyd] LIVE session exited")
-}
-
 func handleVoiceInvocation() {
+    suppressNextShortcutRelease = false
     guard state.phase == .idle else { return }
+
+    if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
+        invocationPanel.show()
+        invocationPanel.updateState(.error(message: voiceStatus.message ?? "Voice setup needs attention"))
+        return
+    }
 
     guard PermissionGate.shared.hasMicrophone else {
         PermissionGate.shared.requestMicrophonePermission()
@@ -281,6 +255,10 @@ func handleVoiceInvocation() {
         return
     }
 
+    beginVoiceInvocation()
+}
+
+func beginVoiceInvocation() {
     let (invocationId, revision) = state.startInvocation()
     stateMachine.setRevision(revision)
     stateMachine.startPrewarm()
@@ -292,6 +270,10 @@ func handleVoiceInvocation() {
     state.transition(to: .listening)
     invocationPanel.show()
     invocationPanel.updateState(.recording)
+    invocationPanel.onIntentSubmitted = nil
+    invocationPanel.onCancelled = {
+        cleanupVoiceInvocation()
+    }
 
     let sessionId = stateMachine.nextTranscriptionSessionId()
     voiceRelay.connect(sessionId: sessionId)
@@ -302,11 +284,17 @@ func handleVoiceInvocation() {
     }
     voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
+            clearVoiceTranscriptionTimeout()
             voiceCapture.stop()
             voiceRelay.disconnect()
+
+            guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                cleanupVoiceInvocation(message: "I didn't catch that - try again")
+                return
+            }
+
             invocationPanel.updateState(.resolving)
 
-    let (_, revision) = state.startInvocation()
             stateMachine.setRevision(revision)
             stateMachine.startPrewarm()
             if let element = accessibilityInspector.capturedAXElement() {
@@ -319,14 +307,11 @@ func handleVoiceInvocation() {
     }
     voiceRelay.onError = { error in
         DispatchQueue.main.async {
+            clearVoiceTranscriptionTimeout()
             voiceCapture.stop()
             voiceRelay.disconnect()
             print("[Flyd] Voice transcription error: \(error)")
-            let isConnectionFailure = error.localizedCaseInsensitiveContains("connect")
-            let message = isConnectionFailure
-                ? "Flyd Core isn't running — try typing instead"
-                : "Voice error — try typing instead"
-            invocationPanel.updateState(.error(message: message))
+            cleanupVoiceInvocation(message: VoiceStartupPolicy.message(forTranscriptionError: error))
         }
     }
 
@@ -334,18 +319,98 @@ func handleVoiceInvocation() {
         voiceRelay.sendAudioChunk(chunk)
     }
 
-    voiceCapture.onError = { error in
+    voiceCapture.onLevel = { level in
         DispatchQueue.main.async {
-            print("[Flyd] Voice capture error: \(error)")
-            invocationPanel.updateState(.error(message: error))
+            invocationPanel.updateVoiceLevel(level)
         }
     }
 
-    _ = voiceCapture.start()
+    voiceCapture.onSpectrum = { bands in
+        DispatchQueue.main.async {
+            invocationPanel.updateVoiceSpectrum(bands)
+        }
+    }
+
+    voiceCapture.onError = { error in
+        DispatchQueue.main.async {
+            print("[Flyd] Voice capture error: \(error)")
+            cleanupVoiceInvocation(message: error)
+        }
+    }
+
+    guard voiceCapture.start() else {
+        cleanupVoiceInvocation()
+        return
+    }
+    startVoiceHoldMonitor()
 }
 
 func handleVoiceRelease() {
-    voiceRelay.commitAudio()
+    let action = VoiceStartupPolicy.actionOnShortcutRelease(phase: state.phase)
+
+    switch action {
+    case .finishRecording:
+        stopVoiceHoldMonitor()
+        voiceCapture.stop()
+        state.transition(to: .transcribing)
+        invocationPanel.updateState(.transcribing)
+        startVoiceTranscriptionTimeout()
+        voiceRelay.commitAudio()
+    case .ignore:
+        return
+    }
+}
+
+func startVoiceTranscriptionTimeout() {
+    clearVoiceTranscriptionTimeout()
+
+    let timeout = DispatchWorkItem {
+        guard state.phase == .transcribing else { return }
+        cleanupVoiceInvocation(message: "Voice did not finish - try again")
+    }
+    voiceTranscriptionTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeout)
+}
+
+func clearVoiceTranscriptionTimeout() {
+    voiceTranscriptionTimeout?.cancel()
+    voiceTranscriptionTimeout = nil
+}
+
+func startVoiceHoldMonitor() {
+    stopVoiceHoldMonitor()
+    voiceHoldMonitor = Timer(timeInterval: 0.05, repeats: true) { _ in
+        guard state.phase == .listening else { return }
+        let flags = CGEventSource.flagsState(.hidSystemState)
+        if !ShortcutRouter.isVoiceChordActive(flags: flags) {
+            handleVoiceRelease()
+        }
+    }
+    if let voiceHoldMonitor {
+        RunLoop.main.add(voiceHoldMonitor, forMode: .common)
+    }
+}
+
+func stopVoiceHoldMonitor() {
+    voiceHoldMonitor?.invalidate()
+    voiceHoldMonitor = nil
+}
+
+func cleanupVoiceInvocation(message: String? = nil) {
+    clearVoiceTranscriptionTimeout()
+    stopVoiceHoldMonitor()
+    voiceCapture.stop()
+    resetVoiceCaptureCallbacks()
+    voiceRelay.disconnect()
+    activeInvocationTask?.cancel()
+    activeInvocationTask = nil
+    state.cancelInvocation()
+    stateMachine.cancel()
+    executor.clearInvocationRefs()
+
+    if let message {
+        invocationPanel.updateState(.error(message: message))
+    }
 }
 
 func handleShortcutPress() {
@@ -356,9 +421,21 @@ func handleShortcutPress() {
     state.cancelInvocation()
     stateMachine.cancel()
     invocationPanel.dismiss()
+    activeAugmentPanels.forEach { $0.dismiss() }
+    activeAugmentPanels.removeAll()
+    clearVoiceTranscriptionTimeout()
     voiceCapture.stop()
+    resetVoiceCaptureCallbacks()
+    stopVoiceHoldMonitor()
     voiceRelay.disconnect()
     executor.clearInvocationRefs()
+}
+
+func resetVoiceCaptureCallbacks() {
+    voiceCapture.onAudioChunk = nil
+    voiceCapture.onLevel = nil
+    voiceCapture.onSpectrum = nil
+    voiceCapture.onError = nil
 }
 
 func handleInvocation() {
@@ -404,20 +481,6 @@ func handleInvocation() {
 
 func processInvocation(invocationId: String, revision: Int, modality: String, intent: String) async {
     let traceStart = Date()
-    let deadlineTask = Task {
-        try? await Task.sleep(for: .seconds(10))
-        guard !Task.isCancelled else { return }
-        print("[Flyd] Invocation \(invocationId.prefix(8)) timed out")
-        guard FlydState.shared.invocationId == invocationId else { return }
-        await MainActor.run {
-            guard !Task.isCancelled else { return }
-            state.cancelInvocation()
-            stateMachine.cancel()
-            executor.clearInvocationRefs()
-            invocationPanel.updateState(.error(message: "Timed out — try again"))
-        }
-    }
-    defer { deadlineTask.cancel() }
 
     stateMachine.captureIntent(intent: intent)
 
@@ -427,14 +490,11 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         print("[Flyd] WARNING: Focus drifted between t₀ and t₁")
     }
 
-    guard let environment = accessibilityInspector.captureEnvironment() else {
-        state.cancelInvocation()
-        stateMachine.cancel()
-        executor.clearInvocationRefs()
-        invocationPanel.dismiss()
-        auditRecorder.record(invocationId: invocationId, contextSources: ["none"], error: "Failed to capture environment")
-        return
-    }
+    let environment = accessibilityInspector.captureEnvironment() ?? EnvironmentState.fallback(
+        application: applicationMonitor.foregroundApp,
+        reason: "Focused element unavailable"
+    )
+    let usedFallbackEnvironment = environment.focusedElement.role == "AXUnknown"
 
     state.transition(to: .resolving)
 
@@ -447,6 +507,10 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         "element:\(environment.focusedElement.role)",
         "sufficiency:\(environment.sufficiency.rawValue)",
     ]
+
+    if usedFallbackEnvironment {
+        print("[Flyd] Focused element unavailable — continuing with partial environment")
+    }
 
     print("[Flyd] ===== INVOCATION \(invocationId.prefix(8)) =====")
     print("[Flyd] App: \(environment.application.name) (\(environment.application.bundleId))")
@@ -462,12 +526,36 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         capturedAt: Date()
     ) as InvocationFingerprint? else { return }
 
+    guard await flydClient.waitForHealth(timeoutSeconds: 4) else {
+        print("[Flyd] Flyd Core is not ready — cannot resolve")
+
+        auditRecorder.record(
+            invocationId: invocationId,
+            contextSources: contextSources,
+            error: "Flyd Core not ready"
+        )
+
+        await MainActor.run {
+            invocationPanel.updateState(.error(message: "Flyd is starting - try again in a moment"))
+            state.transition(to: .present)
+            executor.clearInvocationRefs()
+            stateMachine.resetCheckpoints()
+        }
+        return
+    }
+
+    let screenshotBase64 = await stateMachine.invocationScreenshotBase64()
+    if screenshotBase64 == nil {
+        print("[Flyd] No screen capture available for this invocation — resolving without vision")
+    }
+
     let response = await flydClient.sendManifest(
         invocationId: invocationId,
         environmentRevision: revision,
         environment: environment,
         intent: intent,
         modality: modality,
+        screenshot: screenshotBase64,
         fingerprint: fingerprint
     )
 
@@ -486,7 +574,7 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
         )
 
         await MainActor.run {
-            invocationPanel.updateState(.error(message: "Cannot reach Flyd — start your server"))
+            invocationPanel.updateState(.error(message: "Flyd did not answer in time - try again"))
             state.transition(to: .present)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
@@ -515,7 +603,32 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
 
     switch resolution.mode {
     case "native":
-        await executeNativeOperations(resolution: resolution, fingerprint: fingerprint)
+        let results = await executeNativeOperations(resolution: resolution, fingerprint: fingerprint)
+        await MainActor.run {
+            let preview = results
+                .map { result in
+                    result.success
+                        ? "\(result.kind): \"\(result.text.prefix(60))\(result.text.count > 60 ? "..." : "")\""
+                        : result.message
+                }
+                .joined(separator: ", ")
+            if results.contains(where: \.success) {
+                invocationPanel.updateState(.undoAvailable(invocationId: invocationId, preview: preview))
+            } else {
+                invocationPanel.updateState(.executing(operationCount: resolution.operations.count, preview: preview))
+            }
+        }
+
+        if modality == "voice", ConfigManager.shared.config.replyMode == .voice {
+            let spokenText = results.filter(\.success).map(\.text).joined(separator: ". ")
+            if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let audio = await flydClient.speak(text: spokenText) {
+                    await MainActor.run {
+                        SpeechPlayer.shared.play(audio)
+                    }
+                }
+            }
+        }
 
     case "requires_augment":
         await showAugmentations(
@@ -524,14 +637,30 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
             fingerprint: fingerprint
         )
 
+        if modality == "voice", ConfigManager.shared.config.replyMode == .voice {
+            let spokenText = (resolution.augmentations ?? [])
+                .filter { $0.kind == "explanation" }
+                .map(\.content)
+                .joined(separator: ". ")
+            if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let audio = await flydClient.speak(text: spokenText) {
+                    await MainActor.run {
+                        SpeechPlayer.shared.play(audio)
+                    }
+                }
+            }
+        }
+
     case "requires_compose":
         print("[Flyd] Compose requested: \(resolution.composeRationale ?? "no rationale")")
-        if let url = resolution.composeUrl, let surfaceURL = URL(string: url) {
-            NSWorkspace.shared.open(surfaceURL)
-        } else {
-            print("[Flyd] No compose URL returned — opening surface")
-            if let surfaceURL = URL(string: "http://127.0.0.1:3000/surface") {
+        await MainActor.run {
+            if let url = resolution.composeUrl, let surfaceURL = URL(string: url) {
                 NSWorkspace.shared.open(surfaceURL)
+            } else {
+                print("[Flyd] No compose URL returned — opening surface")
+                if let surfaceURL = URL(string: "http://127.0.0.1:3000/surface") {
+                    NSWorkspace.shared.open(surfaceURL)
+                }
             }
         }
 
@@ -560,16 +689,22 @@ func processInvocation(invocationId: String, revision: Int, modality: String, in
 func executeNativeOperations(
     resolution: FlydClient.ResolutionResponse,
     fingerprint: InvocationFingerprint
-) async {
+) async -> [(success: Bool, kind: String, text: String, message: String)] {
+    var results: [(success: Bool, kind: String, text: String, message: String)] = []
     guard InvocationStateMachine.shared.verifyPreExecution() else {
         print("[Flyd] Aborting: target no longer available")
+        let fallbackText = resolution.operations.map(\.text).joined(separator: "\n\n")
+        if !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await copyTextToClipboard(fallbackText)
+            results.append((success: false, kind: "clipboard", text: fallbackText, message: "Target changed - copied result to clipboard"))
+        }
         await flydClient.sendOutcome(
             resolutionId: resolution.resolutionId,
             invocationId: resolution.invocationId,
             status: "failed",
             correction: "Target no longer available — app or window changed"
         )
-        return
+        return results
     }
 
     for op in resolution.operations {
@@ -591,9 +726,12 @@ func executeNativeOperations(
         let result = await executor.execute(operation: resolved, fingerprint: fingerprint)
 
         if result.success {
+            results.append((success: true, kind: op.kind, text: op.text, message: ""))
             print("[Flyd] Executed: \(op.kind) → \(op.text.prefix(40))...")
             print("[Flyd] Undo available for invocation \(resolution.invocationId.prefix(8))")
         } else {
+            await copyTextToClipboard(op.text)
+            results.append((success: false, kind: op.kind, text: op.text, message: "Insert failed - copied result to clipboard"))
             print("[Flyd] Failed: \(op.kind) — \(result.error ?? "unknown error")")
         }
 
@@ -603,6 +741,14 @@ func executeNativeOperations(
             status: result.success ? "succeeded" : "failed",
             correction: result.error
         )
+    }
+    return results
+}
+
+func copyTextToClipboard(_ text: String) async {
+    await MainActor.run {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 

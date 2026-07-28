@@ -3,25 +3,25 @@ import SwiftUI
 
 final class StatusItem {
     private var statusItem: NSStatusItem?
-    private var dotView: StatusDotView?
     private var menu: NSMenu?
-    private weak var privacyWindow: NSWindow?
-    private weak var auditWindow: NSWindow?
+    private var privacyWindow: NSWindow?
+    private var auditWindow: NSWindow?
+    var onInvoke: (() -> Void)?
+    var onOpenSetup: (() -> Void)?
+    var onRestartFlyd: (() -> Void)?
 
     func start() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if statusItem != nil {
+            updateColor(for: FlydState.shared.mode)
+            setupMenu()
+            return
+        }
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem?.button else { return }
 
-        let view = StatusDotView(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
-        dotView = view
-        button.addSubview(view)
-        view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            view.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-            view.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-            view.widthAnchor.constraint(equalToConstant: 8),
-            view.heightAnchor.constraint(equalToConstant: 8),
-        ])
+        button.imagePosition = .imageOnly
+        button.toolTip = "Flyd"
 
         updateColor(for: FlydState.shared.mode)
 
@@ -39,8 +39,28 @@ final class StatusItem {
     private func setupMenu() {
         let menu = NSMenu()
 
+        let invokeItem = NSMenuItem(
+            title: "Ask Flyd...",
+            action: #selector(invokeFlyd),
+            keyEquivalent: ""
+        )
+        invokeItem.target = self
+        menu.addItem(invokeItem)
+
+        menu.addItem(.separator())
+
+        let setupItem = NSMenuItem(
+            title: "Setup...",
+            action: #selector(openSetup),
+            keyEquivalent: ""
+        )
+        setupItem.target = self
+        menu.addItem(setupItem)
+
+        menu.addItem(.separator())
+
         let privacyItem = NSMenuItem(
-            title: "Privacy Settings...",
+            title: "Settings...",
             action: #selector(openPrivacySettings),
             keyEquivalent: ","
         )
@@ -68,6 +88,14 @@ final class StatusItem {
 
         menu.addItem(.separator())
 
+        let restartItem = NSMenuItem(
+            title: "Restart Flyd",
+            action: #selector(restartFlyd),
+            keyEquivalent: "r"
+        )
+        restartItem.target = self
+        menu.addItem(restartItem)
+
         let quitItem = NSMenuItem(
             title: "Quit Flyd",
             action: #selector(quitApp),
@@ -80,8 +108,17 @@ final class StatusItem {
         statusItem?.menu = menu
     }
 
+    @objc private func invokeFlyd() {
+        onInvoke?()
+    }
+
+    @objc private func openSetup() {
+        onOpenSetup?()
+    }
+
     @objc private func openPrivacySettings() {
-        if let window = privacyWindow, window.isVisible {
+        if let window = privacyWindow {
+            NSApplication.shared.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
         }
@@ -91,15 +128,18 @@ final class StatusItem {
             backing: .buffered,
             defer: false
         )
-        window.title = "Flyd — Privacy Settings"
+        window.title = "Flyd — Settings"
         window.center()
-        window.contentView = NSHostingView(rootView: PrivacySettingsView())
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: PrivacySettingsView())
+        NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         privacyWindow = window
     }
 
     @objc private func openAuditTrail() {
-        if let window = auditWindow, window.isVisible {
+        if let window = auditWindow {
+            NSApplication.shared.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
         }
@@ -111,7 +151,9 @@ final class StatusItem {
         )
         window.title = "Flyd — Invocation History"
         window.center()
-        window.contentView = NSHostingView(rootView: AuditTrailView())
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: AuditTrailView())
+        NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         auditWindow = window
     }
@@ -128,6 +170,10 @@ final class StatusItem {
         }
     }
 
+    @objc private func restartFlyd() {
+        onRestartFlyd?()
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
@@ -139,26 +185,28 @@ final class StatusItem {
             color = .lightGray
         case .invoked:
             color = .systemBlue
-        case .live:
-            color = .systemGreen
         }
 
         if FlydState.shared.phase == .cancelled || FlydState.shared.phase == .error {
             color = .systemRed
         }
 
-        dotView?.color = color
-    }
-}
-
-private final class StatusDotView: NSView {
-    var color: NSColor = .lightGray {
-        didSet { needsDisplay = true }
+        statusItem?.button?.image = Self.dotImage(color: color)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    private static func dotImage(color: NSColor) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18))
+        image.lockFocus()
+
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: 18, height: 18).fill()
+
         color.setFill()
-        let path = NSBezierPath(ovalIn: bounds)
+        let path = NSBezierPath(ovalIn: NSRect(x: 5, y: 5, width: 8, height: 8))
         path.fill()
+
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 }

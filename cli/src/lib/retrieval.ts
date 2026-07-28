@@ -87,7 +87,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function isContentRelevant(body: string, keywords: string[]): boolean {
+export function isContentRelevant(body: string, keywords: string[], minMatches?: number): boolean {
   if (keywords.length === 0) return true;
   const cleanBody = stripWikiLinks(body).toLowerCase();
   let matches = 0;
@@ -95,11 +95,11 @@ export function isContentRelevant(body: string, keywords: string[]): boolean {
     const regex = new RegExp(`\\b${escapeRegExp(kw)}\\b`);
     if (regex.test(cleanBody)) matches++;
   }
-  const threshold = Math.max(2, Math.ceil(keywords.length / 2));
+  const threshold = minMatches ?? Math.max(2, Math.ceil(keywords.length / 2));
   return matches >= threshold;
 }
 
-export function buildRawEntries(results: Array<{ path: string; score: number }>, keywords: string[]): BaseEntry[] {
+export function buildRawEntries(results: Array<{ path: string; score: number }>, keywords: string[], minMatches?: number): BaseEntry[] {
   const entries: BaseEntry[] = [];
 
   for (const result of results) {
@@ -111,7 +111,7 @@ export function buildRawEntries(results: Array<{ path: string; score: number }>,
     const content = readFileSync(fullPath, "utf8");
     const parsed = parse(content);
 
-    if (!isContentRelevant(parsed.body, keywords)) continue;
+    if (!isContentRelevant(parsed.body, keywords, minMatches)) continue;
 
     entries.push({
       path: result.path,

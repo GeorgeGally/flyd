@@ -20,17 +20,14 @@ final class InvocationStateMachine {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     var wasPressed = false
+    fileprivate var textIntercepted = false
+    fileprivate var shortcutRoutingState = ShortcutRoutingState()
 
     fileprivate let holdThreshold: TimeInterval = 0.3
     fileprivate var holdTimer: DispatchWorkItem?
     fileprivate var holdTimerDidFire = false
     fileprivate(set) var isVoiceInvocation = false
 
-    private let ctrlKeyCode: CGKeyCode = 0x3B
-    fileprivate var ctrlPressTimestamps: [TimeInterval] = []
-    fileprivate let triplePressWindow: TimeInterval = 0.5
-    fileprivate var liveDebounceUntil: TimeInterval = 0
-    fileprivate var wasCtrlDown = false
     private(set) var transcriptionSessionId: Int = -1
 
     private let checkpointLock = NSLock()
@@ -73,8 +70,6 @@ final class InvocationStateMachine {
     var onShortcutHoldDetected: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
-    var onLiveEnter: (() -> Void)?
-    var onLiveExit: (() -> Void)?
 
     deinit {
         stop()
@@ -124,7 +119,7 @@ final class InvocationStateMachine {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-        print("[Flyd] Keyboard monitor started. Press ⌃⌥ to invoke.")
+        print("[Flyd] Keyboard monitor started. Double-tap fn for text, hold fn+⌃ for voice.")
         writeKeyboardDiagnostic(status: "running")
     }
 
@@ -172,14 +167,29 @@ final class InvocationStateMachine {
     }
 
     private func prewarmPerception() async {
-        if AccessibilityInspector.shared.captureFocusedElement() != nil {
-            return
-        }
-
+        // Screen perception is always captured — the accessibility tree alone is
+        // blind to most app content (Electron/web apps expose near-empty AX trees).
         guard let image = await ScreenCaptureManager.shared.captureScreenshot() else { return }
 
         currentScreenImage = image
         t0ScreenHash = ScreenFingerprint.hash(from: image)
+    }
+
+    /// Base64 JPEG of the screen captured for the current invocation.
+    /// Falls back to a fresh capture if prewarm hasn't produced one yet.
+    func invocationScreenshotBase64() async -> String? {
+        if let image = currentScreenImage {
+            return Self.jpegBase64(from: image)
+        }
+        guard let image = await ScreenCaptureManager.shared.captureScreenshot() else { return nil }
+        currentScreenImage = image
+        return Self.jpegBase64(from: image)
+    }
+
+    private static func jpegBase64(from image: CGImage, quality: CGFloat = 0.6) -> String? {
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: quality]) else { return nil }
+        return data.base64EncodedString()
     }
 
     func captureIntent(intent: String) {
@@ -226,9 +236,22 @@ final class InvocationStateMachine {
         holdTimer = nil
         holdTimerDidFire = false
         isVoiceInvocation = false
+        shortcutRoutingState = ShortcutRoutingState()
         transcriptionSessionId += 1
         resetCheckpoints()
         onCancelled?()
+    }
+
+    fileprivate func isModifierKeyCode(_ keyCode: CGKeyCode) -> Bool {
+        let modifierKeyCodes: Set<CGKeyCode> = [
+            0x36, 0x37, // right/left Command
+            0x38, 0x3C, // left/right Shift
+            0x3A, 0x3D, // left/right Option
+            0x3B, 0x3E, // left/right Control
+            0x3F,       // Fn
+            0x39,       // Caps Lock
+        ]
+        return modifierKeyCodes.contains(keyCode)
     }
 
     func nextTranscriptionSessionId() -> Int {
@@ -322,80 +345,48 @@ private func stateMachineEventCallback(
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
         machine.reenableEventTap()
 
+    case .keyDown:
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        if machine.wasPressed && !machine.isVoiceInvocation && !machine.isModifierKeyCode(keyCode) {
+            machine.textIntercepted = true
+        }
+
     case .flagsChanged:
         let flags = event.flags
         machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
-        let targetFlags = machine.configuration.modifiers
 
-        // Ctrl triple-press detection (rising edge only)
-        let ctrlDown = flags.contains(.maskControl)
-        if ctrlDown && !machine.wasCtrlDown {
-            let now = Date().timeIntervalSinceReferenceDate
-            if now >= machine.liveDebounceUntil {
-                machine.ctrlPressTimestamps.append(now)
-                machine.ctrlPressTimestamps = machine.ctrlPressTimestamps.suffix(3)
+        let routeEvent = ShortcutRouter.route(
+            eventType: type,
+            flags: flags,
+            state: &machine.shortcutRoutingState
+        )
 
-                if machine.ctrlPressTimestamps.count == 3 {
-                    let firstPress = machine.ctrlPressTimestamps[0]
-                    let lastPress = machine.ctrlPressTimestamps[2]
-                    if lastPress - firstPress <= machine.triplePressWindow {
-                        machine.ctrlPressTimestamps = []
-                        machine.liveDebounceUntil = now + 0.3
-                        machine.wasPressed = false
-                        machine.holdTimer?.cancel()
-                        machine.holdTimer = nil
-                        machine.holdTimerDidFire = false
-
-                        let isLive = FlydState.shared.mode == .live
-                        DispatchQueue.main.async {
-                            if isLive {
-                                machine.onLiveExit?()
-                            } else {
-                                machine.onLiveEnter?()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        machine.wasCtrlDown = ctrlDown
-
-        // ⌃⌥ shortcut detection (tap vs hold)
-        if flags.intersection(targetFlags) == targetFlags {
-            if !machine.wasPressed {
-                machine.wasPressed = true
-                machine.isVoiceInvocation = false
-                machine.holdTimerDidFire = false
-
-                let holdItem = DispatchWorkItem {
-                    machine.holdTimerDidFire = true
-                    machine.isVoiceInvocation = true
-                    DispatchQueue.main.async {
-                        machine.onShortcutHoldDetected?()
-                    }
-                }
-                machine.holdTimer = holdItem
-                DispatchQueue.main.asyncAfter(deadline: .now() + machine.holdThreshold, execute: holdItem)
-
-                DispatchQueue.main.async {
-                    machine.writeKeyboardDiagnostic(status: "running", eventType: "shortcut-pressed", flags: flags)
-                    machine.onShortcutPressed?()
-                }
-            }
-        } else if machine.wasPressed {
+        switch routeEvent {
+        case .textTapped:
             machine.wasPressed = false
-            machine.holdTimer?.cancel()
-            machine.holdTimer = nil
-
-            let timerFired = machine.holdTimerDidFire
-            machine.holdTimerDidFire = false
-
+            machine.isVoiceInvocation = false
+            machine.textIntercepted = false
             DispatchQueue.main.async {
-                if timerFired {
-                    machine.isVoiceInvocation = true
-                }
+                machine.writeKeyboardDiagnostic(status: "running", eventType: "text-double-tap", flags: flags)
+                machine.onShortcutPressed?()
                 machine.onShortcutReleased?()
             }
+        case .voicePressed:
+            machine.wasPressed = true
+            machine.isVoiceInvocation = true
+            DispatchQueue.main.async {
+                machine.writeKeyboardDiagnostic(status: "running", eventType: "voice-shortcut-pressed", flags: flags)
+                machine.onShortcutPressed?()
+                machine.onShortcutHoldDetected?()
+            }
+        case .voiceReleased:
+            machine.wasPressed = false
+            machine.isVoiceInvocation = true
+            DispatchQueue.main.async {
+                machine.onShortcutReleased?()
+            }
+        case .none:
+            break
         }
 
     default:

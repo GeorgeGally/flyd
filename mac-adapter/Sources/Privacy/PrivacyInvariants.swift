@@ -112,8 +112,7 @@ enum PrivacyInvariants {
             let mode = FlydState.shared.mode
             let phase = FlydState.shared.phase
             if mode == .invoked && phase == .listening { return (true, "Audio active during voice invocation") }
-            if mode == .live { return (true, "Audio active during LIVE session") }
-            return (false, "Audio engine active outside voice/LIVE state")
+            return (false, "Audio engine active outside voice invocation state")
         }
         return (true, "Audio engine inactive")
     }

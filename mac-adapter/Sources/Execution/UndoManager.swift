@@ -1,8 +1,10 @@
 import Foundation
+import ApplicationServices
 
 struct UndoRecord {
     let invocationId: String
     let target: TargetDescriptor
+    let element: AXUIElement
     let previousValue: String
     let operationKind: String
     let targetRef: String
@@ -18,10 +20,11 @@ final class UndoManager {
     private var records: [UndoRecord] = []
     private let maxRecords = 3
 
-    func register(target: TargetDescriptor, previousValue: String, operationKind: String, targetRef: String, invocationId: String) {
+    func register(target: TargetDescriptor, element: AXUIElement, previousValue: String, operationKind: String, targetRef: String, invocationId: String) {
         let record = UndoRecord(
             invocationId: invocationId,
             target: target,
+            element: element,
             previousValue: previousValue,
             operationKind: operationKind,
             targetRef: targetRef,

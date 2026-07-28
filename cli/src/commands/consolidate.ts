@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
-import { WIKI_DIR, RAW_DIR, CONTEXT_DIR, defaultModel } from "../lib/config.js";
+import { WIKI_DIR, RAW_DIR, defaultModel } from "../lib/config.js";
+import { runCompileContext } from "./compile-context.js";
 import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { getGraphStats, rebuildGraph, enrichGraph } from "../lib/graph.js";
@@ -234,6 +235,9 @@ export async function runConsolidate(opts: { fix?: boolean; contradictions?: boo
     console.log("\n9. wiki crystallization...");
     await runCrystallize({ dryRun: opts.dryRun ?? false });
   }
+
+  console.log("\n10. compile context bundles...");
+  await runCompileContext();
 
   console.log("\ndone.");
 }

@@ -11,13 +11,17 @@ import { memoryGate } from "./memory-gate.js";
 import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings } from "./memory-receipt.js";
 import { persistReceipt, persistLearnings } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
-import { isDelegationIntent, buildDelegationEnvelope } from "./delegation.js";
+import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
 import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
-import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
-import { startTranscriptionServer, stopTranscriptionServer } from "./transcription.js";
+import { loadFlydWorkerConfig, loadFlydRouterConfig } from "./runtime/flyd-worker-config.js";
+import { checkUrlResponds, checkArtifacts } from "./artifact-check.js";
+import type { ArtifactClaim } from "./verification-types.js";
+import { overlayMetricsSnapshot, recordDelegationCompletion } from "./overlay-metrics.js";
+import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } from "./transcription.js";
 import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
+import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -44,14 +48,21 @@ function sendUnauthorized(res: ServerResponse) {
 }
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
-const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; timestamp: number }>();
+const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; consequenceClass?: string; timestamp: number }>();
+const completedDelegations = new Map<string, { completion: DelegationCompletion; timestamp: number }>();
 
 setInterval(() => {
   const cutoff = Date.now() - 60 * 60 * 1000;
   for (const [key, ctx] of resolvedContexts) {
     if (ctx.timestamp < cutoff) resolvedContexts.delete(key);
   }
+  for (const [key, entry] of completedDelegations) {
+    if (entry.timestamp < cutoff) completedDelegations.delete(key);
+  }
 }, 5 * 60 * 1000).unref();
+
+const COMPOSE_URL = "http://127.0.0.1:3000/surface";
+const COMPOSE_LIVENESS_TIMEOUT_MS = 800;
 
 interface ManifestRequestBody {
   invocation_id: string;
@@ -59,20 +70,25 @@ interface ManifestRequestBody {
   environment: ManifestRequest["environment"];
   intent: string;
   modality: "text" | "voice";
+  screenshot?: string;
   invocation_fingerprint: ManifestRequest["invocation_fingerprint"];
 }
+
+const DEFAULT_BODY_LIMIT = 64 * 1024;
+// Manifest may carry a base64 JPEG screenshot (1280px wide ≈ 100–400KB).
+const MANIFEST_BODY_LIMIT = 4 * 1024 * 1024;
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
 }
 
-function parseBody(req: IncomingMessage): Promise<string> {
+function parseBody(req: IncomingMessage, limit = DEFAULT_BODY_LIMIT): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
     req.on("data", (chunk: Buffer) => {
       data += chunk.toString();
-      if (data.length > 64 * 1024) {
+      if (data.length > limit) {
         req.destroy();
         reject(new Error("Request body too large"));
       }
@@ -90,7 +106,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   let body: string;
   try {
-    body = await parseBody(req);
+    body = await parseBody(req, MANIFEST_BODY_LIMIT);
   } catch {
     sendJson(res, 413, { error: "Request body too large" });
     return;
@@ -116,6 +132,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   try {
     const config = loadFlydWorkerConfig();
+    const routerConfig = loadFlydRouterConfig();
     const startedAt = Date.now();
     const resolution = await resolve(
       {
@@ -124,11 +141,13 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         environment: parsed.environment,
         intent: parsed.intent,
         modality: parsed.modality || "text",
+        screenshot: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
         invocation_fingerprint: parsed.invocation_fingerprint,
       },
       config.model,
       config.apiKey,
-      config.baseURL
+      config.baseURL,
+      routerConfig
     );
     const modelMs = Date.now() - startedAt;
 
@@ -139,7 +158,21 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     }
 
     if (resolution.mode === "requires_compose") {
-      resolution.composeUrl = "http://127.0.0.1:3000/surface";
+      // Never hand the user a dead link — verify the surface server is
+      // actually alive before promising it.
+      const liveness = await checkUrlResponds(COMPOSE_URL, COMPOSE_LIVENESS_TIMEOUT_MS);
+      if (liveness.ok) {
+        resolution.composeUrl = COMPOSE_URL;
+      } else {
+        resolution.mode = "requires_augment";
+        resolution.augmentations = [{
+          kind: "explanation",
+          content: "This needs a full Flyd surface, but the surface server isn't running. Start it and try again.",
+          placement: "cursor",
+        }];
+        resolution.composeRationale = undefined;
+        resolution.composeUrl = undefined;
+      }
     }
 
     if (isDelegationIntent(parsed.intent)) {
@@ -151,6 +184,9 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         parsed.environment.application?.bundle_id || null
       );
       resolution.delegationEnvelope = envelope as unknown as Record<string, unknown>;
+      // Delegated work always requires user confirmation before launch,
+      // regardless of how the intent was classified.
+      resolution.requiresConfirmation = true;
     }
 
     sendJson(res, 200, {
@@ -168,6 +204,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       intent: parsed.intent,
       resolutionMode: resolution.mode,
       environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+      consequenceClass: resolution.consequence?.class,
       timestamp: Date.now(),
     });
   } catch (err) {
@@ -253,8 +290,130 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
   sendJson(res, 200, { acknowledged: true });
 }
 
+async function handleDelegationComplete(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  let body: string;
+  try {
+    body = await parseBody(req);
+  } catch {
+    sendJson(res, 413, { error: "Request body too large" });
+    return;
+  }
+
+  let completion: DelegationCompletion;
+  try {
+    completion = JSON.parse(body);
+  } catch {
+    sendJson(res, 400, { error: "Invalid JSON" });
+    return;
+  }
+
+  const validationError = validateDelegationCompletion(completion);
+  if (validationError) {
+    recordDelegationCompletion("rejected_validation");
+    sendJson(res, 422, { error: validationError });
+    return;
+  }
+
+  // Trust but re-verify: the reporter's own checks are necessary but not
+  // sufficient. Core re-runs every file/url claim before accepting a
+  // completion — a deleted file or dead URL between runner-check and claim
+  // fails here, not in front of the user.
+  if (completion.status === "completed" && completion.verification) {
+    const recheckable: ArtifactClaim[] = completion.verification.artifactChecks
+      .map((check) => check.claim)
+      .filter((claim) => claim.kind === "file" || claim.kind === "url");
+    if (recheckable.length > 0) {
+      const rechecks = await checkArtifacts(recheckable);
+      const failed = rechecks.filter((check) => !check.passed);
+      if (failed.length > 0) {
+        recordDelegationCompletion("rejected_reverification");
+        sendJson(res, 422, {
+          error: "reverification_failed",
+          failures: failed.map((check) => ({
+            claim: check.claim.description,
+            checks: check.failures,
+          })),
+        });
+        return;
+      }
+    }
+  }
+
+  recordDelegationCompletion("accepted");
+  completedDelegations.set(completion.delegationId, {
+    completion,
+    timestamp: Date.now(),
+  });
+  console.log(
+    `[Flyd Core] Delegation ${completion.delegationId.slice(0, 8)} → ${completion.status}` +
+      (completion.blocker ? ` (blocked: ${completion.blocker})` : "")
+  );
+  sendJson(res, 200, { acknowledged: true });
+}
+
+function handleDelegationCompletions(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+  sendJson(res, 200, {
+    completions: [...completedDelegations.values()].map((entry) => entry.completion),
+  });
+}
+
 function handleHealth(_req: IncomingMessage, res: ServerResponse) {
-  sendJson(res, 200, { status: "ok", version: "1.0" });
+  // Counters only — privacy invariant #9 forbids string fields in telemetry.
+  sendJson(res, 200, { status: "ok", version: "1.0", metrics: overlayMetricsSnapshot() });
+}
+
+async function handleVoiceStatus(_req: IncomingMessage, res: ServerResponse) {
+  sendJson(res, 200, await checkVoiceSetup());
+}
+
+async function handleTts(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  let body: string;
+  try {
+    body = await parseBody(req);
+  } catch {
+    sendJson(res, 413, { error: "Request body too large" });
+    return;
+  }
+
+  let parsed: { text?: string };
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    sendJson(res, 400, { error: "Invalid JSON" });
+    return;
+  }
+
+  if (!parsed.text || !parsed.text.trim()) {
+    sendJson(res, 400, { error: "Missing text" });
+    return;
+  }
+
+  try {
+    const audio = await synthesizeSpeech(parsed.text);
+    res.writeHead(200, { "Content-Type": "audio/aac", "Content-Length": audio.length });
+    res.end(audio);
+  } catch (err) {
+    if (err instanceof TtsNotConfiguredError) {
+      sendJson(res, 503, { error: "Speech synthesis not configured" });
+      return;
+    }
+    console.error("[Flyd Core] TTS failed:", err);
+    sendJson(res, 500, { error: "Speech synthesis failed" });
+  }
 }
 
 let serverInstance: ReturnType<typeof createServer> | null = null;
@@ -311,8 +470,24 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         });
         break;
       }
+      case "/delegation/complete":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleDelegationComplete(req, res);
+        break;
+      case "/delegation/completions":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleDelegationCompletions(req, res);
+        break;
       case "/health":
         handleHealth(req, res);
+        break;
+      case "/voice/status":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleVoiceStatus(req, res);
+        break;
+      case "/tts":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleTts(req, res);
         break;
       case "/shutdown":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }

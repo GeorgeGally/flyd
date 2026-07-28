@@ -214,6 +214,7 @@ local/small model (architectural, deferred)
 7. **Environment discarded.** Environment structs deallocated after execution. Only meaning persists.
 8. **Undo primitive.** Text operations are reversible. "Undo" banner appears after execution. Prefer reversible over confirmed actions.
 9. **Adapter auth.** Every request authenticated with per-install Keychain credential.
+10. **Consequential-action classification.** Routing assesses whether an intent would create, modify, send, purchase, delete, or publish something beyond the focused text field (verb + target, never verb alone). Consequential intents never take the deterministic no-LLM path, resolutions carry `requiresConfirmation: true`, and the resolution prompt forbids copy implying the action already happened. Write-only Phase 1 remains the execution backstop; this gate is the routing-level contract that survives when operation kinds grow. Route classification uses a flash-tier model (`FLYD_ROUTER_MODEL`) with regex fallback — never a local model.
 
 ### Latency instrumentation (core M2 KPI)
 
@@ -315,8 +316,21 @@ From fork analysis: augmentation can be temporally orchestrated. The response re
 ### DELEGATED integration
 
 - Delegation sends context envelopes, not bare prompts
-- Envelope: intent + world_state + observation refs + memory + goal + grant + capabilities
+- Envelope: intent + world_state + observation refs + memory + goal + grant + capabilities + `delegationId` + `finishCondition` + completion contract
 - Specialist returns resolution, not UI. Flyd decides manifestation.
+- **Completion rule: outcome, not activity.** A delegation reports `completed` only with a validated handoff (what was produced / where it is / what it contains) plus verification evidence timestamped before the claim. Core re-verifies every file/URL artifact server-side (`POST /delegation/complete`) before accepting — "started creating the document" is structurally impossible to report as done.
+- **Artifact quality checks.** File exists and nonzero, content matches claimed format, path is user-facing (no temp/scratch/worktree paths at handoff), URLs actually respond. Compose surface URLs are liveness-checked before being handed to the adapter; a dead surface degrades to an augment explanation, never a dead link.
+- **Coordination narration (adapter, dialable).** `narration: off | milestones | verbose`, default milestones. Deterministic template strings from envelope/handoff data — no LLM narration. Milestones = delegation start (finish condition), completion (handoff triad), blocker. Spoken only for voice-modality invocations.
+
+### Managed integration layer (Composio) — deferred to M5, decision recorded 2026-07-28
+
+**Decision: not now.** Revisit only once DELEGATED is the active milestone.
+
+Composio (1000+ OAuth-managed SaaS integrations via MCP/SDK) is a plausible execution provider for DELEGATED-tier intents that need real external systems (Gmail, Slack, GitHub, Linear, Notion) rather than pixels. It would sit behind a `Capability` abstraction (`LocalCapability` / `NativeAppCapability` / `ComposioCapability` / `MCPCapability` / `BrowserCapability` / `ComputerUseCapability`) so it's a swappable provider, never Flyd's tool system.
+
+Rejected for now because it adds a new trust boundary (third party holding user OAuth tokens), a new dependency, and architectural surface area (the Capability registry itself) while M0-M2 basics were still unreliable — voice reply didn't exist, the hold-to-talk shortcut could crash the whole app, and a fully-built "Live Mode" voice path was undiscoverable. Paying integration-layer complexity tax before INVOKED has earned trust is the wrong sequencing.
+
+Re-evaluate when: INVOKED is dogfooded and stable, and DELEGATED work actually starts requiring bespoke per-service OAuth engineering (Gmail/Calendar/Slack/etc). At that point, prefer this precedence: Flyd-native/local → direct structured API/MCP → Composio → accessibility/computer-use fallback — except where Composio saves us from maintaining OAuth ourselves for a long-tail SaaS app, where it can beat direct MCP.
 
 ## Contracts
 

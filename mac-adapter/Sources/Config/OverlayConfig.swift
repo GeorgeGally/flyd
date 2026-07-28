@@ -5,7 +5,29 @@ struct OverlayConfig: Codable {
     var excludedApps: [String] = []
     var redactionRules: [RedactionRule] = []
     var incognito: Bool = false
+    var replyMode: ReplyMode = .text
     var settingsVersion: Int = 1
+
+    enum ReplyMode: String, Codable, CaseIterable {
+        case text = "text"
+        case voice = "voice"
+
+        var displayName: String {
+            switch self {
+            case .text: return "Text"
+            case .voice: return "Voice"
+            }
+        }
+
+        var explanation: String {
+            switch self {
+            case .text:
+                return "Voice invocations (fn+⌃) are transcribed and resolved silently — no spoken response."
+            case .voice:
+                return "Voice invocations (fn+⌃) get a spoken response read back after resolving."
+            }
+        }
+    }
 
     enum RetentionMode: String, Codable, CaseIterable {
         case `private` = "private"
@@ -87,6 +109,11 @@ final class ConfigManager {
 
     func setIncognito(_ enabled: Bool) {
         config.incognito = enabled
+        save()
+    }
+
+    func setReplyMode(_ mode: OverlayConfig.ReplyMode) {
+        config.replyMode = mode
         save()
     }
 

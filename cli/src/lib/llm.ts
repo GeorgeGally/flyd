@@ -12,9 +12,46 @@ export interface AgentTool {
 
 export type ToolHandler = (name: string, input: Record<string, unknown>) => string;
 
-export async function query(prompt: string, model?: string, system?: string): Promise<string> {
+export interface QueryOptions {
+  json?: boolean;
+  /** Base64-encoded JPEG images (no data: prefix) attached to the user message. */
+  images?: string[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function openAIUserContent(prompt: string, images?: string[]): any {
+  if (!images?.length) return prompt;
+  return [
+    { type: "text", text: prompt },
+    ...images.map((b64) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } })),
+  ];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function anthropicUserContent(prompt: string, images?: string[]): any {
+  if (!images?.length) return prompt;
+  return [
+    ...images.map((b64) => ({
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg", data: b64 },
+    })),
+    { type: "text", text: prompt },
+  ];
+}
+
+export async function query(
+  prompt: string,
+  model?: string,
+  system?: string,
+  apiKey?: string,
+  baseURL?: string,
+  options: QueryOptions = {}
+): Promise<string> {
   const m = model ?? defaultModel();
-  return isOpenAIModel(m) ? queryOpenAI(prompt, m, system) : queryAnthropic(prompt, m, system);
+  if (apiKey) {
+    return queryOpenAIWithConfig(prompt, m, system, apiKey, baseURL, options);
+  }
+  return isOpenAIModel(m) ? queryOpenAI(prompt, m, system, options) : queryAnthropic(prompt, m, system, options);
 }
 
 export async function streamQuery(
@@ -42,24 +79,36 @@ export async function agentLoop(
     : agentLoopAnthropic(system, userMessage, tools, onToolCall, model, maxIterations);
 }
 
-async function queryOpenAI(prompt: string, model: string, system?: string): Promise<string> {
+async function queryOpenAIWithConfig(
+  prompt: string,
+  model: string,
+  system: string | undefined,
+  apiKey: string,
+  baseURL?: string,
+  options: QueryOptions = {}
+): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: getKey("OPENAI_API_KEY") });
+  const client = new OpenAI({ apiKey, baseURL: baseURL || undefined });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
-  messages.push({ role: "user", content: prompt });
+  messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const res = await client.chat.completions.create({
     model,
     max_tokens: 2048,
     temperature: 0.2,
     messages,
+    ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
   });
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");
   return res.choices[0].message.content ?? "";
 }
 
-async function queryAnthropic(prompt: string, model: string, system?: string): Promise<string> {
+async function queryOpenAI(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {
+  return queryOpenAIWithConfig(prompt, model, system, getKey("OPENAI_API_KEY") ?? "", undefined, options);
+}
+
+async function queryAnthropic(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
   const res = await client.messages.create({
@@ -67,7 +116,7 @@ async function queryAnthropic(prompt: string, model: string, system?: string): P
     max_tokens: 2048,
     temperature: 0.2,
     system,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],
   });
   if (!res.content.length) throw new Error("Anthropic returned empty content");
   return res.content[0].type === "text" ? res.content[0].text : "";

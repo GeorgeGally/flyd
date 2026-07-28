@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AuditTrailView: View {
     @ObservedObject private var viewModel = AuditTrailViewModel()
+    @State private var window: NSWindow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -75,7 +76,7 @@ struct AuditTrailView: View {
                 Spacer()
 
                 Button("Close") {
-                    NSApplication.shared.keyWindow?.close()
+                    window?.close()
                 }
                 .keyboardShortcut(.escape)
             }
@@ -83,6 +84,7 @@ struct AuditTrailView: View {
         }
         .padding()
         .frame(width: 500, height: 400)
+        .background(WindowAccessor(window: $window))
     }
 
     private var retentionDays: Int {

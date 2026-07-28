@@ -2,15 +2,18 @@ import SwiftUI
 
 struct PrivacySettingsView: View {
     @ObservedObject private var viewModel = PrivacySettingsViewModel()
+    @State private var window: NSWindow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Privacy Settings")
+            Text("Settings")
                 .font(.headline)
                 .padding(.bottom, 12)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    replyModeSection
+                    Divider()
                     retentionSection
                     Divider()
                     excludedAppsSection
@@ -27,7 +30,7 @@ struct PrivacySettingsView: View {
             HStack {
                 Spacer()
                 Button("Close") {
-                    NSApplication.shared.keyWindow?.close()
+                    window?.close()
                 }
                 .keyboardShortcut(.escape)
             }
@@ -35,6 +38,35 @@ struct PrivacySettingsView: View {
         }
         .padding()
         .frame(width: 480, height: 560)
+        .background(WindowAccessor(window: $window))
+    }
+
+    private var replyModeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Reply Mode")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            Text("How Flyd responds to voice invocations (fn+⌃). Text shortcuts (double-tap fn) always resolve silently.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Picker("Reply Mode", selection: $viewModel.replyMode) {
+                ForEach(OverlayConfig.ReplyMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .onChange(of: viewModel.replyMode) { _, newValue in
+                viewModel.setReplyMode(newValue)
+            }
+
+            Text(viewModel.replyMode.explanation)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var retentionSection: some View {
@@ -113,7 +145,7 @@ struct PrivacySettingsView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            Text("Sensitive data patterns are redacted from captured context before sending to Flyd Core.")
+            Text("Sensitive data patterns are redacted before Flyd receives context.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -170,6 +202,7 @@ struct PrivacySettingsView: View {
 }
 
 private class PrivacySettingsViewModel: ObservableObject {
+    @Published var replyMode: OverlayConfig.ReplyMode = .text
     @Published var retention: OverlayConfig.RetentionMode = .balanced
     @Published var excludedApps: [String] = []
     @Published var newExcludedApp: String = ""
@@ -189,10 +222,15 @@ private class PrivacySettingsViewModel: ObservableObject {
 
     func refresh() {
         let config = ConfigManager.shared.config
+        replyMode = config.replyMode
         retention = config.retention
         excludedApps = config.excludedApps
         redactionRules = config.redactionRules
         incognito = config.incognito
+    }
+
+    func setReplyMode(_ mode: OverlayConfig.ReplyMode) {
+        ConfigManager.shared.setReplyMode(mode)
     }
 
     func setRetention(_ mode: OverlayConfig.RetentionMode) {
