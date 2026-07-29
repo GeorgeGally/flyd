@@ -91,20 +91,40 @@ export function buildPrompt(
   };
 
   let currentSection = "";
-  if (intent?.kind === "current_state" || intent?.kind === "task_resume") {
+  const isResume = intent?.kind === "task_resume";
+  if (intent?.kind === "current_state" || isResume) {
+    const heading = isResume ? "Continuing From" : "Currently Active";
     if (currentEntries.length > 0) {
-      currentSection = `\n\n## Currently Active (live, corroborated — this is what's actually happening right now, not background history)\n${currentEntries
+      const note = isResume
+        ? "live, corroborated — this is where the work left off, in rough chronological order"
+        : "live, corroborated — this is what's actually happening right now, not background history";
+      const priorityInstruction = (isResume
+        ? "ANSWER PRIMARILY FROM THIS SECTION. It reflects the actual current state of the work. The Evidence section below is unrelated background history — do not let it override, dilute, or take precedence over what's here, even if it is more detailed or reads as a more complete story."
+        : "ANSWER PRIMARILY FROM THIS SECTION — it is what's actually happening right now. The Evidence section below is background history and must not override or dilute this answer, even if it is more detailed or reads as a more complete story.")
+        + " Items are ordered most-recent-first — lead with the first item(s); a shorter, terser entry near the top is more current than a longer, more narrative one further down.";
+      currentSection = `\n\n## ${heading} (${note})\n${priorityInstruction}\n\n${currentEntries
         .map((e) => renderEntry(e, entries.indexOf(e)))
         .join("\n\n---\n\n")}`;
     } else {
       const gapNote = presentModel?.gaps.length
         ? ` (unavailable signals: ${presentModel.gaps.join(", ")})`
         : "";
-      currentSection = `\n\n## Currently Active\nNo evidence was corroborated as currently active${gapNote}. Do not present background evidence below as current work — say so explicitly if the question asks what's active now.`;
+      const fallbackVerb = isResume ? "resuming from" : "currently active";
+      currentSection = `\n\n## ${heading}\nNo evidence was corroborated as ${fallbackVerb}${gapNote}. Do not present background evidence below as current work — say so explicitly if the question asks what's active now.`;
     }
   }
 
-  const evidence = backgroundEntries.map((e) => renderEntry(e, entries.indexOf(e))).join("\n\n---\n\n");
+  // For current_state or task_resume with real corroborated evidence,
+  // omitting background entirely beats instructing the model to ignore it —
+  // a semantically strong old match reliably hijacks the answer over
+  // meta-instructions otherwise (verified live for both intents: a
+  // conversation transcript for current_state, unrelated old file changes
+  // for task_resume — "resume benefits from broader context" did not hold
+  // up in practice, background context took over instead of supplementing).
+  const suppressBackground = (intent?.kind === "current_state" || intent?.kind === "task_resume") && currentEntries.length > 0;
+  const evidence = suppressBackground
+    ? `(omitted — ${backgroundEntries.length} background entr${backgroundEntries.length === 1 ? "y" : "ies"} not shown because current, corroborated evidence answers this question above)`
+    : backgroundEntries.map((e) => renderEntry(e, entries.indexOf(e))).join("\n\n---\n\n");
 
   let librarianSection = "";
   if (scored) {

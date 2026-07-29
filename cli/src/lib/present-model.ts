@@ -1,4 +1,5 @@
 import type { RepositorySnapshot } from "../runtime/types.js";
+import type { RecentCommit } from "./recent-commits.js";
 
 export interface PresentModelActiveTask {
   taskKey: string;
@@ -12,12 +13,14 @@ export interface PresentModel {
   generatedAt: string;
   repository: RepositorySnapshot | null;
   activeTask: PresentModelActiveTask | null;
+  recentCommits: RecentCommit[];
   gaps: string[];
 }
 
 export interface PresentModelDependencies {
   inspectRepository: (cwd: string) => Promise<RepositorySnapshot>;
   findActiveTask: (projectRoot: string | null) => Promise<PresentModelActiveTask | null>;
+  getRecentCommits: (root: string, limit: number) => Promise<RecentCommit[]>;
   now: () => Date;
 }
 
@@ -42,8 +45,9 @@ async function defaultFindActiveTask(projectRoot: string | null): Promise<Presen
       updatedAt: task.updatedAt,
     };
   } finally {
-    // bridge.ts runs as a short-lived per-invocation process — a leaked pool
-    // connection here would stall every subsequent Rails CliQueryProvider call.
+    // Callers (ask.ts, and every bridge invocation) are short-lived,
+    // per-invocation processes — a leaked pool connection here would stall
+    // every subsequent query, not just this one.
     await pool.end().catch(() => {});
   }
 }
@@ -54,12 +58,17 @@ const defaultDependencies: PresentModelDependencies = {
     return inspectRepository(cwd);
   },
   findActiveTask: defaultFindActiveTask,
+  getRecentCommits: async (root, limit) => {
+    const { getRecentCommits } = await import("./recent-commits.js");
+    return getRecentCommits(root, limit);
+  },
   now: () => new Date(),
 };
 
 export async function buildPresentModel(
   cwd: string = process.cwd(),
   deps: PresentModelDependencies = defaultDependencies,
+  commitLimit = 5,
 ): Promise<PresentModel> {
   const gaps: string[] = [];
 
@@ -82,10 +91,20 @@ export async function buildPresentModel(
     gaps.push("task_state_unavailable");
   }
 
+  let recentCommits: RecentCommit[] = [];
+  if (repository) {
+    try {
+      recentCommits = await deps.getRecentCommits(repository.root, commitLimit);
+    } catch {
+      gaps.push("recent_commits_unavailable");
+    }
+  }
+
   return {
     generatedAt: deps.now().toISOString(),
     repository,
     activeTask,
+    recentCommits,
     gaps,
   };
 }

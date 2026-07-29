@@ -51,6 +51,7 @@ describe("gateCurrentness", () => {
         intendedOutcome: "repair memory recall",
         updatedAt: "2026-07-29T00:00:00.000Z",
       },
+      recentCommits: [],
       gaps: [],
     };
 
@@ -94,6 +95,7 @@ describe("gateCurrentness", () => {
       generatedAt: "2026-07-29T00:00:00.000Z",
       repository: null,
       activeTask: { taskKey: "t", projectName: "flyd", status: "running", intendedOutcome: "x", updatedAt: "now" },
+      recentCommits: [],
       gaps: [],
     };
     const entry = makeEntry({ path: "wiki/projects/flyd.md", body: "flyd project notes" });
@@ -120,6 +122,7 @@ describe("gateCurrentness", () => {
         statusDigest: "digest",
       },
       activeTask: null,
+      recentCommits: [],
       gaps: [],
     };
     const entry = makeEntry({ path: "wiki/projects/flyd.md", body: "flyd memory recall repair notes" });
@@ -127,11 +130,92 @@ describe("gateCurrentness", () => {
     expect(gateCurrentness([entry], presentModel, currentStateIntent).has(entry.path)).toBe(true);
   });
 
+  it("corroborates via a currently-changed file's basename, even without a project-name match", () => {
+    const presentModel: PresentModel = {
+      generatedAt: "2026-07-29T00:00:00.000Z",
+      repository: {
+        root: "/Users/george/flyd",
+        name: "flyd",
+        remote: null,
+        branch: "main",
+        head: "abc123",
+        dirty: true,
+        statusLines: [" M cli/src/resolve.ts", "?? cli/src/lib/recent-commits.ts"],
+        statusDigest: "digest",
+      },
+      activeTask: null,
+      recentCommits: [],
+      gaps: [],
+    };
+    // No mention of "flyd" anywhere, but does mention the exact file being edited.
+    const entry = makeEntry({
+      path: "raw/2026-07-29-notes.md",
+      body: "Working through a tricky bug in resolve.ts today.",
+    });
+
+    expect(gateCurrentness([entry], presentModel, currentStateIntent).has(entry.path)).toBe(true);
+  });
+
+  it("does not corroborate a conversation transcript via project-name mention alone", () => {
+    const presentModel: PresentModel = {
+      generatedAt: "2026-07-29T00:00:00.000Z",
+      repository: {
+        root: "/Users/george/flyd",
+        name: "flyd",
+        remote: null,
+        branch: "main",
+        head: "abc123",
+        dirty: true,
+        statusLines: [],
+        statusDigest: "digest",
+      },
+      activeTask: null,
+      recentCommits: [],
+      gaps: [],
+    };
+    // Almost any past conversation about this repo will mention "flyd" —
+    // that alone must not be enough to call an old transcript current.
+    const oldConversation = makeEntry({
+      path: "conversations/2026-06-01-old.md",
+      body: "George asked about flyd and discussed an unrelated feature idea.",
+      metadata: { type: "conversation-index" },
+    });
+
+    expect(gateCurrentness([oldConversation], presentModel, currentStateIntent).has(oldConversation.path)).toBe(false);
+  });
+
+  it("does corroborate a conversation transcript when it mentions a currently-changed file", () => {
+    const presentModel: PresentModel = {
+      generatedAt: "2026-07-29T00:00:00.000Z",
+      repository: {
+        root: "/Users/george/flyd",
+        name: "flyd",
+        remote: null,
+        branch: "main",
+        head: "abc123",
+        dirty: true,
+        statusLines: [" M cli/src/currentness-gate.ts"],
+        statusDigest: "digest",
+      },
+      activeTask: null,
+      recentCommits: [],
+      gaps: [],
+    };
+    const conversation = makeEntry({
+      path: "conversations/2026-07-29-live.md",
+      body: "George discussed changes to currentness-gate.ts.",
+      metadata: { type: "conversation-index" },
+    });
+
+    expect(gateCurrentness([conversation], presentModel, currentStateIntent).has(conversation.path)).toBe(true);
+  });
+
   it("excludes topically-matching but stale entries even with a live signal", () => {
     const presentModel: PresentModel = {
       generatedAt: "2026-07-29T00:00:00.000Z",
       repository: null,
       activeTask: { taskKey: "t", projectName: "flyd", status: "running", intendedOutcome: "x", updatedAt: "now" },
+      recentCommits: [],
       gaps: [],
     };
     const staleMatch = makeEntry({

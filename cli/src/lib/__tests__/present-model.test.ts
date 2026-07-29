@@ -13,10 +13,21 @@ const fakeRepository: RepositorySnapshot = {
   statusDigest: "digest",
 };
 
+const fakeCommits = [
+  { hash: "aaa", shortHash: "aaa", subject: "fix(memory): gate currentness", committedAt: "2026-07-29T00:00:00.000Z" },
+];
+
+const baseDeps: PresentModelDependencies = {
+  inspectRepository: async () => fakeRepository,
+  findActiveTask: async () => null,
+  getRecentCommits: async () => [],
+  now: () => new Date("2026-07-29T00:00:00.000Z"),
+};
+
 describe("buildPresentModel", () => {
-  it("assembles repository and active task when both sources succeed", async () => {
+  it("assembles repository, active task, and recent commits when all sources succeed", async () => {
     const deps: PresentModelDependencies = {
-      inspectRepository: async () => fakeRepository,
+      ...baseDeps,
       findActiveTask: async () => ({
         taskKey: "task-1",
         projectName: "flyd",
@@ -24,23 +35,23 @@ describe("buildPresentModel", () => {
         intendedOutcome: "fix memory recall",
         updatedAt: "2026-07-29T00:00:00.000Z",
       }),
-      now: () => new Date("2026-07-29T00:00:00.000Z"),
+      getRecentCommits: async () => fakeCommits,
     };
 
     const model = await buildPresentModel("/Users/george/flyd", deps);
 
     expect(model.repository).toEqual(fakeRepository);
     expect(model.activeTask?.projectName).toBe("flyd");
+    expect(model.recentCommits).toEqual(fakeCommits);
     expect(model.gaps).toEqual([]);
   });
 
   it("records a gap instead of throwing when repository inspection fails", async () => {
     const deps: PresentModelDependencies = {
+      ...baseDeps,
       inspectRepository: async () => {
         throw new Error("not a git repo");
       },
-      findActiveTask: async () => null,
-      now: () => new Date(),
     };
 
     const model = await buildPresentModel("/tmp/not-a-repo", deps);
@@ -49,13 +60,30 @@ describe("buildPresentModel", () => {
     expect(model.gaps).toContain("repository_state_unavailable");
   });
 
+  it("does not attempt a commit lookup when the repository is unavailable", async () => {
+    const getRecentCommits = async (): Promise<never[]> => {
+      throw new Error("should not be called");
+    };
+    const deps: PresentModelDependencies = {
+      ...baseDeps,
+      inspectRepository: async () => {
+        throw new Error("not a git repo");
+      },
+      getRecentCommits,
+    };
+
+    const model = await buildPresentModel("/tmp/not-a-repo", deps);
+
+    expect(model.recentCommits).toEqual([]);
+    expect(model.gaps).not.toContain("recent_commits_unavailable");
+  });
+
   it("records a gap instead of throwing when the task store fails", async () => {
     const deps: PresentModelDependencies = {
-      inspectRepository: async () => fakeRepository,
+      ...baseDeps,
       findActiveTask: async () => {
         throw new Error("connection refused");
       },
-      now: () => new Date(),
     };
 
     const model = await buildPresentModel("/Users/george/flyd", deps);
@@ -65,13 +93,7 @@ describe("buildPresentModel", () => {
   });
 
   it("does not record a gap when there is legitimately no active task", async () => {
-    const deps: PresentModelDependencies = {
-      inspectRepository: async () => fakeRepository,
-      findActiveTask: async () => null,
-      now: () => new Date(),
-    };
-
-    const model = await buildPresentModel("/Users/george/flyd", deps);
+    const model = await buildPresentModel("/Users/george/flyd", baseDeps);
 
     expect(model.activeTask).toBeNull();
     expect(model.gaps).not.toContain("task_state_unavailable");
@@ -79,9 +101,8 @@ describe("buildPresentModel", () => {
 
   it("times out the task lookup instead of hanging", async () => {
     const deps: PresentModelDependencies = {
-      inspectRepository: async () => fakeRepository,
+      ...baseDeps,
       findActiveTask: () => new Promise(() => {}), // never resolves
-      now: () => new Date(),
     };
 
     const model = await buildPresentModel("/Users/george/flyd", deps);
@@ -89,4 +110,33 @@ describe("buildPresentModel", () => {
     expect(model.activeTask).toBeNull();
     expect(model.gaps).toContain("task_state_unavailable");
   }, 3000);
+
+  it("records a gap instead of throwing when the commit log fails", async () => {
+    const deps: PresentModelDependencies = {
+      ...baseDeps,
+      getRecentCommits: async () => {
+        throw new Error("git log failed");
+      },
+    };
+
+    const model = await buildPresentModel("/Users/george/flyd", deps);
+
+    expect(model.recentCommits).toEqual([]);
+    expect(model.gaps).toContain("recent_commits_unavailable");
+  });
+
+  it("passes the requested commit limit through to getRecentCommits", async () => {
+    let receivedLimit: number | undefined;
+    const deps: PresentModelDependencies = {
+      ...baseDeps,
+      getRecentCommits: async (_root, limit) => {
+        receivedLimit = limit;
+        return fakeCommits;
+      },
+    };
+
+    await buildPresentModel("/Users/george/flyd", deps, 15);
+
+    expect(receivedLimit).toBe(15);
+  });
 });

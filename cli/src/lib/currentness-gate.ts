@@ -4,6 +4,16 @@ import type { RecallIntent } from "./recall-intent.js";
 
 const CURRENTNESS_FRESHNESS_FLOOR = 0.4;
 
+// git status --porcelain=v1 lines look like "XY path" or "XY path -> newpath"
+// for renames — strip the 2-char status code and take the final path segment.
+function extractChangedFileBasenames(statusLines: string[]): string[] {
+  const names = statusLines
+    .map((line) => line.slice(3).split(" -> ").pop()?.trim())
+    .map((path) => path?.split("/").pop())
+    .filter((name): name is string => Boolean(name));
+  return [...new Set(names)];
+}
+
 /**
  * Currentness requires corroboration by a live Present Model signal, never
  * semantic/topical strength alone — an old, wiki-strong project must not
@@ -22,14 +32,29 @@ export function gateCurrentness(
   // repository.name is an owner/repo slug when a remote exists (e.g.
   // "GeorgeGally/flyd") — too specific to match natural evidence text, so
   // fall back to its last path segment.
-  const liveSignalName = presentModel.activeTask?.projectName ?? presentModel.repository?.name?.split("/").at(-1);
-  if (!liveSignalName) return currentPaths;
+  const projectNameNeedle = presentModel.activeTask?.projectName ?? presentModel.repository?.name?.split("/").at(-1);
+  const changedFileNeedles = extractChangedFileBasenames(presentModel.repository?.statusLines ?? []);
+  const strongNeedles = changedFileNeedles.map((n) => n.toLowerCase());
+  const weakNeedle = projectNameNeedle?.toLowerCase();
+  if (!weakNeedle && strongNeedles.length === 0) return currentPaths;
 
-  const needle = liveSignalName.toLowerCase();
   for (const entry of scored) {
     if (entry.confidenceProfile.freshness < CURRENTNESS_FRESHNESS_FLOOR) continue;
     const haystack = `${entry.path} ${entry.body}`.toLowerCase();
-    if (haystack.includes(needle)) currentPaths.add(entry.path);
+    const matchesStrong = strongNeedles.some((needle) => haystack.includes(needle));
+    if (matchesStrong) {
+      currentPaths.add(entry.path);
+      continue;
+    }
+    // A past conversation transcript will almost always mention the project
+    // by name just by being about it — that's too weak a bar to call it
+    // "current." Only non-conversation evidence (raw notes, wiki pages) gets
+    // to corroborate via the project name alone; conversation transcripts
+    // need a specific changed-file match.
+    const isConversationTranscript = entry.metadata.type === "conversation-index";
+    if (!isConversationTranscript && weakNeedle && haystack.includes(weakNeedle)) {
+      currentPaths.add(entry.path);
+    }
   }
 
   return currentPaths;

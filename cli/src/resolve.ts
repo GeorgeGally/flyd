@@ -8,6 +8,7 @@ import { validateResolution } from "./resolve-types.js";
 import { assessConsequence } from "./consequence.js";
 import { classifyRoute, type RouterConfig } from "./router.js";
 import type { ConsequenceAssessment } from "./verification-types.js";
+import { classifyRecallIntent } from "./lib/recall-intent.js";
 import {
   recordDeterministicResolution,
   recordLlmResolution,
@@ -137,7 +138,6 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
 
   try {
     const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
-    const { classifyRecallIntent } = await import("./lib/recall-intent.js");
     const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
     const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query), timeout]);
     if (!result) return empty;
@@ -327,10 +327,16 @@ export function buildResolutionPrompt(
     return `- [${label}] ${c.content}`;
   });
 
-  const claimLines = (includeBackgroundContext ? memoryPack.relevant : []).map((c) => {
-    const label = statusLabel(c.epistemicStatus);
-    return `- [${label}] ${c.content}`;
-  });
+  const recallIntentKind = classifyRecallIntent(intent).kind;
+  // For current_state or task_resume with real corroborated evidence,
+  // omitting RELEVANT MEMORY entirely beats instructing the model to ignore
+  // it — a semantically strong old match reliably hijacks the answer over
+  // meta-instructions otherwise (verified live for both intents against
+  // flyd ask — "resume benefits from broader context" did not hold up).
+  const suppressRelevant = (recallIntentKind === "current_state" || recallIntentKind === "task_resume") && currentLines.length > 0;
+  const claimLines = suppressRelevant || !includeBackgroundContext
+    ? []
+    : memoryPack.relevant.map((c) => `- [${statusLabel(c.epistemicStatus)}] ${c.content}`);
 
   const conflictLines = (includeBackgroundContext ? memoryPack.conflicts : []).map((pair) =>
     `- ⚠ Competing claims:\n  a) [${statusLabel(pair.claimA.epistemicStatus)}] ${pair.claimA.content}\n  b) [${statusLabel(pair.claimB.epistemicStatus)}] ${pair.claimB.content}\n  CONFLICT — do not assume either. Ask if critical to this response.`
@@ -342,7 +348,13 @@ export function buildResolutionPrompt(
 
   const blocks: string[] = [];
   if (currentLines.length > 0) {
-    blocks.push(`\nCURRENTLY ACTIVE (live, corroborated evidence — this is what the user is working on right now, distinct from background history):\n${currentLines.join("\n")}`);
+    const isResume = recallIntentKind === "task_resume";
+    const heading = isResume ? "CONTINUING FROM" : "CURRENTLY ACTIVE";
+    const note = isResume
+      ? "live, corroborated evidence — this is where the user's work left off, distinct from background history"
+      : "live, corroborated evidence — this is what the user is working on right now, distinct from background history";
+    const priority = "Weight this section over RELEVANT MEMORY below when answering about current activity — background history must not override or dilute it. Items are ordered most-recent-first; lead with the first item(s) over a longer, more narrative one further down.";
+    blocks.push(`\n${heading} (${note}). ${priority}\n${currentLines.join("\n")}`);
   }
   if (claimLines.length > 0) {
     blocks.push(`\nRELEVANT MEMORY (from the user's personal knowledge base — use silently to inform your reply, never cite paths or say "according to my memory"):\n${claimLines.join("\n")}`);

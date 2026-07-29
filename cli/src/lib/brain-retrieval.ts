@@ -20,6 +20,7 @@ import { isPollutedCapture } from "./brain-state.js";
 import { classifyRecallIntent, type RecallIntent } from "./recall-intent.js";
 import { buildPresentModel, type PresentModel } from "./present-model.js";
 import { gateCurrentness } from "./currentness-gate.js";
+import type { RecentCommit } from "./recent-commits.js";
 
 export interface BrainRetrievalDependencies {
   searchRaw: (query: string, keywords: string[]) => Promise<BaseEntry[]>;
@@ -150,6 +151,44 @@ function memoryEpistemicStatus(entry: ScoredEvidence): string {
   return "observation";
 }
 
+const COMMIT_FRESHNESS_DECAY_HOURS = 14 * 24;
+
+function freshnessFromCommitAge(committedAt: string, now: Date): number {
+  const hoursSince = (now.getTime() - new Date(committedAt).getTime()) / (1000 * 60 * 60);
+  return Math.max(0, Math.min(1, 1 - hoursSince / COMMIT_FRESHNESS_DECAY_HOURS));
+}
+
+// Recent commits are direct, authoritative live observations, not inferred
+// claims — they bypass gateCurrentness() entirely rather than needing to
+// corroborate against themselves. epistemicConfidence stays 1.0 regardless
+// of age (per the no-recency-in-epistemicConfidence invariant); recency
+// lives only in freshness.
+function buildCommitEvidence(commit: RecentCommit, now: Date): ScoredEvidence {
+  const freshness = freshnessFromCommitAge(commit.committedAt, now);
+  return {
+    path: `git:commit:${commit.shortHash}`,
+    body: commit.subject,
+    source: "raw",
+    score: 95,
+    metadata: { type: "live-commit", commitHash: commit.hash, committedAt: commit.committedAt },
+    staleness: null,
+    librarianScore: 0.95,
+    recencyWeight: freshness,
+    reliabilityWeight: 1,
+    interestBoost: 0,
+    corroborationCount: 0,
+    contradictionCount: 0,
+    confidenceProfile: {
+      epistemicConfidence: 1,
+      freshness,
+      interestAffinity: 0,
+      retrievalUtility: 0.5,
+      associationStrength: 0,
+    },
+    isCurrent: true,
+  };
+}
+
 export async function retrieveBrainEvidence(
   query: string,
   dependencies: BrainRetrievalDependencies = defaults,
@@ -224,19 +263,28 @@ export async function retrieveRankedBrainEvidence(
   const generatedAt = dependencies.now().toISOString();
 
   const intent = classifyRecallIntent(query);
+  const commitLimit = intent.kind === "task_resume" ? 15 : 5;
   const presentModel = intent.kind === "current_state" || intent.kind === "task_resume"
-    ? await buildPresentModel().catch(() => null)
+    ? await buildPresentModel(process.cwd(), undefined, commitLimit).catch(() => null)
     : null;
   const currentPaths = gateCurrentness(scored, presentModel, intent);
   for (const entry of scored) {
     entry.isCurrent = currentPaths.has(entry.path);
   }
 
+  // Sufficiency reflects real archive evidence only — synthetic commit
+  // entries are added after, so they can't inflate an otherwise-empty
+  // archive into a false "sufficient" verdict.
+  const sufficiency = estimateSufficiency(scored, query);
+  const commitEntries = (presentModel?.recentCommits ?? []).map((commit) =>
+    buildCommitEvidence(commit, dependencies.now()),
+  );
+
   return {
     query,
     generatedAt,
-    sufficiency: estimateSufficiency(scored, query),
-    entries: scored,
+    sufficiency,
+    entries: [...commitEntries, ...scored],
     intent,
     presentModel,
   };
