@@ -30,6 +30,8 @@ export interface ScoredEvidence extends EvidenceEntry {
   corroborationCount: number;
   contradictionCount: number;
   confidenceProfile: ConfidenceProfile;
+  /** Set by currentness-gate.ts — true only when corroborated by a live Present Model signal. */
+  isCurrent?: boolean;
 }
 
 export interface SufficiencyAssessment {

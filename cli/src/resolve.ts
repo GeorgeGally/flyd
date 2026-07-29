@@ -137,11 +137,13 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
 
   try {
     const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
+    const { classifyRecallIntent } = await import("./lib/recall-intent.js");
     const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
     const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query), timeout]);
     if (!result) return empty;
 
     const conflictingPaths = new Set<string>();
+    const current: RetrievedClaim[] = [];
     const relevant: RetrievedClaim[] = [];
     const sources = new Set<string>();
 
@@ -150,7 +152,7 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
       const claim: RetrievedClaim = {
         claimId: match.id,
         content: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
-        kind: memoryKind(match.content as unknown as Record<string, unknown>, {}),
+        kind: memoryKind(match.content.excerpt, {}),
         scope: "global",
         epistemicStatus: match.epistemicStatus,
         epistemicConfidence: p.epistemicConfidence,
@@ -158,12 +160,25 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
         sourceRefs: [match.content.path],
         relevance: match.confidence,
       };
-      relevant.push(claim);
+      if (match.content.isCurrent) {
+        current.push(claim);
+      } else {
+        relevant.push(claim);
+      }
       sources.add(match.content.path);
 
       if (match.epistemicStatus === "contradictory") {
         conflictingPaths.add(match.content.path);
       }
+    }
+
+    const gaps: KnowledgeGap[] = [];
+    if (classifyRecallIntent(query).kind === "current_state" && current.length === 0) {
+      gaps.push({
+        question: "What is currently active?",
+        importance: "high",
+        status: "open",
+      });
     }
 
     const conflicts: ConflictPair[] = [];
@@ -197,7 +212,7 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
       }
     }
 
-    return { current: [], relevant, conflicts, gaps: [], sources: [...sources] };
+    return { current, relevant, conflicts, gaps, sources: [...sources] };
   } catch {
     return empty;
   }
@@ -307,6 +322,11 @@ export function buildResolutionPrompt(
     return labels[epistemicStatus] ?? epistemicStatus;
   };
 
+  const currentLines = (includeBackgroundContext ? memoryPack.current : []).map((c) => {
+    const label = statusLabel(c.epistemicStatus);
+    return `- [${label}] ${c.content}`;
+  });
+
   const claimLines = (includeBackgroundContext ? memoryPack.relevant : []).map((c) => {
     const label = statusLabel(c.epistemicStatus);
     return `- [${label}] ${c.content}`;
@@ -321,6 +341,9 @@ export function buildResolutionPrompt(
   );
 
   const blocks: string[] = [];
+  if (currentLines.length > 0) {
+    blocks.push(`\nCURRENTLY ACTIVE (live, corroborated evidence — this is what the user is working on right now, distinct from background history):\n${currentLines.join("\n")}`);
+  }
   if (claimLines.length > 0) {
     blocks.push(`\nRELEVANT MEMORY (from the user's personal knowledge base — use silently to inform your reply, never cite paths or say "according to my memory"):\n${claimLines.join("\n")}`);
   }

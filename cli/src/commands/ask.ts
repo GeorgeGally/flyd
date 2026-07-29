@@ -9,6 +9,8 @@ import {
   retrieveRankedBrainEvidence,
   retrieveRankedLexicalBrainEvidence,
 } from "../lib/brain-retrieval.js";
+import type { RecallIntent } from "../lib/recall-intent.js";
+import type { PresentModel } from "../lib/present-model.js";
 import {
   extractKeywords,
   searchWiki,
@@ -31,6 +33,8 @@ import {
 export interface RetrievedEntry extends BaseEntry {
   fullPath: string;
   staleness: StalenessResult | null;
+  /** Populated when this entry came from retrieveRankedBrainEvidence — see currentness-gate.ts. */
+  isCurrent?: boolean;
 }
 
 export function buildEntries(results: Array<{ path: string; score: number }>, keywords: string[]): RetrievedEntry[] {
@@ -68,16 +72,39 @@ Rules:
 - If all returned evidence is stale (>30 days old), note this explicitly.${interestContext}`;
 }
 
-function buildPrompt(question: string, entries: RetrievedEntry[], scored?: ScoredEvidence[]): string {
-  const evidence = entries
-    .map((e, i) => {
-      const timestamp = e.metadata.timestamp ? ` (${e.metadata.timestamp})` : "";
-      const staleNote = e.staleness?.message ? ` ⚠ ${e.staleness.message}` : "";
-      const sourceTag = e.source === "wiki" ? "wiki" : "raw";
-      const scoreNote = scored?.[i] ? ` 📊${(scored[i].librarianScore * 100).toFixed(0)}%` : "";
-      return `[${sourceTag}:${e.path}]${timestamp}${staleNote}${scoreNote}\n${e.body.trim()}`;
-    })
-    .join("\n\n---\n\n");
+export function buildPrompt(
+  question: string,
+  entries: RetrievedEntry[],
+  scored?: ScoredEvidence[],
+  intent?: RecallIntent,
+  presentModel?: PresentModel | null,
+): string {
+  const currentEntries = entries.filter((e) => e.isCurrent === true);
+  const backgroundEntries = entries.filter((e) => e.isCurrent !== true);
+
+  const renderEntry = (e: RetrievedEntry, i: number): string => {
+    const timestamp = e.metadata.timestamp ? ` (${e.metadata.timestamp})` : "";
+    const staleNote = e.staleness?.message ? ` ⚠ ${e.staleness.message}` : "";
+    const sourceTag = e.source === "wiki" ? "wiki" : "raw";
+    const scoreNote = scored?.[i] ? ` 📊${(scored[i].librarianScore * 100).toFixed(0)}%` : "";
+    return `[${sourceTag}:${e.path}]${timestamp}${staleNote}${scoreNote}\n${e.body.trim()}`;
+  };
+
+  let currentSection = "";
+  if (intent?.kind === "current_state" || intent?.kind === "task_resume") {
+    if (currentEntries.length > 0) {
+      currentSection = `\n\n## Currently Active (live, corroborated — this is what's actually happening right now, not background history)\n${currentEntries
+        .map((e) => renderEntry(e, entries.indexOf(e)))
+        .join("\n\n---\n\n")}`;
+    } else {
+      const gapNote = presentModel?.gaps.length
+        ? ` (unavailable signals: ${presentModel.gaps.join(", ")})`
+        : "";
+      currentSection = `\n\n## Currently Active\nNo evidence was corroborated as currently active${gapNote}. Do not present background evidence below as current work — say so explicitly if the question asks what's active now.`;
+    }
+  }
+
+  const evidence = backgroundEntries.map((e) => renderEntry(e, entries.indexOf(e))).join("\n\n---\n\n");
 
   let librarianSection = "";
   if (scored) {
@@ -85,7 +112,9 @@ function buildPrompt(question: string, entries: RetrievedEntry[], scored?: Score
     librarianSection = `\n\n## Librarian Assessment\nSufficiency: ${sufficiency.verdict} — ${sufficiency.reason}\n`;
   }
 
-  return `## Evidence
+  return `${currentSection}
+
+## Evidence (background — do not present as current unless corroborated above)
 ${evidence}${librarianSection}
 
 ## Question
@@ -103,11 +132,12 @@ function formatEvidence(entries: RetrievedEntry[], scored?: ScoredEvidence[]): s
 
   for (const e of entries) {
     const staleFlag = e.staleness?.veryStale ? " ⚠️" : e.staleness?.stale ? " ⚡" : "";
+    const currentFlag = e.isCurrent ? " ✓current" : "";
     const timestamp = e.metadata.timestamp ? ` (${e.metadata.timestamp})` : "";
     const sourceTag = e.source === "wiki" ? "wiki" : "raw";
     const scoreEntry = scored?.find((s) => s.path === e.path);
     const libScore = scoreEntry ? ` 📊${(scoreEntry.librarianScore * 100).toFixed(0)}%` : "";
-    lines.push(`[${sourceTag}]${staleFlag}${libScore} ${e.path}${timestamp} (score=${e.score}%)`);
+    lines.push(`[${sourceTag}]${staleFlag}${currentFlag}${libScore} ${e.path}${timestamp} (score=${e.score}%)`);
   }
   return lines.join("\n");
 }
@@ -200,7 +230,11 @@ If no page is relevant, return [].`;
   }
 
   const librarianSummary = scored ? formatLibrarianSummary(scored, estimateSufficiency(scored, question)) : "";
-  const answer = await query(buildPrompt(question, entries, scored), m, buildSystemPrompt(question));
+  const answer = await query(
+    buildPrompt(question, entries, scored, retrieval.intent, retrieval.presentModel),
+    m,
+    buildSystemPrompt(question),
+  );
 
   console.log(answer);
   console.log(`\n---\nevidence:\n${evidenceSummary}`);

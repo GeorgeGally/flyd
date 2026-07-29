@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMemoryPack } from "../resolve.js";
+import type { BrainRetrievalResult } from "../lib/brain-retrieval.js";
 
-const retrieveResilientLexicalBrainEvidence = vi.fn(async (query: string) => ({
-  version: "1.0" as const,
-  source: "flyd-cli" as const,
+const retrieveResilientLexicalBrainEvidence = vi.fn(async (query: string): Promise<BrainRetrievalResult> => ({
+  version: "1.0",
+  source: "flyd-cli",
   query,
   generatedAt: "2026-07-28T00:00:00Z",
-  sufficiency: { verdict: "sufficient", reason: "" },
+  sufficiency: { verdict: "sufficient", reason: "", coverage: 1 },
   matches: [
     {
       id: "memory_match:abc",
-      type: "memory_match" as const,
-      source: "cli.retrieval" as const,
-      epistemicStatus: "observation" as const,
+      type: "memory_match",
+      source: "cli.retrieval",
+      epistemicStatus: "observation",
       confidence: 0.8,
       confidenceProfile: {
         epistemicConfidence: 0.5,
@@ -25,7 +26,7 @@ const retrieveResilientLexicalBrainEvidence = vi.fn(async (query: string) => ({
       evidenceRefs: [],
       content: {
         path: "raw/2026-07-01.md",
-        archive: "raw" as const,
+        archive: "raw",
         excerpt: "George is building flyd.",
         retrievalScore: 80,
         recencyWeight: 1,
@@ -33,6 +34,7 @@ const retrieveResilientLexicalBrainEvidence = vi.fn(async (query: string) => ({
         corroborationCount: 0,
         stale: false,
         lastUpdated: null,
+        isCurrent: false,
       },
     },
   ],
@@ -92,7 +94,7 @@ describe("buildMemoryPack", () => {
       source: "flyd-cli" as const,
       query: "test",
       generatedAt: "2026-07-28T00:00:00Z",
-      sufficiency: { verdict: "sufficient", reason: "" },
+      sufficiency: { verdict: "sufficient", reason: "", coverage: 1 },
       matches: [{
         id: "memory_match:xyz",
         type: "memory_match" as const,
@@ -110,7 +112,7 @@ describe("buildMemoryPack", () => {
         evidenceRefs: [],
         content: {
           path: "wiki/preferences/george.md",
-          archive: "wiki" as const,
+          archive: "wiki",
           excerpt: "George prefers concise answers.",
           retrievalScore: 95,
           recencyWeight: 0.9,
@@ -118,6 +120,7 @@ describe("buildMemoryPack", () => {
           corroborationCount: 2,
           stale: false,
           lastUpdated: "2026-07-20",
+          isCurrent: false,
         },
       }],
     });
@@ -125,5 +128,62 @@ describe("buildMemoryPack", () => {
     expect(pack.relevant[0].epistemicStatus).toBe("verified");
     expect(pack.relevant[0].epistemicConfidence).toBe(0.9);
     expect(pack.relevant[0].freshness).toBe(0.85);
+  });
+
+  it("routes matches flagged isCurrent into pack.current instead of pack.relevant", async () => {
+    retrieveResilientLexicalBrainEvidence.mockResolvedValueOnce({
+      version: "1.0" as const,
+      source: "flyd-cli" as const,
+      query: "what am I working on",
+      generatedAt: "2026-07-29T00:00:00Z",
+      sufficiency: { verdict: "sufficient", reason: "", coverage: 1 },
+      matches: [{
+        id: "memory_match:current",
+        type: "memory_match" as const,
+        source: "cli.retrieval" as const,
+        epistemicStatus: "observation" as const,
+        confidence: 0.9,
+        confidenceProfile: {
+          epistemicConfidence: 0.9,
+          freshness: 0.95,
+          interestAffinity: 0,
+          retrievalUtility: 0.5,
+          associationStrength: 0,
+        },
+        generatedAt: "2026-07-29T00:00:00Z",
+        evidenceRefs: [],
+        content: {
+          path: "wiki/projects/flyd.md",
+          archive: "wiki" as const,
+          excerpt: "Flyd memory recall repair is in progress.",
+          retrievalScore: 90,
+          recencyWeight: 0.95,
+          reliabilityWeight: 0.9,
+          corroborationCount: 0,
+          stale: false,
+          lastUpdated: "2026-07-29",
+          isCurrent: true,
+        },
+      }],
+    });
+
+    const pack = await buildMemoryPack("what am I working on", env);
+
+    expect(pack.current).toHaveLength(1);
+    expect(pack.current[0].content).toBe("Flyd memory recall repair is in progress.");
+    expect(pack.relevant).toHaveLength(0);
+  });
+
+  it("names the missing signal in gaps when a current_state query has no current match", async () => {
+    const pack = await buildMemoryPack("what am I working on", env);
+
+    expect(pack.current).toHaveLength(0);
+    expect(pack.gaps).toHaveLength(1);
+    expect(pack.gaps[0].importance).toBe("high");
+  });
+
+  it("does not add a currentness gap for non current_state queries", async () => {
+    const pack = await buildMemoryPack("who am I", env);
+    expect(pack.gaps).toHaveLength(0);
   });
 });

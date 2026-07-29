@@ -17,6 +17,9 @@ import {
 } from "./retrieval.js";
 import { getStaleness } from "./staleness.js";
 import { isPollutedCapture } from "./brain-state.js";
+import { classifyRecallIntent, type RecallIntent } from "./recall-intent.js";
+import { buildPresentModel, type PresentModel } from "./present-model.js";
+import { gateCurrentness } from "./currentness-gate.js";
 
 export interface BrainRetrievalDependencies {
   searchRaw: (query: string, keywords: string[]) => Promise<BaseEntry[]>;
@@ -44,6 +47,7 @@ export interface MemoryMatch {
     corroborationCount: number;
     stale: boolean;
     lastUpdated: string | null;
+    isCurrent: boolean;
   };
 }
 
@@ -54,6 +58,8 @@ export interface BrainRetrievalResult {
   generatedAt: string;
   sufficiency: SufficiencyAssessment;
   matches: MemoryMatch[];
+  intent?: RecallIntent;
+  presentModel?: PresentModel | null;
 }
 
 export interface RankedBrainRetrieval {
@@ -61,6 +67,8 @@ export interface RankedBrainRetrieval {
   generatedAt: string;
   sufficiency: SufficiencyAssessment;
   entries: ScoredEvidence[];
+  intent: RecallIntent;
+  presentModel: PresentModel | null;
 }
 
 const defaults: BrainRetrievalDependencies = {
@@ -154,6 +162,8 @@ export async function retrieveBrainEvidence(
     query,
     generatedAt: ranked.generatedAt,
     sufficiency: ranked.sufficiency,
+    intent: ranked.intent,
+    presentModel: ranked.presentModel,
     matches: ranked.entries.map((entry) => ({
       id: stableId(entry.path, entry.body),
       type: "memory_match",
@@ -173,6 +183,7 @@ export async function retrieveBrainEvidence(
         corroborationCount: entry.corroborationCount,
         stale: entry.staleness?.stale ?? false,
         lastUpdated: entry.staleness?.lastUpdated ?? null,
+        isCurrent: entry.isCurrent ?? false,
       },
     })),
   };
@@ -212,10 +223,21 @@ export async function retrieveRankedBrainEvidence(
   }, keywords, query))), graphResults).sort((a, b) => b.librarianScore - a.librarianScore).slice(0, MAX_ENTRIES);
   const generatedAt = dependencies.now().toISOString();
 
+  const intent = classifyRecallIntent(query);
+  const presentModel = intent.kind === "current_state" || intent.kind === "task_resume"
+    ? await buildPresentModel().catch(() => null)
+    : null;
+  const currentPaths = gateCurrentness(scored, presentModel, intent);
+  for (const entry of scored) {
+    entry.isCurrent = currentPaths.has(entry.path);
+  }
+
   return {
     query,
     generatedAt,
     sufficiency: estimateSufficiency(scored, query),
     entries: scored,
+    intent,
+    presentModel,
   };
 }

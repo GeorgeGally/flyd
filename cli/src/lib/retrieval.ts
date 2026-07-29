@@ -289,27 +289,29 @@ function discoverGraphNeighbors(
     }
   }
 
-  return [...entries, ...discovered].slice(0, MAX_ENTRIES);
+  // Truncation to MAX_ENTRIES happens after scoring (brain-retrieval.ts), not
+  // here — the loop's own `budget` bound above already limits growth.
+  return [...entries, ...discovered];
 }
 
 export function mergeEntries(rawEntries: BaseEntry[], wikiEntries: BaseEntry[]): BaseEntry[] {
   const seen = new Set<string>();
   const merged: BaseEntry[] = [];
 
-  // Add wiki entries first (they're curated and typically more reliable)
+  // Wiki entries win path-dedup precedence (curated, typically more reliable),
+  // but truncation to MAX_ENTRIES must happen after scoring, not here — an
+  // early cap here can crowd out all raw/live evidence before relevance is
+  // ever computed.
   for (const e of wikiEntries) {
     if (seen.has(e.path)) continue;
     seen.add(e.path);
     merged.push(e);
-    if (merged.length >= MAX_ENTRIES) return merged;
   }
 
-  // Then add raw entries
   for (const e of rawEntries) {
     if (seen.has(e.path)) continue;
     seen.add(e.path);
     merged.push(e);
-    if (merged.length >= MAX_ENTRIES) return merged;
   }
 
   return merged;
