@@ -737,7 +737,7 @@ func executeNativeOperations(
     if let target = observedTarget {
         if !executor.verifyObservedTarget(target) {
             print("[Flyd] Aborting LIVE execution: target verification failed")
-            for op in resolution.operations {
+            for _ in resolution.operations {
                 await flydClient.sendOutcome(
                     resolutionId: resolution.resolutionId,
                     invocationId: resolution.invocationId,

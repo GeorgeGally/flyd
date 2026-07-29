@@ -61,7 +61,7 @@ final class LiveSessionController {
         bridge.onResolutionResult = { [weak self] json in
             self?.handleResolutionResult(json)
         }
-        bridge.onError = { [weak self] msg in
+        bridge.onError = { msg in
             print("[Flyd] LIVE bridge error: \(msg)")
         }
 
