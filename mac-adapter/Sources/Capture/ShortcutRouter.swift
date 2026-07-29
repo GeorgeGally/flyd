@@ -6,11 +6,18 @@ enum ShortcutRouteEvent: Equatable {
     case textTapped
     case voicePressed
     case voiceReleased
+    case dictationPressed
+    case dictationReleased
     case liveToggle
 }
 
+fileprivate enum ActiveCaptureChord {
+    case conversation
+    case dictation
+}
+
 struct ShortcutRoutingState {
-    fileprivate var voiceActive = false
+    fileprivate var activeCaptureChord: ActiveCaptureChord?
     fileprivate var fnDownAlone = false
     fileprivate var lastFnTapUpAt: TimeInterval?
     fileprivate var ctrlWasDown = false
@@ -20,8 +27,9 @@ struct ShortcutRoutingState {
 
 enum ShortcutRouter {
     private static let voiceFlags: CGEventFlags = [.maskControl, .maskSecondaryFn]
+    private static let dictationFlags: CGEventFlags = [.maskShift, .maskControl, .maskSecondaryFn]
     private static let fnOnly: CGEventFlags = [.maskSecondaryFn]
-    private static let relevantFlags: CGEventFlags = [.maskControl, .maskAlternate, .maskSecondaryFn]
+    private static let relevantFlags: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskSecondaryFn]
 
     /// Maximum gap between two clean fn taps to count as a double-tap.
     static let doubleTapWindow: TimeInterval = 0.4
@@ -38,7 +46,10 @@ enum ShortcutRouter {
         guard eventType == .flagsChanged else { return .none }
         let relevant = flags.intersection(relevantFlags)
 
-        let ctrlOnly = flags.contains(.maskControl) && !flags.contains(.maskSecondaryFn) && !flags.contains(.maskAlternate)
+        let ctrlOnly = flags.contains(.maskControl)
+            && !flags.contains(.maskShift)
+            && !flags.contains(.maskSecondaryFn)
+            && !flags.contains(.maskAlternate)
         let ctrlDown = ctrlOnly
         if ctrlDown && !state.ctrlWasDown {
             if let lastCtrl = state.lastCtrlDownAt, now - lastCtrl <= ctrlPressWindow {
@@ -58,17 +69,25 @@ enum ShortcutRouter {
         }
         state.ctrlWasDown = ctrlDown
 
-        if state.voiceActive {
-            if relevant == voiceFlags { return .none }
-            state.voiceActive = false
-            return .voiceReleased
+        if let activeCaptureChord = state.activeCaptureChord {
+            let activeFlags = activeCaptureChord == .conversation ? voiceFlags : dictationFlags
+            if relevant == activeFlags { return .none }
+            state.activeCaptureChord = nil
+            return activeCaptureChord == .conversation ? .voiceReleased : .dictationReleased
         }
 
         if relevant == voiceFlags {
-            state.voiceActive = true
+            state.activeCaptureChord = .conversation
             state.fnDownAlone = false
             state.lastFnTapUpAt = nil
             return .voicePressed
+        }
+
+        if relevant == dictationFlags {
+            state.activeCaptureChord = .dictation
+            state.fnDownAlone = false
+            state.lastFnTapUpAt = nil
+            return .dictationPressed
         }
 
         if relevant == fnOnly {
@@ -100,5 +119,9 @@ enum ShortcutRouter {
 
     static func isVoiceChordActive(flags: CGEventFlags) -> Bool {
         flags.intersection(relevantFlags) == voiceFlags
+    }
+
+    static func isDictationChordActive(flags: CGEventFlags) -> Bool {
+        flags.intersection(relevantFlags) == dictationFlags
     }
 }

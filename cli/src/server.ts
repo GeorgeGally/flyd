@@ -22,6 +22,7 @@ import { overlayMetricsSnapshot, recordDelegationCompletion } from "./overlay-me
 import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } from "./transcription.js";
 import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
 import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
+import { conversationHistory } from "./conversation-history.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -71,6 +72,7 @@ interface ManifestRequestBody {
   environment: ManifestRequest["environment"];
   intent: string;
   modality: "text" | "voice";
+  conversation_id?: string;
   screenshot?: string;
   invocation_fingerprint: ManifestRequest["invocation_fingerprint"];
 }
@@ -134,6 +136,9 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
   try {
     const config = loadFlydWorkerConfig();
     const routerConfig = loadFlydRouterConfig();
+    const conversationTurns = parsed.conversation_id
+      ? conversationHistory.get(parsed.conversation_id)
+      : [];
     const startedAt = Date.now();
     const resolution = await resolve(
       {
@@ -142,13 +147,15 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         environment: parsed.environment,
         intent: parsed.intent,
         modality: parsed.modality || "text",
+        conversation_id: parsed.conversation_id,
         screenshot: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
         invocation_fingerprint: parsed.invocation_fingerprint,
       },
       config.model,
       config.apiKey,
       config.baseURL,
-      routerConfig
+      routerConfig,
+      conversationTurns
     );
     const modelMs = Date.now() - startedAt;
 
@@ -208,6 +215,19 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       consequenceClass: resolution.consequence?.class,
       timestamp: Date.now(),
     });
+
+    if (parsed.conversation_id) {
+      const assistantText = [
+        ...(resolution.augmentations ?? [])
+          .filter((augmentation) => augmentation.kind === "explanation")
+          .map((augmentation) => augmentation.content),
+        ...resolution.operations.map((operation) => operation.text),
+      ].filter(Boolean).join("\n");
+
+      if (assistantText) {
+        conversationHistory.append(parsed.conversation_id, parsed.intent, assistantText);
+      }
+    }
   } catch (err) {
     console.error("[Flyd Core] Manifest resolution failed:", err);
     sendJson(res, 500, { error: "Resolution failed" });

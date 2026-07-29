@@ -27,6 +27,7 @@ final class InvocationStateMachine {
     fileprivate var holdTimer: DispatchWorkItem?
     fileprivate var holdTimerDidFire = false
     fileprivate(set) var isVoiceInvocation = false
+    fileprivate(set) var isDictationInvocation = false
 
     private(set) var transcriptionSessionId: Int = -1
 
@@ -68,6 +69,8 @@ final class InvocationStateMachine {
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
+    var onDictationHoldDetected: (() -> Void)?
+    var onDictationReleased: (() -> Void)?
     var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
@@ -120,7 +123,7 @@ final class InvocationStateMachine {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-        print("[Flyd] Keyboard monitor started. Double-tap fn for text, hold fn+⌃ for voice.")
+        print("[Flyd] Keyboard monitor started. Double-tap fn for text, hold ⌃fn for conversation, hold ⇧⌃fn for dictation.")
         writeKeyboardDiagnostic(status: "running")
     }
 
@@ -237,6 +240,7 @@ final class InvocationStateMachine {
         holdTimer = nil
         holdTimerDidFire = false
         isVoiceInvocation = false
+        isDictationInvocation = false
         shortcutRoutingState = ShortcutRoutingState()
         transcriptionSessionId += 1
         resetCheckpoints()
@@ -348,7 +352,10 @@ private func stateMachineEventCallback(
 
     case .keyDown:
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-        if machine.wasPressed && !machine.isVoiceInvocation && !machine.isModifierKeyCode(keyCode) {
+        if machine.wasPressed
+            && !machine.isVoiceInvocation
+            && !machine.isDictationInvocation
+            && !machine.isModifierKeyCode(keyCode) {
             machine.textIntercepted = true
         }
 
@@ -366,6 +373,7 @@ private func stateMachineEventCallback(
         case .textTapped:
             machine.wasPressed = false
             machine.isVoiceInvocation = false
+            machine.isDictationInvocation = false
             machine.textIntercepted = false
             DispatchQueue.main.async {
                 machine.writeKeyboardDiagnostic(status: "running", eventType: "text-double-tap", flags: flags)
@@ -375,6 +383,7 @@ private func stateMachineEventCallback(
         case .voicePressed:
             machine.wasPressed = true
             machine.isVoiceInvocation = true
+            machine.isDictationInvocation = false
             DispatchQueue.main.async {
                 machine.writeKeyboardDiagnostic(status: "running", eventType: "voice-shortcut-pressed", flags: flags)
                 machine.onShortcutPressed?()
@@ -385,6 +394,22 @@ private func stateMachineEventCallback(
             machine.isVoiceInvocation = true
             DispatchQueue.main.async {
                 machine.onShortcutReleased?()
+            }
+        case .dictationPressed:
+            machine.wasPressed = true
+            machine.isVoiceInvocation = false
+            machine.isDictationInvocation = true
+            DispatchQueue.main.async {
+                machine.writeKeyboardDiagnostic(status: "running", eventType: "dictation-shortcut-pressed", flags: flags)
+                machine.onShortcutPressed?()
+                machine.onDictationHoldDetected?()
+            }
+        case .dictationReleased:
+            machine.wasPressed = false
+            machine.isVoiceInvocation = false
+            machine.isDictationInvocation = true
+            DispatchQueue.main.async {
+                machine.onDictationReleased?()
             }
         case .liveToggle:
             guard FlydState.shared.mode != .invoked else { break }

@@ -15,6 +15,7 @@ final class FlydClient {
         let intent: String
         let modality: String
         let screenshot: String?
+        let conversationId: String?
         let invocationFingerprint: FingerprintPayload
 
         enum CodingKeys: String, CodingKey {
@@ -24,6 +25,7 @@ final class FlydClient {
             case intent
             case modality
             case screenshot
+            case conversationId = "conversation_id"
             case invocationFingerprint = "invocation_fingerprint"
         }
     }
@@ -148,6 +150,10 @@ final class FlydClient {
         let message: String?
     }
 
+    struct AcknowledgementResponse: Codable {
+        let acknowledged: Bool
+    }
+
     func sendManifest(
         invocationId: String,
         environmentRevision: Int,
@@ -155,6 +161,7 @@ final class FlydClient {
         intent: String,
         modality: String,
         screenshot: String? = nil,
+        conversationId: String? = nil,
         fingerprint: InvocationFingerprint
     ) async -> ResolutionResponse? {
         let payload = ManifestPayload(
@@ -164,6 +171,7 @@ final class FlydClient {
             intent: intent,
             modality: modality,
             screenshot: screenshot,
+            conversationId: conversationId,
             invocationFingerprint: FingerprintPayload(
                 app: fingerprint.app,
                 surface: fingerprint.surface,
@@ -188,7 +196,7 @@ final class FlydClient {
             correction: correction
         )
 
-        _ = await post("/manifest/outcome", body: payload) as ResolutionResponse?
+        _ = await post("/manifest/outcome", body: payload) as AcknowledgementResponse?
     }
 
     func healthCheck() async -> Bool {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ConversationTurn } from "./conversation-history.js";
 import { query } from "./lib/llm.js";
 import { readContextBundles, type ContextBundle } from "./lib/context-bundles.js";
 import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
@@ -67,6 +68,7 @@ export interface ManifestRequest {
   environment: EnvironmentCapture;
   intent: string;
   modality: "text" | "voice";
+  conversation_id?: string;
   /** Base64-encoded JPEG of the user's screen at invocation time (no data: prefix). */
   screenshot?: string;
   invocation_fingerprint: {
@@ -231,7 +233,8 @@ export function buildResolutionPrompt(
   memoryPack: MemoryPack = { current: [], relevant: [], conflicts: [], gaps: [], sources: [] },
   hasScreenshot = false,
   personalContext: ContextBundle[] = [],
-  consequence?: ConsequenceAssessment
+  consequence?: ConsequenceAssessment,
+  conversationTurns: ConversationTurn[] = []
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -335,6 +338,13 @@ export function buildResolutionPrompt(
     ? `\nCONSEQUENCE NOTE: Fulfilling this intent involves an action beyond the focused text field (${consequence.verbs.join(", ") || "external action"}). You DRAFT; you never perform that action — the user does. Never write copy implying the action already happened ("Sent!", "Deployed", "Deleted"). Produce the draft or the answer, nothing more.`
     : "";
 
+  const conversationBlock = conversationTurns.length > 0
+    ? `\nRECENT CONVERSATION (oldest to newest; use this to understand follow-ups):\n${conversationTurns
+      .slice(-10)
+      .map((turn) => `User: ${turn.user}\nFlyd: ${turn.assistant}`)
+      .join("\n")}`
+    : "";
+
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
 The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}
@@ -350,7 +360,7 @@ CURRENT CONTEXT:
 - Focused element: ${elementRole} — ${elementDesc}
 - Element value: "${elementValue}"
 - Selected text: "${selection}"${contextBlock}
-- Sufficiency: ${environment.sufficiency}
+- Sufficiency: ${environment.sufficiency}${conversationBlock}
 
 USER INTENT: "${intent}"
 
@@ -530,14 +540,6 @@ function normalizeAugmentations(value: unknown): AugmentOperation[] {
 }
 
 const QUESTION_STARTS = /^(what|how|why|who|when|where|can|could|shall|should|is|are|do|does|did|will|would|which|whose|whom)\b/i;
-const COMMAND_PREFIXES = [
-  "reply", "answer", "respond", "rewrite", "rephrase", "paraphrase",
-  "translate", "convert", "fix", "correct", "change", "replace", "edit", "modify",
-  "explain", "describe", "summarize", "analyze", "search", "find",
-  "look up", "look for", "tell me", "show me", "send", "compose", "draft",
-  "run", "execute", "build", "open", "close",
-];
-
 const ANSWER_PREFIXES = /^(tell me|show me|explain|describe|summarize|analyze|search|find|look up|look for)\b/i;
 const DRAFT_PREFIXES = /^(reply|answer|respond|draft|compose|write|send|rewrite|rephrase|paraphrase|fix|correct|edit|change|replace|translate)\b/i;
 const SUPPORT_CONTEXT = /\b(support|customer|ticket|refund|bug report|issue)\b/i;
@@ -564,8 +566,8 @@ export function routeIntent(
     return { kind: "draft_insert", placement: "insert_at_cursor", scene: draftScene(intent, env) };
   }
 
-  if (modality === "voice" && isPlainDictation(intent, env)) {
-    return { kind: "dictate_insert", placement: "insert_at_cursor", scene: "clean_dictation" };
+  if (modality === "voice") {
+    return { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" };
   }
 
   return { kind: "draft_insert", placement: "insert_at_cursor", scene: draftScene(intent, env) };
@@ -583,25 +585,6 @@ function draftScene(intent: string, env: EnvironmentCapture): IntentScene {
   if (SUPPORT_CONTEXT.test(haystack)) return "support_reply";
   if (MEETING_CONTEXT.test(haystack)) return "meeting_note";
   return "email_reply";
-}
-
-function isPlainDictation(intent: string, env: EnvironmentCapture): boolean {
-  const text = intent.trim();
-  if (!text) return false;
-
-  const lower = text.toLowerCase();
-  if (QUESTION_STARTS.test(lower)) return false;
-
-  for (const prefix of COMMAND_PREFIXES) {
-    if (new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(lower)) return false;
-  }
-
-  if (env.focused_element.selected_text && env.focused_element.selected_text.length > 0) {
-    const hasSelectionRef = /\b(this|that|selection|selected text)\b/i.test(lower);
-    if (hasSelectionRef) return false;
-  }
-
-  return true;
 }
 
 const DETERMINISTIC_PATTERNS: Array<{
@@ -633,17 +616,6 @@ const DETERMINISTIC_PATTERNS: Array<{
       operations: [{ target: "el_01", kind: "insert_text", text: "Hello! " }],
     }),
   },
-  {
-    match: (intent, env) => isPlainDictation(intent, env),
-    resolve: (intent, _env, invocationId) => ({
-      resolutionId: randomUUID(),
-      invocationId,
-      environmentRevision: 0,
-      mode: "native",
-      rationale: "Voice dictation — inserting transcribed text.",
-      operations: [{ target: "el_01", kind: "insert_text", text: intent.trim() }],
-    }),
-  },
 ];
 
 export async function resolve(
@@ -651,7 +623,8 @@ export async function resolve(
   model?: string,
   apiKey?: string,
   baseURL?: string,
-  router?: RouterConfig | null
+  router?: RouterConfig | null,
+  conversationTurns: ConversationTurn[] = []
 ): Promise<Resolution> {
   const { invocation_id, environment_revision, environment, intent, modality } = manifest;
 
@@ -659,7 +632,7 @@ export async function resolve(
   // below only insert literal text, but consequential intents must never
   // skip model review — cheap insurance before operation kinds grow.
   const heuristicConsequence = assessConsequence(intent);
-  if (heuristicConsequence.class === "benign") {
+  if (modality === "text" && heuristicConsequence.class === "benign") {
     for (const pattern of DETERMINISTIC_PATTERNS) {
       if (pattern.match(intent, environment)) {
         const resolution = pattern.resolve(intent, environment, invocation_id);
@@ -687,7 +660,9 @@ export async function resolve(
   ]);
 
   const regexRoute = routeIntent(intent, environment, modality);
-  const route = classified?.route ?? regexRoute;
+  const route = modality === "voice" && regexRoute.kind === "ask_answer"
+    ? regexRoute
+    : classified?.route ?? regexRoute;
   const consequence = classified?.consequence ?? heuristicConsequence;
 
   let personalContext: ContextBundle[] = [];
@@ -712,7 +687,17 @@ export async function resolve(
   }
   recordLlmResolution();
 
-  const prompt = buildResolutionPrompt(worldState, environment, intent, route, memoryPack, !!manifest.screenshot, personalContext, consequence);
+  const prompt = buildResolutionPrompt(
+    worldState,
+    environment,
+    intent,
+    route,
+    memoryPack,
+    !!manifest.screenshot,
+    personalContext,
+    consequence,
+    conversationTurns
+  );
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
 

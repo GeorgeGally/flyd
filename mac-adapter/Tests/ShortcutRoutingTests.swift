@@ -72,6 +72,31 @@ final class ShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(released, .voiceReleased)
     }
 
+    func testShiftFunctionControlRoutesToDictationOnPressAndRelease() {
+        var state = ShortcutRoutingState()
+
+        let pressed = ShortcutRouter.route(
+            eventType: .flagsChanged,
+            flags: [.maskShift, .maskControl, .maskSecondaryFn],
+            state: &state
+        )
+        XCTAssertEqual(pressed, .dictationPressed)
+
+        let released = ShortcutRouter.route(
+            eventType: .flagsChanged,
+            flags: [],
+            state: &state
+        )
+        XCTAssertEqual(released, .dictationReleased)
+    }
+
+    func testConversationAndDictationChordsAreExclusive() {
+        XCTAssertTrue(ShortcutRouter.isVoiceChordActive(flags: [.maskControl, .maskSecondaryFn]))
+        XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: [.maskShift, .maskControl, .maskSecondaryFn]))
+        XCTAssertTrue(ShortcutRouter.isDictationChordActive(flags: [.maskShift, .maskControl, .maskSecondaryFn]))
+        XCTAssertFalse(ShortcutRouter.isDictationChordActive(flags: [.maskControl, .maskSecondaryFn]))
+    }
+
     func testFnFirstVoiceChordStillRoutesToVoice() {
         var state = ShortcutRoutingState()
 

@@ -70,11 +70,22 @@ describe("parseResolutionResponse", () => {
 });
 
 describe("routeIntent", () => {
-  it("routes plain voice dictation to focused-field insertion", () => {
+  it("routes ordinary voice statements to the answer panel", () => {
     expect(routeIntent("running five minutes late", env, "voice")).toEqual({
-      kind: "dictate_insert",
-      placement: "insert_at_cursor",
-      scene: "clean_dictation",
+      kind: "ask_answer",
+      placement: "answer_panel",
+      scene: "concise_answer",
+    });
+  });
+
+  it("keeps conversational follow-ups out of non-editable targets", () => {
+    expect(routeIntent("yes, but what about the second option", {
+      ...env,
+      focused_element: { ...env.focused_element, role: "AXWindow" },
+    }, "voice")).toEqual({
+      kind: "ask_answer",
+      placement: "answer_panel",
+      scene: "concise_answer",
     });
   });
 
@@ -239,6 +250,24 @@ describe("buildResolutionPrompt", () => {
       { name: "current_identity", body: "George." },
     ]);
     expect(prompt).not.toContain("MEMORY STATUS");
+  });
+
+  it("includes recent exchanges so a second voice turn can be a follow-up", () => {
+    const prompt = buildResolutionPrompt(
+      emptyWorldState,
+      env,
+      "what about the second one?",
+      route,
+      { current: [], relevant: [], conflicts: [], gaps: [], sources: [] },
+      false,
+      [],
+      undefined,
+      [{ user: "Give me two options.", assistant: "First: wait. Second: ship a small fix." }]
+    );
+
+    expect(prompt).toContain("RECENT CONVERSATION");
+    expect(prompt).toContain("User: Give me two options.");
+    expect(prompt).toContain("Flyd: First: wait. Second: ship a small fix.");
   });
 });
 

@@ -17,6 +17,7 @@ final class InvocationPanel {
     private var textField: NSTextField?
     private var inputBackground: NSView?
     private var voiceActivityView: NSView?
+    private var voiceMicDot: NSView?
     private var voiceBars: [NSView] = []
     private var titleLabel: NSTextField?
     private var promptLabel: NSTextField?
@@ -242,31 +243,31 @@ final class InvocationPanel {
             latestVoiceLevel = 0
             latestVoiceSpectrum = []
         }
-        applyVoiceBars(isVisible: isVisible, fallbackLevel: level)
+        voiceMicDot?.layer?.backgroundColor = FlydPalette.listenBlue
+            .withAlphaComponent(isVisible ? max(0.35, level) : 0)
+            .cgColor
+        applyVoiceBars(isVisible: isVisible)
     }
 
     func updateVoiceLevel(_ level: Float) {
         latestVoiceLevel = CGFloat(max(0, min(1, level)))
-        applyVoiceBars(
-            isVisible: !(voiceActivityView?.isHidden ?? true),
-            fallbackLevel: max(0.2, latestVoiceLevel)
-        )
+        let isVisible = !(voiceActivityView?.isHidden ?? true)
+        voiceMicDot?.layer?.backgroundColor = FlydPalette.listenBlue
+            .withAlphaComponent(isVisible ? max(0.35, latestVoiceLevel) : 0)
+            .cgColor
+        applyVoiceBars(isVisible: isVisible)
     }
 
     func updateVoiceSpectrum(_ bands: [Float]) {
         latestVoiceSpectrum = bands
-        applyVoiceBars(
-            isVisible: !(voiceActivityView?.isHidden ?? true),
-            fallbackLevel: max(0.2, latestVoiceLevel)
-        )
+        applyVoiceBars(isVisible: !(voiceActivityView?.isHidden ?? true))
     }
 
-    private func applyVoiceBars(isVisible: Bool, fallbackLevel: CGFloat) {
+    private func applyVoiceBars(isVisible: Bool) {
         for (index, bar) in voiceBars.enumerated() {
             let bandValue: CGFloat
             if latestVoiceSpectrum.isEmpty {
-                let normalizedIndex = CGFloat(index % 8) / 7
-                bandValue = sin(normalizedIndex * .pi) * fallbackLevel
+                bandValue = 0
             } else {
                 let sourceIndex = min(
                     latestVoiceSpectrum.count - 1,
@@ -275,14 +276,14 @@ final class InvocationPanel {
                 bandValue = CGFloat(max(0, min(1, latestVoiceSpectrum[sourceIndex])))
             }
 
-            let activity = max(0.05, min(1, bandValue + latestVoiceLevel * 0.55))
-            let height = 5 + activity * 22
+            let activity = max(0.015, min(1, bandValue))
+            let height = 3 + activity * 25
             var frame = bar.frame
             frame.size.height = height
             frame.origin.y = 18 - height / 2
             bar.frame = frame
             bar.layer?.backgroundColor = FlydPalette.listenBlue
-                .withAlphaComponent(isVisible ? max(0.22, 0.35 + activity * 0.5) : 0)
+                .withAlphaComponent(isVisible ? max(0.24, 0.30 + activity * 0.62) : 0)
                 .cgColor
         }
     }
@@ -387,12 +388,19 @@ final class InvocationPanel {
         mic.layer?.cornerRadius = 5
         mic.layer?.backgroundColor = FlydPalette.listenBlue.cgColor
         voiceView.addSubview(mic)
+        voiceMicDot = mic
 
-        for index in 0..<18 {
-            let x = 34 + CGFloat(index) * 16
-            let bar = NSView(frame: NSRect(x: x, y: 10, width: 5, height: 16))
+        let barCount = 48
+        let barWidth: CGFloat = 3
+        let startX: CGFloat = 26
+        let endInset: CGFloat = 4
+        let availableWidth = voiceView.bounds.width - startX - endInset
+        let gap = (availableWidth - CGFloat(barCount) * barWidth) / CGFloat(barCount - 1)
+        for index in 0..<barCount {
+            let x = startX + CGFloat(index) * (barWidth + gap)
+            let bar = NSView(frame: NSRect(x: x, y: 16.5, width: barWidth, height: 3))
             bar.wantsLayer = true
-            bar.layer?.cornerRadius = 2.5
+            bar.layer?.cornerRadius = barWidth / 2
             bar.layer?.backgroundColor = FlydPalette.listenBlue.withAlphaComponent(0.55).cgColor
             voiceView.addSubview(bar)
             voiceBars.append(bar)
@@ -423,6 +431,7 @@ final class InvocationPanel {
         textField = nil
         inputBackground = nil
         voiceActivityView = nil
+        voiceMicDot = nil
         voiceBars = []
         titleLabel = nil
         promptLabel = nil

@@ -10,11 +10,11 @@ final class VoiceCapture {
     private let bufferLock = NSLock()
     private var inputSampleRate: Double = 48000
 
-    private let spectrumBandCount = 15
-    private let fftLength = 1024
-    private let fftLog2n: vDSP_Length = 10
+    private let spectrumBandCount = 48
+    private let fftLength = 2048
+    private let fftLog2n: vDSP_Length = 11
     private var fftSetup: FFTSetup?
-    private var smoothedBands: [Float]
+    private var spectrumMapper: SpectrumBandMapper
 
     var onAudioChunk: ((Data) -> Void)?
     var onTranscriptionDelta: ((String) -> Void)?
@@ -30,7 +30,7 @@ final class VoiceCapture {
     }
 
     private init() {
-        smoothedBands = [Float](repeating: 0, count: spectrumBandCount)
+        spectrumMapper = SpectrumBandMapper(bandCount: spectrumBandCount)
         fftSetup = vDSP_create_fftsetup(fftLog2n, FFTRadix(kFFTRadix2))
     }
 
@@ -56,7 +56,7 @@ final class VoiceCapture {
         inputSampleRate = format.sampleRate
 
         inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftLength), format: format) { [weak self] buffer, _ in
             guard let self = self, self.isRunning else { return }
             self.processAudioBuffer(buffer)
         }
@@ -85,8 +85,7 @@ final class VoiceCapture {
 
         bufferLock.withLock { audioBuffer = Data() }
         onLevel?(0)
-        smoothedBands = [Float](repeating: 0, count: spectrumBandCount)
-        onSpectrum?(smoothedBands)
+        onSpectrum?(spectrumMapper.reset())
     }
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -127,10 +126,11 @@ final class VoiceCapture {
         onAudioChunk?(pcm16)
     }
 
-    /// Real FFT-based spectrum, binned log-spaced across ~80Hz-5kHz (speech range) into
-    /// `spectrumBandCount` bars. Peak-hold-and-decay smoothing so bars fall off instead of flickering.
+    /// Real FFT-based spectrum, binned logarithmically across the speech range.
     private func computeSpectrumBands(_ channelData: UnsafeMutablePointer<Float>, frames: Int) -> [Float] {
-        guard let fftSetup, frames > 0 else { return smoothedBands }
+        guard let fftSetup, frames > 0 else {
+            return [Float](repeating: 0, count: spectrumBandCount)
+        }
 
         let n = fftLength
         var samples = [Float](repeating: 0, count: n)
@@ -162,33 +162,11 @@ final class VoiceCapture {
             }
         }
 
-        let nyquist = inputSampleRate / 2
-        let binHz = nyquist / Double(n / 2)
-        let minBin = max(1, Int(80.0 / binHz))
-        let maxBin = min(n / 2 - 1, Int(min(nyquist, 5000.0) / binHz))
-        guard maxBin > minBin else { return smoothedBands }
-
-        let logMin = log2(Double(minBin))
-        let logMax = log2(Double(maxBin))
-
-        for band in 0..<spectrumBandCount {
-            let tStart = Double(band) / Double(spectrumBandCount)
-            let tEnd = Double(band + 1) / Double(spectrumBandCount)
-            let startBin = max(minBin, Int(pow(2, logMin + tStart * (logMax - logMin))))
-            let endBin = max(startBin + 1, min(maxBin, Int(pow(2, logMin + tEnd * (logMax - logMin)))))
-
-            var sum: Float = 0
-            for bin in startBin..<endBin {
-                sum += magnitudes[bin]
-            }
-            let avg = sum / Float(endBin - startBin)
-            let normalized = min(1, max(0, avg / Float(n) * 8))
-
-            // Peak-hold with decay so bars rise instantly and fall off smoothly.
-            smoothedBands[band] = normalized > smoothedBands[band] ? normalized : smoothedBands[band] * 0.72
-        }
-
-        return smoothedBands
+        return spectrumMapper.map(
+            magnitudes: magnitudes,
+            sampleRate: inputSampleRate,
+            fftLength: n
+        )
     }
 
     func drainBuffer() -> Data {
