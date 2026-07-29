@@ -225,25 +225,19 @@ const IDENTITY_INTENT =
   /\b(who am i|about me\b|about myself|my (background|identity|bio|profile|memories|cv|resume)|what do you (know|remember|have) (about|on) me|do you (know|remember) me)\b/i;
 
 const FIRST_PERSON = /\b(i|me|my|mine|myself|we|our|us)\b/i;
-const VOICE_BACKGROUND_REFERENCE =
-  /\b(i|my|mine|myself|we|our|ours|ourselves|us)\b/i;
 
 export function isIdentityIntent(intent: string): boolean {
   return IDENTITY_INTENT.test(intent);
 }
 
-// Bundles are cheap (~1k tokens) and the prompt instructs silent use, so err
-// broad: any answer-routed question that references the user's own life gets
-// personal context, not just explicit "about me" phrasings. Recall questions
-// like "what am I doing on wednesday?" or "what was that project last year?"
-// depend on this.
+// Fallback only — used when the router classifier is unavailable or times
+// out. The classifier's needs_personal_context is the primary signal (one
+// semantic judgment made alongside route/consequence in the same call);
+// this regex used to be duplicated separately for the fetch-gate and the
+// voice-prompt show-gate, and the two copies had already drifted apart.
 export function shouldInjectPersonalContext(intent: string, route: IntentRoute): boolean {
   if (isIdentityIntent(intent)) return true;
   return route.kind === "ask_answer" && FIRST_PERSON.test(intent);
-}
-
-function shouldIncludeVoiceBackground(intent: string): boolean {
-  return isIdentityIntent(intent) || VOICE_BACKGROUND_REFERENCE.test(intent);
 }
 
 export function buildResolutionPrompt(
@@ -256,7 +250,8 @@ export function buildResolutionPrompt(
   personalContext: ContextBundle[] = [],
   consequence?: ConsequenceAssessment,
   conversationTurns: ConversationTurn[] = [],
-  isVoiceConversation = false
+  isVoiceConversation = false,
+  needsPersonalContext = true
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -273,7 +268,7 @@ export function buildResolutionPrompt(
     contextBlock = `\nEmail context: subject="${ctx.subject || "unknown"}", from="${ctx.from || "unknown"}", preview="${ctx.preview || "unknown"}"`;
   }
 
-  const includeBackgroundContext = !isVoiceConversation || shouldIncludeVoiceBackground(intent);
+  const includeBackgroundContext = !isVoiceConversation || needsPersonalContext;
   const goals = includeBackgroundContext
     ? worldState.goals.map((g) => g.content).filter(Boolean).slice(0, 3)
     : [];
@@ -328,15 +323,21 @@ export function buildResolutionPrompt(
   });
 
   const recallIntentKind = classifyRecallIntent(intent).kind;
-  // For current_state or task_resume with real corroborated evidence,
-  // omitting RELEVANT MEMORY entirely beats instructing the model to ignore
-  // it — a semantically strong old match reliably hijacks the answer over
-  // meta-instructions otherwise (verified live for both intents against
-  // flyd ask — "resume benefits from broader context" did not hold up).
-  const suppressRelevant = (recallIntentKind === "current_state" || recallIntentKind === "task_resume") && currentLines.length > 0;
-  const claimLines = suppressRelevant || !includeBackgroundContext
+  const BACKGROUND_OBSERVATION_EXCERPT_CHARS = 160;
+  // flyd's own memory must never be suppressed — git is a corroborating
+  // signal that augments it, not a replacement. But raw/unpromoted content
+  // ("observation" — flyd's own lowest-authority tier) reliably wins over
+  // terser current evidence when left full-length, regardless of
+  // instructions (verified live). Trim it, don't hide it; curated memory
+  // (verified/working_assumption/user_confirmed etc.) is untouched.
+  const claimLines = !includeBackgroundContext
     ? []
-    : memoryPack.relevant.map((c) => `- [${statusLabel(c.epistemicStatus)}] ${c.content}`);
+    : memoryPack.relevant.map((c) => {
+        const content = c.epistemicStatus === "observation"
+          ? c.content.slice(0, BACKGROUND_OBSERVATION_EXCERPT_CHARS) + (c.content.length > BACKGROUND_OBSERVATION_EXCERPT_CHARS ? "…" : "")
+          : c.content;
+        return `- [${statusLabel(c.epistemicStatus)}] ${content}`;
+      });
 
   const conflictLines = (includeBackgroundContext ? memoryPack.conflicts : []).map((pair) =>
     `- ⚠ Competing claims:\n  a) [${statusLabel(pair.claimA.epistemicStatus)}] ${pair.claimA.content}\n  b) [${statusLabel(pair.claimB.epistemicStatus)}] ${pair.claimB.content}\n  CONFLICT — do not assume either. Ask if critical to this response.`
@@ -720,9 +721,12 @@ export async function resolve(
     ? regexRoute
     : classified?.route ?? regexRoute;
   const consequence = classified?.consequence ?? heuristicConsequence;
+  // One judgment feeds both the bundle-fetch gate and the voice show-gate —
+  // this used to be two independently drifting regexes.
+  const needsPersonalContext = classified?.needsPersonalContext ?? shouldInjectPersonalContext(intent, route);
 
   let personalContext: ContextBundle[] = [];
-  if (shouldInjectPersonalContext(intent, route)) {
+  if (needsPersonalContext) {
     try {
       personalContext = readContextBundles();
     } catch {
@@ -753,7 +757,8 @@ export async function resolve(
     personalContext,
     consequence,
     conversationTurns,
-    modality === "voice"
+    modality === "voice",
+    needsPersonalContext
   );
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";

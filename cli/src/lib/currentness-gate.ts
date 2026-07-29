@@ -14,6 +14,16 @@ function extractChangedFileBasenames(statusLines: string[]): string[] {
   return [...new Set(names)];
 }
 
+// Matches memoryEpistemicStatus() in brain-retrieval.ts's own check for
+// "user_confirmed" — an explicit user correction. Highest authority in the
+// system (explicit_user > everything else); it doesn't need git
+// corroboration to count as current, unlike general wiki/conversation
+// content, which is exactly what the original regression fixture guards
+// against (an old, confident wiki page must NOT get to skip corroboration).
+function isExplicitUserCorrection(entry: ScoredEvidence): boolean {
+  return entry.metadata.type === "flyd-runtime-task-corrected";
+}
+
 /**
  * Currentness requires corroboration by a live Present Model signal, never
  * semantic/topical strength alone — an old, wiki-strong project must not
@@ -27,6 +37,11 @@ export function gateCurrentness(
 ): Set<string> {
   const currentPaths = new Set<string>();
   if (intent.kind !== "current_state" && intent.kind !== "task_resume") return currentPaths;
+
+  for (const entry of scored) {
+    if (isExplicitUserCorrection(entry)) currentPaths.add(entry.path);
+  }
+
   if (!presentModel) return currentPaths;
 
   // repository.name is an owner/repo slug when a remote exists (e.g.
@@ -39,6 +54,7 @@ export function gateCurrentness(
   if (!weakNeedle && strongNeedles.length === 0) return currentPaths;
 
   for (const entry of scored) {
+    if (currentPaths.has(entry.path)) continue;
     if (entry.confidenceProfile.freshness < CURRENTNESS_FRESHNESS_FLOOR) continue;
     const haystack = `${entry.path} ${entry.body}`.toLowerCase();
     const matchesStrong = strongNeedles.some((needle) => haystack.includes(needle));

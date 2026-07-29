@@ -32,31 +32,58 @@ describe("ask.ts buildPrompt", () => {
     expect(prompt.slice(evidenceSectionIndex)).not.toContain("flyd memory work");
   });
 
-  it("omits background evidence entirely for current_state when corroborated current evidence exists", () => {
-    // A semantically strong old match (e.g. a conversation transcript) wins
-    // out over meta-instructions in practice — verified live against a real
-    // model. Omitting it is the reliable fix, not stronger wording.
+  it("never suppresses flyd's own background memory, even when corroborated current evidence exists", () => {
+    // flyd memory must never be suppressed — git corroboration augments it,
+    // it doesn't replace it (a user won't always be using git).
     const current = entry({ path: "wiki/projects/flyd.md", body: "flyd memory work", isCurrent: true });
     const old = entry({ path: "wiki/projects/nimbus-2024.md", body: "old nimbus project" });
 
     const prompt = buildPrompt("what am I working on", [current, old], undefined, currentStateIntent, null);
     const evidenceSectionIndex = prompt.indexOf("## Evidence");
 
-    expect(prompt.slice(evidenceSectionIndex)).not.toContain("old nimbus project");
-    expect(prompt.slice(evidenceSectionIndex)).toContain("omitted");
+    expect(prompt.slice(evidenceSectionIndex)).toContain("old nimbus project");
   });
 
-  it("also omits background evidence for task_resume when current entries exist", () => {
-    // Originally kept background for resume on the theory that it adds
-    // useful context. Live testing disproved that — unrelated old evidence
-    // hijacked the answer instead of supplementing it, same as current_state.
+  it("trims unpromoted raw/conversation background entries instead of hiding them", () => {
+    const current = entry({ path: "git:commit:abc", body: "fix(memory): gate currentness", isCurrent: true });
+    const longTranscript = "x".repeat(500);
+    const old = entry({
+      path: "conversations/old.md",
+      body: longTranscript,
+      metadata: { type: "conversation-index" },
+    });
+
+    const prompt = buildPrompt("what am I working on", [current, old], undefined, currentStateIntent, null);
+    const evidenceSectionIndex = prompt.indexOf("## Evidence");
+    const evidenceSection = prompt.slice(evidenceSectionIndex);
+
+    expect(evidenceSection).toContain("conversations/old.md");
+    expect(evidenceSection).toContain("unpromoted observation");
+    expect(evidenceSection.length).toBeLessThan(longTranscript.length);
+  });
+
+  it("does not trim curated wiki memory in the background section", () => {
+    const current = entry({ path: "git:commit:abc", body: "fix(memory): gate currentness", isCurrent: true });
+    const longWikiPage = "This is a well-documented, curated wiki page. ".repeat(20);
+    const old = entry({
+      path: "wiki/preferences/george.md",
+      body: longWikiPage,
+      metadata: { type: "preference" },
+    });
+
+    const prompt = buildPrompt("what am I working on", [current, old], undefined, currentStateIntent, null);
+
+    expect(prompt).toContain(longWikiPage.trim());
+  });
+
+  it("never suppresses background evidence for task_resume either", () => {
     const current = entry({ path: "git:commit:abc", body: "fix(memory): gate currentness", isCurrent: true });
     const old = entry({ path: "wiki/projects/nimbus-2024.md", body: "old nimbus project" });
 
     const prompt = buildPrompt("where were we?", [current, old], undefined, taskResumeIntent, null);
     const evidenceSectionIndex = prompt.indexOf("## Evidence");
 
-    expect(prompt.slice(evidenceSectionIndex)).not.toContain("old nimbus project");
+    expect(prompt.slice(evidenceSectionIndex)).toContain("old nimbus project");
   });
 
   it("names unavailable signals instead of silently answering from background evidence", () => {

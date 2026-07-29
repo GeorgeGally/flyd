@@ -203,6 +203,30 @@ describe("buildResolutionPrompt", () => {
     expect(prompt).not.toContain("raw/2026-01-01.md");
   });
 
+  it("trims long observation-status memory content instead of hiding it", () => {
+    const longContent = "x".repeat(500);
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, {
+      current: [], relevant: [
+        { claimId: "a", content: longContent, kind: "observation", scope: "global", epistemicStatus: "observation", epistemicConfidence: 0.5, freshness: 1, sourceRefs: ["raw/2026-01-01.md"], relevance: 0.8 },
+      ], conflicts: [], gaps: [], sources: ["raw/2026-01-01.md"],
+    });
+
+    expect(prompt).toContain("RELEVANT MEMORY");
+    expect(prompt).not.toContain(longContent);
+    expect(prompt).toContain("x".repeat(160));
+  });
+
+  it("does not trim curated (non-observation) memory content", () => {
+    const longContent = "This is a well-documented curated preference. ".repeat(10);
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, {
+      current: [], relevant: [
+        { claimId: "a", content: longContent, kind: "preference", scope: "global", epistemicStatus: "verified", epistemicConfidence: 0.9, freshness: 1, sourceRefs: ["wiki/preferences.md"], relevance: 0.8 },
+      ], conflicts: [], gaps: [], sources: ["wiki/preferences.md"],
+    });
+
+    expect(prompt).toContain(longContent);
+  });
+
   it("omits the memories block when nothing was retrieved", () => {
     const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route);
     expect(prompt).not.toContain("RELEVANT MEMORY");
@@ -322,7 +346,8 @@ describe("buildResolutionPrompt", () => {
       [],
       undefined,
       [],
-      true
+      true,
+      false
     );
 
     expect(prompt).not.toContain("Ship Flyd by Q4 2026.");
@@ -345,9 +370,27 @@ describe("buildResolutionPrompt", () => {
       [],
       undefined,
       [],
+      true,
       true
     );
 
+    expect(prompt).toContain("Ship Flyd by Q4 2026.");
+  });
+
+  it("honors an explicit needsPersonalContext flag over the intent text (classifier-sourced signal)", () => {
+    const worldStateWithGoal = {
+      ...emptyWorldState,
+      goals: [{ content: "Ship Flyd by Q4 2026." }],
+    } as never;
+
+    // Intent has no first-person pronoun, so the regex fallback alone would
+    // say false — but the classifier can still say true (e.g. "the team" ==
+    // the user's own team). The passed flag must win; buildResolutionPrompt
+    // does not re-derive it from the intent text.
+    const prompt = buildResolutionPrompt(
+      worldStateWithGoal, env, "what is the team shipping this quarter", route,
+      undefined, false, [], undefined, [], true, true
+    );
     expect(prompt).toContain("Ship Flyd by Q4 2026.");
   });
 });

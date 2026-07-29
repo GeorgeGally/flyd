@@ -90,6 +90,29 @@ export function buildPrompt(
     return `[${sourceTag}:${e.path}]${timestamp}${staleNote}${scoreNote}\n${e.body.trim()}`;
   };
 
+  const OBSERVATION_BACKGROUND_EXCERPT_CHARS = 160;
+  // Matches memoryEpistemicStatus() in brain-retrieval.ts: any non-wiki raw
+  // capture, or an explicitly unpromoted/conversation-index entry, maps to
+  // "observation" — flyd's own lowest-authority tier ("source evidence, not
+  // promoted long-term truth", never curated knowledge). Left full-length,
+  // a detailed old raw capture reliably wins over terser current evidence
+  // regardless of instructions (verified live, for both a conversation
+  // transcript and an unrelated long-form raw report). Trimming keeps it
+  // visible and citable — never removed — just less narratively compelling
+  // than the actual current evidence above. Curated wiki memory (promoted
+  // knowledge, corrections) is untouched.
+  const isLowAuthorityObservation = (e: RetrievedEntry): boolean =>
+    e.source !== "wiki" || e.metadata.type === "conversation-index" || e.metadata.promoted === false;
+
+  const renderBackgroundEntry = (e: RetrievedEntry, i: number): string => {
+    if (!isLowAuthorityObservation(e)) return renderEntry(e, i);
+    const timestamp = e.metadata.timestamp ? ` (${e.metadata.timestamp})` : "";
+    const sourceTag = e.source === "wiki" ? "wiki" : "raw";
+    const trimmed = e.body.trim().slice(0, OBSERVATION_BACKGROUND_EXCERPT_CHARS);
+    const truncatedNote = e.body.trim().length > OBSERVATION_BACKGROUND_EXCERPT_CHARS ? "…" : "";
+    return `[${sourceTag}:${e.path}]${timestamp} (unpromoted observation — lowest authority)\n${trimmed}${truncatedNote}`;
+  };
+
   let currentSection = "";
   const isResume = intent?.kind === "task_resume";
   if (intent?.kind === "current_state" || isResume) {
@@ -114,17 +137,13 @@ export function buildPrompt(
     }
   }
 
-  // For current_state or task_resume with real corroborated evidence,
-  // omitting background entirely beats instructing the model to ignore it —
-  // a semantically strong old match reliably hijacks the answer over
-  // meta-instructions otherwise (verified live for both intents: a
-  // conversation transcript for current_state, unrelated old file changes
-  // for task_resume — "resume benefits from broader context" did not hold
-  // up in practice, background context took over instead of supplementing).
-  const suppressBackground = (intent?.kind === "current_state" || intent?.kind === "task_resume") && currentEntries.length > 0;
-  const evidence = suppressBackground
-    ? `(omitted — ${backgroundEntries.length} background entr${backgroundEntries.length === 1 ? "y" : "ies"} not shown because current, corroborated evidence answers this question above)`
-    : backgroundEntries.map((e) => renderEntry(e, entries.indexOf(e))).join("\n\n---\n\n");
+  // flyd's own memory must never be suppressed — git is a corroborating
+  // signal that augments it, not a replacement (a user won't always be using
+  // git). Weak/uncorroborated background evidence still shouldn't win over
+  // strong current evidence in the answer, but that's handled by keeping it
+  // clearly labeled background (and trimming raw transcripts, see above)
+  // rather than by hiding it.
+  const evidence = backgroundEntries.map((e) => renderBackgroundEntry(e, entries.indexOf(e))).join("\n\n---\n\n");
 
   let librarianSection = "";
   if (scored) {

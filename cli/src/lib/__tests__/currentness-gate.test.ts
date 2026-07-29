@@ -156,6 +156,55 @@ describe("gateCurrentness", () => {
     expect(gateCurrentness([entry], presentModel, currentStateIntent).has(entry.path)).toBe(true);
   });
 
+  it("marks an explicit user correction as current even with no present model at all", () => {
+    // flyd's own memory must never depend on git — a user won't always be
+    // using git. An explicit correction is the highest-authority signal in
+    // the system and stands on its own.
+    const correction = makeEntry({
+      path: "wiki/corrections/2026-07-29.md",
+      body: "Actually, I've paused the ADHD skill and I'm focused on the memory recall repair now.",
+      metadata: { type: "flyd-runtime-task-corrected" },
+    });
+
+    expect(gateCurrentness([correction], null, currentStateIntent).has(correction.path)).toBe(true);
+  });
+
+  it("marks an explicit user correction as current without needing git corroboration", () => {
+    const presentModel: PresentModel = {
+      generatedAt: "2026-07-29T00:00:00.000Z",
+      repository: {
+        root: "/Users/george/other-repo",
+        name: "other-repo",
+        remote: null,
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        statusLines: [],
+        statusDigest: "digest",
+      },
+      activeTask: null,
+      recentCommits: [],
+      gaps: [],
+    };
+    const correction = makeEntry({
+      path: "wiki/corrections/2026-07-29.md",
+      body: "Nothing here mentions the repo or any changed file.",
+      metadata: { type: "flyd-runtime-task-corrected" },
+    });
+
+    expect(gateCurrentness([correction], presentModel, currentStateIntent).has(correction.path)).toBe(true);
+  });
+
+  it("does not elevate ordinary wiki content to current just because it's confident — only explicit corrections", () => {
+    const confidentButUncorroborated = makeEntry({
+      path: "wiki/projects/nimbus-2024.md",
+      body: "Nimbus is a well-documented, high-confidence project page.",
+      metadata: { type: "project" },
+    });
+
+    expect(gateCurrentness([confidentButUncorroborated], null, currentStateIntent).size).toBe(0);
+  });
+
   it("does not corroborate a conversation transcript via project-name mention alone", () => {
     const presentModel: PresentModel = {
       generatedAt: "2026-07-29T00:00:00.000Z",
