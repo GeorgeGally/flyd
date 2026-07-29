@@ -16,6 +16,13 @@ struct VoiceAcknowledgementGate {
     }
 }
 
+enum VoiceAcknowledgementPresentation {
+    static let text = "Okay, I'm on it."
+    static let rate: Float = 0.48
+    static let pitch: Float = 1.0
+    static let preferredVoiceIdentifier = "com.apple.voice.compact.en-GB.Daniel"
+}
+
 final class VoiceAcknowledgementSpeaker {
     static let shared = VoiceAcknowledgementSpeaker()
 
@@ -23,10 +30,15 @@ final class VoiceAcknowledgementSpeaker {
 
     func speakWorking() {
         stop()
-        let utterance = AVSpeechUtterance(string: "On it.")
-        utterance.rate = 0.52
-        utterance.pitchMultiplier = 0.96
+        let utterance = AVSpeechUtterance(string: VoiceAcknowledgementPresentation.text)
+        utterance.rate = VoiceAcknowledgementPresentation.rate
+        utterance.pitchMultiplier = VoiceAcknowledgementPresentation.pitch
         utterance.volume = 0.82
+        utterance.preUtteranceDelay = 0.06
+        utterance.postUtteranceDelay = 0.04
+        utterance.voice = AVSpeechSynthesisVoice(
+            identifier: VoiceAcknowledgementPresentation.preferredVoiceIdentifier
+        ) ?? AVSpeechSynthesisVoice(language: "en-GB")
         synthesizer.speak(utterance)
     }
 

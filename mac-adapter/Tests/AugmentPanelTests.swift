@@ -63,4 +63,15 @@ final class AugmentPanelTests: XCTestCase {
     func testCardIsNotInteractiveForAnnotationWithoutOptions() {
         XCTAssertFalse(AugmentPanel.cardIsInteractive(kind: "annotation", hasOptions: false))
     }
+
+    func testLongAnswerUsesScrollableContentInsteadOfClippingText() {
+        let content = Array(repeating: "This is a complete sentence with enough words to wrap.", count: 80)
+            .joined(separator: " ")
+
+        let layout = AugmentPanel.contentLayout(content: content)
+
+        XCTAssertTrue(layout.isScrollable)
+        XCTAssertGreaterThan(layout.naturalHeight, layout.visibleHeight)
+        XCTAssertEqual(layout.visibleHeight, AugmentPanel.maximumVisibleContentHeight)
+    }
 }

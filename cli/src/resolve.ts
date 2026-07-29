@@ -234,7 +234,8 @@ export function buildResolutionPrompt(
   hasScreenshot = false,
   personalContext: ContextBundle[] = [],
   consequence?: ConsequenceAssessment,
-  conversationTurns: ConversationTurn[] = []
+  conversationTurns: ConversationTurn[] = [],
+  isVoiceConversation = false
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -345,6 +346,15 @@ export function buildResolutionPrompt(
       .join("\n")}`
     : "";
 
+  const spokenConversationBlock = isVoiceConversation
+    ? `\nSPOKEN CONVERSATION STYLE:
+- Answer like a thoughtful person speaking naturally, not like a report or assistant template.
+- Use one to three natural sentences unless the user explicitly asks for detail.
+- Do not use Markdown, headings, bullets, labels, or bold formatting.
+- Do not volunteer personal, project, deadline, or memory context. Use background context only when the user directly asks about it or it is necessary to answer accurately.
+- Lead with the answer. Omit preambles, repeated framing, and generic reassurance.`
+    : "";
+
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
 The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}
@@ -353,7 +363,7 @@ ROUTE DECISION:
 - Kind: ${route.kind}
 - Placement: ${route.placement}
 - Scene: ${route.scene}
-- Writing instruction: ${sceneInstruction}${consequenceBlock}
+- Writing instruction: ${sceneInstruction}${consequenceBlock}${spokenConversationBlock}
 
 CURRENT CONTEXT:
 - Application: ${app} (${bundleId})
@@ -696,7 +706,8 @@ export async function resolve(
     !!manifest.screenshot,
     personalContext,
     consequence,
-    conversationTurns
+    conversationTurns,
+    modality === "voice"
   );
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";

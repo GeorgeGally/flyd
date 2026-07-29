@@ -21,5 +21,10 @@ final class VoiceAcknowledgementPolicyTests: XCTestCase {
         XCTAssertTrue(gate.claim(invocationId: "conversation-1", purpose: .conversation))
         XCTAssertTrue(gate.claim(invocationId: "conversation-2", purpose: .conversation))
     }
-}
 
+    func testAcknowledgementSoundsLikeACompleteHumanSentence() {
+        XCTAssertEqual(VoiceAcknowledgementPresentation.text, "Okay, I'm on it.")
+        XCTAssertEqual(VoiceAcknowledgementPresentation.rate, 0.48)
+        XCTAssertEqual(VoiceAcknowledgementPresentation.pitch, 1.0)
+    }
+}

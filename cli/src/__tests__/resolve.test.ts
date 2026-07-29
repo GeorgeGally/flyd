@@ -269,6 +269,26 @@ describe("buildResolutionPrompt", () => {
     expect(prompt).toContain("User: Give me two options.");
     expect(prompt).toContain("Flyd: First: wait. Second: ship a small fix.");
   });
+
+  it("makes voice answers sound like conversation without volunteering background context", () => {
+    const prompt = buildResolutionPrompt(
+      emptyWorldState,
+      env,
+      "which option is better?",
+      route,
+      { current: [], relevant: [], conflicts: [], gaps: [], sources: [] },
+      false,
+      [],
+      undefined,
+      [],
+      true
+    );
+
+    expect(prompt).toContain("SPOKEN CONVERSATION STYLE");
+    expect(prompt).toContain("Do not use Markdown");
+    expect(prompt).toContain("Do not volunteer personal, project, deadline, or memory context");
+    expect(prompt).toContain("one to three natural sentences");
+  });
 });
 
 describe("isIdentityIntent", () => {

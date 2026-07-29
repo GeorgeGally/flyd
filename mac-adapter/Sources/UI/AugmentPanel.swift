@@ -13,18 +13,34 @@ final class AugmentPanel {
     static let panelWidth: CGFloat = 400
     static let panelCornerRadius: CGFloat = 16
     static let borderInset: CGFloat = 1.5
+    static let maximumVisibleContentHeight: CGFloat = 300
     private static let contentInset: CGFloat = 24
     private static let topPadding: CGFloat = 36
     private static let bottomPadding: CGFloat = 20
+
+    struct ContentLayout {
+        let naturalHeight: CGFloat
+        let visibleHeight: CGFloat
+        let isScrollable: Bool
+    }
+
+    static func contentLayout(content: String) -> ContentLayout {
+        let naturalHeight = naturalContentHeight(content, width: panelWidth - contentInset * 2)
+        let visibleHeight = min(naturalHeight, maximumVisibleContentHeight)
+        return ContentLayout(
+            naturalHeight: naturalHeight,
+            visibleHeight: visibleHeight,
+            isScrollable: naturalHeight > visibleHeight
+        )
+    }
 
     /// Pure layout measurement — no NSScreen/NSEvent calls — so show() and stackedFrames()
     /// share one source of truth and both can be exercised in tests.
     static func measure(content: String, options: [String]?) -> NSSize {
         let hasOptions = (options?.count ?? 0) > 0
-        let textWidth = panelWidth - contentInset * 2
-        let labelHeight = contentHeight(content, width: textWidth)
+        let layout = contentLayout(content: content)
         let optionHeight: CGFloat = hasOptions ? CGFloat(options!.count) * 34 + 8 : 0
-        let panelHeight = labelHeight + optionHeight + topPadding + bottomPadding
+        let panelHeight = layout.visibleHeight + optionHeight + topPadding + bottomPadding
         return NSSize(width: panelWidth, height: panelHeight)
     }
 
@@ -64,11 +80,12 @@ final class AugmentPanel {
         dismiss()
 
         let hasOptions = (options?.count ?? 0) > 0
-        let isInteractive = Self.cardIsInteractive(kind: kind, hasOptions: hasOptions)
         let panelWidth = Self.panelWidth
         let contentInset = Self.contentInset
         let textWidth = panelWidth - contentInset * 2
-        let labelHeight = Self.contentHeight(content, width: textWidth)
+        let contentLayout = Self.contentLayout(content: content)
+        let isInteractive = Self.cardIsInteractive(kind: kind, hasOptions: hasOptions)
+            || contentLayout.isScrollable
         let optionHeight: CGFloat = hasOptions ? CGFloat(options!.count) * 34 + 8 : 0
         let panelHeight = panelFrame.height
         let bottomPadding = Self.bottomPadding
@@ -195,8 +212,32 @@ final class AugmentPanel {
         )
         label.backgroundColor = .clear
         label.isBordered = false
-        label.frame = NSRect(x: contentInset, y: bottomPadding + optionHeight, width: textWidth, height: labelHeight)
-        clipView.addSubview(label)
+        label.frame = NSRect(x: 0, y: 0, width: textWidth, height: contentLayout.naturalHeight)
+        if contentLayout.isScrollable {
+            let scrollView = NSScrollView(
+                frame: NSRect(
+                    x: contentInset,
+                    y: bottomPadding + optionHeight,
+                    width: textWidth,
+                    height: contentLayout.visibleHeight
+                )
+            )
+            scrollView.drawsBackground = false
+            scrollView.borderType = .noBorder
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = .overlay
+
+            let documentView = FlippedDocumentView(
+                frame: NSRect(x: 0, y: 0, width: textWidth, height: contentLayout.naturalHeight)
+            )
+            documentView.addSubview(label)
+            scrollView.documentView = documentView
+            clipView.addSubview(scrollView)
+        } else {
+            label.frame.origin = NSPoint(x: contentInset, y: bottomPadding + optionHeight)
+            clipView.addSubview(label)
+        }
         contentLabel = label
 
         if let options {
@@ -277,7 +318,7 @@ final class AugmentPanel {
     /// Measures with a real wrapping-label cell rather than NSString.boundingRect — the two
     /// disagree on where words break, and boundingRect reliably undercounts by a line,
     /// clipping the last line of longer messages.
-    private static func contentHeight(_ text: String, width: CGFloat) -> CGFloat {
+    private static func naturalContentHeight(_ text: String, width: CGFloat) -> CGFloat {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 4
         let measuring = NSTextField(wrappingLabelWithString: "")
@@ -289,8 +330,12 @@ final class AugmentPanel {
             ]
         )
         let size = measuring.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
-        return min(ceil(size.height), 300)
+        return ceil(size.height)
     }
+}
+
+private final class FlippedDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 private extension CALayer {
