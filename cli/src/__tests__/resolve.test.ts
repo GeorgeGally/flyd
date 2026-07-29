@@ -182,12 +182,12 @@ describe("enforceRoutePlacement", () => {
 });
 
 describe("buildResolutionPrompt", () => {
-  const emptyWorldState = {
+  const emptyWorldState: Parameters<typeof buildResolutionPrompt>[0] = {
     version: "1.0", generatedAt: "", source: "flyd-cli",
     goals: [], tensions: [], signals: [], curiosity: [], nudges: [], reports: [],
     recentEvents: [], brainHealth: [], profile: [], knowledge: [], review: [],
     suggestions: [], capabilities: [],
-  } as never;
+  };
 
   const route = { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" } as const;
 
@@ -288,6 +288,67 @@ describe("buildResolutionPrompt", () => {
     expect(prompt).toContain("Do not use Markdown");
     expect(prompt).toContain("Do not volunteer personal, project, deadline, or memory context");
     expect(prompt).toContain("one to three natural sentences");
+  });
+
+  it("omits unrelated goals and memories from an ordinary voice question", () => {
+    const worldStateWithBackground = {
+      ...emptyWorldState,
+      goals: [{ content: "Ship Flyd by Q4 2026." }],
+      profile: [{ content: { description: "The user led a luxury AR project." } }],
+    } as never;
+    const prompt = buildResolutionPrompt(
+      worldStateWithBackground,
+      env,
+      "give me two options: wait or ship",
+      route,
+      {
+        current: [],
+        relevant: [{
+          claimId: "background-1",
+          content: "The user has a September deadline.",
+          kind: "observation",
+          scope: "global",
+          epistemicStatus: "observation",
+          epistemicConfidence: 0.8,
+          freshness: 1,
+          sourceRefs: [],
+          relevance: 0.7,
+        }],
+        conflicts: [],
+        gaps: [],
+        sources: [],
+      },
+      false,
+      [],
+      undefined,
+      [],
+      true
+    );
+
+    expect(prompt).not.toContain("Ship Flyd by Q4 2026.");
+    expect(prompt).not.toContain("luxury AR project");
+    expect(prompt).not.toContain("September deadline");
+  });
+
+  it("keeps background context when a voice question is explicitly personal", () => {
+    const worldStateWithGoal = {
+      ...emptyWorldState,
+      goals: [{ content: "Ship Flyd by Q4 2026." }],
+    } as never;
+    const prompt = buildResolutionPrompt(
+      worldStateWithGoal,
+      env,
+      "what am I working on?",
+      route,
+      undefined,
+      false,
+      [],
+      undefined,
+      [],
+      true
+    );
+
+    expect(prompt).toContain("Ship Flyd by Q4 2026.");
   });
 });
 

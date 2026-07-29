@@ -2,14 +2,15 @@
 
 ## Goal
 
-Make Flyd voice interaction feel immediately acknowledged, keep ordinary voice conversational, move literal dictation to an explicit shortcut, preserve short follow-up context, and replace the sparse pseudo-wave input display with a real dense FFT spectrum.
+Make Flyd voice interaction respond quickly with one contextual voice, keep ordinary voice conversational, move literal dictation to an explicit shortcut, preserve short follow-up context, and replace the sparse pseudo-wave input display with a real dense FFT spectrum.
 
 ## Interaction contract
 
 - Hold `⌃fn` to speak to Flyd conversationally.
 - Hold `⇧⌃fn` to dictate literal text into the focused editable field.
-- Releasing `⌃fn` immediately starts a local, network-independent “On it.” acknowledgment after capture stops.
-- A new invocation or Escape stops stale acknowledgment audio.
+- Releasing `⌃fn` immediately shows the processing state while Flyd prepares the contextual answer.
+- Flyd speaks only the contextual answer, using the same configured voice for every turn. It never inserts a canned processing utterance.
+- A new invocation or Escape stops stale answer audio.
 - Conversation input never falls through to literal insertion merely because it is phrased as a statement.
 - Dictation bypasses the model and only targets `AXTextArea`, `AXTextField`, or `AXSearchField`. When there is no editable target, Flyd reports a clear error and performs no action.
 
@@ -21,7 +22,7 @@ The model prompt receives the recent user and assistant turns for the active con
 
 ## Immediate feedback
 
-The acknowledgment is rendered by `AVSpeechSynthesizer` in the macOS adapter. It is deterministic, does not call Core, and does not depend on OpenAI TTS model access. It fires once per conversational voice release and is interruptible. Completed-answer speech remains governed by the existing reply preference and is not part of this acknowledgment.
+The panel switches to its processing state as soon as capture ends. Audio begins with the actual contextual answer; processing phrases such as “On it” are never synthesized. All conversational speech is rendered by the configured answer TTS path so a turn cannot alternate between a local system voice and the answer voice.
 
 ## Spectrum
 
@@ -31,17 +32,16 @@ The panel renders one thin bar per band, ordered low-to-high frequency from left
 
 ## Error handling and cancellation
 
-- Empty or failed transcription stops acknowledgment and displays the existing actionable voice error.
-- A new turn stops previous acknowledgment and supersedes stale callbacks through the existing invocation/session checks.
+- Empty or failed transcription displays the existing actionable voice error.
+- A new turn stops previous answer audio and supersedes stale callbacks through the existing invocation/session checks.
 - Dictation without an editable target displays “Dictation needs an editable text field.”
-- Escape stops capture, relay work, acknowledgment, and any pending invocation work.
+- Escape stops capture, relay work, answer audio, and any pending invocation work.
 
 ## Verification
 
 - Shortcut unit tests prove `⌃fn` and `⇧⌃fn` are exclusive press/release routes.
-- Voice-mode policy tests prove acknowledgment is conversation-only and once-per-release.
+- Source and playback tests prove there is no separate processing speaker and answer speech uses one configured TTS path.
 - Routing tests prove conversation statements on non-editable elements produce answer panels and dictation is only allowed for editable roles.
 - Spectrum tests prove 48 bands, bounded normalized values, low-to-high frequency discrimination, and no sine fallback.
 - Core tests prove bounded conversation history, timeout, and prompt injection.
 - Run the full Swift and Core suites, build both components, install with `make run`, then verify `/health`, `/voice/status`, installed logs, and a real user shortcut test.
-

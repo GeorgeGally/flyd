@@ -57,14 +57,12 @@ let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
 let voiceRelay = VoiceTranscriptionRelay.shared
-let voiceAcknowledgementSpeaker = VoiceAcknowledgementSpeaker.shared
 
 let invocationPanel = InvocationPanel()
 var activeAugmentPanels: [AugmentPanel] = []
 var activeInvocationTask: Task<Void, Never>?
 var activeVoiceInvocationId: String?
 var activeVoicePurpose: VoiceInvocationPurpose = .conversation
-var voiceAcknowledgementGate = VoiceAcknowledgementGate()
 let voiceConversationId = UUID().uuidString
 var voiceTranscriptionTimeout: DispatchWorkItem?
 var voiceHoldMonitor: Timer?
@@ -259,7 +257,6 @@ func handleVoiceInvocation(purpose: VoiceInvocationPurpose) {
 
     suppressNextShortcutRelease = false
     guard state.phase == .idle else { return }
-    voiceAcknowledgementSpeaker.stop()
 
     if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
         invocationPanel.show()
@@ -388,10 +385,6 @@ func handleVoiceRelease() {
     case .finishRecording:
         stopVoiceHoldMonitor()
         voiceCapture.stop()
-        if let invocationId = activeVoiceInvocationId,
-           voiceAcknowledgementGate.claim(invocationId: invocationId, purpose: activeVoicePurpose) {
-            voiceAcknowledgementSpeaker.speakWorking()
-        }
         state.transition(to: .transcribing)
         invocationPanel.updateState(.transcribing)
         startVoiceTranscriptionTimeout()
@@ -461,7 +454,6 @@ func handleShortcutPress() {
     guard state.phase != .idle else { return }
 
     suppressNextShortcutRelease = true
-    voiceAcknowledgementSpeaker.stop()
     activeInvocationTask?.cancel()
     state.cancelInvocation()
     stateMachine.cancel()

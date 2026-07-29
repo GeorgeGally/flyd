@@ -210,6 +210,8 @@ const IDENTITY_INTENT =
   /\b(who am i|about me\b|about myself|my (background|identity|bio|profile|memories|cv|resume)|what do you (know|remember|have) (about|on) me|do you (know|remember) me)\b/i;
 
 const FIRST_PERSON = /\b(i|me|my|mine|myself|we|our|us)\b/i;
+const VOICE_BACKGROUND_REFERENCE =
+  /\b(i|my|mine|myself|we|our|ours|ourselves|us)\b/i;
 
 export function isIdentityIntent(intent: string): boolean {
   return IDENTITY_INTENT.test(intent);
@@ -223,6 +225,10 @@ export function isIdentityIntent(intent: string): boolean {
 export function shouldInjectPersonalContext(intent: string, route: IntentRoute): boolean {
   if (isIdentityIntent(intent)) return true;
   return route.kind === "ask_answer" && FIRST_PERSON.test(intent);
+}
+
+function shouldIncludeVoiceBackground(intent: string): boolean {
+  return isIdentityIntent(intent) || VOICE_BACKGROUND_REFERENCE.test(intent);
 }
 
 export function buildResolutionPrompt(
@@ -252,21 +258,26 @@ export function buildResolutionPrompt(
     contextBlock = `\nEmail context: subject="${ctx.subject || "unknown"}", from="${ctx.from || "unknown"}", preview="${ctx.preview || "unknown"}"`;
   }
 
-  const goals = worldState.goals.map((g) => g.content).filter(Boolean).slice(0, 3);
-  const tensions = worldState.tensions.map((t) => t.content).filter(Boolean).slice(0, 2);
+  const includeBackgroundContext = !isVoiceConversation || shouldIncludeVoiceBackground(intent);
+  const goals = includeBackgroundContext
+    ? worldState.goals.map((g) => g.content).filter(Boolean).slice(0, 3)
+    : [];
+  const tensions = includeBackgroundContext
+    ? worldState.tensions.map((t) => t.content).filter(Boolean).slice(0, 2)
+    : [];
 
   const summarizeEntry = (entry: Record<string, unknown>): string => {
     const s = entry as Record<string, unknown>;
     return String(s.description || s.title || s.name || s.summary || s.value || s.label || "");
   };
 
-  const profile = worldState.profile
+  const profile = (includeBackgroundContext ? worldState.profile : [])
     .map((p) => summarizeEntry(p.content))
     .filter(Boolean)
     .filter((s) => !/\d+\s+(wiki|graph|edge|page|node|file|entry|entries)/i.test(s))
     .slice(0, 5);
 
-  const knowledge = worldState.knowledge
+  const knowledge = (includeBackgroundContext ? worldState.knowledge : [])
     .map((k) => summarizeEntry(k.content))
     .filter(Boolean)
     .filter((s) => !/\d+\s+(wiki|graph|edge|page|node|file|entry|entries)/i.test(s))
@@ -296,16 +307,16 @@ export function buildResolutionPrompt(
     return labels[epistemicStatus] ?? epistemicStatus;
   };
 
-  const claimLines = memoryPack.relevant.map((c) => {
+  const claimLines = (includeBackgroundContext ? memoryPack.relevant : []).map((c) => {
     const label = statusLabel(c.epistemicStatus);
     return `- [${label}] ${c.content}`;
   });
 
-  const conflictLines = memoryPack.conflicts.map((pair) =>
+  const conflictLines = (includeBackgroundContext ? memoryPack.conflicts : []).map((pair) =>
     `- ⚠ Competing claims:\n  a) [${statusLabel(pair.claimA.epistemicStatus)}] ${pair.claimA.content}\n  b) [${statusLabel(pair.claimB.epistemicStatus)}] ${pair.claimB.content}\n  CONFLICT — do not assume either. Ask if critical to this response.`
   );
 
-  const gapLines = memoryPack.gaps.map((g) =>
+  const gapLines = (includeBackgroundContext ? memoryPack.gaps : []).map((g) =>
     `- [gap · ${g.importance}] ${g.question}`
   );
 
@@ -321,11 +332,11 @@ export function buildResolutionPrompt(
   }
   const memoriesBlock = blocks.join("");
 
-  const personalContextBlock = personalContext.length > 0
+  const personalContextBlock = includeBackgroundContext && personalContext.length > 0
     ? `\nPERSONAL CONTEXT (compiled from the user's own memory wiki — authoritative for questions about who the user is, their background, projects, and constraints; use silently, never cite file paths or bundle names):\n${personalContext.map((b) => b.body).join("\n\n")}`
     : "";
 
-  const memoryStatusBlock = memoryPack.relevant.length === 0 && personalContext.length === 0
+  const memoryStatusBlock = includeBackgroundContext && memoryPack.relevant.length === 0 && personalContext.length === 0
     ? `\nMEMORY STATUS: The user HAS a personal memory system (flyd) and you are connected to it. Retrieval ran for this request and found nothing relevant. If the user asks about themselves or their data, say the memory search found nothing relevant to this question — NEVER claim you lack access to memory or personal information.`
     : "";
 

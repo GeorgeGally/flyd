@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add immediate local acknowledgment, explicit dictation routing, bounded follow-up context, and a dense real FFT spectrum to Flyd voice interaction.
+**Goal:** Add fast single-voice contextual answers, explicit dictation routing, bounded follow-up context, and a dense real FFT spectrum to Flyd voice interaction.
 
-**Architecture:** The Swift shortcut router emits separate conversation and dictation events. A small local acknowledgment speaker owns interruptible system speech, while a pure spectrum mapper makes FFT behavior testable. Flyd Core stores bounded in-memory conversation turns keyed by a manifest conversation identifier and injects them into resolution prompts.
+**Architecture:** The Swift shortcut router emits separate conversation and dictation events. Conversation mode shows an immediate visual processing state but sends only the contextual answer through one TTS voice, while a pure spectrum mapper makes FFT behavior testable. Flyd Core stores bounded in-memory conversation turns keyed by a manifest conversation identifier and injects them into resolution prompts.
 
 **Tech Stack:** Swift 5.9, AppKit, AVFoundation, Accelerate/vDSP, TypeScript, Vitest.
 
@@ -24,18 +24,15 @@
 - [ ] Thread the new events through the state machine and add a dictation capture mode that bypasses Core and inserts only into a safe editable role.
 - [ ] Run the focused shortcut tests and confirm they pass.
 
-### Task 2: Add immediate local acknowledgment
+### Task 2: Keep conversational speech contextual and single-voice
 
 **Files:**
-- Create: `mac-adapter/Sources/Audio/VoiceAcknowledgementSpeaker.swift`
 - Modify: `mac-adapter/Sources/main.swift`
-- Test: `mac-adapter/Tests/VoiceAcknowledgementPolicyTests.swift`
 
-- [ ] Add failing policy tests for one acknowledgment on conversational release, none on dictation release, and cancellation on a new turn.
-- [ ] Run `swift test --package-path mac-adapter --filter VoiceAcknowledgementPolicyTests` and confirm failure because the policy is missing.
-- [ ] Implement a pure acknowledgment policy plus an `AVSpeechSynthesizer` owner that says “On it.” and supports immediate stop.
-- [ ] Invoke it after conversational capture stops and stop it from cleanup, Escape, errors, and new-turn startup.
-- [ ] Run the focused acknowledgment tests and confirm they pass.
+- [x] Remove the local `AVSpeechSynthesizer` processing cue.
+- [x] Keep the panel's immediate processing state as non-verbal feedback.
+- [x] Send only the contextual answer through the configured answer TTS voice.
+- [ ] Verify a real turn produces one voice and no canned utterance.
 
 ### Task 3: Replace the pseudo-wave with a dense FFT spectrum
 
@@ -89,5 +86,4 @@
 - [ ] Run `npm run build --prefix cli`.
 - [ ] Run `git diff --check`.
 - [ ] Install and relaunch from the landed `main` checkout with `cd mac-adapter && make run`.
-- [ ] Verify `http://127.0.0.1:4815/health`, authenticated `/voice/status`, fresh installed logs, immediate acknowledgment, exclusive dictation shortcut, and the 48-band display.
-
+- [ ] Verify `http://127.0.0.1:4815/health`, authenticated `/voice/status`, fresh installed logs, a single contextual answer voice, exclusive dictation shortcut, and the 48-band display.
