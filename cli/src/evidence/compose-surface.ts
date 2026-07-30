@@ -11,6 +11,7 @@ const SURFACE_HOST = "127.0.0.1";
 const SURFACE_PORT = 3000;
 const SURFACE_TTL_MS = 30 * 60 * 1000;
 const surfaces = new Map<string, { surface: EvidenceComposeSurface; expiresAt: number }>();
+const readySurfaceIds: string[] = [];
 let latestSurfaceId: string | null = null;
 let surfaceServer: Server | null = null;
 let startPromise: Promise<boolean> | null = null;
@@ -150,18 +151,46 @@ export function renderEvidenceSurfaceHtml(surface: EvidenceComposeSurface): stri
 function cleanup(): void {
   const now = Date.now();
   for (const [id, entry] of surfaces) if (entry.expiresAt <= now) surfaces.delete(id);
+  for (let index = readySurfaceIds.length - 1; index >= 0; index -= 1) {
+    if (!surfaces.has(readySurfaceIds[index])) readySurfaceIds.splice(index, 1);
+  }
   if (latestSurfaceId && !surfaces.has(latestSurfaceId)) latestSurfaceId = null;
 }
 
 async function ensureSurfaceServer(): Promise<boolean> {
   if (surfaceServer) return true;
   if (startPromise) return startPromise;
-  startPromise = new Promise((resolve) => {
+  const pending = new Promise<boolean>((resolve) => {
     const server = createServer((req, res) => {
       cleanup();
       const requestedId = req.url?.match(/^\/surface\/([a-f0-9-]+)$/)?.[1];
-      const id = requestedId || latestSurfaceId;
-      const entry = id ? surfaces.get(id) : undefined;
+
+      // Core's liveness check uses HEAD. Confirm the renderer without consuming
+      // a finalised surface from the handoff queue.
+      if (!requestedId && req.method === "HEAD") {
+        res.writeHead(surfaces.size > 0 ? 200 : 404, { "Cache-Control": "no-store" });
+        res.end();
+        return;
+      }
+
+      if (!requestedId) {
+        const nextId = readySurfaceIds.shift() || latestSurfaceId;
+        if (!nextId || !surfaces.has(nextId)) {
+          res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+          res.end("Flyd evidence surface not found or expired.");
+          return;
+        }
+        latestSurfaceId = nextId;
+        res.writeHead(302, {
+          Location: `/surface/${nextId}`,
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+        });
+        res.end();
+        return;
+      }
+
+      const entry = surfaces.get(requestedId);
       if (!entry) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
         res.end("Flyd evidence surface not found or expired.");
@@ -174,7 +203,7 @@ async function ensureSurfaceServer(): Promise<boolean> {
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
       });
-      res.end(html);
+      res.end(req.method === "HEAD" ? undefined : html);
     });
     server.once("error", () => {
       startPromise = null;
@@ -187,7 +216,8 @@ async function ensureSurfaceServer(): Promise<boolean> {
       resolve(true);
     });
   });
-  return startPromise;
+  startPromise = pending;
+  return pending;
 }
 
 export async function publishEvidenceSurface(bundle: EvidenceBundle): Promise<{ ready: boolean; surfaceId?: string }> {
@@ -206,7 +236,6 @@ export async function publishEvidenceSurface(bundle: EvidenceBundle): Promise<{ 
     gaps: bundle.gaps,
   };
   surfaces.set(id, { surface, expiresAt: Date.now() + SURFACE_TTL_MS });
-  latestSurfaceId = id;
   return { ready: true, surfaceId: id };
 }
 
@@ -214,8 +243,9 @@ export function finalizeEvidenceSurface(surfaceId: string | undefined, rawModelR
   if (!surfaceId) return;
   const entry = surfaces.get(surfaceId);
   if (!entry) return;
+  latestSurfaceId = surfaceId;
+  if (!readySurfaceIds.includes(surfaceId)) readySurfaceIds.push(surfaceId);
   const synthesis = parseSynthesis(rawModelResponse);
-  if (!synthesis) return;
-  entry.surface.synthesis = synthesis;
+  if (synthesis) entry.surface.synthesis = synthesis;
   entry.expiresAt = Date.now() + SURFACE_TTL_MS;
 }
