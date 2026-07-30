@@ -10,6 +10,7 @@ export {
   classifyEvidenceNeed,
   isResolutionSystemPrompt,
   parseResolutionEvidenceContext,
+  sanitizeEvidenceLocator,
 } from "./evidence-need.js";
 export type {
   EvidenceNeedDecision,
