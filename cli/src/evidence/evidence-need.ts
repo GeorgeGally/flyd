@@ -30,6 +30,8 @@ const DEICTIC = /\b(this|these|that|those|it|here|page|link|listing|repo|reposit
 const PERSONAL_RECALL = /\b(what am i working on|what was i working on|what do you know about me|who am i|my memories|my background|my project|resume my work|continue my work)\b/i;
 const TIMELESS = /\b(define|definition|meaning of|explain the concept|what is a [a-z -]+ in general|why does [a-z -]+ happen)\b/i;
 const HTTP_URL = /https?:\/\/[^\s"'<>]+/gi;
+const SENSITIVE_QUERY_KEY = /(^|[-_])(token|key|signature|sig|auth|password|passwd|secret|credential|session|x-amz)([-_]|$)/i;
+const TRACKING_QUERY_KEY = /^(utm_.+|fbclid|gclid|dclid|mc_cid|mc_eid)$/i;
 
 function between(value: string, start: string, end: string): string {
   const startIndex = value.indexOf(start);
@@ -39,14 +41,55 @@ function between(value: string, start: string, end: string): string {
   return (endIndex < 0 ? value.slice(from) : value.slice(from, endIndex)).trim();
 }
 
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224;
+}
+
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+    return true;
+  }
+  if (isPrivateIpv4(host)) return true;
+  if (host.includes(":")) {
+    return host === "::1" || host === "::" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe8") || host.startsWith("fe9") || host.startsWith("fea") || host.startsWith("feb");
+  }
+  return false;
+}
+
+export function sanitizeEvidenceLocator(value: string): string | null {
+  const cleaned = value.replace(/[),.;!?]+$/, "");
+  try {
+    const url = new URL(cleaned);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password || isPrivateHost(url.hostname)) return null;
+    for (const key of [...url.searchParams.keys()]) {
+      if (SENSITIVE_QUERY_KEY.test(key)) return null;
+      if (TRACKING_QUERY_KEY.test(key)) url.searchParams.delete(key);
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function uniqueLocators(values: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const value of values) {
-    const cleaned = value.replace(/[),.;!?]+$/, "");
-    if (!cleaned || seen.has(cleaned)) continue;
-    seen.add(cleaned);
-    result.push(cleaned);
+    const locator = sanitizeEvidenceLocator(value);
+    if (!locator || seen.has(locator)) continue;
+    seen.add(locator);
+    result.push(locator);
   }
   return result.slice(0, 3);
 }
