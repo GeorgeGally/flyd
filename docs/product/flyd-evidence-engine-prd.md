@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed foundation.** This document defines the external-evidence and capability architecture for the active Flyd overlay product.
+**E0 + E1 implemented.** This document defines the external-evidence and capability architecture for the active Flyd product.
 
 It merges the strongest architectural ideas from:
 
@@ -10,6 +10,8 @@ It merges the strongest architectural ideas from:
 - **last30days:** intent-aware research planning, source semantics, parallel retrieval, provenance, freshness/engagement-aware ranking, reciprocal-rank fusion, diversity controls, clustering and evidence-first synthesis.
 
 Flyd does **not** adopt either project as the intelligence layer. Flyd Core remains the authority. External tools supply evidence; Flyd decides what the evidence means and how to manifest the result.
+
+**Rails is not part of the active Flyd architecture.** The Evidence Engine, capability health, retrieval, reasoning and future composition paths live in TypeScript Core plus native surfaces. Rails code remaining in the repository is legacy only and must not be extended for this architecture.
 
 ---
 
@@ -179,161 +181,242 @@ The user is looking at a villa listing and asks:
 
 Flyd should be able to combine:
 
-- the listing currently on screen,
-- remembered budget and prior negotiations,
-- current comparable listings,
-- recent area discussion,
-- current infrastructure/development information,
-- source confidence and date windows.
+```text
+LOCAL
+- listing visible on screen
+- location / price / lease terms
 
-If the answer can be expressed concisely, Flyd returns an augmentation.
+PERSONAL
+- prior villa negotiations
+- budget and preferences
+- previously rejected areas / terms
 
-If the task becomes a multi-source comparison, Flyd escalates to COMPOSE.
+EXTERNAL
+- current comparable listings
+- recent local market information
+- relevant community discussion
+- local infrastructure/development evidence
+```
+
+Flyd then adjudicates that evidence and chooses the manifestation:
+
+- a short answer if the conclusion is simple,
+- an augmentation if a few comparisons matter,
+- a composed comparison surface if the task needs multi-source structure.
 
 ### Example: LIVE
 
-The user says:
+User says while looking at something:
 
-> What is everyone saying about this?
-
-Flyd resolves "this" from the current environment, determines that community sentiment is requested, prioritises discussion/social sources, retrieves current evidence, and answers naturally in LIVE.
-
-### Example: product/technical research
-
-The user asks:
-
-> Compare these three agent frameworks based on what developers are actually running into this month.
-
-Flyd should prefer GitHub issues/discussions, Hacker News, Reddit, X and relevant long-form technical content rather than generic SEO comparison pages.
-
-### Example: insufficient reach
-
-The user asks for current X reaction but X is not authenticated.
-
-Flyd may still answer from healthy sources if sufficient, but the Evidence Bundle records `x: auth_required` as a gap. It must not imply that X was searched.
-
----
-
-## Evidence contract
-
-Every retrieved item normalizes into a source-independent `EvidenceItem`.
-
-Required fields:
+> What's everyone saying about this?
 
 ```text
-id
-capability
-backend
-kind
-content
-locator
-retrievedAt
-publishedAt?
-author?
-queryLabel
-nativeRank
-localRelevance
-freshness
-sourceQuality
-engagement?
-metadata
-provenance[]
+screen/context
+    ↓
+resolve referent
+    ↓
+plan opinion/discussion research
+    ↓
+Reddit + X + web (healthy sources only)
+    ↓
+rank/fuse evidence
+    ↓
+spoken synthesis + optional augmentation
 ```
 
-`kind` describes evidence semantics, for example:
+### Example: capability gap
 
-```text
-reference
-first_party_statement
-discussion
-social
-code
-release
-video
-market
-news
-job_signal
-research
-```
+User asks for current X reaction, but the X adapter requires authentication.
 
-The contract deliberately separates:
+Flyd does not silently replace that with a generic web answer and claim broad consensus.
 
-- **epistemic confidence** — how trustworthy this evidence is for the claim type,
-- **freshness** — how current it is,
-- **relevance** — how well it answers this query,
-- **engagement** — how much attention it received,
-- **source quality** — prior reliability/authority of the source class.
+The internal result records:
 
-No single score should silently collapse these dimensions before the final ranking step.
-
----
-
-## Capability registry
-
-### Capability adapter
-
-A backend adapter declares:
-
-```text
-id
-capability
-priority
-operations[]
-signals[]
-probe()
-search?()
-read?()
-```
-
-The registry supports multiple adapters for one capability.
-
-Example:
-
-```text
-x.search
-  1. twitter-cli
-  2. OpenCLI
-  3. future provider
-
-reddit.search
-  1. OpenCLI
-  2. rdt-cli
-  3. future provider
-```
-
-### Probe rules
-
-A probe must test actual usability, not merely binary presence.
-
-Examples:
-
-- command exists **and** a harmless status/read call succeeds,
-- API key exists **and** endpoint responds,
-- browser-backed capability has an existing user-controlled authenticated session,
-- auth-required capability reports `auth_required` rather than `unavailable`.
-
-### Health output
-
-```text
-CapabilityHealth {
-  capability
-  status
-  activeBackend?
-  checkedAt
-  reason?
-  fix?
+```json
+{
+  "capability": "x",
+  "status": "auth_required",
+  "gap": "X-specific reaction was not checked"
 }
 ```
 
-The health model is usable by diagnostics, settings and the planner.
+Flyd may still answer from other evidence, but the reduced coverage affects confidence.
 
 ---
 
-## Research planning
+## Evidence model
 
-### Intent classes
+The key abstraction is not a search result. It is an evidence item.
 
-The initial planner supports:
+```ts
+interface EvidenceItem {
+  id: string
+
+  capability: string
+  backend: string
+  kind: EvidenceKind
+
+  title?: string
+  content: string
+  locator?: string
+  sourceItemId: string
+
+  retrievedAt: string
+  publishedAt?: string
+  author?: string
+
+  queryLabel: string
+  nativeRank: number
+
+  localRelevance: number
+  freshness: number
+  sourceQuality: number
+  engagement?: number
+
+  metadata?: Record<string, unknown>
+  provenance: EvidenceProvenance[]
+}
+```
+
+### Evidence dimensions are intentionally separate
+
+Do not collapse everything into one mysterious confidence score too early.
+
+`localRelevance`
+: How well this result answers this specific query.
+
+`freshness`
+: How current the evidence is for the question being asked.
+
+`sourceQuality`
+: How appropriate/reliable this source is for this claim type.
+
+`engagement`
+: Popularity/attention signal. Useful for community salience, not truth.
+
+`nativeRank`
+: Position returned by the source itself.
+
+`provenance`
+: Every retrieval path that independently surfaced this evidence.
+
+These values may influence ranking differently by intent.
+
+---
+
+## Source semantics
+
+### Capability descriptor
+
+Each capability declares semantic strengths alongside mechanics.
+
+```ts
+interface CapabilityAdapter {
+  id: string
+  capability: CapabilityName
+  priority: number
+
+  operations: ("read" | "search")[]
+  signals: EvidenceSignal[]
+
+  probe(): Promise<CapabilityProbe>
+  read?(): Promise<EvidenceItem[]>
+  search?(): Promise<EvidenceItem[]>
+}
+```
+
+Example:
+
+```ts
+GitHubAdapter {
+  capability: "github"
+  signals: ["code", "release", "discussion", "first_party"]
+}
+
+RedditAdapter {
+  capability: "reddit"
+  signals: ["discussion", "social"]
+}
+```
+
+This lets the planner ask for evidence classes instead of hard-coding one provider.
+
+---
+
+## Capability health
+
+Health checks must test actual usability.
+
+Checking only whether a binary exists is insufficient.
+
+A backend probe should validate the minimum safe operation needed to know whether it can serve requests.
+
+```ts
+interface CapabilityProbe {
+  status:
+    | "ready"
+    | "degraded"
+    | "auth_required"
+    | "unavailable"
+    | "disabled"
+
+  reason?: string
+  fix?: string
+}
+```
+
+### Backend selection
+
+```text
+x.search
+  ├─ backend A  ready       ← use
+  ├─ backend B  ready
+  └─ backend C  unavailable
+```
+
+or:
+
+```text
+x.search
+  ├─ backend A  unavailable
+  ├─ backend B  degraded    ← fallback if no ready backend exists
+  └─ backend C  auth_required
+```
+
+Rules:
+
+1. choose the first **ready** backend by configured priority,
+2. if no backend is ready, choose the first **degraded but usable** backend,
+3. distinguish `auth_required` from breakage,
+4. expose the chosen backend only as provenance/diagnostics,
+5. reasoning asks for the capability, never a concrete tool.
+
+### Doctor
+
+Flyd should expose this internally and through developer diagnostics:
+
+```text
+Web.read        READY       web:jina-reader
+Web.search      AUTH        JINA_API_KEY missing
+GitHub.read     DEGRADED    public REST, low unauthenticated limit
+GitHub.search   DEGRADED    public REST, low unauthenticated limit
+RSS.read        READY       rss:native
+YouTube.read    READY       youtube:yt-dlp
+YouTube.search  READY       youtube:yt-dlp
+X.search        AUTH        credentials missing
+```
+
+The first E1 implementation exposes this through `flyd doctor` and `flyd doctor --json`.
+
+---
+
+## Query planning
+
+### Research intent
+
+The Evidence Engine classifies research intent separately from the overlay's manifestation routing.
+
+Initial intent classes:
 
 ```text
 factual
@@ -345,178 +428,401 @@ prediction
 product
 ```
 
-The class is separate from Flyd's manifestation route.
-
-A request may be `ask_answer` for UI purposes while simultaneously being a `comparison` for evidence planning.
+This classifier determines what evidence is useful, not what UI to show.
 
 ### Source priorities
 
+Illustrative defaults:
+
+```text
+factual
+  web > github > arxiv > rss
+
+opinion
+  reddit > x > youtube > web
+
+how_to
+  youtube > reddit > github > web
+
+comparison
+  web > reddit > youtube > github
+
+breaking_news
+  x > web > rss > reddit
+
+prediction
+  polymarket > x > web > reddit
+
+product
+  reddit > youtube > web
+```
+
+Unavailable sources disappear from the executable plan but remain visible as evidence gaps when material.
+
+### Deterministic before frontier intelligence
+
+Common source selection should be deterministic/cheap.
+
+Do not spend a frontier-model call deciding that an opinion query benefits from discussion sources unless ambiguity genuinely requires it.
+
+A later planner may use a small model to decompose difficult questions, but deterministic policy remains the fallback.
+
+---
+
+## Query decomposition
+
+Deep research can produce multiple weighted subqueries.
+
+Example:
+
+> Is this new AI coding tool actually good?
+
+```text
+primary          1.00   "tool name"
+quality          0.90   "tool name review reliability problems"
+developer        0.85   "tool name github issues releases"
+comparison       0.75   "tool name alternatives comparison"
+current          0.90   "tool name recent update"
+```
+
+Each subquery selects only semantically useful capabilities.
+
+The result is a set of `(subquery × capability)` streams.
+
+---
+
+## Retrieval
+
+Streams run in parallel within explicit budgets.
+
+```text
+               primary
+          ┌──────┼──────┐
+          ↓      ↓      ↓
+        web   reddit   github
+
+               quality
+          ┌──────┼──────┐
+          ↓      ↓      ↓
+        web   reddit  youtube
+```
+
+Each adapter returns normalized `EvidenceItem`s immediately. Provider-specific response shapes do not propagate past the adapter boundary.
+
+### Budgets
+
+The planner controls:
+
+- depth (`quick`, `default`, `deep`),
+- maximum total results,
+- maximum results per stream,
+- eventual latency/fetch budgets.
+
 Initial defaults:
 
-| Research intent | Preferred capabilities |
-|---|---|
-| factual | web, github, hackernews, reddit |
-| opinion | reddit, x, youtube, hackernews |
-| how_to | youtube, reddit, github, web |
-| comparison | reddit, github, hackernews, x, youtube, web |
-| breaking_news | x, web, reddit, hackernews, youtube |
-| prediction | polymarket, x, web, hackernews, reddit |
-| product | reddit, youtube, x, web, github |
-
-Unavailable capabilities are removed before execution, not after failure.
-
-### Depth budgets
-
 ```text
-quick   — 2-3 best source classes, low latency, suitable for INVOKED/LIVE
-default — broader parallel retrieval
- deep   — delegated/composed research, larger candidate pool and follow-up retrieval
+quick    10 final items / 3 per stream
+standard 20 final items / 5 per stream
+deep     30 final items / 8 per stream
 ```
 
-The planner owns explicit result/fetch budgets so research cost and latency remain bounded.
-
-### Subqueries
-
-The architecture supports weighted subqueries from day one, even if the foundation initially uses deterministic single-query planning.
-
-Examples:
-
-```text
-"Acme pricing"
-"Acme complaints"
-"Acme release notes"
-```
-
-Each stream retains its query label and weight for later fusion.
+`quick` must be suitable for INVOKED/LIVE latency.
 
 ---
 
-## Fusion and ranking
+## Ranking and evidence fusion
 
-The initial fusion algorithm uses weighted Reciprocal Rank Fusion (RRF) over `(subquery × capability)` streams.
+### Reciprocal rank fusion
 
-Why RRF:
+Use weighted reciprocal rank fusion across independent streams.
 
-- provider scores are not comparable across platforms,
-- native rank is usually more meaningful than a fake cross-provider numeric score,
-- repeated appearance across independent streams naturally increases confidence,
-- it remains deterministic and testable.
-
-The fused candidate score starts with:
+Conceptually:
 
 ```text
-subqueryWeight × sourceWeight / (K + nativeRank)
+score(item) +=
+  streamWeight
+  × sourceWeight
+  × 1 / (K + nativeRank)
 ```
 
-Ranking tie-breakers may use:
+RRF is intentionally robust when source score scales are incomparable.
 
-1. local relevance,
-2. freshness,
-3. source quality,
-4. engagement where appropriate.
+A Reddit score of `812`, a GitHub search score of `4.1`, and an internal web relevance of `0.78` should not be naively compared.
 
-### Diversity controls
+### Preserve independent signals
 
-The pool must resist popularity monocultures.
+RRF determines candidate order but does not erase:
 
-Foundation controls:
+- relevance,
+- freshness,
+- source quality,
+- engagement,
+- provenance.
 
-- dedupe canonical URLs/stable IDs,
-- maximum items per author,
-- minimum representation for sufficiently relevant source classes,
-- low-relevance sources receive no reserved quota.
+Flyd can use those signals during currentness/corroboration and synthesis.
 
-A viral but irrelevant result must never win purely through engagement.
+### Dedupe
 
-### Engagement
+Canonical dedupe prefers:
 
-Engagement is a signal, not truth.
+1. normalized canonical locator,
+2. stable source ID when no URL exists.
 
-High upvotes/views/likes can increase salience **after relevance passes a floor**. Engagement must never compensate for irrelevance or weak provenance.
+Normalization strips tracking parameters and common host aliases.
 
----
+When duplicates merge:
 
-## Evidence Bundle
+- retain the strongest representation,
+- accumulate RRF contribution,
+- merge provenance,
+- retain all capabilities that independently surfaced it.
 
-Research returns a structured bundle before any answer is written:
+### Diversity
 
-```text
-EvidenceBundle {
-  query
-  intent
-  generatedAt
-  plan
-  evidence[]
-  conflicts[]
-  gaps[]
-  capabilityHealth[]
-  provenanceSummary
-}
-```
+One prolific author or one source class should not fill the evidence window.
 
-The bundle becomes the single boundary between retrieval and reasoning.
+Initial controls:
 
-Flyd's model receives curated evidence, not raw provider dumps.
+- maximum 3 final items per author,
+- reserve at least one sufficiently relevant result from each useful capability,
+- then fill remaining slots by fused rank.
+
+This guards against accidental single-community consensus.
 
 ---
 
 ## Currentness and corroboration
 
-The existing Flyd memory repair established an important rule: **live corroboration beats semantic strength**.
+This must remain distinct from relevance.
 
-The Evidence Engine generalises it.
+### Currentness rules
 
-A claim can be tagged current when supported by one or more of:
+Currentness may be supported by:
 
-- direct first-party source with a recent timestamp,
-- live repository/release state,
-- multiple independent recent sources,
-- a source whose semantics represent current state,
-- explicit date-window match.
+- recent publication/update timestamp,
+- current live API state,
+- current release/commit state,
+- direct first-party statement,
+- corroboration across independent contemporary sources.
 
-Currentness is claim-specific.
+It must never be inferred solely from semantic similarity.
 
-A two-year-old official document can still be authoritative for a stable fact while being poor evidence for "what is happening now".
+### External evidence and personal currentness
 
-Contradictory current sources remain contradictory. Flyd should preserve the conflict rather than selecting whichever has the highest lexical similarity.
+The same conceptual rule should govern Flyd's internal and external worlds:
+
+```text
+memory says X        → historical/personal evidence
+screen says X        → immediate local evidence
+GitHub says X        → current code evidence
+web says X           → current external evidence
+user confirms X      → authoritative personal evidence
+```
+
+Flyd adjudicates these based on the question.
+
+There is no universal source order.
+
+For:
+
+> what am I working on?
+
+live repo/screen evidence dominates web.
+
+For:
+
+> what version did OpenAI release today?
+
+current first-party external evidence dominates old memory.
 
 ---
 
-## Resolver integration
+## Conflicts
 
-The Evidence Engine runs only when the intent needs external evidence.
+Evidence disagreement is a first-class result.
 
-### Fast path
-
-```text
-INVOKED
-  ↓
-deterministic/native request?
-  → existing fast path
-  ↓
-answer/draft route
-  ↓
-evidence need classifier
-  ├─ none → existing memory + model path
-  └─ external → Evidence Engine
+```ts
+interface EvidenceConflict {
+  left: string
+  right: string
+  reason: string
+}
 ```
 
-### Latency
+Examples:
 
-External retrieval must not poison simple overlay interactions.
+- official docs say feature is available, community reports rollout missing,
+- two listings provide conflicting lease terms,
+- old article contradicts current repository state.
 
-Targets:
+Flyd should synthesize the disagreement rather than averaging it into fake certainty.
 
-- no evidence-engine work for deterministic text operations,
-- no external retrieval for ordinary rewrites/drafts unless explicitly required,
-- `quick` evidence retrieval designed for a bounded interactive budget,
-- deeper work escalates to COMPOSE/DELEGATED instead of holding an invocation indefinitely.
+---
 
-### LIVE
+## Evidence Bundle
 
-LIVE uses the same evidence boundary.
+The Evidence Engine returns one bounded contract to Flyd reasoning.
 
-The realtime model should call a Flyd research tool, not individual social/web providers. Flyd Core decides the plan and returns an Evidence Bundle or a compact grounded synthesis.
+```ts
+interface EvidenceBundle {
+  query: string
+  intent: ResearchIntent
+  generatedAt: string
+  plan: QueryPlan
+  evidence: RankedEvidence[]
+  conflicts: EvidenceConflict[]
+  gaps: EvidenceGap[]
+  capabilityHealth: CapabilityHealth[]
+}
+```
+
+The Bundle is the boundary.
+
+Resolver prompts, LIVE, COMPOSE and future delegated specialists should consume Evidence Bundles rather than provider responses.
+
+---
+
+## Interaction with Flyd memory
+
+External research must not automatically become memory.
+
+```text
+external evidence
+       ↓
+    reasoning
+       ↓
+ user-visible outcome
+       ↓
+ existing significance / learning gate
+       ↓
+ possible durable memory
+```
+
+Raw search results are not knowledge about the user.
+
+A Reddit comment retrieved once must not silently become a durable personal belief.
+
+However, durable derived information can be learned when the existing memory policy decides it is significant.
+
+Example:
+
+> User repeatedly rejects villas more than 20 minutes from school.
+
+That behavioural preference may become memory.
+
+The temporary comparable listings used to establish it should not.
+
+---
+
+## INVOKED integration
+
+E2 introduces `classifyEvidenceNeed()` into resolution.
+
+Conceptually:
+
+```text
+manifest
+  │
+  ├─ Present Model
+  ├─ memory retrieval
+  ├─ route classification
+  └─ evidence-need classification
+          │
+          ├─ none
+          ├─ quick external evidence
+          └─ deep/delegated investigation
+```
+
+These should execute in parallel where possible.
+
+### Evidence need
+
+External retrieval is useful when the question materially depends on:
+
+- current facts,
+- external entities/state,
+- live prices/availability,
+- community sentiment,
+- recent events,
+- sources not represented by Flyd memory/local context.
+
+It should be skipped when:
+
+- editing text,
+- dictation,
+- rewriting,
+- purely personal recall,
+- local app manipulation,
+- static reasoning the model can answer confidently without current evidence.
+
+---
+
+## LIVE integration
+
+LIVE gains a Core-owned evidence tool rather than direct provider tools.
+
+Preferred conceptual tool:
+
+```text
+flyd_research_evidence(query, depth?)
+```
+
+rather than:
+
+```text
+google_search
+reddit_search
+twitter_search
+yt_dlp
+...
+```
+
+This is important.
+
+Realtime should ask Flyd for evidence. It should not become a second orchestration engine deciding providers independently.
+
+Core then:
+
+1. checks the query,
+2. applies capability/credential policy,
+3. builds the plan,
+4. retrieves evidence,
+5. returns the bounded Evidence Bundle/synthesis.
+
+---
+
+## DELEGATED integration
+
+Deep research is a natural first serious DELEGATED specialist.
+
+```text
+Research Specialist
+
+input
+  goal
+  context
+  memory
+  evidence requirements
+  capability grant
+  budget
+
+output
+  claims
+  Evidence Bundle
+  gaps
+  conflicts
+  confidence
+```
+
+It never returns UI instructions.
+
+Flyd decides whether its result becomes:
+
+- spoken response,
+- augmentation,
+- composed surface,
+- native text,
+- additional delegated action.
 
 ---
 
@@ -611,9 +917,9 @@ Flyd chooses the date window and manifestation from user intent.
 
 ## Delivery sequence
 
-### E0 — Evidence foundation (this PR)
+### E0 — Evidence foundation — SHIPPED
 
-Ship pure TypeScript primitives in Flyd Core:
+Pure TypeScript primitives in Flyd Core:
 
 - `EvidenceItem`, `EvidenceBundle`, `QueryPlan` contracts,
 - capability adapter/registry contract,
@@ -624,29 +930,22 @@ Ship pure TypeScript primitives in Flyd Core:
 - per-author and per-source diversity controls,
 - unit tests.
 
-No network adapters and no resolver behaviour change yet.
+Exit criteria achieved at the contract/foundation level.
 
-Exit criteria:
+### E1 — First external adapters — SHIPPED
 
-1. multiple backends can register for one capability,
-2. unhealthy primary falls through to healthy secondary,
-3. planner changes source priority by research intent,
-4. unavailable capabilities are excluded with explicit gaps,
-5. duplicate evidence from multiple streams merges while preserving provenance,
-6. fused ranking remains deterministic,
-7. one author cannot dominate the final pool,
-8. existing overlay behaviour is unchanged.
+Implemented:
 
-### E1 — First external adapters
+- `web.read` via Jina Reader,
+- `web.search` via Jina Search,
+- `github.read/search` via GitHub REST,
+- `rss.read` via a native Flyd parser,
+- `youtube.read/search` via `yt-dlp`, including transcript extraction when available,
+- `flyd doctor` / `flyd doctor --json` operation-level capability diagnostics,
+- explicit `ready` / `degraded` / `auth_required` / `unavailable` states,
+- adapter-level tests with mocked network/command boundaries.
 
-Implement the lowest-risk/highest-value capabilities first:
-
-- `web.read/search`,
-- `github.read/search`,
-- `rss.read`,
-- `youtube.read/search` where available.
-
-Add `flyd doctor`/Core health output for evidence capabilities.
+E1 changes no `/manifest`, INVOKED, LIVE or PRESENT behavior yet.
 
 ### E2 — Interactive research
 
@@ -672,6 +971,8 @@ Add:
 - follow-up drilling,
 - comparison surface contract,
 - evidence provenance in composed surfaces.
+
+COMPOSE must be implemented on the active Core/native surface architecture. Do not introduce a Rails dependency.
 
 ### E5 — DELEGATED research specialist
 
@@ -736,7 +1037,8 @@ This architecture does not:
 - expose provider-specific output directly to the UI,
 - force all questions through external retrieval,
 - make a universal 30-day recency window,
-- introduce a second intelligence runtime beside Flyd Core.
+- introduce a second intelligence runtime beside Flyd Core,
+- use Rails as an active Flyd runtime or composition dependency.
 
 ---
 
