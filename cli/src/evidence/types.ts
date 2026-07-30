@@ -153,13 +153,62 @@ export interface EvidenceGap {
   message: string;
 }
 
+export interface EvidenceCluster {
+  id: string;
+  label: string;
+  summary: string;
+  evidenceIds: string[];
+  representativeEvidenceId: string;
+  capabilities: CapabilityName[];
+  authors: string[];
+  supportScore: number;
+  sourceDiversity: number;
+}
+
+export interface EvidenceConflict {
+  left: string;
+  right: string;
+  topic: string;
+  reason: string;
+  confidence: number;
+}
+
+export interface EvidenceSurfaceFinding {
+  heading: string;
+  summary: string;
+  evidenceIds: string[];
+  confidence: "high" | "medium" | "low";
+}
+
+export interface EvidenceSurfaceSynthesis {
+  title: string;
+  executiveSummary: string;
+  findings: EvidenceSurfaceFinding[];
+  recommendation?: string;
+  uncertainties: string[];
+}
+
+export interface EvidenceComposeSurface {
+  kind: "evidence_dossier";
+  version: "1.0";
+  id: string;
+  query: string;
+  generatedAt: string;
+  synthesis?: EvidenceSurfaceSynthesis;
+  clusters: EvidenceCluster[];
+  conflicts: EvidenceConflict[];
+  evidence: RankedEvidence[];
+  gaps: EvidenceGap[];
+}
+
 export interface EvidenceBundle {
   query: string;
   intent: ResearchIntent;
   generatedAt: string;
   plan: QueryPlan;
   evidence: RankedEvidence[];
-  conflicts: Array<{ left: string; right: string; reason: string }>;
+  clusters?: EvidenceCluster[];
+  conflicts: EvidenceConflict[];
   gaps: EvidenceGap[];
   capabilityHealth: CapabilityHealth[];
 }
