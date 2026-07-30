@@ -1,3 +1,4 @@
+import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { isOpenAIModel, defaultModel, getKey } from "./config.js";
 
 export interface AgentTool {
@@ -48,10 +49,14 @@ export async function query(
   options: QueryOptions = {}
 ): Promise<string> {
   const m = model ?? defaultModel();
+  const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
+  const resolvedPrompt = enriched.prompt;
   if (apiKey) {
-    return queryOpenAIWithConfig(prompt, m, system, apiKey, baseURL, options);
+    return queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
   }
-  return isOpenAIModel(m) ? queryOpenAI(prompt, m, system, options) : queryAnthropic(prompt, m, system, options);
+  return isOpenAIModel(m)
+    ? queryOpenAI(resolvedPrompt, m, system, options)
+    : queryAnthropic(resolvedPrompt, m, system, options);
 }
 
 export async function streamQuery(
