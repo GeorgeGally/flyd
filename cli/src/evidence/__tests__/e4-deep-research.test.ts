@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { clusterEvidence } from "../clustering.js";
 import { extractEvidenceConflicts } from "../contradictions.js";
 import { renderEvidenceSurfaceHtml } from "../compose-surface.js";
+import { evidenceSurfaceUrl, normalizeEvidenceSurfaceUrl } from "../compose-url.js";
 import { classifyEvidenceNeed } from "../evidence-need.js";
 import { planEvidence } from "../query-planner.js";
 import { enrichResolutionPromptWithEvidence } from "../resolution-evidence.js";
@@ -77,7 +78,7 @@ describe("E4 deep research", () => {
     expect(conflicts[0].right).toBe("negative");
   });
 
-  it("classifies explicit deep work as a composed dossier and publishes it", async () => {
+  it("classifies explicit deep work as a composed dossier and publishes a unique target", async () => {
     const evidence = [ranked("a", "Flyd supports live evidence.", "web", 1)];
     const bundle: EvidenceBundle = {
       query: "Flyd evidence",
@@ -104,6 +105,14 @@ describe("E4 deep research", () => {
     expect(result.surfaceId).toBe("surface-1");
     expect(result.prompt).toContain('Return mode "requires_compose"');
     expect(result.prompt).toContain("surfaceSynthesis");
+    expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:3000/surface/surface-1"');
+  });
+
+  it("accepts only unique Core-owned loopback dossier URLs", () => {
+    expect(evidenceSurfaceUrl("abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
+    expect(normalizeEvidenceSurfaceUrl("http://127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
+    expect(normalizeEvidenceSurfaceUrl("https://evil.example/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
+    expect(normalizeEvidenceSurfaceUrl("http://user:pass@127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
   });
 
   it("renders an editorial dossier with synthesis, sources and no remote scripts", () => {
