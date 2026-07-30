@@ -12,6 +12,11 @@ export interface ResolvedCapability {
   health: CapabilityHealth;
 }
 
+export interface CapabilityInspection {
+  adapter?: CapabilityAdapter;
+  health: CapabilityHealth;
+}
+
 const STATUS_PRIORITY: Record<CapabilityStatus, number> = {
   ready: 5,
   degraded: 4,
@@ -53,31 +58,7 @@ export class CapabilityRegistry {
     return this.adapters.get(capability) ?? [];
   }
 
-  async resolve(capability: CapabilityName, operation: CapabilityOperation): Promise<ResolvedCapability | null> {
-    const checkedAt = this.now().toISOString();
-    let degradedFallback: ResolvedCapability | null = null;
-
-    for (const adapter of this.adaptersFor(capability)) {
-      if (!adapter.operations.includes(operation)) continue;
-      const probe = await this.safeProbe(adapter);
-      const resolved: ResolvedCapability = {
-        adapter,
-        health: {
-          capability,
-          activeBackend: adapter.id,
-          checkedAt,
-          ...probe,
-        },
-      };
-
-      if (probe.status === "ready") return resolved;
-      if (probe.status === "degraded" && !degradedFallback) degradedFallback = resolved;
-    }
-
-    return degradedFallback;
-  }
-
-  async health(capability: CapabilityName, operation?: CapabilityOperation): Promise<CapabilityHealth> {
+  async inspect(capability: CapabilityName, operation?: CapabilityOperation): Promise<CapabilityInspection> {
     const checkedAt = this.now().toISOString();
     const candidates = this.adaptersFor(capability).filter(
       (adapter) => !operation || adapter.operations.includes(operation),
@@ -85,16 +66,20 @@ export class CapabilityRegistry {
 
     if (candidates.length === 0) {
       return {
-        capability,
-        status: "unavailable",
-        checkedAt,
-        reason: operation
-          ? `No backend registered for ${capability}.${operation}`
-          : `No backend registered for ${capability}`,
+        health: {
+          capability,
+          status: "unavailable",
+          checkedAt,
+          reason: operation
+            ? `No backend registered for ${capability}.${operation}`
+            : `No backend registered for ${capability}`,
+        },
       };
     }
 
-    let best: CapabilityHealth | null = null;
+    let bestHealth: CapabilityHealth | null = null;
+    let degradedFallback: CapabilityInspection | null = null;
+
     for (const adapter of candidates) {
       const probe = await this.safeProbe(adapter);
       const health: CapabilityHealth = {
@@ -103,15 +88,27 @@ export class CapabilityRegistry {
         activeBackend: probe.status === "ready" || probe.status === "degraded" ? adapter.id : undefined,
         ...probe,
       };
-      if (!best || STATUS_PRIORITY[health.status] > STATUS_PRIORITY[best.status]) best = health;
-      if (health.status === "ready") return health;
+
+      if (!bestHealth || STATUS_PRIORITY[health.status] > STATUS_PRIORITY[bestHealth.status]) bestHealth = health;
+      if (probe.status === "ready") return { adapter, health };
+      if (probe.status === "degraded" && !degradedFallback) degradedFallback = { adapter, health };
     }
 
-    return best!;
+    return degradedFallback ?? { health: bestHealth! };
+  }
+
+  async resolve(capability: CapabilityName, operation: CapabilityOperation): Promise<ResolvedCapability | null> {
+    const inspection = await this.inspect(capability, operation);
+    return inspection.adapter ? { adapter: inspection.adapter, health: inspection.health } : null;
+  }
+
+  async health(capability: CapabilityName, operation?: CapabilityOperation): Promise<CapabilityHealth> {
+    return (await this.inspect(capability, operation)).health;
   }
 
   async healthAll(operation?: CapabilityOperation): Promise<CapabilityHealth[]> {
-    return Promise.all(this.capabilities().map((capability) => this.health(capability, operation)));
+    const inspections = await Promise.all(this.capabilities().map((capability) => this.inspect(capability, operation)));
+    return inspections.map((inspection) => inspection.health);
   }
 
   private async safeProbe(adapter: CapabilityAdapter): Promise<CapabilityProbe> {
