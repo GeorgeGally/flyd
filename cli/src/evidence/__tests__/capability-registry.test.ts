@@ -15,9 +15,9 @@ function adapter(id: string, priority: number, probe: CapabilityProbe): Capabili
 }
 
 describe("CapabilityRegistry", () => {
-  it("selects the first actually healthy backend, not merely the first registered one", async () => {
+  it("prefers a fully ready fallback over an earlier degraded backend", async () => {
     const registry = new CapabilityRegistry([
-      adapter("primary", 1, { status: "unavailable", reason: "backend down" }),
+      adapter("primary", 1, { status: "degraded", reason: "partial results only" }),
       adapter("fallback", 2, { status: "ready" }),
     ], () => new Date("2026-07-30T00:00:00.000Z"));
 
@@ -26,6 +26,18 @@ describe("CapabilityRegistry", () => {
     expect(resolved?.adapter.id).toBe("fallback");
     expect(resolved?.health.status).toBe("ready");
     expect(resolved?.health.activeBackend).toBe("fallback");
+  });
+
+  it("uses a degraded backend when no fully ready backend exists", async () => {
+    const registry = new CapabilityRegistry([
+      adapter("primary", 1, { status: "degraded", reason: "partial results only" }),
+      adapter("fallback", 2, { status: "unavailable", reason: "backend down" }),
+    ]);
+
+    const resolved = await registry.resolve("x", "search");
+
+    expect(resolved?.adapter.id).toBe("primary");
+    expect(resolved?.health.status).toBe("degraded");
   });
 
   it("preserves auth-required as a distinct health state", async () => {
