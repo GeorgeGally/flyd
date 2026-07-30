@@ -5,6 +5,25 @@ export type { DefaultEvidenceRegistryOptions } from "./default-registry.js";
 export { buildEvidenceDoctorReport, formatEvidenceDoctorReport } from "./doctor.js";
 export type { EvidenceCapabilityDiagnostic, EvidenceDoctorReport } from "./doctor.js";
 export { EvidenceEngine } from "./evidence-engine.js";
+export type { EvidenceResearchOptions } from "./evidence-engine.js";
+export {
+  classifyEvidenceNeed,
+  isResolutionSystemPrompt,
+  parseResolutionEvidenceContext,
+} from "./evidence-need.js";
+export type {
+  EvidenceNeedDecision,
+  EvidenceNeedLevel,
+  ResolutionEvidenceContext,
+} from "./evidence-need.js";
+export {
+  enrichResolutionPromptWithEvidence,
+  formatEvidenceBundle,
+} from "./resolution-evidence.js";
+export type {
+  ResolutionEvidenceDependencies,
+  ResolutionEvidenceResult,
+} from "./resolution-evidence.js";
 export { fuseEvidence } from "./fusion.js";
 export { classifyResearchIntent, planEvidence, sourcePriorityFor } from "./query-planner.js";
 export { GitHubRestAdapter } from "./adapters/github-rest.js";
