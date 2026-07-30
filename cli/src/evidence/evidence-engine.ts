@@ -16,6 +16,19 @@ function desiredCapabilities(query: string, depth: ResearchDepth): CapabilityNam
   return depth === "quick" ? ordered.slice(0, 3) : ordered;
 }
 
+function inspectionCandidates(
+  query: string,
+  depth: ResearchDepth,
+  registered: readonly CapabilityName[],
+): CapabilityName[] {
+  const preferred = [...sourcePriorityFor(classifyResearchIntent(query))];
+  const registeredSet = new Set(registered);
+  const ordered = preferred.filter((capability) => registeredSet.has(capability));
+  const alreadyIncluded = new Set(ordered);
+  ordered.push(...registered.filter((capability) => !alreadyIncluded.has(capability)).sort());
+  return depth === "quick" ? ordered.slice(0, 5) : ordered;
+}
+
 function gapFromHealth(health: CapabilityHealth): EvidenceGap | null {
   if (health.status === "ready" || health.status === "degraded") return null;
   if (health.status === "auth_required") {
@@ -40,8 +53,9 @@ export class EvidenceEngine {
 
   async research(query: string, depth: ResearchDepth = "quick"): Promise<EvidenceBundle> {
     const registered = this.registry.capabilities();
+    const candidates = inspectionCandidates(query, depth, registered);
     const inspectionEntries = await Promise.all(
-      registered.map(async (capability) => [capability, await this.registry.inspect(capability, "search")] as const),
+      candidates.map(async (capability) => [capability, await this.registry.inspect(capability, "search")] as const),
     );
     const inspectionByCapability = new Map(inspectionEntries);
     const registeredHealth = inspectionEntries.map(([, inspection]) => inspection.health);
@@ -60,7 +74,9 @@ export class EvidenceEngine {
         });
         continue;
       }
-      const gap = gapFromHealth(inspectionByCapability.get(capability)!.health);
+      const inspection = inspectionByCapability.get(capability);
+      if (!inspection) continue;
+      const gap = gapFromHealth(inspection.health);
       if (gap) gaps.push(gap);
     }
 
