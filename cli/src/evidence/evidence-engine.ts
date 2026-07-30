@@ -1,4 +1,6 @@
-import { CapabilityRegistry } from "./capability-registry.js";
+import { CapabilityRegistry, type CapabilityInspection } from "./capability-registry.js";
+import { buildDrillDownQueries, clusterEvidence } from "./clustering.js";
+import { extractEvidenceConflicts } from "./contradictions.js";
 import { fuseEvidence } from "./fusion.js";
 import { classifyResearchIntent, planEvidence, sourcePriorityFor } from "./query-planner.js";
 import type {
@@ -7,6 +9,8 @@ import type {
   EvidenceBundle,
   EvidenceGap,
   EvidenceStream,
+  EvidenceSubquery,
+  QueryPlan,
   ResearchDepth,
 } from "./types.js";
 
@@ -56,6 +60,9 @@ function capabilityForLocator(locator: string): CapabilityName {
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     if (host === "github.com") return "github";
     if (host === "youtube.com" || host === "youtu.be") return "youtube";
+    if (host === "reddit.com" || host === "old.reddit.com" || host === "redd.it") return "reddit";
+    if (host === "x.com" || host === "twitter.com") return "x";
+    if (host === "news.ycombinator.com") return "hackernews";
     if (/\.(rss|atom|xml)$/i.test(url.pathname) || /\/(feed|rss|atom)(\/|$)/i.test(url.pathname)) return "rss";
   } catch {
     // Invalid locators fall through to web where the adapter reports the error.
@@ -69,6 +76,59 @@ function addGapOnce(gaps: EvidenceGap[], gap: EvidenceGap): void {
     `${candidate.capability ?? "general"}:${candidate.code}:${candidate.message}` === key
   );
   if (!exists) gaps.push(gap);
+}
+
+function fusionPlanForStreams(plan: QueryPlan, streams: EvidenceStream[], depth: ResearchDepth): QueryPlan {
+  if (streams.length === 0 || Object.keys(plan.sourceWeights).length > 0) return plan;
+  return {
+    ...plan,
+    sourceWeights: Object.fromEntries(streams.map((stream) => [stream.capability, 1])),
+    maxResults: depth === "quick" ? 12 : plan.maxResults,
+    maxPerStream: depth === "quick" ? 6 : plan.maxPerStream,
+  };
+}
+
+async function runSubqueries(
+  subqueries: EvidenceSubquery[],
+  maxPerStream: number,
+  inspectionByCapability: Map<CapabilityName, CapabilityInspection>,
+  streams: EvidenceStream[],
+  gaps: EvidenceGap[],
+): Promise<void> {
+  await Promise.all(subqueries.flatMap((subquery) =>
+    subquery.capabilities.map(async (capability) => {
+      const inspection = inspectionByCapability.get(capability);
+      const search = inspection?.adapter?.search;
+      if (!search) {
+        addGapOnce(gaps, {
+          capability,
+          code: "capability_unavailable",
+          message: `${capability} has no healthy search backend`,
+        });
+        return;
+      }
+
+      try {
+        const items = await search.call(inspection.adapter, {
+          query: subquery.query,
+          queryLabel: subquery.label,
+          limit: maxPerStream,
+        });
+        streams.push({
+          label: subquery.label,
+          capability,
+          weight: subquery.weight,
+          items,
+        });
+      } catch (error) {
+        addGapOnce(gaps, {
+          capability,
+          code: "search_failed",
+          message: `${capability} search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        });
+      }
+    }),
+  ));
 }
 
 export class EvidenceEngine {
@@ -130,7 +190,7 @@ export class EvidenceEngine {
       const inspectionEntries = await Promise.all(
         candidates.map(async (capability) => [capability, await this.registry.inspect(capability, "search")] as const),
       );
-      const inspectionByCapability = new Map(inspectionEntries);
+      const inspectionByCapability = new Map<CapabilityName, CapabilityInspection>(inspectionEntries);
       capabilityHealth.push(...inspectionEntries.map(([, inspection]) => inspection.health));
       const available = inspectionEntries
         .filter(([, inspection]) => Boolean(inspection.adapter?.search))
@@ -152,51 +212,27 @@ export class EvidenceEngine {
         if (gap) addGapOnce(gaps, gap);
       }
 
-      await Promise.all(plan.subqueries.flatMap((subquery) =>
-        subquery.capabilities.map(async (capability) => {
-          const inspection = inspectionByCapability.get(capability);
-          const search = inspection?.adapter?.search;
-          if (!search) {
-            addGapOnce(gaps, {
-              capability,
-              code: "capability_unavailable",
-              message: `${capability} has no healthy search backend`,
-            });
-            return;
-          }
+      await runSubqueries(plan.subqueries, plan.maxPerStream, inspectionByCapability, streams, gaps);
 
-          try {
-            const items = await search.call(inspection.adapter, {
-              query: subquery.query,
-              queryLabel: subquery.label,
-              limit: plan.maxPerStream,
-            });
-            streams.push({
-              label: subquery.label,
-              capability,
-              weight: subquery.weight,
-              items,
-            });
-          } catch (error) {
-            addGapOnce(gaps, {
-              capability,
-              code: "search_failed",
-              message: `${capability} search failed: ${error instanceof Error ? error.message : "unknown error"}`,
-            });
-          }
-        }),
-      ));
+      if (depth === "deep" && streams.some((stream) => stream.items.length > 0)) {
+        const preliminaryPlan = fusionPlanForStreams(plan, streams, depth);
+        const preliminaryEvidence = fuseEvidence(streams, preliminaryPlan);
+        const preliminaryClusters = clusterEvidence(preliminaryEvidence);
+        const followUps = buildDrillDownQueries(query, preliminaryClusters);
+        const topAvailable = available.slice(0, 3);
+        const drillSubqueries: EvidenceSubquery[] = followUps.map((followUp) => ({
+          ...followUp,
+          capabilities: topAvailable,
+        }));
+        await runSubqueries(drillSubqueries, Math.min(8, plan.maxPerStream), inspectionByCapability, streams, gaps);
+        plan = { ...plan, subqueries: [...plan.subqueries, ...drillSubqueries] };
+      }
     }
 
-    const fusionPlan = streams.length > 0 && Object.keys(plan.sourceWeights).length === 0
-      ? {
-          ...plan,
-          sourceWeights: Object.fromEntries(streams.map((stream) => [stream.capability, 1])),
-          maxResults: depth === "quick" ? 12 : plan.maxResults,
-          maxPerStream: depth === "quick" ? 6 : plan.maxPerStream,
-        }
-      : plan;
+    const fusionPlan = fusionPlanForStreams(plan, streams, depth);
     const evidence = fuseEvidence(streams, fusionPlan);
+    const clusters = depth === "quick" ? [] : clusterEvidence(evidence);
+    const conflicts = depth === "quick" ? [] : extractEvidenceConflicts(evidence);
     if (evidence.length === 0) {
       addGapOnce(gaps, {
         code: "insufficient_evidence",
@@ -210,7 +246,8 @@ export class EvidenceEngine {
       generatedAt: this.now().toISOString(),
       plan: fusionPlan,
       evidence,
-      conflicts: [],
+      clusters,
+      conflicts,
       gaps,
       capabilityHealth,
     };
