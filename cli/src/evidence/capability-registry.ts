@@ -55,11 +55,12 @@ export class CapabilityRegistry {
 
   async resolve(capability: CapabilityName, operation: CapabilityOperation): Promise<ResolvedCapability | null> {
     const checkedAt = this.now().toISOString();
+    let degradedFallback: ResolvedCapability | null = null;
+
     for (const adapter of this.adaptersFor(capability)) {
       if (!adapter.operations.includes(operation)) continue;
       const probe = await this.safeProbe(adapter);
-      if (probe.status !== "ready" && probe.status !== "degraded") continue;
-      return {
+      const resolved: ResolvedCapability = {
         adapter,
         health: {
           capability,
@@ -68,8 +69,12 @@ export class CapabilityRegistry {
           ...probe,
         },
       };
+
+      if (probe.status === "ready") return resolved;
+      if (probe.status === "degraded" && !degradedFallback) degradedFallback = resolved;
     }
-    return null;
+
+    return degradedFallback;
   }
 
   async health(capability: CapabilityName, operation?: CapabilityOperation): Promise<CapabilityHealth> {
