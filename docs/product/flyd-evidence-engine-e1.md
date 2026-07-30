@@ -18,7 +18,7 @@ EvidenceItem / EvidenceBundle
 Flyd Core reasoning (E2)
 ```
 
-Rails code remaining in the repository is legacy and is not an Evidence Engine backend, health authority, retrieval path, or manifestation requirement.
+Rails code remaining in the repository is legacy only. It is not an Evidence Engine backend, health authority, retrieval path, manifestation requirement, or future composition target.
 
 ## Shipped capabilities
 
@@ -60,6 +60,6 @@ E1 deliberately does not:
 - perform background monitoring,
 - operate logged-in web pages,
 - persist raw retrieved content into long-term memory,
-- make Rails part of external research.
+- make Rails part of external research or future composition.
 
 Those boundaries keep E1 independently testable. E2 is the step that decides when an INVOKED/LIVE question actually needs this evidence and injects a curated bundle into Flyd's synthesis.
