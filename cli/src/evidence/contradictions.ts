@@ -25,10 +25,10 @@ function sharedTerms(left: Set<string>, right: Set<string>): string[] {
 
 function polarity(item: RankedEvidence): -1 | 0 | 1 {
   const text = `${item.title ?? ""} ${item.content.slice(0, 1_200)}`;
-  const negative = NEGATIVE.test(text);
-  const positive = POSITIVE.test(text);
-  if (negative && !positive) return -1;
-  if (positive && !negative) return 1;
+  // Negated assertions necessarily contain positive verbs ("does not support").
+  // Explicit negation therefore wins over a positive-word match.
+  if (NEGATIVE.test(text)) return -1;
+  if (POSITIVE.test(text)) return 1;
   return 0;
 }
 
