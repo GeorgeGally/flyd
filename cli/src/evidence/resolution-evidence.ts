@@ -1,4 +1,5 @@
 import { publishEvidenceSurface } from "./compose-surface.js";
+import { evidenceSurfaceUrl } from "./compose-url.js";
 import { createDefaultEvidenceRegistry } from "./default-registry.js";
 import { EvidenceEngine, type EvidenceResearchOptions } from "./evidence-engine.js";
 import {
@@ -183,7 +184,7 @@ async function resultWithSurface(
     return { prompt: insertEvidenceBlock(prompt, formatEvidenceBundle(bundle, decision)), decision, bundle, timedOut: false };
   }
   const published = await publisher(bundle);
-  if (!published.ready) {
+  if (!published.ready || !published.surfaceId) {
     const downgraded = { ...decision, manifestation: "augment" as const };
     const warning = "\nCOMPOSE STATUS: The local dossier renderer could not start. Answer with a detailed augment response instead.\n";
     return {
@@ -193,8 +194,10 @@ async function resultWithSurface(
       timedOut: false,
     };
   }
+  const composeUrl = evidenceSurfaceUrl(published.surfaceId);
+  const targetInstruction = `\nCOMPOSE TARGET:\n- Include exactly \"composeUrl\": \"${composeUrl}\" in the top-level JSON response.\n- Do not invent or substitute any other URL.\n`;
   return {
-    prompt: insertEvidenceBlock(prompt, formatEvidenceBundle(bundle, decision)),
+    prompt: insertEvidenceBlock(prompt, `${formatEvidenceBundle(bundle, decision)}${targetInstruction}`),
     decision,
     bundle,
     surfaceId: published.surfaceId,
