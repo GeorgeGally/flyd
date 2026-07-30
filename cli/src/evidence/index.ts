@@ -1,4 +1,5 @@
 export { CapabilityRegistry } from "./capability-registry.js";
+export type { CapabilityInspection, ResolvedCapability } from "./capability-registry.js";
 export { EvidenceEngine } from "./evidence-engine.js";
 export { fuseEvidence } from "./fusion.js";
 export { classifyResearchIntent, planEvidence, sourcePriorityFor } from "./query-planner.js";
