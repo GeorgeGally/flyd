@@ -4,11 +4,11 @@
   "description": "flyd — continuous personal coding agent",
   "type": "module",
   "bin": {
-    "flyd": "./dist/index.js"
+    "flyd": "./dist/entry.js"
   },
   "scripts": {
     "build": "tsc && node scripts/postbuild.mjs",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/entry.ts",
     "export-state": "tsx src/export-state.ts",
     "core": "tsx src/server.ts start",
     "core:stop": "tsx src/server.ts stop",
