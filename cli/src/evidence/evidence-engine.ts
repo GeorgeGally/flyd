@@ -1,0 +1,122 @@
+import { CapabilityRegistry } from "./capability-registry.js";
+import { fuseEvidence } from "./fusion.js";
+import { classifyResearchIntent, planEvidence, sourcePriorityFor } from "./query-planner.js";
+import type {
+  CapabilityHealth,
+  CapabilityName,
+  EvidenceBundle,
+  EvidenceGap,
+  EvidenceStream,
+  ResearchDepth,
+} from "./types.js";
+
+function usable(status: CapabilityHealth["status"]): boolean {
+  return status === "ready" || status === "degraded";
+}
+
+function desiredCapabilities(query: string, depth: ResearchDepth): CapabilityName[] {
+  const intent = classifyResearchIntent(query);
+  const ordered = [...sourcePriorityFor(intent)];
+  return depth === "quick" ? ordered.slice(0, 3) : ordered;
+}
+
+function gapFromHealth(health: CapabilityHealth): EvidenceGap | null {
+  if (health.status === "ready" || health.status === "degraded") return null;
+  if (health.status === "auth_required") {
+    return {
+      capability: health.capability,
+      code: "capability_auth_required",
+      message: `${health.capability} requires authentication${health.reason ? `: ${health.reason}` : ""}`,
+    };
+  }
+  return {
+    capability: health.capability,
+    code: "capability_unavailable",
+    message: `${health.capability} is ${health.status}${health.reason ? `: ${health.reason}` : ""}`,
+  };
+}
+
+export class EvidenceEngine {
+  constructor(
+    private readonly registry: CapabilityRegistry,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  async research(query: string, depth: ResearchDepth = "quick"): Promise<EvidenceBundle> {
+    const registered = this.registry.capabilities();
+    const registeredHealth = await this.registry.healthAll("search");
+    const healthByCapability = new Map(registeredHealth.map((health) => [health.capability, health]));
+    const available = registeredHealth.filter((health) => usable(health.status)).map((health) => health.capability);
+    const plan = planEvidence(query, available, depth);
+    const gaps: EvidenceGap[] = [];
+
+    for (const capability of desiredCapabilities(query, depth)) {
+      if (!registered.includes(capability)) {
+        gaps.push({
+          capability,
+          code: "capability_unavailable",
+          message: `${capability} has no registered search backend`,
+        });
+        continue;
+      }
+      const gap = gapFromHealth(healthByCapability.get(capability)!);
+      if (gap) gaps.push(gap);
+    }
+
+    const streams: EvidenceStream[] = [];
+    await Promise.all(plan.subqueries.flatMap((subquery) =>
+      subquery.capabilities.map(async (capability) => {
+        const resolved = await this.registry.resolve(capability, "search");
+        if (!resolved?.adapter.search) {
+          if (!gaps.some((gap) => gap.capability === capability)) {
+            gaps.push({
+              capability,
+              code: "capability_unavailable",
+              message: `${capability} has no healthy search backend`,
+            });
+          }
+          return;
+        }
+
+        try {
+          const items = await resolved.adapter.search({
+            query: subquery.query,
+            queryLabel: subquery.label,
+            limit: plan.maxPerStream,
+          });
+          streams.push({
+            label: subquery.label,
+            capability,
+            weight: subquery.weight,
+            items,
+          });
+        } catch (error) {
+          gaps.push({
+            capability,
+            code: "search_failed",
+            message: `${capability} search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          });
+        }
+      }),
+    ));
+
+    const evidence = fuseEvidence(streams, plan);
+    if (evidence.length === 0) {
+      gaps.push({
+        code: "insufficient_evidence",
+        message: "No external evidence was retrieved for this query",
+      });
+    }
+
+    return {
+      query: plan.query,
+      intent: plan.intent,
+      generatedAt: this.now().toISOString(),
+      plan,
+      evidence,
+      conflicts: [],
+      gaps,
+      capabilityHealth: registeredHealth,
+    };
+  }
+}
