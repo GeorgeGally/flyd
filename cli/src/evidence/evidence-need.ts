@@ -1,0 +1,130 @@
+export type EvidenceNeedLevel = "none" | "recommended" | "required";
+
+export interface ResolutionEvidenceContext {
+  intent: string;
+  routeKind: string;
+  locators: string[];
+}
+
+export interface EvidenceNeedDecision {
+  level: EvidenceNeedLevel;
+  reason: string;
+  confidence: number;
+  query: string;
+  locators: string[];
+}
+
+const RESOLUTION_SYSTEM_MARKER = "Flyd's resolution engine";
+const ROUTE_KIND_MARKER = "- Kind: ";
+const INTENT_START = "USER INTENT: \"";
+const INTENT_END = "\"\n\nRELEVANT USER GOALS:";
+const CONTEXT_START = "CURRENT CONTEXT:";
+const CONTEXT_END = "\n\nUSER INTENT:";
+
+const EXPLICIT_RESEARCH = /\b(search|look up|lookup|browse|check online|research|investigate|verify|fact[- ]?check|find out)\b/i;
+const LIVE_TIME = /\b(latest|currently|current|right now|today|tonight|yesterday|tomorrow|this (week|month|year)|recent|newest|just released|just announced|breaking|live)\b/i;
+const VOLATILE_FACT = /\b(price|pricing|cost|availability|available|in stock|release date|version|schedule|score|standings|weather|forecast|law|regulation|policy|rate|CEO|president|office[- ]?holder|opening hours|status|outage)\b/i;
+const MARKET_OR_CHOICE = /\b(compare|comparison|versus|vs\.?|better|best|alternative|recommend|worth it|reviews?|sentiment|what do people|everyone saying|buy|purchase)\b/i;
+const EXTERNAL_SOURCE = /\b(github|youtube|reddit|twitter|x\.com|hacker news|web|internet|website|rss|news)\b/i;
+const DEICTIC = /\b(this|these|that|those|it|here|page|link|listing|repo|repository|video|article)\b/i;
+const PERSONAL_RECALL = /\b(what am i working on|what was i working on|what do you know about me|who am i|my memories|my background|my project|resume my work|continue my work)\b/i;
+const TIMELESS = /\b(define|definition|meaning of|explain the concept|what is a [a-z -]+ in general|why does [a-z -]+ happen)\b/i;
+const HTTP_URL = /https?:\/\/[^\s"'<>]+/gi;
+
+function between(value: string, start: string, end: string): string {
+  const startIndex = value.indexOf(start);
+  if (startIndex < 0) return "";
+  const from = startIndex + start.length;
+  const endIndex = value.indexOf(end, from);
+  return (endIndex < 0 ? value.slice(from) : value.slice(from, endIndex)).trim();
+}
+
+function uniqueLocators(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const cleaned = value.replace(/[),.;!?]+$/, "");
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    result.push(cleaned);
+  }
+  return result.slice(0, 3);
+}
+
+export function parseResolutionEvidenceContext(prompt: string): ResolutionEvidenceContext | null {
+  const intent = between(prompt, INTENT_START, INTENT_END);
+  if (!intent) return null;
+
+  const routeLineStart = prompt.indexOf(ROUTE_KIND_MARKER);
+  const routeKind = routeLineStart >= 0
+    ? prompt.slice(routeLineStart + ROUTE_KIND_MARKER.length).split("\n", 1)[0].trim()
+    : "";
+
+  const contextBlock = between(prompt, CONTEXT_START, CONTEXT_END);
+  const locators = uniqueLocators([
+    ...(intent.match(HTTP_URL) ?? []),
+    ...(contextBlock.match(HTTP_URL) ?? []),
+  ]);
+
+  return { intent, routeKind, locators };
+}
+
+export function isResolutionSystemPrompt(system?: string): boolean {
+  return Boolean(system?.includes(RESOLUTION_SYSTEM_MARKER));
+}
+
+export function classifyEvidenceNeed(context: ResolutionEvidenceContext): EvidenceNeedDecision {
+  const intent = context.intent.trim();
+  const query = intent.replace(HTTP_URL, " ").replace(/\s+/g, " ").trim() || intent;
+
+  if (!intent || context.routeKind !== "ask_answer") {
+    return { level: "none", reason: "route does not require an external answer", confidence: 1, query, locators: [] };
+  }
+
+  const explicit = EXPLICIT_RESEARCH.test(intent);
+  const live = LIVE_TIME.test(intent);
+  const volatile = VOLATILE_FACT.test(intent);
+  const choice = MARKET_OR_CHOICE.test(intent);
+  const source = EXTERNAL_SOURCE.test(intent);
+  const locatorRelevant = context.locators.length > 0 && (DEICTIC.test(intent) || explicit || source);
+
+  if (locatorRelevant) {
+    return {
+      level: "required",
+      reason: "the answer depends on the linked or currently visible external source",
+      confidence: 0.98,
+      query,
+      locators: context.locators,
+    };
+  }
+
+  if (explicit || (live && (volatile || source)) || (live && choice)) {
+    return {
+      level: "required",
+      reason: "the user explicitly requested verification or a time-sensitive external fact",
+      confidence: 0.95,
+      query,
+      locators: context.locators,
+    };
+  }
+
+  if (PERSONAL_RECALL.test(intent) && !explicit && !source) {
+    return { level: "none", reason: "personal recall should be answered from Flyd memory/current state", confidence: 0.96, query, locators: [] };
+  }
+
+  if (TIMELESS.test(intent) && !live && !volatile && !source) {
+    return { level: "none", reason: "the question is stable and conceptual", confidence: 0.9, query, locators: [] };
+  }
+
+  if (live || volatile || choice || source) {
+    return {
+      level: "recommended",
+      reason: "current external evidence would materially improve answer quality",
+      confidence: 0.82,
+      query,
+      locators: context.locators,
+    };
+  }
+
+  return { level: "none", reason: "no material current external dependency detected", confidence: 0.78, query, locators: [] };
+}
