@@ -15,6 +15,7 @@ interface EvidenceResearcher {
 export interface ResolutionEvidenceDependencies {
   researcher?: EvidenceResearcher;
   timeoutMs?: number;
+  enabled?: boolean;
 }
 
 export interface ResolutionEvidenceResult {
@@ -25,12 +26,15 @@ export interface ResolutionEvidenceResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 6_000;
+const CACHE_TTL_MS = 60_000;
+const MAX_CACHE_ENTRIES = 50;
 const MAX_EVIDENCE_ITEMS = 6;
 const MAX_ITEM_CHARS = 900;
 const MAX_BLOCK_CHARS = 7_000;
 const RESOLUTION_RULES_MARKER = "\nRESOLUTION RULES:";
 
 let defaultResearcher: EvidenceResearcher | null = null;
+const bundleCache = new Map<string, { expiresAt: number; bundle: EvidenceBundle }>();
 
 function getDefaultResearcher(): EvidenceResearcher {
   if (!defaultResearcher) {
@@ -55,6 +59,30 @@ function sourceLabel(locator: string | undefined, backend: string): string {
   } catch {
     return backend;
   }
+}
+
+function cacheKey(decision: EvidenceNeedDecision): string {
+  return `${decision.query.toLowerCase()}\n${decision.locators.join("\n")}`;
+}
+
+function getCachedBundle(decision: EvidenceNeedDecision): EvidenceBundle | null {
+  const key = cacheKey(decision);
+  const entry = bundleCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    bundleCache.delete(key);
+    return null;
+  }
+  return entry.bundle;
+}
+
+function cacheBundle(decision: EvidenceNeedDecision, bundle: EvidenceBundle): void {
+  if (bundle.evidence.length === 0) return;
+  if (bundleCache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = bundleCache.keys().next().value as string | undefined;
+    if (oldest) bundleCache.delete(oldest);
+  }
+  bundleCache.set(cacheKey(decision), { expiresAt: Date.now() + CACHE_TTL_MS, bundle });
 }
 
 export function formatEvidenceBundle(bundle: EvidenceBundle, decision: EvidenceNeedDecision): string {
@@ -101,10 +129,20 @@ function insertEvidenceBlock(prompt: string, block: string): string {
   return `${prompt.slice(0, markerIndex)}${block}${prompt.slice(markerIndex)}`;
 }
 
-function timeoutAfter(ms: number): Promise<"timeout"> {
-  return new Promise((resolve) => {
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | "timeout"> {
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => resolve("timeout"), ms);
     timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
   });
 }
 
@@ -116,6 +154,8 @@ export async function enrichResolutionPromptWithEvidence(
   if (!isResolutionSystemPrompt(system)) {
     return { prompt, decision: null, timedOut: false };
   }
+  const enabled = dependencies.enabled ?? process.env.FLYD_EVIDENCE_ENABLED !== "false";
+  if (!enabled) return { prompt, decision: null, timedOut: false };
 
   const context = parseResolutionEvidenceContext(prompt);
   if (!context) return { prompt, decision: null, timedOut: false };
@@ -123,17 +163,26 @@ export async function enrichResolutionPromptWithEvidence(
   const decision = classifyEvidenceNeed(context);
   if (decision.level === "none") return { prompt, decision, timedOut: false };
 
+  const useDefaultResearcher = !dependencies.researcher;
+  const cached = useDefaultResearcher ? getCachedBundle(decision) : null;
+  if (cached) {
+    return {
+      prompt: insertEvidenceBlock(prompt, formatEvidenceBundle(cached, decision)),
+      decision,
+      bundle: cached,
+      timedOut: false,
+    };
+  }
+
   const researcher = dependencies.researcher ?? getDefaultResearcher();
   const timeoutMs = dependencies.timeoutMs ?? Number(process.env.FLYD_EVIDENCE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
+  const boundedTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
 
   try {
-    const result = await Promise.race([
-      researcher.research(decision.query, "quick", {
-        locators: decision.locators,
-        includeSearch: decision.locators.length === 0,
-      }),
-      timeoutAfter(Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS),
-    ]);
+    const result = await withTimeout(researcher.research(decision.query, "quick", {
+      locators: decision.locators,
+      includeSearch: decision.locators.length === 0,
+    }), boundedTimeout);
 
     if (result === "timeout") {
       return {
@@ -143,6 +192,7 @@ export async function enrichResolutionPromptWithEvidence(
       };
     }
 
+    if (useDefaultResearcher) cacheBundle(decision, result);
     return {
       prompt: insertEvidenceBlock(prompt, formatEvidenceBundle(result, decision)),
       decision,
