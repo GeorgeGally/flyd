@@ -32,7 +32,7 @@ These are Core outcomes, not adapter modes.
 |---------|-------------|--------|
 | Native | Text operations (insert, replace) executed in the focused element | Shipped |
 | Augment | Explanation, choice, or annotation cards overlaid on screen | Shipped |
-| Compose | Full generated Flyd surface when a richer temporary interface is required | Active architectural outcome; renderer must be Core/native, never Rails |
+| Compose | Full generated Flyd surface when a richer temporary interface is required | Shipped for evidence dossiers through Core; renderer must never be Rails |
 
 ### Deferred features
 
@@ -56,7 +56,8 @@ TypeScript Core (intelligence, memory, evidence, resolution)
     ├── Transcription WS :4816 — gpt-realtime-whisper relay
     ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
     ├── Memory: unified archive/retrieval/currentness pipeline
-    ├── Evidence Engine: capability health → planning → retrieval → provenance → fusion
+    ├── Evidence Engine: health → multi-lens planning → retrieval → fusion → clusters/conflicts
+    ├── Compose: loopback-only, short-lived generated evidence dossiers
     └── Delegation: intent pattern matching → capability envelope (dormant)
 ```
 
@@ -64,33 +65,46 @@ TypeScript Core (intelligence, memory, evidence, resolution)
 
 External provider output is evidence supplied to Flyd, never direct UI instructions.
 
-Current E0/E1 architecture lives under `cli/src/evidence/`:
+Current E0–E4 architecture lives under `cli/src/evidence/`:
 
 ```text
 external source
     ↓
 CapabilityAdapter
     ↓
-CapabilityRegistry
+CapabilityRegistry health + ordered fallback
     ↓
-Evidence Engine
+intent-aware quick/default/deep planning
+    ↓
+retrieval + provenance + weighted fusion
+    ↓
+clusters + contradictions + coverage gaps
     ↓
 EvidenceBundle
     ↓
 Flyd Core reasoning
+    ↓
+augment or Core-owned composed dossier
 ```
 
-E1 capabilities:
+Current capabilities:
 
 - `web.read` — Jina Reader
 - `web.search` — Jina Search (`JINA_API_KEY`)
 - `github.read/search` — GitHub REST (`GITHUB_TOKEN`/`GH_TOKEN` optional for higher limits)
 - `rss.read` — native Flyd RSS/Atom parser
 - `youtube.read/search` — `yt-dlp`, with transcript extraction when available
+- `hackernews.read/search` — anonymous Algolia/Firebase APIs
+- `reddit.read/search` — public JSON in degraded mode; optional `REDDIT_ACCESS_TOKEN`
+- `x.read/search` — X API v2; requires `X_BEARER_TOKEN` or `TWITTER_BEARER_TOKEN`
 
-Use `flyd doctor` / `flyd doctor --json` for operation-level capability health.
+E2 automatically enriches INVOKED and LIVE questions that materially depend on current external facts. Stable writing and personal recall do not browse. Required current claims fail closed when evidence cannot be retrieved.
 
-PRESENT remains zero-network. E1 adapters are not invoked automatically by `/manifest` until E2 evidence-need routing is implemented.
+E4 deep research is explicitly bounded: weighted primary/official/community/limitations/alternatives/recent lenses, followed by at most one two-query drill-down round. Explicit deep-research requests generate a short-lived Core-owned evidence dossier on loopback port 3000. The port is a transport compatibility point for the existing Mac adapter; the process serving it is TypeScript Core, never Rails.
+
+Use `flyd doctor` / `flyd doctor --json` for operation-level capability health. Use `flyd evidence research "topic" --deep` to dogfood the deep engine without the overlay.
+
+PRESENT remains zero-network. External evidence is not automatically written into personal memory.
 
 ### Privacy invariants
 
@@ -105,6 +119,10 @@ Guardrails:
 - The Swift adapter never decides what to do; intelligence routes through TypeScript Core.
 - PRESENT must remain zero-network and zero-persistence.
 - External credentials must be scoped to the adapter that needs them.
+- Do not automate logged-in social sites or mutate social accounts through evidence adapters.
+- Do not treat engagement or popularity as truth.
+- Do not persist raw external evidence into personal memory without a separate governed decision.
+- Deep research must remain bounded; no recursive browsing loop without a hard cap.
 
 ## Structure
 
@@ -121,7 +139,7 @@ flyd/
     src/resolve.ts             manifest → resolution
     src/transcription.ts       invoked voice transcription relay
     src/realtime-session.ts    LIVE realtime relay
-    src/evidence/              external evidence/capability layer
+    src/evidence/              external evidence, deep research and compose layer
     src/lib/                   memory, retrieval, currentness and shared intelligence logic
     src/runtime/               older coding-task subsystem; do not confuse with overlay Core
 
@@ -144,6 +162,9 @@ cd cli && npm run build
 cd cli && npm run dev -- doctor      # evidence capability diagnostics during development
 flyd doctor                          # installed CLI diagnostics
 flyd doctor --json                   # structured diagnostics
+flyd evidence research "topic"       # direct default-depth evidence research
+flyd evidence research "topic" --deep
+flyd evidence research "topic" --deep --json
 ```
 
 Legacy Rails commands are not part of the active product workflow.
@@ -153,6 +174,7 @@ Legacy Rails commands are not part of the active product workflow.
 - `docs/product/flyd-overlay-prd.md` — overlay product definition
 - `docs/product/flyd-evidence-engine-prd.md` — evidence/reach architecture and E0–E5 sequence
 - `docs/product/flyd-evidence-engine-e1.md` — E1 implementation decisions
+- `docs/product/flyd-evidence-engine-e3-e4.md` — social reach and deep compose implementation
 - `mac-adapter/Sources/main.swift` — app entry point and invocation lifecycle
 - `mac-adapter/Makefile` — build/bundle/install/run
 - `mac-adapter/Sources/UI/InvocationPanel.swift` — text invocation command bar
@@ -166,10 +188,13 @@ Legacy Rails commands are not part of the active product workflow.
 - `cli/src/server.ts` — Flyd Core runtime
 - `cli/src/resolve.ts` — resolution logic
 - `cli/src/realtime-session.ts` — LIVE session relay
-- `cli/src/evidence/types.ts` — evidence/capability contracts
+- `cli/src/evidence/types.ts` — evidence/capability/surface contracts
 - `cli/src/evidence/capability-registry.ts` — health-aware backend selection
-- `cli/src/evidence/evidence-engine.ts` — planning/retrieval/fusion orchestration
-- `cli/src/evidence/default-registry.ts` — current E1 adapter registry
+- `cli/src/evidence/evidence-engine.ts` — planning/retrieval/fusion/deep orchestration
+- `cli/src/evidence/default-registry.ts` — current E1/E3 adapter registry
+- `cli/src/evidence/clustering.ts` — evidence theme clustering and bounded drill-down
+- `cli/src/evidence/contradictions.ts` — independent opposing-claim extraction
+- `cli/src/evidence/compose-surface.ts` — Core-owned evidence dossier renderer
 - `cli/src/evidence/doctor.ts` — capability diagnostics
 - `cli/src/lib/brain-retrieval.ts` — shared personal-memory evidence retrieval
 
@@ -211,6 +236,8 @@ Do not add a separate invocation deadline task. A prior 10-second deadline later
 ### Resolution routing
 
 General questions must resolve to `requires_augment`, not insert answers into the focused element. `buildResolutionPrompt()` in `resolve.ts` carries this rule and defines distinct native/augment/compose response shapes.
+
+Explicit deep-research intents are the exception: E4 prepares a Core-owned dossier and instructs the resolution model to return `requires_compose`. If the loopback renderer cannot start, the evidence layer downgrades the request to a detailed augment response rather than returning a dead compose URL.
 
 ### Build & install cycle
 
