@@ -10,10 +10,6 @@ import type {
   ResearchDepth,
 } from "./types.js";
 
-function usable(status: CapabilityHealth["status"]): boolean {
-  return status === "ready" || status === "degraded";
-}
-
 function desiredCapabilities(query: string, depth: ResearchDepth): CapabilityName[] {
   const intent = classifyResearchIntent(query);
   const ordered = [...sourcePriorityFor(intent)];
@@ -44,9 +40,14 @@ export class EvidenceEngine {
 
   async research(query: string, depth: ResearchDepth = "quick"): Promise<EvidenceBundle> {
     const registered = this.registry.capabilities();
-    const registeredHealth = await this.registry.healthAll("search");
-    const healthByCapability = new Map(registeredHealth.map((health) => [health.capability, health]));
-    const available = registeredHealth.filter((health) => usable(health.status)).map((health) => health.capability);
+    const inspectionEntries = await Promise.all(
+      registered.map(async (capability) => [capability, await this.registry.inspect(capability, "search")] as const),
+    );
+    const inspectionByCapability = new Map(inspectionEntries);
+    const registeredHealth = inspectionEntries.map(([, inspection]) => inspection.health);
+    const available = inspectionEntries
+      .filter(([, inspection]) => Boolean(inspection.adapter?.search))
+      .map(([capability]) => capability);
     const plan = planEvidence(query, available, depth);
     const gaps: EvidenceGap[] = [];
 
@@ -59,15 +60,16 @@ export class EvidenceEngine {
         });
         continue;
       }
-      const gap = gapFromHealth(healthByCapability.get(capability)!);
+      const gap = gapFromHealth(inspectionByCapability.get(capability)!.health);
       if (gap) gaps.push(gap);
     }
 
     const streams: EvidenceStream[] = [];
     await Promise.all(plan.subqueries.flatMap((subquery) =>
       subquery.capabilities.map(async (capability) => {
-        const resolved = await this.registry.resolve(capability, "search");
-        if (!resolved?.adapter.search) {
+        const inspection = inspectionByCapability.get(capability);
+        const search = inspection?.adapter?.search;
+        if (!search) {
           if (!gaps.some((gap) => gap.capability === capability)) {
             gaps.push({
               capability,
@@ -79,7 +81,7 @@ export class EvidenceEngine {
         }
 
         try {
-          const items = await resolved.adapter.search({
+          const items = await search.call(inspection.adapter, {
             query: subquery.query,
             queryLabel: subquery.label,
             limit: plan.maxPerStream,
