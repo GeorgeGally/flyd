@@ -7,6 +7,7 @@ export {
   publishEvidenceSurface,
   renderEvidenceSurfaceHtml,
 } from "./compose-surface.js";
+export { evidenceSurfaceUrl, normalizeEvidenceSurfaceUrl } from "./compose-url.js";
 export { createDefaultEvidenceRegistry } from "./default-registry.js";
 export type { DefaultEvidenceRegistryOptions } from "./default-registry.js";
 export { buildEvidenceDoctorReport, formatEvidenceDoctorReport } from "./doctor.js";
