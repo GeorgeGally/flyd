@@ -18,8 +18,16 @@ const SOURCE_PRIORITY: Record<ResearchIntent, CapabilityName[]> = {
 
 const DEPTH_BUDGETS: Record<ResearchDepth, { sources: number; maxResults: number; maxPerStream: number }> = {
   quick: { sources: 3, maxResults: 12, maxPerStream: 6 },
-  default: { sources: Number.POSITIVE_INFINITY, maxResults: 30, maxPerStream: 12 },
-  deep: { sources: Number.POSITIVE_INFINITY, maxResults: 60, maxPerStream: 20 },
+  default: { sources: Number.POSITIVE_INFINITY, maxResults: 30, maxPerStream: 10 },
+  deep: { sources: Number.POSITIVE_INFINITY, maxResults: 60, maxPerStream: 14 },
+};
+
+const LENS_CAPABILITIES: Record<string, CapabilityName[]> = {
+  official: ["web", "github", "rss", "arxiv"],
+  community: ["reddit", "x", "hackernews", "youtube"],
+  limitations: ["reddit", "hackernews", "github", "web", "youtube"],
+  alternatives: ["reddit", "github", "web", "youtube", "hackernews"],
+  recent: ["x", "web", "hackernews", "rss", "reddit"],
 };
 
 const BREAKING = /\b(today|tonight|this week|breaking|just happened|latest|right now|currently|current news|reaction)\b/i;
@@ -55,6 +63,71 @@ function sourceWeights(capabilities: CapabilityName[]): Record<string, number> {
   return weights;
 }
 
+function lensCapabilities(
+  label: string,
+  available: readonly CapabilityName[],
+  fallback: readonly CapabilityName[],
+): CapabilityName[] {
+  const availableSet = new Set(available);
+  const preferred = (LENS_CAPABILITIES[label] ?? fallback).filter((capability) => availableSet.has(capability));
+  const result = preferred.length > 0 ? preferred : fallback.filter((capability) => availableSet.has(capability));
+  return result.slice(0, 4);
+}
+
+function multiLensSubqueries(
+  query: string,
+  depth: ResearchDepth,
+  selected: CapabilityName[],
+): EvidenceSubquery[] {
+  const subqueries: EvidenceSubquery[] = [{
+    label: "primary",
+    query: query.trim(),
+    weight: 1,
+    capabilities: selected.slice(0, depth === "quick" ? 3 : 5),
+  }];
+  if (depth === "quick") return subqueries;
+
+  subqueries.push(
+    {
+      label: "official",
+      query: `${query.trim()} official documentation announcement primary source`,
+      weight: 0.96,
+      capabilities: lensCapabilities("official", selected, selected),
+    },
+    {
+      label: "community",
+      query: `${query.trim()} user experience community discussion reviews`,
+      weight: 0.88,
+      capabilities: lensCapabilities("community", selected, selected),
+    },
+    {
+      label: "limitations",
+      query: `${query.trim()} limitations risks problems criticism`,
+      weight: 0.84,
+      capabilities: lensCapabilities("limitations", selected, selected),
+    },
+  );
+
+  if (depth === "deep") {
+    subqueries.push(
+      {
+        label: "alternatives",
+        query: `${query.trim()} alternatives comparison tradeoffs`,
+        weight: 0.82,
+        capabilities: lensCapabilities("alternatives", selected, selected),
+      },
+      {
+        label: "recent",
+        query: `${query.trim()} latest recent update`,
+        weight: 0.9,
+        capabilities: lensCapabilities("recent", selected, selected),
+      },
+    );
+  }
+
+  return subqueries.filter((subquery) => subquery.capabilities.length > 0);
+}
+
 export function planEvidence(
   query: string,
   availableCapabilities: readonly CapabilityName[],
@@ -65,19 +138,12 @@ export function planEvidence(
   const budget = DEPTH_BUDGETS[depth];
   const selected = rankedAvailableCapabilities(intent, availableCapabilities).slice(0, budget.sources);
 
-  const subquery: EvidenceSubquery = {
-    label: "primary",
-    query: query.trim(),
-    weight: 1,
-    capabilities: selected,
-  };
-
   return {
     query: query.trim(),
     intent,
     depth,
     sourceWeights: sourceWeights(selected),
-    subqueries: [subquery],
+    subqueries: multiLensSubqueries(query, depth, selected),
     maxResults: budget.maxResults,
     maxPerStream: budget.maxPerStream,
   };
