@@ -1,3 +1,5 @@
+import type { ResearchDepth } from "./types.js";
+
 export type EvidenceNeedLevel = "none" | "recommended" | "required";
 
 export interface ResolutionEvidenceContext {
@@ -12,6 +14,8 @@ export interface EvidenceNeedDecision {
   confidence: number;
   query: string;
   locators: string[];
+  depth?: ResearchDepth;
+  manifestation?: "augment" | "compose";
 }
 
 const RESOLUTION_SYSTEM_MARKER = "Flyd's resolution engine";
@@ -21,6 +25,7 @@ const INTENT_END = "\"\n\nRELEVANT USER GOALS:";
 const CONTEXT_START = "CURRENT CONTEXT:";
 const CONTEXT_END = "\n\nUSER INTENT:";
 
+const DEEP_RESEARCH = /\b(deep research|deep dive|research dossier|full investigation|investigate thoroughly|comprehensive (research|analysis|comparison)|compare .{0,80} in detail|go deep|detailed investigation)\b/i;
 const EXPLICIT_RESEARCH = /\b(search|look up|lookup|browse|check online|research|investigate|verify|fact[- ]?check|find out)\b/i;
 const LIVE_TIME = /\b(latest|currently|current|right now|today|tonight|yesterday|tomorrow|this (week|month|year)|recent|newest|just released|just announced|breaking|live)\b/i;
 const VOLATILE_FACT = /\b(price|pricing|cost|availability|available|in stock|release|released|release date|version|update|updated|changelog|launch|launched|announcement|announced|schedule|score|standings|weather|forecast|law|regulation|policy|rate|CEO|president|office[- ]?holder|opening hours|status|outage)\b/i;
@@ -116,58 +121,65 @@ export function isResolutionSystemPrompt(system?: string): boolean {
   return Boolean(system?.includes(RESOLUTION_SYSTEM_MARKER));
 }
 
+function decision(
+  level: EvidenceNeedLevel,
+  reason: string,
+  confidence: number,
+  query: string,
+  locators: string[],
+  depth: ResearchDepth = "quick",
+  manifestation: "augment" | "compose" = "augment",
+): EvidenceNeedDecision {
+  return { level, reason, confidence, query, locators, depth, manifestation };
+}
+
 export function classifyEvidenceNeed(context: ResolutionEvidenceContext): EvidenceNeedDecision {
   const intent = context.intent.trim();
   const query = intent.replace(HTTP_URL, " ").replace(/\s+/g, " ").trim() || intent;
 
   if (!intent || context.routeKind !== "ask_answer") {
-    return { level: "none", reason: "route does not require an external answer", confidence: 1, query, locators: [] };
+    return decision("none", "route does not require an external answer", 1, query, []);
   }
 
+  const deep = DEEP_RESEARCH.test(intent);
   const explicit = EXPLICIT_RESEARCH.test(intent);
   const live = LIVE_TIME.test(intent);
   const volatile = VOLATILE_FACT.test(intent);
   const choice = MARKET_OR_CHOICE.test(intent);
   const source = EXTERNAL_SOURCE.test(intent);
-  const locatorRelevant = context.locators.length > 0 && (DEICTIC.test(intent) || explicit || source);
+  const locatorRelevant = context.locators.length > 0 && (DEICTIC.test(intent) || explicit || source || deep);
+
+  if (deep) {
+    return decision(
+      "required",
+      "the user explicitly requested a multi-source investigation and composed research dossier",
+      0.99,
+      query,
+      context.locators,
+      "deep",
+      "compose",
+    );
+  }
 
   if (locatorRelevant) {
-    return {
-      level: "required",
-      reason: "the answer depends on the linked or currently visible external source",
-      confidence: 0.98,
-      query,
-      locators: context.locators,
-    };
+    return decision("required", "the answer depends on the linked or currently visible external source", 0.98, query, context.locators);
   }
 
   if (explicit || (live && (volatile || source)) || (live && choice)) {
-    return {
-      level: "required",
-      reason: "the user explicitly requested verification or a time-sensitive external fact",
-      confidence: 0.95,
-      query,
-      locators: context.locators,
-    };
+    return decision("required", "the user explicitly requested verification or a time-sensitive external fact", 0.95, query, context.locators);
   }
 
   if (PERSONAL_RECALL.test(intent) && !explicit && !source) {
-    return { level: "none", reason: "personal recall should be answered from Flyd memory/current state", confidence: 0.96, query, locators: [] };
+    return decision("none", "personal recall should be answered from Flyd memory/current state", 0.96, query, []);
   }
 
   if (TIMELESS.test(intent) && !live && !volatile && !source) {
-    return { level: "none", reason: "the question is stable and conceptual", confidence: 0.9, query, locators: [] };
+    return decision("none", "the question is stable and conceptual", 0.9, query, []);
   }
 
   if (live || volatile || choice || source) {
-    return {
-      level: "recommended",
-      reason: "current external evidence would materially improve answer quality",
-      confidence: 0.82,
-      query,
-      locators: context.locators,
-    };
+    return decision("recommended", "current external evidence would materially improve answer quality", 0.82, query, context.locators);
   }
 
-  return { level: "none", reason: "no material current external dependency detected", confidence: 0.78, query, locators: [] };
+  return decision("none", "no material current external dependency detected", 0.78, query, []);
 }
