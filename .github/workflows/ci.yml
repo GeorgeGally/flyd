@@ -30,14 +30,10 @@ jobs:
 
   dependency-audit:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout branch head
+      - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -50,25 +46,9 @@ jobs:
         working-directory: cli
         run: npm ci
 
-      - name: Generate non-breaking audit fixes
-        working-directory: cli
-        run: npm audit fix --package-lock-only || true
-
       - name: Enforce no high-severity production vulnerabilities
         working-directory: cli
         run: npm audit --omit=dev --audit-level=high
-
-      - name: Commit audited lockfile
-        if: github.event_name == 'pull_request'
-        run: |
-          if git diff --quiet -- cli/package-lock.json; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cli/package-lock.json
-          git commit -m "chore: apply non-breaking npm audit fixes"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
 
   core:
     runs-on: ubuntu-latest
