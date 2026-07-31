@@ -13,7 +13,6 @@ const SURFACE_TTL_MS = 30 * 60 * 1000;
 const surfaces = new Map<string, { surface: EvidenceComposeSurface; expiresAt: number }>();
 const surfaceAliases = new Map<string, string>();
 const readySurfaceIds: string[] = [];
-let latestSurfaceId: string | null = null;
 let surfaceServer: Server | null = null;
 let startPromise: Promise<boolean> | null = null;
 
@@ -188,7 +187,6 @@ function cleanup(): void {
   for (let index = readySurfaceIds.length - 1; index >= 0; index -= 1) {
     if (!surfaces.has(readySurfaceIds[index])) readySurfaceIds.splice(index, 1);
   }
-  if (latestSurfaceId && !surfaces.has(latestSurfaceId)) latestSurfaceId = null;
 }
 
 export function evidenceSurfaceIdForResolution(resolutionId: string): string | undefined {
@@ -216,22 +214,22 @@ async function ensureSurfaceServer(): Promise<boolean> {
       }
       const requestedId = route.kind === "surface" ? route.surfaceId : undefined;
 
-      // Core's liveness check uses HEAD. Confirm the renderer without consuming
-      // a finalised surface from the handoff queue.
+      // Generic liveness only reports an unclaimed current handoff. Historical
+      // dossiers remain reloadable by their unique URLs but never make an
+      // unrelated future compose request appear ready.
       if (!requestedId && req.method === "HEAD") {
-        res.writeHead(surfaces.size > 0 ? 200 : 404, { "Cache-Control": "no-store" });
+        res.writeHead(readySurfaceIds.length > 0 ? 200 : 404, { "Cache-Control": "no-store" });
         res.end();
         return;
       }
 
       if (!requestedId) {
-        const nextId = readySurfaceIds.shift() || latestSurfaceId;
+        const nextId = readySurfaceIds.shift();
         if (!nextId || !surfaces.has(nextId)) {
           res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
           res.end("Flyd evidence surface not found or expired.");
           return;
         }
-        latestSurfaceId = nextId;
         res.writeHead(302, {
           Location: `/surface/${nextId}`,
           "Cache-Control": "no-store",
@@ -296,7 +294,6 @@ export function finalizeEvidenceSurface(surfaceId: string | undefined, rawModelR
   if (!surfaceId) return;
   const entry = surfaces.get(surfaceId);
   if (!entry) return;
-  latestSurfaceId = surfaceId;
   if (!readySurfaceIds.includes(surfaceId)) readySurfaceIds.push(surfaceId);
   const alias = resolutionAlias(rawModelResponse);
   if (alias) surfaceAliases.set(alias, surfaceId);
