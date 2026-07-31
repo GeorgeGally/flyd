@@ -50,6 +50,14 @@ jobs:
         working-directory: cli
         run: npm audit --omit=dev --audit-level=high
 
+      - name: Keep accepted QMD server advisory unreachable
+        working-directory: cli
+        run: |
+          if grep -R -n -E '(@modelcontextprotocol/sdk|@hono/node-server|serveStatic|serve-static)' src --include='*.ts'; then
+            echo "Active Flyd code now reaches the accepted QMD/MCP/Hono server path. Remove the advisory acceptance before merging."
+            exit 1
+          fi
+
   core:
     runs-on: ubuntu-latest
 
