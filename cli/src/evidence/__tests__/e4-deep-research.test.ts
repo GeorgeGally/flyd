@@ -117,7 +117,7 @@ describe("E4 deep research", () => {
     expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:3000/surface/surface-1"');
   });
 
-  it("binds concurrent dossiers to their own resolution ids", async () => {
+  it("binds concurrent dossiers to their own resolution ids and claims only the requested handoff", async () => {
     const first = await publishEvidenceSurface(bundle(
       "first investigation",
       [ranked("first", "First investigation evidence.", "web", 1)],
@@ -137,6 +137,18 @@ describe("E4 deep research", () => {
 
     expect(evidenceSurfaceIdForResolution(firstResolution)).toBe(first.surfaceId);
     expect(evidenceSurfaceIdForResolution(secondResolution)).toBe(second.surfaceId);
+
+    const directProbe = await fetch(`http://127.0.0.1:3000/surface/${firstResolution}`, {
+      method: "HEAD",
+      redirect: "manual",
+    });
+    expect(directProbe.status).toBe(200);
+
+    const compatibilityHandoff = await fetch("http://127.0.0.1:3000/surface", {
+      redirect: "manual",
+    });
+    expect(compatibilityHandoff.status).toBe(302);
+    expect(compatibilityHandoff.headers.get("location")).toBe(`/surface/${second.surfaceId}`);
   });
 
   it("accepts only unique Core-owned loopback dossier URLs", () => {
