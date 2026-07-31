@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { clusterEvidence } from "../clustering.js";
 import { extractEvidenceConflicts } from "../contradictions.js";
-import { parseEvidenceSurfaceRoute, renderEvidenceSurfaceHtml } from "../compose-surface.js";
+import {
+  evidenceSurfaceIdForResolution,
+  finalizeEvidenceSurface,
+  parseEvidenceSurfaceRoute,
+  publishEvidenceSurface,
+  renderEvidenceSurfaceHtml,
+} from "../compose-surface.js";
 import { evidenceSurfaceUrl, normalizeEvidenceSurfaceUrl } from "../compose-url.js";
 import { classifyEvidenceNeed } from "../evidence-need.js";
 import { planEvidence } from "../query-planner.js";
@@ -35,6 +41,20 @@ function ranked(
     provenance: [{ capability, backend: `${capability}:test`, queryLabel: "primary", nativeRank: 1, sourceItemId: id, locator: `https://example.com/${id}` }],
     rrfScore: score,
     capabilities: [capability],
+  };
+}
+
+function bundle(query: string, evidence: RankedEvidence[]): EvidenceBundle {
+  return {
+    query,
+    intent: "factual",
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    plan: planEvidence(query, ["web"], "deep"),
+    evidence,
+    clusters: clusterEvidence(evidence),
+    conflicts: [],
+    gaps: [],
+    capabilityHealth: [],
   };
 }
 
@@ -80,22 +100,11 @@ describe("E4 deep research", () => {
 
   it("classifies explicit deep work as a composed dossier and publishes a unique target", async () => {
     const evidence = [ranked("a", "Flyd supports live evidence.", "web", 1)];
-    const bundle: EvidenceBundle = {
-      query: "Flyd evidence",
-      intent: "factual",
-      generatedAt: "2026-07-30T00:00:00.000Z",
-      plan: planEvidence("Flyd evidence", ["web"], "deep"),
-      evidence,
-      clusters: clusterEvidence(evidence),
-      conflicts: [],
-      gaps: [],
-      capabilityHealth: [],
-    };
     const result = await enrichResolutionPromptWithEvidence(
       prompt("Do a deep dive into Flyd evidence"),
       "You are Flyd's resolution engine.",
       {
-        researcher: { research: async () => bundle },
+        researcher: { research: async () => bundle("Flyd evidence", evidence) },
         surfacePublisher: async () => ({ ready: true, surfaceId: "surface-1" }),
         timeoutMs: 100,
       },
@@ -108,6 +117,28 @@ describe("E4 deep research", () => {
     expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:3000/surface/surface-1"');
   });
 
+  it("binds concurrent dossiers to their own resolution ids", async () => {
+    const first = await publishEvidenceSurface(bundle(
+      "first investigation",
+      [ranked("first", "First investigation evidence.", "web", 1)],
+    ));
+    const second = await publishEvidenceSurface(bundle(
+      "second investigation",
+      [ranked("second", "Second investigation evidence.", "web", 1)],
+    ));
+    expect(first.ready).toBe(true);
+    expect(second.ready).toBe(true);
+    expect(first.surfaceId).not.toBe(second.surfaceId);
+
+    const firstResolution = "11111111-1111-1111-1111-111111111111";
+    const secondResolution = "22222222-2222-2222-2222-222222222222";
+    finalizeEvidenceSurface(first.surfaceId, JSON.stringify({ resolution_id: firstResolution }));
+    finalizeEvidenceSurface(second.surfaceId, JSON.stringify({ resolution_id: secondResolution }));
+
+    expect(evidenceSurfaceIdForResolution(firstResolution)).toBe(first.surfaceId);
+    expect(evidenceSurfaceIdForResolution(secondResolution)).toBe(second.surfaceId);
+  });
+
   it("accepts only unique Core-owned loopback dossier URLs", () => {
     expect(evidenceSurfaceUrl("abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
     expect(normalizeEvidenceSurfaceUrl("http://127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
@@ -118,7 +149,7 @@ describe("E4 deep research", () => {
   it("never treats unrelated browser requests as dossier handoffs", () => {
     expect(parseEvidenceSurfaceRoute("/surface")).toEqual({ kind: "handoff" });
     expect(parseEvidenceSurfaceRoute("/surface/")).toEqual({ kind: "handoff" });
-    expect(parseEvidenceSurfaceRoute("/surface/abc-123")).toEqual({ kind: "surface", surfaceId: "abc-123" });
+    expect(parseEvidenceSurfaceRoute("/surface/ABC-123")).toEqual({ kind: "surface", surfaceId: "abc-123" });
     expect(parseEvidenceSurfaceRoute("/favicon.ico")).toBeNull();
     expect(parseEvidenceSurfaceRoute("/robots.txt")).toBeNull();
   });
