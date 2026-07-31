@@ -4,13 +4,25 @@ enum ComposeTarget {
     private static let origin = "http://127.0.0.1:3000"
     private static let fallback = "\(origin)/surface"
 
-    static func url(serverValue: String?, resolutionId: String) -> String {
-        if let alias = safeResolutionAlias(resolutionId) {
-            return "\(origin)/surface/\(alias)"
-        }
+    static func directURL(resolutionId: String) -> URL? {
+        guard let alias = safeResolutionAlias(resolutionId) else { return nil }
+        return URL(string: "\(origin)/surface/\(alias)")
+    }
 
-        guard let serverValue,
-              let url = URL(string: serverValue),
+    static func url(
+        serverValue: String?,
+        resolutionId: String,
+        directAvailable: Bool
+    ) -> String {
+        if directAvailable, let direct = directURL(resolutionId: resolutionId) {
+            return direct.absoluteString
+        }
+        return validatedServerURL(serverValue)
+    }
+
+    private static func validatedServerURL(_ value: String?) -> String {
+        guard let value,
+              let url = URL(string: value),
               url.scheme == "http",
               url.host == "127.0.0.1",
               url.port == 3000,
