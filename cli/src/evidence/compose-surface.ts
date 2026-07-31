@@ -11,6 +11,7 @@ const SURFACE_HOST = "127.0.0.1";
 const SURFACE_PORT = 3000;
 const SURFACE_TTL_MS = 30 * 60 * 1000;
 const surfaces = new Map<string, { surface: EvidenceComposeSurface; expiresAt: number }>();
+const surfaceAliases = new Map<string, string>();
 const readySurfaceIds: string[] = [];
 let latestSurfaceId: string | null = null;
 let surfaceServer: Server | null = null;
@@ -20,12 +21,18 @@ export type EvidenceSurfaceRoute =
   | { kind: "handoff" }
   | { kind: "surface"; surfaceId: string };
 
+function normalizeSurfaceAlias(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && /^[a-f0-9-]+$/.test(normalized) ? normalized : null;
+}
+
 export function parseEvidenceSurfaceRoute(rawUrl: string | undefined): EvidenceSurfaceRoute | null {
   try {
     const url = new URL(rawUrl || "/", `http://${SURFACE_HOST}:${SURFACE_PORT}`);
     if (url.pathname === "/surface" || url.pathname === "/surface/") return { kind: "handoff" };
-    const match = url.pathname.match(/^\/surface\/([a-f0-9-]+)$/);
-    return match?.[1] ? { kind: "surface", surfaceId: match[1] } : null;
+    const match = url.pathname.match(/^\/surface\/([a-f0-9-]+)$/i);
+    const surfaceId = match?.[1] ? normalizeSurfaceAlias(match[1]) : null;
+    return surfaceId ? { kind: "surface", surfaceId } : null;
   } catch {
     return null;
   }
@@ -62,6 +69,12 @@ function parseModelJson(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function resolutionAlias(raw: string): string | null {
+  const parsed = parseModelJson(raw);
+  const candidate = parsed?.resolution_id ?? parsed?.resolutionId;
+  return typeof candidate === "string" ? normalizeSurfaceAlias(candidate) : null;
 }
 
 function stringArray(value: unknown, limit: number): string[] {
@@ -166,10 +179,17 @@ export function renderEvidenceSurfaceHtml(surface: EvidenceComposeSurface): stri
 function cleanup(): void {
   const now = Date.now();
   for (const [id, entry] of surfaces) if (entry.expiresAt <= now) surfaces.delete(id);
+  for (const [alias, surfaceId] of surfaceAliases) if (!surfaces.has(surfaceId)) surfaceAliases.delete(alias);
   for (let index = readySurfaceIds.length - 1; index >= 0; index -= 1) {
     if (!surfaces.has(readySurfaceIds[index])) readySurfaceIds.splice(index, 1);
   }
   if (latestSurfaceId && !surfaces.has(latestSurfaceId)) latestSurfaceId = null;
+}
+
+export function evidenceSurfaceIdForResolution(resolutionId: string): string | undefined {
+  cleanup();
+  const alias = normalizeSurfaceAlias(resolutionId);
+  return alias ? surfaceAliases.get(alias) : undefined;
 }
 
 async function ensureSurfaceServer(): Promise<boolean> {
@@ -216,7 +236,8 @@ async function ensureSurfaceServer(): Promise<boolean> {
         return;
       }
 
-      const entry = surfaces.get(requestedId);
+      const canonicalId = surfaces.has(requestedId) ? requestedId : surfaceAliases.get(requestedId);
+      const entry = canonicalId ? surfaces.get(canonicalId) : undefined;
       if (!entry) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
         res.end("Flyd evidence surface not found or expired.");
@@ -271,6 +292,8 @@ export function finalizeEvidenceSurface(surfaceId: string | undefined, rawModelR
   if (!entry) return;
   latestSurfaceId = surfaceId;
   if (!readySurfaceIds.includes(surfaceId)) readySurfaceIds.push(surfaceId);
+  const alias = resolutionAlias(rawModelResponse);
+  if (alias) surfaceAliases.set(alias, surfaceId);
   const synthesis = parseSynthesis(rawModelResponse);
   if (synthesis) entry.surface.synthesis = synthesis;
   entry.expiresAt = Date.now() + SURFACE_TTL_MS;
