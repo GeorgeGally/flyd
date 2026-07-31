@@ -54,7 +54,7 @@ jobs:
         working-directory: cli
         run: |
           set +e
-          npx vitest run --exclude "src/runtime/__tests__/**" > /tmp/core-test.log 2>&1
+          npm run test:active > /tmp/core-test.log 2>&1
           status=$?
           cat /tmp/core-test.log
           exit $status
