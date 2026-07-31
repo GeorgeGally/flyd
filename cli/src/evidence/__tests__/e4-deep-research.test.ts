@@ -149,6 +149,12 @@ describe("E4 deep research", () => {
     });
     expect(compatibilityHandoff.status).toBe(302);
     expect(compatibilityHandoff.headers.get("location")).toBe(`/surface/${second.surfaceId}`);
+
+    const historicalLiveness = await fetch("http://127.0.0.1:3000/surface", {
+      method: "HEAD",
+      redirect: "manual",
+    });
+    expect(historicalLiveness.status).toBe(404);
   });
 
   it("accepts only unique Core-owned loopback dossier URLs", () => {
