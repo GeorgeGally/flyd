@@ -70,3 +70,14 @@ jobs:
       - name: Build CLI
         working-directory: cli
         run: npm run build
+
+  mac-adapter:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Test Mac adapter
+        working-directory: mac-adapter
+        run: swift test
