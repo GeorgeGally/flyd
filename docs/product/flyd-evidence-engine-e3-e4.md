@@ -82,7 +82,15 @@ The Evidence Engine publishes a short-lived evidence dossier to a loopback-only 
 - recommendation when supported,
 - uncertainties.
 
-After the model responds, Core finalizes the surface and the existing Mac adapter opens it through the normal `composeUrl` path.
+After the model responds, Core finalizes the surface and binds it to the returned resolution UUID. The Mac adapter probes `HEAD /surface/<resolution-id>` and opens that unique target only when Core confirms it exists. This makes the dossier handoff invocation-bound rather than dependent on a shared “latest surface.”
+
+The generic `/surface` path remains a narrow compatibility handoff:
+
+- it exposes only an unclaimed current dossier,
+- a resolution-bound probe removes only that dossier from the compatibility queue,
+- historical dossiers remain reloadable through their unique URLs but never satisfy generic liveness,
+- unrelated paths such as `/favicon.ico` and `/robots.txt` return `404` and cannot consume a handoff,
+- once no current handoff remains, an unrelated future `requires_compose` safely degrades to AUGMENT rather than opening stale research.
 
 The surface:
 
