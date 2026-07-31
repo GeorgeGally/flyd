@@ -241,7 +241,7 @@ async function ensureSurfaceServer(): Promise<boolean> {
 
       const canonicalId = surfaces.has(requestedId) ? requestedId : surfaceAliases.get(requestedId);
       const entry = canonicalId ? surfaces.get(canonicalId) : undefined;
-      if (!entry) {
+      if (!canonicalId || !entry) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
         res.end("Flyd evidence surface not found or expired.");
         return;
