@@ -16,6 +16,21 @@ let latestSurfaceId: string | null = null;
 let surfaceServer: Server | null = null;
 let startPromise: Promise<boolean> | null = null;
 
+export type EvidenceSurfaceRoute =
+  | { kind: "handoff" }
+  | { kind: "surface"; surfaceId: string };
+
+export function parseEvidenceSurfaceRoute(rawUrl: string | undefined): EvidenceSurfaceRoute | null {
+  try {
+    const url = new URL(rawUrl || "/", `http://${SURFACE_HOST}:${SURFACE_PORT}`);
+    if (url.pathname === "/surface" || url.pathname === "/surface/") return { kind: "handoff" };
+    const match = url.pathname.match(/^\/surface\/([a-f0-9-]+)$/);
+    return match?.[1] ? { kind: "surface", surfaceId: match[1] } : null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -163,7 +178,18 @@ async function ensureSurfaceServer(): Promise<boolean> {
   const pending = new Promise<boolean>((resolve) => {
     const server = createServer((req, res) => {
       cleanup();
-      const requestedId = req.url?.match(/^\/surface\/([a-f0-9-]+)$/)?.[1];
+      const route = parseEvidenceSurfaceRoute(req.url);
+      if (!route) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+        res.end("Not found.");
+        return;
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
+        res.end();
+        return;
+      }
+      const requestedId = route.kind === "surface" ? route.surfaceId : undefined;
 
       // Core's liveness check uses HEAD. Confirm the renderer without consuming
       // a finalised surface from the handoff queue.
