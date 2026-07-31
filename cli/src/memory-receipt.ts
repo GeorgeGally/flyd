@@ -236,6 +236,8 @@ export function loadLearnings(): { beliefs: number; behaviours: number } {
     const filepath = join(OVERLAY_DIR, entry);
     const raw = readFileSync(filepath, "utf-8");
     const fm = parseFrontmatter(raw);
+    const timestampValue = fm.metadata.timestamp ?? fm.metadata.generated_at;
+    const timestamp = timestampValue == null ? "" : String(timestampValue);
 
     const beliefsSection = raw.indexOf("## Synthesized Beliefs");
     const behavioursSection = raw.indexOf("## Synthesized Behaviours");
@@ -259,8 +261,8 @@ export function loadLearnings(): { beliefs: number; behaviours: number } {
             object: m[3].trim(),
             confidence: parseFloat(m[4]),
             source: "flyd-overlay",
-            firstObserved: fm.timestamp ?? "",
-            lastUpdated: fm.timestamp ?? "",
+            firstObserved: timestamp,
+            lastUpdated: timestamp,
             observationCount: 1,
             contradictoryCount: 0,
           });
@@ -284,8 +286,8 @@ export function loadLearnings(): { beliefs: number; behaviours: number } {
               response: m[2].trim(),
               context: m[3].trim(),
               confidence: parseFloat(m[4]),
-              firstObserved: fm.timestamp ?? "",
-              lastUsed: fm.timestamp ?? "",
+              firstObserved: timestamp,
+              lastUsed: timestamp,
               useCount: 1,
             });
           }
