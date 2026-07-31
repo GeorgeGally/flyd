@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { clusterEvidence } from "../clustering.js";
 import { extractEvidenceConflicts } from "../contradictions.js";
-import { renderEvidenceSurfaceHtml } from "../compose-surface.js";
+import { parseEvidenceSurfaceRoute, renderEvidenceSurfaceHtml } from "../compose-surface.js";
 import { evidenceSurfaceUrl, normalizeEvidenceSurfaceUrl } from "../compose-url.js";
 import { classifyEvidenceNeed } from "../evidence-need.js";
 import { planEvidence } from "../query-planner.js";
@@ -113,6 +113,14 @@ describe("E4 deep research", () => {
     expect(normalizeEvidenceSurfaceUrl("http://127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
     expect(normalizeEvidenceSurfaceUrl("https://evil.example/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
     expect(normalizeEvidenceSurfaceUrl("http://user:pass@127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
+  });
+
+  it("never treats unrelated browser requests as dossier handoffs", () => {
+    expect(parseEvidenceSurfaceRoute("/surface")).toEqual({ kind: "handoff" });
+    expect(parseEvidenceSurfaceRoute("/surface/")).toEqual({ kind: "handoff" });
+    expect(parseEvidenceSurfaceRoute("/surface/abc-123")).toEqual({ kind: "surface", surfaceId: "abc-123" });
+    expect(parseEvidenceSurfaceRoute("/favicon.ico")).toBeNull();
+    expect(parseEvidenceSurfaceRoute("/robots.txt")).toBeNull();
   });
 
   it("renders an editorial dossier with synthesis, sources and no remote scripts", () => {
