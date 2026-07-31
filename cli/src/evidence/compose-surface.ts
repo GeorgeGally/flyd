@@ -176,6 +176,11 @@ export function renderEvidenceSurfaceHtml(surface: EvidenceComposeSurface): stri
   </style></head><body><main><header class="hero"><div class="mark">FLYD / EVIDENCE DOSSIER / ${escapeHtml(surface.generatedAt)}</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(summary)}</p></header>${findingSections}${conflicts}${recommendation}${uncertainties}${gaps}<footer>${surface.evidence.length} evidence items · ${surface.clusters.length} clusters · provenance retained · generated locally by Flyd Core</footer></main></body></html>`;
 }
 
+function removeReadySurface(surfaceId: string): void {
+  const index = readySurfaceIds.indexOf(surfaceId);
+  if (index >= 0) readySurfaceIds.splice(index, 1);
+}
+
 function cleanup(): void {
   const now = Date.now();
   for (const [id, entry] of surfaces) if (entry.expiresAt <= now) surfaces.delete(id);
@@ -243,6 +248,7 @@ async function ensureSurfaceServer(): Promise<boolean> {
         res.end("Flyd evidence surface not found or expired.");
         return;
       }
+      removeReadySurface(canonicalId);
       const html = renderEvidenceSurfaceHtml(entry.surface);
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
