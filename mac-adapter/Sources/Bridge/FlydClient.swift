@@ -183,7 +183,7 @@ final class FlydClient {
         guard let response: ResolutionResponse = await post("/manifest", body: payload) else {
             return nil
         }
-        return normalizedComposeResponse(response)
+        return await normalizedComposeResponse(response)
     }
 
     func sendOutcome(
@@ -273,8 +273,15 @@ final class FlydClient {
         }
     }
 
-    private func normalizedComposeResponse(_ response: ResolutionResponse) -> ResolutionResponse {
+    private func normalizedComposeResponse(_ response: ResolutionResponse) async -> ResolutionResponse {
         guard response.mode == "requires_compose" else { return response }
+
+        let directAvailable: Bool
+        if let directURL = ComposeTarget.directURL(resolutionId: response.resolutionId) {
+            directAvailable = await urlResponds(directURL)
+        } else {
+            directAvailable = false
+        }
 
         return ResolutionResponse(
             resolutionId: response.resolutionId,
@@ -287,10 +294,25 @@ final class FlydClient {
             composeRationale: response.composeRationale,
             composeUrl: ComposeTarget.url(
                 serverValue: response.composeUrl,
-                resolutionId: response.resolutionId
+                resolutionId: response.resolutionId,
+                directAvailable: directAvailable
             ),
             requiresConfirmation: response.requiresConfirmation
         )
+    }
+
+    private func urlResponds(_ url: URL) async -> Bool {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 1.5
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else { return false }
+            return (200..<400).contains(httpResponse.statusCode)
+        } catch {
+            return false
+        }
     }
 
     private func post<T: Codable, R: Codable>(_ path: String, body: T) async -> R? {
