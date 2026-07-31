@@ -46,9 +46,19 @@ jobs:
         working-directory: cli
         run: npm ci
 
-      - name: Audit production dependencies
+      - name: Generate non-breaking audit fixes
+        working-directory: cli
+        run: npm audit fix --package-lock-only
+
+      - name: Enforce no high-severity production vulnerabilities
         working-directory: cli
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Upload audited lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: audited-package-lock
+          path: cli/package-lock.json
 
   core:
     runs-on: ubuntu-latest
