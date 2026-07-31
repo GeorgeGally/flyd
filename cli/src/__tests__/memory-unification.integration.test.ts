@@ -9,7 +9,8 @@ vi.mock("../lib/brain-retrieval.js", () => ({
 
 const emptyWorldState = {
   version: "1.0" as const, source: "flyd-cli" as const, generatedAt: "",
-  goals: [], tensions: [], profile: [], knowledge: [], reports: [], capabilities: [],
+  goals: [], tensions: [], signals: [], curiosity: [], nudges: [],
+  profile: [], knowledge: [], reports: [], capabilities: [],
   recentEvents: [], brainHealth: [], review: [], suggestions: [],
 };
 

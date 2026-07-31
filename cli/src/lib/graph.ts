@@ -31,7 +31,7 @@ export interface BodyEdge {
   rel_type: string;
   confidence: number;
   extraction?: string;
-  source: "frontmatter" | "body-extraction";
+  source: "frontmatter" | "body-extraction" | "contradiction-manifest";
 }
 
 interface GraphData {
