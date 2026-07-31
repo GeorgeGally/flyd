@@ -180,7 +180,10 @@ final class FlydClient {
             )
         )
 
-        return await post("/manifest", body: payload)
+        guard let response: ResolutionResponse = await post("/manifest", body: payload) else {
+            return nil
+        }
+        return normalizedComposeResponse(response)
     }
 
     func sendOutcome(
@@ -268,6 +271,26 @@ final class FlydClient {
             appendCoreLog("FlydClient /tts: request failed — \(error)")
             return nil
         }
+    }
+
+    private func normalizedComposeResponse(_ response: ResolutionResponse) -> ResolutionResponse {
+        guard response.mode == "requires_compose" else { return response }
+
+        return ResolutionResponse(
+            resolutionId: response.resolutionId,
+            invocationId: response.invocationId,
+            environmentRevision: response.environmentRevision,
+            mode: response.mode,
+            rationale: response.rationale,
+            operations: response.operations,
+            augmentations: response.augmentations,
+            composeRationale: response.composeRationale,
+            composeUrl: ComposeTarget.url(
+                serverValue: response.composeUrl,
+                resolutionId: response.resolutionId
+            ),
+            requiresConfirmation: response.requiresConfirmation
+        )
     }
 
     private func post<T: Codable, R: Codable>(_ path: String, body: T) async -> R? {
