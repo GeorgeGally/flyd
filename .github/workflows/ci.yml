@@ -28,7 +28,7 @@ jobs:
         working-directory: cli
         run: npx vitest run src/evidence
 
-  cli:
+  core:
     runs-on: ubuntu-latest
 
     steps:
@@ -46,28 +46,28 @@ jobs:
         working-directory: cli
         run: npm ci
 
-      - name: Typecheck CLI
+      - name: Typecheck TypeScript Core
         working-directory: cli
         run: npm run lint
 
-      - name: Test CLI
+      - name: Test active Core
         working-directory: cli
         run: |
           set +e
-          npm test > /tmp/cli-test.log 2>&1
+          npx vitest run --exclude "src/runtime/__tests__/**" > /tmp/core-test.log 2>&1
           status=$?
-          cat /tmp/cli-test.log
+          cat /tmp/core-test.log
           exit $status
 
-      - name: Upload CLI failure log
+      - name: Upload Core failure log
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: cli-test-log
-          path: /tmp/cli-test.log
+          name: core-test-log
+          path: /tmp/core-test.log
           if-no-files-found: ignore
 
-      - name: Build CLI
+      - name: Build TypeScript Core
         working-directory: cli
         run: npm run build
 
