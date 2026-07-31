@@ -48,7 +48,7 @@ jobs:
 
       - name: Generate non-breaking audit fixes
         working-directory: cli
-        run: npm audit fix --package-lock-only
+        run: npm audit fix --package-lock-only || true
 
       - name: Enforce no high-severity production vulnerabilities
         working-directory: cli
