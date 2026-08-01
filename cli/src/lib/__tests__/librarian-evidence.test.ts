@@ -36,7 +36,13 @@ describe("librarian evidence authority", () => {
       source: "wiki" as const,
       score: 95,
       metadata: { status: "canon", confidence: 0.9 },
-      staleness: { daysSince: 365, stale: true, lastUpdated: "2025-07-28" },
+      staleness: {
+        daysSince: 365,
+        stale: true,
+        veryStale: true,
+        lastUpdated: "2025-07-28",
+        message: "[stale:365d] Last updated 2025-07-28. Verify currency before trusting.",
+      },
     };
     const scored = scoreEvidence(entry, ["name"], "What is my name?");
     expect(scored.confidenceProfile.epistemicConfidence).toBe(0.9);
@@ -50,7 +56,13 @@ describe("librarian evidence authority", () => {
       source: "wiki" as const,
       score: 70,
       metadata: { status: "working", confidence: 0.7 },
-      staleness: { daysSince: 60, stale: true, lastUpdated: "2026-05-28" },
+      staleness: {
+        daysSince: 60,
+        stale: true,
+        veryStale: false,
+        lastUpdated: "2026-05-28",
+        message: "[potentially-stale:60d] Nothing confirmed since 2026-05-28.",
+      },
     };
     const scored = scoreEvidence(entry, ["branch", "current"], "What is the current branch?");
     const p = scored.confidenceProfile;

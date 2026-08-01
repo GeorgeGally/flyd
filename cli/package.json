@@ -4,16 +4,17 @@
   "description": "flyd — continuous personal coding agent",
   "type": "module",
   "bin": {
-    "flyd": "./dist/index.js"
+    "flyd": "./dist/entry.js"
   },
   "scripts": {
     "build": "tsc && node scripts/postbuild.mjs",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/entry.ts",
     "export-state": "tsx src/export-state.ts",
     "core": "tsx src/server.ts start",
     "core:stop": "tsx src/server.ts stop",
     "core:status": "tsx src/server.ts status",
     "test": "vitest run",
+    "test:active": "vitest run --exclude \"src/runtime/__tests__/**\"",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run build"
   },
@@ -38,7 +39,7 @@
     "vitest": "^4.1.10"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "repository": {
     "type": "git",

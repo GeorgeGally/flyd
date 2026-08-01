@@ -1,3 +1,5 @@
+import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
+import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { isOpenAIModel, defaultModel, getKey } from "./config.js";
 
 export interface AgentTool {
@@ -48,10 +50,18 @@ export async function query(
   options: QueryOptions = {}
 ): Promise<string> {
   const m = model ?? defaultModel();
+  const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
+  const resolvedPrompt = enriched.prompt;
+  let response: string;
   if (apiKey) {
-    return queryOpenAIWithConfig(prompt, m, system, apiKey, baseURL, options);
+    response = await queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
+  } else {
+    response = isOpenAIModel(m)
+      ? await queryOpenAI(resolvedPrompt, m, system, options)
+      : await queryAnthropic(resolvedPrompt, m, system, options);
   }
-  return isOpenAIModel(m) ? queryOpenAI(prompt, m, system, options) : queryAnthropic(prompt, m, system, options);
+  finalizeEvidenceSurface(enriched.surfaceId, response);
+  return response;
 }
 
 export async function streamQuery(
@@ -95,7 +105,7 @@ async function queryOpenAIWithConfig(
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const res = await client.chat.completions.create({
     model,
-    max_tokens: 2048,
+    max_tokens: options.json ? 4096 : 2048,
     temperature: 0.2,
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
@@ -113,7 +123,7 @@ async function queryAnthropic(prompt: string, model: string, system?: string, op
   const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
   const res = await client.messages.create({
     model,
-    max_tokens: 2048,
+    max_tokens: options.json ? 4096 : 2048,
     temperature: 0.2,
     system,
     messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],

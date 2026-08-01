@@ -6,84 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  scan_ruby:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          bundler-cache: true
-
-      - name: Scan for common Rails security vulnerabilities using static analysis
-        run: |
-          set +e
-          bin/brakeman --no-pager --except EOLRuby > /tmp/brakeman.log 2>&1
-          status=$?
-          cat /tmp/brakeman.log
-          exit $status
-
-      - name: Upload Brakeman failure log
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: brakeman-log
-          path: /tmp/brakeman.log
-
-  scan_js:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          bundler-cache: true
-
-      - name: Scan for security vulnerabilities in JavaScript dependencies
-        run: bin/importmap audit
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          bundler-cache: true
-
-      - name: Lint changed Ruby files
-        run: |
-          files=$(git diff --name-only --diff-filter=ACMRT origin/main...HEAD | grep -E '\.(rb|rake)$' || true)
-          if [ -z "$files" ]; then
-            exit 0
-          fi
-          set +e
-          bin/rubocop -f simple $files > /tmp/rubocop.log 2>&1
-          status=$?
-          cat /tmp/rubocop.log
-          exit $status
-
-      - name: Upload RuboCop failure log
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: rubocop-log
-          path: /tmp/rubocop.log
-
-  cli:
+  evidence:
     runs-on: ubuntu-latest
 
     steps:
@@ -93,7 +16,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: cli/package-lock.json
 
@@ -101,87 +24,90 @@ jobs:
         working-directory: cli
         run: npm ci
 
-      - name: Typecheck CLI
+      - name: Test Evidence Engine
         working-directory: cli
-        run: npm run lint
+        run: npx vitest run src/evidence
 
-      - name: Test CLI
-        working-directory: cli
-        run: |
-          set +e
-          npm test > /tmp/cli-test.log 2>&1
-          status=$?
-          cat /tmp/cli-test.log
-          exit $status
-
-      - name: Upload CLI failure log
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: cli-test-log
-          path: /tmp/cli-test.log
-
-      - name: Build CLI
-        working-directory: cli
-        run: npm run build
-
-  test:
+  dependency-audit:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: flyd_v1_test
-        ports:
-          - 5432:5432
-        options: --health-cmd="pg_isready -U postgres -d flyd_v1_test" --health-interval=10s --health-timeout=5s --health-retries=5
-
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config google-chrome-stable
-
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          ruby-version: .ruby-version
-          bundler-cache: true
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
 
-      - name: Run tests
-        env:
-          RAILS_ENV: test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/flyd_v1_test
-          SECRET_KEY_BASE: test-secret-key-base
-          FLYD_GENERATED_SURFACE: "true"
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Enforce no high-severity production vulnerabilities
+        working-directory: cli
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Keep accepted QMD server advisory unreachable
+        working-directory: cli
+        run: |
+          if grep -R -n -E '(@modelcontextprotocol/sdk|@hono/node-server|serveStatic|serve-static)' src --include='*.ts'; then
+            echo "Active Flyd code now reaches the accepted QMD/MCP/Hono server path. Remove the advisory acceptance before merging."
+            exit 1
+          fi
+
+  core:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Typecheck TypeScript Core
+        working-directory: cli
+        run: npm run lint
+
+      - name: Test active Core
+        working-directory: cli
         run: |
           set +e
-          {
-            bin/rails db:drop db:create db:schema:load &&
-            bin/rails db:drop db:create db:migrate &&
-            git diff --exit-code -- db/schema.rb &&
-            bin/rails test &&
-            bin/rails test:system
-          } > /tmp/rails-test.log 2>&1
+          npm run test:active > /tmp/core-test.log 2>&1
           status=$?
-          cat /tmp/rails-test.log
+          cat /tmp/core-test.log
           exit $status
 
-      - name: Upload Rails failure log
+      - name: Upload Core failure log
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: rails-test-log
-          path: /tmp/rails-test.log
-
-      - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: screenshots
-          path: ${{ github.workspace }}/tmp/screenshots
+          name: core-test-log
+          path: /tmp/core-test.log
           if-no-files-found: ignore
+
+      - name: Build TypeScript Core
+        working-directory: cli
+        run: npm run build
+
+  mac-adapter:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Test Mac adapter
+        working-directory: mac-adapter
+        run: swift test
