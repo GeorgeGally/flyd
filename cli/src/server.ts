@@ -23,6 +23,8 @@ import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } fr
 import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
 import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 import { conversationHistory } from "./conversation-history.js";
+import { workSessionStore } from "./work-intelligence/work-session-store.js";
+import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleTrialReport, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
@@ -217,18 +219,43 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       timestamp: Date.now(),
     });
 
-    if (parsed.conversation_id) {
-      const assistantText = [
+    const assistantText = [
         ...(resolution.augmentations ?? [])
           .filter((augmentation) => augmentation.kind === "explanation")
           .map((augmentation) => augmentation.content),
         ...resolution.operations.map((operation) => operation.text),
       ].filter(Boolean).join("\n");
 
+    if (parsed.conversation_id) {
       if (assistantText) {
         conversationHistory.append(parsed.conversation_id, parsed.intent, assistantText);
       }
     }
+
+    const workSessionId = parsed.conversation_id || workSessionStore.createSession().sessionId;
+    workSessionStore.bump(workSessionId);
+
+    const repoInfo = resolveRepositoryFromPath(
+      parsed.environment?.focused_element?.description || undefined
+    );
+
+    const currentWork = constructCurrentWork({
+      environment: parsed.environment,
+      resolvedProjectRoot: repoInfo.root,
+      gitBranch: repoInfo.branch,
+      gitHeadDigest: repoInfo.headDigest,
+      gitStatusDigest: repoInfo.statusDigest,
+      screenshotBase64: typeof parsed.screenshot === 'string' ? parsed.screenshot : undefined,
+    });
+
+    workSessionStore.addTurn(
+      workSessionId,
+      parsed.intent,
+      assistantText,
+      resolution.mode,
+      currentWork,
+      undefined,
+    );
   } catch (err) {
     console.error("[Flyd Core] Manifest resolution failed:", err);
     sendJson(res, 500, { error: "Resolution failed" });
@@ -512,6 +539,27 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       case "/health":
         handleHealth(req, res);
         break;
+      case "/work-intelligence/session": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        const sessionParams = url.searchParams;
+        if (req.method === "POST") {
+          const session = workSessionStore.createSession();
+          sendJson(res, 201, { sessionId: session.sessionId, revision: session.revision });
+        } else {
+          const sessionId = sessionParams.get("session_id");
+          if (!sessionId) { sendJson(res, 400, { error: "Missing session_id" }); break; }
+          const session = workSessionStore.get(sessionId);
+          if (!session) { sendJson(res, 404, { error: "Session not found" }); break; }
+          sendJson(res, 200, {
+            sessionId: session.sessionId,
+            revision: session.revision,
+            turnCount: session.turns.length,
+            currentWork: session.currentWork,
+            evidenceSummary: session.evidenceSummary,
+          });
+        }
+        break;
+      }
       case "/voice/status":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleVoiceStatus(req, res);
