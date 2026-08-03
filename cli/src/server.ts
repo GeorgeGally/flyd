@@ -394,7 +394,7 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
     const journalEntry: FounderJournalEntry = {
       entryId: `outcome-${outcome.invocationId}`,
       interactionId: outcome.invocationId,
-      workSessionId: outcome.invocationId,
+      workSessionId: outcome.resolutionId || outcome.invocationId,
       timestamp: new Date().toISOString(),
       eventType: outcome.status === 'succeeded' ? 'action_completed' :
                   outcome.status === 'failed' ? 'action_failed' :
@@ -655,6 +655,7 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         process.nextTick(() => process.exit(0));
         break;
       case "/work-intelligence/contract":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleWorkInteractionContractNegotiation(req, res);
         break;
       case "/work-intelligence/repository-action": {

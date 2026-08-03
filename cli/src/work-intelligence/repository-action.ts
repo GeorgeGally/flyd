@@ -91,7 +91,7 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
     });
 
     const verified = result.exitStatus === 0 && result.output.length > 0;
-    const hasDiff = result.output.includes('diff --git') || result.output.includes('diff');
+    const hasDiff = result.output.includes('diff --git');
     const hasArtifact = result.output.length > 50;
 
     return {

@@ -69,7 +69,11 @@ function computeExpectedValue(ctx: VerificationContext): string {
 }
 
 function evaluateDiagnosisResolution(newValue: string, diagnosis: string): boolean {
-  return true;
+  if (!diagnosis || diagnosis.trim().length === 0) return true;
+  const keyTerms = diagnosis.toLowerCase().match(/\b\w{4,}\b/g) || [];
+  const newLower = newValue.toLowerCase();
+  const matched = keyTerms.filter(term => newLower.includes(term));
+  return matched.length >= Math.min(2, keyTerms.length);
 }
 
 function describeChanges(ctx: VerificationContext): string {

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '../lib/llm.js';
-import type { EnvironmentCapture, constructCurrentWork, GroundingContext } from './current-work.js';
+import type { EnvironmentCapture } from './current-work.js';
 import { constructCurrentWork as buildCurrentWork, resolveRepositoryFromPath } from './current-work.js';
-import { workSessionStore } from './work-session-store.js';
-import type { CurrentWork, Diagnosis, Intervention, ActionProposal, TargetFingerprint, ActionGrant } from './types.js';
-import { selectDomainStandard, type DomainStandard, type WorkDomain } from './domain-standards.js';
-import { buildWorkIntelligencePrompt, parseWorkIntelligenceResponse, type WorkIntelligenceResult } from './intervention.js';
-import { recordLlmResolution, recordDeterministicResolution } from '../overlay-metrics.js';
+import { workSessionStore, type WorkSessionTurn } from './work-session-store.js';
+import { selectDomainStandard } from './domain-standards.js';
+import { buildWorkIntelligencePrompt, parseWorkIntelligenceResponse } from './intervention.js';
+import { recordLlmResolution } from '../overlay-metrics.js';
+import type { CurrentWork, Diagnosis, Intervention } from './types.js';
 
 export interface WorkInteractionParams {
   invocationId: string;
@@ -25,7 +25,6 @@ export interface WorkInteractionOutput {
   currentWork: CurrentWork;
   diagnosis: Diagnosis;
   intervention: Intervention;
-  actionProposal?: ActionProposal;
   timing: { total_ms: number };
   isDeterministic: boolean;
 }
@@ -42,8 +41,6 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     workSessionId = workSessionStore.createSession().sessionId;
   }
 
-  const session = workSessionStore.bump(workSessionId);
-
   const repoInfo = resolveRepositoryFromPath(
     params.environment.focused_element?.description || params.environment.document_path
   );
@@ -56,8 +53,6 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     gitStatusDigest: repoInfo.statusDigest,
     screenshotBase64: params.screenshotBase64,
   });
-
-  workSessionStore.updateCurrentWork(workSessionId, currentWork);
 
   const domainStandard = selectDomainStandard({
     artifactKind: currentWork.artifact.kind,
@@ -88,21 +83,33 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
   const result = parseWorkIntelligenceResponse(responseText);
   recordLlmResolution();
 
-  workSessionStore.addTurn(
-    workSessionId,
-    params.intent,
-    result.intervention.content,
-    'work_intelligence',
-    currentWork,
-    undefined,
-  );
+  workSessionStore.updateCurrentWork(workSessionId, currentWork);
+
+  const session = workSessionStore.bump(workSessionId) ?? workSessionStore.createSession();
+  session.revision += 1;
+
+  const turn: WorkSessionTurn = {
+    turnId: randomUUID(),
+    interactionId,
+    intent: params.intent,
+    assistant: result.intervention.content,
+    timestamp: new Date().toISOString(),
+    resolutionMode: 'work_intelligence',
+  };
+
+  session.turns.push(turn);
+  session.currentWork = currentWork || session.currentWork;
+
+  while (session.turns.length > 20) {
+    session.turns.shift();
+  }
 
   const modelMs = Date.now() - startedAt;
 
   return {
     interactionId,
     workSessionId,
-    workSessionRevision: session.revision + 1,
+    workSessionRevision: session.revision,
     currentWork,
     diagnosis: result.diagnosis,
     intervention: result.intervention,

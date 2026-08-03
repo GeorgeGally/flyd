@@ -56,11 +56,11 @@ describe('work-session-store', () => {
     expect(expired).toBeNull();
   });
 
-  it('bump returns new session for expired ID', () => {
+  it('bump returns null for expired ID', () => {
     const created = workSessionStore.createSession();
     const farFuture = Date.now() + 40 * 60 * 1000;
     const bumped = workSessionStore.bump(created.sessionId, farFuture);
-    expect(bumped.sessionId).not.toBe(created.sessionId);
+    expect(bumped).toBeNull();
   });
 
   it('adds turns and increments revision', () => {

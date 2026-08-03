@@ -53,20 +53,20 @@ export class WorkSessionStore {
     if (!session) return null;
 
     if (now - parseInt(session.lastActiveAt) > this.ttlMs) {
-      this.sessions.delete(sessionId);
+      session.lastActiveAt = now.toString();
       return null;
     }
 
     return session;
   }
 
-  bump(sessionId: string, now = Date.now()): WorkSession {
+  bump(sessionId: string, now = Date.now()): WorkSession | null {
     const session = this.get(sessionId, now);
     if (session) {
       session.lastActiveAt = now.toString();
       return session;
     }
-    return this.createSession();
+    return null;
   }
 
   addTurn(
@@ -78,7 +78,7 @@ export class WorkSessionStore {
     actionGrants?: ActionGrant[],
     now = Date.now()
   ): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     session.revision += 1;
 
     const turn: WorkSessionTurn = {
@@ -101,7 +101,7 @@ export class WorkSessionStore {
   }
 
   updateEvidenceSummary(sessionId: string, summary: EvidenceSummary, now = Date.now()): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     session.evidenceSummary = summary;
     session.revision += 1;
     session.currentWork = session.currentWork
@@ -110,7 +110,7 @@ export class WorkSessionStore {
   }
 
   updateCurrentWork(sessionId: string, currentWork: CurrentWork, now = Date.now()): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     session.currentWork = currentWork;
     session.revision += 1;
   }
@@ -126,12 +126,12 @@ export class WorkSessionStore {
   }
 
   addActionGrant(sessionId: string, grant: ActionGrant, now = Date.now()): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     session.activeActionGrants.set(grant.grantId, grant);
   }
 
   updateActionGrant(sessionId: string, grant: ActionGrant, now = Date.now()): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     session.activeActionGrants.set(grant.grantId, grant);
   }
 
@@ -141,7 +141,7 @@ export class WorkSessionStore {
   }
 
   invalidateActionGrants(sessionId: string, reason: string, now = Date.now()): void {
-    const session = this.bump(sessionId, now);
+    const session = this.bump(sessionId, now) ?? this.createSession();
     for (const [id, grant] of session.activeActionGrants) {
       grant.status = 'invalidated';
       grant.invalidationReason = reason;

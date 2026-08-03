@@ -93,6 +93,9 @@ function validateJournalEntry(entry: FounderJournalEntry): void {
   if (!entry.entryId || typeof entry.entryId !== 'string') {
     throw new Error('Missing entryId');
   }
+  if (!/^[a-zA-Z0-9_-]+$/.test(entry.entryId)) {
+    throw new Error('Invalid entryId: must be alphanumeric, dash, or underscore');
+  }
   if (!entry.interactionId || typeof entry.interactionId !== 'string') {
     throw new Error('Missing interactionId');
   }
