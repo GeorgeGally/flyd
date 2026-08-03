@@ -87,30 +87,35 @@ export function parseWorkIntelligenceResponse(raw: string): WorkIntelligenceResu
 
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(jsonStr);
+    parsed = JSON.parse(jsonStr) as Record<string, unknown>;
   } catch {
     return fallbackResult('Model response was not valid JSON');
   }
 
+  const g = (parsed.grounding_notes as string) || '';
+  const d = (parsed.diagnosis as Record<string, unknown>) || {};
+  const pi = (d.primary_issue as Record<string, unknown>) || {};
+  const iv = (parsed.intervention as Record<string, unknown>) || {};
+
   const result: WorkIntelligenceResult = {
-    groundingNotes: parsed.grounding_notes || '',
+    groundingNotes: g,
     diagnosis: {
       primaryIssue: {
-        category: parsed.diagnosis?.primary_issue?.category || 'quality',
-        severity: parsed.diagnosis?.primary_issue?.severity || 'improvement',
-        finding: parsed.diagnosis?.primary_issue?.finding || 'Assessment unavailable from model response',
-        causalExplanation: parsed.diagnosis?.primary_issue?.causal_explanation || '',
-        domain: parsed.diagnosis?.primary_issue?.domain || 'writing',
-        evidenceRefs: parsed.diagnosis?.primary_issue?.evidence_refs || [],
+        category: (pi.category as Diagnosis['primaryIssue']['category']) || 'quality',
+        severity: (pi.severity as Diagnosis['primaryIssue']['severity']) || 'improvement',
+        finding: (pi.finding as string) || 'Assessment unavailable from model response',
+        causalExplanation: (pi.causal_explanation as string) || '',
+        domain: (pi.domain as Diagnosis['primaryIssue']['domain']) || 'writing',
+        evidenceRefs: Array.isArray(pi.evidence_refs) ? pi.evidence_refs as string[] : [],
       },
-      contraryEvidence: parsed.diagnosis?.contrary_evidence || undefined,
+      contraryEvidence: (d.contrary_evidence as string) || undefined,
     },
     intervention: {
-      kind: parsed.intervention?.kind || 'insight',
-      content: parsed.intervention?.content || parsed.finding || 'Analysis produced no usable intervention.',
-      strongerAlternative: parsed.intervention?.stronger_alternative || undefined,
-      options: Array.isArray(parsed.intervention?.options)
-        ? parsed.intervention.options.map((o: Record<string, string>) => ({
+      kind: (iv.kind as Intervention['kind']) || 'insight',
+      content: (iv.content as string) || (pi.finding as string) || 'Analysis produced no usable intervention.',
+      strongerAlternative: (iv.stronger_alternative as string) || undefined,
+      options: Array.isArray(iv.options)
+        ? (iv.options as Record<string, string>[]).map((o) => ({
             label: o.label || '',
             description: o.description || '',
             consequence: o.consequence || undefined,

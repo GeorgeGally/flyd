@@ -26,6 +26,8 @@ import { conversationHistory } from "./conversation-history.js";
 import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
+import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
+import type { FounderJournalEntry } from "./work-intelligence/types.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleTrialReport, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
@@ -384,6 +386,35 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
     }
   } else {
     console.warn(`[Flyd Core] Outcome received with no matching manifest: ${outcome.invocationId.slice(0, 8)}`);
+  }
+
+  // Record founder journal entry for product metrics
+  try {
+    const journalEntry: FounderJournalEntry = {
+      entryId: `outcome-${outcome.invocationId}`,
+      interactionId: outcome.invocationId,
+      workSessionId: outcome.invocationId,
+      timestamp: new Date().toISOString(),
+      eventType: outcome.status === 'succeeded' ? 'action_completed' :
+                  outcome.status === 'failed' ? 'action_failed' :
+                  outcome.status === 'rejected' ? 'intervention_rejected' : 'intervention_rejected',
+      details: {
+        actionKind: 'text_edit',
+        verified: outcome.status === 'succeeded',
+        userCorrection: outcome.correction || undefined,
+      },
+    };
+
+    if (outcome.status === 'succeeded' && resolved) {
+      journalEntry.details.verified = true;
+    }
+    if (outcome.status === 'failed') {
+      journalEntry.details.verified = false;
+    }
+
+    recordJournalEntry(journalEntry);
+  } catch (err) {
+    console.warn(`[Flyd Core] Failed to record journal entry:`, (err as Error).message);
   }
 
   sendJson(res, 200, { acknowledged: true });
