@@ -23,6 +23,7 @@ import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } fr
 import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
 import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 import { conversationHistory } from "./conversation-history.js";
+import { handleJournalPost, handleJournalList, handleJournalEntry, handleTrialReport, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -524,8 +525,32 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         sendJson(res, 200, { status: "shutting_down" });
         process.nextTick(() => process.exit(0));
         break;
-        default:
+      case "/work-intelligence/contract":
+        handleWorkInteractionContractNegotiation(req, res);
+        break;
+      case "/journal": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method === "POST") {
+          parseBody(req).then(body => handleJournalPost(req, res, body)).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        } else {
+          handleJournalList(req, res, url.searchParams);
+        }
+        break;
+      }
+      case "/journal/report": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleTrialReport(req, res, url.searchParams);
+        break;
+      }
+        default: {
+          const journalEntryMatch = url.pathname.match(/^\/journal\/([a-zA-Z0-9_-]+)$/);
+          if (journalEntryMatch) {
+            if (!checkAuth(req)) { sendUnauthorized(res); break; }
+            handleJournalEntry(req, res, journalEntryMatch[1]);
+            break;
+          }
           sendJson(res, 404, { error: "Not found" });
+        }
       }
     });
 

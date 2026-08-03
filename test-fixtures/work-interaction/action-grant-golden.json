@@ -1,0 +1,15 @@
+{
+  "grantId": "ag_test_001",
+  "actionId": "act_test_001",
+  "status": "approved",
+  "grantedAt": "2026-08-02T10:02:00Z",
+  "workSessionRevision": 1,
+  "targetFingerprint": {
+    "elementRef": "el_01",
+    "fieldValueDigest": "sha256:def789...",
+    "repositoryRoot": "/Users/george/Projects/CleanX",
+    "branch": "main",
+    "headDigest": "abc123def456",
+    "statusDigest": "clean"
+  }
+}

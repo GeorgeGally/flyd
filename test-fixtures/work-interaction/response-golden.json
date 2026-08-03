@@ -1,0 +1,109 @@
+{
+  "contract_version": 1,
+  "interaction_id": "wi_test_001",
+  "work_session_id": "ws_test_001",
+  "work_session_revision": 1,
+  "current_work": {
+    "project": {
+      "value": "CleanX",
+      "source": "foreground",
+      "confidence": "high",
+      "provenance": "Document path /Users/george/Projects/CleanX resolves to Git repository root",
+      "sourceTimestamp": "2026-08-02T10:00:00Z",
+      "isHypothesis": false
+    },
+    "objective": {
+      "value": "unknown",
+      "source": "foreground",
+      "confidence": "low",
+      "provenance": "No explicit task or goal state found in foreground evidence",
+      "sourceTimestamp": "2026-08-02T10:00:00Z",
+      "isHypothesis": true
+    },
+    "artifact": {
+      "kind": "code",
+      "title": "AuthService.swift",
+      "path": "/Users/george/Projects/CleanX/Sources/Services/AuthService.swift",
+      "bundleId": "com.apple.dt.Xcode",
+      "windowTitle": "AuthService.swift — CleanX",
+      "contentDigest": "sha256:abc123..."
+    },
+    "stage": {
+      "value": "execution",
+      "source": "foreground",
+      "confidence": "medium",
+      "provenance": "Active editor with code content suggests implementation phase",
+      "sourceTimestamp": "2026-08-02T10:00:00Z",
+      "isHypothesis": false
+    },
+    "constraints": {
+      "value": [],
+      "source": "foreground",
+      "confidence": "low",
+      "provenance": "No explicit constraints found",
+      "sourceTimestamp": "2026-08-02T10:00:00Z",
+      "isHypothesis": true
+    },
+    "openLoops": [],
+    "nextAction": {
+      "value": { "description": "Review the login function implementation", "readiness": "ready" },
+      "source": "conversation",
+      "confidence": "high",
+      "provenance": "User intent: Review this function for correctness issues",
+      "sourceTimestamp": "2026-08-02T10:00:00Z",
+      "isHypothesis": false
+    },
+    "evidenceSummary": {
+      "sources": ["foreground_element", "document_path", "window_title"],
+      "snapshotTimestamp": "2026-08-02T10:00:00Z",
+      "foregroundApp": "Xcode",
+      "repositoryRoot": "/Users/george/Projects/CleanX",
+      "branch": "main",
+      "headDigest": "abc123def456",
+      "documentPath": "/Users/george/Projects/CleanX/Sources/Services/AuthService.swift",
+      "activeWindowTitle": "AuthService.swift — CleanX"
+    },
+    "uncertainty": [
+      { "field": "objective", "reason": "No explicit goal state found" },
+      { "field": "constraints", "reason": "No explicit constraints found" }
+    ],
+    "confidence": [
+      { "field": "project", "confidence": "high" },
+      { "field": "artifact", "confidence": "high" },
+      { "field": "objective", "confidence": "low" },
+      { "field": "stage", "confidence": "medium" }
+    ]
+  },
+  "diagnosis": {
+    "primaryIssue": {
+      "category": "correctness",
+      "severity": "critical",
+      "finding": "The login function does not handle HTTP errors from the API call. A network failure or 401 response will throw an untyped error rather than a domain-specific AuthError.",
+      "causalExplanation": "The `try await api.post(...)` call can fail for multiple reasons (network, server error, invalid credentials), but all failures propagate as the raw Error type with no discrimination between transient, authentication, or server errors. This means callers cannot handle 'wrong password' differently from 'server unreachable'.",
+      "domain": "code",
+      "evidenceRefs": ["foreground_element_value"]
+    },
+    "supportingObservations": [
+      { "finding": "The Token type is not shown — if it uses a custom decoder, date format mismatches could also fail silently upstream.", "relevance": "Additional failure mode to verify" }
+    ]
+  },
+  "intervention": {
+    "kind": "critique",
+    "content": "The login function silently discards error discrimination. Define an AuthError enum and map API errors to specific cases before propagating.",
+    "strongerAlternative": "Wrap the api.post call in a do/catch that inspects the HTTP status code and maps to AuthError.invalidCredentials (401), AuthError.serverError (5xx), or AuthError.networkError (URLError). Expose only AuthError through the public API.",
+    "options": [
+      { "label": "Show me the fix", "description": "Generate the refactored function with AuthError enum and error mapping" },
+      { "label": "Explain more", "description": "Break down each failure case and the appropriate error mapping strategy" }
+    ],
+    "visualGrounding": {
+      "regionDescription": {
+        "bounds": { "x": 200, "y": 150, "width": 800, "height": 600 },
+        "displayId": "display_0_2560x1440",
+        "contentSample": "func login(email: String, password: String) async throws -> Token {",
+        "elementRef": "el_01"
+      },
+      "placement": "below_element"
+    }
+  },
+  "timing": { "total_ms": 1250 }
+}

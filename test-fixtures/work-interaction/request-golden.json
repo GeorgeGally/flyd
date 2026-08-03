@@ -1,0 +1,22 @@
+{
+  "contract_version": 1,
+  "interaction_id": "wi_test_001",
+  "work_session_id": "ws_test_001",
+  "work_session_revision": 1,
+  "invocation_id": "inv_test_001",
+  "intent": "Review this function for correctness issues",
+  "modality": "text",
+  "current_evidence": {
+    "foreground_app": { "bundle_id": "com.apple.dt.Xcode", "name": "Xcode" },
+    "active_window": { "title": "AuthService.swift — CleanX" },
+    "focused_element": {
+      "ref": "el_01",
+      "role": "AXTextArea",
+      "value": "func login(email: String, password: String) async throws -> Token {\n    let response = try await api.post(\"/auth/login\", body: [\"email\": email, \"password\": password])\n    return try JSONDecoder().decode(Token.self, from: response.data)\n}",
+      "selected_text": ""
+    },
+    "screenshot_base64": "iVBORw0KGgoAAAA...",
+    "display_identity": "display_0_2560x1440",
+    "focused_bounds": { "x": 200, "y": 150, "width": 800, "height": 600 }
+  }
+}
