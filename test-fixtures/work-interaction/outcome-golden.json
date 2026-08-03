@@ -1,0 +1,13 @@
+{
+  "entryId": "fe_test_001",
+  "interactionId": "wi_test_001",
+  "workSessionId": "ws_test_001",
+  "timestamp": "2026-08-02T10:01:00Z",
+  "eventType": "intervention_accepted",
+  "details": {
+    "domain": "code",
+    "artifactKind": "code",
+    "artifactTitle": "AuthService.swift",
+    "issueCategory": "correctness"
+  }
+}

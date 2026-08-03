@@ -23,6 +23,13 @@ import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } fr
 import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
 import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 import { conversationHistory } from "./conversation-history.js";
+import { workSessionStore } from "./work-intelligence/work-session-store.js";
+import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
+import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
+import { runRepositoryAction, validateRepositoryActionInput } from "./work-intelligence/repository-action.js";
+import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
+import type { FounderJournalEntry } from "./work-intelligence/types.js";
+import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -135,6 +142,54 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   try {
     const config = loadFlydWorkerConfig();
+    const isDictation = /^(type|write|dictate|insert)\s/i.test(parsed.intent);
+    const hasEditableTarget = parsed.environment?.focused_element?.role?.includes("Text") ?? false;
+
+    if (!isDictation) {
+      const wiResult = await runWorkIntelligence({
+        invocationId: parsed.invocation_id,
+        intent: parsed.intent,
+        modality: parsed.modality || "text",
+        environment: parsed.environment,
+        conversationId: parsed.conversation_id,
+        screenshotBase64: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
+        modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
+      });
+
+      const augmentJson = {
+        mode: "requires_augment",
+        resolutionId: wiResult.interactionId,
+        invocationId: parsed.invocation_id,
+        environmentRevision: parsed.environment_revision ?? 1,
+        rationale: wiResult.diagnosis.primaryIssue.finding,
+        augmentations: [{
+          kind: "explanation",
+          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}${wiResult.intervention.strongerAlternative ? `\n\n${wiResult.intervention.strongerAlternative}` : ''}`,
+          placement: "cursor",
+        }],
+        timing: wiResult.timing,
+      };
+
+      if (wiResult.intervention.options && wiResult.intervention.options.length > 0) {
+        (augmentJson as Record<string, unknown>).augmentations = [
+          ...augmentJson.augmentations,
+          {
+            kind: "choice",
+            content: wiResult.diagnosis.primaryIssue.finding,
+            placement: "beside_selection",
+            options: wiResult.intervention.options.map(o => o.label),
+          },
+        ];
+      }
+
+      sendJson(res, 200, augmentJson);
+
+      intentHistory.push({ intent: parsed.intent, timestamp: new Date().toISOString() });
+      if (intentHistory.length > 100) intentHistory.shift();
+
+      return;
+    }
+
     const routerConfig = loadFlydRouterConfig();
     const conversationTurns = parsed.conversation_id
       ? conversationHistory.get(parsed.conversation_id)
@@ -216,18 +271,43 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       timestamp: Date.now(),
     });
 
-    if (parsed.conversation_id) {
-      const assistantText = [
+    const assistantText = [
         ...(resolution.augmentations ?? [])
           .filter((augmentation) => augmentation.kind === "explanation")
           .map((augmentation) => augmentation.content),
         ...resolution.operations.map((operation) => operation.text),
       ].filter(Boolean).join("\n");
 
+    if (parsed.conversation_id) {
       if (assistantText) {
         conversationHistory.append(parsed.conversation_id, parsed.intent, assistantText);
       }
     }
+
+    const workSessionId = parsed.conversation_id || workSessionStore.createSession().sessionId;
+    workSessionStore.bump(workSessionId);
+
+    const repoInfo = resolveRepositoryFromPath(
+      parsed.environment?.focused_element?.description || undefined
+    );
+
+    const currentWork = constructCurrentWork({
+      environment: parsed.environment,
+      resolvedProjectRoot: repoInfo.root,
+      gitBranch: repoInfo.branch,
+      gitHeadDigest: repoInfo.headDigest,
+      gitStatusDigest: repoInfo.statusDigest,
+      screenshotBase64: typeof parsed.screenshot === 'string' ? parsed.screenshot : undefined,
+    });
+
+    workSessionStore.addTurn(
+      workSessionId,
+      parsed.intent,
+      assistantText,
+      resolution.mode,
+      currentWork,
+      undefined,
+    );
   } catch (err) {
     console.error("[Flyd Core] Manifest resolution failed:", err);
     sendJson(res, 500, { error: "Resolution failed" });
@@ -307,6 +387,35 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
     }
   } else {
     console.warn(`[Flyd Core] Outcome received with no matching manifest: ${outcome.invocationId.slice(0, 8)}`);
+  }
+
+  // Record founder journal entry for product metrics
+  try {
+    const journalEntry: FounderJournalEntry = {
+      entryId: `outcome-${outcome.invocationId}`,
+      interactionId: outcome.invocationId,
+      workSessionId: outcome.resolutionId || outcome.invocationId,
+      timestamp: new Date().toISOString(),
+      eventType: outcome.status === 'succeeded' ? 'action_completed' :
+                  outcome.status === 'failed' ? 'action_failed' :
+                  outcome.status === 'rejected' ? 'intervention_rejected' : 'intervention_rejected',
+      details: {
+        actionKind: 'text_edit',
+        verified: outcome.status === 'succeeded',
+        userCorrection: outcome.correction || undefined,
+      },
+    };
+
+    if (outcome.status === 'succeeded' && resolved) {
+      journalEntry.details.verified = true;
+    }
+    if (outcome.status === 'failed') {
+      journalEntry.details.verified = false;
+    }
+
+    recordJournalEntry(journalEntry);
+  } catch (err) {
+    console.warn(`[Flyd Core] Failed to record journal entry:`, (err as Error).message);
   }
 
   sendJson(res, 200, { acknowledged: true });
@@ -511,6 +620,27 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       case "/health":
         handleHealth(req, res);
         break;
+      case "/work-intelligence/session": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        const sessionParams = url.searchParams;
+        if (req.method === "POST") {
+          const session = workSessionStore.createSession();
+          sendJson(res, 201, { sessionId: session.sessionId, revision: session.revision });
+        } else {
+          const sessionId = sessionParams.get("session_id");
+          if (!sessionId) { sendJson(res, 400, { error: "Missing session_id" }); break; }
+          const session = workSessionStore.get(sessionId);
+          if (!session) { sendJson(res, 404, { error: "Session not found" }); break; }
+          sendJson(res, 200, {
+            sessionId: session.sessionId,
+            revision: session.revision,
+            turnCount: session.turns.length,
+            currentWork: session.currentWork,
+            evidenceSummary: session.evidenceSummary,
+          });
+        }
+        break;
+      }
       case "/voice/status":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleVoiceStatus(req, res);
@@ -524,8 +654,47 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         sendJson(res, 200, { status: "shutting_down" });
         process.nextTick(() => process.exit(0));
         break;
-        default:
+      case "/work-intelligence/contract":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleWorkInteractionContractNegotiation(req, res);
+        break;
+      case "/work-intelligence/repository-action": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then(async (body) => {
+          try {
+            const input = JSON.parse(body);
+            const validationError = validateRepositoryActionInput(input);
+            if (validationError) {
+              sendJson(res, 422, { error: validationError });
+              return;
+            }
+            const result = await runRepositoryAction(input);
+            sendJson(res, 200, result);
+          } catch {
+            sendJson(res, 400, { error: "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/journal": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method === "POST") {
+          parseBody(req).then(body => handleJournalPost(req, res, body)).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        } else {
+          handleJournalList(req, res, url.searchParams);
+        }
+        break;
+      }
+        default: {
+          const journalEntryMatch = url.pathname.match(/^\/journal\/([a-zA-Z0-9_-]+)$/);
+          if (journalEntryMatch) {
+            if (!checkAuth(req)) { sendUnauthorized(res); break; }
+            handleJournalEntry(req, res, journalEntryMatch[1]);
+            break;
+          }
           sendJson(res, 404, { error: "Not found" });
+        }
       }
     });
 
