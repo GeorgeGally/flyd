@@ -26,9 +26,10 @@ import { conversationHistory } from "./conversation-history.js";
 import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
+import { runRepositoryAction, validateRepositoryActionInput } from "./work-intelligence/repository-action.js";
 import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
 import type { FounderJournalEntry } from "./work-intelligence/types.js";
-import { handleJournalPost, handleJournalList, handleJournalEntry, handleTrialReport, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
+import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -656,6 +657,25 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       case "/work-intelligence/contract":
         handleWorkInteractionContractNegotiation(req, res);
         break;
+      case "/work-intelligence/repository-action": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then(async (body) => {
+          try {
+            const input = JSON.parse(body);
+            const validationError = validateRepositoryActionInput(input);
+            if (validationError) {
+              sendJson(res, 422, { error: validationError });
+              return;
+            }
+            const result = await runRepositoryAction(input);
+            sendJson(res, 200, result);
+          } catch {
+            sendJson(res, 400, { error: "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
       case "/journal": {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method === "POST") {
@@ -663,11 +683,6 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         } else {
           handleJournalList(req, res, url.searchParams);
         }
-        break;
-      }
-      case "/journal/report": {
-        if (!checkAuth(req)) { sendUnauthorized(res); break; }
-        handleTrialReport(req, res, url.searchParams);
         break;
       }
         default: {

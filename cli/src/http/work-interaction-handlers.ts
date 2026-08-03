@@ -6,7 +6,6 @@ import {
   WORK_CONTRACT_VERSION,
 } from '../work-intelligence/types.js';
 import { recordJournalEntry, listJournalEntries, readJournalEntry, deleteJournalEntry } from '../work-intelligence/outcome-journal.js';
-import { generateFounderTrialReport } from '../work-intelligence/founder-trial-report.js';
 
 export async function handleJournalPost(req: IncomingMessage, res: ServerResponse, body: string): Promise<void> {
   let entry: FounderJournalEntry;
@@ -65,17 +64,6 @@ export async function handleJournalEntry(req: IncomingMessage, res: ServerRespon
   }
 
   sendJson(res, 405, { error: 'Method not allowed' });
-}
-
-export async function handleTrialReport(req: IncomingMessage, res: ServerResponse, params: URLSearchParams): Promise<void> {
-  const since = params.get('since');
-  if (!since) {
-    sendJson(res, 400, { error: 'Missing since parameter (ISO date)' });
-    return;
-  }
-
-  const report = generateFounderTrialReport(since);
-  sendJson(res, 200, report);
 }
 
 export async function handleWorkInteractionContractNegotiation(req: IncomingMessage, res: ServerResponse): Promise<void> {

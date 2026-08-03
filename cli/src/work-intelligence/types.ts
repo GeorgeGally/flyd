@@ -222,35 +222,6 @@ export interface FounderJournalEntry {
   };
 }
 
-export interface FounderGateCheck {
-  required: number;
-  actual: number;
-  passed: boolean;
-}
-
-export interface FounderGateBooleanCheck {
-  required: boolean;
-  met: boolean;
-  passed: boolean;
-}
-
-export interface FounderTrialReport {
-  status: 'passed' | 'failed' | 'insufficient_evidence';
-  periodDays: number;
-  gateChecks: {
-    voluntaryUseDays: FounderGateCheck;
-    acceptedInterventions: FounderGateCheck;
-    improvedArtifacts: FounderGateCheck;
-    advancedProjects: FounderGateCheck;
-    discoveredIssues: FounderGateCheck;
-    contextAccuracyPercent: FounderGateCheck;
-    staleProjectsPresented: { allowed: number; actual: number; passed: boolean };
-    laterImprovement: FounderGateBooleanCheck;
-  };
-  evidenceSummary: string;
-  timestamp: string;
-}
-
 export interface WorkInteractionRequest {
   contract_version: number;
   interaction_id: string;
