@@ -25,6 +25,7 @@ import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 import { conversationHistory } from "./conversation-history.js";
 import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
+import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleTrialReport, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 
 const PORT = 4815;
@@ -138,6 +139,54 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   try {
     const config = loadFlydWorkerConfig();
+    const isDictation = /^(type|write|dictate|insert)\s/i.test(parsed.intent);
+    const hasEditableTarget = parsed.environment?.focused_element?.role?.includes("Text") ?? false;
+
+    if (!isDictation) {
+      const wiResult = await runWorkIntelligence({
+        invocationId: parsed.invocation_id,
+        intent: parsed.intent,
+        modality: parsed.modality || "text",
+        environment: parsed.environment,
+        conversationId: parsed.conversation_id,
+        screenshotBase64: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
+        modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
+      });
+
+      const augmentJson = {
+        mode: "requires_augment",
+        resolutionId: wiResult.interactionId,
+        invocationId: parsed.invocation_id,
+        environmentRevision: parsed.environment_revision ?? 1,
+        rationale: wiResult.diagnosis.primaryIssue.finding,
+        augmentations: [{
+          kind: "explanation",
+          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}${wiResult.intervention.strongerAlternative ? `\n\n${wiResult.intervention.strongerAlternative}` : ''}`,
+          placement: "cursor",
+        }],
+        timing: wiResult.timing,
+      };
+
+      if (wiResult.intervention.options && wiResult.intervention.options.length > 0) {
+        (augmentJson as Record<string, unknown>).augmentations = [
+          ...augmentJson.augmentations,
+          {
+            kind: "choice",
+            content: wiResult.diagnosis.primaryIssue.finding,
+            placement: "beside_selection",
+            options: wiResult.intervention.options.map(o => o.label),
+          },
+        ];
+      }
+
+      sendJson(res, 200, augmentJson);
+
+      intentHistory.push({ intent: parsed.intent, timestamp: new Date().toISOString() });
+      if (intentHistory.length > 100) intentHistory.shift();
+
+      return;
+    }
+
     const routerConfig = loadFlydRouterConfig();
     const conversationTurns = parsed.conversation_id
       ? conversationHistory.get(parsed.conversation_id)
