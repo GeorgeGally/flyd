@@ -34,7 +34,6 @@ final class AugmentPanelTests: XCTestCase {
 
     func testStackedFramesClampToScreenBounds() {
         let sizes = [NSSize(width: 360, height: 100)]
-        // Anchor near the top-right corner so the naive frame would fall off-screen.
         let anchor = NSRect(x: 1900, y: 1070, width: 0, height: 0)
         let screen = NSRect(x: 0, y: 0, width: 1920, height: 1080)
 
@@ -73,5 +72,99 @@ final class AugmentPanelTests: XCTestCase {
         XCTAssertTrue(layout.isScrollable)
         XCTAssertGreaterThan(layout.naturalHeight, layout.visibleHeight)
         XCTAssertEqual(layout.visibleHeight, AugmentPanel.maximumVisibleContentHeight)
+    }
+
+    func testWorkInterventionCardIncludesFeedbackOptions() {
+        let panel = AugmentPanel()
+        let acceptCalled = expectation(description: "accept called")
+        let rejectCalled = expectation(description: "reject called")
+
+        panel.onAccept = { acceptCalled.fulfill() }
+        panel.onReject = { rejectCalled.fulfill() }
+
+        let size = AugmentPanel.measure(content: "Critical: something is wrong", options: ["Correct", "Follow-up"])
+        panel.showWorkIntervention(
+            content: "Critical: something is wrong\n\nThe issue is in the login function",
+            diagnosis: "Function lacks error handling",
+            strongerAlternative: "Wrap in do/catch block",
+            options: ["Show me the fix", "Explain more"],
+            feedbackKind: .intervention,
+            frame: NSRect(x: 100, y: 100, width: size.width, height: size.height)
+        )
+
+        panel.onAccept?()
+        panel.onReject?()
+
+        wait(for: [acceptCalled, rejectCalled], timeout: 1.0)
+    }
+
+    func testActionProposalCardIncludesApproveControl() {
+        let panel = AugmentPanel()
+        let approveCalled = expectation(description: "approve called")
+
+        panel.onApproveAction = { approveCalled.fulfill() }
+
+        let size = AugmentPanel.measure(content: "Proposed: Replace the function", options: ["Approve Action"])
+        panel.showWorkIntervention(
+            content: "Proposed: Replace the login function with error-handled version",
+            diagnosis: "Function lacks error handling",
+            strongerAlternative: nil,
+            options: [],
+            feedbackKind: .actionProposal,
+            frame: NSRect(x: 100, y: 100, width: size.width, height: size.height)
+        )
+
+        panel.onApproveAction?()
+        wait(for: [approveCalled], timeout: 1.0)
+    }
+
+    func testFeedbackCallbacksAreIndependent() {
+        let panel = AugmentPanel()
+        var acceptFired = false
+        var rejectFired = false
+        var correctFired = false
+        var followUpFired = false
+
+        panel.onAccept = { acceptFired = true }
+        panel.onReject = { rejectFired = true }
+        panel.onCorrect = { _ in correctFired = true }
+        panel.onFollowUp = { _ in followUpFired = true }
+
+        panel.onAccept?()
+        XCTAssertTrue(acceptFired)
+        XCTAssertFalse(rejectFired)
+        XCTAssertFalse(correctFired)
+        XCTAssertFalse(followUpFired)
+
+        panel.onReject?()
+        XCTAssertTrue(rejectFired)
+
+        panel.onCorrect?("actually, the issue is X")
+        XCTAssertTrue(correctFired)
+
+        panel.onFollowUp?("can you elaborate?")
+        XCTAssertTrue(followUpFired)
+    }
+
+    func testDismissDoesNotInferAcceptance() {
+        let panel = AugmentPanel()
+        var feedbackReceived = false
+
+        panel.onAccept = { feedbackReceived = true }
+        panel.onReject = { feedbackReceived = true }
+
+        let size = AugmentPanel.measure(content: "Test content", options: nil)
+        panel.showWorkIntervention(
+            content: "Test",
+            diagnosis: "Test issue",
+            strongerAlternative: nil,
+            options: nil,
+            feedbackKind: .intervention,
+            frame: NSRect(x: 100, y: 100, width: size.width, height: size.height)
+        )
+
+        panel.dismiss()
+
+        XCTAssertFalse(feedbackReceived)
     }
 }

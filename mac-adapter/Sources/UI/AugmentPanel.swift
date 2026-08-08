@@ -1,14 +1,30 @@
 import AppKit
 
 final class AugmentPanel {
+    enum FeedbackKind {
+        case intervention
+        case actionProposal
+    }
+
     private var panel: NSPanel?
     private var contentLabel: NSTextField?
     private var optionButtons: [NSButton] = []
+    private var feedbackButtons: [NSButton] = []
     private var autoDismissTimer: Timer?
     private var localEventMonitor: Any?
     private var clickMonitor: Any?
+    private var feedbackStack: NSStackView?
+    private var correctField: NSTextField?
+    private var followUpField: NSTextField?
 
     var onOptionSelected: ((Int, String) -> Void)?
+    var onAccept: (() -> Void)?
+    var onReject: (() -> Void)?
+    var onCorrect: ((String) -> Void)?
+    var onFollowUp: ((String) -> Void)?
+    var onApproveAction: (() -> Void)?
+    var onCommandApprove: ((String, Int) -> Void)?
+    var onCommandReject: ((String, Int) -> Void)?
 
     static let panelWidth: CGFloat = 400
     static let panelCornerRadius: CGFloat = 16
@@ -287,6 +303,35 @@ final class AugmentPanel {
         }
     }
 
+    func showWorkIntervention(
+        content: String,
+        diagnosis: String,
+        strongerAlternative: String?,
+        options: [String]?,
+        feedbackKind: FeedbackKind,
+        frame panelFrame: NSRect
+    ) {
+        var fullContent = content
+        if let alternative = strongerAlternative, !alternative.isEmpty {
+            fullContent += "\n\nAlternative: \(alternative)"
+        }
+
+        var interventionOptions = options
+        switch feedbackKind {
+        case .intervention:
+            interventionOptions = (options ?? []) + ["Correct", "Follow-up"]
+        case .actionProposal:
+            interventionOptions = (options ?? []) + ["Approve Action"]
+        }
+
+        show(
+            content: fullContent,
+            options: interventionOptions,
+            kind: "control",
+            frame: panelFrame
+        )
+    }
+
     func dismiss() {
         autoDismissTimer?.invalidate()
         autoDismissTimer = nil
@@ -294,14 +339,48 @@ final class AugmentPanel {
             NSEvent.removeMonitor(monitor)
             localEventMonitor = nil
         }
-        if let monitor = clickMonitor {
-            NSEvent.removeMonitor(monitor)
+        if clickMonitor != nil {
+            NSEvent.removeMonitor(clickMonitor! as Any)
             clickMonitor = nil
         }
         panel?.orderOut(nil)
         panel = nil
         contentLabel = nil
         optionButtons.removeAll()
+        feedbackButtons.removeAll()
+        feedbackStack = nil
+        correctField = nil
+        followUpField = nil
+    }
+
+    func showExecutionCard(
+        diagnosis: String,
+        intervention: String,
+        commands: [(id: String, command: String, workingDirectory: String, explanation: String, isDestructive: Bool)],
+        frame panelFrame: NSRect
+    ) {
+        var content = "\(diagnosis)\n\n\(intervention)"
+        for (i, cmd) in commands.enumerated() {
+            let label = cmd.isDestructive ? "[Modifies files/system] " : ""
+            content += "\n\n--- Command \(i + 1) ---"
+            content += "\n\(label)$ \(cmd.command)"
+            content += "\nin \(cmd.workingDirectory)"
+            if !cmd.explanation.isEmpty {
+                content += "\n\(cmd.explanation)"
+            }
+        }
+
+        var optionLabels = commands.enumerated().map { i, cmd in
+            "Approve: \(cmd.command.prefix(60))\(cmd.command.count > 60 ? "…" : "")"
+        }
+        optionLabels.append("Reject All")
+
+        show(
+            content: content,
+            options: optionLabels,
+            kind: "control",
+            frame: panelFrame
+        )
     }
 
     @objc private func closeClicked() {

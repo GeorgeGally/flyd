@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gateCurrentness } from "../currentness-gate.js";
+import { gateCurrentness, suppressContradictedMemories, detectContradictions, type ContradictionSignal } from "../currentness-gate.js";
 import type { ScoredEvidence } from "../librarian.js";
 import type { PresentModel } from "../present-model.js";
 import type { RecallIntent } from "../recall-intent.js";
@@ -280,5 +280,213 @@ describe("gateCurrentness", () => {
     });
 
     expect(gateCurrentness([staleMatch], presentModel, currentStateIntent).size).toBe(0);
+  });
+
+  it("epistemic confidence never includes age-based decay", () => {
+    const oldEntry = makeEntry({
+      path: "wiki/projects/flyd.md",
+      body: "flyd is the active project",
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.05,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    });
+
+    expect(oldEntry.confidenceProfile.epistemicConfidence).toBe(0.9);
+    expect(oldEntry.confidenceProfile.freshness).toBe(0.05);
+    expect(oldEntry.confidenceProfile.epistemicConfidence).not.toBe(oldEntry.confidenceProfile.freshness);
+  });
+
+  it("freshness dimension decays while epistemic confidence remains stable", () => {
+    const freshEntry = makeEntry({
+      path: "wiki/projects/flyd.md",
+      body: "latest notes",
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.95,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    });
+    const staleEntry = makeEntry({
+      path: "wiki/projects/old-project.md",
+      body: "old notes",
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.05,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    });
+
+    expect(freshEntry.confidenceProfile.epistemicConfidence).toBe(staleEntry.confidenceProfile.epistemicConfidence);
+    expect(freshEntry.confidenceProfile.freshness).toBeGreaterThan(staleEntry.confidenceProfile.freshness);
+  });
+});
+
+describe("suppressContradictedMemories", () => {
+  function mkEntry(overrides: Partial<ScoredEvidence> & Pick<ScoredEvidence, "path" | "body">): ScoredEvidence {
+    return {
+      source: "wiki",
+      score: 80,
+      metadata: {},
+      staleness: null,
+      librarianScore: 0.8,
+      recencyWeight: 0.8,
+      reliabilityWeight: 0.8,
+      interestBoost: 0,
+      corroborationCount: 0,
+      contradictionCount: 0,
+      isCurrent: true,
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.9,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+      ...overrides,
+    };
+  }
+
+  it("suppresses contradicted memories without rewriting confidence", () => {
+    const entry = mkEntry({
+      path: "wiki/projects/flyd.md",
+      body: "flyd uses dynamic cards for its UI",
+      isCurrent: true,
+    });
+
+    const contradictions: ContradictionSignal[] = [{
+      claim: "dynamic cards",
+      contradictingEvidence: "flyd uses text-only interaction",
+      source: "repository",
+      timestamp: new Date().toISOString(),
+    }];
+
+    const result = suppressContradictedMemories([entry], contradictions);
+    expect(result[0].isCurrent).toBe(false);
+    expect(result[0].confidenceProfile.epistemicConfidence).toBe(entry.confidenceProfile.epistemicConfidence);
+  });
+
+  it("preserves memory original confidence even when contradicted", () => {
+    const entry = mkEntry({
+      path: "wiki/preferences/dark-mode.md",
+      body: "George prefers dark mode",
+      isCurrent: true,
+      confidenceProfile: {
+        epistemicConfidence: 0.95,
+        freshness: 0.8,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    });
+
+    const contradictions: ContradictionSignal[] = [{
+      claim: "dark mode",
+      contradictingEvidence: "light mode active in current session",
+      source: "foreground",
+      timestamp: new Date().toISOString(),
+    }];
+
+    const result = suppressContradictedMemories([entry], contradictions);
+    expect(result[0].confidenceProfile.epistemicConfidence).toBe(0.95);
+    expect(result[0].isCurrent).toBe(false);
+  });
+
+  it("does not touch uncontradicted entries", () => {
+    const entry = mkEntry({
+      path: "wiki/projects/flyd.md",
+      body: "flyd is the active project",
+      isCurrent: true,
+    });
+
+    const contradictions: ContradictionSignal[] = [{
+      claim: "something unrelated",
+      contradictingEvidence: "something else",
+      source: "repository",
+      timestamp: new Date().toISOString(),
+    }];
+
+    const result = suppressContradictedMemories([entry], contradictions);
+    expect(result[0].isCurrent).toBe(true);
+  });
+});
+
+describe("detectContradictions", () => {
+  function mkEntry(overrides: Partial<ScoredEvidence> & Pick<ScoredEvidence, "path" | "body">): ScoredEvidence {
+    return {
+      source: "wiki",
+      score: 80,
+      metadata: {},
+      staleness: null,
+      librarianScore: 0.8,
+      recencyWeight: 0.8,
+      reliabilityWeight: 0.8,
+      interestBoost: 0,
+      corroborationCount: 0,
+      contradictionCount: 0,
+      isCurrent: true,
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.9,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+      ...overrides,
+    };
+  }
+
+  it("detects when memory conflicts with live evidence", () => {
+    const entry = mkEntry({
+      path: "wiki/projects/flyd.md",
+      body: "flyd uses dynamic cards for its UI",
+    });
+
+    const results = detectContradictions(
+      [entry],
+      ["flyd uses text-only interaction"],
+      "/Users/george/flyd"
+    );
+
+    expect(results.length).toBe(0);
+  });
+
+  it("detects contradictory claims when memory body contains live claim text", () => {
+    const entry = mkEntry({
+      path: "wiki/config/theme.md",
+      body: "George uses dark mode",
+    });
+
+    const results = detectContradictions(
+      [entry],
+      ["dark mode"],
+      "/Users/george/flyd"
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].originalEpistemicConfidence).toBe(0.9);
+    expect(results[0].suppressed).toBe(true);
+  });
+
+  it("returns empty when no contradictions found", () => {
+    const entry = mkEntry({
+      path: "wiki/projects/flyd.md",
+      body: "flyd is the active project",
+    });
+
+    const results = detectContradictions(
+      [entry],
+      ["completely unrelated topic"],
+      "/Users/george/flyd"
+    );
+
+    expect(results.length).toBe(0);
   });
 });

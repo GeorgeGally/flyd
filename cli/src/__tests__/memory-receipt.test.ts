@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createMemoryReceipt, provisionalLearn, getPendingLearnings, acknowledgeLearning } from "../memory-receipt.js";
+import { createMemoryReceipt, createLearningReceipt, provisionalLearn, getPendingLearnings, acknowledgeLearning } from "../memory-receipt.js";
 
 describe("createMemoryReceipt", () => {
   it("creates a self-contained receipt", () => {
@@ -63,6 +63,64 @@ describe("createMemoryReceipt", () => {
     );
     expect(receipt.topics.length).toBeGreaterThan(0);
     expect(receipt.topics).toContain("flyd");
+  });
+});
+
+describe("createLearningReceipt", () => {
+  const candidate = {
+    id: "candidate-1",
+    source: "correction" as const,
+    content: "User prefers dark mode",
+    domain: "response_style",
+    outcomeRef: "outcome-123",
+    epistemicConfidence: "high" as const,
+    timestamp: "2026-08-05T00:00:00.000Z",
+  };
+
+  it("carries provenance fields", () => {
+    const receipt = createLearningReceipt(candidate, "correction gate: high confidence", "response_style");
+    expect(receipt.provenance.epistemicConfidence).toBe("high");
+    expect(receipt.provenance.sourceType).toBe("correction");
+    expect(receipt.provenance.domain).toBe("response_style");
+    expect(receipt.provenance.outcomeRef).toBe("outcome-123");
+    expect(receipt.provenance.timestamp).toBe("2026-08-05T00:00:00.000Z");
+  });
+
+  it("is distinguishable from legacy resolution receipts", () => {
+    const learningReceipt = createLearningReceipt(candidate, "gate reason", "domain");
+    const legacyReceipt = createMemoryReceipt(
+      "test intent", "native", "succeeded", "env", null, "reason", "explicit_preference"
+    );
+
+    expect(learningReceipt.source).toBe("flyd-work-intelligence");
+    expect(legacyReceipt.source).toBe("flyd-overlay");
+    expect(learningReceipt.eventType).toBe("wt_correction");
+    expect(legacyReceipt.eventType).toBe("explicit_preference");
+  });
+
+  it("preserves epistemic confidence and source type", () => {
+    const receipt = createLearningReceipt(
+      { ...candidate, epistemicConfidence: "medium", source: "verified_outcome" },
+      "gate reason",
+      "test_domain"
+    );
+    expect(receipt.provenance.epistemicConfidence).toBe("medium");
+    expect(receipt.provenance.sourceType).toBe("verified_outcome");
+  });
+
+  it("generates unique receipt IDs", () => {
+    const r1 = createLearningReceipt(candidate, "reason", "domain");
+    const r2 = createLearningReceipt(candidate, "reason", "domain");
+    expect(r1.receiptId).not.toBe(r2.receiptId);
+  });
+
+  it("extracts topics from learning content", () => {
+    const receipt = createLearningReceipt(
+      { ...candidate, content: "flyd should remember dark mode preferences" },
+      "reason",
+      "domain"
+    );
+    expect(receipt.topics.length).toBeGreaterThan(0);
   });
 });
 

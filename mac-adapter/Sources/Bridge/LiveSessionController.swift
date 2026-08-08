@@ -132,7 +132,8 @@ final class LiveSessionController {
         )
         observedTargets[observationId] = target
 
-        let payload = target.serialized()
+        let workSession = InvocationStateMachine.shared.ensureWorkSession()
+        let payload = target.serialized(workSessionId: workSession.sessionId, workSessionRevision: workSession.revision)
         guard let payloadData = try? JSONEncoder().encode(payload),
               let payloadStr = String(data: payloadData, encoding: .utf8) else { return }
         bridge.sendRaw("{\"request_id\":\"\(requestId)\",\"type\":\"observation\",\(payloadStr.dropFirst())")

@@ -59,4 +59,23 @@ final class VoiceStartupPolicyTests: XCTestCase {
             .finishRecording
         )
     }
+
+    func testWorkSessionRevisionPersistenceAcrossTurns() {
+        let machine = InvocationStateMachine.shared
+        machine.cancel()
+
+        let session1 = machine.ensureWorkSession()
+        let initialRev = session1.revision
+        XCTAssertFalse(session1.sessionId.isEmpty)
+
+        let session2 = machine.ensureWorkSession()
+        XCTAssertEqual(session1.sessionId, session2.sessionId)
+
+        let rev2 = machine.incrementWorkSessionRevision()
+        XCTAssertEqual(rev2, initialRev + 1)
+
+        let session3 = machine.ensureWorkSession()
+        XCTAssertEqual(session3.revision, initialRev + 1)
+        XCTAssertEqual(session3.sessionId, session1.sessionId)
+    }
 }

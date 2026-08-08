@@ -66,6 +66,9 @@ final class InvocationStateMachine {
 
     private var currentRevision: Int = 0
 
+    private(set) var workSessionId: String?
+    private(set) var workSessionRevision: Int = 0
+
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
@@ -270,6 +273,45 @@ final class InvocationStateMachine {
 
     func isRevisionCurrent(_ revision: Int) -> Bool {
         checkpointLock.withLock { revision == currentRevision }
+    }
+
+    func ensureWorkSession() -> (sessionId: String, revision: Int) {
+        checkpointLock.lock()
+        if workSessionId == nil {
+            workSessionId = UUID().uuidString
+            workSessionRevision = 1
+        }
+        let id = workSessionId!
+        let rev = workSessionRevision
+        checkpointLock.unlock()
+        return (id, rev)
+    }
+
+    func bumpWorkSessionRevisionIfContextChanged(from previousRevision: Int) -> Int {
+        checkpointLock.lock()
+        guard workSessionId != nil else {
+            workSessionId = UUID().uuidString
+            workSessionRevision = 1
+            let rev = workSessionRevision
+            checkpointLock.unlock()
+            return rev
+        }
+        let rev = workSessionRevision
+        checkpointLock.unlock()
+        return rev
+    }
+
+    func incrementWorkSessionRevision() -> Int {
+        checkpointLock.lock()
+        if workSessionId == nil {
+            workSessionId = UUID().uuidString
+            workSessionRevision = 1
+        } else {
+            workSessionRevision += 1
+        }
+        let rev = workSessionRevision
+        checkpointLock.unlock()
+        return rev
     }
 
     func hasFocusDrift() -> Bool {

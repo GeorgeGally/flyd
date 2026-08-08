@@ -4,6 +4,21 @@ import type { RecallIntent } from "./recall-intent.js";
 
 const CURRENTNESS_FRESHNESS_FLOOR = 0.4;
 
+export interface ContradictionSignal {
+  claim: string;
+  contradictingEvidence: string;
+  source: 'repository' | 'foreground' | 'user_correction';
+  timestamp: string;
+}
+
+export interface ContradictionResult {
+  path: string;
+  claim: string;
+  contradictingEvidence: string;
+  originalEpistemicConfidence: number;
+  suppressed: boolean;
+}
+
 // git status --porcelain=v1 lines look like "XY path" or "XY path -> newpath"
 // for renames — strip the 2-char status code and take the final path segment.
 function extractChangedFileBasenames(statusLines: string[]): string[] {
@@ -74,4 +89,63 @@ export function gateCurrentness(
   }
 
   return currentPaths;
+}
+
+export function suppressContradictedMemories(
+  scored: ScoredEvidence[],
+  contradictions: ContradictionSignal[],
+): ScoredEvidence[] {
+  if (contradictions.length === 0) return scored;
+
+  const contradictedPaths = new Set<string>();
+
+  for (const contradiction of contradictions) {
+    const claimLower = contradiction.claim.toLowerCase();
+    for (const entry of scored) {
+      if (entry.body.toLowerCase().includes(claimLower)) {
+        contradictedPaths.add(entry.path);
+      }
+    }
+  }
+
+  return scored.map((entry) => {
+    if (!contradictedPaths.has(entry.path)) return entry;
+    return {
+      ...entry,
+      isCurrent: false,
+      confidenceProfile: {
+        ...entry.confidenceProfile,
+      },
+    };
+  });
+}
+
+export function detectContradictions(
+  scored: ScoredEvidence[],
+  liveClaims: string[],
+  projectRoot?: string,
+): ContradictionResult[] {
+  const results: ContradictionResult[] = [];
+
+  for (const entry of scored) {
+    const entryLower = entry.body.toLowerCase();
+
+    for (const liveClaim of liveClaims) {
+      const claimLower = liveClaim.toLowerCase();
+      const entryContainsClaim = entryLower.includes(claimLower);
+      const claimContainsEntry = claimLower.includes(entryLower);
+
+      if (!entryContainsClaim && !claimContainsEntry) continue;
+
+      results.push({
+        path: entry.path,
+        claim: entry.body.slice(0, 120),
+        contradictingEvidence: liveClaim,
+        originalEpistemicConfidence: entry.confidenceProfile.epistemicConfidence,
+        suppressed: true,
+      });
+    }
+  }
+
+  return results;
 }

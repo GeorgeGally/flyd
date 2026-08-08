@@ -144,7 +144,7 @@ flyd/
     src/runtime/               older coding-task subsystem; do not confuse with overlay Core
 
   docs/product/                current product PRDs
-  docs/solutions/              documented engineering solutions
+  docs/solutions/              documented engineering solutions with YAML frontmatter (module, tags, problem_type); search before implementing or debugging in documented areas
 
   app/, db/, lib/, test/       legacy Rails tree — historical only; do not extend for active Flyd
 ```
@@ -171,7 +171,8 @@ Legacy Rails commands are not part of the active product workflow.
 
 ## Key files
 
-- `docs/product/flyd-overlay-prd.md` — overlay product definition
+- `docs/product/flyd-work-intelligence-prd.md` — **Active product authority** for the overlay; founder gate, product reset, work loop, and scope boundaries
+- `docs/product/flyd-overlay-prd.md` — overlay product definition (superseded for work-intelligence authority by `flyd-work-intelligence-prd.md`)
 - `docs/product/flyd-evidence-engine-prd.md` — evidence/reach architecture and E0–E5 sequence
 - `docs/product/flyd-evidence-engine-e1.md` — E1 implementation decisions
 - `docs/product/flyd-evidence-engine-e3-e4.md` — social reach and deep compose implementation

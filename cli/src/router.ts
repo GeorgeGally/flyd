@@ -19,9 +19,25 @@ export interface RouterConfig {
   baseURL: string;
 }
 
+export interface DictationCheckInput {
+  intent: string;
+  modality: "text" | "voice";
+  elementRole: string;
+}
+
+const DICTATION_PREFIX = /^(type|write|dictate|insert)\s/i;
+
+export function isDeterministicDictation(input: DictationCheckInput): boolean {
+  const hasEditableTarget = input.elementRole?.includes("Text") ?? false;
+  if (!hasEditableTarget) return false;
+  if (input.modality === "voice") return false;
+  return DICTATION_PREFIX.test(input.intent);
+}
+
 export interface ClassifiedRoute {
   route: IntentRoute;
   consequence: ConsequenceAssessment;
+  needsPersonalContext?: boolean;
 }
 
 const ROUTER_TIMEOUT_MS = 800;

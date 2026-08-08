@@ -1,3 +1,20 @@
+export interface LearningCandidate {
+  id: string;
+  source: 'correction' | 'accepted_standard' | 'durable_decision' | 'productive_procedure' | 'verified_outcome';
+  content: string;
+  domain: string;
+  outcomeRef: string;
+  epistemicConfidence: 'high' | 'medium' | 'low';
+  timestamp: string;
+}
+
+export interface LearningGateResult {
+  shouldRemember: boolean;
+  reason: string;
+  category: string;
+  confidence: 'low' | 'medium' | 'high';
+}
+
 export interface MemoryGateInput {
   intent: string;
   resolutionMode: string;
@@ -142,6 +159,52 @@ export function memoryGate(input: MemoryGateInput): MemoryGateResult {
     reason: "No significance signal detected",
     confidence: "low",
     category: "generic_qa",
+  };
+}
+
+const QUALIFYING_SOURCES = new Set([
+  'correction', 'accepted_standard', 'durable_decision',
+  'productive_procedure', 'verified_outcome',
+]);
+
+const REJECTED_SOURCES = new Set([
+  'routine_question', 'dismissed_suggestion', 'failed_action', 'unverified_claim',
+]);
+
+export function gateLearningCandidate(candidate: LearningCandidate): LearningGateResult {
+  const { source, epistemicConfidence, content } = candidate;
+
+  if (!QUALIFYING_SOURCES.has(source)) {
+    return {
+      shouldRemember: false,
+      reason: `Source type "${source}" is not a qualifying learning source`,
+      category: source,
+      confidence: 'low',
+    };
+  }
+
+  if (epistemicConfidence === 'low') {
+    return {
+      shouldRemember: false,
+      reason: `Low epistemic confidence on "${content.slice(0, 60)}"`,
+      category: source,
+      confidence: 'low',
+    };
+  }
+
+  const categoryLabels: Record<string, string> = {
+    correction: 'correction',
+    accepted_standard: 'accepted_standard',
+    durable_decision: 'durable_decision',
+    productive_procedure: 'productive_procedure',
+    verified_outcome: 'verified_outcome',
+  };
+
+  return {
+    shouldRemember: true,
+    reason: `${categoryLabels[source] ?? source} with ${epistemicConfidence} confidence`,
+    category: categoryLabels[source] ?? source,
+    confidence: epistemicConfidence,
   };
 }
 

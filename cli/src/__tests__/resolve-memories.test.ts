@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMemoryPack } from "../resolve.js";
 import type { BrainRetrievalResult } from "../lib/brain-retrieval.js";
+import { workSessionStore } from "../work-intelligence/work-session-store.js";
+import { conversationHistory } from "../conversation-history.js";
+import { constructCurrentWork } from "../work-intelligence/current-work.js";
+import { selectDomainStandard } from "../work-intelligence/domain-standards.js";
+import { buildWorkIntelligencePrompt } from "../work-intelligence/intervention.js";
+import { DOMAIN_STANDARDS } from "../work-intelligence/domain-standards.js";
+import type { CurrentWork } from "../work-intelligence/types.js";
 
 const retrieveResilientLexicalBrainEvidence = vi.fn(async (query: string): Promise<BrainRetrievalResult> => ({
   version: "1.0",
@@ -185,5 +192,120 @@ describe("buildMemoryPack", () => {
   it("does not add a currentness gap for non current_state queries", async () => {
     const pack = await buildMemoryPack("who am I", env);
     expect(pack.gaps).toHaveLength(0);
+  });
+});
+
+describe("work-intelligence memory context", () => {
+  function makeCurrentWork(overrides: Partial<CurrentWork> = {}): CurrentWork {
+    return {
+      project: { value: "Flyd", source: "foreground", confidence: "high", provenance: "test", sourceTimestamp: new Date().toISOString(), isHypothesis: false },
+      objective: { value: "Implement work intelligence", source: "foreground", confidence: "medium", provenance: "test", sourceTimestamp: new Date().toISOString(), isHypothesis: false },
+      artifact: { kind: "code", title: "resolve.ts", contentDigest: "test", bundleId: "com.apple.dt.Xcode" },
+      stage: { value: "execution", source: "foreground", confidence: "medium", provenance: "test", sourceTimestamp: new Date().toISOString(), isHypothesis: false },
+      constraints: { value: [], source: "foreground", confidence: "low", provenance: "test", sourceTimestamp: new Date().toISOString(), isHypothesis: true },
+      openLoops: [],
+      nextAction: { value: { description: "Review", readiness: "ready" }, source: "foreground", confidence: "high", provenance: "test", sourceTimestamp: new Date().toISOString(), isHypothesis: false },
+      evidenceSummary: {
+        sources: ["foreground_element"],
+        snapshotTimestamp: new Date().toISOString(),
+        foregroundApp: "VS Code",
+        activeWindowTitle: "resolve.ts",
+      },
+      uncertainty: [],
+      confidence: [{ field: "project", confidence: "high" }],
+      ...overrides,
+    };
+  }
+
+  it("builds memory retrieval alongside current work context", async () => {
+    const pack = await buildMemoryPack("who am I", env);
+    expect(pack.relevant).toHaveLength(1);
+    expect(pack.relevant[0].content).toBe("George is building flyd.");
+  });
+
+  it("constructs current work from foreground evidence", () => {
+    const codeEnv = {
+      application: { bundle_id: "com.microsoft.VSCode", name: "VS Code" },
+      window: { title: "resolve.ts — flyd", ref: "win_01" },
+      focused_element: {
+        ref: "el_01",
+        role: "AXTextArea",
+        description: "Code editor",
+        value: "export async function resolve",
+        placeholder: "",
+        selected_text: "",
+      },
+      selection: "",
+      sufficiency: "semantic" as const,
+    };
+    const cw = constructCurrentWork({
+      environment: codeEnv,
+      resolvedProjectRoot: "/Users/george/flyd",
+      gitBranch: "main",
+    });
+    expect(cw.project.value).toBe("flyd");
+    expect(cw.artifact.kind).toBe("code");
+    expect(cw.stage.value).toBe("execution");
+  });
+
+  it("selects correct domain standard for code artifact", () => {
+    const standard = selectDomainStandard({ artifactKind: "code", bundleId: "com.apple.dt.Xcode" });
+    expect(standard.domain).toBe("code");
+  });
+
+  it("builds WI prompt with current work and domain standards", () => {
+    const cw = makeCurrentWork();
+    const standard = DOMAIN_STANDARDS.code;
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork: cw,
+      domainStandard: standard,
+      intent: "review this",
+    });
+    expect(prompt).toContain("Flyd");
+    expect(prompt).toContain("resolve.ts");
+    expect(prompt).toContain("correctness");
+    expect(prompt).toContain("GROUND RULES");
+  });
+
+  it("carries conversation history from work session store", () => {
+    const session = workSessionStore.createSession();
+    workSessionStore.addTurn(session.sessionId, "what is this", "It is a function", "work_intelligence");
+    workSessionStore.addTurn(session.sessionId, "review it", "Looks good", "work_intelligence");
+
+    const cw = makeCurrentWork();
+    const standard = DOMAIN_STANDARDS.code;
+    const turns = workSessionStore.getActiveConversationTurns(session.sessionId);
+    const history = turns.map(t => `User: ${t.user}\nFlyd: ${t.assistant}`).join("\n");
+
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork: cw,
+      domainStandard: standard,
+      intent: "what about errors?",
+      conversationHistory: history,
+    });
+
+    expect(prompt).toContain("RECENT CONVERSATION");
+    expect(prompt).toContain("what is this");
+    expect(prompt).toContain("review it");
+    expect(prompt).toContain("what about errors?");
+  });
+
+  it("limits conversation history to last 6 turns via conversation store", () => {
+    const session = workSessionStore.createSession();
+    for (let i = 0; i < 10; i++) {
+      workSessionStore.addTurn(session.sessionId, `question ${i}`, `answer ${i}`, "work_intelligence");
+    }
+
+    // workSessionStore.getActiveConversationTurns returns up to 10 turns;
+    // the 6-turn limit is applied by conversationHistory.get() when
+    // falling through to workSessionStore.
+    const rawTurns = workSessionStore.getActiveConversationTurns(session.sessionId);
+    expect(rawTurns).toHaveLength(10);
+
+    // conversationHistory.get() slices to last 6 from the WI fallback
+    const limitedTurns = conversationHistory.get(session.sessionId);
+    expect(limitedTurns).toHaveLength(6);
+    expect(limitedTurns[0].user).toBe("question 4");
+    expect(limitedTurns[5].user).toBe("question 9");
   });
 });

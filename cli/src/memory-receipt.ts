@@ -7,7 +7,7 @@ import { parse as parseFrontmatter } from "./lib/frontmatter.js";
 export interface MemoryReceipt {
   receiptId: string;
   generatedAt: string;
-  source: "flyd-overlay";
+  source: "flyd-overlay" | "flyd-work-intelligence";
   belief: {
     what: string;
     why: string;
@@ -19,6 +19,33 @@ export interface MemoryReceipt {
     outcome: string;
     environmentSummary: string;
     correction: string | null;
+  };
+  selfContained: boolean;
+  eventType: string;
+  derivedSignal: string;
+  topics: string[];
+}
+
+export interface LearningReceipt {
+  receiptId: string;
+  generatedAt: string;
+  source: "flyd-work-intelligence";
+  provenance: {
+    epistemicConfidence: 'high' | 'medium' | 'low';
+    sourceType: string;
+    domain: string;
+    outcomeRef: string;
+    timestamp: string;
+  };
+  belief: {
+    what: string;
+    why: string;
+    when: string;
+  };
+  evidence: {
+    content: string;
+    domain: string;
+    outcomeRef: string;
   };
   selfContained: boolean;
   eventType: string;
@@ -105,6 +132,50 @@ function gateCategoryToSignal(category: string): string {
     confirmation: "confirmed",
   };
   return map[category] ?? "observation";
+}
+
+export interface LearningCandidateInput {
+  id: string;
+  source: string;
+  content: string;
+  domain: string;
+  outcomeRef: string;
+  epistemicConfidence: 'high' | 'medium' | 'low';
+  timestamp: string;
+}
+
+export function createLearningReceipt(
+  candidate: LearningCandidateInput,
+  source: string,
+  domain: string
+): LearningReceipt {
+  const topics = extractKeywords(candidate.content);
+  return {
+    receiptId: crypto.randomUUID(),
+    generatedAt: new Date().toISOString(),
+    source: "flyd-work-intelligence",
+    provenance: {
+      epistemicConfidence: candidate.epistemicConfidence,
+      sourceType: candidate.source,
+      domain: candidate.domain || domain,
+      outcomeRef: candidate.outcomeRef,
+      timestamp: candidate.timestamp,
+    },
+    belief: {
+      what: source,
+      why: `Learning from ${candidate.source}: "${candidate.content.slice(0, 120)}"`,
+      when: candidate.timestamp,
+    },
+    evidence: {
+      content: candidate.content.slice(0, 200),
+      domain: candidate.domain || domain,
+      outcomeRef: candidate.outcomeRef,
+    },
+    selfContained: true,
+    eventType: `wt_${candidate.source}`,
+    derivedSignal: candidate.source,
+    topics,
+  };
 }
 
 export function provisionalLearn(intent: string): ProvisionalLearning | null {

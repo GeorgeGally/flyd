@@ -11,6 +11,43 @@ final class AccessibilityInspector {
 
     private let maxNodeCount = 50
 
+    private(set) var focusedElementBounds: CGRect?
+    private(set) var selectedRangeBounds: CGRect?
+    private(set) var openDocuments: [String] = []
+
+    func captureOpenDocuments(for bundleId: String) -> [String] {
+        var documents: Set<String> = []
+
+        if let runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+            let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+
+            var windowList: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowList)
+            guard result == .success, let windows = windowList as? [AXUIElement] else { return [] }
+
+            for window in windows.prefix(10) {
+                var titleValue: CFTypeRef?
+                if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
+                   let title = titleValue as? String, !title.isEmpty {
+                    documents.insert(title)
+                }
+
+                var docValue: CFTypeRef?
+                if AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &docValue) == .success,
+                   let docPath = docValue as? String, !docPath.isEmpty {
+                    let filename = (docPath as NSString).lastPathComponent
+                    documents.insert(filename)
+                }
+            }
+        }
+
+        return Array(documents).prefix(10).map { $0 }
+    }
+    var editable: Bool {
+        guard let role = currentRole else { return false }
+        return role == "AXTextField" || role == "AXTextArea"
+    }
+
     deinit {
         stop()
     }
@@ -84,7 +121,11 @@ final class AccessibilityInspector {
         var focusedRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef)
 
-        guard result == .success, let focused = focusedRef else { return nil }
+        guard result == .success, let focused = focusedRef else {
+            focusedElementBounds = nil
+            selectedRangeBounds = nil
+            return nil
+        }
         let focusedElement = focused as! AXUIElement
 
         currentElementRef = focusedElement
@@ -94,6 +135,9 @@ final class AccessibilityInspector {
         let value = axAttribute(focusedElement, kAXValueAttribute as CFString) ?? ""
         let placeholder = axAttribute(focusedElement, kAXPlaceholderValueAttribute as CFString) ?? ""
         let selectedText = axAttribute(focusedElement, kAXSelectedTextAttribute as CFString) ?? ""
+
+        focusedElementBounds = axRect(focusedElement, "AXFrame" as CFString)
+        selectedRangeBounds = captureSelectedRangeBounds(focusedElement)
 
         return EnvironmentState.FocusedElementInfo(
             ref: "el_01",
@@ -204,6 +248,11 @@ final class AccessibilityInspector {
 
         let surfaceInfo = surfaceFor(bundleId: appInfo.bundleId, windowTitle: windowInfo.title)
 
+        let documentPath = captureDocumentPath(for: appInfo.bundleId)
+        let browserURL = captureBrowserURL(for: appInfo.bundleId)
+        let displayID = captureDisplayID()
+        let openDocuments = captureOpenDocuments(for: appInfo.bundleId)
+
         return EnvironmentState(
             application: appInfo,
             surface: surfaceInfo,
@@ -212,7 +261,12 @@ final class AccessibilityInspector {
             semanticNeighbourhood: captureSemanticNeighbourhood(),
             selection: focusedElement.selectedText,
             sufficiency: semanticSufficiency(appInfo.bundleId),
-            timestamp: Date()
+            timestamp: Date(),
+            documentPath: documentPath,
+            browserURL: browserURL,
+            displayID: displayID,
+            screenshotBounds: nil,
+            openDocuments: openDocuments.isEmpty ? nil : openDocuments
         )
     }
 
@@ -261,6 +315,155 @@ final class AccessibilityInspector {
             return num.stringValue
         }
         return "\(copied)"
+    }
+
+    private func axRect(_ element: AXUIElement, _ attribute: CFString) -> CGRect? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute, &value)
+        guard result == .success, let copied = value else { return nil }
+
+        var rect = CGRect.zero
+        guard AXValueGetValue(copied as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    private func captureSelectedRangeBounds(_ element: AXUIElement) -> CGRect? {
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let range = rangeValue else { return nil }
+
+        var boundsValue: CFTypeRef?
+        let param = range as CFTypeRef
+        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, param, &boundsValue) == .success,
+              let bounds = boundsValue else { return nil }
+
+        var rect = CGRect.zero
+        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    private func captureDocumentPath(for bundleId: String) -> String? {
+        guard let app = AXUIElementCreateApplication(pid) as AXUIElement? else { return nil }
+        var docValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXDocumentAttribute as CFString, &docValue) == .success,
+              let doc = docValue else {
+            return fallbackDocumentPath(for: bundleId)
+        }
+        if let url = doc as? URL {
+            return url.path
+        }
+        if let str = doc as? String {
+            return str
+        }
+        return nil
+    }
+
+    private func fallbackDocumentPath(for bundleId: String) -> String? {
+        guard NSRunningApplication(processIdentifier: pid) != nil else { return nil }
+        if bundleId == "com.apple.dt.Xcode" {
+            if let workspaceWindow = focusedWindow(),
+               let title = axAttribute(workspaceWindow, kAXTitleAttribute as CFString),
+               let dashRange = title.range(of: " — ") {
+                return String(title[..<dashRange.lowerBound])
+            }
+        }
+        return nil
+    }
+
+    private func focusedWindow() -> AXUIElement? {
+        guard let app = AXUIElementCreateApplication(pid) as AXUIElement? else { return nil }
+        var windowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
+              let window = windowRef else { return nil }
+        return (window as! AXUIElement)
+    }
+
+    private static let browserBundleIds: Set<String> = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "org.mozilla.firefox",
+        "com.microsoft.edgemac",
+        "com.brave.Browser",
+        "company.thebrowser.Browser",
+    ]
+
+    private func captureBrowserURL(for bundleId: String) -> String? {
+        guard Self.browserBundleIds.contains(bundleId) else { return nil }
+
+        if bundleId == "com.apple.Safari" {
+            return captureSafariURL()
+        }
+        if bundleId == "com.google.Chrome" {
+            return captureChromeURL()
+        }
+
+        guard let window = focusedWindow() else { return nil }
+        var urlValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXURLAttribute as CFString, &urlValue) == .success,
+              let url = urlValue as? URL else {
+            return axAttribute(window, kAXTitleAttribute as CFString)
+        }
+        return url.absoluteString
+    }
+
+    private func captureSafariURL() -> String? {
+        guard let window = focusedWindow() else { return nil }
+        var urlValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXURLAttribute as CFString, &urlValue) == .success,
+              let url = urlValue as? URL else {
+            return axAttribute(window, kAXTitleAttribute as CFString)
+        }
+        return url.absoluteString
+    }
+
+    private func captureChromeURL() -> String? {
+        guard let window = focusedWindow() else { return nil }
+        var urlValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXURLAttribute as CFString, &urlValue) == .success,
+              let url = urlValue as? URL else {
+            let title = axAttribute(window, kAXTitleAttribute as CFString) ?? ""
+            let components = title.components(separatedBy: " - Google Chrome")
+            return components.first?.trimmingCharacters(in: .whitespaces)
+        }
+        return url.absoluteString
+    }
+
+    private func captureDisplayID() -> String? {
+        guard let window = focusedWindow() else { return nil }
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success else {
+            return mainDisplayID()
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else {
+            return mainDisplayID()
+        }
+
+        let windowFrame = CGRect(origin: position, size: size)
+        let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+
+        for screen in NSScreen.screens {
+            let screenFrame = screen.frame
+            if screenFrame.contains(windowCenter) {
+                if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                    return "\(screenNumber.uint32Value)"
+                }
+                return screen.localizedName
+            }
+        }
+
+        return mainDisplayID()
+    }
+
+    private func mainDisplayID() -> String? {
+        guard let screen = NSScreen.main,
+              let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return "\(screenNumber.uint32Value)"
     }
 }
 

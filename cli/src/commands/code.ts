@@ -130,6 +130,7 @@ export async function loadAgentSituation(
       outcome: recent?.intendedOutcome ?? null,
       status: recent?.status ?? null,
       nextAction: recent ? actionableTaskNextAction(recent) : null,
+      projectRoot: repository.root,
     };
   } finally {
     if (ownsPool) await pool.end();

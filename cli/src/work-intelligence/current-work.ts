@@ -27,6 +27,7 @@ export interface EnvironmentCapture {
   display_identity?: string;
   focused_bounds?: DisplayBounds;
   document_path?: string;
+  open_documents?: string[];
 }
 
 export interface GroundingContext {
@@ -35,6 +36,8 @@ export interface GroundingContext {
   gitBranch?: string;
   gitHeadDigest?: string;
   gitStatusDigest?: string;
+  gitRecentCommits?: string[];
+  gitChangedFiles?: string[];
   screenshotBase64?: string;
 }
 
@@ -252,6 +255,8 @@ function buildEvidenceSummary(
   if (env.display_identity) sources.push('screenshot');
   if (ctx.resolvedProjectRoot) sources.push('repository');
   if (env.document_path) sources.push('document_path');
+  if (ctx.gitRecentCommits?.length) sources.push('git_recent_commits');
+  if (ctx.gitChangedFiles?.length) sources.push('git_diff');
 
   return {
     sources,
@@ -260,8 +265,12 @@ function buildEvidenceSummary(
     repositoryRoot: ctx.resolvedProjectRoot,
     branch: ctx.gitBranch,
     headDigest: ctx.gitHeadDigest,
+    statusDigest: ctx.gitStatusDigest,
     documentPath: env.document_path,
     activeWindowTitle: env.window?.title || env.application?.name || 'unknown',
+    recentCommits: ctx.gitRecentCommits,
+    changedFiles: ctx.gitChangedFiles,
+    openDocuments: env.open_documents,
   };
 }
 
@@ -270,6 +279,8 @@ export function resolveRepositoryFromPath(documentPath?: string): {
   branch?: string;
   headDigest?: string;
   statusDigest?: string;
+  recentCommits?: string[];
+  changedFiles?: string[];
 } {
   if (!documentPath) return {};
 
@@ -282,7 +293,19 @@ export function resolveRepositoryFromPath(documentPath?: string): {
     const status = gitOutput(root, 'status --porcelain');
     const statusDigest = status && status.length > 0 ? 'dirty' : 'clean';
 
-    return { root, branch, headDigest, statusDigest };
+    const recentCommitsRaw = gitOutput(root, 'log --oneline -5');
+    const recentCommits = recentCommitsRaw
+      ? recentCommitsRaw.split('\n').filter(Boolean)
+      : undefined;
+
+    const changedFilesRaw = statusDigest === 'dirty'
+      ? gitOutput(root, 'diff --name-only HEAD')
+      : undefined;
+    const changedFiles = changedFilesRaw
+      ? changedFilesRaw.split('\n').filter(Boolean).slice(0, 20)
+      : undefined;
+
+    return { root, branch, headDigest, statusDigest, recentCommits, changedFiles };
   } catch {
     return {};
   }

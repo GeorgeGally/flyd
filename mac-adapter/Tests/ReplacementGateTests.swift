@@ -87,4 +87,24 @@ final class ReplacementGateTests: XCTestCase {
             newText: "X"
         ))
     }
+
+    func testActionGrantValidationWithNoPendingAction() {
+        let result = ExecutionResult(success: true, error: nil)
+        XCTAssertTrue(result.success)
+        XCTAssertNil(result.error)
+        XCTAssertNil(result.verificationEvidence)
+    }
+
+    func testVerificationEvidenceInitialization() {
+        let evidence = VerificationEvidence(
+            preValueDigest: "abc123",
+            postValue: "new text",
+            postValueDigest: "def456",
+            changed: true
+        )
+        XCTAssertTrue(evidence.changed)
+        XCTAssertEqual(evidence.preValueDigest, "abc123")
+        XCTAssertEqual(evidence.postValue, "new text")
+        XCTAssertEqual(evidence.postValueDigest, "def456")
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 final class FlydClient {
     static let shared = FlydClient()
@@ -17,6 +18,15 @@ final class FlydClient {
         let screenshot: String?
         let conversationId: String?
         let invocationFingerprint: FingerprintPayload
+        let documentPath: String?
+        let browserURL: String?
+        let displayID: String?
+        let screenshotBounds: BoundsPayload?
+        let focusedElementBounds: BoundsPayload?
+        let selectedRangeBounds: BoundsPayload?
+        let editable: Bool?
+        let workSessionId: String?
+        let workSessionRevision: Int?
 
         enum CodingKeys: String, CodingKey {
             case invocationId = "invocation_id"
@@ -27,6 +37,15 @@ final class FlydClient {
             case screenshot
             case conversationId = "conversation_id"
             case invocationFingerprint = "invocation_fingerprint"
+            case documentPath = "document_path"
+            case browserURL = "browser_url"
+            case displayID = "display_id"
+            case screenshotBounds = "screenshot_bounds"
+            case focusedElementBounds = "focused_element_bounds"
+            case selectedRangeBounds = "selected_range_bounds"
+            case editable
+            case workSessionId = "work_session_id"
+            case workSessionRevision = "work_session_revision"
         }
     }
 
@@ -38,6 +57,12 @@ final class FlydClient {
         let semanticNeighbourhood: NeighbourhoodPayload?
         let selection: String
         let sufficiency: String
+        let documentPath: String?
+        let browserURL: String?
+        let displayID: String?
+        let focusedElementBounds: BoundsPayload?
+        let selectedRangeBounds: BoundsPayload?
+        let openDocuments: [String]?
 
         enum CodingKeys: String, CodingKey {
             case application
@@ -47,6 +72,12 @@ final class FlydClient {
             case semanticNeighbourhood = "semantic_neighbourhood"
             case selection
             case sufficiency
+            case documentPath = "document_path"
+            case browserURL = "browser_url"
+            case displayID = "display_id"
+            case focusedElementBounds = "focused_element_bounds"
+            case selectedRangeBounds = "selected_range_bounds"
+            case openDocuments = "open_documents"
         }
     }
 
@@ -106,6 +137,13 @@ final class FlydClient {
         let element: String
     }
 
+    struct BoundsPayload: Codable {
+        let x: Int
+        let y: Int
+        let width: Int
+        let height: Int
+    }
+
     struct ResolutionResponse: Codable {
         let resolutionId: String
         let invocationId: String
@@ -117,6 +155,10 @@ final class FlydClient {
         let composeRationale: String?
         let composeUrl: String?
         let requiresConfirmation: Bool?
+        let currentWork: CurrentWorkPayload?
+        let diagnosis: DiagnosisPayload?
+        let intervention: InterventionPayload?
+        let taskPlan: TaskPlanResponsePayload?
     }
 
     struct OperationPayload: Codable {
@@ -131,6 +173,7 @@ final class FlydClient {
         let placement: String
         let options: [String]?
         let temporalSpan: TemporalSpanPayload?
+        let commands: [ShellCommandPayload]?
     }
 
     struct TemporalSpanPayload: Codable {
@@ -143,6 +186,29 @@ final class FlydClient {
         let invocationId: String
         let status: String
         let correction: String?
+        let verification: VerificationEvidencePayload?
+
+        enum CodingKeys: String, CodingKey {
+            case resolutionId = "resolution_id"
+            case invocationId = "invocation_id"
+            case status
+            case correction
+            case verification
+        }
+    }
+
+    struct VerificationEvidencePayload: Codable {
+        let preValueDigest: String?
+        let postValue: String?
+        let postValueDigest: String?
+        let changed: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case preValueDigest = "pre_value_digest"
+            case postValue = "post_value"
+            case postValueDigest = "post_value_digest"
+            case changed
+        }
     }
 
     struct VoiceStatusResponse: Codable {
@@ -162,12 +228,25 @@ final class FlydClient {
         modality: String,
         screenshot: String? = nil,
         conversationId: String? = nil,
-        fingerprint: InvocationFingerprint
+        fingerprint: InvocationFingerprint,
+        documentPath: String? = nil,
+        browserURL: String? = nil,
+        displayID: String? = nil,
+        screenshotBounds: CGRect? = nil,
+        focusedElementBounds: CGRect? = nil,
+        selectedRangeBounds: CGRect? = nil,
+        editable: Bool? = nil,
+        workSessionId: String? = nil,
+        workSessionRevision: Int? = nil
     ) async -> ResolutionResponse? {
         let payload = ManifestPayload(
             invocationId: invocationId,
             environmentRevision: environmentRevision,
-            environment: buildEnvironmentPayload(from: environment),
+            environment: buildEnvironmentPayload(
+                from: environment,
+                focusedElementBounds: focusedElementBounds,
+                selectedRangeBounds: selectedRangeBounds
+            ),
             intent: intent,
             modality: modality,
             screenshot: screenshot,
@@ -177,7 +256,16 @@ final class FlydClient {
                 surface: fingerprint.surface,
                 window: fingerprint.window,
                 element: fingerprint.element
-            )
+            ),
+            documentPath: documentPath,
+            browserURL: browserURL,
+            displayID: displayID,
+            screenshotBounds: screenshotBounds.map(toBoundsPayload),
+            focusedElementBounds: focusedElementBounds.map(toBoundsPayload),
+            selectedRangeBounds: selectedRangeBounds.map(toBoundsPayload),
+            editable: editable,
+            workSessionId: workSessionId,
+            workSessionRevision: workSessionRevision
         )
 
         guard let response: ResolutionResponse = await post("/manifest", body: payload) else {
@@ -190,16 +278,114 @@ final class FlydClient {
         resolutionId: String,
         invocationId: String,
         status: String,
-        correction: String?
+        correction: String?,
+        verification: VerificationEvidencePayload? = nil
     ) async {
         let payload = OutcomePayload(
             resolutionId: resolutionId,
             invocationId: invocationId,
             status: status,
-            correction: correction
+            correction: correction,
+            verification: verification
         )
 
         _ = await post("/manifest/outcome", body: payload) as AcknowledgementResponse?
+    }
+
+    func approveCommands(
+        executionId: String,
+        workSessionId: String,
+        interactionId: String,
+        commands: [ShellCommandPayload],
+        projectRoot: String
+    ) async -> ShellExecutionResultPayload? {
+        let payload = ShellExecutionRequestPayload(
+            executionId: executionId,
+            workSessionId: workSessionId,
+            interactionId: interactionId,
+            commands: commands,
+            projectRoot: projectRoot
+        )
+        return await post("/work-intelligence/command/execute", body: payload)
+    }
+
+    func pollCommandOutput(executionId: String) async -> ShellExecutionResultPayload? {
+        guard let url = URL(string: "\(baseURL)/work-intelligence/command/status?executionId=\(executionId)") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(ShellExecutionResultPayload.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    func cancelCommandExecution(executionId: String) async -> Bool {
+        guard let url = URL(string: "\(baseURL)/work-intelligence/command/cancel") else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        request.httpBody = try? JSONEncoder().encode(["execution_id": executionId])
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    func readFile(path: String, projectRoot: String, startLine: Int? = nil, endLine: Int? = nil) async -> FileReadResultPayload? {
+        var body: [String: Any] = ["path": path, "projectRoot": projectRoot]
+        if let start = startLine { body["startLine"] = start }
+        if let end = endLine { body["endLine"] = end }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        return await postRaw("/work-intelligence/file/read", body: jsonData).flatMap { try? JSONDecoder().decode(FileReadResultPayload.self, from: $0) }
+    }
+
+    func grepCodebase(pattern: String, projectRoot: String, filePattern: String? = nil, maxResults: Int = 200) async -> FileGrepResultPayload? {
+        var body: [String: Any] = ["pattern": pattern, "projectRoot": projectRoot, "maxResults": maxResults]
+        if let fp = filePattern { body["filePattern"] = fp }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        return await postRaw("/work-intelligence/file/grep", body: jsonData).flatMap { try? JSONDecoder().decode(FileGrepResultPayload.self, from: $0) }
+    }
+
+    func writeFile(path: String, content: String, projectRoot: String, createDirectories: Bool = true) async -> FileWriteResultPayload? {
+        let body: [String: Any] = ["path": path, "content": content, "projectRoot": projectRoot, "createDirectories": createDirectories]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        return await postRaw("/work-intelligence/file/write", body: jsonData).flatMap { try? JSONDecoder().decode(FileWriteResultPayload.self, from: $0) }
+    }
+
+    private func postRaw(_ path: String, body: Data) async -> Data? {
+        guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 60
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return data
+        } catch {
+            return nil
+        }
     }
 
     func healthCheck() async -> Bool {
@@ -297,7 +483,11 @@ final class FlydClient {
                 resolutionId: response.resolutionId,
                 directAvailable: directAvailable
             ),
-            requiresConfirmation: response.requiresConfirmation
+            requiresConfirmation: response.requiresConfirmation,
+            currentWork: response.currentWork,
+            diagnosis: response.diagnosis,
+            intervention: response.intervention,
+            taskPlan: response.taskPlan
         )
     }
 
@@ -359,7 +549,15 @@ final class FlydClient {
         }
     }
 
-    private func buildEnvironmentPayload(from state: EnvironmentState) -> EnvironmentPayload {
+    private func toBoundsPayload(_ rect: CGRect) -> BoundsPayload {
+        BoundsPayload(x: Int(rect.origin.x), y: Int(rect.origin.y), width: Int(rect.size.width), height: Int(rect.size.height))
+    }
+
+    private func buildEnvironmentPayload(
+        from state: EnvironmentState,
+        focusedElementBounds: CGRect? = nil,
+        selectedRangeBounds: CGRect? = nil
+    ) -> EnvironmentPayload {
         return EnvironmentPayload(
             application: AppPayload(
                 bundleId: state.application.bundleId,
@@ -381,7 +579,62 @@ final class FlydClient {
                 NeighbourhoodPayload(parentType: $0.parentType, context: $0.context)
             },
             selection: state.selection,
-            sufficiency: state.sufficiency.rawValue
+            sufficiency: state.sufficiency.rawValue,
+            documentPath: state.documentPath,
+            browserURL: state.browserURL,
+            displayID: state.displayID,
+            focusedElementBounds: focusedElementBounds.map(toBoundsPayload),
+            selectedRangeBounds: selectedRangeBounds.map(toBoundsPayload),
+            openDocuments: state.openDocuments
         )
+    }
+}
+
+struct FileReadResultPayload: Codable {
+    let path: String
+    let content: String
+    let totalLines: Int
+    let startLine: Int?
+    let endLine: Int?
+    let truncated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case path, content
+        case totalLines = "totalLines"
+        case startLine = "startLine"
+        case endLine = "endLine"
+        case truncated
+    }
+}
+
+struct FileGrepMatchPayload: Codable {
+    let file: String
+    let line: Int
+    let content: String
+}
+
+struct FileGrepResultPayload: Codable {
+    let pattern: String
+    let matches: [FileGrepMatchPayload]
+    let totalMatches: Int
+    let truncated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case pattern, matches
+        case totalMatches = "totalMatches"
+        case truncated
+    }
+}
+
+struct FileWriteResultPayload: Codable {
+    let path: String
+    let created: Bool
+    let bytesWritten: Int
+    let linesWritten: Int
+
+    enum CodingKeys: String, CodingKey {
+        case path, created
+        case bytesWritten = "bytesWritten"
+        case linesWritten = "linesWritten"
     }
 }

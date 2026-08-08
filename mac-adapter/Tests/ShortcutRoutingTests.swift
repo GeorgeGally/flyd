@@ -198,4 +198,16 @@ final class ShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(shiftCtrl, .none)
         XCTAssertEqual(ctrlPress(&state, at: 0.30), .none)
     }
+
+    func testCoordinatorPhaseTransitions() {
+        let coordinator = WorkInteractionCoordinator.shared
+
+        coordinator.beginSession(sessionId: "test-session", revision: 1)
+        XCTAssertEqual(coordinator.phase, .grounding)
+        XCTAssertTrue(coordinator.isActive)
+
+        coordinator.cancelActiveInvocation()
+        XCTAssertEqual(coordinator.phase, .idle)
+        XCTAssertFalse(coordinator.isActive)
+    }
 }

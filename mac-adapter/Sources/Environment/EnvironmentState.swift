@@ -11,6 +11,11 @@ struct EnvironmentState {
     let selection: String
     let sufficiency: SufficiencyLevel
     let timestamp: Date
+    let documentPath: String?
+    let browserURL: String?
+    let displayID: String?
+    let screenshotBounds: CGRect?
+    let openDocuments: [String]?
 
     struct ApplicationInfo: Codable {
         let bundleId: String
@@ -67,7 +72,12 @@ struct EnvironmentState {
             semanticNeighbourhood: nil,
             selection: "",
             sufficiency: .partial,
-            timestamp: Date()
+            timestamp: Date(),
+            documentPath: nil,
+            browserURL: nil,
+            displayID: nil,
+            screenshotBounds: nil,
+            openDocuments: nil
         )
     }
 }

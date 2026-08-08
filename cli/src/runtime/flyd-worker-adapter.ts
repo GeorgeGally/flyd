@@ -9,6 +9,30 @@ import type { FlydWorkerConfig } from "./flyd-worker-config.js";
 
 const FLYD_CAPABILITIES = [ "analysis", "implementation", "review", "testing", "resume" ] as const;
 
+const REPOSITORY_ACTION_BOUNDARY = new Set([
+  "task-store",
+  "orchestrator",
+  "runtime-bridge",
+  "attention",
+  "delegation",
+  "delegation-event",
+]);
+
+export function verifyRepositoryActionDependencyBoundary(moduleSource: string): { ok: boolean; violations: string[] } {
+  const violations: string[] = [];
+  const importPattern = /(?:import\s+(?:.*\s+from\s+)?['"]|require\s*\(\s*['"])([^'"]+)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = importPattern.exec(moduleSource)) !== null) {
+    const path = match[1];
+    for (const forbidden of REPOSITORY_ACTION_BOUNDARY) {
+      if (path.includes(forbidden)) {
+        violations.push(`Forbidden import: ${path} (matches boundary rule "${forbidden}")`);
+      }
+    }
+  }
+  return { ok: violations.length === 0, violations };
+}
+
 export function parseFlydWorkerEvent(line: string): WorkerEvent | null {
   try {
     const event = JSON.parse(line) as Record<string, unknown>;

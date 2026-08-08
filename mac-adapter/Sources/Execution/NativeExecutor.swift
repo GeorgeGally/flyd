@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 
 final class NativeExecutor {
     static let shared = NativeExecutor()
@@ -94,6 +95,10 @@ final class NativeExecutor {
     }
 
     func execute(operation: ResolvedOperation, fingerprint: InvocationFingerprint, recordUndo: Bool) async -> ExecutionResult {
+        if let grantInvalidReason = validateActionGrant(for: operation.target) {
+            return ExecutionResult(success: false, error: grantInvalidReason)
+        }
+
         let element = resolveElement(ref: operation.target)
         guard let element else {
             return ExecutionResult(success: false, error: "Target no longer available — element not found")
@@ -103,10 +108,20 @@ final class NativeExecutor {
             return ExecutionResult(success: false, error: "Element is not an editable text field")
         }
 
+        var preValueRef: CFTypeRef?
+        var preValue: String?
+        var preDigest: String?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &preValueRef) == .success {
+            preValue = preValueRef as? String
+            if let preValue {
+                preDigest = SHA256.hash(data: Data(preValue.utf8)).compactMap { String(format: "%02x", $0) }.joined()
+            }
+        }
+
+        let storedDigest = activeTargets[operation.target]?.descriptor.contentDigest
+
         if recordUndo, let descriptor = activeTargets[operation.target]?.descriptor {
-            var valueRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
-               let priorValue = valueRef as? String {
+            if let priorValue = preValue {
                 UndoManager.shared.register(
                     target: descriptor,
                     element: element,
@@ -118,16 +133,76 @@ final class NativeExecutor {
             }
         }
 
+        let result: ExecutionResult
         switch operation.kind {
         case "insert_text":
-            return insertText(element, text: operation.text)
+            result = insertText(element, text: operation.text)
         case "replace_text":
-            return replaceText(element, text: operation.text)
+            result = replaceText(element, text: operation.text)
         case "replace_selection":
-            return replaceSelection(element, text: operation.text)
+            result = replaceSelection(element, text: operation.text)
         default:
-            return ExecutionResult(success: false, error: "Unknown operation kind: \(operation.kind)")
+            result = ExecutionResult(success: false, error: "Unknown operation kind: \(operation.kind)")
         }
+
+        let verification = reReadAfterExecution(
+            element: element,
+            preValue: preValue,
+            preDigest: preDigest ?? storedDigest,
+            executionSucceeded: result.success
+        )
+
+        return ExecutionResult(
+            success: result.success,
+            error: result.error,
+            verificationEvidence: verification
+        )
+    }
+
+    private func validateActionGrant(for target: String) -> String? {
+        let coordinator = WorkInteractionCoordinator.shared
+        guard let pending = coordinator.pendingAction else {
+            return nil
+        }
+
+        if let storedDescriptor = activeTargets[target]?.descriptor,
+           storedDescriptor.revision != coordinator.sessionRevision {
+            return "Action grant invalidated: Work Session revision mismatch"
+        }
+
+        if let storedDigest = activeTargets[target]?.descriptor.contentDigest,
+           let grantDigest = pending.targetFingerprint.fieldValueDigest,
+           storedDigest != grantDigest {
+            return "Target has drifted: field value no longer matches approved fingerprint"
+        }
+
+        return nil
+    }
+
+    private func reReadAfterExecution(element: AXUIElement, preValue: String?, preDigest: String?, executionSucceeded: Bool) -> VerificationEvidence? {
+        guard executionSucceeded else { return nil }
+
+        var postValueRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &postValueRef) == .success else {
+            return nil
+        }
+        let postValue = postValueRef as? String
+
+        let postDigest: String?
+        if let postValue {
+            postDigest = SHA256.hash(data: Data(postValue.utf8)).compactMap { String(format: "%02x", $0) }.joined()
+        } else {
+            postDigest = nil
+        }
+
+        let changed = preDigest != postDigest || preValue != postValue
+
+        return VerificationEvidence(
+            preValueDigest: preDigest,
+            postValue: postValue,
+            postValueDigest: postDigest,
+            changed: changed
+        )
     }
 
     func undoLast(for invocationId: String) -> Bool {
@@ -188,4 +263,12 @@ struct ResolvedOperation {
 struct ExecutionResult {
     let success: Bool
     let error: String?
+    var verificationEvidence: VerificationEvidence? = nil
+}
+
+struct VerificationEvidence {
+    let preValueDigest: String?
+    let postValue: String?
+    let postValueDigest: String?
+    let changed: Bool
 }

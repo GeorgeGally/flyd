@@ -77,12 +77,12 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(prompt.system).toContain("capable personal agent");
+    expect(prompt.system).toContain("Your user is George");
     expect(prompt.system).toContain("general knowledge");
     expect(prompt.system).toContain("Never reply with generic availability");
-    expect(prompt.system).toContain("Never tell George to wait");
-    expect(prompt.system).toContain("Never claim Flyd cannot act");
-    expect(prompt.system).toContain("never replace execution with generic instructions");
+    expect(prompt.system).toContain("Act now");
+    expect(prompt.system).toContain("No plan-only finish");
+    expect(prompt.system).toContain("vary the query and try again");
     expect(prompt.system).toContain("does not belong in a task yet");
     expect(prompt.prompt).toContain("The first proof is that George chooses Flyd");
     expect(prompt.prompt).toContain("Repair the daily-driver loop");
@@ -213,7 +213,7 @@ describe("buildConversationPrompt", () => {
     });
 
     expect(prompt.prompt).toContain("artwork release");
-    expect(prompt.prompt).not.toContain("GeorgeGally/flyd");
-    expect(prompt.prompt).not.toContain("32 uncommitted");
+    expect(prompt.prompt).toContain("GeorgeGally/flyd");
+    expect(prompt.prompt).toContain("32 uncommitted");
   });
 });

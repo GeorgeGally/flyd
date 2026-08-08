@@ -1,8 +1,8 @@
-import { writeFile, mkdir, readdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { MemoryReceipt } from "./memory-receipt.js";
+import type { MemoryReceipt, LearningReceipt } from "./memory-receipt.js";
 
 const OVERLAY_RAW_DIR = join(homedir(), ".flyd", "raw", "overlay");
 const receiptFiles: string[] = [];
@@ -65,6 +65,63 @@ export async function persistReceipt(receipt: MemoryReceipt): Promise<string | n
     return filepath;
   } catch (err) {
     console.warn("[MemoryGate] Failed to persist receipt:", err);
+    return null;
+  }
+}
+
+export async function persistLearningReceipt(receipt: LearningReceipt): Promise<string | null> {
+  try {
+    await ensureDir();
+
+    const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `learning-${isoDate}-${receipt.receiptId.slice(0, 8)}.md`;
+    const filepath = join(OVERLAY_RAW_DIR, filename);
+
+    const timestamp = receipt.generatedAt.replace(/Z$/, "");
+    const topicLines = receipt.topics.length > 0
+      ? ["topics:"].concat(receipt.topics.map((t) => `  - ${t}`)).join("\n")
+      : "";
+
+    const frontmatter = [
+      "---",
+      `id: ${receipt.receiptId}`,
+      `timestamp: ${timestamp}`,
+      `generated_at: ${receipt.generatedAt}`,
+      `source: ${receipt.source}`,
+      `event_type: ${receipt.eventType}`,
+      `signal: ${receipt.derivedSignal}`,
+      `epistemic_confidence: ${receipt.provenance.epistemicConfidence}`,
+      `source_type: ${receipt.provenance.sourceType}`,
+      `domain: ${receipt.provenance.domain}`,
+      `outcome_ref: ${receipt.provenance.outcomeRef}`,
+      topicLines,
+      `category: ${receipt.belief.what}`,
+      `self_contained: ${receipt.selfContained}`,
+      "---",
+      "",
+      `## Belief`,
+      `- **What:** ${receipt.belief.what}`,
+      `- **Why:** ${receipt.belief.why}`,
+      `- **When:** ${receipt.belief.when}`,
+      "",
+      `## Evidence`,
+      `- **Content:** ${receipt.evidence.content}`,
+      `- **Domain:** ${receipt.evidence.domain}`,
+      `- **Outcome Ref:** ${receipt.evidence.outcomeRef}`,
+      "",
+      `## Provenance`,
+      `- **Epistemic Confidence:** ${receipt.provenance.epistemicConfidence}`,
+      `- **Source Type:** ${receipt.provenance.sourceType}`,
+      `- **Domain:** ${receipt.provenance.domain}`,
+      `- **Outcome Ref:** ${receipt.provenance.outcomeRef}`,
+      `- **Timestamp:** ${receipt.provenance.timestamp}`,
+    ].filter(Boolean).join("\n");
+
+    await writeFile(filepath, frontmatter, "utf-8");
+    trackReceiptWritten(filename);
+    return filepath;
+  } catch (err) {
+    console.warn("[MemoryGate] Failed to persist learning receipt:", err);
     return null;
   }
 }

@@ -1,4 +1,11 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "flyd"
+  "default_agent": "flyd",
+  "mcp": {
+    "swift-patterns": {
+      "type": "local",
+      "command": ["/Users/radarboy3000/.local/bin/swift-patterns-mcp"],
+      "enabled": true
+    }
+  }
 }

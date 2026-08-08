@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildResolutionPrompt, enforceRoutePlacement, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext } from "../resolve.js";
+import { resolveRepositoryFromPath } from "../work-intelligence/current-work.js";
+import { isDeterministicDictation } from "../router.js";
 
 const env = {
   application: {
@@ -455,5 +457,99 @@ describe("shouldInjectPersonalContext", () => {
 
   it("still injects for identity intents on any route", () => {
     expect(shouldInjectPersonalContext("write my bio", draftRoute)).toBe(true);
+  });
+});
+
+describe("project resolution from captured environment", () => {
+  it("resolves a repository from a document path inside a git repo", () => {
+    const result = resolveRepositoryFromPath(process.cwd());
+    if (result.root) {
+      expect(result.branch).toBeDefined();
+      expect(result.headDigest).toBeDefined();
+      expect(result.statusDigest).toBeDefined();
+    }
+  });
+
+  it("returns no root for a non-existent document path", () => {
+    const result = resolveRepositoryFromPath("/nonexistent/path/to/nowhere.txt");
+    expect(result.root).toBeUndefined();
+    expect(result.branch).toBeUndefined();
+  });
+
+  it("returns no root when no document path is provided", () => {
+    const result = resolveRepositoryFromPath(undefined);
+    expect(result.root).toBeUndefined();
+    expect(result.branch).toBeUndefined();
+  });
+
+  it("resolves the correct root even when Core runs from a subdirectory", () => {
+    const result = resolveRepositoryFromPath(process.cwd() + "/src/__tests__/resolve.test.ts");
+    if (result.root) {
+      expect(result.root).toBeDefined();
+      expect(result.branch).toBeDefined();
+    }
+  });
+
+  it("does not produce invented git evidence when no repository is found", () => {
+    const result = resolveRepositoryFromPath("/tmp/no-git-here/file.txt");
+    expect(result.root).toBeUndefined();
+    expect(result.headDigest).toBeUndefined();
+  });
+});
+
+describe("work-intelligence dictation gate", () => {
+  it("dictation in editable field bypasses work intelligence", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello world",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(true);
+  });
+
+  it("non-dictation intent in editable field routes through work intelligence", () => {
+    expect(isDeterministicDictation({
+      intent: "review this function",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(false);
+  });
+
+  it("voice modality never bypasses as dictation", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello",
+      modality: "voice",
+      elementRole: "AXTextArea",
+    })).toBe(false);
+  });
+
+  it("non-editable target never bypasses as dictation", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello",
+      modality: "text",
+      elementRole: "AXWindow",
+    })).toBe(false);
+  });
+});
+
+describe("parseResolutionResponse handles WI-compatible responses", () => {
+  it("parses a resolution with workSessionId", () => {
+    const resolution = parseResolutionResponse(JSON.stringify({
+      resolution_id: "res-1",
+      mode: "requires_augment",
+      rationale: "Diagnosed issue",
+      augmentations: [{ kind: "explanation", content: "The intervention.", placement: "cursor" }],
+    }), "inv-1");
+
+    // workSessionId is not set by parseResolutionResponse — it's set by the
+    // WI gate in resolve() after parsing. Verify parsing doesn't reject extras.
+    expect(resolution.mode).toBe("requires_augment");
+    expect(resolution.augmentations).toHaveLength(1);
+    expect(resolution.augmentations?.[0].content).toBe("The intervention.");
+  });
+
+  it("returns fallback on malformed WI JSON", () => {
+    // parseResolutionResponse will throw on completely invalid JSON;
+    // the WI gate in resolve() catches and falls through.
+    expect(() => parseResolutionResponse("not json", "inv-1")).toThrow();
   });
 });

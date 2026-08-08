@@ -7,9 +7,9 @@ config({ path: resolvePath(join(process.cwd(), ".env")) });
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { memoryGate } from "./memory-gate.js";
-import { provisionalLearn, createMemoryReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings, loadLearnings } from "./memory-receipt.js";
-import { persistReceipt, persistLearnings } from "./memory-persistence.js";
+import { memoryGate, gateLearningCandidate } from "./memory-gate.js";
+import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings, loadLearnings } from "./memory-receipt.js";
+import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
 import { buildIntelligenceState } from "./export-state.js";
@@ -24,12 +24,19 @@ import { startRealtimeServer, stopRealtimeServer } from "./realtime-session.js";
 import { synthesizeSpeech, TtsNotConfiguredError } from "./tts.js";
 import { conversationHistory } from "./conversation-history.js";
 import { workSessionStore } from "./work-intelligence/work-session-store.js";
+import { closeWorkSession } from "./work-intelligence/work-session-closeout-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
-import { runRepositoryAction, validateRepositoryActionInput } from "./work-intelligence/repository-action.js";
+import { runRepositoryAction, validateRepositoryActionInput, verifyModuleDependencyBoundary } from "./work-intelligence/repository-action.js";
 import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
 import type { FounderJournalEntry } from "./work-intelligence/types.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
+import { validateShellExecutionRequest, createExecution, runExecution, getExecutionStatus, cancelExecution } from "./work-intelligence/command-execution.js";
+import type { ShellExecutionResult } from "./work-intelligence/types.js";
+import { validateFileRead, readFile, validateFileGrep, grepCodebase, validateFileWrite, writeFile } from "./work-intelligence/file-operations.js";
+import { planTask, parseTaskPlan, buildVerifyPrompt } from "./work-intelligence/task-loop.js";
+import type { TaskPlan } from "./work-intelligence/task-loop.js";
+import { query } from "./lib/llm.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -57,7 +64,7 @@ function sendUnauthorized(res: ServerResponse) {
 }
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
-const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; consequenceClass?: string; timestamp: number }>();
+const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; consequenceClass?: string; workSessionId?: string; timestamp: number }>();
 const completedDelegations = new Map<string, { completion: DelegationCompletion; timestamp: number }>();
 
 setInterval(() => {
@@ -156,36 +163,122 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
       });
 
-      const augmentJson = {
-        mode: "requires_augment",
+      const hasShellCommands = wiResult.intervention.proposedAction?.kind === 'shell_execute'
+        && wiResult.intervention.proposedAction?.shellCommands
+        && wiResult.intervention.proposedAction.shellCommands.length > 0;
+
+      const hasFileOperations = ['file_read', 'file_grep', 'file_write'].includes(wiResult.intervention.proposedAction?.kind ?? '')
+        && wiResult.intervention.proposedAction?.fileOperations
+        && wiResult.intervention.proposedAction.fileOperations.length > 0;
+
+      const isTaskPlan = wiResult.intervention.proposedAction?.kind === 'task_plan'
+        && wiResult.intervention.proposedAction?.taskIntent;
+
+      const mode = isTaskPlan ? 'requires_task'
+        : (hasShellCommands || hasFileOperations) ? 'requires_execution'
+        : 'requires_augment';
+
+      const augmentJson: Record<string, unknown> = {
+        mode,
         resolutionId: wiResult.interactionId,
         invocationId: parsed.invocation_id,
         environmentRevision: parsed.environment_revision ?? 1,
         rationale: wiResult.diagnosis.primaryIssue.finding,
-        augmentations: [{
-          kind: "explanation",
-          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}${wiResult.intervention.strongerAlternative ? `\n\n${wiResult.intervention.strongerAlternative}` : ''}`,
-          placement: "cursor",
-        }],
+        augmentations: [] as Record<string, unknown>[],
         timing: wiResult.timing,
       };
 
-      if (wiResult.intervention.options && wiResult.intervention.options.length > 0) {
-        (augmentJson as Record<string, unknown>).augmentations = [
-          ...augmentJson.augmentations,
-          {
-            kind: "choice",
-            content: wiResult.diagnosis.primaryIssue.finding,
-            placement: "beside_selection",
-            options: wiResult.intervention.options.map(o => o.label),
-          },
-        ];
+      if (isTaskPlan) {
+        const repoInfo = resolveRepositoryFromPath(
+          (parsed.environment as ManifestRequest['environment'])?.document_path
+        );
+        const projectRoot = repoInfo.root || process.cwd();
+
+        try {
+          const config = loadFlydWorkerConfig();
+          const plan = await planTask({
+            intent: wiResult.intervention.proposedAction!.taskIntent!,
+            projectRoot,
+            currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n${wiResult.intervention.content}`,
+            modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
+          });
+
+          if (plan) {
+            (augmentJson.augmentations as Record<string, unknown>[]).push({
+              kind: 'task_plan',
+              content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
+              placement: 'cursor',
+              taskPlan: plan,
+            });
+          } else {
+            (augmentJson.augmentations as Record<string, unknown>[]).push({
+              kind: 'explanation',
+              content: `Failed to produce task plan for: ${wiResult.intervention.proposedAction!.taskIntent}`,
+              placement: 'cursor',
+            });
+            augmentJson.mode = 'requires_augment';
+          }
+        } catch {
+          (augmentJson.augmentations as Record<string, unknown>[]).push({
+            kind: 'explanation',
+            content: `Task planning failed. Try a more specific request.`,
+            placement: 'cursor',
+          });
+          augmentJson.mode = 'requires_augment';
+        }
+      } else if (hasShellCommands) {
+        (augmentJson.augmentations as Record<string, unknown>[]).push({
+          kind: 'execution',
+          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
+          placement: 'cursor',
+          commands: wiResult.intervention.proposedAction!.shellCommands!.map(cmd => ({
+            command: cmd.command,
+            workingDirectory: cmd.workingDirectory,
+            explanation: cmd.explanation,
+            isDestructive: cmd.isDestructive,
+          })),
+        });
+      } else if (hasFileOperations) {
+        (augmentJson.augmentations as Record<string, unknown>[]).push({
+          kind: 'execution',
+          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
+          placement: 'cursor',
+          fileOperations: wiResult.intervention.proposedAction!.fileOperations!.map(op => ({
+            kind: op.kind,
+            path: op.path,
+            pattern: op.pattern,
+            explanation: op.explanation,
+          })),
+        });
+      } else {
+        (augmentJson.augmentations as Record<string, unknown>[]).push({
+          kind: 'explanation',
+          content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}${wiResult.intervention.strongerAlternative ? `\n\n${wiResult.intervention.strongerAlternative}` : ''}`,
+          placement: 'cursor',
+        });
+      }
+
+      if (!isTaskPlan && !hasShellCommands && !hasFileOperations && wiResult.intervention.options && wiResult.intervention.options.length > 0) {
+        (augmentJson.augmentations as Record<string, unknown>[])!.push({
+          kind: 'choice',
+          content: wiResult.diagnosis.primaryIssue.finding,
+          placement: 'beside_selection',
+          options: wiResult.intervention.options.map(o => o.label),
+        });
       }
 
       sendJson(res, 200, augmentJson);
 
       intentHistory.push({ intent: parsed.intent, timestamp: new Date().toISOString() });
       if (intentHistory.length > 100) intentHistory.shift();
+
+      resolvedContexts.set(parsed.invocation_id, {
+        intent: parsed.intent,
+        resolutionMode: mode,
+        environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+        workSessionId: wiResult.workSessionId,
+        timestamp: Date.now(),
+      });
 
       return;
     }
@@ -263,11 +356,15 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     });
     if (intentHistory.length > 100) intentHistory.shift();
 
+    const workSessionId = parsed.conversation_id || workSessionStore.createSession().sessionId;
+    workSessionStore.bump(workSessionId);
+
     resolvedContexts.set(parsed.invocation_id, {
       intent: parsed.intent,
       resolutionMode: resolution.mode,
       environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
       consequenceClass: resolution.consequence?.class,
+      workSessionId,
       timestamp: Date.now(),
     });
 
@@ -283,9 +380,6 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         conversationHistory.append(parsed.conversation_id, parsed.intent, assistantText);
       }
     }
-
-    const workSessionId = parsed.conversation_id || workSessionStore.createSession().sessionId;
-    workSessionStore.bump(workSessionId);
 
     const repoInfo = resolveRepositoryFromPath(
       parsed.environment?.focused_element?.description || undefined
@@ -384,6 +478,41 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
       }
     } else {
       console.log(`[MemoryGate] DISCARD (${gateResult.category}): ${gateResult.reason}`);
+    }
+
+    const sessionEndStatuses = new Set(["rejected", "cancelled", "action_completed"]);
+    const outcomeMapsToCloseout = sessionEndStatuses.has(outcome.status);
+    if (resolved.workSessionId && outcomeMapsToCloseout) {
+      try {
+        const closeout = closeWorkSession(resolved.workSessionId);
+        if (closeout && closeout.retainedLearnings.length > 0) {
+          for (const candidate of closeout.retainedLearnings) {
+            const learningGate = gateLearningCandidate({
+              id: candidate.id,
+              source: candidate.source,
+              content: candidate.content,
+              domain: candidate.domain,
+              outcomeRef: candidate.outcomeRef,
+              epistemicConfidence: candidate.epistemicConfidence,
+              timestamp: candidate.timestamp,
+            });
+
+            if (learningGate.shouldRemember) {
+              const learningReceipt = createLearningReceipt(
+                candidate,
+                learningGate.reason,
+                candidate.domain
+              );
+              console.log(`[LearningGate] PROMOTED (${learningGate.category}/${learningGate.confidence}): ${learningGate.reason}`);
+              persistLearningReceipt(learningReceipt);
+            } else {
+              console.log(`[LearningGate] DISCARD (${learningGate.category}): ${learningGate.reason}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Flyd Core] Closeout failed:`, (err as Error).message);
+      }
     }
   } else {
     console.warn(`[Flyd Core] Outcome received with no matching manifest: ${outcome.invocationId.slice(0, 8)}`);
@@ -664,15 +793,212 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         parseBody(req).then(async (body) => {
           try {
             const input = JSON.parse(body);
+
+            const dependencyBoundary = verifyModuleDependencyBoundary();
+            if (!dependencyBoundary.ok) {
+              sendJson(res, 500, {
+                error: "Dependency boundary violation",
+                details: dependencyBoundary.violations,
+              });
+              return;
+            }
+
+            if (!input.actionGrantId || typeof input.actionGrantId !== "string") {
+              sendJson(res, 422, {
+                error: "Missing actionGrantId",
+                details: "Only approved interventions can trigger repository work. Provide an actionGrantId from an approved intervention.",
+              });
+              return;
+            }
+
             const validationError = validateRepositoryActionInput(input);
             if (validationError) {
               sendJson(res, 422, { error: validationError });
               return;
             }
+
             const result = await runRepositoryAction(input);
-            sendJson(res, 200, result);
+
+            const responseBody = {
+              actionId: result.actionId,
+              verified: result.verified,
+              changedFiles: result.changedFiles,
+              diffDigest: result.diffDigest,
+              diffSummary: result.diffSummary,
+              diffPresent: result.diffPresent,
+              artifactPresent: result.artifactPresent,
+              checksPerformed: result.checksPerformed,
+              exitStatus: result.exitStatus,
+              integrated: result.integrated ?? false,
+              integrationStatus: result.integrationStatus ?? "unintegrated",
+              handoffLocation: result.handoffLocation,
+              error: result.error,
+              output: result.output?.slice(0, 500),
+            };
+
+            sendJson(res, result.verified ? 200 : 422, responseBody);
           } catch {
             sendJson(res, 400, { error: "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/command/execute": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req, MANIFEST_BODY_LIMIT).then(async (body) => {
+          try {
+            const parsedBody = JSON.parse(body);
+            const validation = validateShellExecutionRequest(parsedBody);
+            if (!validation.ok) {
+              sendJson(res, 422, { error: validation.reason });
+              return;
+            }
+            const execResult = createExecution({
+              executionId: validation.request.executionId,
+              status: 'approved',
+              commands: validation.request.commands.map(c => ({
+                commandId: c.commandId,
+                stdout: '',
+                stderr: '',
+                exitCode: null,
+                timedOut: false,
+                startedAt: new Date().toISOString(),
+                completedAt: null,
+                status: 'pending' as const,
+              })),
+              startTime: new Date().toISOString(),
+              endTime: null,
+            });
+            sendJson(res, 200, { executionId: execResult.executionId, status: 'approved' });
+            runExecution(validation.request).catch(err => {
+              console.warn(`[Flyd Core] Command execution ${execResult.executionId} failed:`, err);
+            });
+          } catch {
+            sendJson(res, 400, { error: "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/command/status": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        const executionId = url.searchParams.get("executionId");
+        if (!executionId) { sendJson(res, 400, { error: "Missing executionId parameter" }); break; }
+        const status = getExecutionStatus(executionId);
+        if (!status) { sendJson(res, 404, { error: "Execution not found" }); break; }
+        sendJson(res, 200, status);
+        break;
+      }
+      case "/work-intelligence/command/cancel": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then((body) => {
+          try {
+            const { executionId } = JSON.parse(body);
+            const cancelled = cancelExecution(executionId);
+            sendJson(res, cancelled ? 200 : 404, cancelled ? { cancelled: true } : { error: "Execution not found" });
+          } catch {
+            sendJson(res, 400, { error: "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/file/read": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then((body) => {
+          try {
+            const { path, projectRoot, startLine, endLine } = JSON.parse(body);
+            if (!projectRoot) { sendJson(res, 400, { error: "Missing projectRoot" }); return; }
+            const validation = validateFileRead(path, projectRoot);
+            if (!validation.ok) { sendJson(res, 422, { error: validation.reason }); return; }
+            const result = readFile({ path, projectRoot, resolved: validation.resolved, startLine, endLine });
+            sendJson(res, 200, result);
+          } catch (err) {
+            sendJson(res, 500, { error: (err as Error).message });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/file/grep": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then((body) => {
+          try {
+            const { pattern, projectRoot, filePattern, maxResults } = JSON.parse(body);
+            if (!projectRoot) { sendJson(res, 400, { error: "Missing projectRoot" }); return; }
+            const validation = validateFileGrep(pattern);
+            if (!validation.ok) { sendJson(res, 422, { error: validation.reason }); return; }
+            const result = grepCodebase({ pattern, projectRoot, filePattern, maxResults });
+            sendJson(res, 200, result);
+          } catch (err) {
+            sendJson(res, 500, { error: (err as Error).message });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/file/write": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req, MANIFEST_BODY_LIMIT).then((body) => {
+          try {
+            const { path, content, projectRoot, createDirectories } = JSON.parse(body);
+            if (!projectRoot) { sendJson(res, 400, { error: "Missing projectRoot" }); return; }
+            const validation = validateFileWrite(path, content, projectRoot);
+            if (!validation.ok) { sendJson(res, 422, { error: validation.reason }); return; }
+            const result = writeFile({ path, content, projectRoot, resolved: validation.resolved, createDirectories });
+            sendJson(res, 200, result);
+          } catch (err) {
+            sendJson(res, 500, { error: (err as Error).message });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/task/plan": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then(async (body) => {
+          try {
+            const { intent, projectRoot, currentWork, context } = JSON.parse(body);
+            if (!intent || !projectRoot) { sendJson(res, 400, { error: "Missing intent or projectRoot" }); return; }
+            const config = loadFlydWorkerConfig();
+            const plan = await planTask({
+              intent,
+              projectRoot,
+              currentWork: currentWork || projectRoot,
+              context,
+              modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
+            });
+            if (!plan) { sendJson(res, 422, { error: "Failed to produce task plan" }); return; }
+            sendJson(res, 200, plan);
+          } catch (err) {
+            sendJson(res, 500, { error: (err as Error).message });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/task/verify": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then(async (body) => {
+          try {
+            const taskPlan = JSON.parse(body) as TaskPlan;
+            const prompt = buildVerifyPrompt(taskPlan);
+            const config = loadFlydWorkerConfig();
+            const raw = await query(
+              prompt,
+              config.model,
+              undefined,
+              config.apiKey,
+              config.baseURL,
+              { json: true }
+            );
+            const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
+            const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { verdict: 'failed', summary: 'Unable to verify', unresolved_items: [], next_action: null };
+            sendJson(res, 200, parsed);
+          } catch (err) {
+            sendJson(res, 500, { error: (err as Error).message });
           }
         }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
         break;

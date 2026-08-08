@@ -12,6 +12,7 @@ export interface AgentSituation {
   outcome: string | null;
   status: string | null;
   nextAction: string | null;
+  projectRoot?: string;
 }
 
 export interface ConversationTurn {
@@ -47,7 +48,7 @@ export type AgentSessionResult =
   | { kind: "coding"; outcome: string }
   | { kind: "resume" };
 
-const MAX_HISTORY_TURNS = 12;
+const MAX_HISTORY_TURNS = 50;
 
 function situationLine(situation: AgentSituation): string {
   if (!hasUnfinishedTask(situation)) return "";

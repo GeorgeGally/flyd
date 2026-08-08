@@ -1,5 +1,6 @@
 import XCTest
 @testable import FlydMacAdapter
+import CryptoKit
 
 final class TargetDescriptorTests: XCTestCase {
 
@@ -13,7 +14,6 @@ final class TargetDescriptorTests: XCTestCase {
             description: nil,
             capturedAt: .now
         )
-        // Element matching requires a real AXUIElement, tested via integration
         XCTAssertEqual(descriptor.applicationId, "com.test.app")
         XCTAssertEqual(descriptor.role, "AXTextField")
     }
@@ -31,8 +31,6 @@ final class TargetDescriptorTests: XCTestCase {
 
         let monitor = ApplicationMonitor.shared
         let matches = descriptor.matchesReality(currentApp: monitor)
-        // Passes regardless: just verifies the method doesn't crash
-        // Actual match depends on current foreground app
         XCTAssertTrue(true)
         _ = matches
     }
@@ -67,5 +65,97 @@ final class TargetDescriptorTests: XCTestCase {
         XCTAssertTrue(w1.matches(w2))
         XCTAssertFalse(w1.matches(w3))
         XCTAssertFalse(w1.matches(w4))
+    }
+
+    func testWorkSessionRevisionIncrement() {
+        let machine = InvocationStateMachine.shared
+        _ = machine.ensureWorkSession()
+        let initial = machine.incrementWorkSessionRevision()
+        let next = machine.incrementWorkSessionRevision()
+        XCTAssertEqual(next, initial + 1)
+        XCTAssertGreaterThan(next, initial)
+    }
+
+    func testWorkSessionPersistsAcrossEnsureCalls() {
+        let machine = InvocationStateMachine.shared
+        let first = machine.ensureWorkSession()
+        let second = machine.ensureWorkSession()
+        XCTAssertEqual(first.sessionId, second.sessionId)
+        XCTAssertEqual(first.revision, second.revision)
+    }
+
+    func testObservedTargetSerializationWithWorkSession() throws {
+        let target = ObservedTarget(
+            observationId: "obs-1",
+            revision: 1,
+            element: AXUIElementCreateApplication(0),
+            descriptor: TargetDescriptor(
+                applicationId: "com.test.app",
+                processId: 0,
+                windowIdentity: WindowIdentity(title: "Test", frame: nil, isMain: true),
+                role: "AXTextField",
+                identifier: nil,
+                description: nil,
+                capturedAt: .now
+            ),
+            fingerprint: InvocationFingerprint(
+                app: "com.test.app",
+                surface: nil,
+                window: "win_01",
+                element: "el_01",
+                capturedAt: Date()
+            )
+        )
+        let payload = target.serialized(workSessionId: "session-1", workSessionRevision: 3)
+        XCTAssertEqual(payload.work_session_id, "session-1")
+        XCTAssertEqual(payload.work_session_revision, 3)
+    }
+
+    func testContentDigestDefaultsToNil() {
+        let descriptor = TargetDescriptor(
+            applicationId: "com.test.app",
+            processId: 1234,
+            windowIdentity: WindowIdentity(title: "Test", frame: nil, isMain: true),
+            role: "AXTextField",
+            identifier: nil,
+            description: nil,
+            capturedAt: .now
+        )
+        XCTAssertNil(descriptor.contentDigest)
+    }
+
+    func testContentDigestIsHexStringWhenSet() {
+        let expectedDigest = SHA256.hash(data: Data("hello".utf8)).compactMap { String(format: "%02x", $0) }.joined()
+        var descriptor = TargetDescriptor(
+            applicationId: "com.test.app",
+            processId: 1234,
+            windowIdentity: WindowIdentity(title: "Test", frame: nil, isMain: true),
+            role: "AXTextField",
+            identifier: nil,
+            description: nil,
+            capturedAt: .now
+        )
+        descriptor.contentDigest = expectedDigest
+        XCTAssertEqual(descriptor.contentDigest, expectedDigest)
+        XCTAssertEqual(descriptor.contentDigest?.count, 64)
+    }
+
+    func testContentDigestIsDifferentForDifferentValues() {
+        let digest1 = SHA256.hash(data: Data("hello".utf8)).compactMap { String(format: "%02x", $0) }.joined()
+        let digest2 = SHA256.hash(data: Data("world".utf8)).compactMap { String(format: "%02x", $0) }.joined()
+        XCTAssertNotEqual(digest1, digest2)
+    }
+
+    func testRevisionDefaultsToZero() {
+        let descriptor = TargetDescriptor(
+            applicationId: "com.test.app",
+            processId: 1234,
+            windowIdentity: WindowIdentity(title: "Test", frame: nil, isMain: true),
+            role: "AXTextField",
+            identifier: nil,
+            description: nil,
+            capturedAt: .now
+        )
+        XCTAssertEqual(descriptor.revision, 0)
     }
 }

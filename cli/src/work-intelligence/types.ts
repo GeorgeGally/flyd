@@ -59,8 +59,12 @@ export interface EvidenceSummary {
   repositoryRoot?: string;
   branch?: string;
   headDigest?: string;
+  statusDigest?: string;
   documentPath?: string;
   activeWindowTitle: string;
+  recentCommits?: string[];
+  changedFiles?: string[];
+  openDocuments?: string[];
 }
 
 export interface CurrentWork {
@@ -96,7 +100,7 @@ export interface InterventionOption {
 }
 
 export interface Intervention {
-  kind: 'insight' | 'critique' | 'reframe' | 'alternative' | 'comparison' | 'question' | 'recommendation' | 'proposedEdit' | 'actionPlan';
+  kind: 'insight' | 'critique' | 'reframe' | 'alternative' | 'comparison' | 'question' | 'recommendation' | 'proposedEdit' | 'actionPlan' | 'shellExecute' | 'fileOperation' | 'taskPlan';
   content: string;
   strongerAlternative?: string;
   visualGrounding?: {
@@ -118,17 +122,63 @@ export interface TargetFingerprint {
   statusDigest?: string;
 }
 
+export interface ShellCommand {
+  commandId: string;
+  command: string;
+  workingDirectory: string;
+  explanation: string;
+  isDestructive: boolean;
+}
+
+export interface ShellExecutionRequest {
+  executionId: string;
+  workSessionId: string;
+  interactionId: string;
+  commands: ShellCommand[];
+  projectRoot: string;
+}
+
+export interface ShellExecutionOutput {
+  commandId: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  startedAt: string;
+  completedAt: string | null;
+  status: 'pending' | 'running' | 'completed' | 'timeout' | 'error';
+}
+
+export interface ShellExecutionResult {
+  executionId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+  commands: ShellExecutionOutput[];
+  startTime: string;
+  endTime: string | null;
+}
+
+export interface FileOperation {
+  kind: 'read' | 'grep' | 'write';
+  path: string;
+  pattern?: string;
+  content?: string;
+  explanation: string;
+}
+
 export interface ActionProposal {
   actionId: string;
-  kind: 'text_edit' | 'repository_action';
+  kind: 'text_edit' | 'repository_action' | 'shell_execute' | 'file_read' | 'file_grep' | 'file_write' | 'task_plan';
   description: string;
   previewText?: string;
+  shellCommands?: ShellCommand[];
+  fileOperations?: FileOperation[];
+  taskIntent?: string;
   targetFingerprint: TargetFingerprint;
   workSessionRevision: number;
   diagnosedIssueId: string;
   finishCondition: string;
   expiryMs: number;
-  allowedOperation?: 'insert_text' | 'replace_text' | 'replace_selection' | 'repository_work';
+  allowedOperation?: 'insert_text' | 'replace_text' | 'replace_selection' | 'repository_work' | 'shell_execute';
 }
 
 export interface ActionResult {
@@ -200,7 +250,9 @@ export type FounderEventType =
   | 'standard_accepted' | 'action_completed'
   | 'action_failed' | 'action_partial'
   | 'closeout_recorded' | 'learning_promoted'
-  | 'context_accuracy_sample';
+  | 'context_accuracy_sample'
+  | 'command_approved' | 'command_rejected'
+  | 'command_completed' | 'command_failed';
 
 export interface FounderJournalEntry {
   entryId: string;
@@ -250,6 +302,13 @@ export interface WorkInteractionResponse {
   diagnosis: Diagnosis;
   intervention: Intervention;
   timing: { total_ms: number };
+}
+
+export function checkContractVersion(version: unknown): { ok: true } | { ok: false; error: string } {
+  if (version !== WORK_CONTRACT_VERSION) {
+    return { ok: false, error: `Incompatible contract version: expected ${WORK_CONTRACT_VERSION}, got ${version}` };
+  }
+  return { ok: true };
 }
 
 export function validateField<T>(value: T | undefined, label: string, errors: string[]): value is T {

@@ -1,4 +1,4 @@
-import type { CurrentWork, Diagnosis, Intervention, ActionProposal } from './types.js';
+import type { CurrentWork, Diagnosis, Intervention, ActionProposal, ShellCommand, FileOperation } from './types.js';
 import type { DomainStandard } from './domain-standards.js';
 
 export function buildWorkIntelligencePrompt(params: {
@@ -6,14 +6,35 @@ export function buildWorkIntelligencePrompt(params: {
   domainStandard: DomainStandard;
   intent: string;
   conversationHistory?: string;
+  memoryContext?: string;
 }): string {
-  const { currentWork, domainStandard, intent, conversationHistory } = params;
+  const { currentWork, domainStandard, intent, conversationHistory, memoryContext } = params;
 
   const projectLine = `Project: ${currentWork.project.value} (confidence: ${currentWork.project.confidence}${currentWork.project.isHypothesis ? ', hypothesis' : ''})`;
+  const projectSourceLine = currentWork.project.source === 'foreground' && currentWork.project.confidence === 'high'
+    ? `You are currently in the ${currentWork.project.value} repository. This is authoritative foreground evidence — work from this context.`
+    : `Project context is uncertain. Ask if the project matters.`;
   const objectiveLine = `Objective: ${currentWork.objective.value} (confidence: ${currentWork.objective.confidence}${currentWork.objective.isHypothesis ? ', hypothesis' : ''})`;
   const artifactLine = `Artifact: ${currentWork.artifact.title} (${currentWork.artifact.kind})`;
   const stageLine = `Stage: ${currentWork.stage.value} (confidence: ${currentWork.stage.confidence})`;
   const evidenceLine = `Evidence: foreground=${currentWork.evidenceSummary.foregroundApp}, repo=${currentWork.evidenceSummary.repositoryRoot || 'none'}, branch=${currentWork.evidenceSummary.branch || 'none'}`;
+  const repoLine = currentWork.evidenceSummary.repositoryRoot
+    ? `Repository root: ${currentWork.evidenceSummary.repositoryRoot} (branch: ${currentWork.evidenceSummary.branch || 'unknown'})`
+    : '';
+
+  const recentCommitsLine = currentWork.evidenceSummary.recentCommits?.length
+    ? `Recent commits:\n${currentWork.evidenceSummary.recentCommits.map(c => `  ${c}`).join('\n')}`
+    : '';
+
+  const changedFilesLine = currentWork.evidenceSummary.changedFiles?.length
+    ? `Changed files (uncommitted):\n${currentWork.evidenceSummary.changedFiles.map(f => `  ${f}`).join('\n')}`
+    : currentWork.evidenceSummary.statusDigest === 'dirty'
+      ? 'Working tree is dirty (uncommitted changes present).'
+      : '';
+
+  const openDocsLine = currentWork.evidenceSummary.openDocuments?.length
+    ? `Open documents:\n${currentWork.evidenceSummary.openDocuments.map(d => `  ${d}`).join('\n')}`
+    : '';
 
   const uncertaintyBlock = currentWork.uncertainty.length > 0
     ? `\nUNKNOWN FIELDS:\n${currentWork.uncertainty.map(u => `- ${u.field}: ${u.reason}`).join('\n')}`
@@ -23,10 +44,15 @@ export function buildWorkIntelligencePrompt(params: {
     ? `\nRECENT CONVERSATION:\n${conversationHistory}`
     : '';
 
+  const memoryBlock = memoryContext
+    ? `\nPERSONAL MEMORY (background context — foreground evidence is authoritative):\n${memoryContext}`
+    : '';
+
   return `You are Flyd, an intelligent work assistant. The user has invoked you while working. Your job is to understand the work, identify the most important issue or opportunity, and deliver ONE high-leverage intervention.
 
-CURRENT WORK:
+FOREGROUND CONTEXT (authoritative — this is what the user is doing RIGHT NOW):
 - ${projectLine}
+- ${projectSourceLine}${repoLine ? `\n- ${repoLine}` : ''}${recentCommitsLine ? `\n\nRECENT ACTIVITY:\n${recentCommitsLine}` : ''}${changedFilesLine ? `\n\nCURRENT STATE:\n${changedFilesLine}` : ''}${openDocsLine ? `\n\nOPEN DOCUMENTS:\n${openDocsLine}` : ''}
 - ${objectiveLine}
 - ${artifactLine}
 - ${stageLine}
@@ -37,13 +63,14 @@ Evaluation dimensions:
 ${domainStandard.evaluationDimensions.map(d => `  - ${d}`).join('\n')}
 
 GROUND RULES:
+- The foreground context is authoritative. If your memory suggests a different project, it is stale — use the foreground.
 - Lead with the ONE most important issue, not a list.
 - Explain WHY it matters — the causal link between the issue and the outcome.
 - Propose ONE stronger alternative or next move.
 - Distinguish fact from inference. Name uncertainty where it exists.
 - If a field is unknown and material, ask ONE clarifying question. Otherwise proceed with what you have.
 - Do not praise, narrate process, repeat the request, or pad.
-${domainStandard.avoidances.map(a => `  - ${a}`).join('\n')}${conversationBlock}
+${domainStandard.avoidances.map(a => `  - ${a}`).join('\n')}${conversationBlock}${memoryBlock}
 
 USER INTENT: "${intent}"
 
@@ -62,12 +89,23 @@ Respond with ONLY a JSON object in this format:
     "contrary_evidence": "<if something in the work contradicts your diagnosis, state it here or null>"
   },
   "intervention": {
-    "kind": "<insight|critique|reframe|alternative|comparison|question|recommendation|proposedEdit|actionPlan>",
+    "kind": "<insight|critique|reframe|alternative|comparison|question|recommendation|proposedEdit|actionPlan|shellExecute|fileOperation|taskPlan>",
     "content": "<the intervention delivered in clear language the user can act on>",
     "stronger_alternative": "<the specific alternative or next move, or null if not applicable>",
     "options": [
       {"label": "<short action label>", "description": "<what happens if chosen>", "consequence": "<expected result or null>"}
-    ]
+    ],
+    "proposed_action": {
+      "kind": "<text_edit|repository_action|shell_execute|file_read|file_grep|file_write|task_plan>",
+      "description": "<what the action will do>",
+      "shell_commands": [
+        {"command": "<exact command to run>", "working_directory": "<absolute path>", "explanation": "<one-line description for approval UI>", "is_destructive": <true|false>}
+      ],
+      "file_operations": [
+        {"kind": "<read|grep|write>", "path": "<file path relative to project>", "pattern": "<grep pattern if kind=grep>", "content": "<content to write if kind=write>", "explanation": "<why this operation>"}
+      ],
+      "task_intent": "<if kind=task_plan, the intent to plan a multi-step task for>"
+    }
   }
 }`;
 }
@@ -121,6 +159,7 @@ export function parseWorkIntelligenceResponse(raw: string): WorkIntelligenceResu
             consequence: o.consequence || undefined,
           }))
         : undefined,
+      proposedAction: parseProposedAction(iv.proposed_action as Record<string, unknown> | undefined),
     },
   };
 
@@ -145,4 +184,56 @@ function fallbackResult(reason: string): WorkIntelligenceResult {
       content: `I couldn't produce a structured response. ${reason}. Please try again with a more specific question or different context.`,
     },
   };
+}
+
+function parseProposedAction(raw: Record<string, unknown> | undefined): ActionProposal | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const kind = raw.kind as string;
+  const validKinds = ['text_edit', 'repository_action', 'shell_execute', 'file_read', 'file_grep', 'file_write', 'task_plan'];
+  if (!kind || !validKinds.includes(kind)) return undefined;
+
+  const action: ActionProposal = {
+    actionId: `action-${Date.now()}`,
+    kind: kind as ActionProposal['kind'],
+    description: (raw.description as string) || '',
+    targetFingerprint: {},
+    workSessionRevision: 0,
+    diagnosedIssueId: '',
+    finishCondition: (raw.description as string) || '',
+    expiryMs: 120000,
+    allowedOperation: kind === 'shell_execute' ? 'shell_execute'
+      : kind === 'file_read' ? 'shell_execute'
+      : kind === 'file_grep' ? 'shell_execute'
+      : kind === 'file_write' ? 'shell_execute'
+      : kind === 'task_plan' ? 'shell_execute'
+      : kind === 'repository_action' ? 'repository_work'
+      : 'replace_text',
+  };
+
+  if (kind === 'shell_execute' && Array.isArray(raw.shell_commands)) {
+    action.shellCommands = (raw.shell_commands as Record<string, unknown>[]).map((cmd, i) => ({
+      commandId: `cmd-${i}`,
+      command: (cmd.command as string) || '',
+      workingDirectory: (cmd.working_directory as string) || process.cwd(),
+      explanation: (cmd.explanation as string) || '',
+      isDestructive: Boolean(cmd.is_destructive),
+    }));
+  }
+
+  if (['file_read', 'file_grep', 'file_write'].includes(kind) && Array.isArray(raw.file_operations)) {
+    action.fileOperations = (raw.file_operations as Record<string, unknown>[]).map((op, i) => ({
+      kind: (op.kind as FileOperation['kind']) || 'read',
+      path: (op.path as string) || '',
+      pattern: (op.pattern as string) || undefined,
+      content: (op.content as string) || undefined,
+      explanation: (op.explanation as string) || `File operation ${i + 1}`,
+    }));
+  }
+
+  if (kind === 'task_plan') {
+    action.taskIntent = (raw.task_intent as string) || (raw.description as string) || '';
+  }
+
+  return action;
 }

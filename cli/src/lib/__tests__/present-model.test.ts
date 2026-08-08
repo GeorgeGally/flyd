@@ -139,4 +139,39 @@ describe("buildPresentModel", () => {
 
     expect(receivedLimit).toBe(15);
   });
+
+  it("uses projectRoot over cwd for repository inspection when provided", async () => {
+    let inspectedDir: string | undefined;
+    const deps: PresentModelDependencies = {
+      ...baseDeps,
+      inspectRepository: async (cwd: string) => {
+        inspectedDir = cwd;
+        return fakeRepository;
+      },
+    };
+
+    await buildPresentModel(
+      "/tmp/fallback",
+      deps,
+      5,
+      "/Users/george/Projects/CleanX",
+    );
+
+    expect(inspectedDir).toBe("/Users/george/Projects/CleanX");
+  });
+
+  it("falls back to cwd when projectRoot is undefined", async () => {
+    let inspectedDir: string | undefined;
+    const deps: PresentModelDependencies = {
+      ...baseDeps,
+      inspectRepository: async (cwd: string) => {
+        inspectedDir = cwd;
+        return fakeRepository;
+      },
+    };
+
+    await buildPresentModel("/Users/george/flyd", deps, 5, undefined);
+
+    expect(inspectedDir).toBe("/Users/george/flyd");
+  });
 });

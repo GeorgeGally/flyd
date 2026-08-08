@@ -6,6 +6,15 @@ import type { RepositorySnapshot } from "./types.js";
 const execFileAsync = promisify(execFile);
 export type CommandRunner = (command: string, args: string[]) => Promise<string>;
 
+export interface ActionGrantFingerprint {
+  root: string;
+  branch: string;
+  head: string;
+  dirty: boolean;
+  statusDigest: string;
+  capturedAt: string;
+}
+
 export class RepositoryInspectionError extends Error {}
 
 const defaultRunner: CommandRunner = async (command, args) => {
@@ -25,6 +34,33 @@ async function optional(run: CommandRunner, args: string[]): Promise<string | nu
   } catch {
     return null;
   }
+}
+
+export async function isCleanForIntegration(root: string, run: CommandRunner = defaultRunner): Promise<{ clean: boolean; reason: string | null }> {
+  const snapshot = await inspectRepository(root, run);
+  if (snapshot.dirty) return { clean: false, reason: "Repository has uncommitted changes" };
+  if (snapshot.branch !== "main") return { clean: false, reason: `Repository is on ${snapshot.branch}, not main` };
+  return { clean: true, reason: null };
+}
+
+export async function captureActionGrantFingerprint(root: string, run: CommandRunner = defaultRunner): Promise<ActionGrantFingerprint> {
+  const snapshot = await inspectRepository(root, run);
+  return {
+    root: snapshot.root,
+    branch: snapshot.branch,
+    head: snapshot.head,
+    dirty: snapshot.dirty,
+    statusDigest: snapshot.statusDigest,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+export function fingerprintStillMatches(before: ActionGrantFingerprint, after: RepositorySnapshot): boolean {
+  return after.root === before.root &&
+    after.branch === before.branch &&
+    after.head === before.head &&
+    after.dirty === before.dirty &&
+    after.statusDigest === before.statusDigest;
 }
 
 export async function inspectRepository(cwd = process.cwd(), run: CommandRunner = defaultRunner): Promise<RepositorySnapshot> {

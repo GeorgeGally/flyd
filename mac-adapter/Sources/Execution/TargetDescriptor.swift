@@ -1,5 +1,6 @@
 import Foundation
 import ApplicationServices
+import CryptoKit
 
 struct WindowIdentity: Equatable {
     let title: String
@@ -19,6 +20,8 @@ struct TargetDescriptor: Equatable {
     let identifier: String?
     let description: String?
     let capturedAt: ContinuousClock.Instant
+    var contentDigest: String? = nil
+    var revision: Int = 0
 
     static func == (lhs: TargetDescriptor, rhs: TargetDescriptor) -> Bool {
         lhs.applicationId == rhs.applicationId &&
@@ -30,11 +33,18 @@ struct TargetDescriptor: Equatable {
 
     static func capture(from inspector: AccessibilityInspector, app: ApplicationMonitor?) -> TargetDescriptor? {
         guard let inspector = inspector as AccessibilityInspector? else { return nil }
-        guard inspector.capturedAXElement() != nil else { return nil }
+        guard let element = inspector.capturedAXElement() else { return nil }
         guard let role = inspector.currentRole else { return nil }
 
         let appId = app?.foregroundApp?.bundleId ?? "unknown"
         let winTitle = app?.foregroundApp?.name ?? ""
+
+        var contentDigest: String? = nil
+        var valueRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+           let value = valueRef as? String {
+            contentDigest = SHA256.hash(data: Data(value.utf8)).compactMap { String(format: "%02x", $0) }.joined()
+        }
 
         return TargetDescriptor(
             applicationId: appId,
@@ -43,7 +53,9 @@ struct TargetDescriptor: Equatable {
             role: role,
             identifier: inspector.currentIdentifier,
             description: inspector.currentDescription,
-            capturedAt: .now
+            capturedAt: .now,
+            contentDigest: contentDigest,
+            revision: 0
         )
     }
 

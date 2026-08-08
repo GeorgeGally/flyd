@@ -42,7 +42,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
   }
 
   const repoInfo = resolveRepositoryFromPath(
-    params.environment.focused_element?.description || params.environment.document_path
+    params.environment.document_path
   );
 
   const currentWork = buildCurrentWork({
@@ -51,6 +51,8 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     gitBranch: repoInfo.branch,
     gitHeadDigest: repoInfo.headDigest,
     gitStatusDigest: repoInfo.statusDigest,
+    gitRecentCommits: repoInfo.recentCommits,
+    gitChangedFiles: repoInfo.changedFiles,
     screenshotBase64: params.screenshotBase64,
   });
 
@@ -64,11 +66,14 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     ? conversationTurns.slice(-6).map(t => `User: ${t.user}\nFlyd: ${t.assistant}`).join('\n')
     : undefined;
 
+  const memoryContext = await retrieveMemoryContext(params.intent, repoInfo.root);
+
   const prompt = buildWorkIntelligencePrompt({
     currentWork,
     domainStandard,
     intent: params.intent,
     conversationHistory,
+    memoryContext,
   });
 
   const responseText = await query(
@@ -100,7 +105,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
   session.turns.push(turn);
   session.currentWork = currentWork || session.currentWork;
 
-  while (session.turns.length > 20) {
+  while (session.turns.length > 50) {
     session.turns.shift();
   }
 
@@ -116,4 +121,25 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     timing: { total_ms: modelMs },
     isDeterministic: false,
   };
+}
+
+const MEMORY_TIMEOUT_MS = 2000;
+const MAX_MEMORY_EXCERPTS = 8;
+
+async function retrieveMemoryContext(intent: string, projectRoot?: string): Promise<string | undefined> {
+  try {
+    const { retrieveResilientLexicalBrainEvidence } = await import('../lib/brain-retrieval.js');
+    const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_TIMEOUT_MS).unref?.());
+    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(intent, projectRoot), timeout]);
+    if (!result || result.matches.length === 0) return undefined;
+
+    const lines = result.matches.slice(0, MAX_MEMORY_EXCERPTS).map(m => {
+      const marker = m.content.isCurrent ? '[CURRENT]' : '[BACKGROUND]';
+      return `  ${marker} ${m.content.excerpt.slice(0, 400)}`;
+    });
+
+    return lines.join('\n');
+  } catch {
+    return undefined;
+  }
 }

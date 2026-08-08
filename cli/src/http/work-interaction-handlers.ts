@@ -4,6 +4,7 @@ import {
   type WorkInteractionRequest,
   type WorkInteractionResponse,
   WORK_CONTRACT_VERSION,
+  checkContractVersion,
 } from '../work-intelligence/types.js';
 import { recordJournalEntry, listJournalEntries, readJournalEntry, deleteJournalEntry } from '../work-intelligence/outcome-journal.js';
 

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve as resolvePath, join } from 'node:path';
 import {
   WORK_CONTRACT_VERSION,
+  checkContractVersion,
   validateField,
   validateString,
   validateEvidenceItem,
@@ -163,6 +164,43 @@ describe('Work Interaction contract', () => {
 });
 
 describe('type validation helpers', () => {
+  describe('checkContractVersion', () => {
+    it('returns ok for matching version', () => {
+      const result = checkContractVersion(WORK_CONTRACT_VERSION);
+      expect(result.ok).toBe(true);
+    });
+
+    it('rejects incompatible version', () => {
+      const result = checkContractVersion(99);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('Incompatible contract version');
+        expect(result.error).toContain('99');
+      }
+    });
+
+    it('rejects null version', () => {
+      const result = checkContractVersion(null);
+      expect(result.ok).toBe(false);
+    });
+
+    it('rejects undefined version', () => {
+      const result = checkContractVersion(undefined);
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  describe('golden fixture: invalid contract version', () => {
+    const raw = readFileSync(join(FIXTURES, 'invalid-contract-version.json'), 'utf-8');
+    const parsed = JSON.parse(raw);
+
+    it('has version 99, which is incompatible', () => {
+      expect(parsed.contract_version).toBe(99);
+      const result = checkContractVersion(parsed.contract_version);
+      expect(result.ok).toBe(false);
+    });
+  });
+
   describe('validateField', () => {
     it('returns true and type-narrows for defined values', () => {
       const errors: string[] = [];

@@ -87,6 +87,8 @@ const ALLOWED_EVENT_TYPES: Set<string> = new Set([
   'action_failed', 'action_partial',
   'closeout_recorded', 'learning_promoted',
   'context_accuracy_sample',
+  'command_approved', 'command_rejected',
+  'command_completed', 'command_failed',
 ]);
 
 function validateJournalEntry(entry: FounderJournalEntry): void {

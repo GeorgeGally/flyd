@@ -303,6 +303,7 @@ struct ActionProposalPayload: Codable {
     let finishCondition: String
     let expiryMs: Int
     let allowedOperation: String?
+    let shellCommands: [ShellCommandPayload]?
 
     enum CodingKeys: String, CodingKey {
         case actionId = "action_id"
@@ -315,6 +316,75 @@ struct ActionProposalPayload: Codable {
         case finishCondition = "finish_condition"
         case expiryMs = "expiry_ms"
         case allowedOperation = "allowed_operation"
+        case shellCommands = "shell_commands"
+    }
+}
+
+struct ShellCommandPayload: Codable {
+    let command: String
+    let workingDirectory: String?
+    let explanation: String
+    let isDestructive: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case workingDirectory = "working_directory"
+        case explanation
+        case isDestructive = "is_destructive"
+    }
+}
+
+struct ShellExecutionRequestPayload: Codable {
+    let executionId: String
+    let workSessionId: String
+    let interactionId: String
+    let commands: [ShellCommandPayload]
+    let projectRoot: String
+
+    enum CodingKeys: String, CodingKey {
+        case executionId = "execution_id"
+        case workSessionId = "work_session_id"
+        case interactionId = "interaction_id"
+        case commands
+        case projectRoot = "project_root"
+    }
+}
+
+struct ShellExecutionOutputPayload: Codable {
+    let commandId: String
+    let stdout: String
+    let stderr: String
+    let exitCode: Int?
+    let timedOut: Bool
+    let startedAt: String
+    let completedAt: String?
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case commandId = "command_id"
+        case stdout
+        case stderr
+        case exitCode = "exit_code"
+        case timedOut = "timed_out"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+        case status
+    }
+}
+
+struct ShellExecutionResultPayload: Codable {
+    let executionId: String
+    let status: String
+    let commands: [ShellExecutionOutputPayload]
+    let startTime: String
+    let endTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case executionId = "execution_id"
+        case status
+        case commands
+        case startTime = "start_time"
+        case endTime = "end_time"
     }
 }
 
@@ -443,4 +513,66 @@ struct TestsRunPayload: Codable {
 struct ConstraintsHeldPayload: Codable {
     let passed: Bool
     let details: String
+}
+
+struct TaskPlanResponsePayload: Codable {
+    let planId: String
+    let intent: String
+    let steps: [TaskStepPayload]
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case planId = "planId"
+        case intent
+        case steps
+        case status
+    }
+}
+
+struct TaskStepPayload: Codable {
+    let stepId: String
+    let kind: String
+    let description: String
+    let params: [String: RawJSONValue]
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case stepId = "stepId"
+        case kind, description, params, status
+    }
+}
+
+enum RawJSONValue: Codable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
+    case array([RawJSONValue])
+    case object([String: RawJSONValue])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let str = try? container.decode(String.self) { self = .string(str) }
+        else if let int = try? container.decode(Int.self) { self = .int(int) }
+        else if let double = try? container.decode(Double.self) { self = .double(double) }
+        else if let bool = try? container.decode(Bool.self) { self = .bool(bool) }
+        else if container.decodeNil() { self = .null }
+        else if let arr = try? container.decode([RawJSONValue].self) { self = .array(arr) }
+        else if let obj = try? container.decode([String: RawJSONValue].self) { self = .object(obj) }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value") }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try container.encode(v)
+        case .int(let v): try container.encode(v)
+        case .double(let v): try container.encode(v)
+        case .bool(let v): try container.encode(v)
+        case .null: try container.encodeNil()
+        case .array(let v): try container.encode(v)
+        case .object(let v): try container.encode(v)
+        }
+    }
 }

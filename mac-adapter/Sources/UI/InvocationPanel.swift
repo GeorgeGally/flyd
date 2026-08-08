@@ -11,6 +11,7 @@ final class InvocationPanel {
         case executing(operationCount: Int, preview: String)
         case undoAvailable(invocationId: String, preview: String)
         case error(message: String)
+        case workSession(diagnosis: String, pendingAction: String?)
     }
 
     private var panel: NSPanel?
@@ -179,6 +180,17 @@ final class InvocationPanel {
                     self?.cancel()
                 }
             }
+        case .workSession(let diagnosis, let pendingAction):
+            showTextSurface(true)
+            showVoiceSurface(false, level: 0)
+            titleLabel?.stringValue = "Work Session"
+            let actionText = pendingAction.map { " — Pending: \($0)" } ?? ""
+            label.stringValue = "\(diagnosis)\(actionText)"
+            label.textColor = FlydPalette.brass
+            statusDot?.set(color: FlydPalette.brass, pulsing: true)
+            textField?.isEditable = true
+            textField?.placeholderString = "follow up on this..."
+            panel?.makeFirstResponder(textField)
         }
     }
 
@@ -413,7 +425,7 @@ final class InvocationPanel {
     /// instead of being torn down by the caller on the very next run-loop turn.
     func dismissUnlessShowingResult() {
         switch currentState {
-        case .executing, .undoAvailable:
+        case .executing, .undoAvailable, .workSession:
             return
         default:
             dismiss()

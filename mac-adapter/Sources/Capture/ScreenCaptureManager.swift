@@ -9,6 +9,9 @@ final class ScreenCaptureManager {
         stream != nil
     }
 
+    private(set) var capturedDisplayID: String?
+    private(set) var capturedDisplayBounds: CGRect?
+
     private var stream: SCStream?
     private var streamOutput: CaptureOutput?
 
@@ -19,6 +22,10 @@ final class ScreenCaptureManager {
 
         let content = try? await SCShareableContent.current
         guard let content, let display = content.displays.first else { return nil }
+
+        capturedDisplayID = "\(display.displayID)"
+        let bounds = CGDisplayBounds(display.displayID)
+        capturedDisplayBounds = bounds
 
         let excludedWindows = content.windows.filter { window in
             guard let bundleId = window.owningApplication?.bundleIdentifier else { return false }

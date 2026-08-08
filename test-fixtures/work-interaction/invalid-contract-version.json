@@ -1,0 +1,21 @@
+{
+  "contract_version": 99,
+  "interaction_id": "wi_test_099",
+  "work_session_id": "ws_test_099",
+  "work_session_revision": 1,
+  "invocation_id": "inv_test_099",
+  "intent": "This payload has an incompatible contract version",
+  "modality": "text",
+  "current_evidence": {
+    "foreground_app": { "bundle_id": "com.example.app", "name": "TestApp" },
+    "active_window": { "title": "Test Window" },
+    "focused_element": {
+      "ref": "el_99",
+      "role": "AXTextArea",
+      "value": "test content",
+      "selected_text": ""
+    },
+    "display_identity": "display_0_2560x1440",
+    "focused_bounds": { "x": 100, "y": 100, "width": 400, "height": 300 }
+  }
+}

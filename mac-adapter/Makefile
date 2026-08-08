@@ -10,7 +10,7 @@ FLYD_CODESIGN_KEYCHAIN = $(HOME)/Library/Keychains/flyd-local-signing.keychain-d
 FLYD_CODESIGN_KEYCHAIN_PASSWORD ?= flyd-local-signing
 FLYD_CODESIGN_IDENTITY ?= $(shell /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/awk '/Flyd Local Development/ { print $$2; exit }')
 
-.PHONY: build bundle run install clean
+.PHONY: build bundle run install clean test-work-intelligence check-foundry-gate
 
 build:
 	swift build -c release
@@ -45,3 +45,50 @@ run: install
 clean:
 	rm -rf "$(BUILD_DIR)"
 	swift package clean
+
+test-work-intelligence:
+	@echo "=== Running Swift adapter tests ==="
+	swift test
+	@echo ""
+	@echo "=== Running TypeScript Core tests ==="
+	cd ../cli && npm test
+	@echo ""
+	@echo "=== Combined test result: PASSED ==="
+
+check-foundry-gate:
+	@echo "=== Checking Core health ==="
+	@CORE_HEALTHY=0; \
+	if curl -sf http://localhost:4815/health > /dev/null 2>&1; then \
+		echo "Port 4815 (/health): OK"; \
+		CORE_HEALTHY=$$((CORE_HEALTHY + 1)); \
+	else \
+		echo "Port 4815 (/health): NOT RESPONDING"; \
+	fi; \
+	if lsof -i tcp:4816 | grep -q LISTEN 2>/dev/null; then \
+		echo "Port 4816 (transcription): OK"; \
+		CORE_HEALTHY=$$((CORE_HEALTHY + 1)); \
+	else \
+		echo "Port 4816 (transcription): NOT LISTENING"; \
+	fi; \
+	if lsof -i tcp:4817 | grep -q LISTEN 2>/dev/null; then \
+		echo "Port 4817 (realtime): OK"; \
+		CORE_HEALTHY=$$((CORE_HEALTHY + 1)); \
+	else \
+		echo "Port 4817 (realtime): NOT LISTENING"; \
+	fi; \
+	echo ""; \
+	echo "=== Running release acceptance tests ==="; \
+	cd ../cli && npm test -- src/__tests__/work-intelligence-release-acceptance.test.ts; \
+	TEST_EXIT=$$?; \
+	echo ""; \
+	if [ $$CORE_HEALTHY -eq 3 ] && [ $$TEST_EXIT -eq 0 ]; then \
+		echo "=== Foundry Gate: ready ==="; \
+	else \
+		if [ $$CORE_HEALTHY -ne 3 ]; then \
+			echo "Foundry Gate issue: Core not fully healthy ($$CORE_HEALTHY/3 ports)"; \
+		fi; \
+		if [ $$TEST_EXIT -ne 0 ]; then \
+			echo "Foundry Gate issue: release acceptance tests failed"; \
+		fi; \
+		echo "=== Foundry Gate: not ready ==="; \
+	fi

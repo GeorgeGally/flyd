@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildMemoryPack, buildResolutionPrompt } from "../resolve.js";
+import { gateLearningCandidate } from "../memory-gate.js";
+import { createLearningReceipt } from "../memory-receipt.js";
+import { suppressContradictedMemories, gateCurrentness, type ContradictionSignal } from "../lib/currentness-gate.js";
+import type { ScoredEvidence } from "../lib/librarian.js";
 
 const retrieveResilientLexicalBrainEvidence = vi.fn();
 
@@ -83,5 +87,153 @@ describe("memory pipeline integration", () => {
     const prompt = buildResolutionPrompt(emptyWorldState, env, "test", { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" });
     expect(prompt).toContain("MEMORY STATUS");
     expect(prompt).toContain("NEVER claim you lack access");
+  });
+});
+
+describe("closeout → learning promotion → memory retrieval pipeline", () => {
+  it("promotes a correction with provenance through the full pipeline", () => {
+    const candidate = {
+      id: "candidate-1",
+      source: "correction" as const,
+      content: "User prefers dark mode",
+      domain: "response_style",
+      outcomeRef: "outcome-123",
+      epistemicConfidence: "high" as const,
+      timestamp: new Date().toISOString(),
+    };
+
+    const gateResult = gateLearningCandidate(candidate);
+    expect(gateResult.shouldRemember).toBe(true);
+
+    const receipt = createLearningReceipt(candidate, gateResult.reason, candidate.domain);
+    expect(receipt.provenance.epistemicConfidence).toBe("high");
+    expect(receipt.provenance.sourceType).toBe("correction");
+    expect(receipt.provenance.outcomeRef).toBe("outcome-123");
+    expect(receipt.source).toBe("flyd-work-intelligence");
+  });
+
+  it("rejects low-confidence candidates from the pipeline", () => {
+    const candidate = {
+      id: "candidate-2",
+      source: "durable_decision" as const,
+      content: "Deploy through Cloudflare",
+      domain: "infrastructure",
+      outcomeRef: "outcome-456",
+      epistemicConfidence: "low" as const,
+      timestamp: new Date().toISOString(),
+    };
+
+    const gateResult = gateLearningCandidate(candidate);
+    expect(gateResult.shouldRemember).toBe(false);
+  });
+
+  it("contradicted memory is suppressed but not rewritten", () => {
+    const entry: ScoredEvidence = {
+      path: "wiki/projects/flyd.md",
+      body: "flyd uses dynamic cards for its UI",
+      source: "wiki",
+      score: 85,
+      metadata: {},
+      staleness: null,
+      librarianScore: 0.85,
+      recencyWeight: 0.8,
+      reliabilityWeight: 0.8,
+      interestBoost: 0,
+      corroborationCount: 0,
+      contradictionCount: 0,
+      isCurrent: true,
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.9,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    };
+
+    const contradictions: ContradictionSignal[] = [{
+      claim: "dynamic cards",
+      contradictingEvidence: "flyd uses text-only interaction",
+      source: "repository",
+      timestamp: new Date().toISOString(),
+    }];
+
+    const originalConfidence = entry.confidenceProfile.epistemicConfidence;
+    const result = suppressContradictedMemories([entry], contradictions);
+
+    expect(result[0].isCurrent).toBe(false);
+    expect(result[0].confidenceProfile.epistemicConfidence).toBe(originalConfidence);
+  });
+
+  it("project-scoped memory retrieval respects currentness gating", () => {
+    const presentModel = {
+      generatedAt: new Date().toISOString(),
+      repository: {
+        root: "/Users/george/flyd",
+        name: "flyd",
+        remote: null,
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        statusLines: [" M cli/src/resolve.ts"],
+        statusDigest: "digest",
+      },
+      activeTask: null,
+      recentCommits: [],
+      gaps: [],
+    };
+
+    const inScopeEntry: ScoredEvidence = {
+      path: "wiki/projects/flyd.md",
+      body: "Working on resolve.ts changes",
+      source: "wiki",
+      score: 85,
+      metadata: {},
+      staleness: null,
+      librarianScore: 0.85,
+      recencyWeight: 0.8,
+      reliabilityWeight: 0.8,
+      interestBoost: 0,
+      corroborationCount: 0,
+      contradictionCount: 0,
+      confidenceProfile: {
+        epistemicConfidence: 0.9,
+        freshness: 0.9,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    };
+
+    const outOfScopeEntry: ScoredEvidence = {
+      path: "wiki/projects/other-repo.md",
+      body: "Notes about an unrelated project",
+      source: "wiki",
+      score: 75,
+      metadata: {},
+      staleness: null,
+      librarianScore: 0.75,
+      recencyWeight: 0.6,
+      reliabilityWeight: 0.6,
+      interestBoost: 0,
+      corroborationCount: 0,
+      contradictionCount: 0,
+      confidenceProfile: {
+        epistemicConfidence: 0.8,
+        freshness: 0.3,
+        interestAffinity: 0,
+        retrievalUtility: 0.5,
+        associationStrength: 0,
+      },
+    };
+
+    const currentPaths = gateCurrentness(
+      [inScopeEntry, outOfScopeEntry],
+      presentModel,
+      { kind: "current_state", confidence: 0.9, reasons: [] }
+    );
+
+    expect(currentPaths.has(inScopeEntry.path)).toBe(true);
+    expect(currentPaths.has(outOfScopeEntry.path)).toBe(false);
   });
 });

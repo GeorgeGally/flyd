@@ -6,7 +6,7 @@ import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
 import type { Resolution, NativeOperation, ResolutionMode, AugmentOperation } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
 import { assessConsequence } from "./consequence.js";
-import { classifyRoute, type RouterConfig } from "./router.js";
+import { classifyRoute, isDeterministicDictation, type RouterConfig } from "./router.js";
 import type { ConsequenceAssessment } from "./verification-types.js";
 import { classifyRecallIntent } from "./lib/recall-intent.js";
 import {
@@ -16,6 +16,10 @@ import {
   recordRouteDivergence,
   recordConsequentialFlagged,
 } from "./overlay-metrics.js";
+import { workSessionStore } from "./work-intelligence/work-session-store.js";
+import { constructCurrentWork, resolveRepositoryFromPath, type GroundingContext } from "./work-intelligence/current-work.js";
+import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
+import { defaultModel, getKey } from "./lib/config.js";
 
 interface EnvironmentCapture {
   application: {
@@ -45,6 +49,10 @@ interface EnvironmentCapture {
   };
   selection: string;
   sufficiency: "semantic" | "partial";
+  document_path?: string;
+  display_identity?: string;
+  focused_bounds?: { x: number; y: number; width: number; height: number };
+  browser_url?: string;
 }
 
 export type IntentRouteKind = "dictate_insert" | "draft_insert" | "ask_answer";
@@ -131,7 +139,7 @@ function memoryScope(metadata: Record<string, unknown>): RetrievedClaim["scope"]
   return "global";
 }
 
-export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture): Promise<MemoryPack> {
+export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture, projectRoot?: string): Promise<MemoryPack> {
   const query = intent.trim();
   const empty: MemoryPack = { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
   if (!query) return empty;
@@ -139,7 +147,7 @@ export async function buildMemoryPack(intent: string, _environment: EnvironmentC
   try {
     const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
     const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
-    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query), timeout]);
+    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query, projectRoot), timeout]);
     if (!result) return empty;
 
     const conflictingPaths = new Set<string>();
@@ -685,6 +693,52 @@ export async function resolve(
 ): Promise<Resolution> {
   const { invocation_id, environment_revision, environment, intent, modality } = manifest;
 
+  // Resolve project from captured document path (foreground evidence).
+  // process.cwd() is a fallback, never the authority.
+  const repoInfo = resolveRepositoryFromPath(environment.document_path);
+  const projectRoot = repoInfo.root;
+
+  // Build work-intelligence grounding context from foreground evidence.
+  const groundingCtx: GroundingContext = {
+    environment,
+    resolvedProjectRoot: projectRoot,
+    gitBranch: repoInfo.branch,
+    gitHeadDigest: repoInfo.headDigest,
+    gitStatusDigest: repoInfo.statusDigest,
+    gitRecentCommits: repoInfo.recentCommits,
+    gitChangedFiles: repoInfo.changedFiles,
+    screenshotBase64: manifest.screenshot,
+  };
+
+  // Manage work session: create or resume, attach turns, and increment
+  // revision when foreground evidence materially changes.
+  let resolvedSessionId: string | undefined;
+  const workSessionId = manifest.conversation_id ?? undefined;
+  try {
+    const currentWork = constructCurrentWork(groundingCtx);
+    let session = workSessionId ? workSessionStore.get(workSessionId) : null;
+
+    if (!session) {
+      session = workSessionStore.createSession();
+      workSessionStore.updateCurrentWork(session.sessionId, currentWork);
+      workSessionStore.updateEvidenceSummary(session.sessionId, currentWork.evidenceSummary);
+    } else {
+      const existingWork = workSessionStore.getCurrentWork(session.sessionId);
+      const evidenceChanged = !existingWork
+        || existingWork.evidenceSummary.repositoryRoot !== currentWork.evidenceSummary.repositoryRoot
+        || existingWork.evidenceSummary.documentPath !== currentWork.evidenceSummary.documentPath
+        || existingWork.evidenceSummary.foregroundApp !== currentWork.evidenceSummary.foregroundApp;
+      if (evidenceChanged) {
+        workSessionStore.updateCurrentWork(session.sessionId, currentWork);
+        workSessionStore.updateEvidenceSummary(session.sessionId, currentWork.evidenceSummary);
+      }
+    }
+    workSessionStore.addTurn(session.sessionId, intent, "pending", undefined, currentWork);
+    resolvedSessionId = session.sessionId;
+  } catch {
+    // Session tracking is advisory – never block resolution on it.
+  }
+
   // Heuristic consequence check gates the deterministic tier. The patterns
   // below only insert literal text, but consequential intents must never
   // skip model review — cheap insurance before operation kinds grow.
@@ -703,11 +757,60 @@ export async function resolve(
     }
   }
 
+  // U3: Work-intelligence gate — substantial invocations route through
+  // Ground → Diagnose → Intervene instead of general scene selection.
+  const isDictation = isDeterministicDictation({
+    intent,
+    modality,
+    elementRole: environment.focused_element.role,
+  });
+
+  if (!isDictation && model && apiKey) {
+    try {
+      const wiOutput = await runWorkIntelligence({
+        invocationId: invocation_id,
+        intent,
+        modality,
+        environment,
+        conversationId: manifest.conversation_id,
+        screenshotBase64: manifest.screenshot,
+        modelConfig: { model, apiKey, baseURL: baseURL || "https://api.openai.com/v1" },
+      });
+
+      const augmentContent = wiOutput.intervention.content;
+      const rationale = wiOutput.diagnosis.primaryIssue.finding;
+
+      const resolution: Resolution = {
+        resolutionId: wiOutput.interactionId,
+        invocationId: invocation_id,
+        environmentRevision: environment_revision,
+        mode: "requires_augment",
+        rationale,
+        operations: [],
+        augmentations: [{
+          kind: "explanation",
+          content: augmentContent,
+          placement: "cursor",
+        }],
+        workSessionId: wiOutput.workSessionId,
+        consequence: heuristicConsequence,
+      };
+
+      const validationError = validateResolution(resolution);
+      if (!validationError) {
+        recordLlmResolution();
+        return resolution;
+      }
+    } catch {
+      // Work-intelligence failed — fall through to existing pipeline.
+    }
+  }
+
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
   const [worldState, memoryPack, classified] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
-    buildMemoryPack(intent, environment),
+    buildMemoryPack(intent, environment, projectRoot),
     classifyRoute(
       intent,
       { appName: environment.application.name, elementRole: environment.focused_element.role },
@@ -783,9 +886,11 @@ export async function resolve(
         rationale: `Resolution validation failed: ${validationError.error}`,
         operations: [],
         composeRationale: `Could not produce a valid resolution for: "${intent}"`,
+        workSessionId: resolvedSessionId,
       };
     }
 
+    resolution.workSessionId = resolvedSessionId;
     return resolution;
   } catch (err) {
     return {
@@ -796,6 +901,7 @@ export async function resolve(
       rationale: "Resolution failed.",
       operations: [],
       composeRationale: err instanceof Error ? err.message : "Unknown error during resolution",
+      workSessionId: resolvedSessionId,
     };
   }
 }

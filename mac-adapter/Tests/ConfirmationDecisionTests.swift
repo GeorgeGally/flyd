@@ -25,4 +25,22 @@ final class ConfirmationDecisionTests: XCTestCase {
     func testDestructiveReplacementDisplayName() {
         XCTAssertEqual(ConfirmationDecision.Reason.destructiveReplacement.displayName, "large replacement")
     }
+
+    func testActionGrantInvalidDisplayName() {
+        XCTAssertEqual(ConfirmationDecision.Reason.actionGrantInvalid.displayName, "action grant invalid")
+    }
+
+    func testTargetDriftedDisplayName() {
+        XCTAssertEqual(ConfirmationDecision.Reason.targetDrifted.displayName, "target drifted")
+    }
+
+    func testRequiresConfirmationWithGrantInvalid() {
+        let decision = ConfirmationDecision(reasons: [.actionGrantInvalid])
+        XCTAssertTrue(decision.requiresConfirmation)
+    }
+
+    func testRequiresConfirmationWithTargetDrifted() {
+        let decision = ConfirmationDecision(reasons: [.targetDrifted])
+        XCTAssertTrue(decision.requiresConfirmation)
+    }
 }

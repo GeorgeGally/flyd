@@ -73,6 +73,8 @@ var flydStarted = false
 var suppressNextShortcutRelease = false
 let setupCompletedKey = "FlydSetupCompleted"
 
+let workInteractionCoordinator = WorkInteractionCoordinator.shared
+
 statusItem.onInvoke = {
     if !flydStarted {
         startFlyd(closeSetup: false)
@@ -158,6 +160,8 @@ func startFlyd(closeSetup: Bool = true) {
         let undone = executor.undoLast(for: invocationId)
         print("[Flyd] Undo \(invocationId.prefix(8)): \(undone ? "ok" : "failed — target no longer available")")
     }
+
+    workInteractionCoordinator.configure(invocationPanel: invocationPanel, executor: executor)
 
     stateMachine.start()
 
@@ -460,6 +464,7 @@ func handleShortcutPress() {
     invocationPanel.dismiss()
     activeAugmentPanels.forEach { $0.dismiss() }
     activeAugmentPanels.removeAll()
+    workInteractionCoordinator.cancelActiveInvocation()
     clearVoiceTranscriptionTimeout()
     voiceCapture.stop()
     resetVoiceCaptureCallbacks()
@@ -488,6 +493,39 @@ func handleInvocation() {
         state.cancelInvocation()
         stateMachine.cancel()
         invocationPanel.dismiss()
+        workInteractionCoordinator.cancelActiveInvocation()
+        return
+    }
+
+    if workInteractionCoordinator.isActive {
+        let workSession = stateMachine.ensureWorkSession()
+        stateMachine.setRevision(workSession.revision)
+        invocationPanel.updateState(.workSession(
+            diagnosis: "Continue working on this",
+            pendingAction: nil
+        ))
+        invocationPanel.show()
+        invocationPanel.onIntentSubmitted = { intent in
+            invocationPanel.updateState(.processing)
+            let (invocationId, revision) = state.startInvocation()
+            stateMachine.setRevision(revision)
+            activeInvocationTask = Task {
+                await processInvocation(
+                    invocationId: invocationId,
+                    revision: revision,
+                    modality: "text",
+                    intent: intent,
+                    conversationId: voiceConversationId
+                )
+            }
+        }
+        invocationPanel.onCancelled = {
+            activeInvocationTask?.cancel()
+            state.cancelInvocation()
+            stateMachine.cancel()
+            executor.clearInvocationRefs()
+            workInteractionCoordinator.cancelActiveInvocation()
+        }
         return
     }
 
@@ -649,6 +687,7 @@ func processInvocation(
         print("[Flyd] No screen capture available for this invocation — resolving without vision")
     }
 
+    let workSession = stateMachine.ensureWorkSession()
     let response = await flydClient.sendManifest(
         invocationId: invocationId,
         environmentRevision: revision,
@@ -657,7 +696,16 @@ func processInvocation(
         modality: modality,
         screenshot: screenshotBase64,
         conversationId: conversationId,
-        fingerprint: fingerprint
+        fingerprint: fingerprint,
+        documentPath: environment.documentPath,
+        browserURL: environment.browserURL,
+        displayID: environment.displayID,
+        screenshotBounds: environment.screenshotBounds ?? ScreenCaptureManager.shared.capturedDisplayBounds,
+        focusedElementBounds: accessibilityInspector.focusedElementBounds,
+        selectedRangeBounds: accessibilityInspector.selectedRangeBounds,
+        editable: accessibilityInspector.editable,
+        workSessionId: workSession.sessionId,
+        workSessionRevision: workSession.revision
     )
 
     guard !Task.isCancelled, FlydState.shared.invocationId == invocationId else {
@@ -795,6 +843,37 @@ func processInvocation(
             }
         }
 
+    case "work_intelligence":
+        print("[Flyd] Work intelligence response received")
+        await MainActor.run {
+            workInteractionCoordinator.renderWorkIntelligence(
+                invocationId: invocationId,
+                invocationRevision: revision,
+                response: resolution
+            )
+            let diagnosisText = resolution.diagnosis?.primaryIssue.finding ?? "Work session active"
+            let pending = resolution.intervention?.proposedAction?.description
+            invocationPanel.updateState(.workSession(diagnosis: diagnosisText, pendingAction: pending))
+        }
+
+    case "requires_execution":
+        print("[Flyd] Shell execution requested")
+        await MainActor.run {
+            workInteractionCoordinator.renderExecutionCards(
+                invocationId: invocationId,
+                resolution: resolution
+            )
+        }
+
+    case "requires_task":
+        print("[Flyd] Task plan requested")
+        await MainActor.run {
+            workInteractionCoordinator.renderTaskPlan(
+                invocationId: invocationId,
+                resolution: resolution
+            )
+        }
+
     default:
         print("[Flyd] Unknown mode: \(resolution.mode)")
     }
@@ -859,9 +938,24 @@ func executeNativeOperations(
         let resolved = ResolvedOperation(target: op.target, kind: op.kind, text: op.text)
         let result = await executor.execute(operation: resolved, fingerprint: fingerprint)
 
+        let verificationPayload: FlydClient.VerificationEvidencePayload?
+        if let evidence = result.verificationEvidence {
+            verificationPayload = FlydClient.VerificationEvidencePayload(
+                preValueDigest: evidence.preValueDigest,
+                postValue: evidence.postValue,
+                postValueDigest: evidence.postValueDigest,
+                changed: evidence.changed
+            )
+        } else {
+            verificationPayload = nil
+        }
+
         if result.success {
             results.append((success: true, kind: op.kind, text: op.text, message: ""))
             print("[Flyd] Executed: \(op.kind) → \(op.text.prefix(40))...")
+            if let v = verificationPayload {
+                print("[Flyd] Verification: preDigest=\(v.preValueDigest?.prefix(8) ?? "nil") postDigest=\(v.postValueDigest?.prefix(8) ?? "nil") changed=\(v.changed)")
+            }
             print("[Flyd] Undo available for invocation \(resolution.invocationId.prefix(8))")
         } else {
             await copyTextToClipboard(op.text)
@@ -873,7 +967,8 @@ func executeNativeOperations(
             resolutionId: resolution.resolutionId,
             invocationId: resolution.invocationId,
             status: result.success ? "succeeded" : "failed",
-            correction: result.error
+            correction: result.error,
+            verification: verificationPayload
         )
     }
     return results

@@ -85,6 +85,17 @@ Flyd already captures the screen and accessibility context, answers through a lo
 - R15. Flyd must verify the changed field, file, diff, or repository state against the original diagnosis before reporting success.
 - R16. The verified result must return to the same Mac Work Session with what changed, where it changed, how it was checked, what remains unresolved, and the recommended next action.
 
+#### Shell execution (V1 scope expansion — 2026-08-05)
+
+- R-SH1. Interventions may propose shell commands when they are the right fix; the Ground-Diagnose-Intervene pipeline must freely propose shell commands rather than suppress them into instruction text.
+- R-SH2. Every shell command must be displayed with its full text, working directory, explanation, and a destructive/non-destructive label before execution.
+- R-SH3. Commands must be rejected if they are interactive (require stdin), connect to remote hosts, match deny-list patterns (rm -rf /, dd, mkfs, etc.), or target paths outside the resolved project root.
+- R-SH4. Core executes approved commands via child_process.spawn and streams stdout/stderr back to the Mac adapter for visible progress tracking.
+- R-SH5. Each command has a timeout (30s default, 120s max), cancellation support, and a 50KB output buffer cap.
+- R-SH6. After execution, show exit code, stdout/stderr summary, and whether the command succeeded; multi-command executions stop on first non-zero exit.
+- R-SH7. The existing consequence classifier must stop suppressing consequential intents into instruction text for commands that are reversible or have explicit user approval.
+- R-SH8. Command approval and execution results are recorded in the founder journal as distinct event types (command_approved, command_rejected, command_completed, command_failed).
+
 #### Outcomes and learning
 
 - R17. Flyd must record local founder-trial evidence for accepted interventions, retained artifact improvements, verified project progress, discoveries, rejected interventions, corrections, failures, current-project accuracy, and time to first useful response.
@@ -176,6 +187,7 @@ Now:
 - critique across design, writing, strategy, code, and research;
 - reversible native text action;
 - one bounded repository action;
+- permission-gated shell/terminal execution (command approval, Core-side spawn, streaming output, safety validation);
 - verification, closeout, selective learning, and local founder evidence.
 
 Later, only after the founder gate:
@@ -225,6 +237,7 @@ Human-only:
 - KTD8. Keep one Core-owned live Work Session store. Persist closeouts and founder outcomes through separate small local stores with explicit retention and redaction rules. Keep all three separate from privacy-limited technical counters and durable semantic memory. Governs R4 and R16-R19.
 - KTD9. Promote learning only after an explicit correction, accepted standard, retained artifact improvement, or verified outcome. Preserve epistemic confidence, freshness, currentness, retrieval utility, and provenance as separate dimensions. Governs R2-R3 and R17-R19.
 - KTD10. Treat the installed Mac app as the acceptance surface. Tests at the Core, Swift, or worker layer are necessary but cannot establish completion alone. Governs R9-R22.
+- KTD11. Core decides which shell commands are needed, the Mac adapter renders and gates approval, Core executes via child_process.spawn and streams output back via polling. No command runs without explicit visible approval. Safety is enforced at submission time (Core-side deny-list) rather than in the LLM prompt alone. Governs R-SH1-R-SH8. (session-settled: user-directed — shell execution closes the gap between Flyd telling and Flyd doing for terminal-heavy workflows. Without it, every consequential intervention would be a manual instruction list.)
 
 ### High-Level Technical Design
 
@@ -553,6 +566,57 @@ flowchart TD
 - Cancellation during inference or confirmation cannot execute later against a new target.
 
 **Verification:** A real writing task completes intervention, approval, edit, undo, re-read, and diagnosis-based verification through the installed app.
+
+### U5a. Shell/terminal execution with permission gating (scope expansion)
+
+**Goal:** Close the execution gap so interventions that require running shell commands (install dependencies, run builds, check system state) execute directly rather than returning instruction text. Modeled on OpenCode/OpenClaw/Hermes permission-gated command approval.
+
+**Requirements:** R-SH1-R-SH8. V1 scope expansion per 2026-08-05 decision.
+
+**Dependencies:** U1-U4.
+
+**Files:**
+
+- `cli/src/work-intelligence/types.ts` — ShellCommand, ShellExecutionRequest, ShellExecutionResult, shell_execute action kind
+- `cli/src/work-intelligence/command-execution.ts` (new) — validateShellCommand, validateShellExecutionRequest, runExecution, getExecutionStatus, cancelExecution
+- `cli/src/resolve-types.ts` — requires_execution mode, execution augment kind, commands field
+- `cli/src/work-intelligence/intervention.ts` — shellExecute intervention kind, proposed_action parsing
+- `cli/src/server.ts` — POST /work-intelligence/command/execute, GET /work-intelligence/command/status, POST /work-intelligence/command/cancel
+- `mac-adapter/Sources/Bridge/WorkInteractionPayloads.swift` — ShellCommandPayload, ShellExecutionRequestPayload, ShellExecutionResultPayload
+- `mac-adapter/Sources/UI/AugmentPanel.swift` — showExecutionCard method, onCommandApprove/onCommandReject callbacks
+- `mac-adapter/Sources/Bridge/FlydClient.swift` — approveCommands, pollCommandOutput, cancelCommandExecution, AugmentPayload.commands
+- `mac-adapter/Sources/WorkInteraction/WorkInteractionCoordinator.swift` — renderExecutionCards, handleExecutionOption, showExecutionResult, formatExecutionOutput
+- `mac-adapter/Sources/main.swift` — requires_execution case in processInvocation
+- `cli/src/__tests__/command-execution.test.ts` (new)
+- `mac-adapter/Tests/CommandExecutionPayloadTests.swift` (new)
+
+**Approach:**
+
+- Core decides commands via the GDI pipeline (shellExecute kind + proposed_action.shell_commands).
+- Server handler detects shell_execute proposals and returns requires_execution mode with execution augmentations.
+- Swift adapter renders each command in an AugmentPanel card with full text, working directory, explanation, and destructive label.
+- Each command has individual Approve/Reject buttons plus a Reject All option.
+- On approval, Swift POSTs to /work-intelligence/command/execute; Core runs commands sequentially via child_process.spawn.
+- Swift polls /work-intelligence/command/status every 500ms for output streaming.
+- Commands stop on first non-zero exit code; timeout is 30s default, 120s max.
+- Safety enforced at submission: deny-list (rm -rf /, dd, mkfs, etc.), network deny-list (ssh, scp, rsync), interactive deny-list (sudo, vim, less, top), 2000-char command limit, working-directory existence check.
+- On completion, results (exit code, stdout, stderr) are displayed in a new card.
+- All command approvals and completions are recorded in the founder journal.
+
+**Test Scenarios:**
+
+- Single safe command executes and returns exit code 0 with stdout.
+- Command matching deny-list (rm -rf /) is rejected at validation.
+- ssh command is rejected (remote connection deny-list).
+- Interactive command (sudo) is rejected.
+- Working directory mismatch is caught.
+- Multi-command execution stops on first non-zero exit.
+- Timeout fires and returns timed_out status.
+- Command approval writes founder journal entry.
+- Cancellation kills running process.
+- Polling returns partial stdout during execution.
+
+**Verification:** A real invocation produces a shellExecute intervention, the user approves commands in the Mac UI, Core executes and streams output, and the result card shows exit codes and output.
 
 ### U6. Add one bounded repository action
 

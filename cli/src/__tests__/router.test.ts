@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyRoute, parseClassifierResponse } from "../router.js";
+import { classifyRoute, parseClassifierResponse, isDeterministicDictation } from "../router.js";
 
 const env = { appName: "Mail", elementRole: "AXTextArea" };
 const config = { model: "flash-test", apiKey: "key", baseURL: "https://example.test/v1" };
@@ -97,5 +97,79 @@ describe("classifyRoute", () => {
   it("returns null on malformed model output", async () => {
     const result = await classifyRoute("what is this", env, "text", config, async () => "garbage");
     expect(result).toBeNull();
+  });
+});
+
+describe("isDeterministicDictation", () => {
+  it("detects type prefix in editable text field", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello world",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(true);
+  });
+
+  it("detects write prefix in text field", () => {
+    expect(isDeterministicDictation({
+      intent: "write this sentence for me",
+      modality: "text",
+      elementRole: "AXTextField",
+    })).toBe(true);
+  });
+
+  it("detects dictate prefix", () => {
+    expect(isDeterministicDictation({
+      intent: "dictate meeting notes",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(true);
+  });
+
+  it("detects insert prefix", () => {
+    expect(isDeterministicDictation({
+      intent: "insert a link here",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(true);
+  });
+
+  it("rejects dictation in non-editable element", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello world",
+      modality: "text",
+      elementRole: "AXWindow",
+    })).toBe(false);
+  });
+
+  it("rejects non-dictation intent even in editable field", () => {
+    expect(isDeterministicDictation({
+      intent: "what is this code doing",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(false);
+  });
+
+  it("rejects voice modality for dictation", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello world",
+      modality: "voice",
+      elementRole: "AXTextArea",
+    })).toBe(false);
+  });
+
+  it("rejects empty role", () => {
+    expect(isDeterministicDictation({
+      intent: "type hello",
+      modality: "text",
+      elementRole: "",
+    })).toBe(false);
+  });
+
+  it("requires exact prefix match not substring", () => {
+    expect(isDeterministicDictation({
+      intent: "prototype the login flow",
+      modality: "text",
+      elementRole: "AXTextArea",
+    })).toBe(false);
   });
 });

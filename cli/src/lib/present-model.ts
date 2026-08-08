@@ -69,12 +69,14 @@ export async function buildPresentModel(
   cwd: string = process.cwd(),
   deps: PresentModelDependencies = defaultDependencies,
   commitLimit = 5,
+  projectRoot?: string,
 ): Promise<PresentModel> {
+  const workingDir = projectRoot ?? cwd;
   const gaps: string[] = [];
 
   let repository: RepositorySnapshot | null = null;
   try {
-    repository = await deps.inspectRepository(cwd);
+    repository = await deps.inspectRepository(workingDir);
   } catch {
     gaps.push("repository_state_unavailable");
   }

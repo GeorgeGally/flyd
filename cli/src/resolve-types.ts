@@ -1,4 +1,5 @@
 import type { ConsequenceAssessment, HandoffReport } from "./verification-types.js";
+import type { Diagnosis, Intervention, ActionProposal, CurrentWork, EvidenceSummary } from "./work-intelligence/types.js";
 
 export interface NativeOperation {
   target: string;
@@ -7,17 +8,20 @@ export interface NativeOperation {
 }
 
 export interface AugmentOperation {
-  kind: "explanation" | "choice" | "annotation" | "control";
+  kind: "explanation" | "choice" | "annotation" | "control" | "execution" | "task_plan";
   content: string;
   placement: "beside_selection" | "below_element" | "cursor";
   options?: string[];
+  commands?: { command: string; workingDirectory?: string; explanation: string; isDestructive?: boolean }[];
+  fileOperations?: { kind: string; path: string; pattern?: string; explanation: string }[];
+  taskPlan?: Record<string, unknown>;
   temporalSpan?: {
     delayMs: number;
     durationMs: number;
   };
 }
 
-export type ResolutionMode = "native" | "requires_augment" | "requires_compose";
+export type ResolutionMode = "native" | "requires_augment" | "requires_compose" | "requires_execution" | "requires_task";
 
 export interface Resolution {
   resolutionId: string;
@@ -33,6 +37,32 @@ export interface Resolution {
   consequence?: ConsequenceAssessment;
   requiresConfirmation?: boolean;
   handoff?: HandoffReport;
+  workSessionId?: string;
+}
+
+export interface WorkIntelligenceOutcome {
+  diagnosis: Diagnosis;
+  intervention: Intervention;
+  actionProposal?: ActionProposal;
+  resolutionOutcome: "requires_augment" | "requires_compose";
+  workSessionId: string;
+  groundingContext: GroundingEvidence;
+}
+
+export interface GroundingEvidence {
+  foregroundApp: string;
+  artifactKind: string;
+  artifactTitle: string;
+  repositoryRoot?: string;
+  branch?: string;
+  documentPath?: string;
+  hasScreenshot: boolean;
+  elementRole: string;
+  elementValue: string;
+  selectedText: string;
+  sufficiency: "semantic" | "partial";
+  evidenceSummary: EvidenceSummary;
+  currentWork?: CurrentWork;
 }
 
 export interface ResolutionOutcome {
@@ -48,7 +78,7 @@ export interface ResolutionError {
 }
 
 const ALLOWED_KINDS: Set<string> = new Set(["insert_text", "replace_text", "replace_selection"]);
-const ALLOWED_MODES: Set<string> = new Set(["native", "requires_augment", "requires_compose"]);
+const ALLOWED_MODES: Set<string> = new Set(["native", "requires_augment", "requires_compose", "requires_execution", "requires_task"]);
 const MAX_OPERATION_CHARS = 2000;
 
 export function validateResolution(resolution: Resolution): ResolutionError | null {
@@ -90,6 +120,16 @@ export function validateResolution(resolution: Resolution): ResolutionError | nu
   if (resolution.mode === "requires_augment") {
     if (!resolution.augmentations || resolution.augmentations.length === 0) {
       return { error: "Augment mode requires at least one augmentation", code: "invalid_mode" };
+    }
+  }
+
+  if (resolution.mode === "requires_execution") {
+    if (!resolution.augmentations || resolution.augmentations.length === 0) {
+      return { error: "Execution mode requires at least one augmentation with commands", code: "invalid_mode" };
+    }
+    const hasExecutionCard = resolution.augmentations.some(a => a.kind === 'execution' && a.commands && a.commands.length > 0);
+    if (!hasExecutionCard) {
+      return { error: "Execution mode requires an execution augmentation with commands", code: "invalid_mode" };
     }
   }
 

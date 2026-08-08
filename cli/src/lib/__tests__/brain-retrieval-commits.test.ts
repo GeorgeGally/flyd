@@ -76,4 +76,66 @@ describe("retrieveRankedBrainEvidence — recent-commit evidence", () => {
     // Empty real archive -> insufficient, regardless of the injected commit.
     expect(result.sufficiency.verdict).toBe("insufficient");
   });
+
+  it("passes projectRoot through to buildPresentModel", async () => {
+    buildPresentModel.mockResolvedValueOnce(fakePresentModel);
+
+    await retrieveRankedBrainEvidence("what am I working on", {
+      searchRaw: async () => [],
+      searchWiki: () => [],
+      searchGraph: () => [],
+      now: () => new Date("2026-07-29T12:00:00.000Z"),
+    }, "/Users/george/Projects/CleanX");
+
+    expect(buildPresentModel).toHaveBeenCalledWith(
+      process.cwd(),
+      undefined,
+      expect.any(Number),
+      "/Users/george/Projects/CleanX",
+    );
+  });
+
+  it("adds project-context relevance boost when projectRoot is provided", async () => {
+    buildPresentModel.mockResolvedValueOnce(fakePresentModel);
+
+    const result = await retrieveRankedBrainEvidence("what am I working on", {
+      searchRaw: async () => [],
+      searchWiki: () => [
+        { path: "/Users/george/Projects/CleanX/README.md", body: "CleanX project", source: "wiki", score: 50, metadata: {}, staleness: null, librarianScore: 0.5, recencyWeight: 1, reliabilityWeight: 1, interestBoost: 0, corroborationCount: 1, contradictionCount: 0, confidenceProfile: { epistemicConfidence: 0.5, freshness: 1, interestAffinity: 0, retrievalUtility: 0.5, associationStrength: 0 }, isCurrent: false },
+      ],
+      searchGraph: () => [],
+      now: () => new Date("2026-07-29T12:00:00.000Z"),
+    }, "/Users/george/Projects/CleanX");
+
+    const wikiEntry = result.entries.find(e => e.path === "/Users/george/Projects/CleanX/README.md");
+    expect(wikiEntry).toBeDefined();
+    expect(wikiEntry!.librarianScore).toBeGreaterThan(0.5);
+  });
+
+  it("does not add project-context boost when no projectRoot is provided", async () => {
+    buildPresentModel.mockResolvedValue(fakePresentModel);
+
+    const wikiEntry = { path: "/Users/george/Projects/CleanX/README.md", body: "CleanX project", source: "wiki" as const, score: 50, metadata: {}, staleness: null, librarianScore: 0.5, recencyWeight: 1, reliabilityWeight: 1, interestBoost: 0, corroborationCount: 1, contradictionCount: 0, confidenceProfile: { epistemicConfidence: 0.5, freshness: 1, interestAffinity: 0, retrievalUtility: 0.5, associationStrength: 0 }, isCurrent: false };
+
+    const [resultWithout, resultWith] = await Promise.all([
+      retrieveRankedBrainEvidence("what am I working on", {
+        searchRaw: async () => [],
+        searchWiki: () => [wikiEntry],
+        searchGraph: () => [],
+        now: () => new Date("2026-07-29T12:00:00.000Z"),
+      }),
+      retrieveRankedBrainEvidence("what am I working on", {
+        searchRaw: async () => [],
+        searchWiki: () => [wikiEntry],
+        searchGraph: () => [],
+        now: () => new Date("2026-07-29T12:00:00.000Z"),
+      }, "/Users/george/Projects/CleanX"),
+    ]);
+
+    const entryWithout = resultWithout.entries.find(e => e.path === "/Users/george/Projects/CleanX/README.md");
+    const entryWith = resultWith.entries.find(e => e.path === "/Users/george/Projects/CleanX/README.md");
+    expect(entryWithout).toBeDefined();
+    expect(entryWith).toBeDefined();
+    expect(entryWith!.librarianScore).toBeGreaterThan(entryWithout!.librarianScore);
+  });
 });

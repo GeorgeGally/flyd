@@ -192,8 +192,9 @@ function buildCommitEvidence(commit: RecentCommit, now: Date): ScoredEvidence {
 export async function retrieveBrainEvidence(
   query: string,
   dependencies: BrainRetrievalDependencies = defaults,
+  projectRoot?: string,
 ): Promise<BrainRetrievalResult> {
-  const ranked = await retrieveRankedBrainEvidence(query, dependencies);
+  const ranked = await retrieveRankedBrainEvidence(query, dependencies, projectRoot);
 
   return {
     version: "1.0",
@@ -228,21 +229,22 @@ export async function retrieveBrainEvidence(
   };
 }
 
-export async function retrieveLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
-  return retrieveBrainEvidence(query, lexicalDefaults);
+export async function retrieveLexicalBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
+  return retrieveBrainEvidence(query, lexicalDefaults, projectRoot);
 }
 
-export async function retrieveResilientLexicalBrainEvidence(query: string): Promise<BrainRetrievalResult> {
-  return retrieveBrainEvidence(query, resilientLexicalDefaults);
+export async function retrieveResilientLexicalBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
+  return retrieveBrainEvidence(query, resilientLexicalDefaults, projectRoot);
 }
 
-export async function retrieveRankedLexicalBrainEvidence(query: string): Promise<RankedBrainRetrieval> {
-  return retrieveRankedBrainEvidence(query, lexicalDefaults);
+export async function retrieveRankedLexicalBrainEvidence(query: string, projectRoot?: string): Promise<RankedBrainRetrieval> {
+  return retrieveRankedBrainEvidence(query, lexicalDefaults, projectRoot);
 }
 
 export async function retrieveRankedBrainEvidence(
   query: string,
   dependencies: BrainRetrievalDependencies = defaults,
+  projectRoot?: string,
 ): Promise<RankedBrainRetrieval> {
   const keywords = extractKeywords(query);
   const interestBoost = getInterestKeywords(query);
@@ -265,11 +267,24 @@ export async function retrieveRankedBrainEvidence(
   const intent = classifyRecallIntent(query);
   const commitLimit = intent.kind === "task_resume" ? 15 : 5;
   const presentModel = intent.kind === "current_state" || intent.kind === "task_resume"
-    ? await buildPresentModel(process.cwd(), undefined, commitLimit).catch(() => null)
+    ? await buildPresentModel(process.cwd(), undefined, commitLimit, projectRoot).catch(() => null)
     : null;
   const currentPaths = gateCurrentness(scored, presentModel, intent);
   for (const entry of scored) {
     entry.isCurrent = currentPaths.has(entry.path);
+  }
+
+  if (projectRoot) {
+    const projectName = projectRoot.split("/").pop()?.toLowerCase() ?? "";
+    const projectBoost = 0.05;
+    for (const entry of scored) {
+      const pathLower = entry.path.toLowerCase();
+      if (pathLower.startsWith(projectRoot.toLowerCase()) || pathLower.includes(projectName)) {
+        entry.librarianScore = Math.min(1, entry.librarianScore + projectBoost);
+        entry.confidenceProfile.retrievalUtility = Math.min(1, entry.confidenceProfile.retrievalUtility + projectBoost);
+      }
+    }
+    scored.sort((a, b) => b.librarianScore - a.librarianScore);
   }
 
   // Sufficiency reflects real archive evidence only — synthetic commit

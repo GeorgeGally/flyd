@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { memoryGate } from "../memory-gate.js";
+import { memoryGate, gateLearningCandidate, type LearningCandidate } from "../memory-gate.js";
 
 describe("memoryGate", () => {
   const baseInput = {
@@ -59,5 +59,73 @@ describe("memoryGate", () => {
     });
     expect(result.shouldRemember).toBe(true);
     expect(result.category).toBe("repeated_topic");
+  });
+});
+
+describe("gateLearningCandidate", () => {
+  function makeCandidate(overrides: Partial<LearningCandidate> = {}): LearningCandidate {
+    return {
+      id: "test-1",
+      source: "correction",
+      content: "User prefers concise responses",
+      domain: "response_style",
+      outcomeRef: "outcome-123",
+      epistemicConfidence: "high",
+      timestamp: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  it("passes a correction with high confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "correction", epistemicConfidence: "high" }));
+    expect(result.shouldRemember).toBe(true);
+    expect(result.category).toBe("correction");
+    expect(result.confidence).toBe("high");
+  });
+
+  it("passes an accepted standard with medium confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "accepted_standard", epistemicConfidence: "medium" }));
+    expect(result.shouldRemember).toBe(true);
+    expect(result.category).toBe("accepted_standard");
+  });
+
+  it("passes a durable decision with high confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "durable_decision", epistemicConfidence: "high" }));
+    expect(result.shouldRemember).toBe(true);
+  });
+
+  it("passes a productive procedure with medium confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "productive_procedure", epistemicConfidence: "medium" }));
+    expect(result.shouldRemember).toBe(true);
+  });
+
+  it("passes a verified outcome with high confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "verified_outcome", epistemicConfidence: "high" }));
+    expect(result.shouldRemember).toBe(true);
+    expect(result.category).toBe("verified_outcome");
+  });
+
+  it("rejects a correction with low confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "correction", epistemicConfidence: "low" }));
+    expect(result.shouldRemember).toBe(false);
+    expect(result.confidence).toBe("low");
+  });
+
+  it("rejects a verified outcome with low confidence", () => {
+    const result = gateLearningCandidate(makeCandidate({ source: "verified_outcome", epistemicConfidence: "low" }));
+    expect(result.shouldRemember).toBe(false);
+  });
+
+  it("preserves existing gate test cases", () => {
+    const result = memoryGate({
+      intent: "what is the capital of France",
+      resolutionMode: "native",
+      outcomeStatus: "succeeded",
+      correction: null,
+      intentHistory: [],
+      topicCount: 0,
+    });
+    expect(result.shouldRemember).toBe(false);
+    expect(result.category).toBe("generic_qa");
   });
 });

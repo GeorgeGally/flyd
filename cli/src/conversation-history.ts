@@ -1,3 +1,5 @@
+import { workSessionStore } from "./work-intelligence/work-session-store.js";
+
 export interface ConversationTurn {
   user: string;
   assistant: string;
@@ -18,7 +20,13 @@ export class ConversationHistoryStore {
 
   get(conversationId: string, now = Date.now()): ConversationTurn[] {
     const conversation = this.conversations.get(conversationId);
-    if (!conversation) return [];
+    if (!conversation) {
+      const wiTurns = workSessionStore.getActiveConversationTurns(conversationId);
+      if (wiTurns.length > 0) {
+        return wiTurns.slice(-6);
+      }
+      return [];
+    }
     if (now - conversation.lastActiveAt > this.ttlMs) {
       this.conversations.delete(conversationId);
       return [];
