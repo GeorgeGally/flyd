@@ -10,7 +10,7 @@ FLYD_CODESIGN_KEYCHAIN = $(HOME)/Library/Keychains/flyd-local-signing.keychain-d
 FLYD_CODESIGN_KEYCHAIN_PASSWORD ?= flyd-local-signing
 FLYD_CODESIGN_IDENTITY ?= $(shell /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/awk '/Flyd Local Development/ { print $$2; exit }')
 
-.PHONY: build bundle run install clean test-work-intelligence check-foundry-gate
+.PHONY: build bundle run invoke-installed install clean test-work-intelligence check-foundry-gate
 
 build:
 	swift build -c release
@@ -41,6 +41,10 @@ install: bundle
 
 run: install
 	open -n "$(INSTALLED_APP)"
+
+invoke-installed:
+	@test -d "$(INSTALLED_APP)" || { echo "Flyd is not installed; run make install first"; exit 1; }
+	open -n "$(INSTALLED_APP)" --args --invoke-on-launch
 
 clean:
 	rm -rf "$(BUILD_DIR)"

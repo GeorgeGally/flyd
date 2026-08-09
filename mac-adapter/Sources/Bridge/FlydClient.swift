@@ -629,7 +629,7 @@ final class FlydClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 60
+        request.timeoutInterval = RequestTimeoutPolicy.timeout(for: path)
 
         do {
             let encoder = JSONEncoder()

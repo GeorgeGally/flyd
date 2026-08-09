@@ -72,6 +72,7 @@ var coreLaunched = false
 var flydStarted = false
 var suppressNextShortcutRelease = false
 let setupCompletedKey = "FlydSetupCompleted"
+let invokeOnLaunch = StartupInvocationPolicy.shouldInvoke(arguments: CommandLine.arguments)
 
 let workInteractionCoordinator = WorkInteractionCoordinator.shared
 
@@ -96,6 +97,16 @@ if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequ
     startFlyd(closeSetup: false)
 } else {
     showPermissionsWindow()
+}
+
+if invokeOnLaunch {
+    DispatchQueue.main.asyncAfter(deadline: .now() + StartupInvocationPolicy.acceptanceFocusDelay) {
+        guard flydStarted else {
+            appendCoreLog("Acceptance invocation blocked: required macOS permissions or setup are incomplete")
+            return
+        }
+        handleInvocation()
+    }
 }
 
 app.run()

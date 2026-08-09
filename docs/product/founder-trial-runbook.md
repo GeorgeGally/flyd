@@ -13,6 +13,20 @@ This is not a QA pass. Builds, tests, and route counts mean nothing here. Only e
 - `cfyd check-foundry-gate` reports `ready`.
 - The founder has at least 30 minutes of real work to do each day.
 
+## Installed repository-action acceptance
+
+Before starting the trial, prove one approval-to-receipt loop against a disposable Git repository:
+
+1. Build and install the current checkout with `make -C mac-adapter install`.
+2. Open a tracked file from the disposable repository in a supported Mac editor so that repository is the foreground project.
+3. Run `make -C mac-adapter invoke-installed`, then bring the tracked file back to the foreground during the 10-second focus window. This opens the same installed invocation panel as **Ask Flyd...** without bypassing the Mac approval flow.
+4. Ask Flyd for one bounded repository change with an observable finish condition.
+5. Confirm the approval card shows the expected repository, operation, finish condition, and expiry, then approve it.
+6. Observe the executing state and terminal verdict. Inspect the preserved handoff and its linked outcome receipt under `~/.flyd/overlay/`.
+7. Confirm the foreground checkout's HEAD and status digest are unchanged.
+
+The `--invoke-on-launch` argument exists only to make installed acceptance automation reproducible when a runner cannot emit the hardware Fn shortcut. It opens the native panel; it does not call a Core endpoint or approve an action.
+
 ## Daily practice
 
 Use Flyd for at least **30 minutes of real work** each day across at least **3 of the 5 domains**:
