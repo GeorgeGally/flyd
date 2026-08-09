@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync, readdirSync, unlinkSync } from 'node:fs';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import {
+  configureOutcomeJournalDirectory,
   recordJournalEntry,
   readJournalEntry,
   listJournalEntries,
@@ -11,7 +12,8 @@ import {
 } from '../work-intelligence/outcome-journal.js';
 import type { FounderJournalEntry } from '../work-intelligence/types.js';
 
-const JOURNAL_DIR = join(homedir(), '.flyd', 'overlay', 'founder-journal');
+let testRoot = '';
+let JOURNAL_DIR = '';
 
 let entryCounter = 0;
 
@@ -44,12 +46,22 @@ function makeEntry(overrides: Partial<FounderJournalEntry> = {}): FounderJournal
 }
 
 describe('outcome-journal', () => {
+  beforeAll(() => {
+    testRoot = mkdtempSync(join(tmpdir(), 'flyd-outcome-journal-'));
+    JOURNAL_DIR = join(testRoot, 'founder-journal');
+    configureOutcomeJournalDirectory(JOURNAL_DIR);
+  });
+
   beforeEach(() => {
     cleanJournalDir();
   });
 
   afterEach(() => {
     cleanJournalDir();
+  });
+
+  afterAll(() => {
+    rmSync(testRoot, { recursive: true, force: true });
   });
 
   describe('recordJournalEntry', () => {

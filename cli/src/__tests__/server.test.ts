@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 
-const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
+let testRoot = "";
+let AUTH_TOKEN_PATH = "";
 const TEST_PORT = 14815;
 
 function ensureDir(filePath: string) {
@@ -42,11 +44,13 @@ async function postJson(
 
 describe("server auth", () => {
   beforeAll(async () => {
+    testRoot = mkdtempSync(join(tmpdir(), "flyd-server-auth-"));
+    AUTH_TOKEN_PATH = join(testRoot, "overlay", "auth-token");
     setupToken(null);
   });
 
   afterAll(() => {
-    setupToken(null);
+    rmSync(testRoot, { recursive: true, force: true });
   });
 
   it("requires auth header when token file exists", () => {

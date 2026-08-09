@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync, readdirSync, unlinkSync } from 'node:fs';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { WORK_CONTRACT_VERSION, checkContractVersion } from '../work-intelligence/types.js';
 import type { FounderJournalEntry, FounderEventType, WorkInteractionResponse } from '../work-intelligence/types.js';
 import {
+  configureOutcomeJournalDirectory,
   recordJournalEntry,
   readJournalEntry,
   listJournalEntries,
@@ -13,7 +14,8 @@ import {
 import { generateFounderTrialReport } from '../work-intelligence/founder-trial-report.js';
 import type { FounderTrialReport } from '../work-intelligence/founder-trial-report.js';
 
-const JOURNAL_DIR = join(homedir(), '.flyd', 'overlay', 'founder-journal');
+let testRoot = '';
+let JOURNAL_DIR = '';
 
 let entryCounter = 0;
 
@@ -63,6 +65,12 @@ const ALL_FOUNDER_EVENT_TYPES: FounderEventType[] = [
 ];
 
 describe('work-intelligence release acceptance', () => {
+  beforeAll(() => {
+    testRoot = mkdtempSync(join(tmpdir(), 'flyd-release-journal-'));
+    JOURNAL_DIR = join(testRoot, 'founder-journal');
+    configureOutcomeJournalDirectory(JOURNAL_DIR);
+  });
+
   beforeEach(() => {
     cleanJournalDir();
     entryCounter = 0;
@@ -70,6 +78,10 @@ describe('work-intelligence release acceptance', () => {
 
   afterEach(() => {
     cleanJournalDir();
+  });
+
+  afterAll(() => {
+    rmSync(testRoot, { recursive: true, force: true });
   });
 
   describe('contract integrity', () => {

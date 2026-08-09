@@ -1,11 +1,16 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import type { MemoryReceipt, LearningReceipt } from "./memory-receipt.js";
+import { FLYD_DIR } from "./lib/config.js";
 
-const OVERLAY_RAW_DIR = join(homedir(), ".flyd", "raw", "overlay");
+let overlayRawDir = join(FLYD_DIR, "raw", "overlay");
 const receiptFiles: string[] = [];
+
+export function configureMemoryPersistenceDirectory(directory: string): void {
+  overlayRawDir = directory;
+  receiptFiles.length = 0;
+}
 
 export function trackReceiptWritten(filename: string) {
   receiptFiles.push(filename);
@@ -16,7 +21,7 @@ function receiptShort(): string {
 }
 
 async function ensureDir() {
-  await mkdir(OVERLAY_RAW_DIR, { recursive: true });
+  await mkdir(overlayRawDir, { recursive: true });
 }
 
 export async function persistReceipt(receipt: MemoryReceipt): Promise<string | null> {
@@ -25,7 +30,7 @@ export async function persistReceipt(receipt: MemoryReceipt): Promise<string | n
 
     const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `receipt-${isoDate}-${receipt.receiptId.slice(0, 8)}.md`;
-    const filepath = join(OVERLAY_RAW_DIR, filename);
+    const filepath = join(overlayRawDir, filename);
 
     const timestamp = receipt.generatedAt.replace(/Z$/, "");
     const topicLines = receipt.topics.length > 0
@@ -75,7 +80,7 @@ export async function persistLearningReceipt(receipt: LearningReceipt): Promise<
 
     const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `learning-${isoDate}-${receipt.receiptId.slice(0, 8)}.md`;
-    const filepath = join(OVERLAY_RAW_DIR, filename);
+    const filepath = join(overlayRawDir, filename);
 
     const timestamp = receipt.generatedAt.replace(/Z$/, "");
     const topicLines = receipt.topics.length > 0
@@ -135,7 +140,7 @@ export async function persistLearnings(
 
     const isoDate = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `synthesis-${isoDate}-${receiptShort()}.md`;
-    const filepath = join(OVERLAY_RAW_DIR, filename);
+    const filepath = join(overlayRawDir, filename);
 
     const timestamp = new Date().toISOString().replace(/Z$/, "");
     const derivedFromLines = receiptFiles.length > 0

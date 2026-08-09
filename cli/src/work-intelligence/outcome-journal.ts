@@ -1,25 +1,29 @@
 import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { resolve as resolvePath, join } from 'node:path';
-import { homedir } from 'node:os';
 import type { FounderJournalEntry, FounderEventType } from './types.js';
+import { FLYD_DIR } from '../lib/config.js';
 
-const JOURNAL_DIR = join(homedir(), '.flyd', 'overlay', 'founder-journal');
+let journalDir = join(FLYD_DIR, 'overlay', 'founder-journal');
+
+export function configureOutcomeJournalDirectory(directory: string): void {
+  journalDir = resolvePath(directory);
+}
 
 function ensureJournalDir(): void {
-  if (!existsSync(JOURNAL_DIR)) {
-    mkdirSync(JOURNAL_DIR, { recursive: true });
+  if (!existsSync(journalDir)) {
+    mkdirSync(journalDir, { recursive: true });
   }
 }
 
 export function recordJournalEntry(entry: FounderJournalEntry): void {
   ensureJournalDir();
   validateJournalEntry(entry);
-  const filePath = join(JOURNAL_DIR, `${entry.entryId}.json`);
+  const filePath = join(journalDir, `${entry.entryId}.json`);
   writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf-8');
 }
 
 export function readJournalEntry(entryId: string): FounderJournalEntry | null {
-  const filePath = join(JOURNAL_DIR, `${entryId}.json`);
+  const filePath = join(journalDir, `${entryId}.json`);
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
   return JSON.parse(raw) as FounderJournalEntry;
@@ -34,7 +38,7 @@ export function listJournalEntries(params?: {
   ensureJournalDir();
   let files: string[];
   try {
-    files = readdirSync(JOURNAL_DIR).filter(f => f.endsWith('.json'));
+    files = readdirSync(journalDir).filter(f => f.endsWith('.json'));
   } catch {
     return [];
   }
@@ -42,7 +46,7 @@ export function listJournalEntries(params?: {
 
   for (const file of files) {
     try {
-      const raw = readFileSync(join(JOURNAL_DIR, file), 'utf-8');
+      const raw = readFileSync(join(journalDir, file), 'utf-8');
       const entry = JSON.parse(raw) as FounderJournalEntry;
 
       if (params?.since && entry.timestamp < params.since) continue;
@@ -73,7 +77,7 @@ export function countJournalEntries(params?: {
 }
 
 export function deleteJournalEntry(entryId: string): boolean {
-  const filePath = join(JOURNAL_DIR, `${entryId}.json`);
+  const filePath = join(journalDir, `${entryId}.json`);
   if (!existsSync(filePath)) return false;
   unlinkSync(filePath);
   return true;

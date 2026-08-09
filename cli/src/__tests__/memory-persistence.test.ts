@@ -1,15 +1,27 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, afterAll, beforeAll } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { createMemoryReceipt } from "../memory-receipt.js";
-import { persistReceipt } from "../memory-persistence.js";
+import { configureMemoryPersistenceDirectory, persistReceipt } from "../memory-persistence.js";
 
-const OVERLAY_TEST_DIR = join(homedir(), ".flyd", "raw", "overlay");
+let testRoot = "";
+let OVERLAY_TEST_DIR = "";
 
 describe("persistReceipt", () => {
+  beforeAll(() => {
+    testRoot = mkdtempSync(join(tmpdir(), "flyd-memory-persistence-"));
+    OVERLAY_TEST_DIR = join(testRoot, "raw", "overlay");
+    configureMemoryPersistenceDirectory(OVERLAY_TEST_DIR);
+  });
+
   afterEach(() => {
     try { rmSync(OVERLAY_TEST_DIR, { recursive: true, force: true }); } catch {}
+  });
+
+  afterAll(() => {
+    rmSync(testRoot, { recursive: true, force: true });
   });
 
   it("writes receipt with event-semantic frontmatter fields", async () => {
