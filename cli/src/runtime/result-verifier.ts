@@ -248,6 +248,28 @@ export async function verifyWorkerResult(input: {
 }): Promise<VerifiedWorkerResult> {
   const canonicalWorktree = await realpath(resolve(input.worktreePath));
   await assertNoEscapingSymlinks(canonicalWorktree);
+  const captureRepositoryEvidence = async () => {
+    await execFileAsync("git", [ "-C", input.worktreePath, "add", "-N", "--", "." ], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    const [{ stdout: head }, { stdout: names }, { stdout: patch }] = await Promise.all([
+      execFileAsync("git", [ "-C", input.worktreePath, "rev-parse", "HEAD" ], { encoding: "utf8", timeout: 5_000 }),
+      execFileAsync("git", [ "-C", input.worktreePath, "diff", "--name-only", "--relative", input.baseHead, "--" ], { encoding: "utf8", timeout: 10_000 }),
+      execFileAsync("git", [ "-C", input.worktreePath, "diff", "--binary", "--full-index", input.baseHead, "--" ], {
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 50 * 1024 * 1024,
+      }),
+    ]);
+    return {
+      head: head.trim(),
+      changedFiles: names.trim() ? names.trim().split("\n").sort() : [],
+      patch,
+      patchDigest: createHash("sha256").update(patch).digest("hex"),
+    };
+  };
+  const workerEvidence = await captureRepositoryEvidence();
   const commands: VerificationCommandResult[] = [];
   for (const command of input.commands) {
     commands.push(await runVerificationCommand(input.worktreePath, command, input.commandTimeoutMs ?? 15 * 60 * 1000));
@@ -255,31 +277,19 @@ export async function verifyWorkerResult(input: {
   }
 
   await assertNoEscapingSymlinks(canonicalWorktree);
-  await execFileAsync("git", [ "-C", input.worktreePath, "add", "-N", "--", "." ], {
-    encoding: "utf8",
-    timeout: 10_000,
-  });
-  const [{ stdout: head }, { stdout: names }, { stdout: patch }] = await Promise.all([
-    execFileAsync("git", [ "-C", input.worktreePath, "rev-parse", "HEAD" ], { encoding: "utf8", timeout: 5_000 }),
-    execFileAsync("git", [ "-C", input.worktreePath, "diff", "--name-only", "--relative", input.baseHead, "--" ], { encoding: "utf8", timeout: 10_000 }),
-    execFileAsync("git", [ "-C", input.worktreePath, "diff", "--binary", "--full-index", input.baseHead, "--" ], {
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 50 * 1024 * 1024,
-    }),
-  ]);
-  const changedFiles = names.trim() ? names.trim().split("\n").sort() : [];
+  const verifiedEvidence = await captureRepositoryEvidence();
   return {
     passed: commands.every((command) => command.exitStatus === 0) &&
-      head.trim() === input.baseHead &&
-      (!input.requireChanges || changedFiles.length > 0) &&
-      (!input.requireUnchanged || changedFiles.length === 0),
+      verifiedEvidence.head === input.baseHead &&
+      verifiedEvidence.patchDigest === workerEvidence.patchDigest &&
+      (!input.requireChanges || workerEvidence.changedFiles.length > 0) &&
+      (!input.requireUnchanged || workerEvidence.changedFiles.length === 0),
     worktreePath: input.worktreePath,
     baseHead: input.baseHead,
-    head: head.trim(),
-    changedFiles,
-    patch,
-    patchDigest: createHash("sha256").update(patch).digest("hex"),
+    head: verifiedEvidence.head,
+    changedFiles: workerEvidence.changedFiles,
+    patch: workerEvidence.patch,
+    patchDigest: workerEvidence.patchDigest,
     commands,
   };
 }

@@ -1,7 +1,7 @@
 import { execFile as nodeExecFile } from "child_process";
 import { createHash } from "crypto";
-import { mkdir, rm, stat } from "fs/promises";
-import { join, resolve } from "path";
+import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "fs/promises";
+import { basename, join, resolve } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import { promisify } from "util";
 
@@ -11,6 +11,12 @@ export interface ManagedWorktree {
   path: string;
   branchName: string;
   baseHead: string;
+}
+
+const HANDOFF_MARKER = ".flyd-handoff.json";
+
+function handoffMarkerPath(path: string): string {
+  return join(resolve(path, ".."), `${basename(path)}${HANDOFF_MARKER}`);
 }
 
 type GitRunner = (args: string[]) => Promise<string>;
@@ -81,13 +87,47 @@ export class GitWorktreeManager {
 
     await mkdir(resolve(path, ".."), { recursive: true, mode: 0o700 });
     await this.runGit([ "clone", "--no-hardlinks", "--no-checkout", resolve(input.repositoryRoot), path ]);
+    await chmod(path, 0o700);
     await this.runGit([ "-C", path, "checkout", "-b", branchName, input.baseHead ]);
+    await writeFile(handoffMarkerPath(path), JSON.stringify({ state: "active", startedAt: Date.now() }), { mode: 0o600 });
     return { path, branchName, baseHead: input.baseHead };
+  }
+
+  async preserveHandoff(worktree: ManagedWorktree, expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000): Promise<void> {
+    const path = resolve(worktree.path);
+    if (!path.startsWith(`${this.managedRoot}/`)) throw new Error("Managed clone path escaped its root");
+    await writeFile(handoffMarkerPath(path), JSON.stringify({ state: "handoff", expiresAt }), { mode: 0o600 });
   }
 
   async remove(_repositoryRoot: string, worktree: ManagedWorktree, _force = false): Promise<void> {
     const path = resolve(worktree.path);
     if (!path.startsWith(`${this.managedRoot}/`)) throw new Error("Managed clone path escaped its root");
     await rm(path, { recursive: true, force: true });
+    await rm(handoffMarkerPath(path), { force: true });
+  }
+
+  async prune(input: { now?: number } = {}): Promise<string[]> {
+    const now = input.now ?? Date.now();
+    const removals: string[] = [];
+    const taskDirectories = await readdir(this.managedRoot, { withFileTypes: true }).catch(() => []);
+    for (const task of taskDirectories) {
+      if (!task.isDirectory()) continue;
+      const taskPath = resolve(this.managedRoot, task.name);
+      const assignments = await readdir(taskPath, { withFileTypes: true }).catch(() => []);
+      for (const assignment of assignments) {
+        if (!assignment.isDirectory()) continue;
+        const path = resolve(taskPath, assignment.name);
+        if (!path.startsWith(`${this.managedRoot}/`)) continue;
+        const marker = await readFile(handoffMarkerPath(path), "utf8")
+          .then(value => JSON.parse(value) as { state?: string; expiresAt?: number })
+          .catch(() => null);
+        if (marker?.state === "handoff" && typeof marker.expiresAt === "number" && marker.expiresAt <= now) {
+          removals.push(path);
+        }
+      }
+    }
+    await Promise.all(removals.map(path => rm(path, { recursive: true, force: true })));
+    await Promise.all(removals.map(path => rm(handoffMarkerPath(path), { force: true })));
+    return removals;
   }
 }

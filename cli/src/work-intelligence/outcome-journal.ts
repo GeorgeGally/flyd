@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { resolve as resolvePath, join } from 'node:path';
 import type { FounderJournalEntry, FounderEventType } from './types.js';
 import { FLYD_DIR } from '../lib/config.js';
@@ -11,7 +11,7 @@ export function configureOutcomeJournalDirectory(directory: string): void {
 
 function ensureJournalDir(): void {
   if (!existsSync(journalDir)) {
-    mkdirSync(journalDir, { recursive: true });
+    mkdirSync(journalDir, { recursive: true, mode: 0o700 });
   }
 }
 
@@ -19,7 +19,14 @@ export function recordJournalEntry(entry: FounderJournalEntry): void {
   ensureJournalDir();
   validateJournalEntry(entry);
   const filePath = join(journalDir, `${entry.entryId}.json`);
-  writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf-8');
+  try {
+    writeFileSync(filePath, JSON.stringify(entry, null, 2), { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(`Journal entry already exists: ${entry.entryId}`);
+    }
+    throw error;
+  }
 }
 
 export function readJournalEntry(entryId: string): FounderJournalEntry | null {
@@ -88,7 +95,7 @@ const ALLOWED_EVENT_TYPES: Set<string> = new Set([
   'artifact_improved', 'project_advanced',
   'issue_discovered', 'correction_applied',
   'standard_accepted', 'action_completed',
-  'action_failed', 'action_partial',
+  'action_approved', 'action_failed', 'action_partial',
   'closeout_recorded', 'learning_promoted',
   'context_accuracy_sample',
   'command_approved', 'command_rejected',

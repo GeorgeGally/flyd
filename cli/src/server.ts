@@ -92,6 +92,8 @@ interface ManifestRequestBody {
   intent: string;
   modality: "text" | "voice";
   conversation_id?: string;
+  work_session_id?: string;
+  work_session_revision?: number;
   screenshot?: string;
   invocation_fingerprint: ManifestRequest["invocation_fingerprint"];
 }
@@ -103,6 +105,15 @@ const MANIFEST_BODY_LIMIT = 4 * 1024 * 1024;
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function snakeCaseKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(snakeCaseKeys);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+    key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`),
+    snakeCaseKeys(child),
+  ]));
 }
 
 function parseBody(req: IncomingMessage, limit = DEFAULT_BODY_LIMIT): Promise<string> {
@@ -163,7 +174,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         intent: parsed.intent,
         modality: parsed.modality || "text",
         environment: parsed.environment,
-        conversationId: parsed.conversation_id,
+        conversationId: parsed.work_session_id ?? parsed.conversation_id,
         screenshotBase64: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
         modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
       });
@@ -179,8 +190,11 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       const isTaskPlan = wiResult.intervention.proposedAction?.kind === 'task_plan'
         && wiResult.intervention.proposedAction?.taskIntent;
 
+      const isRepositoryAction = wiResult.intervention.proposedAction?.kind === 'repository_action';
+
       const mode = isTaskPlan ? 'requires_task'
         : (hasShellCommands || hasFileOperations) ? 'requires_execution'
+        : isRepositoryAction ? 'work_intelligence'
         : 'requires_augment';
 
       const augmentJson: Record<string, unknown> = {
@@ -189,8 +203,14 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         invocationId: parsed.invocation_id,
         environmentRevision: parsed.environment_revision ?? 1,
         rationale: wiResult.diagnosis.primaryIssue.finding,
+        operations: [],
         augmentations: [] as Record<string, unknown>[],
         timing: wiResult.timing,
+        workSessionId: wiResult.workSessionId,
+        workSessionRevision: wiResult.workSessionRevision,
+        currentWork: snakeCaseKeys(wiResult.currentWork),
+        diagnosis: snakeCaseKeys(wiResult.diagnosis),
+        intervention: snakeCaseKeys(wiResult.intervention),
       };
 
       if (isTaskPlan) {
@@ -832,12 +852,84 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleWorkInteractionContractNegotiation(req, res);
         break;
+      case "/work-intelligence/action/approve": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        parseBody(req).then((body) => {
+          try {
+            const input = JSON.parse(body) as Record<string, unknown>;
+            if (typeof input.workSessionId !== "string" || typeof input.actionId !== "string" || !Number.isInteger(input.workSessionRevision)) {
+              sendJson(res, 422, { error: "Missing Work Session, action, or revision" });
+              return;
+            }
+            const approval = workSessionStore.approveActionProposal(
+              input.workSessionId,
+              input.actionId,
+              input.workSessionRevision as number,
+            );
+            if (!approval.ok) {
+              sendJson(res, 409, { error: approval.error });
+              return;
+            }
+            const grant = approval.grant;
+            try {
+              recordJournalEntry({
+              entryId: `approval-${grant.grantId}`,
+              interactionId: grant.interactionId,
+              workSessionId: input.workSessionId,
+              timestamp: new Date().toISOString(),
+              eventType: 'action_approved',
+              details: {
+                actionKind: 'repository_action',
+                verified: false,
+                repositoryOutcome: {
+                  actionId: grant.actionId,
+                  actionGrantId: grant.grantId,
+                  diagnosedIssueId: grant.diagnosedIssueId,
+                  approval: 'approved',
+                  changedFileCount: 0,
+                  changedFiles: [],
+                  checksPerformed: [],
+                  verificationResults: [],
+                  verdict: 'approved',
+                  handoffAvailable: false,
+                },
+              },
+              });
+            } catch (journalError) {
+              workSessionStore.updateActionGrant(input.workSessionId, {
+                ...grant,
+                status: 'invalidated',
+                invalidationReason: 'Approval receipt could not be persisted',
+              });
+              sendJson(res, 500, { error: (journalError as Error).message });
+              return;
+            }
+            sendJson(res, 201, {
+              actionGrantId: grant.grantId,
+              actionId: grant.actionId,
+              workSessionRevision: grant.workSessionRevision,
+              expiresAt: grant.expiresAt,
+              scope: {
+                repositoryRoot: grant.targetFingerprint.repositoryRoot,
+                branch: grant.targetFingerprint.branch,
+                operation: grant.allowedOperation,
+                instruction: grant.instruction,
+                finishCondition: grant.finishCondition,
+              },
+            });
+          } catch (error) {
+            sendJson(res, 400, { error: (error as Error).message || "Invalid JSON" });
+          }
+        }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
       case "/work-intelligence/repository-action": {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         parseBody(req).then(async (body) => {
           try {
-            const input = JSON.parse(body);
+            const input = JSON.parse(body) as Record<string, unknown>;
 
             const dependencyBoundary = verifyModuleDependencyBoundary();
             if (!dependencyBoundary.ok) {
@@ -848,21 +940,98 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
               return;
             }
 
-            if (!input.actionGrantId || typeof input.actionGrantId !== "string") {
+            if (typeof input.workSessionId !== "string" || typeof input.actionGrantId !== "string" || !Number.isInteger(input.workSessionRevision)) {
               sendJson(res, 422, {
-                error: "Missing actionGrantId",
-                details: "Only approved interventions can trigger repository work. Provide an actionGrantId from an approved intervention.",
+                error: "Missing Work Session, action grant, or revision",
+                details: "Repository work requires a grant minted from an approved intervention.",
               });
               return;
             }
 
-            const validationError = validateRepositoryActionInput(input);
+            const claim = workSessionStore.claimActionGrant(
+              input.workSessionId,
+              input.actionGrantId,
+              input.workSessionRevision as number,
+            );
+            if (!claim.ok) {
+              sendJson(res, 409, { error: claim.error });
+              return;
+            }
+            const grant = claim.grant;
+            if (grant.allowedOperation !== 'repository_work') {
+              sendJson(res, 422, { error: 'Action grant does not authorize repository work' });
+              return;
+            }
+            const repositoryInput = {
+              approvedRoot: grant.targetFingerprint.repositoryRoot ?? '',
+              instruction: grant.instruction,
+              finishCondition: grant.finishCondition,
+              workSessionRevision: grant.workSessionRevision,
+              actionGrantId: grant.grantId,
+              expectedFingerprint: grant.targetFingerprint,
+            };
+            const validationError = validateRepositoryActionInput(repositoryInput);
             if (validationError) {
+              workSessionStore.updateActionGrant(input.workSessionId, {
+                ...grant,
+                status: 'failed',
+                invalidationReason: validationError,
+              });
               sendJson(res, 422, { error: validationError });
               return;
             }
 
-            const result = await runRepositoryAction(input);
+            const result = await runRepositoryAction(repositoryInput);
+            const grantStatus = result.verified ? 'verified' : result.diffPresent ? 'partial' : 'failed';
+            workSessionStore.updateActionGrant(input.workSessionId, {
+              ...grant,
+              status: grantStatus,
+              result: {
+                verified: result.verified,
+                diffDigest: result.diffDigest,
+                checksPerformed: result.checksPerformed,
+                unresolvedIssues: result.error ? [result.error] : undefined,
+              },
+            });
+            try {
+              recordJournalEntry({
+                entryId: `repository-${grant.grantId}`,
+                interactionId: grant.interactionId,
+                workSessionId: input.workSessionId,
+                timestamp: new Date().toISOString(),
+                eventType: result.verified ? 'action_completed' : result.diffPresent ? 'action_partial' : 'action_failed',
+                details: {
+                  actionKind: 'repository_action',
+                  verified: result.verified,
+                  repositoryOutcome: {
+                    actionId: grant.actionId,
+                    actionGrantId: grant.grantId,
+                    diagnosedIssueId: grant.diagnosedIssueId,
+                    approval: 'approved',
+                    beforeStateDigest: result.beforeStateDigest,
+                    afterStateDigest: result.afterStateDigest,
+                    approvedSourceFingerprintDigest: result.approvedSourceFingerprintDigest,
+                    postRunSourceFingerprintDigest: result.postRunSourceFingerprintDigest,
+                    diffDigest: result.diffDigest,
+                    changedFiles: result.changedFiles.map(path => path.replace(/(?:^|\/)(?:\.env[^/]*|[^/]*(?:secret|token|credential)[^/]*)/gi, '/[REDACTED]')),
+                    changedFileCount: result.changedFiles.length,
+                    checksPerformed: result.verificationResults?.map(check => check.executable) ?? [],
+                    verificationResults: result.verificationResults ?? [],
+                    verdict: result.verified ? 'verified' : result.diffPresent ? 'partial' : 'failed',
+                    handoffAvailable: Boolean(result.handoffLocation),
+                  },
+                },
+              });
+            } catch (journalError) {
+              console.warn('[Flyd Core] Failed to record repository outcome:', (journalError as Error).message);
+              workSessionStore.updateActionGrant(input.workSessionId, {
+                ...grant,
+                status: 'failed',
+                invalidationReason: 'Outcome receipt could not be persisted',
+              });
+              sendJson(res, 500, { error: 'Repository result could not be recorded durably' });
+              return;
+            }
 
             const responseBody = {
               actionId: result.actionId,
@@ -877,11 +1046,13 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
               integrated: result.integrated ?? false,
               integrationStatus: result.integrationStatus ?? "unintegrated",
               handoffLocation: result.handoffLocation,
+              beforeStateDigest: result.beforeStateDigest,
+              afterStateDigest: result.afterStateDigest,
               error: result.error,
               output: result.output?.slice(0, 500),
             };
 
-            sendJson(res, result.verified ? 200 : 422, responseBody);
+            sendJson(res, 200, responseBody);
           } catch {
             sendJson(res, 400, { error: "Invalid JSON" });
           }

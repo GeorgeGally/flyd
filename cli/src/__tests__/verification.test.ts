@@ -87,8 +87,14 @@ describe('verification', () => {
     const baseGrant: ActionGrant = {
       grantId: 'ag_001',
       actionId: 'act_001',
+      interactionId: 'interaction-001',
+      diagnosedIssueId: 'diagnosis-001',
+      instruction: 'Replace the text',
+      allowedOperation: 'replace_text',
+      finishCondition: 'The replacement is present',
       status: 'approved',
       grantedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       workSessionRevision: 1,
       targetFingerprint: {},
     };

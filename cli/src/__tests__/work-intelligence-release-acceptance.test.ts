@@ -57,7 +57,7 @@ const ALL_FOUNDER_EVENT_TYPES: FounderEventType[] = [
   'artifact_improved', 'project_advanced',
   'issue_discovered', 'correction_applied',
   'standard_accepted', 'action_completed',
-  'action_failed', 'action_partial',
+  'action_approved', 'action_failed', 'action_partial',
   'closeout_recorded', 'learning_promoted',
   'context_accuracy_sample',
   'command_approved', 'command_rejected',
@@ -136,7 +136,15 @@ describe('work-intelligence release acceptance', () => {
   });
 
   describe('journal integrity', () => {
-    it('all 17 founder event types can be recorded and retrieved', () => {
+    it('rejects duplicate receipt IDs instead of overwriting evidence', () => {
+      const entry = makeEntry({ entryId: 'receipt-once' });
+      recordJournalEntry(entry);
+      expect(() => recordJournalEntry({ ...entry, details: { verified: false } }))
+        .toThrow('Journal entry already exists');
+      expect(readJournalEntry(entry.entryId)?.details).toEqual(entry.details);
+    });
+
+    it('all founder event types can be recorded and retrieved', () => {
       for (const eventType of ALL_FOUNDER_EVENT_TYPES) {
         const entry = makeEntry({ eventType });
         expect(() => recordJournalEntry(entry)).not.toThrow();
@@ -146,7 +154,7 @@ describe('work-intelligence release acceptance', () => {
       }
 
       const allEntries = listJournalEntries();
-      expect(allEntries).toHaveLength(17);
+      expect(allEntries).toHaveLength(ALL_FOUNDER_EVENT_TYPES.length);
 
       const recordedTypes = new Set(allEntries.map(e => e.eventType));
       for (const eventType of ALL_FOUNDER_EVENT_TYPES) {

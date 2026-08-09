@@ -6,7 +6,7 @@ import { workSessionStore, type WorkSessionTurn } from './work-session-store.js'
 import { selectDomainStandard } from './domain-standards.js';
 import { buildWorkIntelligencePrompt, parseWorkIntelligenceResponse } from './intervention.js';
 import { recordLlmResolution } from '../overlay-metrics.js';
-import type { CurrentWork, Diagnosis, Intervention } from './types.js';
+import type { ActionProposal, CurrentWork, Diagnosis, Intervention } from './types.js';
 
 export interface WorkInteractionParams {
   invocationId: string;
@@ -36,7 +36,9 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
   let workSessionId: string;
   if (params.conversationId) {
     const existing = workSessionStore.get(params.conversationId);
-    workSessionId = existing ? existing.sessionId : params.conversationId;
+    workSessionId = existing
+      ? existing.sessionId
+      : workSessionStore.createSession(params.conversationId).sessionId;
   } else {
     workSessionId = workSessionStore.createSession().sessionId;
   }
@@ -92,6 +94,12 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
 
   const session = workSessionStore.bump(workSessionId) ?? workSessionStore.createSession();
   session.revision += 1;
+  result.intervention.proposedAction = bindProposedAction(
+    result.intervention.proposedAction,
+    currentWork,
+    session.revision,
+    interactionId,
+  );
 
   const turn: WorkSessionTurn = {
     turnId: randomUUID(),
@@ -100,6 +108,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     assistant: result.intervention.content,
     timestamp: new Date().toISOString(),
     resolutionMode: 'work_intelligence',
+    proposedAction: result.intervention.proposedAction,
   };
 
   session.turns.push(turn);
@@ -120,6 +129,37 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     intervention: result.intervention,
     timing: { total_ms: modelMs },
     isDeterministic: false,
+  };
+}
+
+export function bindProposedAction(
+  proposal: ActionProposal | undefined,
+  currentWork: CurrentWork,
+  workSessionRevision: number,
+  diagnosedIssueId: string,
+): ActionProposal | undefined {
+  if (!proposal) return undefined;
+
+  const bound: ActionProposal = {
+    ...proposal,
+    workSessionRevision,
+    diagnosedIssueId,
+  };
+  if (proposal.kind !== 'repository_action') return bound;
+
+  const evidence = currentWork.evidenceSummary;
+  if (!evidence.repositoryRoot || !evidence.branch || !evidence.headDigest || !evidence.statusDigest) {
+    return undefined;
+  }
+  return {
+    ...bound,
+    allowedOperation: 'repository_work',
+    targetFingerprint: {
+      repositoryRoot: evidence.repositoryRoot,
+      branch: evidence.branch,
+      headDigest: evidence.headDigest,
+      statusDigest: evidence.statusDigest,
+    },
   };
 }
 

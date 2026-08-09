@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { CurrentWork, Diagnosis, Intervention, ActionProposal, ShellCommand, FileOperation } from './types.js';
 import type { DomainStandard } from './domain-standards.js';
 
@@ -194,7 +195,7 @@ function parseProposedAction(raw: Record<string, unknown> | undefined): ActionPr
   if (!kind || !validKinds.includes(kind)) return undefined;
 
   const action: ActionProposal = {
-    actionId: `action-${Date.now()}`,
+    actionId: `action-${randomUUID()}`,
     kind: kind as ActionProposal['kind'],
     description: (raw.description as string) || '',
     targetFingerprint: {},

@@ -159,6 +159,8 @@ final class FlydClient {
         let diagnosis: DiagnosisPayload?
         let intervention: InterventionPayload?
         let taskPlan: TaskPlanResponsePayload?
+        let workSessionId: String?
+        let workSessionRevision: Int?
     }
 
     struct OperationPayload: Codable {
@@ -247,6 +249,45 @@ final class FlydClient {
         let status: String
         let reason: String?
         let turnReceiptId: String?
+    }
+
+    struct ActionApprovalRequest: Codable {
+        let workSessionId: String
+        let actionId: String
+        let workSessionRevision: Int
+    }
+
+    struct ActionApprovalScope: Codable {
+        let repositoryRoot: String?
+        let branch: String?
+        let operation: String
+        let instruction: String
+        let finishCondition: String
+    }
+
+    struct ActionApprovalResponse: Codable {
+        let actionGrantId: String
+        let actionId: String
+        let workSessionRevision: Int
+        let expiresAt: String
+        let scope: ActionApprovalScope
+    }
+
+    struct RepositoryActionRequest: Codable {
+        let workSessionId: String
+        let actionGrantId: String
+        let workSessionRevision: Int
+    }
+
+    struct RepositoryActionResponse: Codable {
+        let actionId: String
+        let verified: Bool
+        let changedFiles: [String]
+        let diffDigest: String?
+        let checksPerformed: [String]
+        let integrationStatus: String
+        let handoffLocation: String?
+        let error: String?
     }
 
     func sendManifest(
@@ -340,6 +381,30 @@ final class FlydClient {
             text: text
         )
         return await post("/foreground-feedback", body: payload)
+    }
+
+    func approveRepositoryAction(
+        workSessionId: String,
+        actionId: String,
+        workSessionRevision: Int
+    ) async -> ActionApprovalResponse? {
+        await post("/work-intelligence/action/approve", body: ActionApprovalRequest(
+            workSessionId: workSessionId,
+            actionId: actionId,
+            workSessionRevision: workSessionRevision
+        ))
+    }
+
+    func executeRepositoryAction(
+        workSessionId: String,
+        actionGrantId: String,
+        workSessionRevision: Int
+    ) async -> RepositoryActionResponse? {
+        await post("/work-intelligence/repository-action", body: RepositoryActionRequest(
+            workSessionId: workSessionId,
+            actionGrantId: actionGrantId,
+            workSessionRevision: workSessionRevision
+        ))
     }
 
     func approveCommands(
@@ -537,7 +602,9 @@ final class FlydClient {
             currentWork: response.currentWork,
             diagnosis: response.diagnosis,
             intervention: response.intervention,
-            taskPlan: response.taskPlan
+            taskPlan: response.taskPlan,
+            workSessionId: response.workSessionId,
+            workSessionRevision: response.workSessionRevision
         )
     }
 
@@ -579,7 +646,7 @@ final class FlydClient {
                 return nil
             }
 
-            if httpResponse.statusCode == 200 {
+            if (200..<300).contains(httpResponse.statusCode) {
                 let decoder = JSONDecoder()
                 do {
                     return try decoder.decode(R.self, from: data)

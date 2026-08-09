@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import type {
   CurrentWork,
   EvidenceItem,
@@ -290,15 +291,15 @@ export function resolveRepositoryFromPath(documentPath?: string): {
 
     const branch = gitOutput(root, 'rev-parse --abbrev-ref HEAD') || undefined;
     const headDigest = gitOutput(root, 'rev-parse HEAD') || undefined;
-    const status = gitOutput(root, 'status --porcelain');
-    const statusDigest = status && status.length > 0 ? 'dirty' : 'clean';
+    const status = gitStatusOutput(root);
+    const statusDigest = createHash('sha256').update(status || 'clean').digest('hex');
 
     const recentCommitsRaw = gitOutput(root, 'log --oneline -5');
     const recentCommits = recentCommitsRaw
       ? recentCommitsRaw.split('\n').filter(Boolean)
       : undefined;
 
-    const changedFilesRaw = statusDigest === 'dirty'
+    const changedFilesRaw = status.length > 0
       ? gitOutput(root, 'diff --name-only HEAD')
       : undefined;
     const changedFiles = changedFilesRaw
@@ -308,6 +309,18 @@ export function resolveRepositoryFromPath(documentPath?: string): {
     return { root, branch, headDigest, statusDigest, recentCommits, changedFiles };
   } catch {
     return {};
+  }
+}
+
+function gitStatusOutput(root: string): string {
+  try {
+    return execSync(`git -C "${root}" status --porcelain=v1 --untracked-files=all`, {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).trimEnd();
+  } catch {
+    return '';
   }
 }
 

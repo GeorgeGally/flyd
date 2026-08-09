@@ -43,6 +43,7 @@ describe("GitWorktreeManager", () => {
     expect(worktree.branchName).toMatch(/^flyd\/task-123\/assignme-[a-f0-9]{8}$/);
     expect(await readFile(join(repo.root, "README.md"), "utf8")).toBe("base\n");
     expect((await stat(join(worktree.path, ".git"))).isDirectory()).toBe(true);
+    expect((await stat(worktree.path)).mode & 0o777).toBe(0o700);
     await expect(execFileAsync("git", ["-C", worktree.path, "rev-parse", "HEAD"], { encoding: "utf8" }))
       .resolves.toMatchObject({ stdout: `${repo.head}\n` });
   });
@@ -83,5 +84,22 @@ describe("GitWorktreeManager", () => {
 
     await expect(manager.prepare({ ...input, baseHead: stdout.trim() }))
       .rejects.toThrow("unrelated directory");
+  });
+
+  it("prunes only expired preserved handoffs", async () => {
+    const repo = await repository();
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-managed-test-"));
+    roots.push(managedRoot);
+    const manager = new GitWorktreeManager({ managedRoot });
+    const first = await manager.prepare({ repositoryRoot: repo.root, taskKey: "task-one", assignmentKey: "assignment-one", baseHead: repo.head });
+    const second = await manager.prepare({ repositoryRoot: repo.root, taskKey: "task-two", assignmentKey: "assignment-two", baseHead: repo.head });
+
+    await manager.preserveHandoff(first, 100);
+    const removed = await manager.prune({ now: 101 });
+
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toBe(first.path);
+    await expect(stat(removed[0])).rejects.toThrow();
+    await expect(stat(second.path)).resolves.toBeDefined();
   });
 });

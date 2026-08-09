@@ -195,8 +195,15 @@ export interface ActionResult {
 export interface ActionGrant {
   grantId: string;
   actionId: string;
+  interactionId: string;
+  diagnosedIssueId: string;
+  instruction: string;
+  allowedOperation: 'insert_text' | 'replace_text' | 'replace_selection' | 'repository_work' | 'shell_execute';
+  finishCondition: string;
   status: 'approved' | 'executing' | 'verified' | 'rejected' | 'invalidated' | 'partial' | 'failed' | 'cancelled';
   grantedAt: string;
+  expiresAt: string;
+  claimedAt?: string;
   workSessionRevision: number;
   targetFingerprint: TargetFingerprint;
   invalidationReason?: string;
@@ -248,7 +255,7 @@ export type FounderEventType =
   | 'artifact_improved' | 'project_advanced'
   | 'issue_discovered' | 'correction_applied'
   | 'standard_accepted' | 'action_completed'
-  | 'action_failed' | 'action_partial'
+  | 'action_approved' | 'action_failed' | 'action_partial'
   | 'closeout_recorded' | 'learning_promoted'
   | 'context_accuracy_sample'
   | 'command_approved' | 'command_rejected'
@@ -271,6 +278,23 @@ export interface FounderJournalEntry {
     actionKind?: string;
     verified?: boolean;
     promoted?: boolean;
+    repositoryOutcome?: {
+      actionId: string;
+      actionGrantId: string;
+      diagnosedIssueId: string;
+      approval: 'approved';
+      beforeStateDigest?: string;
+      afterStateDigest?: string;
+      approvedSourceFingerprintDigest?: string;
+      postRunSourceFingerprintDigest?: string;
+      diffDigest?: string;
+      changedFiles: string[];
+      changedFileCount: number;
+      checksPerformed: string[];
+      verificationResults: { executable: string; exitStatus: number; outputDigest: string }[];
+      verdict: 'approved' | 'verified' | 'partial' | 'failed';
+      handoffAvailable: boolean;
+    };
   };
 }
 

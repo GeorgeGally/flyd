@@ -314,6 +314,13 @@ final class InvocationStateMachine {
         return rev
     }
 
+    func adoptWorkSession(sessionId: String, revision: Int) {
+        checkpointLock.withLock {
+            workSessionId = sessionId
+            workSessionRevision = revision
+        }
+    }
+
     func hasFocusDrift() -> Bool {
         guard let t0 = t0Fingerprint, let t1 = t1Fingerprint else { return false }
         return !t0.appAndWindowMatch(t1)

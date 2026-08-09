@@ -16,6 +16,12 @@ function validInput(overrides: Partial<RepositoryActionInput> = {}): RepositoryA
     finishCondition: 'A comment is added and lint passes',
     workSessionRevision: 1,
     actionGrantId: 'grant-approved-123',
+    expectedFingerprint: {
+      repositoryRoot: REPO_ROOT,
+      branch: 'main',
+      headDigest: 'head-at-approval',
+      statusDigest: 'status-at-approval',
+    },
     ...overrides,
   };
 }
@@ -135,16 +141,19 @@ describe('repository-action', () => {
 
     it('requires an action grant ID for approved interventions', () => {
       const withoutGrant = validInput({ actionGrantId: undefined });
-      expect(withoutGrant.actionGrantId).toBeUndefined();
+      expect(validateRepositoryActionInput(withoutGrant)).toBe('Missing action grant ID');
     });
   });
 
   describe('finish condition', () => {
     it('requires a non-empty finish condition', () => {
       const input = validInput({ finishCondition: '' });
-      // finishCondition is not validated by validateRepositoryActionInput
-      // but should be present in the action grant context
-      expect(input.finishCondition).toBe('');
+      expect(validateRepositoryActionInput(input)).toBe('Missing finish condition');
+    });
+
+    it('requires a positive Work Session revision', () => {
+      const input = validInput({ workSessionRevision: 0 });
+      expect(validateRepositoryActionInput(input)).toBe('Invalid Work Session revision');
     });
   });
 });

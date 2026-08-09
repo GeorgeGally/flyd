@@ -6,6 +6,7 @@ enum WorkInteractionPhase: Equatable {
     case intervening
     case awaitingFeedback
     case awaitingAuthority
+    case executing
 }
 
 final class WorkInteractionCoordinator {
@@ -19,7 +20,7 @@ final class WorkInteractionCoordinator {
     private(set) var phase: WorkInteractionPhase = .idle
     private(set) var sessionId: String?
     private(set) var sessionRevision: Int = 0
-    private(set) var pendingAction: (actionId: String, description: String, targetFingerprint: TargetFingerprintPayload)?
+    private(set) var pendingAction: (actionId: String, kind: String, description: String, workSessionRevision: Int, targetFingerprint: TargetFingerprintPayload)?
     private var activeInvocationId: String?
     private var activeInteractionId: String?
 
@@ -46,6 +47,9 @@ final class WorkInteractionCoordinator {
 
         activeInvocationId = invocationId
 
+        if let returnedSessionId = response.workSessionId, let returnedRevision = response.workSessionRevision {
+            InvocationStateMachine.shared.adoptWorkSession(sessionId: returnedSessionId, revision: returnedRevision)
+        }
         let workSession = InvocationStateMachine.shared.ensureWorkSession()
         sessionId = workSession.sessionId
         sessionRevision = workSession.revision
@@ -111,7 +115,9 @@ final class WorkInteractionCoordinator {
         if let action = intervention.proposedAction {
             pendingAction = (
                 actionId: action.actionId,
+                kind: action.kind,
                 description: action.description,
+                workSessionRevision: action.workSessionRevision,
                 targetFingerprint: action.targetFingerprint
             )
         }
@@ -504,6 +510,12 @@ final class WorkInteractionCoordinator {
 
         if let action = intervention.proposedAction {
             parts.append("Proposed: \(action.description)")
+            if action.kind == "repository_action" {
+                if let root = action.targetFingerprint.repositoryRoot {
+                    parts.append("Repository: \(root)\nBranch: \(action.targetFingerprint.branch ?? "unknown")")
+                }
+                parts.append("Finish condition: \(action.finishCondition)")
+            }
         }
 
         return parts.joined(separator: "\n\n")
@@ -585,12 +597,68 @@ final class WorkInteractionCoordinator {
     }
 
     private func handleApproveAction() {
-        guard let pending = pendingAction else { return }
+        guard let pending = pendingAction, let sessionId = sessionId else { return }
         appendCoreLog("WorkInteraction: action approved — \(pending.actionId)")
         pendingAction = nil
-        phase = .idle
-        sendFeedback(status: "action_approved", correction: pending.actionId)
+        phase = .awaitingAuthority
         dismissActivePanels()
+
+        guard pending.kind == "repository_action" else {
+            phase = .idle
+            sendFeedback(status: "failed", correction: "No verified executor exists for action \(pending.actionId)")
+            return
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            guard let approval = await FlydClient.shared.approveRepositoryAction(
+                workSessionId: sessionId,
+                actionId: pending.actionId,
+                workSessionRevision: pending.workSessionRevision
+            ) else {
+                await MainActor.run {
+                    self.showRepositoryActionResult(nil, fallback: "Core rejected or could not mint the repository action grant.")
+                }
+                return
+            }
+
+            await MainActor.run { self.phase = .executing }
+            let result = await FlydClient.shared.executeRepositoryAction(
+                workSessionId: sessionId,
+                actionGrantId: approval.actionGrantId,
+                workSessionRevision: approval.workSessionRevision
+            )
+            await MainActor.run {
+                self.showRepositoryActionResult(result, fallback: "Repository execution did not return a result.")
+            }
+        }
+    }
+
+    private func showRepositoryActionResult(_ result: FlydClient.RepositoryActionResponse?, fallback: String) {
+        dismissActivePanels()
+        let content: String
+        if let result = result {
+            let verdict = result.verified ? "Verified improvement" : (result.changedFiles.isEmpty ? "Failed" : "Partial result")
+            let files = result.changedFiles.isEmpty ? "No changed files" : result.changedFiles.joined(separator: "\n")
+            let handoff = result.handoffLocation.map { "\nPreserved for handoff: \($0)" } ?? ""
+            let error = result.error.map { "\n\n\($0)" } ?? ""
+            content = "\(verdict)\n\n\(files)\n\nChecks: \(result.checksPerformed.joined(separator: ", "))\(handoff)\(error)"
+        } else {
+            content = fallback
+        }
+
+        guard let screen = NSScreen.main else { phase = .idle; return }
+        let cursorPoint = NSEvent.mouseLocation
+        let anchor = NSRect(x: cursorPoint.x, y: cursorPoint.y - 24, width: 1, height: 24)
+        let panel = AugmentPanel()
+        let frame = AugmentPanel.stackedFrames(
+            sizes: [AugmentPanel.measure(content: content, options: nil)],
+            anchorRect: anchor,
+            screenVisibleFrame: screen.visibleFrame
+        ).first ?? NSRect(x: 0, y: 0, width: AugmentPanel.panelWidth, height: 320)
+        panel.show(content: content, options: nil, kind: "explanation", frame: frame)
+        activePanels = [panel]
+        phase = .idle
     }
 
     private func sendFeedback(status: String, correction: String?) {

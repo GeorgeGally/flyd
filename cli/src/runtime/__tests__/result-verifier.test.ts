@@ -79,6 +79,18 @@ describe("verifyWorkerResult", () => {
     expect(result.changedFiles).toEqual([]);
   });
 
+  it("does not count files created by verification commands as worker changes", async () => {
+    const repo = await repository();
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: ["node -e \"require('fs').writeFileSync('generated.txt','generated')\""],
+      requireChanges: true,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.changedFiles).toEqual([]);
+  });
+
   it("fails a review result that modified the repository", async () => {
     const repo = await repository();
     await writeFile(join(repo.root, "one.txt"), "review changed this\n");

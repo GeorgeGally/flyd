@@ -3,6 +3,59 @@ import XCTest
 
 final class WorkInteractionPayloadTests: XCTestCase {
 
+    func testManifestRepositoryActionResponseDecodesForInstalledApp() throws {
+        let json = """
+        {
+          "resolutionId": "interaction-1",
+          "invocationId": "invocation-1",
+          "environmentRevision": 1,
+          "mode": "work_intelligence",
+          "rationale": "The validation boundary is missing",
+          "operations": [],
+          "augmentations": [],
+          "workSessionId": "session-1",
+          "workSessionRevision": 4,
+          "diagnosis": {
+            "primary_issue": {
+              "category": "correctness",
+              "severity": "critical",
+              "finding": "The validation boundary is missing",
+              "causal_explanation": "The input reaches execution unchecked",
+              "domain": "code",
+              "evidence_refs": ["repository_status"]
+            }
+          },
+          "intervention": {
+            "kind": "actionPlan",
+            "content": "Add the missing validation",
+            "proposed_action": {
+              "action_id": "action-1",
+              "kind": "repository_action",
+              "description": "Add the missing validation",
+              "target_fingerprint": {
+                "repository_root": "/tmp/project",
+                "branch": "main",
+                "head_digest": "head-1",
+                "status_digest": "status-1"
+              },
+              "work_session_revision": 4,
+              "diagnosed_issue_id": "interaction-1",
+              "finish_condition": "Tests pass",
+              "expiry_ms": 60000,
+              "allowed_operation": "repository_work"
+            }
+          }
+        }
+        """
+
+        let response = try JSONDecoder().decode(FlydClient.ResolutionResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.mode, "work_intelligence")
+        XCTAssertEqual(response.workSessionId, "session-1")
+        XCTAssertEqual(response.workSessionRevision, 4)
+        XCTAssertEqual(response.intervention?.proposedAction?.actionId, "action-1")
+        XCTAssertEqual(response.intervention?.proposedAction?.targetFingerprint.repositoryRoot, "/tmp/project")
+    }
+
     func testDecodeRequestGoldenFixture() throws {
         let json = """
         {
