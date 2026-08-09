@@ -6,6 +6,7 @@ struct OverlayConfig: Codable {
     var redactionRules: [RedactionRule] = []
     var incognito: Bool = false
     var replyMode: ReplyMode = .text
+    var foregroundFeedbackCapture: Bool = true
     var settingsVersion: Int = 1
 
     init(
@@ -14,6 +15,7 @@ struct OverlayConfig: Codable {
         redactionRules: [RedactionRule] = [],
         incognito: Bool = false,
         replyMode: ReplyMode = .text,
+        foregroundFeedbackCapture: Bool = true,
         settingsVersion: Int = 1
     ) {
         self.retention = retention
@@ -21,6 +23,7 @@ struct OverlayConfig: Codable {
         self.redactionRules = redactionRules
         self.incognito = incognito
         self.replyMode = replyMode
+        self.foregroundFeedbackCapture = foregroundFeedbackCapture
         self.settingsVersion = settingsVersion
     }
 
@@ -36,11 +39,12 @@ struct OverlayConfig: Codable {
         redactionRules = try container.decodeIfPresent([RedactionRule].self, forKey: .redactionRules) ?? []
         incognito = try container.decodeIfPresent(Bool.self, forKey: .incognito) ?? false
         replyMode = try container.decodeIfPresent(ReplyMode.self, forKey: .replyMode) ?? .text
+        foregroundFeedbackCapture = try container.decodeIfPresent(Bool.self, forKey: .foregroundFeedbackCapture) ?? true
         settingsVersion = try container.decodeIfPresent(Int.self, forKey: .settingsVersion) ?? 1
     }
 
     private enum CodingKeys: String, CodingKey {
-        case retention, excludedApps, redactionRules, incognito, replyMode, settingsVersion
+        case retention, excludedApps, redactionRules, incognito, replyMode, foregroundFeedbackCapture, settingsVersion
     }
 
     enum ReplyMode: String, Codable, CaseIterable {
@@ -149,6 +153,11 @@ final class ConfigManager {
 
     func setReplyMode(_ mode: OverlayConfig.ReplyMode) {
         config.replyMode = mode
+        save()
+    }
+
+    func setForegroundFeedbackCapture(_ enabled: Bool) {
+        config.foregroundFeedbackCapture = enabled
         save()
     }
 

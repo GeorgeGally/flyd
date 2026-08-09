@@ -65,4 +65,34 @@ describe("retrieveFastBrainEvidence", () => {
     expect(observedKeywords).toEqual(["horoscope"]);
     expect(result.matches).toEqual([]);
   });
+
+  it("quarantines raw conversation transcripts from semantic memory", async () => {
+    const result = await retrieveFastBrainEvidence("how can flyd improve", {
+      searchEntries: () => [{
+        path: "conversation-failed-answer.md",
+        body: "George: how can flyd improve\nFlyd: Use enhanced contextual understanding.",
+        score: 95,
+        metadata: { type: "flyd-conversation-transcript" },
+        source: "raw",
+      }],
+      now: () => new Date("2026-08-08T23:00:00.000Z"),
+    });
+
+    expect(result).toEqual({ verdict: "insufficient", matches: [] });
+  });
+
+  it("marks explicit corrections as user-confirmed authority", async () => {
+    const result = await retrieveFastBrainEvidence("Which Flyd model should be used?", {
+      searchEntries: () => [{
+        path: "corrections/flyd-model.md",
+        body: "Flyd should use the configured primary model.",
+        score: 90,
+        metadata: { type: "correction", source: "correction" },
+        source: "wiki",
+      }],
+      now: () => new Date("2026-08-08T23:00:00.000Z"),
+    });
+
+    expect(result.matches[0]).toMatchObject({ authority: "user_confirmed" });
+  });
 });

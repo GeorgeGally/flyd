@@ -29,6 +29,15 @@ export interface MemoryMatchSummary {
   excerpt: string;
   stale: boolean;
   kind?: "archive" | "conversation" | "horoscope";
+  authority?:
+    | "user_confirmed"
+    | "verified_outcome"
+    | "durable_memory"
+    | "current_signal"
+    | "user_observation"
+    | "conversation_context"
+    | "assistant_output";
+  outcome?: "accepted" | "rejected" | "verified" | "failed" | "unknown";
   updatedAt?: string;
 }
 

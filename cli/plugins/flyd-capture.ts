@@ -13,6 +13,8 @@ const FLYD_RESOLVER = join(FLYD_ROOT, "RESOLVER.md");
 const FLYD_INTERESTS = join(FLYD_ROOT, "interests.json");
 const FLYD_INTERESTS_CACHE = join(FLYD_CACHE, "interest-alerts");
 const INGEST_QUEUE_PATH = join(FLYD_CACHE, "ingest-queue.json");
+const FEEDBACK_AUTH_TOKEN_PATH = join(FLYD_ROOT, "overlay", "auth-token");
+const FLYD_CORE_URL = "http://127.0.0.1:4815";
 // ─── helpers ─────────────────────────────────────────────
 
 function detectProject(cwd: string): { name: string; path: string } {
@@ -45,21 +47,110 @@ function getConfigValue(key: string): string | null {
   } catch { return null; }
 }
 
-async function queryLLM(prompt: string, apiKey: string, timeout = 5000): Promise<string | null> {
+function configuredValue(key: string): string | null {
+  const environmentValue = process.env[key]?.trim();
+  if (environmentValue) return environmentValue;
+  const configValue = getConfigValue(key)?.trim();
+  if (configValue) return configValue;
+  const envPaths: string[] = [join(process.cwd(), ".env")];
+  try {
+    const repoRoot = readFileSync(join(FLYD_ROOT, "overlay", "repo-root"), "utf8").trim();
+    if (repoRoot) envPaths.push(join(repoRoot, ".env"));
+  } catch {}
+  envPaths.push(join(import.meta.dirname, "..", "..", ".env"));
+
+  for (const envPath of envPaths) {
+    try {
+      const line = readFileSync(envPath, "utf8")
+        .split(/\r?\n/)
+        .find((candidate) => candidate.trim().startsWith(`${key}=`));
+      if (!line) continue;
+      return line.slice(line.indexOf("=") + 1).trim().replace(/^(?:"(.*)"|'(.*)')$/, "$1$2") || null;
+    } catch {}
+  }
+  return null;
+}
+
+async function queryLLM(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  baseURL: string,
+  timeout = 5000,
+): Promise<string | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const useResponses = /^gpt-5(?:\.|-|$)/i.test(model);
+    const endpoint = useResponses ? "responses" : "chat/completions";
+    const body = useResponses
+      ? { model, input: prompt, max_output_tokens: 2_000 }
+      : {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_completion_tokens: 2_000,
+        };
+    const resp = await fetch(`${baseURL.replace(/\/+$/, "")}/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }], temperature: 0.2 }),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     });
     if (!resp.ok) return null;
     const data = (await resp.json()) as any;
+    if (useResponses) {
+      if (typeof data.output_text === "string") return data.output_text.trim() || null;
+      const text = data.output
+        ?.flatMap((item: any) => item.content ?? [])
+        .filter((item: any) => item.type === "output_text")
+        .map((item: any) => item.text)
+        .join("\n")
+        .trim();
+      return text || null;
+    }
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch { return null; }
   finally { clearTimeout(timer); }
+}
+
+export function isForegroundFeedbackCandidate(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const object = /\b(?:flyd|answer|response|reply|output|memory|model)\b/i.test(normalized);
+  const negative = /\b(?:bad|generic|useless|wrong|unhelpful|terrible|awful|broken|failed|failing|hallucinated|untrustworthy|not useful)\b/i.test(normalized)
+    || /\b(?:doesn['’]t work|can['’]t do|cannot do)\b/i.test(normalized);
+  return object && negative;
+}
+
+export function buildForegroundFeedbackPayload(text: string, cwd: string) {
+  const project = detectProject(cwd);
+  return {
+    version: 1,
+    captured_at: new Date().toISOString(),
+    source: "opencode",
+    authorship: "direct_input",
+    application: { bundle_id: "ai.opencode", name: "OpenCode" },
+    window_title: project.name,
+    text: text.trim().slice(0, 4_000),
+  };
+}
+
+async function captureForegroundFeedback(text: string, cwd: string): Promise<void> {
+  if (!isForegroundFeedbackCandidate(text)) return;
+  try {
+    const authToken = readFileSync(FEEDBACK_AUTH_TOKEN_PATH, "utf8").trim();
+    if (!authToken) return;
+    await fetch(`${FLYD_CORE_URL}/foreground-feedback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(buildForegroundFeedbackPayload(text, cwd)),
+      signal: AbortSignal.timeout(2_000),
+    });
+  } catch {
+    // Feedback capture must never block OpenCode.
+  }
 }
 
 // ─── cache layer ─────────────────────────────────────────────
@@ -208,6 +299,7 @@ For **wiki/people/** entries, use this variant:
 
 ## Sources
 [Raw captures or distill entries that informed this entry]
+`;
 
 function getResolver(): string {
   try {
@@ -436,7 +528,9 @@ async function onSessionEnd(sessionID: string, cwd: string): Promise<void> {
   if (!conversation || conversation.trim().length < 200) return;
 
   const project = detectProject(cwd).name;
-  const apiKey = getConfigValue("OPENAI_API_KEY");
+  const apiKey = configuredValue("FLYD_MODEL_API_KEY") ?? configuredValue("OPENAI_API_KEY");
+  const model = configuredValue("FLYD_MODEL");
+  const baseURL = configuredValue("FLYD_MODEL_BASE_URL") ?? "https://api.openai.com/v1";
   const gistToken = getConfigValue("GITHUB_TOKEN");
 
   // 1. Save raw conversation to local cache (instant, synchronous)
@@ -464,7 +558,7 @@ async function onSessionEnd(sessionID: string, cwd: string): Promise<void> {
 
   // 3. Distill in background (async, non-blocking) — rich structured output
   const distillPromise: Promise<void> = (async () => {
-    if (!apiKey) return;
+    if (!apiKey || !model) return;
     const prompt = `Distill this work session into a structured memory document.
 
 Sections:
@@ -517,7 +611,7 @@ Project: ${project}
 Conversation:
 ${conversation.slice(0, 4000)}`;
 
-    const raw = await queryLLM(prompt, apiKey, 15000);
+    const raw = await queryLLM(prompt, apiKey, model, baseURL, 15000);
     if (!raw || raw === "No significant memory." || raw.trim().length < 20) return;
 
     writeCache(project, "distill", `_distilled: ${timestamp()}\n${raw.trim()}`);
@@ -547,6 +641,7 @@ export const server = async (input: PluginInput): Promise<Hooks> => {
 
         const userText = extractUserText(msgOutput);
         if (!userText.trim()) return;
+        void captureForegroundFeedback(userText, cwd);
 
         // inject startup context (first message only)
         const startupNote = startupContexts.get(sessionID);

@@ -81,7 +81,32 @@ function match(entry: BaseEntry, now: Date): MemoryMatchSummary {
     excerpt: entry.body.trim().slice(0, 1_000),
     stale,
     kind: "archive",
+    authority: memoryAuthority(entry),
+    outcome: memoryOutcome(entry),
   };
+}
+
+function memoryAuthority(entry: BaseEntry): MemoryMatchSummary["authority"] {
+  const type = String(entry.metadata.type ?? "");
+  const source = String(entry.metadata.source ?? "");
+  if (type === "correction" || type === "flyd-runtime-task-corrected" || source === "correction") {
+    return "user_confirmed";
+  }
+  if (type.includes("verified") || entry.metadata.outcome === "verified") return "verified_outcome";
+  if (entry.source === "wiki"
+    && (entry.metadata.promoted === true || entry.metadata.status === "canon")
+    && type !== "conversation-index") {
+    return "durable_memory";
+  }
+  return "user_observation";
+}
+
+function memoryOutcome(entry: BaseEntry): MemoryMatchSummary["outcome"] {
+  const outcome = String(entry.metadata.outcome ?? "unknown");
+  if ([ "accepted", "rejected", "verified", "failed" ].includes(outcome)) {
+    return outcome as MemoryMatchSummary["outcome"];
+  }
+  return "unknown";
 }
 
 export async function retrieveFastBrainEvidence(
@@ -92,6 +117,7 @@ export async function retrieveFastBrainEvidence(
   if (keywords.length === 0) return { verdict: "insufficient", matches: [] };
 
   const entries = dependencies.searchEntries(query, keywords)
+    .filter((entry) => entry.metadata.type !== "flyd-conversation-transcript")
     .map((entry) => ({ entry, matches: countMatches(entry.body, keywords) }))
     .filter(({ matches }) => matches.unique > 0)
     .sort((left, right) =>
@@ -103,7 +129,11 @@ export async function retrieveFastBrainEvidence(
     .map(({ entry }) => match(entry, dependencies.now()));
 
   return {
-    verdict: entries.length >= 3 ? "sufficient" : entries.length > 0 ? "partial" : "insufficient",
+    verdict: entries.some((entry) => entry.authority === "user_confirmed"
+      || entry.authority === "verified_outcome"
+      || entry.authority === "durable_memory")
+      ? "sufficient"
+      : entries.length > 0 ? "partial" : "insufficient",
     matches: entries,
   };
 }

@@ -21,7 +21,7 @@
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSAccessibilityUsageDescription</key>
-  <string>Flyd uses Accessibility only when invoked so it can understand the focused app, field, and nearby context.</string>
+  <string>Flyd uses Accessibility when invoked and, if enabled, to notice complaint-like text you author in supported AI chat inputs so it can repair rejected Flyd answers.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Flyd uses Apple Events only when needed to understand or act in the app you invoke it from.</string>
   <key>NSMicrophoneUsageDescription</key>

@@ -284,7 +284,7 @@ export async function retrieveRecentActionableOutcome(
 
 function countKeywordMatches(record: ConversationRecord, keywords: string[]): number {
   const content = record.exchanges
-    .map((exchange) => `${exchange.user}\n${exchange.assistant}`)
+    .map((exchange) => exchange.user)
     .join("\n")
     .toLowerCase();
   return keywords.reduce((score, keyword) => score + (content.includes(keyword) ? 1 : 0), 0);
@@ -302,7 +302,7 @@ function selectedExchanges(
   }
 
   const matched = record.exchanges.filter((exchange) => {
-    const content = `${exchange.user}\n${exchange.assistant}`.toLowerCase();
+    const content = exchange.user.toLowerCase();
     return keywords.some((keyword) => content.includes(keyword));
   });
   return matched.length > 0 ? matched.slice(-6) : record.exchanges.slice(-4);
@@ -315,9 +315,11 @@ function evidenceMatch(
   now: Date,
 ): MemoryMatchSummary {
   const exchanges = selectedExchanges(record, keywords, continuityQuestion);
-  const transcript = exchanges.map((exchange) =>
-    `George: ${cleanInline(exchange.user, 1_000)}\nFlyd: ${cleanInline(exchange.assistant, 1_000)}`
-  ).join("\n\n");
+  const transcript = exchanges.map((exchange) => {
+    const user = `George: ${cleanInline(exchange.user, 1_000)}`;
+    if (!continuityQuestion) return user;
+    return `${user}\nUnverified prior Flyd response: ${cleanInline(exchange.assistant, 1_000)}`;
+  }).join("\n\n");
   const excerpt = [
     `Previous Flyd conversation: ${record.title}`,
     `Started ${record.startedAt}; last updated ${record.updatedAt}.`,
@@ -331,6 +333,8 @@ function evidenceMatch(
     excerpt,
     stale: age > 90 * 24 * 60 * 60 * 1_000,
     kind: "conversation",
+    authority: continuityQuestion ? "conversation_context" : "user_observation",
+    outcome: "unknown",
     updatedAt: record.updatedAt,
   };
 }
@@ -363,9 +367,21 @@ export async function retrieveRecentConversationEvidence(
     evidenceMatch(record, keywords, continuityQuestion, options.now?.() ?? new Date())
   );
   return {
-    verdict: matches.length >= 2 ? "sufficient" : matches.length === 1 ? "partial" : "insufficient",
+    verdict: matches.length > 0 ? "partial" : "insufficient",
     matches,
   };
+}
+
+function supportsTrustedClaim(match: MemoryMatchSummary): boolean {
+  return match.authority === "user_confirmed"
+    || match.authority === "verified_outcome"
+    || match.authority === "durable_memory";
+}
+
+function canonicalMemoryKey(match: MemoryMatchSummary): string {
+  const normalizedPath = match.path.replace(/\.md$/, "");
+  if (normalizedPath.startsWith("conversations/")) return `conversation:${normalizedPath}`;
+  return `${match.kind ?? "archive"}:${normalizedPath}`;
 }
 
 export function mergeAgentMemoryEvidence(
@@ -382,7 +398,7 @@ export function mergeAgentMemoryEvidence(
   } else {
     const seen = new Set<string>();
     matches = matches.filter((match) => {
-      const key = `${match.kind ?? "archive"}:${match.path}`;
+      const key = canonicalMemoryKey(match);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -398,7 +414,9 @@ export function mergeAgentMemoryEvidence(
   });
 
   return {
-    verdict: matches.length >= 3 ? "sufficient" : matches.length > 0 ? "partial" : "insufficient",
+    verdict: matches.some(supportsTrustedClaim)
+      ? "sufficient"
+      : matches.length > 0 ? "partial" : "insufficient",
     matches,
   };
 }

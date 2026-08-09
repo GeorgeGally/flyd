@@ -29,11 +29,11 @@ import {
 } from "../runtime/conversation-memory.js";
 import { retrieveFastBrainEvidence } from "../runtime/fast-brain-retrieval.js";
 import { isHoroscopeQuestion, verifiedHoroscopeEvidence } from "../runtime/personal-context-memory.js";
-import { retrieveSharedMemoryEvidence } from "../runtime/shared-memory-retrieval.js";
 import { actionableTaskNextAction } from "../runtime/orientation.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
 import { controlWorker, defaultWorkerControlDependencies } from "../runtime/worker-controller.js";
+import { repairLatestTurn } from "../runtime/turn-repair.js";
 
 const execFileAsync = promisify(execFile);
 const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -46,32 +46,22 @@ export async function retrieveAgentMemory(
   query: string,
   options: {
     excludeConversationSessionId?: string;
-    pool?: ReturnType<typeof createRuntimePool>;
+    retrieveConversation?: typeof retrieveRecentConversationEvidence;
+    retrieveArchive?: typeof retrieveFastBrainEvidence;
   } = {},
 ): Promise<MemoryEvidence> {
+  const retrieveConversation = options.retrieveConversation ?? retrieveRecentConversationEvidence;
+  const retrieveArchive = options.retrieveArchive ?? retrieveFastBrainEvidence;
   const [conversation, archive] = await Promise.all([
-    retrieveRecentConversationEvidence(query, {
+    retrieveConversation(query, {
       excludeSessionId: options.excludeConversationSessionId,
     }),
-    retrieveFastBrainEvidence(query),
+    retrieveArchive(query),
   ]);
-  const pool = options.pool ?? createRuntimePool();
-  const ownsPool = !options.pool;
-  let shared: MemoryEvidence = { verdict: "insufficient", matches: [] };
+  const combined = mergeAgentMemoryEvidence(query, [ conversation, archive ]);
+  if (!isHoroscopeQuestion(query)) return combined;
+  const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
   try {
-    shared = await retrieveSharedMemoryEvidence(query, {
-      query: async (sql) => {
-        const result = await pool.query(sql);
-        return { rows: result.rows };
-      },
-      now: () => new Date(),
-    });
-  } catch {
-    // Filesystem memory remains available when the shared Rails database is offline.
-  }
-  const combined = mergeAgentMemoryEvidence(query, [ conversation, shared, archive ]);
-  try {
-    if (!isHoroscopeQuestion(query)) return combined;
     const result = await pool.query(
       `SELECT status, fresh_until, payload
        FROM intelligence_snapshots
@@ -88,7 +78,7 @@ export async function retrieveAgentMemory(
   } catch {
     return combined;
   } finally {
-    if (ownsPool) await pool.end();
+    await pool.end();
   }
 }
 
@@ -151,9 +141,9 @@ export async function runAgent(): Promise<void> {
       terminal: new NodeTerminal(),
       retrieveMemory: (query) => retrieveAgentMemory(query, {
         excludeConversationSessionId: conversation.id,
-        pool,
       }),
       recoverActionRequest: () => retrieveRecentActionableOutcome(),
+      repairLastTurn: (feedback) => repairLatestTurn(feedback, { sessionId: conversation.id }),
       recordTurn: conversation.recordTurn,
       respond: respondToConversation,
       loadSituation: () => loadAgentSituation({ pool }),

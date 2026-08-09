@@ -1,4 +1,6 @@
-export const ATTENTION_JUDGE_MODEL = process.env.FLYD_ATTENTION_JUDGE_MODEL ?? process.env.FLYD_MODEL ?? "gpt-4o-mini";
+import { defaultModel } from "../lib/config.js";
+
+export const ATTENTION_JUDGE_MODEL = process.env.FLYD_ATTENTION_JUDGE_MODEL?.trim() || defaultModel();
 export const ATTENTION_JUDGE_TIMEOUT_MS = 3000;
 
 export const DEFAULT_DAILY_INTERRUPTION_LIMIT = 5;

@@ -16,6 +16,8 @@ struct PrivacySettingsView: View {
                     Divider()
                     retentionSection
                     Divider()
+                    feedbackCaptureSection
+                    Divider()
                     excludedAppsSection
                     Divider()
                     redactionSection
@@ -75,7 +77,7 @@ struct PrivacySettingsView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            Text("Controls what Flyd remembers. PRESENT observations are never stored — full stop.")
+            Text("Controls what Flyd remembers. Passive context stays ephemeral except for explicit negative feedback captured from enabled chat inputs.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -90,6 +92,22 @@ struct PrivacySettingsView: View {
             }
 
             Text(viewModel.retention.explanation)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var feedbackCaptureSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Learn when I reject a Flyd answer elsewhere", isOn: $viewModel.foregroundFeedbackCapture)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .onChange(of: viewModel.foregroundFeedbackCapture) { _, enabled in
+                    viewModel.setForegroundFeedbackCapture(enabled)
+                }
+
+            Text("In ChatGPT, Codex, and OpenCode input fields, Flyd locally captures complaint-like text and links an explicit rejection to a recent Flyd turn. Ambiguous terminal text stays pending and never becomes trusted memory. Disabled in Private retention and Incognito modes.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -208,6 +226,7 @@ private class PrivacySettingsViewModel: ObservableObject {
     @Published var newExcludedApp: String = ""
     @Published var redactionRules: [OverlayConfig.RedactionRule] = []
     @Published var incognito: Bool = false
+    @Published var foregroundFeedbackCapture: Bool = true
 
     init() {
         refresh()
@@ -227,6 +246,7 @@ private class PrivacySettingsViewModel: ObservableObject {
         excludedApps = config.excludedApps
         redactionRules = config.redactionRules
         incognito = config.incognito
+        foregroundFeedbackCapture = config.foregroundFeedbackCapture
     }
 
     func setReplyMode(_ mode: OverlayConfig.ReplyMode) {
@@ -256,5 +276,9 @@ private class PrivacySettingsViewModel: ObservableObject {
 
     func setIncognito(_ enabled: Bool) {
         ConfigManager.shared.setIncognito(enabled)
+    }
+
+    func setForegroundFeedbackCapture(_ enabled: Bool) {
+        ConfigManager.shared.setForegroundFeedbackCapture(enabled)
     }
 }

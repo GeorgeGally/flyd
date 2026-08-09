@@ -122,6 +122,31 @@ describe("conversation memory", () => {
     expect(evidence.matches[0]?.excerpt).toContain("artwork release");
   });
 
+  it("does not promote Flyd's previous unverified answer as semantic memory", async () => {
+    const flydDir = await temporaryFlydDirectory();
+    const session = createConversationMemorySession({
+      flydDir,
+      id: "generic-flyd-answer",
+      now: () => new Date("2026-08-08T22:37:48.000Z"),
+      project: "GeorgeGally/flyd",
+      projectPath: "/Users/george/flyd",
+    });
+    await session.recordTurn({
+      user: "how can flyd improve",
+      assistant: "To improve Flyd, focus on enhanced contextual understanding and advanced analytics.",
+    });
+
+    const evidence = await retrieveRecentConversationEvidence("how can flyd improve", {
+      flydDir,
+      now: () => new Date("2026-08-08T22:40:00.000Z"),
+    });
+
+    expect(evidence.verdict).toBe("partial");
+    expect(evidence.matches[0]).toMatchObject({ authority: "user_observation" });
+    expect(evidence.matches[0]?.excerpt).toContain("George: how can flyd improve");
+    expect(evidence.matches[0]?.excerpt).not.toContain("enhanced contextual understanding");
+  });
+
   it("recovers the latest actionable request across a continuation-only session", async () => {
     const flydDir = await temporaryFlydDirectory();
     const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
@@ -280,5 +305,60 @@ describe("conversation memory", () => {
 
     expect(result.matches.reduce((total, match) => total + match.excerpt.length, 0))
       .toBeLessThanOrEqual(12_000);
+  });
+
+  it("does not call repeated conversational observations sufficient memory", () => {
+    const result = mergeAgentMemoryEvidence("how can flyd improve", [{
+      verdict: "sufficient",
+      matches: Array.from({ length: 3 }, (_, index) => ({
+        id: `conversation-${index}`,
+        path: `conversations/${index}`,
+        excerpt: "George: how can flyd improve",
+        stale: false,
+        kind: "conversation" as const,
+        authority: "user_observation" as const,
+      })),
+    }]);
+
+    expect(result.verdict).toBe("partial");
+  });
+
+  it("treats a user-confirmed memory as sufficient without requiring duplicates", () => {
+    const result = mergeAgentMemoryEvidence("Which model should Flyd use?", [{
+      verdict: "partial",
+      matches: [{
+        id: "confirmed-model",
+        path: "corrections/flyd-model.md",
+        excerpt: "George explicitly configured the primary Flyd model.",
+        stale: false,
+        kind: "archive",
+        authority: "user_confirmed",
+      }],
+    }]);
+
+    expect(result.verdict).toBe("sufficient");
+  });
+
+  it("deduplicates the direct conversation record and its wiki index", () => {
+    const result = mergeAgentMemoryEvidence("how can flyd improve", [{
+      verdict: "partial",
+      matches: [{
+        id: "direct",
+        path: "conversations/session-1",
+        excerpt: "George: how can flyd improve",
+        stale: false,
+        kind: "conversation",
+        authority: "user_observation",
+      }, {
+        id: "wiki-index",
+        path: "conversations/session-1.md",
+        excerpt: "An index of what George said",
+        stale: false,
+        kind: "archive",
+        authority: "user_observation",
+      }],
+    }]);
+
+    expect(result.matches.map((match) => match.id)).toEqual(["direct"]);
   });
 });

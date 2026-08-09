@@ -1,7 +1,30 @@
 import { homedir } from "os";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, basename, resolve } from "path";
+import { fileURLToPath } from "url";
 import { execSync } from "child_process";
+import { parseEnvFile } from "../runtime/flyd-worker-config.js";
+
+export const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
+export function loadFlydEnvironment(
+  projectRoot = FLYD_APPLICATION_ROOT,
+  environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  let fileEnvironment: NodeJS.ProcessEnv = {};
+  try {
+    fileEnvironment = parseEnvFile(readFileSync(join(projectRoot, ".env"), "utf8"));
+  } catch {
+    return environment;
+  }
+
+  for (const [key, value] of Object.entries(fileEnvironment)) {
+    if (environment[key] === undefined && value !== undefined) environment[key] = value;
+  }
+  return environment;
+}
+
+loadFlydEnvironment();
 
 function resolveFlydDir(): string {
   const configured = process.env.FLYD_DIR?.trim();
@@ -51,7 +74,16 @@ interface FlydConfig {
   GITHUB_TOKEN?: string;
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
+  FLYD_MODEL_API_KEY?: string;
+  FLYD_MODEL_BASE_URL?: string;
   FLYD_ZODIAC_SIGN?: string;
+}
+
+export interface ModelConnection {
+  model: string;
+  apiKey: string;
+  baseURL?: string;
+  providerIdentity: string;
 }
 
 function loadConfig(): FlydConfig {
@@ -74,11 +106,41 @@ export function getKey(key: keyof FlydConfig): string | undefined {
 }
 
 export function defaultModel(): string {
-  return getKey("FLYD_MODEL") ?? "gpt-4o-mini";
+  const model = getKey("FLYD_MODEL")?.trim();
+  if (!model) {
+    throw new Error("Flyd model is not configured. Set FLYD_MODEL in the project .env");
+  }
+  return model;
 }
 
 export function defaultChatModel(): string {
-  return getKey("FLYD_CHAT_MODEL") ?? getKey("FLYD_MODEL") ?? "gpt-4o-mini";
+  const model = getKey("FLYD_CHAT_MODEL")?.trim() || getKey("FLYD_MODEL")?.trim();
+  if (!model) {
+    throw new Error("Flyd chat model is not configured. Set FLYD_MODEL in the project .env");
+  }
+  return model;
+}
+
+export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
+  const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
+  const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
+  const apiKey = canonicalKey || (isOpenAIModel(model)
+    ? getKey("OPENAI_API_KEY")?.trim()
+    : getKey("ANTHROPIC_API_KEY")?.trim());
+  if (!apiKey) {
+    throw new Error(`No API key is configured for Flyd model ${model}`);
+  }
+
+  const baseURL = canonicalBaseURL || undefined;
+  const providerHost = baseURL
+    ? new URL(baseURL).host
+    : isOpenAIModel(model) ? "api.openai.com" : "api.anthropic.com";
+  return {
+    model,
+    apiKey,
+    ...(baseURL ? { baseURL } : {}),
+    providerIdentity: `${providerHost}/${model}`,
+  };
 }
 
 export function zodiacSign(): string | null {
@@ -87,6 +149,7 @@ export function zodiacSign(): string | null {
 
 export function hasApiKey(model?: string): boolean {
   const m = model ?? defaultModel();
+  if (getKey("FLYD_MODEL_API_KEY")) return true;
   if (isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
   return !!getKey("ANTHROPIC_API_KEY");
 }

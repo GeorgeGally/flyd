@@ -33,6 +33,7 @@ describe("runAgentSession", () => {
     });
 
     const result = await runAgentSession({
+      sessionId: "conversation-session",
       terminal: ui,
       retrieveMemory,
       recoverActionRequest: vi.fn(async () => null),
@@ -44,6 +45,10 @@ describe("runAgentSession", () => {
     expect(result).toEqual({ kind: "exit" });
     expect(retrieveMemory).toHaveBeenCalledWith("let's just chat");
     expect(respond).toHaveBeenCalledOnce();
+    expect(respond).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "conversation-session",
+      turnNumber: 1,
+    }));
     expect(recordTurn).toHaveBeenCalledWith({
       user: "let's just chat",
       assistant: "Good. What do you want to think through?",
@@ -78,6 +83,33 @@ describe("runAgentSession", () => {
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hello." },
     ]);
+  });
+
+  it("repairs the preceding turn with /flyd-fix without invoking another model response", async () => {
+    const ui = terminal(["/flyd-fix this was generic and ignored my memory", "/exit"]);
+    const repairLastTurn = vi.fn(async () => ({
+      id: "fix-1",
+      failureClasses: ["memory_authority", "answer_quality"],
+    }));
+    const respond = vi.fn();
+    const retrieveMemory = vi.fn(async () => noMemory);
+
+    const result = await runAgentSession({
+      sessionId: "repair-session",
+      terminal: ui,
+      retrieveMemory,
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      repairLastTurn,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(repairLastTurn).toHaveBeenCalledWith("this was generic and ignored my memory");
+    expect(respond).not.toHaveBeenCalled();
+    expect(retrieveMemory).not.toHaveBeenCalled();
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("fix-1"));
   });
 
   it("bounds model history to the most recent twelve turns", async () => {

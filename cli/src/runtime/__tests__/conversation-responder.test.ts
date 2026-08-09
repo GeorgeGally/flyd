@@ -3,6 +3,7 @@ import {
   buildConversationPrompt,
   immediateConversationReply,
   missingPersonalFactReply,
+  respondToConversation,
 } from "../conversation-responder.js";
 
 describe("buildConversationPrompt", () => {
@@ -88,7 +89,8 @@ describe("buildConversationPrompt", () => {
     expect(prompt.prompt).toContain("Repair the daily-driver loop");
     expect(prompt.prompt).toContain("fix(runtime): settle local reviews and timestamps");
     expect(prompt.system).toContain("Current repository and task evidence outranks older memory");
-    expect(prompt.system).toContain("untrusted personal evidence");
+    expect(prompt.system).toContain("memory authority labels");
+    expect(prompt.prompt).toContain("<personal-memory>");
     expect(prompt.prompt).toContain("What should I work on next?");
   });
 
@@ -102,6 +104,37 @@ describe("buildConversationPrompt", () => {
 
     expect(prompt.prompt).toContain("Let's just chat");
     expect(prompt.prompt).not.toContain("No evidence found");
+  });
+
+  it("prioritizes user-confirmed memory and excludes rejected assistant output", () => {
+    const prompt = buildConversationPrompt({
+      message: "Which model should Flyd use?",
+      history: [],
+      memory: {
+        verdict: "sufficient",
+        matches: [{
+          id: "confirmed-model",
+          path: "corrections/model.md",
+          excerpt: "George explicitly configured gpt-4.6 for primary Flyd chat.",
+          stale: false,
+          authority: "user_confirmed",
+          outcome: "accepted",
+        }, {
+          id: "rejected-answer",
+          path: "conversations/bad",
+          excerpt: "Flyd should use a cheap mini model.",
+          stale: false,
+          authority: "assistant_output",
+          outcome: "rejected",
+        }],
+      },
+      situation: null,
+    });
+
+    expect(prompt.prompt).toContain("[user_confirmed]");
+    expect(prompt.prompt).toContain("gpt-4.6");
+    expect(prompt.prompt).not.toContain("cheap mini model");
+    expect(prompt.system).toContain("User-confirmed memory outranks");
   });
 
   it("does not let archival memory define current repository state", () => {
@@ -215,5 +248,148 @@ describe("buildConversationPrompt", () => {
     expect(prompt.prompt).toContain("artwork release");
     expect(prompt.prompt).toContain("GeorgeGally/flyd");
     expect(prompt.prompt).toContain("32 uncommitted");
+  });
+
+  it("runs the exact generic Flyd question through a real bounded tool loop and records the turn", async () => {
+    let observedTools: string[] = [];
+    let observedIterations = 0;
+    let recorded: Record<string, unknown> | null = null;
+    const streamed: string[] = [];
+
+    const answer = await respondToConversation({
+      sessionId: "generic-regression",
+      turnNumber: 1,
+      message: "how can flyd improve",
+      history: [],
+      memory: {
+        verdict: "partial",
+        matches: [{
+          id: "prior-question",
+          path: "conversations/prior",
+          excerpt: "George: how can flyd improve",
+          stale: false,
+          authority: "user_observation",
+        }],
+      },
+      situation: {
+        project: "GeorgeGally/flyd",
+        branch: "fix/trusted-memory-runtime",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "fix: repair the primary conversation runtime",
+        outcome: null,
+        status: null,
+        nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: (token) => streamed.push(token),
+    }, {
+      resolveConnection: () => ({
+        model: "gpt-4.6",
+        apiKey: "test-key",
+        baseURL: "https://models.example.test/v1",
+        providerIdentity: "models.example.test/gpt-4.6",
+      }),
+      runAgentLoop: async (_system, _prompt, tools, onToolCall, _model, iterations) => {
+        observedTools = tools.map((tool) => tool.name);
+        observedIterations = iterations ?? 0;
+        onToolCall("git_log", { count: 1 });
+        return "<final>Flyd's primary conversation runtime needs an evidence-first loop.</final>";
+      },
+      persistReceipt: async (input) => {
+        recorded = input as unknown as Record<string, unknown>;
+        return input as never;
+      },
+    });
+
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log"]);
+    expect(observedIterations).toBeGreaterThan(1);
+    expect(answer).toContain("evidence-first loop");
+    expect(recorded).toMatchObject({
+      sessionId: "generic-regression",
+      turnNumber: 1,
+      model: "gpt-4.6",
+      providerIdentity: "models.example.test/gpt-4.6",
+      status: "succeeded",
+    });
+    expect((recorded as unknown as { toolCalls: unknown[] }).toolCalls).toHaveLength(1);
+    expect(streamed.join(" ")).not.toContain("Which of these areas resonates");
+  });
+
+  it("refuses an uninspected generic answer to a Flyd project question", async () => {
+    let recorded: Record<string, unknown> | null = null;
+    await expect(respondToConversation({
+      sessionId: "ungrounded-regression",
+      turnNumber: 1,
+      message: "how can flyd improve",
+      history: [],
+      memory: { verdict: "partial", matches: [] },
+      situation: {
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "current commit",
+        outcome: null,
+        status: null,
+        nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      resolveConnection: () => ({
+        model: "gpt-4.6",
+        apiKey: "test-key",
+        providerIdentity: "models.example.test/gpt-4.6",
+      }),
+      runAgentLoop: async () => "<final>Improve contextual understanding and analytics.</final>",
+      persistReceipt: async (input) => {
+        recorded = input as unknown as Record<string, unknown>;
+        return input as never;
+      },
+    })).rejects.toThrow("refused an ungrounded project answer");
+
+    expect(recorded).toMatchObject({ status: "failed" });
+  });
+
+  it("lets the model page through long source files instead of losing later evidence", async () => {
+    let laterEvidence = "";
+    await respondToConversation({
+      message: "inspect the Flyd runtime",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "current commit",
+        outcome: null,
+        status: null,
+        nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      resolveConnection: () => ({
+        model: "gpt-4.6",
+        apiKey: "test-key",
+        providerIdentity: "models.example.test/gpt-4.6",
+      }),
+      runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+        laterEvidence = onToolCall("read_file", {
+          path: "src/runtime/conversation-responder.ts",
+          offset: 8_000,
+          limit: 20_000,
+        });
+        return "<final>Inspected the complete runtime.</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(laterEvidence).toContain("refused an ungrounded project answer");
   });
 });

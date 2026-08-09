@@ -21,6 +21,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "plan", integration: "targeted", description: "Create a durable plan using retrieved personal context.", mutatesArchive: true },
   { id: "compound", integration: "targeted", description: "Turn repeated work into a reusable structured learning.", mutatesArchive: true },
   { id: "correct", integration: "targeted", description: "Supersede incorrect knowledge while preserving correction provenance.", mutatesArchive: true },
+  { id: "fix", integration: "interactive", description: "Reject the preceding Flyd response, preserve diagnostic evidence, and create a trusted correction plus regression case.", mutatesArchive: true },
   { id: "goal", integration: "interactive", description: "Create, inspect, and update durable user-confirmed goals.", mutatesArchive: true },
   { id: "review", integration: "interactive", description: "Run spaced review against durable knowledge and record recall outcomes.", mutatesArchive: true },
   { id: "quiz", integration: "interactive", description: "Test active recall using the shared review store.", mutatesArchive: true },

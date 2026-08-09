@@ -32,9 +32,12 @@ interface AgentSessionDependencies {
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
   recoverActionRequest(): Promise<ActionableOutcome | null>;
+  repairLastTurn?(feedback: string): Promise<{ id: string; failureClasses: string[] }>;
   recordTurn(turn: { user: string; assistant: string; handoff?: ActionableOutcome }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
   respond(input: {
+    sessionId?: string;
+    turnNumber: number;
     message: string;
     history: ConversationTurn[];
     memory: MemoryEvidence;
@@ -48,7 +51,7 @@ export type AgentSessionResult =
   | { kind: "coding"; outcome: string }
   | { kind: "resume" };
 
-const MAX_HISTORY_TURNS = 50;
+const MAX_HISTORY_TURNS = 12;
 
 function situationLine(situation: AgentSituation): string {
   if (!hasUnfinishedTask(situation)) return "";
@@ -81,6 +84,24 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     while (true) {
       const text = (await deps.terminal.ask("\nYou >")).trim();
       if (!text) continue;
+
+      const repairMatch = text.match(/^\/flyd-fix(?:\s+([\s\S]+))?$/i);
+      if (repairMatch) {
+        if (!deps.repairLastTurn) {
+          deps.terminal.write("Flyd repair is not available in this session.\n");
+          continue;
+        }
+        try {
+          const repair = await deps.repairLastTurn(repairMatch[1]?.trim() ?? "");
+          deps.terminal.write(
+            `Recorded Flyd repair ${repair.id}: ${repair.failureClasses.join(", ")}.\n`,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.terminal.write(`Flyd could not repair that turn: ${message}\n`);
+        }
+        continue;
+      }
 
       let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
@@ -150,6 +171,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         const memory = await deps.retrieveMemory(input.message);
         let streamed = false;
         const answer = await deps.respond({
+          sessionId: deps.sessionId,
+          turnNumber: history.length / 2 + 1,
           message: input.message,
           history: history.slice(-MAX_HISTORY_TURNS),
           memory,

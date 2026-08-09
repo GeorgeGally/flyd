@@ -220,6 +220,35 @@ final class FlydClient {
         let acknowledged: Bool
     }
 
+    struct ForegroundFeedbackPayload: Codable {
+        let version: Int
+        let capturedAt: String
+        let source: String
+        let authorship: String
+        let application: AppPayload
+        let windowTitle: String
+        let browserURL: String?
+        let text: String
+
+        enum CodingKeys: String, CodingKey {
+            case version
+            case capturedAt = "captured_at"
+            case source
+            case authorship
+            case application
+            case windowTitle = "window_title"
+            case browserURL = "browser_url"
+            case text
+        }
+    }
+
+    struct ForegroundFeedbackResponse: Codable {
+        let observationId: String
+        let status: String
+        let reason: String?
+        let turnReceiptId: String?
+    }
+
     func sendManifest(
         invocationId: String,
         environmentRevision: Int,
@@ -290,6 +319,27 @@ final class FlydClient {
         )
 
         _ = await post("/manifest/outcome", body: payload) as AcknowledgementResponse?
+    }
+
+    func sendForegroundFeedback(
+        context: ForegroundFeedbackCaptureContext,
+        environment: EnvironmentState,
+        text: String
+    ) async -> ForegroundFeedbackResponse? {
+        let payload = ForegroundFeedbackPayload(
+            version: 1,
+            capturedAt: ISO8601DateFormatter().string(from: environment.timestamp),
+            source: context.source.rawValue,
+            authorship: context.authorship.rawValue,
+            application: AppPayload(
+                bundleId: environment.application.bundleId,
+                name: environment.application.name
+            ),
+            windowTitle: environment.window.title,
+            browserURL: environment.browserURL,
+            text: text
+        )
+        return await post("/foreground-feedback", body: payload)
     }
 
     func approveCommands(

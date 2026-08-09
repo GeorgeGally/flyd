@@ -37,6 +37,11 @@ import { validateFileRead, readFile, validateFileGrep, grepCodebase, validateFil
 import { planTask, parseTaskPlan, buildVerifyPrompt } from "./work-intelligence/task-loop.js";
 import type { TaskPlan } from "./work-intelligence/task-loop.js";
 import { query } from "./lib/llm.js";
+import {
+  recordForegroundFeedback,
+  type ForegroundFeedbackInput,
+} from "./runtime/foreground-feedback.js";
+import { syncInstalledOpenCodePlugin } from "./runtime/opencode-plugin-sync.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -408,6 +413,42 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
+async function handleForegroundFeedback(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  let body: string;
+  try {
+    body = await parseBody(req);
+  } catch {
+    sendJson(res, 413, { error: "Request body too large" });
+    return;
+  }
+
+  try {
+    const raw = JSON.parse(body) as Record<string, unknown>;
+    const rawApplication = raw.application as Record<string, unknown> | undefined;
+    const result = await recordForegroundFeedback({
+      version: raw.version,
+      capturedAt: raw.captured_at ?? raw.capturedAt,
+      source: raw.source,
+      authorship: raw.authorship,
+      application: {
+        bundleId: rawApplication?.bundle_id ?? rawApplication?.bundleId,
+        name: rawApplication?.name,
+      },
+      windowTitle: raw.window_title ?? raw.windowTitle,
+      browserURL: raw.browser_url ?? raw.browserURL,
+      text: raw.text,
+    } as ForegroundFeedbackInput);
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendJson(res, 400, { error: (error as Error).message });
+  }
+}
+
 async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Method not allowed" });
@@ -704,6 +745,10 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       case "/manifest/outcome":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleOutcome(req, res);
+        break;
+      case "/foreground-feedback":
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        handleForegroundFeedback(req, res);
         break;
       case "/learnings/pending":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
@@ -1032,9 +1077,18 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       }
     });
 
-    server.listen(port, host, () => {
+    server.listen(port, host, async () => {
       serverInstance = server;
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
+
+      try {
+        const pluginSync = await syncInstalledOpenCodePlugin();
+        if (pluginSync.status === "updated") {
+          console.log("[Flyd Core] Updated the installed OpenCode capture integration");
+        }
+      } catch (error) {
+        console.warn("[Flyd Core] OpenCode capture integration sync failed:", (error as Error).message);
+      }
 
       const loaded = loadLearnings();
       if (loaded.beliefs > 0 || loaded.behaviours > 0) {

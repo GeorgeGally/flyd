@@ -5,5 +5,9 @@ export default defineConfig({
     globals: true,
     environment: "node",
     exclude: [ "dist/**", "node_modules/**" ],
+    env: {
+      FLYD_MODEL: "gpt-4o-mini",
+      OPENAI_API_KEY: "test-key",
+    },
   },
 });

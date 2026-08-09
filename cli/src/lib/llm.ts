@@ -1,6 +1,6 @@
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { isOpenAIModel, defaultModel, getKey } from "./config.js";
+import { isOpenAIModel, defaultModel, resolveModelConnection } from "./config.js";
 
 export interface AgentTool {
   name: string;
@@ -18,6 +18,14 @@ export interface QueryOptions {
   json?: boolean;
   /** Base64-encoded JPEG images (no data: prefix) attached to the user message. */
   images?: string[];
+}
+
+export function openAICompletionLimit(maxCompletionTokens: number): { max_completion_tokens: number } {
+  return { max_completion_tokens: maxCompletionTokens };
+}
+
+export function openAIAgentTransport(model: string): "responses" | "chat_completions" {
+  return /^gpt-5(?:\.|-|$)/i.test(model) ? "responses" : "chat_completions";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,7 +93,9 @@ export async function agentLoop(
   maxIterations = 8,
 ): Promise<string> {
   return isOpenAIModel(model)
-    ? agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations)
+    ? openAIAgentTransport(model) === "responses"
+      ? agentLoopOpenAIResponses(system, userMessage, tools, onToolCall, model, maxIterations)
+      : agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations)
     : agentLoopAnthropic(system, userMessage, tools, onToolCall, model, maxIterations);
 }
 
@@ -105,7 +115,7 @@ async function queryOpenAIWithConfig(
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const res = await client.chat.completions.create({
     model,
-    max_tokens: options.json ? 4096 : 2048,
+    ...openAICompletionLimit(options.json ? 4096 : 2048),
     temperature: 0.2,
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
@@ -115,12 +125,14 @@ async function queryOpenAIWithConfig(
 }
 
 async function queryOpenAI(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {
-  return queryOpenAIWithConfig(prompt, model, system, getKey("OPENAI_API_KEY") ?? "", undefined, options);
+  const connection = resolveModelConnection(model);
+  return queryOpenAIWithConfig(prompt, model, system, connection.apiKey, connection.baseURL, options);
 }
 
 async function queryAnthropic(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
+  const connection = resolveModelConnection(model);
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
   const res = await client.messages.create({
     model,
     max_tokens: options.json ? 4096 : 2048,
@@ -139,14 +151,15 @@ async function streamOpenAI(
   system?: string,
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: getKey("OPENAI_API_KEY") });
+  const connection = resolveModelConnection(model);
+  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: prompt });
   const stream = await client.chat.completions.create({
     model,
-    max_tokens: 2048,
+    ...openAICompletionLimit(2048),
     temperature: 0.2,
     messages,
     stream: true,
@@ -168,7 +181,8 @@ async function streamAnthropic(
   system?: string,
 ): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
+  const connection = resolveModelConnection(model);
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
   let full = "";
   const stream = client.messages
     .stream({
@@ -195,7 +209,8 @@ async function agentLoopAnthropic(
   maxIterations: number,
 ): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey: getKey("ANTHROPIC_API_KEY") });
+  const connection = resolveModelConnection(model);
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [{ role: "user", content: userMessage }];
@@ -254,7 +269,8 @@ async function agentLoopOpenAI(
   maxIterations: number,
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: getKey("OPENAI_API_KEY") });
+  const connection = resolveModelConnection(model);
+  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [
@@ -270,7 +286,7 @@ async function agentLoopOpenAI(
   for (let i = 0; i < maxIterations; i++) {
     const res = await client.chat.completions.create({
       model,
-      max_tokens: 2048,
+      ...openAICompletionLimit(2048),
       temperature: 0.2,
       tools: oaiTools,
       messages,
@@ -290,6 +306,60 @@ async function agentLoopOpenAI(
     }
 
     return choice.message.content ?? "";
+  }
+
+  throw new Error("agentLoop: exceeded max iterations");
+}
+
+async function agentLoopOpenAIResponses(
+  system: string,
+  userMessage: string,
+  tools: AgentTool[],
+  onToolCall: ToolHandler,
+  model: string,
+  maxIterations: number,
+): Promise<string> {
+  const { default: OpenAI } = await import("openai");
+  const connection = resolveModelConnection(model);
+  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  // Response output items are valid subsequent input items. Keeping them in the
+  // local loop preserves reasoning and tool-call context without server-side session state.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const input: any[] = [{ role: "user", content: userMessage }];
+  const responseTools = tools.map((tool) => ({
+    type: "function" as const,
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.input_schema,
+    strict: false,
+  }));
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const response = await client.responses.create({
+      model,
+      instructions: system,
+      input,
+      tools: responseTools,
+      max_output_tokens: 2048,
+    });
+    if (response.error) throw new Error(`OpenAI Responses API: ${response.error.message}`);
+    input.push(...response.output);
+    const calls = response.output.filter((item) => item.type === "function_call");
+    if (calls.length === 0) return response.output_text ?? "";
+
+    for (const call of calls) {
+      let parameters: Record<string, unknown> = {};
+      try {
+        parameters = JSON.parse(call.arguments) as Record<string, unknown>;
+      } catch {
+        throw new Error(`Invalid tool arguments for ${call.name}`);
+      }
+      input.push({
+        type: "function_call_output",
+        call_id: call.call_id,
+        output: onToolCall(call.name, parameters),
+      });
+    }
   }
 
   throw new Error("agentLoop: exceeded max iterations");

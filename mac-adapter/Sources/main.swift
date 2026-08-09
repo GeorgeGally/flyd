@@ -127,6 +127,7 @@ func startFlyd(closeSetup: Bool = true) {
 
     applicationMonitor.start()
     accessibilityInspector.start()
+    ForegroundFeedbackMonitor.shared.start()
 
     stateMachine.onShortcutPressed = {
         handleShortcutPress()

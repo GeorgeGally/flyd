@@ -6,6 +6,7 @@ final class AccessibilityInspector {
 
     private var observer: AXObserver?
     private var currentElementRef: AXUIElement?
+    private var valueObservedElement: AXUIElement?
     private var pid: pid_t = 0
     private var isObserving = false
 
@@ -81,6 +82,7 @@ final class AccessibilityInspector {
             self.observer = nil
         }
         currentElementRef = nil
+        valueObservedElement = nil
         pid = 0
         isObserving = false
     }
@@ -102,6 +104,7 @@ final class AccessibilityInspector {
         )
 
         registerFocusedElementNotification(on: observer)
+        refreshFocusedElementObservation()
         isObserving = true
     }
 
@@ -113,6 +116,23 @@ final class AccessibilityInspector {
             kAXFocusedUIElementChangedNotification as CFString,
             selfPtr
         )
+    }
+
+    fileprivate func refreshFocusedElementObservation() {
+        guard let observer,
+              let app = AXUIElementCreateApplication(pid) as AXUIElement? else { return }
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef else { return }
+        let focused = focusedRef as! AXUIElement
+
+        if let previous = valueObservedElement {
+            if CFEqual(previous, focused) { return }
+            AXObserverRemoveNotification(observer, previous, kAXValueChangedNotification as CFString)
+        }
+        valueObservedElement = focused
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        AXObserverAddNotification(observer, focused, kAXValueChangedNotification as CFString, selfPtr)
     }
 
     func captureFocusedElement() -> EnvironmentState.FocusedElementInfo? {
@@ -129,6 +149,7 @@ final class AccessibilityInspector {
         let focusedElement = focused as! AXUIElement
 
         currentElementRef = focusedElement
+        refreshFocusedElementObservation()
 
         let role = axAttribute(focusedElement, kAXRoleAttribute as CFString) ?? "unknown"
         let desc = axAttribute(focusedElement, kAXDescriptionAttribute as CFString) ?? ""
@@ -241,8 +262,10 @@ final class AccessibilityInspector {
         guard let appInfo = ApplicationMonitor.shared.foregroundApp else { return nil }
         guard let focusedElement = captureFocusedElement() else { return nil }
 
+        let capturedWindowTitle = focusedWindow()
+            .flatMap { axAttribute($0, kAXTitleAttribute as CFString) }
         let windowInfo = EnvironmentState.WindowInfo(
-            title: appInfo.name,
+            title: capturedWindowTitle?.isEmpty == false ? capturedWindowTitle! : appInfo.name,
             ref: "win_01"
         )
 
@@ -473,12 +496,18 @@ private func axObserverCallback(
     _ notification: CFString,
     _ refcon: UnsafeMutableRawPointer?
 ) {
-    _ = Unmanaged<AccessibilityInspector>.fromOpaque(refcon!).takeUnretainedValue()
+    let inspector = Unmanaged<AccessibilityInspector>.fromOpaque(refcon!).takeUnretainedValue()
     DispatchQueue.main.async {
-        NotificationCenter.default.post(name: .focusedElementDidChange, object: nil)
+        if notification as String == kAXFocusedUIElementChangedNotification as String {
+            inspector.refreshFocusedElementObservation()
+            NotificationCenter.default.post(name: .focusedElementDidChange, object: nil)
+        } else if notification as String == kAXValueChangedNotification as String {
+            NotificationCenter.default.post(name: .focusedElementValueDidChange, object: nil)
+        }
     }
 }
 
 extension Notification.Name {
     static let focusedElementDidChange = Notification.Name("FocusedElementDidChange")
+    static let focusedElementValueDidChange = Notification.Name("FocusedElementValueDidChange")
 }

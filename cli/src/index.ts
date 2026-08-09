@@ -28,6 +28,7 @@ import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runAgent, runCode } from "./commands/code.js";
+import { runFix } from "./commands/fix.js";
 import {
   runTaskComplete,
   runTaskAcceptance,
@@ -69,6 +70,12 @@ program
   .description("Start or resume the continuity coding harness")
   .argument("[outcome]", "intended coding outcome")
   .action((outcome?: string) => runCode(outcome));
+
+program
+  .command("fix")
+  .description("Repair the most recent Flyd response and add it to the regression corpus")
+  .argument("[feedback...]", "what was wrong with the preceding response")
+  .action((feedback: string[] = []) => runFix(feedback.join(" ")));
 
 program
   .command("dashboard")

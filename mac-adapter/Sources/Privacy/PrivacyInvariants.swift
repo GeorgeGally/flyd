@@ -35,12 +35,12 @@ enum PrivacyInvariants {
         PrivacyInvariant(id: 8, description: "Mic state indicator always visible when audio path active", falsificationTest: "No audio capture without orange system indicator"),
         PrivacyInvariant(id: 9, description: "Telemetry limited to: invocation_count, operation_count, error_rate (no string fields)", falsificationTest: "Telemetry payload has no string fields"),
         PrivacyInvariant(id: 10, description: "Audit log contains no raw screen content, AX trees, or user text", falsificationTest: "Audit log has no base64 or >200 char values"),
-        PrivacyInvariant(id: 11, description: "PRESENT state never transmits to network or persists to disk", falsificationTest: "Network monitor shows zero traffic in PRESENT"),
+        PrivacyInvariant(id: 11, description: "PRESENT state only sends bounded complaint text to Flyd Core on localhost; no external network traffic", falsificationTest: "PRESENT makes an external request or persists general foreground context"),
     ]
 
     static var capturedAXNodeCount: Int = 0
     static var clipboardAccessedDuringInvocation: Bool = false
-    static var networkCallsDuringPresent: Int = 0
+    static var externalNetworkCallsDuringPresent: Int = 0
     static var lastScreenCapturePhase: InvocationPhase = .idle
     static var hasEverStoredEnvironment: Bool = false
     static var lastAXRefInvocationId: String?
@@ -127,9 +127,9 @@ enum PrivacyInvariants {
     }
 
     static func verifyPresentNetworkSilence() -> (Bool, String) {
-        if FlydState.shared.mode == .present && networkCallsDuringPresent > 0 {
-            return (false, "\(networkCallsDuringPresent) network calls detected during PRESENT state")
+        if FlydState.shared.mode == .present && externalNetworkCallsDuringPresent > 0 {
+            return (false, "\(externalNetworkCallsDuringPresent) external network calls detected during PRESENT state")
         }
-        return (true, "No network traffic during PRESENT")
+        return (true, "Only the authenticated localhost feedback endpoint is permitted during PRESENT")
     }
 }
