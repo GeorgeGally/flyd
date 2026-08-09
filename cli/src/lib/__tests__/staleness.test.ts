@@ -1,5 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, it, expect } from "vitest";
 import { getStaleness, stalenessSummary } from "../staleness.js";
+
+let testRoot = "";
+let recentFile = "";
+
+beforeAll(() => {
+  testRoot = mkdtempSync(join(tmpdir(), "flyd-staleness-"));
+  recentFile = join(testRoot, "recent.md");
+  writeFileSync(recentFile, "recent\n", "utf8");
+});
+
+afterAll(() => {
+  rmSync(testRoot, { recursive: true, force: true });
+});
 
 describe("getStaleness", () => {
   it("returns non-stale for recent entries", () => {
@@ -25,9 +41,7 @@ describe("getStaleness", () => {
   });
 
   it("uses file mtime when last_confirmed is absent", () => {
-    // This test only works on real files — skip with non-existent path
-    const result = getStaleness(__filename, {});
-    // __filename exists, so mtime should be set
+    const result = getStaleness(recentFile, {});
     expect(result.stale).toBe(false);
     expect(result.lastUpdated).not.toBeNull();
   });
@@ -50,7 +64,7 @@ describe("getStaleness", () => {
 
 describe("stalenessSummary", () => {
   it("returns empty for no stale entries", () => {
-    const entries = [{ path: "a.md", metadata: {}, fullPath: __filename }];
+    const entries = [{ path: "a.md", metadata: {}, fullPath: recentFile }];
     expect(stalenessSummary(entries)).toEqual([]);
   });
 
