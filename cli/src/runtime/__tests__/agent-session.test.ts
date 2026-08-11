@@ -437,7 +437,7 @@ describe("runAgentSession", () => {
       })),
     });
 
-    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("Unfinished coding work: Implement continuity"));
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("Implement continuity"));
     expect(ui.ask).toHaveBeenCalled();
   });
 

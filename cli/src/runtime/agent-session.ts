@@ -53,11 +53,34 @@ export type AgentSessionResult =
 
 const MAX_HISTORY_TURNS = 12;
 
-function situationLine(situation: AgentSituation): string {
-  if (!hasUnfinishedTask(situation)) return "";
-  const repository = `${situation.project} · ${situation.branch}`;
-  const next = situation.nextAction ? ` Next: ${situation.nextAction}` : "";
-  return `Unfinished coding work: ${situation.outcome}. ${repository}.${next}\n`;
+const ART = [
+  "\u001b[38;5;39m  █▄▄ █  █  █ █▄ ▄█",
+  "  █▄█ ▀▄▀▄ ▀▄▀ █ ▀ █\u001b[0m",
+].join("\n");
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning, George.";
+  if (hour < 18) return "Good afternoon, George.";
+  return "Good evening, George.";
+}
+
+function introLine(situation: AgentSituation | null): string {
+  const greet = greeting();
+  let line = `\n${ART}\n  ${greet}`;
+  if (situation) {
+    const shortBranch = situation.branch.slice(0, 28);
+    const shortHead = situation.head.slice(0, 7);
+    const tree = situation.dirty
+      ? `${situation.changedFiles} changed`
+      : "clean";
+    line += `\n  ${shortBranch} · ${shortHead} · ${tree}`;
+    if (hasUnfinishedTask(situation)) {
+      line += `\n  ▸ ${situation.outcome} (${situation.status})`;
+      if (situation.nextAction) line += ` → ${situation.nextAction}`;
+    }
+  }
+  return line + "\n\n";
 }
 
 function hasUnfinishedTask(situation: AgentSituation | null): boolean {
@@ -72,14 +95,12 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let situation: AgentSituation | null = null;
 
   try {
-    deps.terminal.write("\nflyd\nTalk naturally. Use /resume for unfinished coding work or /exit to leave.\n");
     try {
       situation = await deps.loadSituation();
-      const line = situation ? situationLine(situation) : "";
-      if (line) deps.terminal.write(line);
     } catch {
       // Conversation remains available when operational task state is unavailable.
     }
+    deps.terminal.write(introLine(situation));
 
     while (true) {
       const text = (await deps.terminal.ask("\nYou >")).trim();
