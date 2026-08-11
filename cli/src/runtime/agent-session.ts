@@ -70,19 +70,12 @@ function greeting(): string {
 }
 
 function introLine(situation: AgentSituation | null): string {
-  const greet = greeting();
-  let line = `\n${ART}\n  ${greet}`;
-  if (situation) {
-    const shortBranch = situation.branch.slice(0, 28);
-    const shortHead = situation.head.slice(0, 7);
-    const tree = situation.dirty
-      ? `${situation.changedFiles} changed`
-      : "clean";
-    line += `\n  ${shortBranch} · ${shortHead} · ${tree}`;
-    if (hasUnfinishedTask(situation)) {
-      line += `\n  ▸ ${situation.outcome} (${situation.status})`;
-      if (situation.nextAction) line += ` → ${situation.nextAction}`;
-    }
+  const line = `\n${ART}\n  ${greeting()}`;
+  if (hasUnfinishedTask(situation) && situation) {
+    const action = situation.nextAction
+      ? `${situation.outcome} — ${situation.nextAction}`
+      : situation.outcome!;
+    return `${line}\n  You have unfinished work: ${action}.\n\n`;
   }
   return line + "\n\n";
 }
