@@ -150,8 +150,6 @@ function createToolHandler(projectRoot: string, onToken: (token: string) => void
   };
 
   return (name: string, input: Record<string, unknown>): string => {
-    onToken(`\n[Using ${name}...]\n`);
-
     switch (name) {
       case "read_file": {
         const rawPath = String(input.path);
@@ -376,7 +374,8 @@ export async function respondToConversation(
       8,
     );
     if (PROJECT_EVIDENCE_QUESTION.test(input.message)
-      && !toolCalls.some((call) => call.succeeded)) {
+      && !toolCalls.some((call) => call.succeeded)
+      && !evidence) {
       throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
     }
     const final = extractFinal(answer);

@@ -1,3 +1,6 @@
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildConversationPrompt,
@@ -318,7 +321,10 @@ describe("buildConversationPrompt", () => {
   });
 
   it("refuses an uninspected generic answer to a Flyd project question", async () => {
+    const emptyDir = join(tmpdir(), `flyd-test-empty-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
     let recorded: Record<string, unknown> | null = null;
+    try {
     await expect(respondToConversation({
       sessionId: "ungrounded-regression",
       turnNumber: 1,
@@ -335,7 +341,7 @@ describe("buildConversationPrompt", () => {
         outcome: null,
         status: null,
         nextAction: null,
-        projectRoot: process.cwd(),
+        projectRoot: emptyDir,
       },
       onToken: () => undefined,
     }, {
@@ -352,6 +358,9 @@ describe("buildConversationPrompt", () => {
     })).rejects.toThrow("refused an ungrounded project answer");
 
     expect(recorded).toMatchObject({ status: "failed" });
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 
   it("lets the model page through long source files instead of losing later evidence", async () => {
