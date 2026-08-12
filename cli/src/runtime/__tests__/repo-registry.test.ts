@@ -157,17 +157,17 @@ describe("crossRepoContext", () => {
     expect(crossRepoContext([{ root: "/x", name: "x", branch: "main", dirty: false, lastCommitRelative: null, isForeground: true }])).toBe("");
   });
 
-  it("lists active repos with status", () => {
+  it("lists all repos with root paths", () => {
     const repos: BriefRepo[] = [
       { root: "/a", name: "flyd", branch: "main", dirty: false, lastCommitRelative: "2h ago", isForeground: true },
       { root: "/b", name: "good-neighbours", branch: "feat/bookings", dirty: true, lastCommitRelative: "3d ago", isForeground: false },
       { root: "/c", name: "cleanx", branch: "main", dirty: false, lastCommitRelative: null, isForeground: false },
     ];
     const ctx = crossRepoContext(repos);
-    expect(ctx).toContain("flyd (main)");
+    expect(ctx).toContain("flyd: /a (main)");
     expect(ctx).toContain("← foreground");
-    expect(ctx).toContain("good-neighbours (feat/bookings) (dirty)");
+    expect(ctx).toContain("good-neighbours: /b (feat/bookings) (dirty)");
     expect(ctx).toContain("last commit 3d ago");
-    expect(ctx).not.toContain("cleanx"); // no dirty, no commit time
+    expect(ctx).toContain("cleanx: /c (main)");
   });
 });

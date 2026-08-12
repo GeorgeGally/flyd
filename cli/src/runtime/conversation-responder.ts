@@ -104,11 +104,12 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
 const conversationTools: AgentTool[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file from disk",
+    description: "Read the contents of a file from disk. Use repo path to inspect other projects.",
     input_schema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Absolute or relative file path" },
+        path: { type: "string", description: "File path, relative to repo root" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
         offset: { type: "number", description: "Character offset for paging through long files" },
         limit: { type: "number", description: "Characters to return, up to 20000" },
       },
@@ -117,11 +118,12 @@ const conversationTools: AgentTool[] = [
   },
   {
     name: "grep",
-    description: "Search for a regex pattern in files within the project",
+    description: "Search for a regex pattern in files within a project",
     input_schema: {
       type: "object",
       properties: {
         pattern: { type: "string", description: "Regex pattern to search for" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
         include: { type: "string", description: "File pattern filter (e.g. *.ts, *.md)" },
       },
       required: ["pattern"],
@@ -132,33 +134,49 @@ const conversationTools: AgentTool[] = [
     description: "List files and directories in a given path",
     input_schema: {
       type: "object",
-      properties: { path: { type: "string", description: "Directory path relative to project root" } },
+      properties: {
+        path: { type: "string", description: "Directory path relative to repo root" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
+      },
       required: [],
     },
   },
   {
     name: "git_log",
-    description: "Show recent git commits in the current repository",
+    description: "Show recent git commits in a repository",
     input_schema: {
       type: "object",
-      properties: { count: { type: "number", description: "Number of commits (max 20, default 10)" } },
+      properties: {
+        count: { type: "number", description: "Number of commits (max 20, default 10)" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
+      },
       required: [],
     },
   },
 ];
 
-function createToolHandler(projectRoot: string, onToken: (token: string) => void): ToolHandler {
-  const root = resolve(projectRoot);
-  const resolvePath = (value: string): string | null => {
+function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (token: string) => void): ToolHandler {
+  const defaultRoot = resolve(projectRoot);
+  const resolveRoot = (repo?: string): string | null => {
+    if (repo) {
+      const r = resolve(repo);
+      if (knownRepos.includes(r) || existsSync(join(r, ".git"))) return r;
+      return null;
+    }
+    return defaultRoot;
+  };
+  const resolvePath = (value: string, root: string): string | null => {
     const candidate = resolve(root, value || ".");
     return candidate === root || candidate.startsWith(`${root}${sep}`) ? candidate : null;
   };
 
   return (name: string, input: Record<string, unknown>): string => {
+    const repoRoot = resolveRoot(String(input.repo || ""));
+    if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
     switch (name) {
       case "read_file": {
         const rawPath = String(input.path);
-        const p = resolvePath(rawPath);
+        const p = resolvePath(rawPath, repoRoot);
         if (/\.env$/i.test(rawPath) || !p) {
           return `Access denied: ${rawPath}`;
         }
@@ -180,7 +198,7 @@ function createToolHandler(projectRoot: string, onToken: (token: string) => void
         const pattern = String(input.pattern);
         const args = [ "--no-heading", "-n", "-C", "1" ];
         if (input.include) args.push("--glob", String(input.include));
-        args.push("--", pattern, root);
+        args.push("--", pattern, repoRoot);
         try {
           const output = execFileSync("rg", args, {
             encoding: "utf8", timeout: 10000, maxBuffer: 1024 * 1024,
@@ -196,7 +214,7 @@ function createToolHandler(projectRoot: string, onToken: (token: string) => void
       }
       case "list_files": {
         const requested = String(input.path || ".");
-        const dir = resolvePath(requested);
+        const dir = resolvePath(requested, repoRoot);
         if (!dir) return `Access denied: ${requested}`;
         try {
           const entries = readdirSync(dir, { withFileTypes: true }).slice(0, 200);
@@ -208,7 +226,7 @@ function createToolHandler(projectRoot: string, onToken: (token: string) => void
       case "git_log": {
         const count = Math.min(Number(input.count) || 10, 20);
         try {
-          return execFileSync("git", [ "-C", root, "log", "--oneline", `-${count}` ], {
+          return execFileSync("git", [ "-C", repoRoot, "log", "--oneline", `-${count}` ], {
             encoding: "utf8", timeout: 5000, stdio: [ "ignore", "pipe", "ignore" ],
           }).trim() || "No commits found";
         } catch {
@@ -356,7 +374,8 @@ export async function respondToConversation(
   const evidence = gatherProjectEvidence(projectRoot);
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
-  const handler = createToolHandler(projectRoot, input.onToken);
+  const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
+  const handler = createToolHandler(projectRoot, knownRepos, input.onToken);
   const observedHandler: ToolHandler = (name, toolInput) => {
     try {
       const result = handler(name, toolInput);

@@ -155,13 +155,11 @@ function safe(s: string): string {
 
 export function crossRepoContext(repos: BriefRepo[]): string {
   if (repos.length <= 1) return "";
-  const active = repos.filter((r) => r.dirty || r.lastCommitRelative);
-  if (active.length === 0) return "";
-  const lines = active.map((r) => {
+  const lines = repos.map((r) => {
     const marker = r.isForeground ? " ← foreground" : "";
     const dirty = r.dirty ? " (dirty)" : "";
     const time = r.lastCommitRelative ? ` last commit ${safe(r.lastCommitRelative)}` : "";
-    return `- ${safe(r.name)} (${safe(r.branch)})${dirty}${time}${marker}`;
+    return `- ${safe(r.name)}: ${r.root} (${safe(r.branch)})${dirty}${time}${marker}`;
   });
-  return `\nGeorge's active repositories:\n${lines.join("\n")}`;
+  return `\nGeorge's repositories:\n${lines.join("\n")}`;
 }
