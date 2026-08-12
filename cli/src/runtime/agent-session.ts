@@ -69,13 +69,29 @@ function greeting(): string {
   return "Good evening, George.";
 }
 
-function introLine(situation: AgentSituation | null): string {
-  const line = `\n${ART}\n  ${greeting()}`;
+// ponytail: quick weather fetch, skip if >1s
+async function weatherLine(): Promise<string> {
+  try {
+    const res = await fetch("https://wttr.in?format=3", {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return "";
+    const text = (await res.text()).trim();
+    if (!text) return "";
+    return `  ${text}`;
+  } catch {
+    return "";
+  }
+}
+
+function introLine(situation: AgentSituation | null, weather?: string): string {
+  let line = `\n${ART}\n  ${greeting()}`;
+  if (weather) line += `\n${weather}`;
   if (hasUnfinishedTask(situation) && situation) {
     const action = situation.nextAction
       ? `${situation.outcome} — ${situation.nextAction}`
       : situation.outcome!;
-    return `${line}\n  You have unfinished work: ${action}.\n\n`;
+    line += `\n  You have unfinished work: ${action}.`;
   }
   return line + "\n\n";
 }
@@ -92,12 +108,12 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let situation: AgentSituation | null = null;
 
   try {
-    try {
-      situation = await deps.loadSituation();
-    } catch {
-      // Conversation remains available when operational task state is unavailable.
-    }
-    deps.terminal.write(introLine(situation));
+    const [situationResult, weather] = await Promise.all([
+      deps.loadSituation().catch(() => null),
+      weatherLine(),
+    ]);
+    situation = situationResult;
+    deps.terminal.write(introLine(situation, weather || undefined));
 
     while (true) {
       const text = (await deps.terminal.ask("\nYou >")).trim();
