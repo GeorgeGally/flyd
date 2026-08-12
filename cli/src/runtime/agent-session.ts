@@ -213,6 +213,17 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         }
         const memory = await deps.retrieveMemory(input.message);
         if (deps.loadCrossRepo) repos = (await deps.loadCrossRepo(situation?.projectRoot));
+
+        // ponytail: spinner while waiting for first token
+        const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let spinnerIdx = 0;
+        let spinnerActive = true;
+        const spinInterval = setInterval(() => {
+          if (!spinnerActive) return;
+          deps.terminal.write(`\b${spinner[spinnerIdx]}`);
+          spinnerIdx = (spinnerIdx + 1) % spinner.length;
+        }, 100);
+
         let streamed = false;
         const answer = await deps.respond({
           sessionId: deps.sessionId,
@@ -224,10 +235,18 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           crossRepo: repos,
           weather: weatherText || undefined,
           onToken: (token) => {
+            if (!streamed) {
+              spinnerActive = false;
+              clearInterval(spinInterval);
+              deps.terminal.write("\b \b"); // erase spinner
+            }
             streamed = true;
             deps.terminal.write(token);
           },
         });
+        spinnerActive = false;
+        clearInterval(spinInterval);
+        if (!streamed) deps.terminal.write("\b \b");
         if (!streamed && answer) deps.terminal.write(answer);
         deps.terminal.write("\n");
         history.push(
