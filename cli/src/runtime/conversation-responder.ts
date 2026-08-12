@@ -7,6 +7,7 @@ import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import { isHoroscopeQuestion } from "./personal-context-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import { persistTurnReceipt, type TurnReceipt, type TurnToolCall } from "./turn-receipt.js";
+import { crossRepoContext, type BriefRepo } from "./repo-registry.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -15,6 +16,7 @@ interface ConversationInput {
   history: ConversationTurn[];
   memory: MemoryEvidence;
   situation: AgentSituation | null;
+  crossRepo?: BriefRepo[];
 }
 
 interface ConversationResponderDependencies {
@@ -69,6 +71,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const history = input.history.length
     ? `\nConversation so far:\n${input.history.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
     : "";
+  const crossRepo = input.crossRepo?.length ? crossRepoContext(input.crossRepo) : "";
 
   return {
     system: [
@@ -92,7 +95,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
     ].filter(Boolean).join(" "),
-    prompt: `${situation}${memory}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${situation}${memory}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 
