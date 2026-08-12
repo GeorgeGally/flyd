@@ -37,19 +37,19 @@ beforeEach(() => {
 });
 
 describe("refreshRepoRegistry", () => {
-  it("returns empty array when no repos exist", () => {
+  it("returns empty array when no repos exist", async () => {
     mkdirSync(tmpRoot, { recursive: true });
     const prev = process.env.FLYD_WORK_ROOTS;
     process.env.FLYD_WORK_ROOTS = tmpRoot;
     try {
-      const repos = refreshRepoRegistry();
+      const repos = await refreshRepoRegistry();
       expect(repos).toEqual([]);
     } finally {
       process.env.FLYD_WORK_ROOTS = prev;
     }
   });
 
-  it("discovers repos in work roots and snapshots them", () => {
+  it("discovers repos in work roots and snapshots them", async () => {
     const a = makeRepo("alpha");
     commit(a, "initial");
     const b = makeRepo("bravo");
@@ -58,7 +58,7 @@ describe("refreshRepoRegistry", () => {
     const prev = process.env.FLYD_WORK_ROOTS;
     process.env.FLYD_WORK_ROOTS = tmpRoot;
     try {
-      const repos = refreshRepoRegistry();
+      const repos = await refreshRepoRegistry();
       expect(repos.length).toBeGreaterThanOrEqual(2);
 
       const alpha = repos.find((r) => r.name === "alpha");
@@ -74,14 +74,14 @@ describe("refreshRepoRegistry", () => {
     }
   });
 
-  it("marks the foreground repo", () => {
+  it("marks the foreground repo", async () => {
     const a = makeRepo("charlie");
     commit(a, "hello");
 
     const prev = process.env.FLYD_WORK_ROOTS;
     process.env.FLYD_WORK_ROOTS = tmpRoot;
     try {
-      const repos = refreshRepoRegistry(a);
+      const repos = await refreshRepoRegistry(a);
       const charlie = repos.find((r) => r.name === "charlie");
       expect(charlie).toBeDefined();
       expect(charlie!.isForeground).toBe(true);
@@ -90,7 +90,7 @@ describe("refreshRepoRegistry", () => {
     }
   });
 
-  it("ranks foreground first, then dirty repos", () => {
+  it("ranks foreground first, then dirty repos", async () => {
     const a = makeRepo("alpha");
     commit(a, "a");
     const b = makeRepo("bravo");
@@ -99,7 +99,7 @@ describe("refreshRepoRegistry", () => {
     const prev = process.env.FLYD_WORK_ROOTS;
     process.env.FLYD_WORK_ROOTS = tmpRoot;
     try {
-      const repos = refreshRepoRegistry(a);
+      const repos = await refreshRepoRegistry(a);
       expect(repos[0].name).toBe("alpha");
       expect(repos[0].isForeground).toBe(true);
       expect(repos[1].dirty).toBe(true);
@@ -108,15 +108,15 @@ describe("refreshRepoRegistry", () => {
     }
   });
 
-  it("caches results within TTL", () => {
+  it("caches results within TTL", async () => {
     const a = makeRepo("delta");
     commit(a, "first");
 
     const prev = process.env.FLYD_WORK_ROOTS;
     process.env.FLYD_WORK_ROOTS = tmpRoot;
     try {
-      const first = refreshRepoRegistry();
-      const second = refreshRepoRegistry();
+      const first = await refreshRepoRegistry();
+      const second = await refreshRepoRegistry();
       expect(second).toStrictEqual(first);
     } finally {
       process.env.FLYD_WORK_ROOTS = prev;

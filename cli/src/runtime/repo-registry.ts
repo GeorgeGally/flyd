@@ -1,7 +1,20 @@
 import { readdirSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
+
+function execGit(root: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", root, ...args], {
+      encoding: "utf8" as BufferEncoding,
+      timeout: 3000,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout) => {
+      if (error) { resolve(null); return; }
+      resolve((stdout as string).trim() || null);
+    });
+  });
+}
 
 export interface BriefRepo {
   root: string;
@@ -57,35 +70,21 @@ function walk(dir: string, depth: number, found: Set<string>, skip: Set<string>)
   }
 }
 
-function repoName(root: string): string {
-  return basename(root);
-}
-
-function gitOutput(root: string, args: string[]): string | null {
-  try {
-    return execFileSync("git", ["-C", root, ...args], {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function snapshotRepo(root: string, foregroundPath?: string): BriefRepo {
-  const branch = gitOutput(root, ["branch", "--show-current"]) || "detached";
-  const statusOut = gitOutput(root, ["status", "--porcelain"]);
+async function snapshotRepo(root: string, foregroundPath?: string): Promise<BriefRepo> {
+  const [branch, statusOut, lastCommitRelative] = await Promise.all([
+    execGit(root, ["branch", "--show-current"]),
+    execGit(root, ["status", "--porcelain"]),
+    execGit(root, ["log", "-1", "--format=%cr"]),
+  ]);
   const dirty = statusOut !== null && statusOut !== "";
-  const lastCommitRelative = gitOutput(root, ["log", "-1", "--format=%cr"]);
   const isForeground = foregroundPath !== undefined
     ? root === findGitRoot(foregroundPath)
     : false;
 
   return {
     root,
-    name: repoName(root),
-    branch,
+    name: basename(root),
+    branch: branch || "detached",
     dirty,
     lastCommitRelative,
     isForeground,
@@ -112,7 +111,7 @@ export function clearRepoRegistry(): void {
   cachedAt = 0;
 }
 
-export function refreshRepoRegistry(foregroundPath?: string): BriefRepo[] {
+export async function refreshRepoRegistry(foregroundPath?: string): Promise<BriefRepo[]> {
   const now = Date.now();
   if (cachedRepos && (now - cachedAt) < TTL_MS) {
     return cachedRepos.map((r) => ({
@@ -124,7 +123,7 @@ export function refreshRepoRegistry(foregroundPath?: string): BriefRepo[] {
   }
 
   const roots = scanForRepos(workRoots());
-  const repos = roots.map((root) => snapshotRepo(root, foregroundPath));
+  const repos = await Promise.all(roots.map((root) => snapshotRepo(root, foregroundPath)));
 
   repos.sort((a, b) => {
     if (a.isForeground !== b.isForeground) return a.isForeground ? -1 : 1;
@@ -140,13 +139,18 @@ export function refreshRepoRegistry(foregroundPath?: string): BriefRepo[] {
 export function crossRepoLine(repos: BriefRepo[]): string {
   if (repos.length <= 1) return "";
   const parts = repos.map((r) => {
-    if (r.isForeground) return `${r.name} ←`;
-    const status = r.dirty ? `${r.branch} · dirty` : r.branch;
-    const time = r.lastCommitRelative ? ` · ${r.lastCommitRelative}` : "";
-    return `${r.name} (${status}${time})`;
+    if (r.isForeground) return `${safe(r.name)} ←`;
+    const status = r.dirty ? `${safe(r.branch)} · dirty` : safe(r.branch);
+    const time = r.lastCommitRelative ? ` · ${safe(r.lastCommitRelative)}` : "";
+    return `${safe(r.name)} (${status}${time})`;
   });
   // ponytail: show max 5 repos
   return `  ${parts.slice(0, 5).join("  ")}` + (repos.length > 5 ? `  +${repos.length - 5} more` : "");
+}
+
+// ponytail: strip unlikely branch chars for prompt safety
+function safe(s: string): string {
+  return s.replace(/[^\x20-\x7E]/g, "").slice(0, 64);
 }
 
 export function crossRepoContext(repos: BriefRepo[]): string {
@@ -156,8 +160,8 @@ export function crossRepoContext(repos: BriefRepo[]): string {
   const lines = active.map((r) => {
     const marker = r.isForeground ? " ← foreground" : "";
     const dirty = r.dirty ? " (dirty)" : "";
-    const time = r.lastCommitRelative ? ` last commit ${r.lastCommitRelative}` : "";
-    return `- ${r.name} (${r.branch})${dirty}${time}${marker}`;
+    const time = r.lastCommitRelative ? ` last commit ${safe(r.lastCommitRelative)}` : "";
+    return `- ${safe(r.name)} (${safe(r.branch)})${dirty}${time}${marker}`;
   });
   return `\nGeorge's active repositories:\n${lines.join("\n")}`;
 }

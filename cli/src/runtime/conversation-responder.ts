@@ -17,6 +17,7 @@ interface ConversationInput {
   memory: MemoryEvidence;
   situation: AgentSituation | null;
   crossRepo?: BriefRepo[];
+  weather?: string;
 }
 
 interface ConversationResponderDependencies {
@@ -72,6 +73,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     ? `\nConversation so far:\n${input.history.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
     : "";
   const crossRepo = input.crossRepo?.length ? crossRepoContext(input.crossRepo) : "";
+  const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
 
   return {
     system: [
@@ -95,7 +97,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
     ].filter(Boolean).join(" "),
-    prompt: `${situation}${memory}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${situation}${memory}${weather}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 
@@ -378,7 +380,7 @@ export async function respondToConversation(
     );
     if (PROJECT_EVIDENCE_QUESTION.test(input.message)
       && !toolCalls.some((call) => call.succeeded)
-      && !evidence) {
+      && !evidence && !facts) {
       throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
     }
     const final = extractFinal(answer);

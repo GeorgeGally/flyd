@@ -1,7 +1,7 @@
 import { interpretAgentInput } from "./input-interpreter.js";
 import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
-import { refreshRepoRegistry, crossRepoLine, crossRepoContext, type BriefRepo } from "./repo-registry.js";
+import { crossRepoLine, type BriefRepo } from "./repo-registry.js";
 
 export interface AgentSituation {
   project: string;
@@ -36,7 +36,7 @@ interface AgentSessionDependencies {
   repairLastTurn?(feedback: string): Promise<{ id: string; failureClasses: string[] }>;
   recordTurn(turn: { user: string; assistant: string; handoff?: ActionableOutcome }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
-  loadCrossRepo?(foregroundPath?: string): BriefRepo[];
+  loadCrossRepo?(foregroundPath?: string): Promise<BriefRepo[]>;
   respond(input: {
     sessionId?: string;
     turnNumber: number;
@@ -45,6 +45,7 @@ interface AgentSessionDependencies {
     memory: MemoryEvidence;
     situation: AgentSituation | null;
     crossRepo: BriefRepo[];
+    weather?: string;
     onToken(token: string): void;
   }): Promise<string>;
 }
@@ -111,15 +112,17 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   const history: ConversationTurn[] = [];
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
+  let weatherText = "";
 
   try {
     const [situationResult, weather] = await Promise.all([
       deps.loadSituation().catch(() => null),
       weatherLine(),
     ]);
-    repos = deps.loadCrossRepo?.(situationResult?.projectRoot) ?? [];
+    repos = (await deps.loadCrossRepo?.(situationResult?.projectRoot)) ?? [];
     situation = situationResult;
-    deps.terminal.write(introLine(situation, weather || undefined, repos));
+    weatherText = weather || "";
+    deps.terminal.write(introLine(situation, weatherText || undefined, repos));
 
     while (true) {
       const text = (await deps.terminal.ask("\nYou >")).trim();
@@ -209,6 +212,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           // Keep the last known situation when live state cannot be refreshed.
         }
         const memory = await deps.retrieveMemory(input.message);
+        if (deps.loadCrossRepo) repos = (await deps.loadCrossRepo(situation?.projectRoot));
         let streamed = false;
         const answer = await deps.respond({
           sessionId: deps.sessionId,
@@ -218,6 +222,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           memory,
           situation,
           crossRepo: repos,
+          weather: weatherText || undefined,
           onToken: (token) => {
             streamed = true;
             deps.terminal.write(token);
