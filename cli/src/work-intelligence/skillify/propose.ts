@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { gateLearningCandidate } from '../../memory-gate.js';
 import type { LearningCandidate } from '../types.js';
 import type { SkillifyProposal, SkillifyProposalKind, SkillifyProposeInput } from './types.js';
@@ -57,6 +57,40 @@ function propose(input: SkillifyProposeInput & {
 
 function resolveDomain(ctx: SkillifyOutcomeContext): string {
   return (ctx.domain || ctx.artifactKind || 'strategy').toLowerCase();
+}
+
+export function proposeFromNaturalLanguage(params: {
+  selection: string;
+  domain?: string;
+  workSessionId?: string;
+  interactionId?: string;
+}): SkillifyProposal | null {
+  const content = params.selection.trim();
+  if (content.length < 12) return null;
+
+  const domain = (params.domain || 'strategy').toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'strategy';
+  const targetPath = `standards/${slugify(domain)}.md`;
+  const interactionId = params.interactionId ?? `nl-${randomUUID().slice(0, 8)}`;
+  const workSessionId = params.workSessionId ?? interactionId;
+  const body = `---
+type: domain_standard
+domain: ${domain}
+source: skillify
+provenance: natural_language:${interactionId}
+---
+${content}`;
+
+  return propose({
+    kind: 'domain_standard',
+    targetPath,
+    body,
+    provenance: `natural_language:${interactionId}`,
+    sourceOutcome: 'natural_language',
+    domain,
+    dedupeKey: dedupeKey('domain_standard', targetPath, body),
+    workSessionId,
+    interactionId,
+  });
 }
 
 export function proposeFromOutcome(ctx: SkillifyOutcomeContext): SkillifyProposal[] {

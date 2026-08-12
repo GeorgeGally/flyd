@@ -8,7 +8,8 @@ import {
   handleCompoundNl,
   isCompoundNlUtterance,
 } from '../compound-nl.js';
-import { configureSkillifyProposalDirectory, createProposal } from '../skillify/proposal-store.js';
+import { configureSkillifyProposalDirectory, createProposal, listPendingProposals } from '../skillify/proposal-store.js';
+import { configureOutcomeJournalDirectory } from '../outcome-journal.js';
 import { createJobDef } from '../jobs/store.js';
 
 describe('compound-nl', () => {
@@ -24,8 +25,12 @@ describe('compound-nl', () => {
     mkdirSync(join(testRoot, 'wiki', 'constraints'), { recursive: true });
     mkdirSync(join(testRoot, 'wiki', 'projects'), { recursive: true });
     mkdirSync(join(testRoot, 'overlay', 'skillify-proposals'), { recursive: true });
+    mkdirSync(join(testRoot, 'overlay', 'founder-journal'), { recursive: true });
+    mkdirSync(join(testRoot, 'overlay', 'job-artifacts'), { recursive: true });
+    mkdirSync(join(testRoot, 'overlay', 'job-audits'), { recursive: true });
     mkdirSync(join(testRoot, 'work-jobs'), { recursive: true });
     configureSkillifyProposalDirectory(undefined);
+    configureOutcomeJournalDirectory(join(testRoot, 'overlay', 'founder-journal'));
   });
 
   afterEach(() => {
@@ -66,13 +71,21 @@ describe('compound-nl', () => {
     expect(match?.reply).toContain('constraints/writing.md');
   });
 
-  it('skillify propose mentions confirm path and uses selection when present', () => {
+  it('skillify propose creates a pending proposal from selection', () => {
     const match = handleCompoundNl('can I make this into a skill?', {
       selection: 'Always prefer artifact-first overnight delivery',
     });
     expect(match?.kind).toBe('skillify_propose');
-    expect(match?.reply).toContain('artifact-first');
+    expect(match?.reply).toContain('Created a pending Skillify proposal');
     expect(match?.reply).toContain('flyd skillify confirm');
+    expect(listPendingProposals().length).toBe(1);
+  });
+
+  it('jobs run morning briefing writes an artifact', () => {
+    const match = handleCompoundNl('run morning briefing for flyd');
+    expect(match?.kind).toBe('jobs_run_briefing');
+    expect(match?.reply).toMatch(/Status: (completed|incomplete|failed)/);
+    expect(match?.reply).toMatch(/Artifact:|Note:/);
   });
 
   it('jobs status lists configured jobs', () => {

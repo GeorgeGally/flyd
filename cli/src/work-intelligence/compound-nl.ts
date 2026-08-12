@@ -3,8 +3,10 @@ import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { parse } from '../lib/frontmatter.js';
 import { listPendingProposals } from './skillify/proposal-store.js';
-import { listJobs, listJobAudits, ensureDefaultMorningBriefingJob } from './jobs/store.js';
+import { proposeFromNaturalLanguage } from './skillify/propose.js';
+import { listJobs, listJobAudits } from './jobs/store.js';
 import { isJobsGloballyPaused, readPauseReason } from './jobs/controls.js';
+import { runMorningBriefing } from './jobs/runner.js';
 import { readPresentModel } from '../work/work-hypothesis/index.js';
 import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 import { loadWikiProjectSection } from './ground-pack-wiki.js';
@@ -136,15 +138,23 @@ export function buildSkillifyProposeReply(params?: {
   const selection = params?.selection?.trim();
   if (selection && selection.length >= 12) {
     const domain = (params?.domain || 'strategy').toLowerCase();
+    const proposal = proposeFromNaturalLanguage({ selection, domain });
+    if (!proposal) {
+      return [
+        'I could not create a Skillify proposal from that selection (path or store limit).',
+        'Try `flyd skillify list` or shorten/retry the text.',
+      ].join('\n');
+    }
     return [
-      'Yes — that can become a Skillify proposal (confirm required before wiki write).',
+      'Created a pending Skillify proposal (not written to wiki until you confirm).',
       '',
-      `Suggested kind: domain_standard / constraint under domain “${domain}”.`,
+      `id: ${proposal.id}`,
+      `kind: ${proposal.kind}`,
+      `target: ${proposal.targetPath}`,
       `Excerpt: ${selection.slice(0, 200)}${selection.length > 200 ? '…' : ''}`,
       '',
-      'Next:',
-      '1. Accept/reject+correct in work intervention, or use CLI after propose.',
-      '2. `flyd skillify list` → `flyd skillify show <id>` → `flyd skillify confirm <id>`',
+      `Confirm: \`flyd skillify show ${proposal.id.slice(0, 8)}\` then \`flyd skillify confirm ${proposal.id.slice(0, 8)}\``,
+      'Or decline: `flyd skillify decline <id>`',
       '',
       'Pending proposals never steer Diagnose until confirmed and written.',
     ].join('\n');
@@ -154,6 +164,7 @@ export function buildSkillifyProposeReply(params?: {
     'Yes. Flyd skillifies durable judgment into wiki markdown with your confirm — not silently.',
     '',
     'Ways to propose:',
+    '- Select text and say “make this into a skill” (creates a pending proposal)',
     '- Accept a work intervention (standard/decision candidate)',
     '- Reject with a correction (constraint candidate)',
     '- After closeout, review pending proposals',
@@ -206,19 +217,19 @@ export function buildJobsStatusReply(): string {
 }
 
 export function buildJobsRunBriefingReply(projectHint?: string): string {
-  const job = ensureDefaultMorningBriefingJob(projectHint);
-  return [
-    'Morning briefing is an opt-in overnight job that writes a pull-first artifact (no PRESENT interrupt).',
+  const result = runMorningBriefing({ projectId: projectHint, force: true });
+  const lines = [
+    'Ran morning briefing (artifact-first, pull delivery — no PRESENT interrupt).',
     '',
-    `Job ${job.id.slice(0, 8)} is ${job.enabled ? 'enabled' : 'disabled'} (schedule ${job.schedule}` +
-      (job.projectId ? `, project ${job.projectId}` : '') +
-      ').',
-    '',
-    projectHint
-      ? `Run: \`flyd jobs run morning-briefing --project ${projectHint}\``
-      : 'Run: `flyd jobs run morning-briefing --project <name>` (or set projectId on the job).',
-    'Artifacts land in `~/.flyd/overlay/job-artifacts/`. List with `flyd jobs audits`.',
-  ].join('\n');
+    `Status: ${result.status}`,
+  ];
+  if (result.artifactPath) lines.push(`Artifact: ${result.artifactPath}`);
+  if (result.error) lines.push(`Note: ${result.error}`);
+  lines.push('', 'Review with `flyd jobs audits` or open the artifact under `~/.flyd/overlay/job-artifacts/`.');
+  if (!projectHint && result.status !== 'completed') {
+    lines.push('Tip: pass a project — say “run morning briefing for flyd” or `flyd jobs run morning-briefing --project <name>`.');
+  }
+  return lines.join('\n');
 }
 
 export function buildJobHuntStatusReply(presentHypothesis?: string | null): string {
@@ -295,12 +306,21 @@ export function buildJobHuntStatusReply(presentHypothesis?: string | null): stri
   return lines.join('\n').trim();
 }
 
+export function extractProjectHint(message: string): string | undefined {
+  const forMatch = message.match(/\b(?:for|project)\s+([A-Za-z0-9._-]{2,60})\b/i);
+  if (forMatch?.[1] && !/^(me|my|the|a|an|this|that|job|jobs|morning|briefing)$/i.test(forMatch[1])) {
+    return forMatch[1];
+  }
+  return undefined;
+}
+
 export function handleCompoundNl(
   message: string,
   opts?: { selection?: string | null; presentHypothesis?: string | null; projectHint?: string },
 ): CompoundNlMatch | null {
   const kind = detectCompoundNlKind(message);
   if (!kind) return null;
+  const projectHint = opts?.projectHint || extractProjectHint(message);
 
   switch (kind) {
     case 'skills_inventory':
@@ -310,7 +330,7 @@ export function handleCompoundNl(
     case 'jobs_status':
       return { kind, reply: buildJobsStatusReply() };
     case 'jobs_run_briefing':
-      return { kind, reply: buildJobsRunBriefingReply(opts?.projectHint) };
+      return { kind, reply: buildJobsRunBriefingReply(projectHint) };
     case 'job_hunt_status':
       return { kind, reply: buildJobHuntStatusReply(opts?.presentHypothesis) };
   }
