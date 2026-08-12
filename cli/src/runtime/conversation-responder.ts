@@ -1,6 +1,6 @@
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, dirname, resolve, sep } from "node:path";
+import { join, dirname, resolve, sep, basename } from "node:path";
 import { resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import { agentLoop, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -167,7 +167,13 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
   };
   const resolvePath = (value: string, root: string): string | null => {
     const candidate = resolve(root, value || ".");
-    return candidate === root || candidate.startsWith(`${root}${sep}`) ? candidate : null;
+    if (candidate === root) return candidate;
+    // ponytail: resolve parent dir to catch symlink escapes
+    const dir = dirname(candidate);
+    let resolvedDir: string;
+    try { resolvedDir = realpathSync(dir); } catch { return null; }
+    const full = join(resolvedDir, basename(candidate));
+    return full.startsWith(`${root}${sep}`) || full === root ? full : null;
   };
 
   return (name: string, input: Record<string, unknown>): string => {
@@ -177,7 +183,7 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
       case "read_file": {
         const rawPath = String(input.path);
         const p = resolvePath(rawPath, repoRoot);
-        if (/\.env$/i.test(rawPath) || !p) {
+        if (/\.env(\..+)?$/i.test(rawPath) || !p) {
           return `Access denied: ${rawPath}`;
         }
         if (!existsSync(p)) return `File not found: ${p}`;

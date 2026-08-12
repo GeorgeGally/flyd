@@ -225,28 +225,30 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         }, 100);
 
         let streamed = false;
-        const answer = await deps.respond({
-          sessionId: deps.sessionId,
-          turnNumber: history.length / 2 + 1,
-          message: input.message,
-          history: history.slice(-MAX_HISTORY_TURNS),
-          memory,
-          situation,
-          crossRepo: repos,
-          weather: weatherText || undefined,
-          onToken: (token) => {
-            if (!streamed) {
-              spinnerActive = false;
-              clearInterval(spinInterval);
-              deps.terminal.write("\b \b"); // erase spinner
-            }
-            streamed = true;
-            deps.terminal.write(token);
-          },
-        });
-        spinnerActive = false;
-        clearInterval(spinInterval);
-        if (!streamed) deps.terminal.write("\b \b");
+        let answer = "";
+        try {
+          answer = await deps.respond({
+            sessionId: deps.sessionId,
+            turnNumber: history.length / 2 + 1,
+            message: input.message,
+            history: history.slice(-MAX_HISTORY_TURNS),
+            memory,
+            situation,
+            crossRepo: repos,
+            weather: weatherText || undefined,
+            onToken: (token) => {
+              if (!streamed) {
+                spinnerActive = false;
+                deps.terminal.write("\b \b");
+              }
+              streamed = true;
+              deps.terminal.write(token);
+            },
+          });
+        } finally {
+          clearInterval(spinInterval);
+          if (!streamed) deps.terminal.write("\b \b");
+        }
         if (!streamed && answer) deps.terminal.write(answer);
         deps.terminal.write("\n");
         history.push(
