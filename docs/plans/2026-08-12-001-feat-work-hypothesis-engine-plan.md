@@ -1,7 +1,7 @@
 ---
 title: "feat: Shared work-hypothesis Present Model"
 type: feat
-status: active
+status: completed
 date: 2026-08-12
 deepened: 2026-08-12
 origin: docs/product/flyd-work-intelligence-prd.md
