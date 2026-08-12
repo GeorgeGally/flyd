@@ -14,6 +14,7 @@ export const WIKI_FOLDERS: Record<string, string> = {
   project: "projects",
   person: "people",
   constraint: "constraints",
+  standard: "standards",
   topic: "topics",
   flyd: "flyd",
   event: "events",

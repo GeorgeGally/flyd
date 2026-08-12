@@ -7,6 +7,7 @@ import {
   buildWorkIntelligencePrompt,
   parseWorkIntelligenceResponse,
 } from '../work-intelligence/intervention.js';
+import { assembleGroundPack } from '../work-intelligence/ground-pack.js';
 import type { CurrentWork } from '../work-intelligence/types.js';
 
 function makeCurrentWork(overrides: Partial<CurrentWork> = {}): CurrentWork {
@@ -84,6 +85,32 @@ describe('intervention prompt', () => {
     expect(prompt).toContain('Review this function');
     expect(prompt).toContain('GROUND RULES');
     expect(prompt).toContain('UNKNOWN FIELDS');
+  });
+
+  it('includes ground pack sections when provided', () => {
+    const cw = makeCurrentWork();
+    const standard = DOMAIN_STANDARDS.code;
+    const groundPack = assembleGroundPack({
+      foregroundSummary: 'Foreground summary',
+      domainStandard: standard,
+      domainStandardProvenance: 'fallback:domain-standards',
+      presentModel: null,
+      closeout: null,
+      foregroundProject: 'CleanX',
+      wikiProjectSection: null,
+      peopleSections: [],
+    });
+
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork: cw,
+      domainStandard: standard,
+      intent: 'Review this function',
+      groundPack,
+    });
+
+    expect(prompt).toContain('GROUND PACK');
+    expect(prompt).toContain('DOMAIN_STANDARD');
+    expect(prompt).toContain('FOREGROUND');
   });
 
   it('includes conversation history when provided', () => {

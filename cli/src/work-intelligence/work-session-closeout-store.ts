@@ -54,22 +54,6 @@ export function closeWorkSession(sessionId: string): WorkSessionCloseout | null 
     },
   });
 
-  if (closeout.retainedLearnings.length > 0) {
-    for (const learning of closeout.retainedLearnings) {
-      recordJournalEntry({
-        entryId: `learning-${learning.id}`,
-        interactionId: closeout.workSessionId,
-        workSessionId: closeout.workSessionId,
-        timestamp: closeout.closedAt,
-        eventType: 'learning_promoted',
-        details: {
-          domain: learning.domain,
-          promoted: true,
-        },
-      });
-    }
-  }
-
   return closeout;
 }
 
@@ -107,6 +91,14 @@ export function readCloseout(sessionId: string): WorkSessionCloseout | null {
   } catch {
     return null;
   }
+}
+
+export function readLatestCloseoutForProject(projectName: string): WorkSessionCloseout | null {
+  const normalized = projectName.trim().toLowerCase();
+  const closeouts = listCloseouts(50);
+  return (
+    closeouts.find((c) => c.project.trim().toLowerCase() === normalized) ?? null
+  );
 }
 
 export function listCloseouts(limit = 20): WorkSessionCloseout[] {

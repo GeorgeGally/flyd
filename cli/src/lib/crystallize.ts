@@ -6,6 +6,7 @@ import { agentLoop } from "./llm.js";
 import { walkWikiFiles } from "./wiki.js";
 import { pushGraphEdge, type BodyEdge } from "./graph.js";
 import { updateRaw } from "./qmd.js";
+import { isSkillifyReservedWikiPath } from "../work-intelligence/skillify/wiki-path.js";
 
 interface CrystallizeState {
   version: number;
@@ -251,6 +252,10 @@ ${c.body}`)
           switch (action.type) {
             case "new_page":
             case "update_page": {
+              if (isSkillifyReservedWikiPath(action.targetPath)) {
+                console.log(`    skipped skillify-owned path: ${action.targetPath}`);
+                break;
+              }
               const fullPath = join(WIKI_DIR, action.targetPath);
               mkdirSync(dirname(fullPath), { recursive: true });
               writeFileSync(fullPath, action.content, "utf8");

@@ -3,10 +3,20 @@ import { query } from '../lib/llm.js';
 import type { EnvironmentCapture } from './current-work.js';
 import { constructCurrentWork as buildCurrentWork, resolveRepositoryFromPath } from './current-work.js';
 import { workSessionStore, type WorkSessionTurn } from './work-session-store.js';
-import { selectDomainStandard } from './domain-standards.js';
 import { buildWorkIntelligencePrompt, parseWorkIntelligenceResponse } from './intervention.js';
 import { recordLlmResolution } from '../overlay-metrics.js';
 import type { ActionProposal, CurrentWork, Diagnosis, Intervention } from './types.js';
+import { readPresentModel } from '../work/work-hypothesis/index.js';
+import { assembleGroundPack, buildForegroundSummary } from './ground-pack.js';
+import {
+  loadDomainStandard,
+  loadWikiProjectSection,
+  readSafeWikiPage,
+  extractPeopleRefs,
+  loadPeopleSections,
+  slugifyName,
+} from './ground-pack-wiki.js';
+import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 
 export interface WorkInteractionParams {
   invocationId: string;
@@ -59,9 +69,27 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     screenshotBase64: params.screenshotBase64,
   });
 
-  const domainStandard = selectDomainStandard({
+  const domainFromWiki = loadDomainStandard({
     artifactKind: currentWork.artifact.kind,
     bundleId: currentWork.artifact.bundleId,
+    projectName: currentWork.project.value,
+  });
+
+  const presentModel = readPresentModel();
+  const closeout = readLatestCloseoutForProject(currentWork.project.value);
+  const wikiProjectSection = loadWikiProjectSection(currentWork.project.value);
+  const projectParsed = readSafeWikiPage(`projects/${slugifyName(currentWork.project.value)}.md`);
+  const peopleSections = loadPeopleSections(extractPeopleRefs(projectParsed));
+
+  const groundPack = assembleGroundPack({
+    foregroundSummary: buildForegroundSummary(currentWork),
+    domainStandard: domainFromWiki.standard,
+    domainStandardProvenance: domainFromWiki.provenance,
+    presentModel,
+    closeout,
+    foregroundProject: currentWork.project.value,
+    wikiProjectSection,
+    peopleSections,
   });
 
   const conversationTurns = workSessionStore.getActiveConversationTurns(workSessionId);
@@ -73,10 +101,11 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
 
   const prompt = buildWorkIntelligencePrompt({
     currentWork,
-    domainStandard,
+    domainStandard: groundPack.domainStandard,
     intent: params.intent,
     conversationHistory,
     memoryContext,
+    groundPack,
   });
 
   const responseText = await query(

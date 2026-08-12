@@ -32,6 +32,31 @@ import { terminalizeRepositoryAction, type RepositoryTerminalOutcome } from "./w
 import { RepositoryActionJobStore } from "./work-intelligence/repository-action-job.js";
 import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
 import type { FounderJournalEntry } from "./work-intelligence/types.js";
+import {
+  proposeFromOutcome,
+  proposeFromLearningCandidate,
+  buildSkillifyAugmentOptions,
+} from "./work-intelligence/skillify/propose.js";
+import {
+  confirmProposal,
+  declineProposal,
+  confirmAllPending,
+  declineAllPending,
+} from "./work-intelligence/skillify/confirm.js";
+import {
+  listPendingProposals,
+  listPendingForSession,
+} from "./work-intelligence/skillify/proposal-store.js";
+import {
+  listJobs,
+  getJob,
+  createJobDef,
+  setJobEnabled,
+  ensureDefaultMorningBriefingJob,
+} from "./work-intelligence/jobs/store.js";
+import { pauseJobs, resumeJobs, killJobs, clearKillJobs, isJobsGloballyPaused } from "./work-intelligence/jobs/controls.js";
+import { runMorningBriefing, runJobById, runDueJobs } from "./work-intelligence/jobs/runner.js";
+import type { JobType } from "./work-intelligence/jobs/types.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 import { validateShellExecutionRequest, createExecution, runExecution, getExecutionStatus, cancelExecution } from "./work-intelligence/command-execution.js";
 import type { ShellExecutionResult } from "./work-intelligence/types.js";
@@ -582,11 +607,38 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
 
     const sessionEndStatuses = new Set(["rejected", "cancelled", "action_completed"]);
     const outcomeMapsToCloseout = sessionEndStatuses.has(outcome.status);
-    if (resolved.workSessionId && outcomeMapsToCloseout) {
+
+    const skillifyFromOutcome = resolved.workSessionId
+      ? proposeFromOutcome({
+          workSessionId: resolved.workSessionId,
+          interactionId: outcome.invocationId,
+          outcomeStatus: outcome.status,
+          correction: outcome.correction,
+          domain: resolved.resolutionMode,
+          intent: resolved.intent,
+        })
+      : [];
+
+    const pendingForSession = resolved.workSessionId
+      ? listPendingForSession(resolved.workSessionId)
+      : [];
+    const shouldCloseout =
+      Boolean(resolved.workSessionId) &&
+      (outcomeMapsToCloseout ||
+        (outcome.status === "succeeded" &&
+          (skillifyFromOutcome.length > 0 || pendingForSession.length > 0)));
+
+    if (shouldCloseout && resolved.workSessionId) {
       try {
         const closeout = closeWorkSession(resolved.workSessionId);
         if (closeout && closeout.retainedLearnings.length > 0) {
           for (const candidate of closeout.retainedLearnings) {
+            const skillifyProposal = proposeFromLearningCandidate(candidate, {
+              workSessionId: resolved.workSessionId,
+              interactionId: outcome.invocationId,
+            });
+            if (skillifyProposal) continue;
+
             const learningGate = gateLearningCandidate({
               id: candidate.id,
               source: candidate.source,
@@ -605,6 +657,17 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
               );
               console.log(`[LearningGate] PROMOTED (${learningGate.category}/${learningGate.confidence}): ${learningGate.reason}`);
               persistLearningReceipt(learningReceipt);
+              recordJournalEntry({
+                entryId: `learning-${candidate.id}`,
+                interactionId: resolved.workSessionId,
+                workSessionId: resolved.workSessionId,
+                timestamp: new Date().toISOString(),
+                eventType: 'learning_promoted',
+                details: {
+                  domain: candidate.domain,
+                  promoted: true,
+                },
+              });
             } else {
               console.log(`[LearningGate] DISCARD (${learningGate.category}): ${learningGate.reason}`);
             }
@@ -647,7 +710,245 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
     console.warn(`[Flyd Core] Failed to record journal entry:`, (err as Error).message);
   }
 
-  sendJson(res, 200, { acknowledged: true });
+  sendJson(res, 200, {
+    acknowledged: true,
+    skillifyPending: listPendingProposals().map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      targetPath: p.targetPath,
+      excerpt: p.body.slice(0, 160),
+      revision: p.revision,
+    })),
+    skillifyAugmentOptions: buildSkillifyAugmentOptions(listPendingProposals()),
+  });
+}
+
+async function handleJobsRequest(req: IncomingMessage, res: ServerResponse, pathname: string) {
+  if (pathname === "/jobs") {
+    if (req.method === "GET") {
+      sendJson(res, 200, {
+        paused: isJobsGloballyPaused(),
+        jobs: listJobs().map((j) => ({
+          id: j.id,
+          type: j.type,
+          enabled: j.enabled,
+          schedule: j.schedule,
+          projectId: j.projectId,
+        })),
+      });
+      return;
+    }
+    if (req.method === "POST") {
+      let body: string;
+      try {
+        body = await parseBody(req);
+      } catch {
+        sendJson(res, 413, { error: "Request body too large" });
+        return;
+      }
+      try {
+        const input = JSON.parse(body) as Record<string, unknown>;
+        if (typeof input.type !== "string" || typeof input.schedule !== "string") {
+          sendJson(res, 422, { error: "Missing type or schedule" });
+          return;
+        }
+        const job = createJobDef({
+          type: input.type as JobType,
+          schedule: input.schedule,
+          enabled: input.enabled !== false,
+          projectId: typeof input.projectId === "string" ? input.projectId : undefined,
+          skillIds: Array.isArray(input.skillIds) ? (input.skillIds as string[]) : [],
+          toolPolicy: Array.isArray(input.toolPolicy) ? (input.toolPolicy as ["*"]) : ["*"],
+        });
+        sendJson(res, 201, { job });
+      } catch (error) {
+        sendJson(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  if (pathname === "/jobs/pause") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    pauseJobs();
+    sendJson(res, 200, { paused: true });
+    return;
+  }
+
+  if (pathname === "/jobs/resume") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    resumeJobs();
+    clearKillJobs();
+    sendJson(res, 200, { paused: false });
+    return;
+  }
+
+  if (pathname === "/jobs/kill") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    killJobs();
+    sendJson(res, 200, { killed: true });
+    return;
+  }
+
+  if (pathname === "/jobs/run") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    let body: string;
+    try {
+      body = await parseBody(req);
+    } catch {
+      sendJson(res, 413, { error: "Request body too large" });
+      return;
+    }
+    let input: Record<string, unknown> = {};
+    try {
+      if (body.trim()) input = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      sendJson(res, 400, { error: "Invalid JSON" });
+      return;
+    }
+
+    if (input.due === true) {
+      sendJson(res, 200, { results: runDueJobs({ force: Boolean(input.force) }) });
+      return;
+    }
+
+    if (typeof input.jobId === "string") {
+      sendJson(res, 200, runJobById(input.jobId, { force: true }));
+      return;
+    }
+
+    const type = typeof input.type === "string" ? input.type : "morning_briefing";
+    if (type === "morning_briefing" || type === "morning-briefing") {
+      if (typeof input.projectId === "string") {
+        ensureDefaultMorningBriefingJob(input.projectId);
+      }
+      sendJson(res, 200, runMorningBriefing({
+        projectId: typeof input.projectId === "string" ? input.projectId : undefined,
+        force: true,
+      }));
+      return;
+    }
+
+    sendJson(res, 422, { error: "Unknown job type" });
+    return;
+  }
+
+  if (pathname.startsWith("/jobs/") && pathname.endsWith("/enable")) {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    const id = pathname.slice("/jobs/".length, -"/enable".length);
+    const job = setJobEnabled(id, true) ?? (id === "morning-briefing"
+      ? setJobEnabled(ensureDefaultMorningBriefingJob().id, true)
+      : null);
+    if (!job) {
+      sendJson(res, 404, { error: "Job not found" });
+      return;
+    }
+    sendJson(res, 200, { job });
+    return;
+  }
+
+  if (pathname.startsWith("/jobs/") && pathname.endsWith("/disable")) {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    const id = pathname.slice("/jobs/".length, -"/disable".length);
+    const existing = getJob(id) ?? (id === "morning-briefing" ? ensureDefaultMorningBriefingJob() : null);
+    if (!existing) {
+      sendJson(res, 404, { error: "Job not found" });
+      return;
+    }
+    const job = setJobEnabled(existing.id, false);
+    sendJson(res, 200, { job });
+    return;
+  }
+
+  sendJson(res, 404, { error: "Not found" });
+}
+
+async function handleSkillifyRequest(req: IncomingMessage, res: ServerResponse, pathname: string) {
+  if (pathname === "/skillify/pending") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    sendJson(res, 200, {
+      proposals: listPendingProposals().map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        targetPath: p.targetPath,
+        excerpt: p.body.slice(0, 160),
+        revision: p.revision,
+        expiresAt: p.expiresAt,
+      })),
+    });
+    return;
+  }
+
+  if (pathname === "/skillify/confirm") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    let body: string;
+    try {
+      body = await parseBody(req);
+    } catch {
+      sendJson(res, 413, { error: "Request body too large" });
+      return;
+    }
+
+    let input: Record<string, unknown>;
+    try {
+      input = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      sendJson(res, 400, { error: "Invalid JSON" });
+      return;
+    }
+
+    const action = typeof input.action === "string" ? input.action : "confirm";
+    if (action === "confirm_all") {
+      sendJson(res, 200, { results: confirmAllPending() });
+      return;
+    }
+    if (action === "decline_all") {
+      sendJson(res, 200, { results: declineAllPending() });
+      return;
+    }
+
+    if (typeof input.proposalId !== "string" || !Number.isInteger(input.revision)) {
+      sendJson(res, 422, { error: "Missing proposalId or revision" });
+      return;
+    }
+
+    const result =
+      action === "decline"
+        ? declineProposal(input.proposalId, input.revision as number)
+        : confirmProposal(input.proposalId, input.revision as number);
+
+    if (!result.ok) {
+      sendJson(res, 409, { error: result.error ?? "Skillify action failed" });
+      return;
+    }
+    sendJson(res, 200, result);
+  }
 }
 
 async function handleDelegationComplete(req: IncomingMessage, res: ServerResponse) {
@@ -805,6 +1106,21 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleOutcome(req, res);
         break;
+      case "/skillify/pending":
+      case "/skillify/confirm": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        void handleSkillifyRequest(req, res, url.pathname);
+        break;
+      }
+      case "/jobs":
+      case "/jobs/pause":
+      case "/jobs/resume":
+      case "/jobs/kill":
+      case "/jobs/run": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        void handleJobsRequest(req, res, url.pathname);
+        break;
+      }
       case "/foreground-feedback":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleForegroundFeedback(req, res);
@@ -1263,6 +1579,11 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
           if (journalEntryMatch) {
             if (!checkAuth(req)) { sendUnauthorized(res); break; }
             handleJournalEntry(req, res, journalEntryMatch[1]);
+            break;
+          }
+          if (/^\/jobs\/[^/]+\/(enable|disable)$/.test(url.pathname)) {
+            if (!checkAuth(req)) { sendUnauthorized(res); break; }
+            void handleJobsRequest(req, res, url.pathname);
             break;
           }
           sendJson(res, 404, { error: "Not found" });

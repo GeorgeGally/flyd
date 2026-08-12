@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { CurrentWork, Diagnosis, Intervention, ActionProposal, ShellCommand, FileOperation } from './types.js';
 import type { DomainStandard } from './domain-standards.js';
+import type { GroundPack } from './ground-pack.js';
+import { formatGroundPackForPrompt } from './ground-pack.js';
 
 export function buildWorkIntelligencePrompt(params: {
   currentWork: CurrentWork;
@@ -8,8 +10,9 @@ export function buildWorkIntelligencePrompt(params: {
   intent: string;
   conversationHistory?: string;
   memoryContext?: string;
+  groundPack?: GroundPack;
 }): string {
-  const { currentWork, domainStandard, intent, conversationHistory, memoryContext } = params;
+  const { currentWork, domainStandard, intent, conversationHistory, memoryContext, groundPack } = params;
 
   const projectLine = `Project: ${currentWork.project.value} (confidence: ${currentWork.project.confidence}${currentWork.project.isHypothesis ? ', hypothesis' : ''})`;
   const projectSourceLine = currentWork.project.source === 'foreground' && currentWork.project.confidence === 'high'
@@ -49,6 +52,10 @@ export function buildWorkIntelligencePrompt(params: {
     ? `\nPERSONAL MEMORY (background context — foreground evidence is authoritative):\n${memoryContext}`
     : '';
 
+  const groundPackBlock = groundPack
+    ? `\nGROUND PACK (deterministic context — labeled sections; foreground wins over background):\n${formatGroundPackForPrompt(groundPack)}`
+    : '';
+
   return `You are Flyd, an intelligent work assistant. The user has invoked you while working. Your job is to understand the work, identify the most important issue or opportunity, and deliver ONE high-leverage intervention.
 
 FOREGROUND CONTEXT (authoritative — this is what the user is doing RIGHT NOW):
@@ -71,7 +78,7 @@ GROUND RULES:
 - Distinguish fact from inference. Name uncertainty where it exists.
 - If a field is unknown and material, ask ONE clarifying question. Otherwise proceed with what you have.
 - Do not praise, narrate process, repeat the request, or pad.
-${domainStandard.avoidances.map(a => `  - ${a}`).join('\n')}${conversationBlock}${memoryBlock}
+${domainStandard.avoidances.map(a => `  - ${a}`).join('\n')}${groundPackBlock}${conversationBlock}${memoryBlock}
 
 USER INTENT: "${intent}"
 

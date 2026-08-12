@@ -13,6 +13,8 @@ import { runReview } from "./commands/review.js";
 import { runQuiz } from "./commands/quiz.js";
 import { runCheck } from "./commands/check.js";
 import { runCorrect } from "./commands/correct.js";
+import { runSkillify } from "./commands/skillify.js";
+import { runJobsCommand } from "./commands/jobs.js";
 import { runDaemon, stopDaemon, daemonStatus, runBackfill } from "./commands/daemon.js";
 import { runAttention } from "./commands/attention.js";
 import { runGoal, runGoalList, runGoalUpdate, runTension } from "./commands/tension.js";
@@ -273,6 +275,94 @@ program
   .action((topic: string, correction: string, opts: { model?: string }) =>
     runCorrect(topic, correction, opts.model)
   );
+
+const skillify = program
+  .command("skillify")
+  .description("Review and confirm pending skillify wiki proposals");
+
+skillify
+  .command("list")
+  .description("List pending skillify proposals")
+  .action(() => runSkillify("list"));
+
+skillify
+  .command("show <id>")
+  .description("Show a pending skillify proposal")
+  .action((id: string) => runSkillify("show", id));
+
+skillify
+  .command("confirm [id]")
+  .description("Confirm a proposal (writes wiki on confirm)")
+  .option("--all", "Confirm all pending proposals")
+  .option("--revision <n>", "Expected proposal revision", parseInt)
+  .action((id: string | undefined, opts: { all?: boolean; revision?: number }) =>
+    runSkillify("confirm", id, opts)
+  );
+
+skillify
+  .command("decline [id]")
+  .description("Decline a pending proposal")
+  .option("--all", "Decline all pending proposals")
+  .option("--revision <n>", "Expected proposal revision", parseInt)
+  .action((id: string | undefined, opts: { all?: boolean; revision?: number }) =>
+    runSkillify("decline", id, opts)
+  );
+
+const jobs = program
+  .command("jobs")
+  .description("Bounded overnight work jobs (artifact-first, pull delivery)");
+
+jobs
+  .command("list")
+  .description("List configured work jobs")
+  .action(() => runJobsCommand("list"));
+
+jobs
+  .command("enable [target]")
+  .description("Enable a job (default: morning-briefing)")
+  .option("--project <name>", "Project id for overnight briefing")
+  .action((target: string | undefined, opts: { project?: string }) =>
+    runJobsCommand("enable", target, opts)
+  );
+
+jobs
+  .command("disable [target]")
+  .description("Disable a job")
+  .action((target: string | undefined) => runJobsCommand("disable", target));
+
+jobs
+  .command("pause")
+  .description("Global pause for all overnight jobs")
+  .action(() => runJobsCommand("pause"));
+
+jobs
+  .command("resume")
+  .description("Clear global jobs pause/kill")
+  .action(() => runJobsCommand("resume"));
+
+jobs
+  .command("kill")
+  .description("Set global KILL file for overnight jobs")
+  .action(() => runJobsCommand("kill"));
+
+jobs
+  .command("run [target]")
+  .description("Run a job now (default: morning-briefing)")
+  .option("--project <name>", "Project id for overnight briefing")
+  .action((target: string | undefined, opts: { project?: string }) =>
+    runJobsCommand("run", target, opts)
+  );
+
+jobs
+  .command("run-due")
+  .description("Run enabled jobs whose local schedule slot is due")
+  .option("--force", "Force even if catch-up already recorded")
+  .action((opts: { force?: boolean }) => runJobsCommand("run-due", undefined, opts));
+
+jobs
+  .command("audits")
+  .description("List recent job run audits")
+  .action(() => runJobsCommand("audits"));
 
 program
   .command("distill")

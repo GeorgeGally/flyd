@@ -59,6 +59,7 @@ const ALL_FOUNDER_EVENT_TYPES: FounderEventType[] = [
   'standard_accepted', 'action_completed',
   'action_approved', 'action_failed', 'action_partial',
   'closeout_recorded', 'learning_promoted',
+  'skillify_proposed', 'skillify_written',
   'context_accuracy_sample',
   'command_approved', 'command_rejected',
   'command_completed', 'command_failed',
@@ -574,6 +575,121 @@ describe('work-intelligence release acceptance', () => {
 
       const report = generateFounderTrialReport(entries);
       expect(report.metrics.interventions_accepted).toBe(2);
+    });
+  });
+
+  describe('ground pack + skillify + overnight gates', () => {
+    it('Diagnose prompt includes Ground pack section markers', async () => {
+      const { buildWorkIntelligencePrompt } = await import('../work-intelligence/intervention.js');
+      const { assembleGroundPack } = await import('../work-intelligence/ground-pack.js');
+      const { DOMAIN_STANDARDS } = await import('../work-intelligence/domain-standards.js');
+
+      const currentWork = {
+        project: { value: 'flyd', source: 'foreground', confidence: 'high', provenance: 't', sourceTimestamp: new Date().toISOString(), isHypothesis: false },
+        objective: { value: 'ship', source: 'foreground', confidence: 'medium', provenance: 't', sourceTimestamp: new Date().toISOString(), isHypothesis: true },
+        artifact: { kind: 'code', title: 'gate.ts', contentDigest: 't', bundleId: 'com.test' },
+        stage: { value: 'execution', source: 'foreground', confidence: 'medium', provenance: 't', sourceTimestamp: new Date().toISOString(), isHypothesis: true },
+        constraints: { value: [], source: 'conversation', confidence: 'low', provenance: 't', sourceTimestamp: new Date().toISOString(), isHypothesis: true },
+        openLoops: [],
+        nextAction: { value: { description: 'test', readiness: 'ready' }, source: 'foreground', confidence: 'medium', provenance: 't', sourceTimestamp: new Date().toISOString(), isHypothesis: true },
+        evidenceSummary: {
+          sources: ['foreground_element'],
+          snapshotTimestamp: new Date().toISOString(),
+          foregroundApp: 'Test',
+        },
+        uncertainty: [],
+        confidence: [],
+      };
+
+      const groundPack = assembleGroundPack({
+        foregroundSummary: 'Project: flyd\nObjective: ship gate',
+        domainStandard: DOMAIN_STANDARDS.code,
+        domainStandardProvenance: 'fallback:domain-standards',
+        presentModel: null,
+        closeout: null,
+        foregroundProject: 'flyd',
+        wikiProjectSection: null,
+        peopleSections: [],
+      });
+
+      const prompt = buildWorkIntelligencePrompt({
+        currentWork: currentWork as never,
+        domainStandard: DOMAIN_STANDARDS.code,
+        intent: 'Review this',
+        groundPack,
+      });
+
+      expect(prompt).toMatch(/GROUND PACK/);
+      expect(prompt).toMatch(/FOREGROUND|DOMAIN_STANDARD/);
+    });
+
+    it('skillify confirm is required before wiki skill file exists', async () => {
+      const { proposeFromOutcome } = await import('../work-intelligence/skillify/propose.js');
+      const { confirmProposal } = await import('../work-intelligence/skillify/confirm.js');
+      const { configureSkillifyProposalDirectory } = await import('../work-intelligence/skillify/proposal-store.js');
+      const { configureOutcomeJournalDirectory } = await import('../work-intelligence/outcome-journal.js');
+      const { existsSync, mkdirSync, rmSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { tmpdir } = await import('node:os');
+      const { randomUUID } = await import('node:crypto');
+
+      const root = join(tmpdir(), `flyd-gate-skillify-${randomUUID()}`);
+      const prev = process.env.FLYD_DIR;
+      process.env.FLYD_DIR = root;
+      mkdirSync(join(root, 'wiki', 'standards'), { recursive: true });
+      mkdirSync(join(root, 'overlay', 'skillify-proposals'), { recursive: true });
+      mkdirSync(join(root, 'overlay', 'founder-journal'), { recursive: true });
+      configureSkillifyProposalDirectory(undefined);
+      configureOutcomeJournalDirectory(join(root, 'overlay', 'founder-journal'));
+
+      try {
+        const [proposal] = proposeFromOutcome({
+          workSessionId: 'ws-gate',
+          interactionId: 'int-gate',
+          outcomeStatus: 'succeeded',
+          intent: 'Prefer short briefs',
+          domain: 'writing',
+        });
+        expect(proposal).toBeTruthy();
+        expect(existsSync(join(root, 'wiki', 'standards', 'writing.md'))).toBe(false);
+        const confirmed = confirmProposal(proposal.id, proposal.revision);
+        expect(confirmed.ok).toBe(true);
+        expect(existsSync(join(root, 'wiki', 'standards', 'writing.md'))).toBe(true);
+      } finally {
+        configureSkillifyProposalDirectory(undefined);
+        if (prev === undefined) delete process.env.FLYD_DIR;
+        else process.env.FLYD_DIR = prev;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('job runner module does not import PRESENT/Swift bridge surfaces', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const root = join(process.cwd(), 'src/work-intelligence/jobs');
+      for (const file of ['runner.ts', 'store.ts', 'controls.ts', 'jobs/morning-briefing.ts']) {
+        const source = readFileSync(join(root, file), 'utf-8');
+        expect(source).not.toMatch(/AttentionEngine|mac-adapter|NSWorkspace|FlydClient|LiveAudioBridge/);
+      }
+    });
+
+    it('pack assembler does not read job-artifacts', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      for (const file of ['ground-pack.ts', 'ground-pack-wiki.ts']) {
+        const source = readFileSync(join(process.cwd(), 'src/work-intelligence', file), 'utf-8');
+        expect(source).not.toMatch(/job-artifacts/);
+      }
+    });
+
+    it('RESOLVER documents Ground pack and skillify routes', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const resolver = readFileSync(join(process.cwd(), 'src/templates/RESOLVER.md'), 'utf-8');
+      expect(resolver).toContain('Work Intelligence Ground');
+      expect(resolver).toContain('wiki/standards/');
+      expect(resolver).toContain('skillify');
+      expect(resolver).toContain('job-artifacts');
     });
   });
 });

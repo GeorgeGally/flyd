@@ -258,6 +258,7 @@ export type FounderEventType =
   | 'standard_accepted' | 'action_completed'
   | 'action_approved' | 'action_failed' | 'action_partial'
   | 'closeout_recorded' | 'learning_promoted'
+  | 'skillify_proposed' | 'skillify_written'
   | 'context_accuracy_sample'
   | 'command_approved' | 'command_rejected'
   | 'command_completed' | 'command_failed';
