@@ -23,6 +23,12 @@ import { runAgentSession, type AgentSituation } from "../runtime/agent-session.j
 import { respondToConversation } from "../runtime/conversation-responder.js";
 import { refreshRepoRegistry } from "../runtime/repo-registry.js";
 import {
+  buildPresentModelBelief,
+  projectHypothesisLine,
+  applyHypothesisCorrection,
+  parseHypothesisCorrection,
+} from "../work/work-hypothesis/index.js";
+import {
   createConversationMemorySession,
   mergeAgentMemoryEvidence,
   retrieveRecentActionableOutcome,
@@ -149,6 +155,24 @@ export async function runAgent(): Promise<void> {
       respond: respondToConversation,
       loadSituation: () => loadAgentSituation({ pool }),
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
+      loadPresentHypothesis: async (foregroundPath) => {
+        try {
+          const belief = await buildPresentModelBelief({
+            foregroundRoot: foregroundPath,
+            coreCwd: process.cwd(),
+          });
+          return projectHypothesisLine(belief);
+        } catch {
+          return null;
+        }
+      },
+      applyPresentCorrection: async (text, foregroundPath) => {
+        if (!parseHypothesisCorrection(text)) return;
+        await applyHypothesisCorrection(text, {
+          foregroundRoot: foregroundPath,
+          coreCwd: process.cwd(),
+        });
+      },
     });
   } finally {
     await pool.end();

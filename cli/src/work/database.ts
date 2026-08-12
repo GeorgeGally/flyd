@@ -1,19 +1,32 @@
 import Database from "better-sqlite3";
 import { homedir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
 import { mkdirSync, existsSync } from "fs";
 
 const DB_DIR = join(homedir(), ".flyd");
-const DB_PATH = join(DB_DIR, "work-index.sqlite");
+const DEFAULT_DB_PATH = join(DB_DIR, "work-index.sqlite");
 
 let _db: Database.Database | null = null;
+let _dbPath = DEFAULT_DB_PATH;
+
+/** Test-only: point work-index at a temp path and reset the singleton. */
+export function useWorkIndexPath(path: string): void {
+  closeDb();
+  _dbPath = path;
+}
+
+export function resetWorkIndexPath(): void {
+  closeDb();
+  _dbPath = DEFAULT_DB_PATH;
+}
 
 export function getDb(): Database.Database {
   if (_db) return _db;
 
-  if (!existsSync(DB_DIR)) mkdirSync(DB_DIR, { recursive: true, mode: 0o700 });
+  const dir = dirname(_dbPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
-  _db = new Database(DB_PATH);
+  _db = new Database(_dbPath);
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
 
@@ -69,14 +82,53 @@ export function getDb(): Database.Database {
       completed_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS work_hypotheses (
+      id TEXT PRIMARY KEY,
+      hypothesis_text TEXT NOT NULL,
+      primary_threads TEXT NOT NULL DEFAULT '[]',
+      secondary_threads TEXT NOT NULL DEFAULT '[]',
+      objective TEXT,
+      confidence TEXT NOT NULL DEFAULT 'low',
+      uncertainty TEXT NOT NULL DEFAULT '[]',
+      evidence_refs TEXT NOT NULL DEFAULT '[]',
+      demotions TEXT NOT NULL DEFAULT '[]',
+      revised_at TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      from_cache INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS work_hypothesis_corrections (
+      id TEXT PRIMARY KEY,
+      hypothesis_id TEXT REFERENCES work_hypotheses(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL,
+      project_name TEXT,
+      project_root TEXT,
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_activities_repo ON activities(repository_id);
     CREATE INDEX IF NOT EXISTS idx_activities_occurred ON activities(occurred_at);
     CREATE INDEX IF NOT EXISTS idx_sources_activity ON sources(activity_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_wh_corrections_created ON work_hypothesis_corrections(created_at);
   `);
 
+  migrateSchema(_db);
+
   return _db;
+}
+
+function columnExists(db: Database.Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === column);
+}
+
+function migrateSchema(db: Database.Database): void {
+  if (!columnExists(db, "repositories", "observed_at")) {
+    db.exec(`ALTER TABLE repositories ADD COLUMN observed_at TEXT`);
+  }
 }
 
 export function closeDb(): void {

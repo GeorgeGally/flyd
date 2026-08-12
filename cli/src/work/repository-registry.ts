@@ -13,7 +13,10 @@ export interface ManagedRepository {
   defaultBranch?: string;
   lastSeenHead?: string;
   lastIndexedHead?: string;
+  /** Last verified work activity (commit time), not observation time. */
   lastActivityAt?: string;
+  /** Last time Flyd observed this repo (scan/fingerprint). */
+  observedAt?: string;
   projectFileExists: boolean;
   agentsFileExists: boolean;
   enabled: boolean;
@@ -163,6 +166,7 @@ function mapRepoRow(r: Record<string, unknown>): ManagedRepository {
     lastSeenHead: (r.last_seen_head as string) || undefined,
     lastIndexedHead: (r.last_indexed_head as string) || undefined,
     lastActivityAt: (r.last_activity_at as string) || undefined,
+    observedAt: (r.observed_at as string) || undefined,
     projectFileExists: Boolean(r.project_file_exists),
     agentsFileExists: Boolean(r.agents_file_exists),
     enabled: Boolean(r.enabled),
@@ -230,11 +234,31 @@ export function registerDiscoveredRepos(): { added: number; existing: number } {
   return { added, existing };
 }
 
-export function setRepositoryActivity(repositoryId: string, head: string): void {
+/**
+ * Record an observation of a repository.
+ * Updates fingerprint head + observed_at. Does NOT treat observation as work activity.
+ * Pass workActivityAt (commit author time) only when recording real git work.
+ */
+export function setRepositoryActivity(
+  repositoryId: string,
+  head: string,
+  workActivityAt?: string,
+): void {
   const db = getDb();
-  db.prepare(
-    "UPDATE repositories SET last_seen_head = ?, last_activity_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-  ).run(head, repositoryId);
+  const observedAt = new Date().toISOString();
+  if (workActivityAt) {
+    db.prepare(
+      `UPDATE repositories
+       SET last_seen_head = ?, observed_at = ?, last_activity_at = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(head, observedAt, workActivityAt, repositoryId);
+  } else {
+    db.prepare(
+      `UPDATE repositories
+       SET last_seen_head = ?, observed_at = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(head, observedAt, repositoryId);
+  }
 }
 
 export function setRepositoryIndexedHead(repositoryId: string, head: string): void {
@@ -242,6 +266,31 @@ export function setRepositoryIndexedHead(repositoryId: string, head: string): vo
   db.prepare(
     "UPDATE repositories SET last_indexed_head = ?, updated_at = datetime('now') WHERE id = ?",
   ).run(head, repositoryId);
+}
+
+/**
+ * Recompute last_activity_at from the newest activity.occurred_at per repo.
+ * Leaves observed_at alone. Safe to run on poisoned founder DBs.
+ */
+export function backfillActivityFromCommits(): number {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT repository_id AS id, MAX(occurred_at) AS occurred_at
+       FROM activities
+       GROUP BY repository_id`,
+    )
+    .all() as Array<{ id: string; occurred_at: string }>;
+  let updated = 0;
+  const stmt = db.prepare(
+    "UPDATE repositories SET last_activity_at = ?, updated_at = datetime('now') WHERE id = ?",
+  );
+  for (const row of rows) {
+    if (!row.occurred_at) continue;
+    stmt.run(row.occurred_at, row.id);
+    updated++;
+  }
+  return updated;
 }
 
 export function refreshRepositoryFileFlags(repositoryId: string): void {

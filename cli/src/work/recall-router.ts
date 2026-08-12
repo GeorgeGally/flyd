@@ -4,6 +4,8 @@ import { listOpenTasks, listTasks } from "./task-store.js";
 import type { Task } from "./task-store.js";
 import { listReposWithGitHub } from "./github-supplement.js";
 import { execSync } from "child_process";
+import { projectHypothesisLine, readPresentModel } from "./work-hypothesis/index.js";
+import type { WorkHypothesis } from "./work-hypothesis/types.js";
 
 export type RecallIntent =
   | "active_projects"
@@ -22,6 +24,7 @@ export interface RecallResult {
     tasks?: Task[];
     activities?: WorkActivity[];
     model?: GlobalPresentModel;
+    presentModel?: WorkHypothesis;
   };
   confidence: "high" | "medium" | "low";
   freshness: string;
@@ -54,6 +57,40 @@ export function recall(intent: RecallIntent, foregroundRoot?: string, projectFil
 
   switch (intent) {
     case "active_projects": {
+      const present = readPresentModel();
+      if (present && (present.primaryThreads.length > 0 || present.hypothesisText)) {
+        const lines = [
+          ...present.primaryThreads.map((t) => {
+            const dirty = t.isDirty ? " [dirty]" : "";
+            return `${t.name}${dirty} — ${t.root}`;
+          }),
+          ...present.secondaryThreads.slice(0, 2).map((t) => {
+            const tag = t.demoted ? " [demoted]" : " [secondary]";
+            return `${t.name}${tag} — ${t.root}`;
+          }),
+        ];
+        return {
+          intent,
+          answer: `${projectHypothesisLine(present).trim()}\n${lines.join("\n")}`.trim(),
+          data: {
+            projects: present.primaryThreads.map((t) => ({
+              repositoryId: t.repositoryId ?? t.name,
+              name: t.name,
+              root: t.root,
+              dirty: t.isDirty,
+              lastActivityAt: t.lastCommitAt,
+              projectFileExists: false,
+              agentsFileExists: false,
+              uncommittedFiles: 0,
+            })),
+            model,
+            presentModel: present,
+          },
+          confidence: present.confidence,
+          freshness: present.revisedAt,
+        };
+      }
+
       const projects = model.activeProjects
         .filter((p) => !projectFilter || p.repositoryId === projectFilter)
         .slice(0, 10);

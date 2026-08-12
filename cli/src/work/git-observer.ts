@@ -125,19 +125,19 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
 
   const obs = observeRepository(repo.root, repositoryId);
 
-  setRepositoryActivity(repositoryId, obs.head);
-
   if (!repo.lastIndexedHead && obs.head && obs.head !== "unknown") {
+    setRepositoryActivity(repositoryId, obs.head);
     setRepositoryIndexedHead(repositoryId, obs.head);
   } else if (obs.commitsSinceLastIndex.length > 0) {
     const type = classifyDelta(obs.commitsSinceLastIndex);
     const summary = makeSummary(obs.commitsSinceLastIndex);
     const fileRefs = [...new Set([...obs.stagedFiles, ...obs.modifiedFiles])];
+    const workActivityAt = obs.commitsSinceLastIndex[0].authorDate || obs.observedAt;
 
     insertActivity({
       id: `git-${repositoryId}-${obs.commitsSinceLastIndex[0].hash.slice(0, 8)}`,
       projectId: repositoryId,
-      occurredAt: obs.observedAt,
+      occurredAt: workActivityAt,
       type,
       summary,
       significance: obs.commitsSinceLastIndex.length > 3 ? "major" : "minor",
@@ -146,6 +146,7 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
       verified: false,
     });
 
+    setRepositoryActivity(repositoryId, obs.head, workActivityAt);
     setRepositoryIndexedHead(repositoryId, obs.head);
 
     // ponytail: auto-reconcile PROJECT.md when new commits land
@@ -154,6 +155,9 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
     } catch {
       // reconciliation is best-effort, don't block observation
     }
+  } else {
+    // Dirty-only / fingerprint change: observe, do not stamp as work activity
+    setRepositoryActivity(repositoryId, obs.head);
   }
 
   return {
@@ -163,7 +167,7 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
     branch: obs.branch,
     head: obs.head,
     dirty: obs.dirty,
-    lastActivityAt: obs.observedAt,
+    lastActivityAt: repo.lastActivityAt ?? (obs.commitsSinceLastIndex[0]?.authorDate),
     projectFileExists: repo.projectFileExists,
     agentsFileExists: repo.agentsFileExists,
     uncommittedFiles: obs.stagedFiles.length + obs.modifiedFiles.length + obs.untrackedFiles.length,

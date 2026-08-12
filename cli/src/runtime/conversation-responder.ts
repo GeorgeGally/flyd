@@ -17,6 +17,7 @@ interface ConversationInput {
   memory: MemoryEvidence;
   situation: AgentSituation | null;
   crossRepo?: BriefRepo[];
+  presentHypothesis?: string | null;
   weather?: string;
 }
 
@@ -50,7 +51,8 @@ export function missingPersonalFactReply(
 
 export function buildConversationPrompt(input: ConversationInput): { system: string; prompt: string } {
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
-  const includeSituation = input.situation !== null;
+  const currentWorkQuestion = /what (am i|are you) (working on|doing)|(?:active|current) projects|resume (work|where i was)/i.test(input.message);
+  const includeSituation = input.situation !== null && !currentWorkQuestion;
   const situation = includeSituation && input.situation
     ? `\nCurrent repository and task evidence:
 - Project: ${input.situation.project}
@@ -72,7 +74,16 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const history = input.history.length
     ? `\nConversation so far:\n${input.history.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
     : "";
-  const crossRepo = input.crossRepo?.length ? crossRepoContext(input.crossRepo) : "";
+  // Current-work intents: Present Model replaces catalog dump (do not append both)
+  const presentModel = input.presentHypothesis
+    ? `\n<present-model>\n${input.presentHypothesis}\nReuse this shared work hypothesis for current-work questions. Do not invent a fresh repo catalog.\n</present-model>\n`
+    : "";
+  const crossRepo =
+    currentWorkQuestion || presentModel
+      ? ""
+      : input.crossRepo?.length
+        ? crossRepoContext(input.crossRepo)
+        : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
 
   return {
@@ -87,6 +98,9 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       includeSituation
         ? "Current repository and task evidence outranks older memory for claims about current code or active coding work."
         : "",
+      currentWorkQuestion
+        ? "For current-work questions, use the shared Present Model hypothesis. Do not synthesize a ranked repo catalog."
+        : "",
       repositoryQuestion
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
@@ -97,7 +111,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
     ].filter(Boolean).join(" "),
-    prompt: `${situation}${memory}${weather}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 

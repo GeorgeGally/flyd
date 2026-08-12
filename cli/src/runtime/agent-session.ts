@@ -1,7 +1,7 @@
 import { interpretAgentInput } from "./input-interpreter.js";
 import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
-import { crossRepoLine, type BriefRepo } from "./repo-registry.js";
+import type { BriefRepo } from "./repo-registry.js";
 
 export interface AgentSituation {
   project: string;
@@ -36,7 +36,12 @@ interface AgentSessionDependencies {
   repairLastTurn?(feedback: string): Promise<{ id: string; failureClasses: string[] }>;
   recordTurn(turn: { user: string; assistant: string; handoff?: ActionableOutcome }): Promise<void>;
   loadSituation(): Promise<AgentSituation | null>;
+  /** Optional: known repos for tool inspection — not shown as a catalog dump. */
   loadCrossRepo?(foregroundPath?: string): Promise<BriefRepo[]>;
+  /** Shared Present Model hypothesis line for intro. */
+  loadPresentHypothesis?(foregroundPath?: string): Promise<string | null>;
+  /** Apply soft-durable hypothesis corrections from chat. */
+  applyPresentCorrection?(text: string, foregroundPath?: string): Promise<void>;
   respond(input: {
     sessionId?: string;
     turnNumber: number;
@@ -45,6 +50,7 @@ interface AgentSessionDependencies {
     memory: MemoryEvidence;
     situation: AgentSituation | null;
     crossRepo: BriefRepo[];
+    presentHypothesis?: string | null;
     weather?: string;
     onToken(token: string): void;
   }): Promise<string>;
@@ -88,10 +94,14 @@ async function weatherLine(): Promise<string> {
   }
 }
 
-function introLine(situation: AgentSituation | null, weather?: string, repos?: BriefRepo[]): string {
+function introLine(
+  situation: AgentSituation | null,
+  weather?: string,
+  presentHypothesis?: string | null,
+): string {
   let line = `\n${ART}\n  ${greeting()}`;
   if (weather) line += `\n${weather}`;
-  if (repos && repos.length > 1) line += `\n${crossRepoLine(repos)}`;
+  if (presentHypothesis) line += `\n${presentHypothesis}`;
   if (hasUnfinishedTask(situation) && situation) {
     const action = situation.nextAction
       ? `${situation.outcome} — ${situation.nextAction}`
@@ -112,6 +122,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   const history: ConversationTurn[] = [];
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
+  let presentHypothesis: string | null = null;
   let weatherText = "";
 
   try {
@@ -119,10 +130,12 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       deps.loadSituation().catch(() => null),
       weatherLine(),
     ]);
-    repos = (await deps.loadCrossRepo?.(situationResult?.projectRoot)) ?? [];
     situation = situationResult;
     weatherText = weather || "";
-    deps.terminal.write(introLine(situation, weatherText || undefined, repos));
+    repos = (await deps.loadCrossRepo?.(situationResult?.projectRoot).catch(() => [])) ?? [];
+    presentHypothesis =
+      (await deps.loadPresentHypothesis?.(situationResult?.projectRoot).catch(() => null)) ?? null;
+    deps.terminal.write(introLine(situation, weatherText || undefined, presentHypothesis));
 
     while (true) {
       const text = (await deps.terminal.ask("\nYou >")).trim();
@@ -211,8 +224,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         } catch {
           // Keep the last known situation when live state cannot be refreshed.
         }
+        if (deps.applyPresentCorrection) {
+          await deps.applyPresentCorrection(input.message, situation?.projectRoot).catch(() => {});
+          presentHypothesis =
+            (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
+            presentHypothesis;
+        }
         const memory = await deps.retrieveMemory(input.message);
-        if (deps.loadCrossRepo) repos = (await deps.loadCrossRepo(situation?.projectRoot));
+        if (deps.loadCrossRepo) {
+          repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
+        }
 
         // ponytail: spinner while waiting for first token
         const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -246,6 +267,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
             memory,
             situation,
             crossRepo: repos,
+            presentHypothesis,
             weather: weatherText || undefined,
             onToken: (token) => {
               if (!streamed) {
