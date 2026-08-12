@@ -111,7 +111,7 @@ describe("assembleCandidates", () => {
         repo({
           id: "legacy",
           name: "legacy",
-          root: "/tmp/legacy",
+          root: "/Users/george/Documents/legacy",
           lastCommitAt: "2025-01-01T00:00:00.000Z",
           hasTasks: true,
         }),
@@ -135,5 +135,27 @@ describe("assembleCandidates", () => {
       ],
     });
     expect(threads[0].demoted).toBe(true);
+  });
+
+  it("never admits ephemeral flyd-test temp roots", () => {
+    const threads = assembleCandidates({
+      now: NOW,
+      repos: [
+        repo({
+          id: "junk",
+          name: "flyd-test-z2eY2L",
+          root: "/var/folders/xx/T/flyd-test-z2eY2L",
+          lastCommitAt: "2026-08-12T11:00:00.000Z",
+          isDirty: true,
+        }),
+        repo({
+          id: "gn",
+          name: "good_neighbours",
+          root: "/Users/george/Documents/good_neighbours",
+          lastCommitAt: "2026-08-12T10:00:00.000Z",
+        }),
+      ],
+    });
+    expect(threads.map((t) => t.name)).toEqual(["Good Neighbours"]);
   });
 });

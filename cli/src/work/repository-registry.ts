@@ -208,6 +208,19 @@ export function removeRepository(id: string): boolean {
   return result.changes > 0;
 }
 
+/** Remove temp/test fixtures that leaked into the founder work-index. */
+export function purgeEphemeralRepositories(
+  isEphemeral: (root: string, name: string) => boolean,
+): number {
+  const repos = listRepositories();
+  let removed = 0;
+  for (const repo of repos) {
+    if (!isEphemeral(repo.root, repo.name)) continue;
+    if (removeRepository(repo.id)) removed++;
+  }
+  return removed;
+}
+
 export function registerDiscoveredRepos(): { added: number; existing: number } {
   const discovered = scanDirectories();
   let added = 0;

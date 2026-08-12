@@ -20,12 +20,14 @@ export interface WorkThread {
   name: string;
   repositoryId?: string;
   lastCommitAt?: string;
+  latestSubject?: string;
   isDirty: boolean;
   hasTasks: boolean;
   isForeground: boolean;
   signals: string[];
   demoted: boolean;
 }
+
 
 export interface WorkHypothesis {
   id: string;
@@ -60,6 +62,7 @@ export interface CandidateRepoInput {
   root: string;
   /** Live git last commit ISO time, preferred. */
   lastCommitAt?: string;
+  latestSubject?: string;
   isDirty: boolean;
   hasTasks: boolean;
   isForeground: boolean;

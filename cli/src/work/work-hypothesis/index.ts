@@ -1,4 +1,5 @@
-export { assembleCandidates, isDirtyOnlyStale } from "./candidates.js";
+export { assembleCandidates, isDirtyOnlyStale, displayName } from "./candidates.js";
+export { isEphemeralRepoRoot } from "./ephemeral.js";
 export { buildPresentModelBelief, getOrBuildPresentModelSyncFallback } from "./engine.js";
 export {
   applyHypothesisCorrection,

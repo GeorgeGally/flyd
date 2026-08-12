@@ -1,6 +1,7 @@
 import { resolve } from "path";
 import type { CandidateRepoInput, WorkThread } from "./types.js";
 import { RECENT_COMMIT_DAYS } from "./types.js";
+import { isEphemeralRepoRoot } from "./ephemeral.js";
 
 export interface AssembleCandidatesOptions {
   repos: CandidateRepoInput[];
@@ -24,6 +25,7 @@ function normalizeName(name: string): string {
 /**
  * Admit work threads from integrity signals only.
  * Dirty alone never admits. Observation time is not consulted.
+ * Ephemeral/test roots never admit.
  */
 export function assembleCandidates(options: AssembleCandidatesOptions): WorkThread[] {
   const now = options.now ?? new Date();
@@ -33,13 +35,14 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
 
   const byCommon = new Map<string, CandidateRepoInput>();
   for (const repo of options.repos) {
+    if (isEphemeralRepoRoot(repo.root, repo.name)) continue;
+
     const key = repo.gitCommonDir ? resolve(repo.gitCommonDir) : resolve(repo.root);
     const existing = byCommon.get(key);
     if (!existing) {
       byCommon.set(key, repo);
       continue;
     }
-    // Prefer the one with newer commit; keep shorter path as display root when tied
     const a = existing.lastCommitAt ? Date.parse(existing.lastCommitAt) : 0;
     const b = repo.lastCommitAt ? Date.parse(repo.lastCommitAt) : 0;
     if (b > a || (b === a && repo.root.length < existing.root.length)) {
@@ -48,6 +51,7 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
         isDirty: repo.isDirty || existing.isDirty,
         hasTasks: repo.hasTasks || existing.hasTasks,
         isForeground: repo.isForeground || existing.isForeground,
+        latestSubject: repo.latestSubject ?? existing.latestSubject,
       });
     } else {
       byCommon.set(key, {
@@ -55,6 +59,7 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
         isDirty: existing.isDirty || repo.isDirty,
         hasTasks: existing.hasTasks || repo.hasTasks,
         isForeground: existing.isForeground || repo.isForeground,
+        latestSubject: existing.latestSubject ?? repo.latestSubject,
       });
     }
   }
@@ -70,10 +75,9 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
     if (recentCommit && repo.lastCommitAt) {
       signals.push(`commit:${repo.lastCommitAt}`);
     }
+    if (repo.latestSubject) signals.push(`subject:${repo.latestSubject}`);
     if (repo.isDirty && recentCommit) {
       signals.push("dirty:supported_by_recent_commit");
-    } else if (repo.isDirty && !recentCommit) {
-      // Integrity: dirty without recent commit is not an admission signal
     }
     if (repo.hasTasks) signals.push("open_tasks");
     if (repo.isForeground) signals.push("foreground:supporting");
@@ -81,16 +85,16 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
     const admitted = recentCommit || repo.hasTasks;
     if (!admitted) continue;
 
-    // cwd alone never establishes primary — still allow as candidate when recent commits exist
     if (coreCwd && resolve(repo.root) === coreCwd && !recentCommit && !repo.hasTasks) {
       continue;
     }
 
     threads.push({
       root: repo.root,
-      name: repo.name,
+      name: displayName(repo.name),
       repositoryId: repo.id,
       lastCommitAt: repo.lastCommitAt,
+      latestSubject: repo.latestSubject,
       isDirty: repo.isDirty,
       hasTasks: repo.hasTasks,
       isForeground: repo.isForeground,
@@ -99,7 +103,6 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
     });
   }
 
-  // Presentation order by commit recency — not a product score
   threads.sort((a, b) => {
     const at = a.lastCommitAt ? Date.parse(a.lastCommitAt) : 0;
     const bt = b.lastCommitAt ? Date.parse(b.lastCommitAt) : 0;
@@ -107,6 +110,24 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
   });
 
   return threads;
+}
+
+/** cleanx → CleanX, good_neighbours → Good Neighbours */
+export function displayName(name: string): string {
+  const known: Record<string, string> = {
+    cleanx: "CleanX",
+    flyd: "Flyd",
+    good_neighbours: "Good Neighbours",
+    aigc: "aigc",
+  };
+  const key = name.trim().toLowerCase();
+  if (known[key]) return known[key];
+  if (name.includes(" ") || /[A-Z]/.test(name.slice(1))) return name;
+  return name
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export function isDirtyOnlyStale(repo: CandidateRepoInput, now = new Date(), recentDays = RECENT_COMMIT_DAYS): boolean {
