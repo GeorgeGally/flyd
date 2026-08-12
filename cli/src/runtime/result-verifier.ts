@@ -93,6 +93,7 @@ async function runVerificationCommand(
       (process.env.PATH ?? "").split(delimiter).filter(Boolean).map((path) => canonical(path)),
     );
     const allowedWorktree = await canonical(cwd);
+    const gitMetadata = join(allowedWorktree, ".git");
     const allowedHome = await canonical(home);
     const systemTemporaryRoot = await canonical(tmpdir());
     const systemRoots = [
@@ -115,6 +116,8 @@ async function runVerificationCommand(
       `(allow file-write* (subpath ${JSON.stringify(allowedHome)}))`,
       "(allow file-write* (subpath \"/dev\"))",
       "(allow file-write* (subpath \"/private/var/run\"))",
+      `(deny file-write* (literal ${JSON.stringify(gitMetadata)}))`,
+      `(deny file-write* (subpath ${JSON.stringify(gitMetadata)}))`,
     ].join("\n");
     const result = await runContainedProcess("/usr/bin/sandbox-exec", [ "-p", profile, executable, ...args ], {
       cwd,
@@ -249,25 +252,49 @@ export async function verifyWorkerResult(input: {
   const canonicalWorktree = await realpath(resolve(input.worktreePath));
   await assertNoEscapingSymlinks(canonicalWorktree);
   const captureRepositoryEvidence = async () => {
-    await execFileAsync("git", [ "-C", input.worktreePath, "add", "-N", "--", "." ], {
-      encoding: "utf8",
-      timeout: 10_000,
-    });
-    const [{ stdout: head }, { stdout: names }, { stdout: patch }] = await Promise.all([
-      execFileAsync("git", [ "-C", input.worktreePath, "rev-parse", "HEAD" ], { encoding: "utf8", timeout: 5_000 }),
-      execFileAsync("git", [ "-C", input.worktreePath, "diff", "--name-only", "--relative", input.baseHead, "--" ], { encoding: "utf8", timeout: 10_000 }),
-      execFileAsync("git", [ "-C", input.worktreePath, "diff", "--binary", "--full-index", input.baseHead, "--" ], {
-        encoding: "utf8",
-        timeout: 30_000,
-        maxBuffer: 50 * 1024 * 1024,
-      }),
-    ]);
-    return {
-      head: head.trim(),
-      changedFiles: names.trim() ? names.trim().split("\n").sort() : [],
-      patch,
-      patchDigest: createHash("sha256").update(patch).digest("hex"),
+    const evidenceHome = await mkdtemp(join(tmpdir(), "flyd-evidence-home-"));
+    const gitEnvironment: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      LANG: process.env.LANG,
+      LC_ALL: process.env.LC_ALL,
+      HOME: evidenceHome,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_PAGER: "cat",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_INDEX_FILE: join(evidenceHome, "index"),
     };
+    const safeGitArgs = (args: string[]) => [
+      "-c", "core.hooksPath=/dev/null",
+      "-c", "core.fsmonitor=false",
+      "-c", "core.attributesFile=/dev/null",
+      "-C", canonicalWorktree,
+      ...args,
+    ];
+    const git = (args: string[], timeout: number, maxBuffer?: number) => execFileAsync(
+      "git",
+      safeGitArgs(args),
+      { encoding: "utf8", timeout, maxBuffer, env: gitEnvironment },
+    );
+    try {
+      await git([ "read-tree", "HEAD" ], 5_000);
+      await git([ "add", "-N", "--", "." ], 10_000);
+      const [{ stdout: head }, { stdout: names }, { stdout: patch }] = await Promise.all([
+        git([ "rev-parse", "HEAD" ], 5_000),
+        git([ "diff", "--no-ext-diff", "--no-textconv", "--name-only", "--relative", input.baseHead, "--" ], 10_000),
+        git([ "diff", "--no-ext-diff", "--no-textconv", "--binary", "--full-index", input.baseHead, "--" ], 30_000, 50 * 1024 * 1024),
+      ]);
+      return {
+        head: head.trim(),
+        changedFiles: names.trim() ? names.trim().split("\n").sort() : [],
+        patch,
+        patchDigest: createHash("sha256").update(patch).digest("hex"),
+      };
+    } finally {
+      await rm(evidenceHome, { recursive: true, force: true });
+    }
   };
   const workerEvidence = await captureRepositoryEvidence();
   const commands: VerificationCommandResult[] = [];
@@ -276,7 +303,6 @@ export async function verifyWorkerResult(input: {
     await assertNoEscapingSymlinks(canonicalWorktree);
   }
 
-  await assertNoEscapingSymlinks(canonicalWorktree);
   const verifiedEvidence = await captureRepositoryEvidence();
   return {
     passed: commands.every((command) => command.exitStatus === 0) &&

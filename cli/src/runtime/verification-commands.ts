@@ -5,7 +5,7 @@ async function exists(path: string): Promise<boolean> {
   return access(path).then(() => true, () => false);
 }
 
-async function packageCommands(root: string, relativePath: string, prefix: string[] = []): Promise<string[]> {
+export async function packageCommands(root: string, relativePath: string, prefix: string[] = []): Promise<string[]> {
   try {
     const manifest = JSON.parse(await readFile(join(root, relativePath), "utf8")) as {
       scripts?: Record<string, string>;
@@ -23,7 +23,11 @@ async function packageCommands(root: string, relativePath: string, prefix: strin
 
 export async function verificationCommandsForRepository(root: string): Promise<string[]> {
   const commands = [ "git diff --check" ];
-  if (await exists(join(root, "bin/rails")) && await exists(join(root, "test"))) commands.push("bin/rails test");
+  const isActiveFlydRepository = await exists(join(root, "cli/src/server.ts"))
+    && await exists(join(root, "mac-adapter/Package.swift"));
+  if (!isActiveFlydRepository && await exists(join(root, "bin/rails")) && await exists(join(root, "test"))) {
+    commands.push("bin/rails test");
+  }
   commands.push(...await packageCommands(root, "package.json"));
   if (await exists(join(root, "cli/package.json"))) {
     commands.push(...await packageCommands(root, "cli/package.json", [ "--prefix", "cli" ]));

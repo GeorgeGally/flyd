@@ -290,6 +290,21 @@ final class FlydClient {
         let error: String?
     }
 
+    struct RepositoryActionSubmission: Codable {
+        let jobId: String
+        let status: String
+        let deadlineAt: String
+        let pollAfterMs: Int
+    }
+
+    struct RepositoryActionJobResponse: Codable {
+        let jobId: String
+        let status: String
+        let deadlineAt: String
+        let result: RepositoryActionResponse?
+        let error: String?
+    }
+
     func sendManifest(
         invocationId: String,
         environmentRevision: Int,
@@ -400,11 +415,35 @@ final class FlydClient {
         actionGrantId: String,
         workSessionRevision: Int
     ) async -> RepositoryActionResponse? {
-        await post("/work-intelligence/repository-action", body: RepositoryActionRequest(
+        guard let submission: RepositoryActionSubmission = await post("/work-intelligence/repository-action", body: RepositoryActionRequest(
             workSessionId: workSessionId,
             actionGrantId: actionGrantId,
             workSessionRevision: workSessionRevision
-        ))
+        )), let deadline = ISO8601DateFormatter().date(from: submission.deadlineAt) else {
+            return nil
+        }
+
+        while !Task.isCancelled && Date() < deadline {
+            if let job: RepositoryActionJobResponse = await get(
+                "/work-intelligence/repository-action/status?jobId=\(submission.jobId)"
+            ) {
+                if job.status == "completed" { return job.result }
+                if job.status == "failed" {
+                    return RepositoryActionResponse(
+                        actionId: submission.jobId,
+                        verified: false,
+                        changedFiles: [],
+                        diffDigest: nil,
+                        checksPerformed: [],
+                        integrationStatus: "unintegrated",
+                        handoffLocation: nil,
+                        error: job.error ?? "Repository execution failed."
+                    )
+                }
+            }
+            try? await Task.sleep(nanoseconds: UInt64(max(100, submission.pollAfterMs)) * 1_000_000)
+        }
+        return nil
     }
 
     func approveCommands(
@@ -662,6 +701,21 @@ final class FlydClient {
             return nil
         } catch {
             appendCoreLog("FlydClient \(path): request failed — \(error)")
+            return nil
+        }
+    }
+
+    private func get<R: Codable>(_ path: String) async -> R? {
+        guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(R.self, from: data)
+        } catch {
             return nil
         }
     }

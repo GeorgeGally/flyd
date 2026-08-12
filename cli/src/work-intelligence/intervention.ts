@@ -29,7 +29,7 @@ export function buildWorkIntelligencePrompt(params: {
 
   const changedFilesLine = currentWork.evidenceSummary.changedFiles?.length
     ? `Changed files (uncommitted):\n${currentWork.evidenceSummary.changedFiles.map(f => `  ${f}`).join('\n')}`
-    : currentWork.evidenceSummary.statusDigest === 'dirty'
+    : currentWork.evidenceSummary.isDirty
       ? 'Working tree is dirty (uncommitted changes present).'
       : '';
 
@@ -99,6 +99,7 @@ Respond with ONLY a JSON object in this format:
     "proposed_action": {
       "kind": "<text_edit|repository_action|shell_execute|file_read|file_grep|file_write|task_plan>",
       "description": "<what the action will do>",
+      "finish_condition": "<specific, independently verifiable condition that proves the action succeeded>",
       "shell_commands": [
         {"command": "<exact command to run>", "working_directory": "<absolute path>", "explanation": "<one-line description for approval UI>", "is_destructive": <true|false>}
       ],
@@ -193,6 +194,10 @@ function parseProposedAction(raw: Record<string, unknown> | undefined): ActionPr
   const kind = raw.kind as string;
   const validKinds = ['text_edit', 'repository_action', 'shell_execute', 'file_read', 'file_grep', 'file_write', 'task_plan'];
   if (!kind || !validKinds.includes(kind)) return undefined;
+  const finishCondition = typeof raw.finish_condition === 'string'
+    ? raw.finish_condition.trim()
+    : '';
+  if (kind === 'repository_action' && !finishCondition) return undefined;
 
   const action: ActionProposal = {
     actionId: `action-${randomUUID()}`,
@@ -201,7 +206,7 @@ function parseProposedAction(raw: Record<string, unknown> | undefined): ActionPr
     targetFingerprint: {},
     workSessionRevision: 0,
     diagnosedIssueId: '',
-    finishCondition: (raw.description as string) || '',
+    finishCondition,
     expiryMs: 120000,
     allowedOperation: kind === 'shell_execute' ? 'shell_execute'
       : kind === 'file_read' ? 'shell_execute'

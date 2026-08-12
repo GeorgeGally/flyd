@@ -62,8 +62,11 @@ export class WorkSessionStore {
     if (!session) return null;
 
     if (now - parseInt(session.lastActiveAt) > this.ttlMs) {
-      session.lastActiveAt = now.toString();
-      return null;
+      const hasExecutingGrant = [...session.activeActionGrants.values()].some(g => g.status === 'executing');
+      if (!hasExecutingGrant) {
+        this.sessions.delete(sessionId);
+        return null;
+      }
     }
 
     return session;
@@ -180,6 +183,11 @@ export class WorkSessionStore {
     ) {
       return { ok: false, error: 'Action proposal is not executable' };
     }
+    const proposalCreatedAt = Date.parse(turn.timestamp);
+    const proposalDeadline = proposalCreatedAt + proposal.expiryMs;
+    if (!Number.isFinite(proposalDeadline) || proposalDeadline <= now) {
+      return { ok: false, error: 'Action proposal has expired' };
+    }
 
     const existing = [...session.activeActionGrants.values()].find(grant =>
       grant.actionId === actionId && (grant.status === 'approved' || grant.status === 'executing')
@@ -196,7 +204,7 @@ export class WorkSessionStore {
       finishCondition: proposal.finishCondition,
       status: 'approved',
       grantedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + proposal.expiryMs).toISOString(),
+      expiresAt: new Date(proposalDeadline).toISOString(),
       workSessionRevision,
       targetFingerprint: { ...proposal.targetFingerprint },
     };

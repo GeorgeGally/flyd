@@ -173,7 +173,7 @@ describe("verifyWorkerResult", () => {
     })).rejects.toThrow("escaping symlink");
   });
 
-  it("fails verification when a command changes the assignment HEAD", async () => {
+  it("prevents a verification command from changing the assignment HEAD", async () => {
     const repo = await repository();
 
     const result = await verifyWorkerResult({
@@ -184,8 +184,25 @@ describe("verifyWorkerResult", () => {
       ],
     });
 
-    expect(result.head).not.toBe(repo.head);
+    expect(result.commands[0].exitStatus).not.toBe(0);
+    expect(result.head).toBe(repo.head);
     expect(result.passed).toBe(false);
+  });
+
+  it("prevents verification commands from poisoning Git evidence configuration", async () => {
+    const repo = await repository();
+    await writeFile(join(repo.root, "one.txt"), "implemented\n");
+
+    const result = await verifyWorkerResult({
+      worktreePath: repo.root,
+      baseHead: repo.head,
+      commands: ["git config diff.external /usr/bin/false"],
+    });
+
+    expect(result.commands[0].exitStatus).not.toBe(0);
+    expect(result.patch).toContain("implemented");
+    await expect(execFileAsync("git", ["-C", repo.root, "config", "--get", "diff.external"]))
+      .rejects.toThrow();
   });
 
   it("terminates verification descendants before extracting the patch", async () => {

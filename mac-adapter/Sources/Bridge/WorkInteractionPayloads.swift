@@ -9,17 +9,6 @@ struct WorkInteractionRequestPayload: Codable {
     let intent: String
     let modality: String
     let currentEvidence: EvidencePayload
-
-    enum CodingKeys: String, CodingKey {
-        case contractVersion = "contract_version"
-        case interactionId = "interaction_id"
-        case workSessionId = "work_session_id"
-        case workSessionRevision = "work_session_revision"
-        case invocationId = "invocation_id"
-        case intent
-        case modality
-        case currentEvidence = "current_evidence"
-    }
 }
 
 struct EvidencePayload: Codable {
@@ -30,26 +19,11 @@ struct EvidencePayload: Codable {
     let displayIdentity: String?
     let focusedBounds: DisplayBoundsPayload?
     let semanticNeighbourhood: [String: String]?
-
-    enum CodingKeys: String, CodingKey {
-        case foregroundApp = "foreground_app"
-        case activeWindow = "active_window"
-        case focusedElement = "focused_element"
-        case screenshotBase64 = "screenshot_base64"
-        case displayIdentity = "display_identity"
-        case focusedBounds = "focused_bounds"
-        case semanticNeighbourhood = "semantic_neighbourhood"
-    }
 }
 
 struct ForegroundAppPayload: Codable {
     let bundleId: String
     let name: String
-
-    enum CodingKeys: String, CodingKey {
-        case bundleId = "bundle_id"
-        case name
-    }
 }
 
 struct ActiveWindowPayload: Codable {
@@ -61,13 +35,6 @@ struct FocusedElementPayload: Codable {
     let role: String
     let value: String
     let selectedText: String
-
-    enum CodingKeys: String, CodingKey {
-        case ref
-        case role
-        case value
-        case selectedText = "selected_text"
-    }
 }
 
 struct DisplayBoundsPayload: Codable {
@@ -86,17 +53,6 @@ struct WorkInteractionResponsePayload: Codable {
     let diagnosis: DiagnosisPayload
     let intervention: InterventionPayload
     let timing: TimingPayload
-
-    enum CodingKeys: String, CodingKey {
-        case contractVersion = "contract_version"
-        case interactionId = "interaction_id"
-        case workSessionId = "work_session_id"
-        case workSessionRevision = "work_session_revision"
-        case currentWork = "current_work"
-        case diagnosis
-        case intervention
-        case timing
-    }
 }
 
 struct CurrentWorkPayload: Codable {
@@ -109,18 +65,6 @@ struct CurrentWorkPayload: Codable {
     let nextAction: EvidenceItemPayload<NextActionPayload>
     let evidenceSummary: EvidenceSummaryPayload
     let uncertainty: [UncertaintyItemPayload]
-
-    enum CodingKeys: String, CodingKey {
-        case project
-        case objective
-        case artifact
-        case stage
-        case constraints
-        case openLoops = "open_loops"
-        case nextAction = "next_action"
-        case evidenceSummary = "evidence_summary"
-        case uncertainty
-    }
 }
 
 struct EvidenceItemPayload<T: Codable>: Codable {
@@ -130,15 +74,6 @@ struct EvidenceItemPayload<T: Codable>: Codable {
     let provenance: String
     let sourceTimestamp: String
     let isHypothesis: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case value
-        case source
-        case confidence
-        case provenance
-        case sourceTimestamp = "source_timestamp"
-        case isHypothesis = "is_hypothesis"
-    }
 }
 
 struct NextActionPayload: Codable {
@@ -155,17 +90,6 @@ struct ArtifactIdentityPayload: Codable {
     let contentDigest: String
     let selectedRegion: RegionDescriptionPayload?
     let displayIdentity: String?
-
-    enum CodingKeys: String, CodingKey {
-        case kind
-        case title
-        case path
-        case bundleId = "bundle_id"
-        case windowTitle = "window_title"
-        case contentDigest = "content_digest"
-        case selectedRegion = "selected_region"
-        case displayIdentity = "display_identity"
-    }
 }
 
 struct RegionDescriptionPayload: Codable {
@@ -173,13 +97,6 @@ struct RegionDescriptionPayload: Codable {
     let displayId: String
     let contentSample: String
     let elementRef: String?
-
-    enum CodingKeys: String, CodingKey {
-        case bounds
-        case displayId = "display_id"
-        case contentSample = "content_sample"
-        case elementRef = "element_ref"
-    }
 }
 
 struct OpenLoopPayload: Codable {
@@ -198,17 +115,6 @@ struct EvidenceSummaryPayload: Codable {
     let headDigest: String?
     let documentPath: String?
     let activeWindowTitle: String
-
-    enum CodingKeys: String, CodingKey {
-        case sources
-        case snapshotTimestamp = "snapshot_timestamp"
-        case foregroundApp = "foreground_app"
-        case repositoryRoot = "repository_root"
-        case branch
-        case headDigest = "head_digest"
-        case documentPath = "document_path"
-        case activeWindowTitle = "active_window_title"
-    }
 }
 
 struct UncertaintyItemPayload: Codable {
@@ -220,12 +126,6 @@ struct DiagnosisPayload: Codable {
     let primaryIssue: PrimaryIssuePayload
     let supportingObservations: [SupportingObservationPayload]?
     let contraryEvidence: String?
-
-    enum CodingKeys: String, CodingKey {
-        case primaryIssue = "primary_issue"
-        case supportingObservations = "supporting_observations"
-        case contraryEvidence = "contrary_evidence"
-    }
 }
 
 struct PrimaryIssuePayload: Codable {
@@ -235,15 +135,6 @@ struct PrimaryIssuePayload: Codable {
     let causalExplanation: String
     let domain: String
     let evidenceRefs: [String]
-
-    enum CodingKeys: String, CodingKey {
-        case category
-        case severity
-        case finding
-        case causalExplanation = "causal_explanation"
-        case domain
-        case evidenceRefs = "evidence_refs"
-    }
 }
 
 struct SupportingObservationPayload: Codable {
@@ -258,27 +149,12 @@ struct InterventionPayload: Codable {
     let visualGrounding: VisualGroundingPayload?
     let options: [InterventionOptionPayload]?
     let proposedAction: ActionProposalPayload?
-
-    enum CodingKeys: String, CodingKey {
-        case kind
-        case content
-        case strongerAlternative = "stronger_alternative"
-        case visualGrounding = "visual_grounding"
-        case options
-        case proposedAction = "proposed_action"
-    }
 }
 
 struct VisualGroundingPayload: Codable {
     let regionDescription: RegionDescriptionPayload
     let placement: String
     let pointingTargets: [PointingTargetPayload]?
-
-    enum CodingKeys: String, CodingKey {
-        case regionDescription = "region_description"
-        case placement
-        case pointingTargets = "pointing_targets"
-    }
 }
 
 struct PointingTargetPayload: Codable {
@@ -304,20 +180,6 @@ struct ActionProposalPayload: Codable {
     let expiryMs: Int
     let allowedOperation: String?
     let shellCommands: [ShellCommandPayload]?
-
-    enum CodingKeys: String, CodingKey {
-        case actionId = "action_id"
-        case kind
-        case description
-        case previewText = "preview_text"
-        case targetFingerprint = "target_fingerprint"
-        case workSessionRevision = "work_session_revision"
-        case diagnosedIssueId = "diagnosed_issue_id"
-        case finishCondition = "finish_condition"
-        case expiryMs = "expiry_ms"
-        case allowedOperation = "allowed_operation"
-        case shellCommands = "shell_commands"
-    }
 }
 
 struct ShellCommandPayload: Codable {
@@ -325,13 +187,6 @@ struct ShellCommandPayload: Codable {
     let workingDirectory: String?
     let explanation: String
     let isDestructive: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case command
-        case workingDirectory = "working_directory"
-        case explanation
-        case isDestructive = "is_destructive"
-    }
 }
 
 struct ShellExecutionRequestPayload: Codable {
@@ -340,14 +195,6 @@ struct ShellExecutionRequestPayload: Codable {
     let interactionId: String
     let commands: [ShellCommandPayload]
     let projectRoot: String
-
-    enum CodingKeys: String, CodingKey {
-        case executionId = "execution_id"
-        case workSessionId = "work_session_id"
-        case interactionId = "interaction_id"
-        case commands
-        case projectRoot = "project_root"
-    }
 }
 
 struct ShellExecutionOutputPayload: Codable {
@@ -359,17 +206,6 @@ struct ShellExecutionOutputPayload: Codable {
     let startedAt: String
     let completedAt: String?
     let status: String
-
-    enum CodingKeys: String, CodingKey {
-        case commandId = "command_id"
-        case stdout
-        case stderr
-        case exitCode = "exit_code"
-        case timedOut = "timed_out"
-        case startedAt = "started_at"
-        case completedAt = "completed_at"
-        case status
-    }
 }
 
 struct ShellExecutionResultPayload: Codable {
@@ -378,14 +214,6 @@ struct ShellExecutionResultPayload: Codable {
     let commands: [ShellExecutionOutputPayload]
     let startTime: String
     let endTime: String?
-
-    enum CodingKeys: String, CodingKey {
-        case executionId = "execution_id"
-        case status
-        case commands
-        case startTime = "start_time"
-        case endTime = "end_time"
-    }
 }
 
 struct TargetFingerprintPayload: Codable {
@@ -396,24 +224,10 @@ struct TargetFingerprintPayload: Codable {
     let branch: String?
     let headDigest: String?
     let statusDigest: String?
-
-    enum CodingKeys: String, CodingKey {
-        case elementRef = "element_ref"
-        case selectedTextDigest = "selected_text_digest"
-        case fieldValueDigest = "field_value_digest"
-        case repositoryRoot = "repository_root"
-        case branch
-        case headDigest = "head_digest"
-        case statusDigest = "status_digest"
-    }
 }
 
 struct TimingPayload: Codable {
     let totalMs: Int
-
-    enum CodingKeys: String, CodingKey {
-        case totalMs = "total_ms"
-    }
 }
 
 struct ActionGrantPayload: Codable {
@@ -425,17 +239,6 @@ struct ActionGrantPayload: Codable {
     let targetFingerprint: TargetFingerprintPayload
     let invalidationReason: String?
     let result: ActionResultPayload?
-
-    enum CodingKeys: String, CodingKey {
-        case grantId = "grant_id"
-        case actionId = "action_id"
-        case status
-        case grantedAt = "granted_at"
-        case workSessionRevision = "work_session_revision"
-        case targetFingerprint = "target_fingerprint"
-        case invalidationReason = "invalidation_reason"
-        case result
-    }
 }
 
 struct ActionResultPayload: Codable {
@@ -447,17 +250,6 @@ struct ActionResultPayload: Codable {
     let unresolvedIssues: [String]?
     let recommendedNextAction: String?
     let partialOutput: String?
-
-    enum CodingKeys: String, CodingKey {
-        case verified
-        case changedField = "changed_field"
-        case changedFilePath = "changed_file_path"
-        case diffDigest = "diff_digest"
-        case checksPerformed = "checks_performed"
-        case unresolvedIssues = "unresolved_issues"
-        case recommendedNextAction = "recommended_next_action"
-        case partialOutput = "partial_output"
-    }
 }
 
 struct VerificationResultPayload: Codable {
@@ -468,16 +260,6 @@ struct VerificationResultPayload: Codable {
     let verdict: String
     let evidence: String
     let timestamp: String
-
-    enum CodingKeys: String, CodingKey {
-        case actionGrantId = "action_grant_id"
-        case diagnosisResolved = "diagnosis_resolved"
-        case actualChanges = "actual_changes"
-        case verificationChecks = "verification_checks"
-        case verdict
-        case evidence
-        case timestamp
-    }
 }
 
 struct VerificationChecksPayload: Codable {
@@ -485,13 +267,6 @@ struct VerificationChecksPayload: Codable {
     let diffCheck: DiffCheckPayload?
     let testsRun: TestsRunPayload?
     let constraintsHeld: ConstraintsHeldPayload?
-
-    enum CodingKeys: String, CodingKey {
-        case reRead = "re_read"
-        case diffCheck = "diff_check"
-        case testsRun = "tests_run"
-        case constraintsHeld = "constraints_held"
-    }
 }
 
 struct ReReadCheckPayload: Codable {

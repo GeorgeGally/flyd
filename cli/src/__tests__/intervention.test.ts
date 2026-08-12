@@ -99,6 +99,34 @@ describe('intervention prompt', () => {
     expect(prompt).toContain('RECENT CONVERSATION');
     expect(prompt).toContain('Write email');
   });
+
+  it('describes finish_condition as independent action success criteria', () => {
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork: makeCurrentWork(),
+      domainStandard: DOMAIN_STANDARDS.code,
+      intent: 'Fix the regression',
+    });
+
+    expect(prompt).toContain('"finish_condition"');
+  });
+
+  it('reports a dirty worktree from the explicit evidence flag', () => {
+    const currentWork = makeCurrentWork();
+    currentWork.evidenceSummary = {
+      ...currentWork.evidenceSummary,
+      isDirty: true,
+      statusDigest: 'f4d3a9d1b6f65d1a',
+      changedFiles: [],
+    };
+
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork,
+      domainStandard: DOMAIN_STANDARDS.code,
+      intent: 'Review this repository',
+    });
+
+    expect(prompt).toContain('Working tree is dirty (uncommitted changes present).');
+  });
 });
 
 describe('parseWorkIntelligenceResponse', () => {
@@ -150,5 +178,42 @@ describe('parseWorkIntelligenceResponse', () => {
     const result = parseWorkIntelligenceResponse(raw);
     expect(result.diagnosis.primaryIssue.category).toBeDefined();
     expect(result.intervention.content).toBeDefined();
+  });
+
+  it('parses finish_condition independently from the action description', () => {
+    const raw = JSON.stringify({
+      diagnosis: { primary_issue: {} },
+      intervention: {
+        content: 'Fix the failing repository check',
+        proposed_action: {
+          kind: 'repository_action',
+          description: 'Update the verifier',
+          finish_condition: 'The focused verifier tests pass',
+        },
+      },
+    });
+
+    const result = parseWorkIntelligenceResponse(raw);
+
+    expect(result.intervention.proposedAction?.description).toBe('Update the verifier');
+    expect(result.intervention.proposedAction?.finishCondition).toBe('The focused verifier tests pass');
+  });
+
+  it('keeps a repository recommendation advisory when finish_condition is absent', () => {
+    const raw = JSON.stringify({
+      diagnosis: { primary_issue: {} },
+      intervention: {
+        content: 'The verifier should reject escaping paths',
+        proposed_action: {
+          kind: 'repository_action',
+          description: 'Update the verifier',
+        },
+      },
+    });
+
+    const result = parseWorkIntelligenceResponse(raw);
+
+    expect(result.intervention.content).toBe('The verifier should reject escaping paths');
+    expect(result.intervention.proposedAction).toBeUndefined();
   });
 });

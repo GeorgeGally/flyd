@@ -9,20 +9,110 @@ enum WorkInteractionPhase: Equatable {
     case executing
 }
 
+struct PendingRepositoryAction {
+    let expiresAt: Date
+
+    init?(proposal: ActionProposalPayload, receivedAt: Date = Date()) {
+        guard proposal.kind == "repository_action",
+              let allowedOperation = proposal.allowedOperation?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !allowedOperation.isEmpty,
+              proposal.expiryMs > 0 else {
+            return nil
+        }
+
+        self.expiresAt = receivedAt.addingTimeInterval(TimeInterval(proposal.expiryMs) / 1_000)
+    }
+
+    func approvalError(at date: Date = Date()) -> String? {
+        date >= expiresAt
+            ? "This approval window has expired. Ask Flyd to propose the action again."
+            : nil
+    }
+}
+
+struct PendingAction {
+    let actionId: String
+    let kind: String
+    let description: String
+    let workSessionRevision: Int
+    let targetFingerprint: TargetFingerprintPayload
+    let repositoryAuthority: PendingRepositoryAction?
+
+    init(proposal: ActionProposalPayload, receivedAt: Date = Date()) {
+        actionId = proposal.actionId
+        kind = proposal.kind
+        description = proposal.description
+        workSessionRevision = proposal.workSessionRevision
+        targetFingerprint = proposal.targetFingerprint
+        repositoryAuthority = PendingRepositoryAction(proposal: proposal, receivedAt: receivedAt)
+    }
+}
+
+enum RepositoryActionApprovalPolicy {
+    static func presentationLines(for proposal: ActionProposalPayload) -> [String] {
+        let operation = proposal.allowedOperation?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let operationLabel: String
+        if let operation, !operation.isEmpty {
+            operationLabel = operation
+        } else {
+            operationLabel = "unavailable — approval disabled"
+        }
+        return [
+            "Allowed operation: \(operationLabel)",
+            "Approval window: \(approvalWindowDescription(expiryMs: proposal.expiryMs))",
+        ]
+    }
+
+    private static func approvalWindowDescription(expiryMs: Int) -> String {
+        guard expiryMs > 0 else { return "expired — approval disabled" }
+        let seconds = Int(ceil(Double(expiryMs) / 1_000))
+        if seconds >= 60, seconds % 60 == 0 {
+            let minutes = seconds / 60
+            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        }
+        return "\(seconds) second\(seconds == 1 ? "" : "s")"
+    }
+}
+
+struct RepositoryActionRunIdentity: Equatable {
+    let token: UUID
+    let actionId: String
+    let workSessionId: String
+    let workSessionRevision: Int
+    let invocationId: String?
+    let interactionId: String?
+
+    func matches(
+        activeIdentity: RepositoryActionRunIdentity?,
+        workSessionId: String?,
+        workSessionRevision: Int,
+        invocationId: String?,
+        interactionId: String?
+    ) -> Bool {
+        activeIdentity == self
+            && workSessionId == self.workSessionId
+            && workSessionRevision == self.workSessionRevision
+            && invocationId == self.invocationId
+            && interactionId == self.interactionId
+    }
+}
+
 final class WorkInteractionCoordinator {
     static let shared = WorkInteractionCoordinator()
 
     private var activePanels: [AugmentPanel] = []
     private var activeInvocationTask: Task<Void, Never>?
+    private var repositoryActionTask: Task<Void, Never>?
     private weak var invocationPanel: InvocationPanel?
     private weak var executor: NativeExecutor?
 
     private(set) var phase: WorkInteractionPhase = .idle
     private(set) var sessionId: String?
     private(set) var sessionRevision: Int = 0
-    private(set) var pendingAction: (actionId: String, kind: String, description: String, workSessionRevision: Int, targetFingerprint: TargetFingerprintPayload)?
+    private(set) var pendingAction: PendingAction?
     private var activeInvocationId: String?
     private var activeInteractionId: String?
+    private var activeRepositoryActionIdentity: RepositoryActionRunIdentity?
 
     func configure(invocationPanel: InvocationPanel, executor: NativeExecutor) {
         self.invocationPanel = invocationPanel
@@ -40,6 +130,8 @@ final class WorkInteractionCoordinator {
     }
 
     func renderWorkIntelligence(invocationId: String, invocationRevision: Int, response: FlydClient.ResolutionResponse) {
+        cancelRepositoryActionExecution()
+        pendingAction = nil
         guard let diagnosis = response.diagnosis, let intervention = response.intervention else {
             appendCoreLog("WorkInteractionCoordinator: work_intelligence response missing diagnosis or intervention")
             return
@@ -57,7 +149,8 @@ final class WorkInteractionCoordinator {
 
         phase = .intervening
 
-        let content = buildInterventionContent(diagnosis: diagnosis, intervention: intervention)
+        let proposedAction = intervention.proposedAction.map { PendingAction(proposal: $0) }
+        let content = buildInterventionContent(diagnosis: diagnosis, intervention: intervention, proposedAction: proposedAction)
         let options = buildInterventionOptions(intervention: intervention)
 
         let anchorRect = interventionAnchorRect(from: intervention)
@@ -99,7 +192,7 @@ final class WorkInteractionCoordinator {
             self?.handleApproveAction()
         }
 
-        let feedbackKind = feedbackKindForIntervention(intervention)
+        let feedbackKind = feedbackKindForIntervention(intervention, proposedAction: proposedAction)
 
         panel.showWorkIntervention(
             content: content,
@@ -112,20 +205,14 @@ final class WorkInteractionCoordinator {
 
         activePanels = [panel]
 
-        if let action = intervention.proposedAction {
-            pendingAction = (
-                actionId: action.actionId,
-                kind: action.kind,
-                description: action.description,
-                workSessionRevision: action.workSessionRevision,
-                targetFingerprint: action.targetFingerprint
-            )
-        }
+        pendingAction = proposedAction
 
         appendCoreLog("WorkInteractionCoordinator: rendered work-intelligence intervention — session=\(sessionId?.prefix(8) ?? "none") rev=\(sessionRevision)")
     }
 
     func renderExecutionCards(invocationId: String, resolution: FlydClient.ResolutionResponse) {
+        cancelRepositoryActionExecution()
+        pendingAction = nil
         guard let augmentations = resolution.augmentations, !augmentations.isEmpty else {
             appendCoreLog("WorkInteractionCoordinator: requires_execution response missing augmentations")
             return
@@ -460,6 +547,7 @@ final class WorkInteractionCoordinator {
     func cancelActiveInvocation() {
         activeInvocationTask?.cancel()
         activeInvocationTask = nil
+        cancelRepositoryActionExecution()
         phase = .idle
         pendingAction = nil
         activeInvocationId = nil
@@ -477,7 +565,11 @@ final class WorkInteractionCoordinator {
         pendingAction != nil
     }
 
-    private func buildInterventionContent(diagnosis: DiagnosisPayload, intervention: InterventionPayload) -> String {
+    private func buildInterventionContent(
+        diagnosis: DiagnosisPayload,
+        intervention: InterventionPayload,
+        proposedAction: PendingAction?
+    ) -> String {
         var parts: [String] = []
 
         let severityLabel: String
@@ -515,6 +607,10 @@ final class WorkInteractionCoordinator {
                     parts.append("Repository: \(root)\nBranch: \(action.targetFingerprint.branch ?? "unknown")")
                 }
                 parts.append("Finish condition: \(action.finishCondition)")
+                parts.append(contentsOf: RepositoryActionApprovalPolicy.presentationLines(for: action))
+                if proposedAction?.repositoryAuthority == nil {
+                    parts.append("Approval unavailable: Core did not provide valid operation authority and an active approval window.")
+                }
             }
         }
 
@@ -534,8 +630,12 @@ final class WorkInteractionCoordinator {
         }
     }
 
-    private func feedbackKindForIntervention(_ intervention: InterventionPayload) -> AugmentPanel.FeedbackKind {
-        if intervention.proposedAction != nil {
+    private func feedbackKindForIntervention(
+        _ intervention: InterventionPayload,
+        proposedAction: PendingAction?
+    ) -> AugmentPanel.FeedbackKind {
+        if let action = intervention.proposedAction,
+           action.kind != "repository_action" || proposedAction?.repositoryAuthority != nil {
             return .actionProposal
         }
         return .intervention
@@ -598,6 +698,18 @@ final class WorkInteractionCoordinator {
 
     private func handleApproveAction() {
         guard let pending = pendingAction, let sessionId = sessionId else { return }
+        if pending.kind == "repository_action", pending.repositoryAuthority == nil {
+            pendingAction = nil
+            phase = .idle
+            return
+        }
+        if let error = pending.repositoryAuthority?.approvalError() {
+            pendingAction = nil
+            phase = .idle
+            dismissActivePanels()
+            showRepositoryActionResult(nil, fallback: error)
+            return
+        }
         appendCoreLog("WorkInteraction: action approved — \(pending.actionId)")
         pendingAction = nil
         phase = .awaitingAuthority
@@ -609,29 +721,77 @@ final class WorkInteractionCoordinator {
             return
         }
 
-        Task { [weak self] in
+        cancelRepositoryActionExecution()
+        let identity = RepositoryActionRunIdentity(
+            token: UUID(),
+            actionId: pending.actionId,
+            workSessionId: sessionId,
+            workSessionRevision: pending.workSessionRevision,
+            invocationId: activeInvocationId,
+            interactionId: activeInteractionId
+        )
+        activeRepositoryActionIdentity = identity
+        repositoryActionTask = Task { [weak self] in
             guard let self = self else { return }
-            guard let approval = await FlydClient.shared.approveRepositoryAction(
+            let approval = await FlydClient.shared.approveRepositoryAction(
                 workSessionId: sessionId,
                 actionId: pending.actionId,
                 workSessionRevision: pending.workSessionRevision
-            ) else {
+            )
+            guard !Task.isCancelled,
+                  await self.repositoryActionIsCurrent(identity) else { return }
+            guard let approval else {
                 await MainActor.run {
+                    guard self.activeRepositoryActionIdentity == identity else { return }
+                    self.finishRepositoryAction(identity)
                     self.showRepositoryActionResult(nil, fallback: "Core rejected or could not mint the repository action grant.")
                 }
                 return
             }
 
-            await MainActor.run { self.phase = .executing }
+            let beganExecution = await MainActor.run {
+                guard self.activeRepositoryActionIdentity == identity else { return false }
+                self.phase = .executing
+                return true
+            }
+            guard beganExecution, !Task.isCancelled else { return }
             let result = await FlydClient.shared.executeRepositoryAction(
                 workSessionId: sessionId,
                 actionGrantId: approval.actionGrantId,
                 workSessionRevision: approval.workSessionRevision
             )
+            guard !Task.isCancelled,
+                  await self.repositoryActionIsCurrent(identity) else { return }
             await MainActor.run {
+                guard self.activeRepositoryActionIdentity == identity else { return }
+                self.finishRepositoryAction(identity)
                 self.showRepositoryActionResult(result, fallback: "Repository execution did not return a result.")
             }
         }
+    }
+
+    private func repositoryActionIsCurrent(_ identity: RepositoryActionRunIdentity) async -> Bool {
+        await MainActor.run {
+            identity.matches(
+                activeIdentity: self.activeRepositoryActionIdentity,
+                workSessionId: self.sessionId,
+                workSessionRevision: self.sessionRevision,
+                invocationId: self.activeInvocationId,
+                interactionId: self.activeInteractionId
+            )
+        }
+    }
+
+    private func finishRepositoryAction(_ identity: RepositoryActionRunIdentity) {
+        guard activeRepositoryActionIdentity == identity else { return }
+        repositoryActionTask = nil
+        activeRepositoryActionIdentity = nil
+    }
+
+    private func cancelRepositoryActionExecution() {
+        repositoryActionTask?.cancel()
+        repositoryActionTask = nil
+        activeRepositoryActionIdentity = nil
     }
 
     private func showRepositoryActionResult(_ result: FlydClient.RepositoryActionResponse?, fallback: String) {
@@ -674,6 +834,7 @@ final class WorkInteractionCoordinator {
     }
 
     func clearOnContextChange() {
+        cancelRepositoryActionExecution()
         guard phase != .idle else { return }
         appendCoreLog("WorkInteraction: context changed — clearing pending actions")
         pendingAction = nil

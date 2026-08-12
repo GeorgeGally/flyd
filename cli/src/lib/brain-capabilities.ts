@@ -40,7 +40,9 @@ export const BRAIN_CAPABILITIES = ([
   { id: "optimize-skill", integration: "maintenance", description: "Improve reusable agent skills from observed execution history.", mutatesArchive: true },
   { id: "wiki", integration: "maintenance", description: "Initialize and maintain the curated local knowledge store.", mutatesArchive: true },
   { id: "ingest", integration: "maintenance", description: "Promote raw captures into governed curated knowledge.", mutatesArchive: true },
+  { id: "repos", integration: "maintenance", description: "Manage the cross-repository work index and discovery.", mutatesArchive: true },
   { id: "daemon", integration: "runtime", description: "Continuously process new captures and refresh derived memory.", mutatesArchive: true },
+  { id: "tasks", integration: "interactive", description: "Manage work tasks from the cross-repository work index.", mutatesArchive: true },
 ] satisfies BrainCapability[]).sort((a, b) => a.id.localeCompare(b.id));
 
 export function brainCapability(id: string): BrainCapability | undefined {

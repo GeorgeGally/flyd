@@ -7,6 +7,7 @@ import { createFlydWorkerAdapter, verifyRepositoryActionDependencyBoundary } fro
 import { inspectRepository, captureActionGrantFingerprint, fingerprintStillMatches } from '../runtime/repository-inspector.js';
 import { filesOutsideScope, verifyWorkerResult } from '../runtime/result-verifier.js';
 import { verificationCommandsForRepository } from '../runtime/verification-commands.js';
+import { prepareRepositoryDependencies } from '../runtime/repository-dependencies.js';
 import { GitWorktreeManager } from '../runtime/worktree-manager.js';
 import { fileURLToPath } from 'node:url';
 import type { TargetFingerprint } from './types.js';
@@ -125,6 +126,7 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
       baseHead: fingerprint.head,
     });
     workerRoot = managed.path;
+    const dependencyPreparation = await prepareRepositoryDependencies(workerRoot);
     const config = loadFlydWorkerConfig();
     const sessionRoot = join(tmpdir(), 'flyd-repo-action', actionId);
     const adapter = createFlydWorkerAdapter({
@@ -139,7 +141,7 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
       return failedRepositoryAction(
         actionId,
         `Worker not healthy: ${health.error || 'unknown'}`,
-        ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree'],
+        ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree', ...dependencyPreparation],
         true,
       );
     }
@@ -175,6 +177,8 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
     );
     const hasDiff = changedFiles.length > 0;
     preserveWorktree = hasDiff;
+    const beforeStateDigest = createHash('sha256').update(`${fingerprint.head}\n`).digest('hex');
+    const afterStateDigest = createHash('sha256').update(`${fingerprint.head}\n${verification.patch}`).digest('hex');
     if (hasDiff && managed) await worktreeManager.preserveHandoff(managed);
     const currentSnapshot = await inspectRepository(input.approvedRoot).catch(() => null);
     const postRunSourceFingerprintDigest = currentSnapshot
@@ -196,7 +200,7 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
         diffDigest: verification.patchDigest,
         diffSummary: verification.patch.slice(0, 1000),
         exitStatus: result.exitStatus,
-        checksPerformed: ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree', ...commands, 'source-state-check'],
+        checksPerformed: ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree', ...dependencyPreparation, ...commands, 'source-state-check'],
         isolatedWorktree: true,
         integrated: false,
         integrationStatus: 'unintegrated',
@@ -208,11 +212,11 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
           exitStatus: command.exitStatus,
           outputDigest: command.outputDigest,
         })),
+        beforeStateDigest,
+        afterStateDigest,
       };
     }
     const verified = result.exitStatus === 0 && verification.passed && outOfScopeFiles.length === 0;
-    const beforeStateDigest = createHash('sha256').update(`${fingerprint.head}\n`).digest('hex');
-    const afterStateDigest = createHash('sha256').update(`${fingerprint.head}\n${verification.patch}`).digest('hex');
     return {
       actionId,
       verified,
@@ -227,7 +231,7 @@ export async function runRepositoryAction(input: RepositoryActionInput): Promise
       diffDigest: verification.patchDigest,
       diffSummary: hasDiff ? verification.patch.slice(0, 1000) : undefined,
       exitStatus: result.exitStatus,
-      checksPerformed: ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree', ...commands, 'source-state-check'],
+      checksPerformed: ['root-exists', 'git-check', 'grant-fingerprint-check', 'isolated-worktree', ...dependencyPreparation, ...commands, 'source-state-check'],
       isolatedWorktree: true,
       integrated: false,
       integrationStatus: 'unintegrated',

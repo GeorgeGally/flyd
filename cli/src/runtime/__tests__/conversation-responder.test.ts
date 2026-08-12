@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -400,5 +400,81 @@ describe("buildConversationPrompt", () => {
     });
 
     expect(laterEvidence).toContain("refused an ungrounded project answer");
+  });
+
+  it("denies file and directory symlinks that escape the current repository", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-project-"));
+    const outsideRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-outside-"));
+    writeFileSync(join(outsideRoot, "secret.txt"), "outside secret\n");
+    symlinkSync(join(outsideRoot, "secret.txt"), join(projectRoot, "secret-link"));
+    symlinkSync(outsideRoot, join(projectRoot, "outside-dir"));
+    const observed: string[] = [];
+    try {
+      await respondToConversation({
+        message: "show me these files",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(projectRoot),
+        },
+        onToken: () => undefined,
+      }, {
+        resolveConnection: () => ({
+          model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
+        }),
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          observed.push(onToolCall("read_file", { path: "secret-link" }));
+          observed.push(onToolCall("list_files", { path: "outside-dir" }));
+          return "<final>Inspected safely.</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+
+      expect(observed).toEqual([
+        "Access denied: secret-link",
+        "Access denied: outside-dir",
+      ]);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("denies an unregistered repository even when it contains Git metadata", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-project-"));
+    const unregisteredRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-unregistered-"));
+    mkdirSync(join(unregisteredRoot, ".git"));
+    writeFileSync(join(unregisteredRoot, "secret.txt"), "not registered\n");
+    let observed = "";
+    try {
+      await respondToConversation({
+        message: "show me this file",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(projectRoot),
+        },
+        crossRepo: [],
+        onToken: () => undefined,
+      }, {
+        resolveConnection: () => ({
+          model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
+        }),
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          observed = onToolCall("read_file", { repo: realpathSync(unregisteredRoot), path: "secret.txt" });
+          return "<final>Inspection denied.</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+
+      expect(observed).toBe(`Repository not found: ${realpathSync(unregisteredRoot)}`);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(unregisteredRoot, { recursive: true, force: true });
+    }
   });
 });

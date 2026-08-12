@@ -218,9 +218,20 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
         let spinnerIdx = 0;
         let spinnerActive = true;
-        const spinInterval = setInterval(() => {
+        let spinnerStarted = false;
+        let spinInterval: ReturnType<typeof setInterval> | undefined;
+        const stopSpinner = () => {
           if (!spinnerActive) return;
-          deps.terminal.write(`\b${spinner[spinnerIdx]}`);
+          spinnerActive = false;
+          if (spinInterval) clearInterval(spinInterval);
+          if (spinnerStarted) deps.terminal.write("\b \b");
+          deps.terminal.write("\u001b[?25h");
+        };
+        deps.terminal.write("\u001b[?25l");
+        spinInterval = setInterval(() => {
+          if (!spinnerActive) return;
+          deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : spinner[spinnerIdx]);
+          spinnerStarted = true;
           spinnerIdx = (spinnerIdx + 1) % spinner.length;
         }, 100);
 
@@ -238,16 +249,14 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
             weather: weatherText || undefined,
             onToken: (token) => {
               if (!streamed) {
-                spinnerActive = false;
-                deps.terminal.write("\b \b");
+                stopSpinner();
               }
               streamed = true;
               deps.terminal.write(token);
             },
           });
         } finally {
-          clearInterval(spinInterval);
-          if (!streamed) deps.terminal.write("\b \b");
+          stopSpinner();
         }
         if (!streamed && answer) deps.terminal.write(answer);
         deps.terminal.write("\n");

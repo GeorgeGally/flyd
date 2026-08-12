@@ -2,6 +2,22 @@ import XCTest
 @testable import FlydMacAdapter
 
 final class WorkInteractionPayloadTests: XCTestCase {
+    func testRepositoryActionAsyncJobPayloadsDecode() throws {
+        let submission = try JSONDecoder().decode(
+            FlydClient.RepositoryActionSubmission.self,
+            from: Data(#"{"jobId":"grant-1","status":"running","deadlineAt":"2026-08-12T12:00:00.000Z","pollAfterMs":1000}"#.utf8)
+        )
+        XCTAssertEqual(submission.jobId, "grant-1")
+        XCTAssertEqual(submission.pollAfterMs, 1_000)
+
+        let status = try JSONDecoder().decode(
+            FlydClient.RepositoryActionJobResponse.self,
+            from: Data(#"{"jobId":"grant-1","status":"completed","deadlineAt":"2026-08-12T12:00:00.000Z","result":{"actionId":"action-1","verified":true,"changedFiles":["cli/src/server.ts"],"diffDigest":"abc","checksPerformed":["npm test"],"integrationStatus":"unintegrated","handoffLocation":"/tmp/handoff","error":null},"error":null}"#.utf8)
+        )
+        XCTAssertEqual(status.status, "completed")
+        XCTAssertEqual(status.result?.changedFiles, ["cli/src/server.ts"])
+    }
+
 
     func testManifestRepositoryActionResponseDecodesForInstalledApp() throws {
         let json = """
@@ -16,33 +32,33 @@ final class WorkInteractionPayloadTests: XCTestCase {
           "workSessionId": "session-1",
           "workSessionRevision": 4,
           "diagnosis": {
-            "primary_issue": {
+            "primaryIssue": {
               "category": "correctness",
               "severity": "critical",
               "finding": "The validation boundary is missing",
-              "causal_explanation": "The input reaches execution unchecked",
+              "causalExplanation": "The input reaches execution unchecked",
               "domain": "code",
-              "evidence_refs": ["repository_status"]
+              "evidenceRefs": ["repository_status"]
             }
           },
           "intervention": {
             "kind": "actionPlan",
             "content": "Add the missing validation",
-            "proposed_action": {
-              "action_id": "action-1",
+            "proposedAction": {
+              "actionId": "action-1",
               "kind": "repository_action",
               "description": "Add the missing validation",
-              "target_fingerprint": {
-                "repository_root": "/tmp/project",
+              "targetFingerprint": {
+                "repositoryRoot": "/tmp/project",
                 "branch": "main",
-                "head_digest": "head-1",
-                "status_digest": "status-1"
+                "headDigest": "head-1",
+                "statusDigest": "status-1"
               },
-              "work_session_revision": 4,
-              "diagnosed_issue_id": "interaction-1",
-              "finish_condition": "Tests pass",
-              "expiry_ms": 60000,
-              "allowed_operation": "repository_work"
+              "workSessionRevision": 4,
+              "diagnosedIssueId": "interaction-1",
+              "finishCondition": "Tests pass",
+              "expiryMs": 60000,
+              "allowedOperation": "repository_work"
             }
           }
         }
@@ -59,24 +75,24 @@ final class WorkInteractionPayloadTests: XCTestCase {
     func testDecodeRequestGoldenFixture() throws {
         let json = """
         {
-          "contract_version": 1,
-          "interaction_id": "wi_test_001",
-          "work_session_id": "ws_test_001",
-          "work_session_revision": 1,
-          "invocation_id": "inv_test_001",
+          "contractVersion": 1,
+          "interactionId": "wi_test_001",
+          "workSessionId": "ws_test_001",
+          "workSessionRevision": 1,
+          "invocationId": "inv_test_001",
           "intent": "Review this function for correctness issues",
           "modality": "text",
-          "current_evidence": {
-            "foreground_app": { "bundle_id": "com.apple.dt.Xcode", "name": "Xcode" },
-            "active_window": { "title": "AuthService.swift — CleanX" },
-            "focused_element": {
+          "currentEvidence": {
+            "foregroundApp": { "bundleId": "com.apple.dt.Xcode", "name": "Xcode" },
+            "activeWindow": { "title": "AuthService.swift — CleanX" },
+            "focusedElement": {
               "ref": "el_01",
               "role": "AXTextArea",
               "value": "func login(email: String, password: String) async throws -> Token",
-              "selected_text": ""
+              "selectedText": ""
             },
-            "display_identity": "display_0_2560x1440",
-            "focused_bounds": { "x": 200, "y": 150, "width": 800, "height": 600 }
+            "displayIdentity": "display_0_2560x1440",
+            "focusedBounds": { "x": 200, "y": 150, "width": 800, "height": 600 }
           }
         }
         """
@@ -107,88 +123,88 @@ final class WorkInteractionPayloadTests: XCTestCase {
     func testDecodeResponseGoldenFixture() throws {
         let json = """
         {
-          "contract_version": 1,
-          "interaction_id": "wi_test_001",
-          "work_session_id": "ws_test_001",
-          "work_session_revision": 1,
-          "current_work": {
+          "contractVersion": 1,
+          "interactionId": "wi_test_001",
+          "workSessionId": "ws_test_001",
+          "workSessionRevision": 1,
+          "currentWork": {
             "project": {
               "value": "CleanX",
               "source": "foreground",
               "confidence": "high",
               "provenance": "Document path resolves to Git repository root",
-              "source_timestamp": "2026-08-02T10:00:00Z",
-              "is_hypothesis": false
+              "sourceTimestamp": "2026-08-02T10:00:00Z",
+              "isHypothesis": false
             },
             "objective": {
               "value": "unknown",
               "source": "foreground",
               "confidence": "low",
               "provenance": "No explicit goal found",
-              "source_timestamp": "2026-08-02T10:00:00Z",
-              "is_hypothesis": true
+              "sourceTimestamp": "2026-08-02T10:00:00Z",
+              "isHypothesis": true
             },
             "artifact": {
               "kind": "code",
               "title": "AuthService.swift",
-              "content_digest": "sha256:abc123"
+              "contentDigest": "sha256:abc123"
             },
             "stage": {
               "value": "execution",
               "source": "foreground",
               "confidence": "medium",
               "provenance": "Active editor suggests implementation phase",
-              "source_timestamp": "2026-08-02T10:00:00Z",
-              "is_hypothesis": false
+              "sourceTimestamp": "2026-08-02T10:00:00Z",
+              "isHypothesis": false
             },
             "constraints": {
               "value": [],
               "source": "foreground",
               "confidence": "low",
               "provenance": "No explicit constraints found",
-              "source_timestamp": "2026-08-02T10:00:00Z",
-              "is_hypothesis": true
+              "sourceTimestamp": "2026-08-02T10:00:00Z",
+              "isHypothesis": true
             },
-            "open_loops": [],
-            "next_action": {
+            "openLoops": [],
+            "nextAction": {
               "value": { "description": "Review the login function", "readiness": "ready" },
               "source": "conversation",
               "confidence": "high",
               "provenance": "User intent",
-              "source_timestamp": "2026-08-02T10:00:00Z",
-              "is_hypothesis": false
+              "sourceTimestamp": "2026-08-02T10:00:00Z",
+              "isHypothesis": false
             },
-            "evidence_summary": {
+            "evidenceSummary": {
               "sources": ["foreground_element", "document_path"],
-              "snapshot_timestamp": "2026-08-02T10:00:00Z",
-              "foreground_app": "Xcode",
-              "repository_root": "/Users/george/Projects/CleanX",
+              "snapshotTimestamp": "2026-08-02T10:00:00Z",
+              "foregroundApp": "Xcode",
+              "repositoryRoot": "/Users/george/Projects/CleanX",
               "branch": "main",
-              "head_digest": "abc123",
-              "active_window_title": "AuthService.swift — CleanX"
+              "headDigest": "abc123",
+              "activeWindowTitle": "AuthService.swift — CleanX"
             },
             "uncertainty": [{ "field": "objective", "reason": "Not found" }]
           },
           "diagnosis": {
-            "primary_issue": {
+            "primaryIssue": {
               "category": "correctness",
               "severity": "critical",
               "finding": "The login function does not handle errors",
-              "causal_explanation": "API call can fail for multiple reasons",
+              "causalExplanation": "API call can fail for multiple reasons",
               "domain": "code",
-              "evidence_refs": ["foreground_element_value"]
+              "evidenceRefs": ["foreground_element_value"]
             }
           },
           "intervention": {
             "kind": "critique",
             "content": "Define an AuthError enum",
-            "stronger_alternative": "Wrap the api.post call in a do/catch",
-            "visual_grounding": {
-              "region_description": {
+            "strongerAlternative": "Wrap the api.post call in a do/catch",
+            "visualGrounding": {
+              "regionDescription": {
                 "bounds": { "x": 200, "y": 150, "width": 800, "height": 600 },
-                "display_id": "display_0_2560x1440",
-                "content_sample": "func login",
-                "element_ref": "el_01"
+                "displayId": "display_0_2560x1440",
+                "contentSample": "func login",
+                "elementRef": "el_01"
               },
               "placement": "below_element"
             },
@@ -197,7 +213,7 @@ final class WorkInteractionPayloadTests: XCTestCase {
               { "label": "Explain more", "description": "Break down each failure case" }
             ]
           },
-          "timing": { "total_ms": 1250 }
+          "timing": { "totalMs": 1250 }
         }
         """
 
@@ -234,17 +250,17 @@ final class WorkInteractionPayloadTests: XCTestCase {
     func testRejectsIncompatibleContractVersion() throws {
         let json = """
         {
-          "contract_version": 99,
-          "interaction_id": "wi_test",
-          "work_session_id": "ws_test",
-          "work_session_revision": 1,
-          "invocation_id": "inv_test",
+          "contractVersion": 99,
+          "interactionId": "wi_test",
+          "workSessionId": "ws_test",
+          "workSessionRevision": 1,
+          "invocationId": "inv_test",
           "intent": "test",
           "modality": "text",
-          "current_evidence": {
-            "foreground_app": { "bundle_id": "test", "name": "Test" },
-            "active_window": { "title": "Test" },
-            "focused_element": { "ref": "el_01", "role": "test", "value": "", "selected_text": "" }
+          "currentEvidence": {
+            "foregroundApp": { "bundleId": "test", "name": "Test" },
+            "activeWindow": { "title": "Test" },
+            "focusedElement": { "ref": "el_01", "role": "test", "value": "", "selectedText": "" }
           }
         }
         """
@@ -259,18 +275,18 @@ final class WorkInteractionPayloadTests: XCTestCase {
     func testActionGrantPayloadDecode() throws {
         let json = """
         {
-          "grant_id": "ag_test_001",
-          "action_id": "act_test_001",
+          "grantId": "ag_test_001",
+          "actionId": "act_test_001",
           "status": "approved",
-          "granted_at": "2026-08-02T10:02:00Z",
-          "work_session_revision": 1,
-          "target_fingerprint": {
-            "element_ref": "el_01",
-            "field_value_digest": "sha256:def789",
-            "repository_root": "/Users/george/Projects/CleanX",
+          "grantedAt": "2026-08-02T10:02:00Z",
+          "workSessionRevision": 1,
+          "targetFingerprint": {
+            "elementRef": "el_01",
+            "fieldValueDigest": "sha256:def789",
+            "repositoryRoot": "/Users/george/Projects/CleanX",
             "branch": "main",
-            "head_digest": "abc123def456",
-            "status_digest": "clean"
+            "headDigest": "abc123def456",
+            "statusDigest": "clean"
           }
         }
         """
@@ -292,11 +308,11 @@ final class WorkInteractionPayloadTests: XCTestCase {
     func testVerificationResultPayloadDecode() throws {
         let json = """
         {
-          "action_grant_id": "ag_test_001",
-          "diagnosis_resolved": true,
-          "actual_changes": "Replaced login function with error-handled version",
-          "verification_checks": {
-            "re_read": { "passed": true, "expected": "AuthError.login(...)", "actual": "AuthError.login(...)" }
+          "actionGrantId": "ag_test_001",
+          "diagnosisResolved": true,
+          "actualChanges": "Replaced login function with error-handled version",
+          "verificationChecks": {
+            "reRead": { "passed": true, "expected": "AuthError.login(...)", "actual": "AuthError.login(...)" }
           },
           "verdict": "verified",
           "evidence": "Post-execution re-read confirmed text matches expected",

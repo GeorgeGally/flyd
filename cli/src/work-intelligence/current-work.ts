@@ -37,6 +37,7 @@ export interface GroundingContext {
   gitBranch?: string;
   gitHeadDigest?: string;
   gitStatusDigest?: string;
+  gitIsDirty?: boolean;
   gitRecentCommits?: string[];
   gitChangedFiles?: string[];
   screenshotBase64?: string;
@@ -267,6 +268,7 @@ function buildEvidenceSummary(
     branch: ctx.gitBranch,
     headDigest: ctx.gitHeadDigest,
     statusDigest: ctx.gitStatusDigest,
+    isDirty: ctx.gitIsDirty,
     documentPath: env.document_path,
     activeWindowTitle: env.window?.title || env.application?.name || 'unknown',
     recentCommits: ctx.gitRecentCommits,
@@ -280,6 +282,7 @@ export function resolveRepositoryFromPath(documentPath?: string): {
   branch?: string;
   headDigest?: string;
   statusDigest?: string;
+  isDirty?: boolean;
   recentCommits?: string[];
   changedFiles?: string[];
 } {
@@ -293,23 +296,27 @@ export function resolveRepositoryFromPath(documentPath?: string): {
     const headDigest = gitOutput(root, 'rev-parse HEAD') || undefined;
     const status = gitStatusOutput(root);
     const statusDigest = createHash('sha256').update(status || 'clean').digest('hex');
+    const isDirty = status.length > 0;
 
     const recentCommitsRaw = gitOutput(root, 'log --oneline -5');
     const recentCommits = recentCommitsRaw
       ? recentCommitsRaw.split('\n').filter(Boolean)
       : undefined;
 
-    const changedFilesRaw = status.length > 0
-      ? gitOutput(root, 'diff --name-only HEAD')
-      : undefined;
-    const changedFiles = changedFilesRaw
-      ? changedFilesRaw.split('\n').filter(Boolean).slice(0, 20)
+    const changedFiles = status
+      ? status.split('\n').map(statusPath).filter(Boolean).slice(0, 20)
       : undefined;
 
-    return { root, branch, headDigest, statusDigest, recentCommits, changedFiles };
+    return { root, branch, headDigest, statusDigest, isDirty, recentCommits, changedFiles };
   } catch {
     return {};
   }
+}
+
+function statusPath(line: string): string {
+  const path = line.slice(3).trim();
+  const renameSeparator = path.indexOf(' -> ');
+  return renameSeparator >= 0 ? path.slice(renameSeparator + 4) : path;
 }
 
 function gitStatusOutput(root: string): string {

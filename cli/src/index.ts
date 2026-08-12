@@ -23,6 +23,7 @@ import { runResearch } from "./commands/research.js";
 import { runOptimizeSkill } from "./commands/optimize-skill.js";
 import { runPlan } from "./commands/plan.js";
 import { runWork } from "./commands/work.js";
+import { runWorkStatus } from "./commands/tasks.js";
 import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
@@ -41,7 +42,27 @@ import {
   runTaskStatus,
   runTaskWorkers,
 } from "./commands/task.js";
+import {
+  runReposList,
+  runReposAdd,
+  runReposRemove,
+  runReposRefresh,
+  runDoctorRepos,
+  runReposPrepare,
+  runReposReconcile,
+} from "./commands/repos.js";
+import {
+  runTasksList,
+  runTasksAdd,
+  runTasksDone,
+  runTasksBlock,
+  runTasksCancel,
+  runTasksDelete,
+  runTasksSync,
+  runTasksAll,
+} from "./commands/tasks.js";
 import { closeStore } from "./lib/qmd.js";
+import { closeDb } from "./work/database.js";
 
 const program = new Command();
 
@@ -295,7 +316,9 @@ program
   .description("List plans or show a plan as a checklist")
   .argument("[query]", "plan topic to show (omit for latest)")
   .option("--list", "list all plans")
-  .action((query: string | undefined, opts: { list?: boolean }) => {
+  .option("--status", "show work index status via recall router")
+  .action((query: string | undefined, opts: { list?: boolean; status?: boolean }) => {
+    if (opts.status) return runWorkStatus(query);
     if (opts.list) return runWork("--list");
     return runWork(query);
   });
@@ -481,10 +504,98 @@ program
     }
   });
 
+const repos = program
+  .command("repos")
+  .description("Manage Flyd repository registry");
+
+repos
+  .command("list")
+  .description("List all tracked repositories")
+  .action(() => runReposList());
+
+repos
+  .command("add <path>")
+  .description("Add a repository to the registry")
+  .option("--name <name>", "Override the repository name")
+  .action((path: string, opts: { name?: string }) => runReposAdd(path, opts.name));
+
+repos
+  .command("remove <id>")
+  .description("Remove a repository from the registry")
+  .action((id: string) => runReposRemove(id));
+
+repos
+  .command("refresh")
+  .description("Discover repositories and refresh Git observations")
+  .action(() => runReposRefresh());
+
+repos
+  .command("prepare")
+  .description("Ensure repos have AGENTS.md continuity protocol and PROJECT.md")
+  .argument("[path]", "specific repository path (omit for all)")
+  .action((path?: string) => runReposPrepare(path));
+
+repos
+  .command("reconcile")
+  .description("Reconcile PROJECT.md with recent Git activity")
+  .argument("[path]", "specific repository path (omit for all)")
+  .action((path?: string) => runReposReconcile(path));
+
+const tasks = program
+  .command("tasks")
+  .description("Manage work tasks");
+
+tasks
+  .command("list")
+  .description("List open tasks across projects")
+  .action(() => runTasksList());
+
+tasks
+  .command("all")
+  .description("List all tasks (including done)")
+  .action(() => runTasksAll());
+
+tasks
+  .command("add <description>")
+  .description("Add a task")
+  .option("--project <id>", "Project ID")
+  .option("--priority <level>", "high, medium, or low")
+  .action((description: string, opts: { project?: string; priority?: string }) =>
+    runTasksAdd(description, opts)
+  );
+
+tasks
+  .command("done <id>")
+  .description("Mark task as done")
+  .action((id: string) => runTasksDone(id));
+
+tasks
+  .command("block <id>")
+  .description("Mark task as blocked")
+  .action((id: string) => runTasksBlock(id));
+
+tasks
+  .command("cancel <id>")
+  .description("Cancel a task")
+  .action((id: string) => runTasksCancel(id));
+
+tasks
+  .command("delete <id>")
+  .description("Delete a task permanently")
+  .action((id: string) => runTasksDelete(id));
+
+tasks
+  .command("sync")
+  .description("Sync tasks from PROJECT.md files")
+  .action(() => runTasksSync());
+
 program.parseAsync()
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`flyd: ${message}`);
     process.exitCode = 1;
   })
-  .finally(() => closeStore());
+  .finally(() => {
+    closeStore();
+    closeDb();
+  });

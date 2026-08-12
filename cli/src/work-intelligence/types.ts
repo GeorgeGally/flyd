@@ -60,6 +60,7 @@ export interface EvidenceSummary {
   branch?: string;
   headDigest?: string;
   statusDigest?: string;
+  isDirty?: boolean;
   documentPath?: string;
   activeWindowTitle: string;
   recentCommits?: string[];

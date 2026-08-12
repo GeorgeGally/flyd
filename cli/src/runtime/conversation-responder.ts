@@ -156,19 +156,28 @@ const conversationTools: AgentTool[] = [
 ];
 
 function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (token: string) => void): ToolHandler {
-  const defaultRoot = resolve(projectRoot);
+  const canonicalRoot = (value: string): string | null => {
+    try { return realpathSync(resolve(value)); } catch { return null; }
+  };
+  const defaultRoot = canonicalRoot(projectRoot) ?? resolve(projectRoot);
+  const allowedRoots = new Set([
+    defaultRoot,
+    ...knownRepos.map(canonicalRoot).filter((root): root is string => root !== null),
+  ]);
   const resolveRoot = (repo?: string): string | null => {
     if (repo) {
-      const r = resolve(repo);
-      if (knownRepos.includes(r) || existsSync(join(r, ".git"))) return r;
-      return null;
+      const root = canonicalRoot(repo);
+      return root && allowedRoots.has(root) ? root : null;
     }
     return defaultRoot;
   };
   const resolvePath = (value: string, root: string): string | null => {
     const candidate = resolve(root, value || ".");
-    if (candidate === root) return candidate;
-    // ponytail: resolve parent dir to catch symlink escapes
+    try {
+      const existing = realpathSync(candidate);
+      return existing === root || existing.startsWith(`${root}${sep}`) ? existing : null;
+    } catch {}
+    // Resolve the parent for a missing final entry while still rejecting parent symlink escapes.
     const dir = dirname(candidate);
     let resolvedDir: string;
     try { resolvedDir = realpathSync(dir); } catch { return null; }

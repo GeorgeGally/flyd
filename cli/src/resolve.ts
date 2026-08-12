@@ -705,6 +705,7 @@ export async function resolve(
     gitBranch: repoInfo.branch,
     gitHeadDigest: repoInfo.headDigest,
     gitStatusDigest: repoInfo.statusDigest,
+    gitIsDirty: repoInfo.isDirty,
     gitRecentCommits: repoInfo.recentCommits,
     gitChangedFiles: repoInfo.changedFiles,
     screenshotBase64: manifest.screenshot,

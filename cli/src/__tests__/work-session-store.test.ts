@@ -45,7 +45,7 @@ describe('work-session-store', () => {
         interactionId: 'interaction-1',
         intent: 'Fix the regression',
         assistant: 'The validation boundary is missing.',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(1_000).toISOString(),
         proposedAction: {
           actionId: 'action-1',
           kind: 'repository_action',
@@ -88,7 +88,7 @@ describe('work-session-store', () => {
       const session = store.createSession();
       session.revision = 2;
       session.turns.push({
-        turnId: 'turn-1', interactionId: 'interaction-1', intent: 'Fix it', assistant: 'Proposed', timestamp: new Date().toISOString(),
+        turnId: 'turn-1', interactionId: 'interaction-1', intent: 'Fix it', assistant: 'Proposed', timestamp: new Date(1_000).toISOString(),
         proposedAction: {
           actionId: 'action-1', kind: 'repository_action', description: 'Fix it',
           targetFingerprint: { repositoryRoot: '/tmp/project', branch: 'main', headDigest: 'head-1', statusDigest: 'status-1' },
@@ -107,6 +107,26 @@ describe('work-session-store', () => {
       expect(store.claimActionGrant(session.sessionId, approval.grant.grantId, 2, 1_011)).toEqual({
         ok: false,
         error: 'Action grant has expired',
+      });
+    });
+
+    it('rejects approval after the immutable proposal deadline', () => {
+      const store = new WorkSessionStore();
+      const session = store.createSession();
+      session.revision = 1;
+      session.turns.push({
+        turnId: 'turn-1', interactionId: 'interaction-1', intent: 'Fix it', assistant: 'Proposed', timestamp: new Date(1_000).toISOString(),
+        proposedAction: {
+          actionId: 'action-1', kind: 'repository_action', description: 'Fix it',
+          targetFingerprint: { repositoryRoot: '/tmp/project', branch: 'main', headDigest: 'head-1', statusDigest: 'status-1' },
+          workSessionRevision: 1, diagnosedIssueId: 'diagnosis-1', finishCondition: 'Tests pass', expiryMs: 10,
+          allowedOperation: 'repository_work',
+        },
+      });
+
+      expect(store.approveActionProposal(session.sessionId, 'action-1', 1, 1_011)).toEqual({
+        ok: false,
+        error: 'Action proposal has expired',
       });
     });
   });
@@ -130,6 +150,7 @@ describe('work-session-store', () => {
     const farFuture = Date.now() + 40 * 60 * 1000;
     const expired = workSessionStore.get(created.sessionId, farFuture);
     expect(expired).toBeNull();
+    expect(workSessionStore.get(created.sessionId, farFuture + 1)).toBeNull();
   });
 
   it('bump returns null for expired ID', () => {
@@ -229,5 +250,66 @@ describe('work-session-store', () => {
     }
     const retrieved = workSessionStore.get(session.sessionId);
     expect(retrieved!.turns.length).toBeLessThanOrEqual(20);
+  });
+
+  it('preserves sessions with executing grants past normal TTL, but evicts once terminal', () => {
+    const startTime = 1000;
+    
+    // Create session 1 (has executing grant)
+    const session1 = workSessionStore.createSession();
+    const grant: ActionGrant = {
+      grantId: 'ag_001',
+      actionId: 'act_001',
+      interactionId: 'interaction-001',
+      diagnosedIssueId: 'diagnosis-001',
+      instruction: 'Do work',
+      allowedOperation: 'repository_work',
+      finishCondition: 'Done',
+      status: 'executing', // Executing!
+      grantedAt: new Date(startTime).toISOString(),
+      expiresAt: new Date(startTime + 60_000).toISOString(),
+      workSessionRevision: 0,
+      targetFingerprint: { repositoryRoot: '/tmp', branch: 'main', headDigest: 'head1', statusDigest: 'status1' },
+    };
+    workSessionStore.addActionGrant(session1.sessionId, grant, startTime);
+
+    // Create session 2 (no executing grant)
+    const session2 = workSessionStore.createSession();
+    const grant2: ActionGrant = {
+      grantId: 'ag_002',
+      actionId: 'act_002',
+      interactionId: 'interaction-002',
+      diagnosedIssueId: 'diagnosis-002',
+      instruction: 'Do work',
+      allowedOperation: 'repository_work',
+      finishCondition: 'Done',
+      status: 'approved', // Not executing
+      grantedAt: new Date(startTime).toISOString(),
+      expiresAt: new Date(startTime + 60_000).toISOString(),
+      workSessionRevision: 0,
+      targetFingerprint: { repositoryRoot: '/tmp', branch: 'main', headDigest: 'head1', statusDigest: 'status1' },
+    };
+    workSessionStore.addActionGrant(session2.sessionId, grant2, startTime);
+
+    const pastTTL = startTime + 31 * 60 * 1000;
+
+    // session2 should be evicted
+    expect(workSessionStore.get(session2.sessionId, pastTTL)).toBeNull();
+
+    // session1 should be preserved
+    const retrieved1 = workSessionStore.get(session1.sessionId, pastTTL);
+    expect(retrieved1).not.toBeNull();
+
+    // Terminalize the grant (e.g., successful update after long run)
+    if (retrieved1) {
+      const updatedGrant = { ...grant, status: 'verified' as const };
+      workSessionStore.updateActionGrant(session1.sessionId, updatedGrant, pastTTL);
+    }
+
+    // Now advance time past the NEW lastActiveAt (which was updated by updateActionGrant)
+    const pastNewTTL = pastTTL + 31 * 60 * 1000;
+
+    // Confirm session1 is now evicted because it no longer has an executing grant
+    expect(workSessionStore.get(session1.sessionId, pastNewTTL)).toBeNull();
   });
 });

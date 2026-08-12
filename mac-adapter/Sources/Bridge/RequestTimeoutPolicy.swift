@@ -2,6 +2,11 @@ import Foundation
 
 enum RequestTimeoutPolicy {
     static func timeout(for path: String) -> TimeInterval {
-        path == "/manifest" ? 180 : 60
+        switch path {
+        case "/manifest":
+            return 180
+        default:
+            return 60
+        }
     }
 }

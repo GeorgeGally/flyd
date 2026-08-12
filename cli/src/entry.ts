@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import { runDoctor } from "./commands/doctor.js";
 import { runEvidenceResearch } from "./commands/evidence-research.js";
+import { runDoctorRepos } from "./commands/repos.js";
 
 async function main(): Promise<void> {
   if (process.argv[2] === "doctor") {
     const args = process.argv.slice(3);
+    if (args[0] === "repos") {
+      await runDoctorRepos();
+      return;
+    }
     const unknown = args.filter((arg) => arg !== "--json");
     if (unknown.length > 0) throw new Error(`Unknown doctor option: ${unknown[0]}`);
     await runDoctor({ json: args.includes("--json") });

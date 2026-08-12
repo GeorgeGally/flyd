@@ -27,7 +27,9 @@ import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { closeWorkSession } from "./work-intelligence/work-session-closeout-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
-import { runRepositoryAction, validateRepositoryActionInput, verifyModuleDependencyBoundary } from "./work-intelligence/repository-action.js";
+import { runRepositoryAction, validateRepositoryActionInput, verifyModuleDependencyBoundary, type RepositoryActionResult } from "./work-intelligence/repository-action.js";
+import { terminalizeRepositoryAction, type RepositoryTerminalOutcome } from "./work-intelligence/repository-action-terminal.js";
+import { RepositoryActionJobStore } from "./work-intelligence/repository-action-job.js";
 import { recordJournalEntry } from "./work-intelligence/outcome-journal.js";
 import type { FounderJournalEntry } from "./work-intelligence/types.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
@@ -47,6 +49,49 @@ const PORT = 4815;
 const HOST = "127.0.0.1";
 const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
 const DELEGATION_ENABLED = process.env.FLYD_DELEGATION_ENABLED === "true";
+const repositoryActionJobs = new RepositoryActionJobStore<RepositoryActionResult>();
+
+function recordRepositoryTerminalOutcome(
+  sessionId: string,
+  grant: Parameters<typeof terminalizeRepositoryAction>[2],
+  outcome: RepositoryTerminalOutcome,
+): { ok: true } | { ok: false; error: string } {
+  try {
+    terminalizeRepositoryAction(workSessionStore, sessionId, grant, outcome, recordJournalEntry);
+    return { ok: true };
+  } catch (error) {
+    const message = (error as Error).message || 'Outcome receipt could not be persisted';
+    try {
+      workSessionStore.updateActionGrant(sessionId, {
+        ...grant,
+        status: 'failed',
+        invalidationReason: 'Outcome receipt could not be persisted',
+      });
+    } catch { /* the durable receipt error remains authoritative */ }
+    return { ok: false, error: message };
+  }
+}
+
+function repositoryActionResponse(result: RepositoryActionResult) {
+  return {
+    actionId: result.actionId,
+    verified: result.verified,
+    changedFiles: result.changedFiles,
+    diffDigest: result.diffDigest,
+    diffSummary: result.diffSummary,
+    diffPresent: result.diffPresent,
+    artifactPresent: result.artifactPresent,
+    checksPerformed: result.checksPerformed,
+    exitStatus: result.exitStatus,
+    integrated: result.integrated ?? false,
+    integrationStatus: result.integrationStatus ?? "unintegrated",
+    handoffLocation: result.handoffLocation,
+    beforeStateDigest: result.beforeStateDigest,
+    afterStateDigest: result.afterStateDigest,
+    error: result.error,
+    output: result.output?.slice(0, 500),
+  };
+}
 
 function loadAuthToken(): string | null {
   try {
@@ -107,14 +152,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-function snakeCaseKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(snakeCaseKeys);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-    key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`),
-    snakeCaseKeys(child),
-  ]));
-}
+// Removed snakeCaseKeys
 
 function parseBody(req: IncomingMessage, limit = DEFAULT_BODY_LIMIT): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -208,9 +246,9 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         timing: wiResult.timing,
         workSessionId: wiResult.workSessionId,
         workSessionRevision: wiResult.workSessionRevision,
-        currentWork: snakeCaseKeys(wiResult.currentWork),
-        diagnosis: snakeCaseKeys(wiResult.diagnosis),
-        intervention: snakeCaseKeys(wiResult.intervention),
+        currentWork: wiResult.currentWork,
+        diagnosis: wiResult.diagnosis,
+        intervention: wiResult.intervention,
       };
 
       if (isTaskPlan) {
@@ -416,6 +454,7 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       gitBranch: repoInfo.branch,
       gitHeadDigest: repoInfo.headDigest,
       gitStatusDigest: repoInfo.statusDigest,
+      gitIsDirty: repoInfo.isDirty,
       screenshotBase64: typeof parsed.screenshot === 'string' ? parsed.screenshot : undefined,
     });
 
@@ -959,6 +998,16 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
             }
             const grant = claim.grant;
             if (grant.allowedOperation !== 'repository_work') {
+              const terminal = recordRepositoryTerminalOutcome(input.workSessionId, grant, {
+                verified: false,
+                diffPresent: false,
+                error: 'Action grant does not authorize repository work',
+                changedFiles: [],
+              });
+              if (!terminal.ok) {
+                sendJson(res, 500, { error: 'Repository result could not be recorded durably' });
+                return;
+              }
               sendJson(res, 422, { error: 'Action grant does not authorize repository work' });
               return;
             }
@@ -972,91 +1021,72 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
             };
             const validationError = validateRepositoryActionInput(repositoryInput);
             if (validationError) {
-              workSessionStore.updateActionGrant(input.workSessionId, {
-                ...grant,
-                status: 'failed',
-                invalidationReason: validationError,
+              const terminal = recordRepositoryTerminalOutcome(input.workSessionId, grant, {
+                verified: false,
+                diffPresent: false,
+                error: validationError,
+                changedFiles: [],
               });
+              if (!terminal.ok) {
+                sendJson(res, 500, { error: 'Repository result could not be recorded durably' });
+                return;
+              }
               sendJson(res, 422, { error: validationError });
               return;
             }
 
-            const result = await runRepositoryAction(repositoryInput);
-            const grantStatus = result.verified ? 'verified' : result.diffPresent ? 'partial' : 'failed';
-            workSessionStore.updateActionGrant(input.workSessionId, {
-              ...grant,
-              status: grantStatus,
-              result: {
-                verified: result.verified,
-                diffDigest: result.diffDigest,
-                checksPerformed: result.checksPerformed,
-                unresolvedIssues: result.error ? [result.error] : undefined,
-              },
-            });
             try {
-              recordJournalEntry({
-                entryId: `repository-${grant.grantId}`,
-                interactionId: grant.interactionId,
-                workSessionId: input.workSessionId,
-                timestamp: new Date().toISOString(),
-                eventType: result.verified ? 'action_completed' : result.diffPresent ? 'action_partial' : 'action_failed',
-                details: {
-                  actionKind: 'repository_action',
-                  verified: result.verified,
-                  repositoryOutcome: {
-                    actionId: grant.actionId,
-                    actionGrantId: grant.grantId,
-                    diagnosedIssueId: grant.diagnosedIssueId,
-                    approval: 'approved',
-                    beforeStateDigest: result.beforeStateDigest,
-                    afterStateDigest: result.afterStateDigest,
-                    approvedSourceFingerprintDigest: result.approvedSourceFingerprintDigest,
-                    postRunSourceFingerprintDigest: result.postRunSourceFingerprintDigest,
-                    diffDigest: result.diffDigest,
-                    changedFiles: result.changedFiles.map(path => path.replace(/(?:^|\/)(?:\.env[^/]*|[^/]*(?:secret|token|credential)[^/]*)/gi, '/[REDACTED]')),
-                    changedFileCount: result.changedFiles.length,
-                    checksPerformed: result.verificationResults?.map(check => check.executable) ?? [],
-                    verificationResults: result.verificationResults ?? [],
-                    verdict: result.verified ? 'verified' : result.diffPresent ? 'partial' : 'failed',
-                    handoffAvailable: Boolean(result.handoffLocation),
-                  },
-                },
+              const job = repositoryActionJobs.start(grant.grantId, async () => {
+                let result: RepositoryActionResult;
+                try {
+                  result = await runRepositoryAction(repositoryInput);
+                } catch (error) {
+                  const message = (error as Error).message || 'Repository execution failed';
+                  const terminal = recordRepositoryTerminalOutcome(input.workSessionId as string, grant, {
+                    verified: false,
+                    diffPresent: false,
+                    error: message,
+                    changedFiles: [],
+                  });
+                  throw new Error(terminal.ok ? message : 'Repository result could not be recorded durably');
+                }
+                const terminal = recordRepositoryTerminalOutcome(input.workSessionId as string, grant, result);
+                if (!terminal.ok) {
+                  throw new Error('Repository result could not be recorded durably');
+                }
+                return result;
               });
-            } catch (journalError) {
-              console.warn('[Flyd Core] Failed to record repository outcome:', (journalError as Error).message);
-              workSessionStore.updateActionGrant(input.workSessionId, {
-                ...grant,
-                status: 'failed',
-                invalidationReason: 'Outcome receipt could not be persisted',
+              sendJson(res, 202, { jobId: job.jobId, status: job.status, deadlineAt: job.deadlineAt, pollAfterMs: 1000 });
+            } catch (error) {
+              const terminal = recordRepositoryTerminalOutcome(input.workSessionId, grant, {
+                verified: false,
+                diffPresent: false,
+                error: (error as Error).message,
+                changedFiles: [],
               });
-              sendJson(res, 500, { error: 'Repository result could not be recorded durably' });
+              sendJson(res, terminal.ok ? 503 : 500, { error: terminal.ok ? (error as Error).message : 'Repository result could not be recorded durably' });
               return;
             }
-
-            const responseBody = {
-              actionId: result.actionId,
-              verified: result.verified,
-              changedFiles: result.changedFiles,
-              diffDigest: result.diffDigest,
-              diffSummary: result.diffSummary,
-              diffPresent: result.diffPresent,
-              artifactPresent: result.artifactPresent,
-              checksPerformed: result.checksPerformed,
-              exitStatus: result.exitStatus,
-              integrated: result.integrated ?? false,
-              integrationStatus: result.integrationStatus ?? "unintegrated",
-              handoffLocation: result.handoffLocation,
-              beforeStateDigest: result.beforeStateDigest,
-              afterStateDigest: result.afterStateDigest,
-              error: result.error,
-              output: result.output?.slice(0, 500),
-            };
-
-            sendJson(res, 200, responseBody);
           } catch {
             sendJson(res, 400, { error: "Invalid JSON" });
           }
         }).catch(() => sendJson(res, 400, { error: "Failed to read body" }));
+        break;
+      }
+      case "/work-intelligence/repository-action/status": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        const jobId = url.searchParams.get("jobId");
+        if (!jobId) { sendJson(res, 400, { error: "Missing jobId parameter" }); break; }
+        const job = repositoryActionJobs.get(jobId);
+        if (!job) { sendJson(res, 404, { error: "Repository action not found" }); break; }
+        sendJson(res, 200, {
+          jobId: job.jobId,
+          status: job.status,
+          deadlineAt: job.deadlineAt,
+          result: job.result ? repositoryActionResponse(job.result) : undefined,
+          error: job.error,
+        });
         break;
       }
       case "/work-intelligence/command/execute": {

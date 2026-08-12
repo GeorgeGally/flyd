@@ -12,4 +12,11 @@ final class RequestTimeoutPolicyTests: XCTestCase {
             60
         )
     }
+
+    func testRepositoryActionSubmissionUsesTheDefaultShortRequestTimeout() {
+        XCTAssertEqual(
+            RequestTimeoutPolicy.timeout(for: "/work-intelligence/repository-action"),
+            60
+        )
+    }
 }

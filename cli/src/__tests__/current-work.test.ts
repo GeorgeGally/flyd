@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   constructCurrentWork,
@@ -189,6 +193,25 @@ describe('resolveRepositoryFromPath', () => {
       expect(result.headDigest).toBeDefined();
       expect(result.statusDigest).toBeDefined();
     }
+  });
+
+  it('marks an untracked-only repository dirty and includes the untracked file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'flyd-current-work-'));
+    execFileSync('git', ['init', '-q', root]);
+    writeFileSync(join(root, 'tracked.txt'), 'tracked\n');
+    execFileSync('git', ['-C', root, 'add', 'tracked.txt']);
+    execFileSync('git', [
+      '-C', root,
+      '-c', 'user.name=Flyd Test',
+      '-c', 'user.email=flyd@example.test',
+      'commit', '-q', '-m', 'Initial commit',
+    ]);
+    writeFileSync(join(root, 'untracked.ts'), 'export const value = 1;\n');
+
+    const result = resolveRepositoryFromPath(root);
+
+    expect(result.isDirty).toBe(true);
+    expect(result.changedFiles).toContain('untracked.ts');
   });
 
   it('returns empty for non-existent path', () => {
