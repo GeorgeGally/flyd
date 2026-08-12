@@ -39,6 +39,19 @@ export function immediateConversationReply(
   return CHAT_OPENING_REPLY;
 }
 
+const CURRENT_WORK_QUESTION =
+  /what (am i|are you) (working on|doing)|(?:active|current) projects|resume (work|where i was)/i;
+
+/** Deterministic Present Model answer — do not let the LLM invent a Flyd status catalog. */
+export function presentModelReply(
+  message: string,
+  presentHypothesis?: string | null,
+): string | null {
+  if (!presentHypothesis?.trim()) return null;
+  if (!CURRENT_WORK_QUESTION.test(message)) return null;
+  return presentHypothesis.trim().replace(/^\s+/, "");
+}
+
 export function missingPersonalFactReply(
   message: string,
   memory: MemoryEvidence,
@@ -386,6 +399,12 @@ export async function respondToConversation(
     input.onToken(immediate);
     await record({ model: "local", providerIdentity: "flyd/local" }, [], immediate, "succeeded");
     return immediate;
+  }
+  const fromPresent = presentModelReply(input.message, input.presentHypothesis);
+  if (fromPresent) {
+    input.onToken(fromPresent);
+    await record({ model: "local", providerIdentity: "flyd/present-model" }, [], fromPresent, "succeeded");
+    return fromPresent;
   }
   const missingFact = missingPersonalFactReply(input.message, input.memory);
   if (missingFact) {

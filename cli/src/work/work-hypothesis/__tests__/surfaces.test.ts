@@ -40,7 +40,14 @@ describe("present model surfaces", () => {
     expect(system).toMatch(/Present Model/);
   });
 
-  it("projectHypothesisLine renders gap copy for null", () => {
-    expect(projectHypothesisLine(null)).toMatch(/unknown|gap/i);
+  it("answers current-work questions from Present Model without LLM catalog synthesis", async () => {
+    const { presentModelReply } = await import("../../../runtime/conversation-responder.js");
+    const answer = presentModelReply(
+      "what am i working on?",
+      "  Good Neighbours · CleanX look like tonight's active threads.",
+    );
+    expect(answer).toContain("Good Neighbours");
+    expect(answer).toContain("CleanX");
+    expect(presentModelReply("how is the weather", "  Good Neighbours")).toBeNull();
   });
 });

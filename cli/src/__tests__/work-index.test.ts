@@ -243,16 +243,18 @@ describe("Git observer baseline", () => {
 
     let model = buildGlobalPresentModel();
     let r = model.activeProjects.find((p: any) => p.repositoryId === repo.id);
-    expect(r.dirty).toBe(false);
-    expect(r.uncommittedFiles).toBe(0);
+    expect(r).toBeDefined();
+    expect(r!.dirty).toBe(false);
+    expect(r!.uncommittedFiles).toBe(0);
 
     // Make it dirty
     writeFileSync(join(tmp, "untracked.txt"), "hello");
     
     model = buildGlobalPresentModel();
     r = model.activeProjects.find((p: any) => p.repositoryId === repo.id);
-    expect(r.dirty).toBe(true);
-    expect(r.uncommittedFiles).toBe(1);
+    expect(r).toBeDefined();
+    expect(r!.dirty).toBe(true);
+    expect(r!.uncommittedFiles).toBe(1);
   });
 
   it("respects FLYD_WORK_ROOTS for discovery", () => {
