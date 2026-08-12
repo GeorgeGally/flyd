@@ -8,6 +8,7 @@ import { isHoroscopeQuestion } from "./personal-context-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import { persistTurnReceipt, type TurnReceipt, type TurnToolCall } from "./turn-receipt.js";
 import { crossRepoContext, type BriefRepo } from "./repo-registry.js";
+import { handleCompoundNl, isCompoundNlUtterance } from "../work-intelligence/compound-nl.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -48,6 +49,7 @@ export function presentModelReply(
   presentHypothesis?: string | null,
 ): string | null {
   if (!presentHypothesis?.trim()) return null;
+  if (isCompoundNlUtterance(message)) return null;
   if (!CURRENT_WORK_QUESTION.test(message)) return null;
   return presentHypothesis.trim().replace(/^\s+/, "");
 }
@@ -399,6 +401,20 @@ export async function respondToConversation(
     input.onToken(immediate);
     await record({ model: "local", providerIdentity: "flyd/local" }, [], immediate, "succeeded");
     return immediate;
+  }
+  const compound = handleCompoundNl(input.message, {
+    presentHypothesis: input.presentHypothesis,
+    projectHint: input.situation?.project,
+  });
+  if (compound) {
+    input.onToken(compound.reply);
+    await record(
+      { model: "local", providerIdentity: `flyd/compound-nl/${compound.kind}` },
+      [],
+      compound.reply,
+      "succeeded",
+    );
+    return compound.reply;
   }
   const fromPresent = presentModelReply(input.message, input.presentHypothesis);
   if (fromPresent) {

@@ -30,6 +30,15 @@ Pending Skillify proposals are **not** Ground context until `skillify_written` a
 
 Overnight morning briefing reuses the same assembler with overnight project resolution (`projectId` or fresh Present Model). Artifacts stay in `job-artifacts/` — never auto-injected into Ground pack.
 
+Natural language (chat + INVOKED) also routes these intents without requiring CLI:
+
+| Pattern | Handler |
+|---------|---------|
+| "what skills do I have", "list my skills" | Skillify inventory (wiki standards/skills/constraints + pending) |
+| "can I make this into a skill" | Skillify propose guidance (confirm still required) |
+| "list my overnight jobs", "morning briefing" | Jobs status / run guidance |
+| "how is my job hunt going" | Present Model + wiki job-hunt/career pages (fail closed if empty) |
+
 ## Routing rules
 
 When the user's question or task matches one of these patterns,

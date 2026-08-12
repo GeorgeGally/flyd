@@ -7,6 +7,7 @@ config({ path: resolvePath(join(process.cwd(), ".env")) });
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { memoryGate, gateLearningCandidate } from "./memory-gate.js";
 import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings, loadLearnings } from "./memory-receipt.js";
 import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
@@ -57,6 +58,8 @@ import {
 import { pauseJobs, resumeJobs, killJobs, clearKillJobs, isJobsGloballyPaused } from "./work-intelligence/jobs/controls.js";
 import { runMorningBriefing, runJobById, runDueJobs } from "./work-intelligence/jobs/runner.js";
 import type { JobType } from "./work-intelligence/jobs/types.js";
+import { handleCompoundNl, isCompoundNlUtterance } from "./work-intelligence/compound-nl.js";
+import { readPresentModel, projectHypothesisLine } from "./work/work-hypothesis/index.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
 import { validateShellExecutionRequest, createExecution, runExecution, getExecutionStatus, cancelExecution } from "./work-intelligence/command-execution.js";
 import type { ShellExecutionResult } from "./work-intelligence/types.js";
@@ -230,6 +233,41 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     const config = loadFlydWorkerConfig();
     const isDictation = /^(type|write|dictate|insert)\s/i.test(parsed.intent);
     const hasEditableTarget = parsed.environment?.focused_element?.role?.includes("Text") ?? false;
+
+    if (!isDictation && isCompoundNlUtterance(parsed.intent)) {
+      const selection =
+        parsed.environment?.focused_element?.selected_text ||
+        parsed.environment?.focused_element?.value ||
+        null;
+      const present = readPresentModel();
+      const compound = handleCompoundNl(parsed.intent, {
+        selection,
+        presentHypothesis: projectHypothesisLine(present),
+        projectHint: present?.primaryThreads?.[0]?.name,
+      });
+      if (compound) {
+        resolvedContexts.set(parsed.invocation_id, {
+          intent: parsed.intent,
+          resolutionMode: "requires_augment",
+          environmentSummary: parsed.environment.application?.name ?? "",
+          timestamp: Date.now(),
+        });
+        sendJson(res, 200, {
+          mode: "requires_augment",
+          resolutionId: randomUUID(),
+          invocationId: parsed.invocation_id,
+          environmentRevision: parsed.environment_revision ?? 1,
+          rationale: `compound-nl:${compound.kind}`,
+          operations: [],
+          augmentations: [{
+            kind: "explanation",
+            content: compound.reply,
+            placement: "cursor",
+          }],
+        });
+        return;
+      }
+    }
 
     if (!isDictation) {
       const wiResult = await runWorkIntelligence({

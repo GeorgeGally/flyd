@@ -477,4 +477,23 @@ describe("buildConversationPrompt", () => {
       rmSync(unregisteredRoot, { recursive: true, force: true });
     }
   });
+
+  it('answers skill inventory via compound-nl without an LLM round trip', async () => {
+    const answer = await respondToConversation(
+      {
+        message: 'what skills do i have',
+        history: [],
+        memory: { verdict: 'insufficient', matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      {
+        persistReceipt: async () => undefined as never,
+        runAgentLoop: async () => {
+          throw new Error('should not call LLM for compound-nl');
+        },
+      },
+    );
+    expect(answer).toMatch(/Domain standards|Identity skills|Pending Skillify/i);
+  });
 });
