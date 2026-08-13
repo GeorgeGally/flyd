@@ -107,12 +107,23 @@ export function getDb(): Database.Database {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS confirmed_todos (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_activities_repo ON activities(repository_id);
     CREATE INDEX IF NOT EXISTS idx_activities_occurred ON activities(occurred_at);
     CREATE INDEX IF NOT EXISTS idx_sources_activity ON sources(activity_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_wh_corrections_created ON work_hypothesis_corrections(created_at);
+    CREATE INDEX IF NOT EXISTS idx_confirmed_todos_status ON confirmed_todos(status);
   `);
 
   migrateSchema(_db);
@@ -128,6 +139,12 @@ function columnExists(db: Database.Database, table: string, column: string): boo
 function migrateSchema(db: Database.Database): void {
   if (!columnExists(db, "repositories", "observed_at")) {
     db.exec(`ALTER TABLE repositories ADD COLUMN observed_at TEXT`);
+  }
+  if (!columnExists(db, "work_hypotheses", "insights")) {
+    db.exec(`ALTER TABLE work_hypotheses ADD COLUMN insights TEXT`);
+  }
+  if (!columnExists(db, "confirmed_todos", "due_at")) {
+    db.exec(`ALTER TABLE confirmed_todos ADD COLUMN due_at TEXT`);
   }
 }
 

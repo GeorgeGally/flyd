@@ -16,6 +16,17 @@ describe("parseHypothesisCorrection", () => {
     });
   });
 
+  it("parses Flyd not secondary / drives everything as reaffirm", () => {
+    expect(parseHypothesisCorrection("Flyd not secondary. should be driving everything")).toEqual({
+      kind: "reaffirm",
+      projectName: "flyd",
+    });
+    expect(parseHypothesisCorrection("flyd should be driving everything")).toEqual({
+      kind: "reaffirm",
+      projectName: "flyd",
+    });
+  });
+
   it("returns null for unrelated chat", () => {
     expect(parseHypothesisCorrection("what is the weather")).toBeNull();
   });

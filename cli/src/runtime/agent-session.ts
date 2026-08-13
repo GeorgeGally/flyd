@@ -1,7 +1,20 @@
 import { interpretAgentInput } from "./input-interpreter.js";
+import { formatChatReply, wrapDisplayText } from "./terminal.js";
 import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import type { BriefRepo } from "./repo-registry.js";
+import { stdout } from "process";
+
+const DIM = "\u001b[2m";
+const RESET = "\u001b[0m";
+
+function useColor(): boolean {
+  return Boolean(stdout.isTTY) && !process.env.NO_COLOR;
+}
+
+function promptLabel(label: string): string {
+  return useColor() ? `${DIM}${label}${RESET}` : label;
+}
 
 export interface AgentSituation {
   project: string;
@@ -82,40 +95,40 @@ function greeting(): string {
 // ponytail: quick weather fetch, skip if >1s
 async function weatherLine(): Promise<string> {
   try {
-    const res = await fetch("https://wttr.in?format=3", {
+    const res = await fetch("https://wttr.in?format=%l:+%c+%t", {
       signal: AbortSignal.timeout(1500),
     });
     if (!res.ok) return "";
     const text = (await res.text()).trim();
     if (!text) return "";
-    return `  ${text}`;
+    const cleaned = text.replace(/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*:?\s*/, "").trim();
+    if (!cleaned || /^-?\d/.test(cleaned)) return "";
+    const temp = cleaned.replace(/^[^\d+-]*/, "").replace(/^\+/, "").trim();
+    return temp ? `It's ${temp}.` : "";
   } catch {
     return "";
   }
 }
 
+const QUESTION_OUTCOME = /^(?:so\s+)?(?:how|why|what|when|where|who)\b|[?？]\s*$/i;
+
 function introLine(
-  situation: AgentSituation | null,
+  _situation: AgentSituation | null,
   weather?: string,
   presentHypothesis?: string | null,
 ): string {
   let line = `\n${ART}\n  ${greeting()}`;
-  if (weather) line += `\n${weather}`;
+  if (weather) line += ` ${weather}`;
   if (presentHypothesis) line += `\n${presentHypothesis}`;
-  if (hasUnfinishedTask(situation) && situation) {
-    const action = situation.nextAction
-      ? `${situation.outcome} — ${situation.nextAction}`
-      : situation.outcome!;
-    line += `\n  You have unfinished work: ${action}.`;
-  }
-  return line + "\n\n";
+  return wrapDisplayText(line + "\n\n");
 }
 
 function hasUnfinishedTask(situation: AgentSituation | null): boolean {
-  return Boolean(
-    situation?.outcome &&
-    [ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? ""),
-  );
+  if (!situation?.outcome) return false;
+  if (![ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? "")) {
+    return false;
+  }
+  return !QUESTION_OUTCOME.test(situation.outcome.trim());
 }
 
 export async function runAgentSession(deps: AgentSessionDependencies): Promise<AgentSessionResult> {
@@ -138,7 +151,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     deps.terminal.write(introLine(situation, weatherText || undefined, presentHypothesis));
 
     while (true) {
-      const text = (await deps.terminal.ask("\nYou >")).trim();
+      const text = (await deps.terminal.ask(`\n${promptLabel("You >")}`)).trim();
       if (!text) continue;
 
       const repairMatch = text.match(/^\/flyd-fix(?:\s+([\s\S]+))?$/i);
@@ -162,13 +175,6 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };
-      if (input.kind === "conversation") {
-        const codeTerms = /\b(?:codebase|repo|repository|architecture|code|source|project|app|application|branch|commit|test|migration|deploy|refactor|implement|debug|bug|fix|feature|merge|PR|pull request|worker|backend|frontend|runtime)\b/i;
-        const explorerVerbs = /\b(?:what|how|where|show|tell|explain|describe|look|see|check|explore|examine|inspect|review|audit|survey|assess|evaluate|analyze|study|walk|dive|familiarize|overview|status|state|progress|going on)\b/i;
-        if (codeTerms.test(text) && explorerVerbs.test(text)) {
-          input = { kind: "coding", outcome: text };
-        }
-      }
       if (input.kind === "coding") {
         const handoff: ActionableOutcome = {
           outcome: input.outcome,
@@ -217,7 +223,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         if (outcome) return { kind: "coding", outcome: outcome.outcome };
       }
 
-      deps.terminal.write("\nFlyd > ");
+      deps.terminal.write(`\n${promptLabel("Flyd >")}\n`);
       try {
         try {
           situation = await deps.loadSituation();
@@ -225,10 +231,14 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           // Keep the last known situation when live state cannot be refreshed.
         }
         if (deps.applyPresentCorrection) {
-          await deps.applyPresentCorrection(input.message, situation?.projectRoot).catch(() => {});
-          presentHypothesis =
-            (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
-            presentHypothesis;
+          const { isConfirmedTodoUtterance } = await import("../work/work-hypothesis/confirmed-todos.js");
+          // Confirmed to-do utterances are not Present Model corrections.
+          if (!isConfirmedTodoUtterance(input.message)) {
+            await deps.applyPresentCorrection(input.message, situation?.projectRoot).catch(() => {});
+            presentHypothesis =
+              (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
+              presentHypothesis;
+          }
         }
         const memory = await deps.retrieveMemory(input.message);
         if (deps.loadCrossRepo) {
@@ -280,7 +290,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         } finally {
           stopSpinner();
         }
-        if (!streamed && answer) deps.terminal.write(answer);
+        if (!streamed && answer) deps.terminal.write(formatChatReply(answer));
         deps.terminal.write("\n");
         history.push(
           { role: "user", content: input.message },

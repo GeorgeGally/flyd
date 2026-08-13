@@ -62,17 +62,22 @@ export function loadFlydWorkerConfigs(input: {
     ? readProjectEnv(input.projectRoot)
     : parseEnvFile(input.envFileText);
   const values = { ...fileEnvironment, ...environment };
-  const canonicalKey = values.FLYD_MODEL_API_KEY?.trim();
-  const compatibilityKey = values.OPENCODE_API?.trim();
-  const openRouterKey = values.OPENROUTER_API_KEY?.trim();
   const canonicalModel = values.FLYD_MODEL?.trim();
+  const provider = (values.FLYD_PROVIDER ?? "").trim().toLowerCase();
+  const useOpenAI = provider === "openai" || Boolean(canonicalModel?.startsWith("gpt-"));
+  const canonicalKey = values.FLYD_MODEL_API_KEY?.trim()
+    || (useOpenAI ? values.OPENAI_API_KEY?.trim() : values.OPENROUTER_API_KEY?.trim());
+  const canonicalBaseURL = values.FLYD_MODEL_BASE_URL?.trim()
+    || (useOpenAI ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1");
+  const compatibilityKey = values.OPENCODE_API?.trim() || values.OPENCODE_API_KEY?.trim();
+  const compatibilityModel = values.OPENCODE_MODEL?.trim() || values.OPENOCE_MODEL?.trim();
+  const openRouterKey = values.OPENROUTER_API_KEY?.trim();
   const openRouterModel = values.OPENROUTER_MODEL?.trim();
-  const compatibilityModel = values.OPENCODE_MODEL?.trim();
   const candidates = [
     canonicalKey && canonicalModel ? {
       apiKey: canonicalKey,
       model: canonicalModel,
-      baseURL: values.FLYD_MODEL_BASE_URL?.trim() || "https://openrouter.ai/api/v1",
+      baseURL: canonicalBaseURL,
     } : null,
     compatibilityKey && compatibilityModel ? {
       apiKey: compatibilityKey,
@@ -92,7 +97,7 @@ export function loadFlydWorkerConfigs(input: {
     );
   }
 
-  return candidates.map((candidate) => {
+  const mapped = candidates.map((candidate) => {
     const model = MODEL_ALIASES[candidate.model.toLowerCase()] ?? candidate.model;
     const baseURL = normalizedBaseURL(candidate.baseURL);
     return {
@@ -104,6 +109,9 @@ export function loadFlydWorkerConfigs(input: {
   }).filter((candidate, index, all) =>
     all.findIndex((item) => item.providerIdentity === candidate.providerIdentity) === index
   );
+
+  const paid = mapped.filter((c) => !/\/free$/i.test(c.model) && !/\/free$/i.test(c.providerIdentity));
+  return paid.length ? paid : mapped;
 }
 
 export interface FlydRouterConfig {

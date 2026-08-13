@@ -143,4 +143,49 @@ describe("buildPresentModelBelief", () => {
     expect(belief.primaryThreads.map((t) => t.name)).toContain("Good Neighbours");
     expect(belief.demotions.map((d) => d.toLowerCase())).toContain("flyd");
   });
+
+  it("reaffirm Flyd as driver keeps Core home primary across other workstreams", async () => {
+    appendCorrection({
+      kind: "reaffirm",
+      projectName: "flyd",
+      text: "Flyd not secondary. should be driving everything",
+    });
+
+    const belief = await buildPresentModelBelief({
+      repos: R12_REPOS,
+      now: NOW,
+      coreCwd: "/Users/george/Documents/flyd/cli",
+    });
+
+    expect(belief.primaryThreads[0]?.name.toLowerCase()).toBe("flyd");
+    // No commit subjects in fixture → spoken fallback, not a labeled dump.
+    expect(belief.hypothesisText).toMatch(/Good Neighbours and CleanX (?:are in motion|both moved)/);
+    expect(belief.hypothesisText).not.toMatch(/Active:|Today:|Workstreams:|Insights:/);
+    expect(belief.hypothesisText).not.toMatch(/Flyd drives the view/i);
+    expect(belief.hypothesisText).not.toMatch(/secondary unless you say otherwise/i);
+  });
+
+  it("lists old clean repos as finished, not active workstreams", async () => {
+    const belief = await buildPresentModelBelief({
+      repos: [
+        ...R12_REPOS,
+        {
+          id: "bridgestone",
+          name: "bridgestone",
+          root: "/Users/george/Documents/bridgestone",
+          lastCommitAt: "2025-01-01T00:00:00.000Z",
+          isDirty: false,
+          hasTasks: false,
+          isForeground: false,
+        },
+      ],
+      now: NOW,
+      coreCwd: "/Users/george/Documents/flyd/cli",
+    });
+
+    expect(belief.insights?.finishedProjects).toContain("Bridgestone");
+    expect(belief.insights?.workstreams).not.toContain("Bridgestone");
+    expect(belief.hypothesisText).not.toMatch(/Finished:/);
+    expect(belief.hypothesisText).not.toMatch(/Bridgestone/);
+  });
 });

@@ -1,5 +1,4 @@
-import { resolve } from "path";
-import { appendCorrection, activeDemotions, readPresentModel, writePresentModel } from "./store.js";
+import { appendCorrection, readPresentModel } from "./store.js";
 import { buildPresentModelBelief } from "./engine.js";
 import type { WorkHypothesis } from "./types.js";
 
@@ -31,6 +30,19 @@ const REAFFIRM_PATTERNS: Array<{ re: RegExp; extract: (m: RegExpMatchArray) => s
     re: /reaffirm\s+([a-z0-9._-]+)/i,
     extract: (m) => m[1],
   },
+  // "Flyd not secondary" / "Flyd should be driving everything"
+  {
+    re: /\bflyd\b[\s\S]{0,80}\bnot\s+secondary\b|\bnot\s+secondary\b[\s\S]{0,40}\bflyd\b/i,
+    extract: () => "flyd",
+  },
+  {
+    re: /\bflyd\b[\s\S]{0,80}\bdriv(?:e|es|ing)\b/i,
+    extract: () => "flyd",
+  },
+  {
+    re: /\bflyd\b\s+(?:is|should\s+be)\s+(?:the\s+)?(?:primary|main|driver)\b/i,
+    extract: () => "flyd",
+  },
 ];
 
 export interface CorrectionParse {
@@ -56,9 +68,25 @@ export function parseHypothesisCorrection(text: string): CorrectionParse | null 
   return null;
 }
 
+export function formatHypothesisCorrectionReply(
+  parsed: CorrectionParse,
+  presentHypothesis?: string | null,
+): string {
+  const name = parsed.projectName;
+  const head =
+    parsed.kind === "reaffirm"
+      ? `Recorded and persisted: ${name} drives the view — not secondary.`
+      : `Recorded and persisted: ${name} demoted from primary.`;
+  const body = presentHypothesis?.trim()
+    ? `\n\nUpdated Present Model:\n${presentHypothesis.trim()}`
+    : "";
+  return `${head}${body}`;
+}
+
 /**
  * Apply a soft-durable correction. Demotions are hard until reaffirm —
  * commits on a demoted project do not reinstate primary (KTD6).
+ * Reaffirm of Core home (Flyd) also stops auto-secondary demotion.
  */
 export async function applyHypothesisCorrection(
   text: string,
@@ -86,42 +114,4 @@ export async function applyHypothesisCorrection(
   });
 }
 
-/**
- * After integrity refresh: commits on demoted projects stay secondary.
- * Does not clear demotions based on new commits alone.
- */
-export function enforceDemotionConstraints(hypothesis: WorkHypothesis): WorkHypothesis {
-  const demotions = new Set(activeDemotions().map((d) => d.toLowerCase()));
-  if (!demotions.size) return hypothesis;
-
-  const primary: typeof hypothesis.primaryThreads = [];
-  const secondary = [...hypothesis.secondaryThreads];
-
-  for (const t of hypothesis.primaryThreads) {
-    if (demotions.has(t.name.toLowerCase())) {
-      secondary.push({ ...t, demoted: true });
-    } else {
-      primary.push(t);
-    }
-  }
-
-  const text =
-    primary.length > 0
-      ? `${primary.map((t) => t.name).join(" · ")} look like tonight's active threads.` +
-        (demotions.size
-          ? ` Demoted: ${[...demotions].map((d) => d).join(", ")}.`
-          : "")
-      : hypothesis.hypothesisText;
-
-  const next: WorkHypothesis = {
-    ...hypothesis,
-    primaryThreads: primary,
-    secondaryThreads: secondary.filter(
-      (t, i, arr) => arr.findIndex((x) => resolve(x.root) === resolve(t.root)) === i,
-    ),
-    demotions: [...demotions],
-    hypothesisText: text,
-  };
-
-  return writePresentModel(next);
-}
+export { enforceDemotionConstraints } from "./store.js";

@@ -112,16 +112,42 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
   return threads;
 }
 
+const KNOWN_DISPLAY_NAMES: Record<string, string> = {
+  cleanx: "CleanX",
+  flyd: "Flyd",
+  good_neighbours: "Good Neighbours",
+  "good neighbours": "Good Neighbours",
+  aigc: "aigc",
+  dir: "Dead Internet Radio (DIR)",
+  "dead internet radio": "Dead Internet Radio (DIR)",
+  "dead-internet-radio": "Dead Internet Radio (DIR)",
+  jobs: "Jobs",
+  robots: "Robots",
+};
+
+/** Keys that map to the same display name (for mention matching). */
+export function displayAliasesFor(name: string): string[] {
+  const display = displayName(name);
+  const key = name.trim().toLowerCase();
+  const aliases = new Set<string>([key, display.toLowerCase()]);
+  for (const [alias, value] of Object.entries(KNOWN_DISPLAY_NAMES)) {
+    if (value === display || value.toLowerCase() === display.toLowerCase()) {
+      aliases.add(alias);
+    }
+  }
+  // Strip parenthetical for spoken forms: "Dead Internet Radio (DIR)" → "dead internet radio"
+  aliases.add(display.replace(/\s*\([^)]+\)\s*$/, "").trim().toLowerCase());
+  return [...aliases].filter(Boolean);
+}
+
+export function hasDisplayAlias(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_DISPLAY_NAMES, name.trim().toLowerCase());
+}
+
 /** cleanx → CleanX, good_neighbours → Good Neighbours */
 export function displayName(name: string): string {
-  const known: Record<string, string> = {
-    cleanx: "CleanX",
-    flyd: "Flyd",
-    good_neighbours: "Good Neighbours",
-    aigc: "aigc",
-  };
   const key = name.trim().toLowerCase();
-  if (known[key]) return known[key];
+  if (KNOWN_DISPLAY_NAMES[key]) return KNOWN_DISPLAY_NAMES[key];
   if (name.includes(" ") || /[A-Z]/.test(name.slice(1))) return name;
   return name
     .split(/[_-]+/)

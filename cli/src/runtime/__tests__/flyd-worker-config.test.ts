@@ -39,7 +39,7 @@ describe("Flyd worker configuration", () => {
     });
   });
 
-  it("uses the configured OpenCode model before OpenRouter and retains OpenRouter as fallback", () => {
+  it("uses the configured OpenCode model and drops OpenRouter /free when a paid model exists", () => {
     const configs = loadFlydWorkerConfigs({
       environment: {
         OPENROUTER_API_KEY: "router-key",
@@ -56,12 +56,6 @@ describe("Flyd worker configuration", () => {
         baseURL: "https://opencode.ai/zen/v1",
         providerIdentity: "opencode.ai/deepseek-v4-pro",
       },
-      {
-        apiKey: "router-key",
-        model: "openrouter/free",
-        baseURL: "https://openrouter.ai/api/v1",
-        providerIdentity: "openrouter.ai/openrouter/free",
-      },
     ]);
     expect(loadFlydWorkerConfig({
       environment: {
@@ -71,6 +65,43 @@ describe("Flyd worker configuration", () => {
         OPENCODE_MODEL: "deepseekv4",
       },
     })).toEqual(configs[0]);
+  });
+
+  it("pairs FLYD_MODEL with OPENAI_API_KEY and drops /free when a paid model exists", () => {
+    const configs = loadFlydWorkerConfigs({
+      environment: {
+        FLYD_MODEL: "gpt-5.6-luna",
+        FLYD_PROVIDER: "openai",
+        OPENAI_API_KEY: "openai-key",
+        OPENROUTER_API_KEY: "router-key",
+        OPENROUTER_MODEL: "openrouter/free",
+      },
+    });
+
+    expect(configs).toEqual([
+      {
+        apiKey: "openai-key",
+        model: "gpt-5.6-luna",
+        baseURL: "https://api.openai.com/v1",
+        providerIdentity: "api.openai.com/gpt-5.6-luna",
+      },
+    ]);
+  });
+
+  it("accepts the OPENOCE_MODEL typo as an OpenCode model alias", () => {
+    const config = loadFlydWorkerConfig({
+      environment: {
+        OPENCODE_API_KEY: "opencode-key",
+        OPENOCE_MODEL: "deepseekv4",
+      },
+    });
+
+    expect(config).toMatchObject({
+      apiKey: "opencode-key",
+      model: "deepseek-v4-pro",
+      baseURL: "https://opencode.ai/zen/v1",
+      providerIdentity: "opencode.ai/deepseek-v4-pro",
+    });
   });
 
   it("parses quoted dotenv values and ignores comments", () => {

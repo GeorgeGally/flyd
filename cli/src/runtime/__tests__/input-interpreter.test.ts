@@ -128,6 +128,10 @@ describe("interpretAgentInput", () => {
       kind: "conversation",
       message: "How should we fix the memory system?",
     });
+    expect(interpretAgentInput("so how do we fix this?")).toEqual({
+      kind: "conversation",
+      message: "so how do we fix this?",
+    });
     expect(interpretAgentInput("Take a look at this skill")).toEqual({
       kind: "conversation",
       message: "Take a look at this skill",

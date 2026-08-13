@@ -41,9 +41,22 @@ export interface WorkHypothesis {
   evidenceRefs: string[];
   /** Project names hard-demoted until reaffirm. */
   demotions: string[];
+  /** Derived insight layer — workstreams vs moves vs tensions. */
+  insights?: PresentInsights;
   revisedAt: string;
   generatedAt: string;
   fromCache: boolean;
+}
+
+export interface PresentInsights {
+  workstreams: string[];
+  latestMoves: { name: string; subject: string; at?: string }[];
+  tensions: string[];
+  stalledThreads: string[];
+  finishedProjects: string[];
+  nextTodo?: string;
+  nextDueAt?: string;
+  nextLeverage?: string;
 }
 
 export interface HypothesisCorrection {

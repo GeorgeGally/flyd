@@ -74,7 +74,7 @@ describe("runAgentSession", () => {
     });
 
     const output = ui.write.mock.calls.map(([value]) => value).join("");
-    expect(output).toContain("\nFlyd > \u001b[?25l⠋");
+    expect(output).toContain("\nFlyd >\n\u001b[?25l⠋");
     expect(output).toContain("\u001b[?25hHello back.");
   });
 
@@ -458,8 +458,63 @@ describe("runAgentSession", () => {
       })),
     });
 
-    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("Implement continuity"));
+    expect(ui.write).not.toHaveBeenCalledWith(expect.stringContaining("Implement continuity"));
+    expect(ui.write).not.toHaveBeenCalledWith(expect.stringContaining("Unfinished:"));
     expect(ui.ask).toHaveBeenCalled();
+  });
+
+  it("does not repeat unfinished work when outcome and next action are the same", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "Implement continuity",
+        outcome: "Implement continuity",
+        status: "ready",
+        nextAction: "Implement continuity",
+      })),
+    });
+
+    const output = ui.write.mock.calls.map(([value]) => value).join("");
+    expect(output).not.toContain("Unfinished:");
+    expect(output).not.toContain("Implement continuity — Implement continuity");
+  });
+
+  it("does not treat a conversational question as unfinished coding work", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "wip",
+        outcome: "so how do we fix this?",
+        status: "awaiting_grant",
+        nextAction: "so how do we fix this?",
+      })),
+    });
+
+    const output = ui.write.mock.calls.map(([value]) => value).join("");
+    expect(output).not.toContain("so how do we fix this?");
+    expect(output).not.toContain("Unfinished:");
   });
 
   it("does not print a completed historical task as an active agenda", async () => {
@@ -508,5 +563,28 @@ describe("runAgentSession", () => {
     });
 
     expect(loadSituation).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps 'so how do we fix this?' in conversation instead of a coding grant", async () => {
+    const ui = terminal(["so how do we fix this?", "/exit"]);
+    const respond = vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
+      onToken("Stay in chat.");
+      return "Stay in chat.";
+    });
+
+    const result = await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(result).toEqual({ kind: "exit" });
+    expect(respond).toHaveBeenCalledOnce();
+    expect(respond).toHaveBeenCalledWith(expect.objectContaining({
+      message: "so how do we fix this?",
+    }));
   });
 });

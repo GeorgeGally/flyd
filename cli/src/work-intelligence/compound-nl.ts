@@ -7,8 +7,8 @@ import { proposeFromNaturalLanguage } from './skillify/propose.js';
 import { listJobs, listJobAudits } from './jobs/store.js';
 import { isJobsGloballyPaused, readPauseReason } from './jobs/controls.js';
 import { runMorningBriefing } from './jobs/runner.js';
+import { formatJobsWorkspaceStatus } from '../runtime/jobs-workspace.js';
 import { readPresentModel } from '../work/work-hypothesis/index.js';
-import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 import { loadWikiProjectSection } from './ground-pack-wiki.js';
 
 export type CompoundNlKind =
@@ -233,7 +233,7 @@ export function buildJobsRunBriefingReply(projectHint?: string): string {
 }
 
 export function buildJobHuntStatusReply(presentHypothesis?: string | null): string {
-  const lines: string[] = ['Job hunt status (from Present Model + wiki — not invented):', ''];
+  const lines: string[] = [formatJobsWorkspaceStatus(), ''];
 
   let pm: string | null = null;
   if (presentHypothesis !== undefined) {
@@ -243,11 +243,8 @@ export function buildJobHuntStatusReply(presentHypothesis?: string | null): stri
     pm = model?.hypothesisText?.trim() || null;
   }
   if (pm) {
-    lines.push('Present Model:');
+    lines.push('Present Model (secondary):');
     lines.push(pm);
-    lines.push('');
-  } else {
-    lines.push('No Present Model hypothesis on disk yet.');
     lines.push('');
   }
 
@@ -260,16 +257,10 @@ export function buildJobHuntStatusReply(presentHypothesis?: string | null): stri
       lines.push(`Wiki project (${section.provenance}):`);
       lines.push(section.content.slice(0, 800));
       lines.push('');
-      const closeout = readLatestCloseoutForProject(name);
-      if (closeout) {
-        lines.push(`Latest closeout: next=${closeout.nextAction}; verified=${closeout.lastVerifiedState}`);
-        lines.push('');
-      }
       break;
     }
   }
 
-  // Optional: projects/jobs.md only if it clearly looks like a job hunt page
   if (!foundWiki) {
     const jobsPage = loadWikiProjectSection('jobs');
     if (jobsPage && /\b(interview|hunt|search|application|resume|cv)\b/i.test(jobsPage.content)) {
@@ -278,29 +269,6 @@ export function buildJobHuntStatusReply(presentHypothesis?: string | null): stri
       lines.push(jobsPage.content.slice(0, 800));
       lines.push('');
     }
-  }
-
-  // Also surface career folder pages mentioning hunt/search
-  const career = listMarkdownTitles('career').filter((e) =>
-    /job|hunt|interview|search|career/i.test(`${e.title} ${e.excerpt}`),
-  );
-  if (career.length > 0) {
-    lines.push(formatEntryList('Career wiki pages', career.slice(0, 5)));
-    lines.push('');
-    foundWiki = true;
-  }
-
-  if (!foundWiki && !pm) {
-    lines.push(
-      'I do not have a job-hunt project page or Present Model signal yet — I will not invent progress.',
-    );
-    lines.push(
-      'Capture a project as `wiki/projects/job-hunt.md` or keep working with Flyd open so Present Model can form.',
-    );
-  } else if (!foundWiki) {
-    lines.push(
-      'No dedicated `wiki/projects/job-hunt.md` yet. Present Model above is the current signal; Skillify a standard if judgment should stick.',
-    );
   }
 
   return lines.join('\n').trim();

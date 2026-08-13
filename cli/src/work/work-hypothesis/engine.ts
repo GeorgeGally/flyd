@@ -9,14 +9,17 @@ import {
 } from "../repository-registry.js";
 import { listOpenTasks } from "../task-store.js";
 import { getRecentCommits } from "../../lib/recent-commits.js";
-import { assembleCandidates } from "./candidates.js";
+import { assembleCandidates, displayName } from "./candidates.js";
 import { isEphemeralRepoRoot } from "./ephemeral.js";
 import {
   activeDemotions,
+  activePromotions,
+  isProjectPromoted,
   evidenceFingerprint,
   readPresentModel,
   writePresentModel,
 } from "./store.js";
+import { derivePresentInsights, formatPresentModelText } from "./insights.js";
 import type { CandidateRepoInput, WorkHypothesis, WorkThread } from "./types.js";
 
 const MAX_PRIMARY = 3;
@@ -105,6 +108,7 @@ function isCoreHomeThread(thread: WorkThread, coreCwd?: string): boolean {
 function applyClaimChecks(
   threads: WorkThread[],
   coreCwd?: string,
+  options: { preferCoreHome?: boolean } = {},
 ): {
   primary: WorkThread[];
   secondary: WorkThread[];
@@ -112,6 +116,7 @@ function applyClaimChecks(
 } {
   const uncertainty: { field: string; reason: string }[] = [];
   const cwd = coreCwd ? resolve(coreCwd) : undefined;
+  const preferCoreHome = Boolean(options.preferCoreHome);
 
   const eligible = threads.filter((t) => !t.demoted);
   const demoted = threads.filter((t) => t.demoted);
@@ -130,18 +135,25 @@ function applyClaimChecks(
     return t.signals.some((s) => s.startsWith("commit:")) || t.hasTasks;
   });
 
-  // Intelligence: when other product threads exist, Core home (flyd) is supporting — not tonight's primary work
+  // Default: Core home is supporting while other product threads are active.
+  // User reaffirm ("Flyd not secondary / drives everything") overrides that.
   const nonCore = primaryEligible.filter((t) => !isCoreHomeThread(t, coreCwd));
-  if (nonCore.length > 0 && primaryEligible.some((t) => isCoreHomeThread(t, coreCwd))) {
-    const coreOnes = primaryEligible.filter((t) => isCoreHomeThread(t, coreCwd));
+  const coreOnes = primaryEligible.filter((t) => isCoreHomeThread(t, coreCwd));
+  if (!preferCoreHome && nonCore.length > 0 && coreOnes.length > 0) {
     primaryEligible = nonCore;
     for (const t of coreOnes) {
-      demoted.push({ ...t, demoted: false }); // secondary, not user-demoted
+      demoted.push({ ...t, demoted: false });
       uncertainty.push({
         field: "primary",
         reason: `${t.name} is the Core home repo — treated as secondary while other threads have activity`,
       });
     }
+  } else if (preferCoreHome && coreOnes.length > 0) {
+    primaryEligible = [...coreOnes, ...nonCore];
+    uncertainty.push({
+      field: "primary",
+      reason: "User reaffirmed Flyd as primary — Core home drives the view across workstreams",
+    });
   }
 
   const primary = primaryEligible.slice(0, MAX_PRIMARY);
@@ -161,44 +173,50 @@ function applyClaimChecks(
   return { primary, secondary, uncertainty };
 }
 
-function integrityHypothesisText(primary: WorkThread[], secondary: WorkThread[]): string {
-  if (!primary.length) {
-    return "Current work: gap — no integrity-admitted activity threads.";
+function integrityHypothesisText(
+  primary: WorkThread[],
+  secondary: WorkThread[],
+  options: {
+    preferCoreHome?: boolean;
+    now?: Date;
+    extraWorkstreams?: string[];
+    finishedProjects?: string[];
+  } = {},
+): { text: string; insights: import("./types.js").PresentInsights } {
+  const insights = derivePresentInsights(primary, secondary, {
+    preferCoreHome: options.preferCoreHome,
+    now: options.now,
+    extraWorkstreams: options.extraWorkstreams,
+    finishedProjects: options.finishedProjects,
+  });
+  const demotedNames = [...primary, ...secondary]
+    .filter((t) => t.demoted)
+    .map((t) => t.name)
+    .filter((name, i, arr) => arr.indexOf(name) === i);
+  const text = formatPresentModelText(insights, {
+    preferCoreHome: options.preferCoreHome,
+    demotedNames,
+  });
+  return { text, insights };
+}
+
+function finishedProjectNames(
+  repos: CandidateRepoInput[],
+  admitted: WorkThread[],
+  now: Date,
+): string[] {
+  const admittedRoots = new Set(admitted.map((t) => resolve(t.root)));
+  const names: string[] = [];
+  for (const repo of repos) {
+    if (admittedRoots.has(resolve(repo.root))) continue;
+    if (/flyd/i.test(repo.name)) continue;
+    if (repo.isDirty) continue;
+    if (!repo.lastCommitAt) continue;
+    const age = (now.getTime() - Date.parse(repo.lastCommitAt)) / (1000 * 60 * 60 * 24);
+    if (!Number.isFinite(age) || age <= 30) continue;
+    names.push(displayName(repo.name));
   }
-
-  const names =
-    primary.length === 1
-      ? primary[0].name
-      : primary.length === 2
-        ? `${primary[0].name} and ${primary[1].name}`
-        : `${primary.slice(0, -1).map((t) => t.name).join(", ")}, and ${primary[primary.length - 1].name}`;
-
-  const subjects = primary
-    .map((t) => t.latestSubject)
-    .filter((s): s is string => Boolean(s))
-    .slice(0, 2);
-
-  let line =
-    primary.length === 1
-      ? `${names} looks like tonight's active thread`
-      : `${names} look like tonight's active threads`;
-
-  if (subjects.length === 1) {
-    line += ` — latest: ${subjects[0]}`;
-  } else if (subjects.length > 1) {
-    line += `. Latest moves: ${subjects.map((s, i) => `${primary[i].name}: ${s}`).join("; ")}`;
-  }
-  line += ".";
-
-  const coreSecondary = secondary.filter((t) => /flyd/i.test(t.name));
-  if (coreSecondary.length) {
-    line += ` ${coreSecondary[0].name} also changed, but it's the Core home — secondary unless you say otherwise.`;
-  } else if (secondary.some((t) => t.demoted)) {
-    const demoted = secondary.filter((t) => t.demoted).map((t) => t.name).join(", ");
-    line += ` Demoted: ${demoted}.`;
-  }
-
-  return line;
+  return names;
 }
 
 function confidenceFor(primary: WorkThread[]): "high" | "medium" | "low" {
@@ -217,6 +235,11 @@ export async function buildPresentModelBelief(
 ): Promise<WorkHypothesis> {
   const now = options.now ?? new Date();
   const demotions = activeDemotions();
+  const promotions = activePromotions();
+  const preferCoreHome =
+    isProjectPromoted("flyd") ||
+    isProjectPromoted("Flyd") ||
+    promotions.some((p) => /flyd/i.test(p));
   const repos =
     options.repos ??
     (await loadLiveRepos(options.foregroundRoot));
@@ -227,15 +250,34 @@ export async function buildPresentModelBelief(
     demotions,
   });
 
+  const extraWorkstreams = promotions.filter((p) => !/flyd/i.test(p)).map((p) => displayName(p));
+  const insightOpts = (primary: WorkThread[], secondary: WorkThread[]) => ({
+    preferCoreHome,
+    now,
+    extraWorkstreams,
+    finishedProjects: finishedProjectNames(repos, [...primary, ...secondary], now),
+  });
+
   const prior = readPresentModel();
-  const fp = evidenceFingerprint(candidates, demotions);
+  const fp = evidenceFingerprint(candidates, demotions, promotions);
   const priorFp = prior
-    ? evidenceFingerprint([...prior.primaryThreads, ...prior.secondaryThreads], prior.demotions)
+    ? evidenceFingerprint(
+        [...prior.primaryThreads, ...prior.secondaryThreads],
+        prior.demotions,
+        promotions,
+      )
     : "";
 
   if (prior && fp === priorFp) {
+    const { text, insights } = integrityHypothesisText(
+      prior.primaryThreads,
+      prior.secondaryThreads,
+      insightOpts(prior.primaryThreads, prior.secondaryThreads),
+    );
     return writePresentModel({
       ...prior,
+      hypothesisText: text,
+      insights,
       fromCache: true,
       revisedAt: prior.revisedAt,
       generatedAt: now.toISOString(),
@@ -245,15 +287,21 @@ export async function buildPresentModelBelief(
   const { primary, secondary, uncertainty } = applyClaimChecks(
     candidates,
     options.coreCwd ?? process.cwd(),
+    { preferCoreHome },
   );
 
-  const hypothesisText = integrityHypothesisText(primary, secondary);
+  const { text: hypothesisText, insights } = integrityHypothesisText(
+    primary,
+    secondary,
+    insightOpts(primary, secondary),
+  );
   let objective = prior?.objective;
 
   if (options.modelConfig?.apiKey && primary.length) {
-    const tip = primary[0].latestSubject
-      ? `Continue: ${primary[0].latestSubject}`
-      : `Re-enter ${primary[0].name}`;
+    const tip = insights.nextLeverage
+      ?? (primary[0].latestSubject
+        ? `Continue: ${primary[0].latestSubject}`
+        : `Re-enter ${primary[0].name}`);
     objective = {
       value: tip,
       source: "repository",
@@ -274,6 +322,7 @@ export async function buildPresentModelBelief(
     uncertainty,
     evidenceRefs: primary.flatMap((t) => t.signals),
     demotions,
+    insights,
     revisedAt: now.toISOString(),
     generatedAt: now.toISOString(),
     fromCache: false,

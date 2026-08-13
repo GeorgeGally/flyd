@@ -402,6 +402,52 @@ describe("buildConversationPrompt", () => {
     expect(laterEvidence).toContain("refused an ungrounded project answer");
   });
 
+  it("answers a named-project needs question from Documents/git, not the to-do list", async () => {
+    const streamed: string[] = [];
+    let ranLoop = false;
+    const answer = await respondToConversation({
+      message: "what needs to be done on DIR?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: true,
+        changedFiles: 2,
+        latestCommit: "wip",
+        outcome: null,
+        status: null,
+        nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      crossRepo: [
+        {
+          root: "/Users/radarboy3000/Documents/dead-internet-radio",
+          name: "dead-internet-radio",
+          branch: "main",
+          dirty: true,
+          lastCommitRelative: "5 weeks ago",
+          isForeground: false,
+        },
+      ],
+      presentHypothesis: "  Dead Internet Radio is first today.",
+      onToken: (token) => streamed.push(token),
+    }, {
+      runAgentLoop: async () => {
+        ranLoop = true;
+        return "<final>should not run</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(ranLoop).toBe(false);
+    expect(answer).toMatch(/Dead Internet Radio last moved/i);
+    expect(answer).toMatch(/uncommitted work/i);
+    expect(answer).not.toMatch(/no concrete next task|only has the project-level to-do/i);
+    expect(streamed.join("")).toContain("Dead Internet Radio");
+  });
+
   it("denies file and directory symlinks that escape the current repository", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-project-"));
     const outsideRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-outside-"));

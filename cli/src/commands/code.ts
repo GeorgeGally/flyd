@@ -21,6 +21,7 @@ import { PostgresTaskStore } from "../runtime/task-store.js";
 import { NodeTerminal } from "../runtime/terminal.js";
 import { runAgentSession, type AgentSituation } from "../runtime/agent-session.js";
 import { respondToConversation } from "../runtime/conversation-responder.js";
+import { runSessionExitMaintenance } from "../runtime/session-exit.js";
 import { refreshRepoRegistry } from "../runtime/repo-registry.js";
 import {
   buildPresentModelBelief,
@@ -178,6 +179,14 @@ export async function runAgent(): Promise<void> {
     await pool.end();
   }
 
+  if (result.kind === "exit") {
+    // Do not open a new readline terminal here — that keeps the process alive.
+    await runSessionExitMaintenance({
+      write: (text) => {
+        process.stdout.write(text);
+      },
+    });
+  }
   if (result.kind === "coding") await runCode(result.outcome);
   if (result.kind === "resume") await runCode();
 }
@@ -238,7 +247,7 @@ export async function runCode(outcome?: string): Promise<void> {
         orchestrationGrantScope: {
           workerAdapters: [ "flyd" ],
           worktreeRoot: manager.managedRoot,
-          providerIdentity: workerConfigs.map((config) => config.providerIdentity).join(" -> "),
+          providerIdentity: workerConfigs[0]?.providerIdentity ?? "flyd-configured-provider",
         },
         orchestrate: async ({ task, grant, repository, memory, contextPath, assignment }) => {
           const repositories = await Promise.all(grant.repositoryRoots.map((root) => (

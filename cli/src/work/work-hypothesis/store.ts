@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { resolve } from "path";
 import { getDb } from "../database.js";
 import type { HypothesisCorrection, WorkHypothesis, WorkThread } from "./types.js";
 
@@ -21,6 +22,7 @@ function mapHypothesis(row: Record<string, unknown>): WorkHypothesis {
     uncertainty: parseJson(row.uncertainty as string, []),
     evidenceRefs: parseJson(row.evidence_refs as string, []),
     demotions: parseJson(row.demotions as string, []),
+    insights: row.insights ? parseJson(row.insights as string, undefined) : undefined,
     revisedAt: row.revised_at as string,
     generatedAt: row.generated_at as string,
     fromCache: Boolean(row.from_cache),
@@ -49,8 +51,9 @@ export function writePresentModel(
   db.prepare(
     `INSERT INTO work_hypotheses (
       id, hypothesis_text, primary_threads, secondary_threads, objective,
-      confidence, uncertainty, evidence_refs, demotions, revised_at, generated_at, from_cache
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      confidence, uncertainty, evidence_refs, demotions, insights,
+      revised_at, generated_at, from_cache
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       hypothesis_text = excluded.hypothesis_text,
       primary_threads = excluded.primary_threads,
@@ -60,6 +63,7 @@ export function writePresentModel(
       uncertainty = excluded.uncertainty,
       evidence_refs = excluded.evidence_refs,
       demotions = excluded.demotions,
+      insights = excluded.insights,
       revised_at = excluded.revised_at,
       generated_at = excluded.generated_at,
       from_cache = excluded.from_cache`,
@@ -73,6 +77,7 @@ export function writePresentModel(
     JSON.stringify(record.uncertainty),
     JSON.stringify(record.evidenceRefs),
     JSON.stringify(record.demotions),
+    record.insights ? JSON.stringify(record.insights) : null,
     record.revisedAt,
     record.generatedAt,
     record.fromCache ? 1 : 0,
@@ -146,18 +151,91 @@ export function activeDemotions(): string[] {
   return [...demoted];
 }
 
-export function projectHypothesisLine(h: WorkHypothesis | null): string {
-  if (!h) return "  Current work: unknown — no integrity evidence yet.";
-  if (!h.primaryThreads.length && !h.secondaryThreads.length) {
-    return `  ${h.hypothesisText || "Current work: gap — no admitted activity threads."}`;
+/** Projects explicitly promoted / reaffirmed as primary (latest correction wins). */
+export function activePromotions(): string[] {
+  const corrections = listCorrections(100);
+  const promoted = new Set<string>();
+  const seen = new Set<string>();
+  for (const c of corrections) {
+    const key = (c.projectName ?? c.projectRoot ?? "").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (c.kind === "reaffirm" || c.kind === "promote") promoted.add(c.projectName ?? key);
+    if (c.kind === "demote" || c.kind === "exclude") promoted.delete(c.projectName ?? key);
   }
-  return `  ${h.hypothesisText}`;
+  return [...promoted];
 }
 
-export function evidenceFingerprint(threads: WorkThread[], demotions: string[]): string {
+export function isProjectPromoted(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return activePromotions().some((p) => p.toLowerCase() === key);
+}
+
+export function projectHypothesisLine(h: WorkHypothesis | null): string {
+  if (!h) return "  I don't have a clear picture yet.";
+  const text =
+    h.hypothesisText ||
+    (!h.primaryThreads.length && !h.secondaryThreads.length
+      ? "Nothing urgent on the board."
+      : "");
+  if (!text) return "  Nothing urgent on the board.";
+  return text
+    .split("\n")
+    .map((line) => (line.length ? `  ${line}` : ""))
+    .join("\n");
+}
+
+export function evidenceFingerprint(
+  threads: WorkThread[],
+  demotions: string[],
+  promotions: string[] = [],
+): string {
   const parts = [
     ...threads.map((t) => `${t.name}:${t.lastCommitAt ?? ""}:${t.demoted ? "d" : ""}`),
     ...demotions.map((d) => `demote:${d}`),
+    ...promotions.map((p) => `promote:${p}`),
   ];
   return parts.join("|");
+}
+
+/**
+ * After integrity refresh: commits on demoted projects stay secondary.
+ * Does not clear demotions based on new commits alone.
+ */
+export function enforceDemotionConstraints(hypothesis: WorkHypothesis): WorkHypothesis {
+  const demotions = new Set(activeDemotions().map((d) => d.toLowerCase()));
+  if (!demotions.size) return hypothesis;
+
+  const primary: typeof hypothesis.primaryThreads = [];
+  const secondary = [...hypothesis.secondaryThreads];
+
+  for (const t of hypothesis.primaryThreads) {
+    if (demotions.has(t.name.toLowerCase())) {
+      secondary.push({ ...t, demoted: true });
+    } else {
+      primary.push(t);
+    }
+  }
+
+  const text =
+    primary.length > 0
+      ? [
+          `${primary.map((t) => t.name).join(" · ")} look like tonight's active threads.`,
+          demotions.size ? `Demoted: ${[...demotions].join(", ")}.` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : hypothesis.hypothesisText;
+
+  const next: WorkHypothesis = {
+    ...hypothesis,
+    primaryThreads: primary,
+    secondaryThreads: secondary.filter(
+      (t, i, arr) => arr.findIndex((x) => resolve(x.root) === resolve(t.root)) === i,
+    ),
+    demotions: [...demotions],
+    hypothesisText: text,
+  };
+
+  return writePresentModel(next);
 }
