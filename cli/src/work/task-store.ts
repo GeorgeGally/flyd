@@ -65,7 +65,7 @@ export function addTask(task: {
   sourceRef?: string;
 }): Task {
   const db = getDb();
-  const id = `task-${randomUUID().slice(0, 8)}`;
+  const id = `task-${randomUUID()}`;
   const now = new Date().toISOString();
 
   db.prepare(
@@ -145,7 +145,7 @@ export function syncProjectTasks(projectId: string, descriptions: string[]): { n
 
     for (const desc of descriptions) {
       if (!existingDescs.has(desc)) {
-        const id = `task-${randomUUID().slice(0, 8)}`;
+        const id = `task-${randomUUID()}`;
         db.prepare(
           `INSERT INTO tasks (id, project_id, description, status, priority, source_type, created_at, updated_at)
            VALUES (?, ?, ?, 'open', 'medium', 'project_md', ?, ?)`

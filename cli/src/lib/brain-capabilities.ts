@@ -41,6 +41,8 @@ export const BRAIN_CAPABILITIES = ([
   { id: "wiki", integration: "maintenance", description: "Initialize and maintain the curated local knowledge store.", mutatesArchive: true },
   { id: "ingest", integration: "maintenance", description: "Promote raw captures into governed curated knowledge.", mutatesArchive: true },
   { id: "repos", integration: "maintenance", description: "Manage the cross-repository work index and discovery.", mutatesArchive: true },
+  { id: "skillify", integration: "maintenance", description: "Review and confirm pending wiki skill proposals.", mutatesArchive: true },
+  { id: "jobs", integration: "runtime", description: "Run bounded overnight work jobs with artifact-first delivery.", mutatesArchive: true },
   { id: "daemon", integration: "runtime", description: "Continuously process new captures and refresh derived memory.", mutatesArchive: true },
   { id: "tasks", integration: "interactive", description: "Manage work tasks from the cross-repository work index.", mutatesArchive: true },
 ] satisfies BrainCapability[]).sort((a, b) => a.id.localeCompare(b.id));

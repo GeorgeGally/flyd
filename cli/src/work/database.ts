@@ -23,6 +23,9 @@ export function resetWorkIndexPath(): void {
 export function getDb(): Database.Database {
   if (_db) return _db;
 
+  // ponytail: lazy init is race-safe — better-sqlite3 opens synchronously,
+  // so no event-loop turn occurs between the check and the assignment.
+
   const dir = dirname(_dbPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 

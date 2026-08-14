@@ -96,7 +96,7 @@ export function reconcileProject(
   // Update active threads from activity type
   if (activities.length > 0) {
     const newestActivity = activities.reduce((latest, a) =>
-      a.occurredAt > latest.occurredAt ? a : latest
+      new Date(a.occurredAt).getTime() > new Date(latest.occurredAt).getTime() ? a : latest
     );
     const thread = typeToThread(newestActivity);
     if (thread && !state.activeThreads.includes(thread)) {
