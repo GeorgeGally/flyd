@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { reconcileProject } from "../work/project-reconciler.js";
 import {
   classifyIntent,
   answerQuestion,
@@ -10,6 +11,7 @@ import {
   emptySupplement,
 } from "../work/github-supplement.js";
 import { parseProjectMd } from "../work/project-state.js";
+import { readProjectState } from "../work/project-state.js";
 import { addRepository, removeRepository, listRepositories, listActivities, buildGlobalPresentModel, scanDirectories } from "../work/repository-registry.js";
 import { addTask, listOpenTasks, syncProjectTasks, listTasks } from "../work/task-store.js";
 import { useWorkIndexPath, resetWorkIndexPath, closeDb } from "../work/database.js";
@@ -331,5 +333,73 @@ describe("Task synchronization", () => {
     const removedTask = allTasks.find((t: any) => t.description === "Removed task");
     expect(removedTask).toBeDefined();
     expect(removedTask?.status).toBe("done");
+  });
+
+  it("assigns full UUID task IDs from addTask", () => {
+    const t = addTask({ description: "ID check" });
+    expect(t.id).toMatch(/^task-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it("assigns full UUID task IDs from syncProjectTasks", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "flyd-test-tasks-uuid-"));
+    execSync("git init -b main", { cwd: tmp });
+    const projectId = addRepository(tmp).id;
+    syncProjectTasks(projectId, ["Synced task"]);
+    const synced = listOpenTasks(projectId)[0];
+    expect(synced.id).toMatch(/^task-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+});
+
+describe("reconcileProject — activity ordering", () => {
+  let dbDir: string;
+
+  beforeEach(() => {
+    dbDir = mkdtempSync(join(tmpdir(), "flyd-wi-db-"));
+    useWorkIndexPath(join(dbDir, "work-index.sqlite"));
+  });
+
+  afterEach(() => {
+    closeDb();
+    resetWorkIndexPath();
+    rmSync(dbDir, { recursive: true, force: true });
+  });
+
+  function activity(occurredAt: string, summary: string): any {
+    return {
+      id: "a-" + summary,
+      projectId: "proj",
+      occurredAt,
+      type: "implementation",
+      summary,
+      significance: "minor",
+      commitRefs: [],
+      fileRefs: [],
+      verified: false,
+    };
+  }
+
+  it("picks the newest valid activity, ignoring unparseable timestamps", () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-reconcile-"));
+    const result = reconcileProject(root, [
+      activity("garbage", "old"),
+      activity("2026-08-10T10:00:00Z", "mid"),
+      activity("2026-08-12T10:00:00Z", "newest"),
+    ]);
+    expect(result.updated).toBe(true);
+    const state = readProjectState(root);
+    expect(state.activeThreads[0]).toContain("newest");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("does not crash when every timestamp is unparseable", () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-reconcile-"));
+    const result = reconcileProject(root, [
+      activity("not-a-date", "a"),
+      activity("also-not-a-date", "b"),
+    ]);
+    expect(result.changes).not.toContain(expect.stringContaining("active thread added"));
+    const state = readProjectState(root);
+    expect(state.activeThreads).toEqual([]);
+    rmSync(root, { recursive: true, force: true });
   });
 });

@@ -24,17 +24,19 @@ export interface AgentHandoff {
   evidenceRefs: string[];
 }
 
-const EMPTY_STATE: ProjectState = {
-  purpose: "",
-  currentObjective: "",
-  currentState: "",
-  activeThreads: [],
-  openLoops: [],
-  blockers: [],
-  importantRecentDecisions: [],
-  nextLikelyActions: [],
-  lastMeaningfulUpdate: "",
-};
+function emptyState(): ProjectState {
+  return {
+    purpose: "",
+    currentObjective: "",
+    currentState: "",
+    activeThreads: [],
+    openLoops: [],
+    blockers: [],
+    importantRecentDecisions: [],
+    nextLikelyActions: [],
+    lastMeaningfulUpdate: "",
+  };
+}
 
 const SECTION_HEADERS: Record<string, keyof ProjectState> = {
   "purpose": "purpose",
@@ -55,14 +57,14 @@ const LIST_SECTIONS = new Set<keyof ProjectState>([
 
 export function readProjectState(root: string): ProjectState {
   const path = join(root, "PROJECT.md");
-  if (!existsSync(path)) return { ...EMPTY_STATE };
+  if (!existsSync(path)) return emptyState();
 
   const content = readFileSync(path, "utf8");
   return parseProjectMd(content);
 }
 
 export function parseProjectMd(content: string): ProjectState {
-  const state: ProjectState = { ...EMPTY_STATE };
+  const state = emptyState();
   const lines = content.split("\n");
   let currentSection: keyof ProjectState | null = null;
   let currentText = "";

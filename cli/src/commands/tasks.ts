@@ -25,7 +25,7 @@ export async function runTasksList(): Promise<void> {
     for (const t of projectTasks) {
       const priority = t.priority === "high" ? "‼" : t.priority === "low" ? "·" : " ";
       const status = t.status === "blocked" ? "[BLOCKED]" : t.status === "in_progress" ? "[→]" : "";
-      console.log(`  ${priority} ${t.description} ${status}`);
+      console.log(`  ${priority} ${t.description} ${status} [${t.id}]`);
     }
   }
 }
@@ -126,6 +126,6 @@ export async function runTasksAll(): Promise<void> {
   for (const t of tasks) {
     const statusIcon = t.status === "done" ? "✓" : t.status === "blocked" ? "✗" : "○";
     const project = t.projectId ? `[${t.projectId}]` : "";
-    console.log(`  ${statusIcon} ${t.description} ${project} (${t.priority})`);
+    console.log(`  ${statusIcon} ${t.description} ${project} (${t.priority}) [${t.id}]`);
   }
 }

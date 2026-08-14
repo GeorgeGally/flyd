@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterAll } from "vitest";
+import { rmSync } from "fs";
 import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
 
 const { testFlydDir, testRawDir, testWikiDir } = vi.hoisted(() => {
@@ -24,6 +25,10 @@ vi.mock("../lib/config.js", async (importOriginal) => {
     INTERESTS_PATH: join(testFlydDir, "interests.json"),
     INTERESTS_STATE_PATH: join(testFlydDir, "interests-state.json"),
   };
+});
+
+afterAll(() => {
+  rmSync(testFlydDir, { recursive: true, force: true });
 });
 
 function makeEntry(source: "raw" | "wiki", metadata: Record<string, unknown>) {

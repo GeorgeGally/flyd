@@ -95,15 +95,18 @@ export function reconcileProject(
 
   // Update active threads from activity type
   if (activities.length > 0) {
-    const newestActivity = activities.reduce((latest, a) =>
-      new Date(a.occurredAt).getTime() > new Date(latest.occurredAt).getTime() ? a : latest
-    );
-    const thread = typeToThread(newestActivity);
-    if (thread && !state.activeThreads.includes(thread)) {
-      state.activeThreads.unshift(thread);
-      if (state.activeThreads.length > 10) state.activeThreads = state.activeThreads.slice(0, 10);
-      result.changes.push(`active thread added: "${thread}"`);
-      result.updated = true;
+    const valid = activities
+      .map((a) => ({ a, t: new Date(a.occurredAt).getTime() }))
+      .filter((x) => !Number.isNaN(x.t));
+    const newest = valid.length > 0 ? valid.reduce((best, cur) => (cur.t > best.t ? cur : best)) : undefined;
+    if (newest) {
+      const thread = typeToThread(newest.a);
+      if (thread && !state.activeThreads.includes(thread)) {
+        state.activeThreads.unshift(thread);
+        if (state.activeThreads.length > 10) state.activeThreads = state.activeThreads.slice(0, 10);
+        result.changes.push(`active thread added: "${thread}"`);
+        result.updated = true;
+      }
     }
   }
 
