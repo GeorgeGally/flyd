@@ -1,6 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 import { retrieveBrainEvidence } from "../lib/brain-retrieval.js";
 
+const { testFlydDir, testRawDir, testWikiDir } = vi.hoisted(() => {
+  const { join } = require("path");
+  const { tmpdir } = require("os");
+  const { randomUUID } = require("crypto");
+  const dir = join(tmpdir(), `flyd-test-brain-retrieval-${randomUUID()}`);
+  return {
+    testFlydDir: dir,
+    testRawDir: join(dir, "raw"),
+    testWikiDir: join(dir, "wiki"),
+  };
+});
+
+vi.mock("../lib/config.js", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  const { join } = require("path");
+  return {
+    ...actual,
+    FLYD_DIR: testFlydDir,
+    RAW_DIR: testRawDir,
+    WIKI_DIR: testWikiDir,
+    INTERESTS_PATH: join(testFlydDir, "interests.json"),
+    INTERESTS_STATE_PATH: join(testFlydDir, "interests-state.json"),
+  };
+});
+
 function makeEntry(source: "raw" | "wiki", metadata: Record<string, unknown>) {
   return {
     path: source === "wiki" ? "wiki/test/page.md" : "raw/2026-07-01.md",

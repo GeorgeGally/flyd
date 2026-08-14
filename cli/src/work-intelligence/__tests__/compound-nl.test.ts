@@ -15,11 +15,14 @@ import { createJobDef } from '../jobs/store.js';
 describe('compound-nl', () => {
   let testRoot: string;
   let previousFlydDir: string | undefined;
+  let previousJobsDir: string | undefined;
 
   beforeEach(() => {
     testRoot = join(tmpdir(), `flyd-compound-nl-${randomUUID()}`);
     previousFlydDir = process.env.FLYD_DIR;
     process.env.FLYD_DIR = testRoot;
+    previousJobsDir = process.env.FLYD_JOBS_DIR;
+    process.env.FLYD_JOBS_DIR = join(testRoot, 'jobs');
     mkdirSync(join(testRoot, 'wiki', 'standards'), { recursive: true });
     mkdirSync(join(testRoot, 'wiki', 'skills'), { recursive: true });
     mkdirSync(join(testRoot, 'wiki', 'constraints'), { recursive: true });
@@ -37,6 +40,8 @@ describe('compound-nl', () => {
     configureSkillifyProposalDirectory(undefined);
     if (previousFlydDir === undefined) delete process.env.FLYD_DIR;
     else process.env.FLYD_DIR = previousFlydDir;
+    if (previousJobsDir === undefined) delete process.env.FLYD_JOBS_DIR;
+    else process.env.FLYD_JOBS_DIR = previousJobsDir;
     if (existsSync(testRoot)) rmSync(testRoot, { recursive: true, force: true });
   });
 
@@ -114,6 +119,7 @@ describe('compound-nl', () => {
 
   it('job hunt fails closed when no evidence', () => {
     const match = handleCompoundNl('how is my job hunt going', { presentHypothesis: null });
-    expect(match?.reply).toContain('will not invent');
+    expect(match?.reply).toContain('not available');
+    expect(match?.reply).not.toContain('Job search evidence');
   });
 });
