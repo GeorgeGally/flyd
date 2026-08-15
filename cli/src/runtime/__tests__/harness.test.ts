@@ -20,7 +20,7 @@ function task(overrides: Partial<AgentTask> = {}): AgentTask {
 
 const grant: TaskGrant = {
   id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-  repositoryRoots: [repository.root], worktreePaths: [], workerAdapters: ["flyd"],
+  repositoryRoots: [repository.root], externalRoots: [], worktreePaths: [], workerAdapters: ["flyd"],
   fileOperations: ["read", "write"], commandClasses: ["test", "git_status"],
   verificationCommands: ["git diff --check"], renewalRequiredActions: ["deploy"],
   maxConcurrency: 1, budget: { max_worker_runs: 3 }, providerIdentity: "flyd-configured-provider",
@@ -354,7 +354,7 @@ describe("runContinuityHarness", () => {
   it("includes every requested repository in the bounded grant", async () => {
     const sharedRoot = "/work/shared";
     const deps = dependencies({
-      resolveRepositoryRoots: vi.fn(async () => [ repository.root, sharedRoot ]),
+      resolveRepositoryRoots: vi.fn(async () => ({ repositoryRoots: [ repository.root, sharedRoot ], externalRoots: [] })),
     });
 
     await runContinuityHarness({ outcome: `Update ${sharedRoot} and Flyd`, deps });
@@ -368,7 +368,7 @@ describe("runContinuityHarness", () => {
   });
 
   it("resolves repository grants from the effective resumed correction", async () => {
-    const resolveRepositoryRoots = vi.fn(async () => [ repository.root ]);
+    const resolveRepositoryRoots = vi.fn(async () => ({ repositoryRoots: [ repository.root ], externalRoots: [] }));
     const deps = dependencies({
       resolveRepositoryRoots,
     });

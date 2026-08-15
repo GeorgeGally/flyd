@@ -41,6 +41,7 @@ export function parseFlydWorkerEvent(line: string): WorkerEvent | null {
       type: event.type,
       sessionId: typeof event.sessionId === "string" ? event.sessionId : null,
       text: typeof event.text === "string" ? event.text : null,
+      status: typeof event.status === "string" ? event.status : undefined,
     };
   } catch {
     return null;
@@ -69,6 +70,7 @@ export function createFlydWorkerAdapter(input: {
   fileOperations?: string[];
   commandClasses?: string[];
   repositoryRoots?: string[];
+  externalRoots?: string[];
   spawn?: WorkerSpawn;
 }): WorkerAdapter {
   const script = input.workerScriptPath
@@ -116,6 +118,7 @@ export function createFlydWorkerAdapter(input: {
           "inspect", "test", "lint", "build", "git_status", "git_diff",
         ]),
         FLYD_WORKER_REPOSITORY_ROOTS: JSON.stringify(input.repositoryRoots ?? []),
+        FLYD_WORKER_EXTERNAL_ROOTS: JSON.stringify(input.externalRoots ?? []),
       },
     }),
   };

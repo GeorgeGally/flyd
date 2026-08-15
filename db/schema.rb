@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_28_123845) do
+ActiveRecord::Schema[8.0].define(version: 2026_08_15_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -621,6 +621,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_28_123845) do
     t.string "provider_identity", default: "opencode-configured-provider", null: false
     t.text "decision_reason"
     t.datetime "decided_at"
+    t.jsonb "external_roots", default: [], null: false
     t.index ["agent_task_id"], name: "index_task_grants_on_agent_task_id"
     t.index ["agent_task_id"], name: "index_task_grants_one_approved_per_task", unique: true, where: "((status)::text = 'approved'::text)"
     t.index ["grant_key"], name: "index_task_grants_on_grant_key", unique: true

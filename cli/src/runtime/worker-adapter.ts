@@ -12,6 +12,7 @@ export interface WorkerEvent {
   type: string;
   sessionId: string | null;
   text: string | null;
+  status?: string;
 }
 
 export interface WorkerHealth {

@@ -21,7 +21,7 @@ const worker: WorkerSession = {
 
 const grant: TaskGrant = {
   id: "3", grantKey: "grant-1", agentTaskId: task.id, status: "proposed", scopeDigest: "digest",
-  repositoryRoots: ["/work/flyd"], worktreePaths: [], workerAdapters: ["codex"],
+  repositoryRoots: ["/work/flyd"], externalRoots: [], worktreePaths: [], workerAdapters: ["codex"],
   fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["npm test"],
   renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 2, max_runtime_minutes: 90 },
   providerIdentity: "codex:local", approvedAt: null, expiresAt: "2026-07-19T08:00:00.000Z",

@@ -62,7 +62,8 @@ function mapAssignment(row: QueryResultRow): TaskAssignment {
 function mapGrant(row: QueryResultRow): TaskGrant {
   return {
     id: String(row.id), grantKey: row.grant_key, agentTaskId: String(row.agent_task_id), status: row.status,
-    scopeDigest: row.scope_digest, repositoryRoots: row.repository_roots ?? [], worktreePaths: row.worktree_paths ?? [],
+    scopeDigest: row.scope_digest, repositoryRoots: row.repository_roots ?? [], externalRoots: row.external_roots ?? [],
+    worktreePaths: row.worktree_paths ?? [],
     workerAdapters: row.worker_adapters ?? [], fileOperations: row.file_operations ?? [], commandClasses: row.command_classes ?? [],
     verificationCommands: row.verification_commands ?? [], renewalRequiredActions: row.renewal_required_actions ?? [],
     maxConcurrency: Number(row.max_concurrency), budget: row.budget ?? {}, providerIdentity: row.provider_identity,
@@ -73,6 +74,7 @@ function mapGrant(row: QueryResultRow): TaskGrant {
 
 export interface TaskGrantScopeInput {
   repositoryRoots: string[];
+  externalRoots?: string[];
   worktreePaths: string[];
   workerAdapters: string[];
   fileOperations: string[];
@@ -948,6 +950,7 @@ export class PostgresTaskStore {
         WHERE agent_task_id = $1 AND status = 'proposed'`, [row.id]);
       const scope = {
         repository_roots: input.repositoryRoots,
+        external_roots: input.externalRoots ?? [],
         worktree_paths: input.worktreePaths,
         worker_adapters: input.workerAdapters,
         file_operations: input.fileOperations,
@@ -961,14 +964,15 @@ export class PostgresTaskStore {
       };
       const digest = createHash("sha256").update(JSON.stringify(scope)).digest("hex");
       const result = await client.query(`INSERT INTO task_grants
-        (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths, worker_adapters,
+        (agent_task_id, grant_key, status, scope_digest, repository_roots, external_roots, worktree_paths, worker_adapters,
          file_operations, command_classes, verification_commands, renewal_required_actions, max_concurrency,
          budget, provider_identity, expires_at, created_at, updated_at)
         VALUES ($1, $2, 'proposed', $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-          $9::jsonb, $10::jsonb, $11, $12::jsonb, $13, $14, NOW(), NOW()) RETURNING *`, [
-        row.id, randomUUID(), digest, JSON.stringify(input.repositoryRoots), JSON.stringify(input.worktreePaths),
-        JSON.stringify(input.workerAdapters), JSON.stringify(input.fileOperations), JSON.stringify(input.commandClasses),
-        JSON.stringify(input.verificationCommands), JSON.stringify(input.renewalRequiredActions), input.maxConcurrency,
+          $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15, NOW(), NOW()) RETURNING *`, [
+        row.id, randomUUID(), digest, JSON.stringify(input.repositoryRoots), JSON.stringify(input.externalRoots ?? []),
+        JSON.stringify(input.worktreePaths), JSON.stringify(input.workerAdapters), JSON.stringify(input.fileOperations),
+        JSON.stringify(input.commandClasses), JSON.stringify(input.verificationCommands),
+        JSON.stringify(input.renewalRequiredActions), input.maxConcurrency,
         JSON.stringify(input.budget), input.providerIdentity, input.expiresAt,
       ]);
       const revision = expectedRevision + 1;
@@ -1074,6 +1078,7 @@ export class PostgresTaskStore {
 
   async approveGrant(taskKey: string, expectedRevision: number, input: {
     repositoryRoots: string[];
+    externalRoots?: string[];
     worktreePaths: string[];
     workerAdapters: string[];
     fileOperations: string[];
@@ -1114,6 +1119,7 @@ export class PostgresTaskStore {
       }
       const scope = {
         repository_roots: input.repositoryRoots,
+        external_roots: input.externalRoots ?? [],
         worktree_paths: input.worktreePaths,
         worker_adapters: input.workerAdapters,
         file_operations: input.fileOperations,
@@ -1127,15 +1133,16 @@ export class PostgresTaskStore {
       };
       const digest = createHash("sha256").update(JSON.stringify(scope)).digest("hex");
       const result = await client.query(`INSERT INTO task_grants
-        (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths, worker_adapters,
+        (agent_task_id, grant_key, status, scope_digest, repository_roots, external_roots, worktree_paths, worker_adapters,
          file_operations, command_classes, verification_commands, renewal_required_actions, max_concurrency,
          budget, provider_identity, approved_at, expires_at, created_at, updated_at)
         VALUES ($1, $2, 'approved', $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
-          $9::jsonb, $10::jsonb, $11, $12::jsonb, $13, NOW(), $14, NOW(), NOW()) RETURNING *`,
+          $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, NOW(), $15, NOW(), NOW()) RETURNING *`,
       [
-        row.id, randomUUID(), digest, JSON.stringify(input.repositoryRoots), JSON.stringify(input.worktreePaths),
-        JSON.stringify(input.workerAdapters), JSON.stringify(input.fileOperations), JSON.stringify(input.commandClasses),
-        JSON.stringify(input.verificationCommands), JSON.stringify(input.renewalRequiredActions), input.maxConcurrency,
+        row.id, randomUUID(), digest, JSON.stringify(input.repositoryRoots), JSON.stringify(input.externalRoots ?? []),
+        JSON.stringify(input.worktreePaths), JSON.stringify(input.workerAdapters), JSON.stringify(input.fileOperations),
+        JSON.stringify(input.commandClasses), JSON.stringify(input.verificationCommands),
+        JSON.stringify(input.renewalRequiredActions), input.maxConcurrency,
         JSON.stringify(input.budget), input.providerIdentity, input.expiresAt,
       ]);
       await client.query("UPDATE agent_tasks SET status = 'ready', revision = $1, updated_at = NOW() WHERE id = $2", [revision, row.id]);

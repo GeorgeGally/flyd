@@ -13,7 +13,7 @@ import { createFlydTextGenerator } from "../runtime/flyd-worker-process.js";
 import { runContinuityHarness } from "../runtime/harness.js";
 import { orchestrateAssignments } from "../runtime/orchestrator.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
-import { resolveRequestedRepositoryRoots } from "../runtime/repository-roots.js";
+import { resolveRequestedReadRoots } from "../runtime/repository-roots.js";
 import { recoverInterruptedWorkers, terminateWorkerProcessGroup, workerProcessIsAlive } from "../runtime/recovery.js";
 import { RuntimeCommandService } from "../runtime/runtime-command-service.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
@@ -226,7 +226,7 @@ export async function runCode(outcome?: string): Promise<void> {
         inspectRepository,
         retrieveMemory: retrieveRuntimeMemory,
         resolveRepositoryRoots: (requestedOutcome, primaryRoot) =>
-          resolveRequestedRepositoryRoots(requestedOutcome, primaryRoot, inspectRepository),
+          resolveRequestedReadRoots(requestedOutcome, primaryRoot, inspectRepository),
         resolveVerificationCommands: verificationCommandsForRepository,
         detectWorker: async () => {
           const health = await baseWorkerAdapter.detect();
@@ -286,6 +286,7 @@ export async function runCode(outcome?: string): Promise<void> {
               fileOperations: grant.fileOperations,
               commandClasses: grant.commandClasses,
               repositoryRoots: grant.repositoryRoots,
+              externalRoots: grant.externalRoots,
             }),
           ];
           return orchestrateAssignments({

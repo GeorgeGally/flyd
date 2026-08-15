@@ -115,6 +115,25 @@ describe("Flyd worker tools", () => {
       .rejects.toThrow("not a writable assignment root");
   });
 
+  it("writes to a granted external root and rejects paths escaping every external root", async () => {
+    const { root, projectRoot } = await fixture();
+    const externalRoot = join(root, "notes");
+    await mkdir(externalRoot);
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      repositoryRoots: [ projectRoot ],
+      externalRoots: [ externalRoot ],
+      writableRepositoryRoots: [ projectRoot ],
+      fileOperations: [ "read", "write" ],
+      commandClasses: [],
+    });
+
+    await tools.execute("write_file", { path: join(externalRoot, "draft.md"), content: "notes\n" });
+    await expect(readFile(join(externalRoot, "draft.md"), "utf8")).resolves.toBe("notes\n");
+    await expect(tools.execute("write_file", { path: join(root, "elsewhere.txt"), content: "no" }))
+      .rejects.toThrow("outside the task grant");
+  });
+
   it("rejects traversal and symlinks outside every grant-approved repository", async () => {
     const { root, projectRoot } = await fixture();
     const outside = join(root, "outside.txt");
@@ -304,6 +323,36 @@ describe("Flyd worker tools", () => {
 
     await expect(tools.execute("fetch_url", { url: "https://example.test/article" }))
       .rejects.toThrow(/too large/i);
+  });
+
+  it("exposes complete_task in every tool surface", async () => {
+    const { projectRoot } = await fixture();
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read" ],
+      commandClasses: [],
+    });
+
+    const names = tools.definitions.map((definition) => definition.function.name);
+    expect(names).toContain("complete_task");
+  });
+
+  it("validates complete_task summary bounds and status enum", async () => {
+    const { projectRoot } = await fixture();
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      fileOperations: [ "read" ],
+      commandClasses: [],
+    });
+
+    await expect(tools.execute("complete_task", { summary: "Done.", status: "success" }))
+      .resolves.toBe("Done.");
+    await expect(tools.execute("complete_task", { summary: "x".repeat(5_000), status: "success" }))
+      .rejects.toThrow("at most 4000 characters");
+    await expect(tools.execute("complete_task", { summary: "", status: "success" }))
+      .rejects.toThrow("non-empty string");
+    await expect(tools.execute("complete_task", { summary: "Done.", status: "shipped" }))
+      .rejects.toThrow("must be success, partial, or blocked");
   });
 
   it("aborts a stalled remote response at one operation deadline", async () => {

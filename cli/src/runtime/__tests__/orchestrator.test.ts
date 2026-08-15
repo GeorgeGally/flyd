@@ -159,7 +159,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -267,7 +267,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root, secondRepo.root], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
+      repositoryRoots: [repo.root, secondRepo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
       fileOperations: ["read", "write"], commandClasses: ["test"],
       verificationCommands: ["grep -q 'opencode changed' one.txt", "grep -q 'codex changed' two.txt"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
@@ -397,7 +397,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-retry", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1,
       budget: { max_worker_runs: 2, max_runtime_minutes: 90 }, providerIdentity: "local",
@@ -511,7 +511,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-process-smoke", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 1 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -601,7 +601,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -682,7 +682,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -761,7 +761,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 2, max_runtime_minutes: 1 / 60 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),

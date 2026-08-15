@@ -98,6 +98,7 @@ export interface TaskGrant {
   status: GrantStatus;
   scopeDigest: string;
   repositoryRoots: string[];
+  externalRoots: string[];
   worktreePaths: string[];
   workerAdapters: string[];
   fileOperations: string[];

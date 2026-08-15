@@ -55,6 +55,7 @@ interface TaskStore {
   }): Promise<AgentTask>;
   proposeGrant(taskKey: string, expectedRevision: number, input: {
     repositoryRoots: string[];
+    externalRoots: string[];
     worktreePaths: string[];
     workerAdapters: string[];
     fileOperations: string[];
@@ -148,7 +149,10 @@ export interface HarnessDependencies {
   terminal: HarnessTerminal;
   inspectRepository(path?: string): Promise<RepositorySnapshot>;
   retrieveMemory(query: string): Promise<MemoryEvidence>;
-  resolveRepositoryRoots?(outcome: string, primaryRoot: string): Promise<string[]>;
+  resolveRepositoryRoots?(outcome: string, primaryRoot: string): Promise<{
+    repositoryRoots: string[];
+    externalRoots: string[];
+  }>;
   resolveVerificationCommands?(primaryRoot: string): Promise<string[]>;
   detectWorker(): Promise<{ executable: string; version: string }>;
   workerAdapterName: string;
@@ -230,6 +234,7 @@ function grantSupportsOrchestration(
   repositoryRoots: string[],
   verificationCommands: string[],
   fileOperations: string[],
+  externalRoots: string[],
 ): boolean {
   const maxWorkerRuns = Number(grant.budget.max_worker_runs ?? 0);
 
@@ -238,6 +243,7 @@ function grantSupportsOrchestration(
 
   return sameMembers(scope.workerAdapters, grant.workerAdapters)
     && sameMembers(repositoryRoots, grant.repositoryRoots)
+    && sameMembers(externalRoots, grant.externalRoots)
     && sameMembers(verificationCommands, grant.verificationCommands)
     && sameMembers(ORCHESTRATION_COMMAND_CLASSES, grant.commandClasses)
     && sameMembers(RENEWAL_REQUIRED_ACTIONS, grant.renewalRequiredActions)
@@ -485,9 +491,10 @@ export async function runContinuityHarness(input: {
       }
     }
 
-    const repositoryRoots = deps.resolveRepositoryRoots
+    const requestedRoots = deps.resolveRepositoryRoots
       ? await deps.resolveRepositoryRoots(assignment, repository.root)
-      : [ repository.root ];
+      : { repositoryRoots: [ repository.root ], externalRoots: [] };
+    const { repositoryRoots, externalRoots } = requestedRoots;
     const verificationCommands = deps.resolveVerificationCommands
       ? [...new Set((await Promise.all(repositoryRoots.map((root) => (
           deps.resolveVerificationCommands!(root)
@@ -496,7 +503,7 @@ export async function runContinuityHarness(input: {
     const fileOperations = requestIsReadOnly(assignment) ? [ "read" ] : [ "read", "write" ];
     let grant = await deps.store.approvedGrant(task.id);
     if (grant && deps.orchestrationGrantScope && !grantSupportsOrchestration(
-      grant, deps.orchestrationGrantScope, repositoryRoots, verificationCommands, fileOperations,
+      grant, deps.orchestrationGrantScope, repositoryRoots, verificationCommands, fileOperations, externalRoots,
     )) {
       task = await deps.store.revokeGrant(task.taskKey, task.revision, grant.grantKey, {
         reason: "Release 1B orchestration requires renewed bounded authority",
@@ -527,7 +534,7 @@ export async function runContinuityHarness(input: {
         : "one worker at a time, three runs";
       let proposal = await deps.store.proposedGrant(task.id);
       if (proposal && orchestrationScope && !grantSupportsOrchestration(
-        proposal, orchestrationScope, repositoryRoots, verificationCommands, fileOperations,
+        proposal, orchestrationScope, repositoryRoots, verificationCommands, fileOperations, externalRoots,
       )) {
         await deps.store.rejectGrantProposal(
           task.taskKey,
@@ -542,6 +549,7 @@ export async function runContinuityHarness(input: {
       if (!proposal) {
         proposal = await deps.store.proposeGrant(task.taskKey, task.revision, {
           repositoryRoots,
+          externalRoots,
           worktreePaths: orchestrationScope ? [orchestrationScope.worktreeRoot] : [],
           workerAdapters: orchestrationScope?.workerAdapters ?? [deps.workerAdapterName],
           fileOperations,
@@ -604,7 +612,7 @@ export async function runContinuityHarness(input: {
       interpretation === "accepted" ? "accepted" : interpretation === "focused_corrected" ? "adapted" : "rejected",
     );
 
-    const context = buildContextPackage({ task, repository, worker: previousWorker, memory });
+    const context = buildContextPackage({ task, repository, worker: previousWorker, memory, repositoryRoots });
     if (deps.orchestrate) {
       let orchestration;
       if (resumableIntegrationIsCurrent && interpretation === "accepted") {

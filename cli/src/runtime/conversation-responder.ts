@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { join, dirname, resolve, sep, basename } from "node:path";
 import { resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import { agentLoop, type AgentTool, type ToolHandler } from "../lib/llm.js";
+import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import { isHoroscopeQuestion } from "./personal-context-memory.js";
 import type { MemoryEvidence } from "./types.js";
@@ -306,29 +307,9 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
 }
 
 function injectProjectContext(system: string, projectRoot: string): string {
-  try {
-    const blocks: string[] = [];
-    // ponytail: walk up looking for context files, 5 levels
-    let dir = projectRoot;
-    const found = new Set<string>();
-    for (let i = 0; i < 5; i++) {
-      for (const file of ["AGENTS.md", "SOUL.md", "MEMORY.md", "package.json", "README.md"]) {
-        if (found.has(file)) continue;
-        const p = join(dir, file);
-        if (existsSync(p)) {
-          found.add(file);
-          const content = readFileSync(p, "utf8");
-          blocks.push(`# ${file}\n${content.slice(0, file === "package.json" || file === "README.md" ? 1500 : 2500)}`);
-        }
-      }
-      const parent = dirname(dir);
-      if (parent === dir || found.size >= 5) break;
-      dir = parent;
-    }
-    if (blocks.length === 0) return system;
-    return `${system}\n\n# Project Context\n\n${blocks.join("\n\n")}`;
-  } catch {}
-  return system;
+  const blocks = collectProjectContext(projectRoot);
+  if (blocks.length === 0) return system;
+  return `${system}\n\n# Project Context\n\n${blocks.map((block) => `# ${block.file}\n${block.content}`).join("\n\n")}`;
 }
 
 function gatherProjectFacts(projectRoot: string): string {

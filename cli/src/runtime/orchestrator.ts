@@ -456,6 +456,7 @@ export async function orchestrateAssignments(input: {
         readOnly: !assignmentCanWrite,
       });
       let recordedSession: string | null = null;
+      let completionStatus: string | null = null;
       let lastPersistedObservationAt = 0;
       let workerTransitions = Promise.resolve(worker);
       const timeout = {} as {
@@ -493,6 +494,7 @@ export async function orchestrateAssignments(input: {
             await workerTransitions;
           },
           onEvent: (event) => {
+            if (event.type === "worker.completed" && event.status) completionStatus = event.status;
             if (!event.sessionId || event.sessionId === recordedSession) return;
             recordedSession = event.sessionId;
             workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
@@ -639,7 +641,7 @@ export async function orchestrateAssignments(input: {
         });
         throw new Error(`${intervention.reason}: ${outOfScopeFiles.join(", ")}`);
       }
-      if (result.exitStatus === 0 && verification.passed) {
+      if (result.exitStatus === 0 && verification.passed && completionStatus !== "partial" && completionStatus !== "blocked") {
         await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
           status: "verified",
           result: verificationPayload(verification),
@@ -663,7 +665,11 @@ export async function orchestrateAssignments(input: {
         assignment.capabilityRequirements.every((requirement) => candidate.capabilities.includes(requirement))
       ));
       const intervention = chooseIntervention({
-        trigger: result.exitStatus === 0 ? "verification_failed" : "worker_failed",
+        trigger: completionStatus === "blocked"
+          ? "worker_failed"
+          : completionStatus === "partial"
+            ? "verification_failed"
+            : result.exitStatus === 0 ? "verification_failed" : "worker_failed",
         evidenceDigest,
         priorEvidenceDigests,
         remainingRuns: maxWorkerRuns - workerRuns,

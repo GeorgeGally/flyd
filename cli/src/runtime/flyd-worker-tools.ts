@@ -29,6 +29,7 @@ type CommandRunner = (
     env: NodeJS.ProcessEnv;
     timeout: number;
     repositoryRoots: string[];
+    externalRoots?: string[];
     writableRepositoryRoots: string[];
   },
 ) => Promise<CommandResult>;
@@ -61,6 +62,7 @@ function boundedToolResult(value: string): string {
 
 export function buildToolCommandSandboxProfile(input: {
   repositoryRoots: string[];
+  externalRoots?: string[];
   writableRepositoryRoots: string[];
   temporaryHome: string;
   runtimeRoots: string[];
@@ -71,7 +73,7 @@ export function buildToolCommandSandboxProfile(input: {
     "/private/var/db", "/private/var/run", "/opt/homebrew",
   ];
   const readRoots = [ ...new Set([
-    ...input.repositoryRoots, input.temporaryHome, ...systemRoots, ...input.runtimeRoots,
+    ...input.repositoryRoots, ...(input.externalRoots ?? []), input.temporaryHome, ...systemRoots, ...input.runtimeRoots,
   ]) ];
   return [
     "(version 1)",
@@ -110,8 +112,10 @@ const DEFAULT_RUNNER: CommandRunner = async (command, args, options) => {
   const home = await mkdtemp(join(tmpdir(), "flyd-tool-home-"));
   try {
     const roots = await Promise.all(options.repositoryRoots.map((path) => realpath(path)));
+    const externalRoots = await Promise.all((options.externalRoots ?? []).map((path) => realpath(path)));
     const profile = buildToolCommandSandboxProfile({
       repositoryRoots: roots,
+      externalRoots,
       writableRepositoryRoots: await Promise.all(options.writableRepositoryRoots.map((path) => realpath(path))),
       temporaryHome: await realpath(home),
       runtimeRoots: await existingRuntimeRoots(options.env),
@@ -226,31 +230,37 @@ async function safeProjectPath(
   rawPath: string,
   allowMissing = false,
   requireWritable = false,
+  externalRoots: string[] = [],
 ): Promise<string> {
   const roots = await approvedRoots(projectRoot, repositoryRoots);
   const lexicalRoots = [ ...new Set([ projectRoot, ...repositoryRoots ]) ].map((root) => resolve(root));
+  const grantedExternalRoots = await Promise.all(externalRoots.map((root) => realpath(root)));
+  const lexicalExternalRoots = externalRoots.map((root) => resolve(root));
   const writableRoots = await Promise.all(writableRepositoryRoots.map((root) => realpath(root)));
   const lexicalWritableRoots = writableRepositoryRoots.map((root) => resolve(root));
   const primaryRoot = await realpath(projectRoot);
   const candidate = isAbsolute(rawPath) ? resolve(rawPath) : resolve(primaryRoot, rawPath || ".");
   if (isSensitiveCredentialPath(candidate)) throw new Error("Path is a sensitive credential path");
-  if (![ ...roots, ...lexicalRoots ].some((root) => isWithin(root, candidate))) {
+  const readRoots = [ ...roots, ...lexicalRoots, ...grantedExternalRoots, ...lexicalExternalRoots ];
+  if (!readRoots.some((root) => isWithin(root, candidate))) {
     throw new Error("Path is outside the task grant");
   }
-  if (requireWritable && ![ ...writableRoots, ...lexicalWritableRoots ].some((root) => isWithin(root, candidate))) {
+  if (requireWritable && ![
+    ...writableRoots, ...lexicalWritableRoots, ...grantedExternalRoots, ...lexicalExternalRoots,
+  ].some((root) => isWithin(root, candidate))) {
     throw new Error("Path is not a writable assignment root");
   }
   const existing = await nearestExistingPath(candidate);
   const resolvedExisting = await realpath(existing);
   if (isSensitiveCredentialPath(resolvedExisting)) throw new Error("Path is a sensitive credential path");
-  if (!roots.some((root) => isWithin(root, resolvedExisting))) throw new Error("Path resolves outside the task grant");
-  if (requireWritable && !writableRoots.some((root) => isWithin(root, resolvedExisting))) {
+  if (!readRoots.some((root) => isWithin(root, resolvedExisting))) throw new Error("Path resolves outside the task grant");
+  if (requireWritable && ![ ...writableRoots, ...grantedExternalRoots ].some((root) => isWithin(root, resolvedExisting))) {
     throw new Error("Path resolves outside a writable assignment root");
   }
   if (!allowMissing) {
     const resolvedCandidate = await realpath(candidate);
     if (isSensitiveCredentialPath(resolvedCandidate)) throw new Error("Path is a sensitive credential path");
-    if (!roots.some((root) => isWithin(root, resolvedCandidate))) throw new Error("Path resolves outside the task grant");
+    if (!readRoots.some((root) => isWithin(root, resolvedCandidate))) throw new Error("Path resolves outside the task grant");
     return resolvedCandidate;
   }
   return candidate;
@@ -261,8 +271,9 @@ async function listProjectFiles(
   repositoryRoots: string[],
   writableRepositoryRoots: string[],
   rawPath: string,
+  externalRoots: string[] = [],
 ): Promise<string> {
-  const start = await safeProjectPath(root, repositoryRoots, writableRepositoryRoots, rawPath);
+  const start = await safeProjectPath(root, repositoryRoots, writableRepositoryRoots, rawPath, false, false, externalRoots);
   const rootPath = await realpath(root);
   const pending = [ start ];
   const files: string[] = [];
@@ -300,6 +311,7 @@ function permittedHosts(urls: string[]): Set<string> {
 export function createFlydWorkerTools(input: {
   projectRoot: string;
   repositoryRoots?: string[];
+  externalRoots?: string[];
   writableRepositoryRoots?: string[];
   fileOperations: string[];
   commandClasses: string[];
@@ -315,6 +327,7 @@ export function createFlydWorkerTools(input: {
   const canRead = input.fileOperations.includes("read");
   const canWrite = input.fileOperations.includes("write");
   const repositoryRoots = input.repositoryRoots ?? [ input.projectRoot ];
+  const externalRoots = input.externalRoots ?? [];
   const writableRepositoryRoots = input.writableRepositoryRoots ?? [ input.projectRoot ];
   const run = input.run ?? DEFAULT_RUNNER;
   const environment = sanitizeWorkerEnvironment(input.environment ?? process.env);
@@ -325,6 +338,7 @@ export function createFlydWorkerTools(input: {
     { type: "function", function: { name: "read_file", description: "Read a UTF-8 file in the assigned repository.", parameters: { type: "object", properties: { path: { type: "string" } }, required: [ "path" ], additionalProperties: false } } },
     { type: "function", function: { name: "search", description: "Search repository text with ripgrep.", parameters: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" } }, required: [ "pattern" ], additionalProperties: false } } },
     { type: "function", function: { name: "run_command", description: "Run one grant-approved test, lint, build, inspection, or Git evidence command without a shell.", parameters: { type: "object", properties: { command: { type: "string" } }, required: [ "command" ], additionalProperties: false } } },
+    { type: "function", function: { name: "complete_task", description: "Signal that the assignment is finished. status must be success (done and verified), partial (done but verification is incomplete), or blocked (could not proceed).", parameters: { type: "object", properties: { summary: { type: "string" }, status: { type: "string", enum: [ "success", "partial", "blocked" ] } }, required: [ "summary", "status" ], additionalProperties: false } } },
   ];
   if (canWrite) {
     definitions.push(
@@ -343,12 +357,12 @@ export function createFlydWorkerTools(input: {
     async execute(name, args) {
       if (name === "list_files") {
         if (!canRead) throw new Error("The task grant does not allow reads");
-        return listProjectFiles(input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"));
+        return listProjectFiles(input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), externalRoots);
       }
       if (name === "read_file") {
         if (!canRead) throw new Error("The task grant does not allow reads");
         const content = await readFile(await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"),
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), false, false, externalRoots,
         ), "utf8");
         return boundedToolResult(content);
       }
@@ -356,11 +370,12 @@ export function createFlydWorkerTools(input: {
         if (!canRead) throw new Error("The task grant does not allow reads");
         const pattern = stringArgument(args, "pattern");
         const path = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, typeof args.path === "string" ? args.path : ".",
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, typeof args.path === "string" ? args.path : ".", false, false, externalRoots,
         );
         const result = await run("rg", [ "--line-number", "--no-heading", "--color", "never", pattern, path ], {
           cwd: input.projectRoot, env: environment, timeout: 30_000,
           repositoryRoots: [ input.projectRoot, ...repositoryRoots ],
+          externalRoots,
           writableRepositoryRoots,
         });
         if (result.exitStatus > 1) throw new Error(result.stderr || `Search exited ${result.exitStatus}`);
@@ -369,7 +384,7 @@ export function createFlydWorkerTools(input: {
       if (name === "write_file") {
         if (!canWrite) throw new Error("The task grant does not allow writes");
         const path = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), true, true,
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), true, true, externalRoots,
         );
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, stringArgument(args, "content"), { encoding: "utf8", mode: 0o600 });
@@ -378,7 +393,7 @@ export function createFlydWorkerTools(input: {
       if (name === "edit_file") {
         if (!canWrite) throw new Error("The task grant does not allow writes");
         const path = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), true, true,
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), true, true, externalRoots,
         );
         const oldText = stringArgument(args, "old_text");
         const newText = stringArgument(args, "new_text");
@@ -393,11 +408,11 @@ export function createFlydWorkerTools(input: {
       if (name === "move_file") {
         if (!canWrite) throw new Error("The task grant does not allow writes");
         const source = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "from"), false, true,
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "from"), false, true, externalRoots,
         );
         if (!(await lstat(source)).isFile()) throw new Error("move_file only supports regular files");
         const destination = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "to"), true, true,
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "to"), true, true, externalRoots,
         );
         await lstat(destination).then(
           () => { throw new Error("move_file destination already exists"); },
@@ -410,11 +425,20 @@ export function createFlydWorkerTools(input: {
       if (name === "delete_file") {
         if (!canWrite) throw new Error("The task grant does not allow writes");
         const path = await safeProjectPath(
-          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), false, true,
+          input.projectRoot, repositoryRoots, writableRepositoryRoots, stringArgument(args, "path"), false, true, externalRoots,
         );
         if (!(await lstat(path)).isFile()) throw new Error("delete_file only supports regular files");
         await unlink(path);
         return `Deleted ${relative(input.projectRoot, path)}`;
+      }
+      if (name === "complete_task") {
+        const summary = typeof args.summary === "string" ? args.summary.trim() : "";
+        const status = args.status;
+        if (!summary || summary.length > 4_000) throw new Error("complete_task summary must be a non-empty string of at most 4000 characters");
+        if (status !== "success" && status !== "partial" && status !== "blocked") {
+          throw new Error("complete_task status must be success, partial, or blocked");
+        }
+        return summary;
       }
       if (name === "run_command") {
         const command = stringArgument(args, "command").trim();
