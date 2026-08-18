@@ -1,8 +1,9 @@
 ---
 title: "feat: Ground pack, skillify, and bounded overnight work jobs"
 type: feat
-status: active
+status: completed
 date: 2026-08-12
+completed: 2026-08-18
 deepened: 2026-08-12
 origin: docs/product/flyd-work-intelligence-prd.md
 related:

@@ -160,7 +160,7 @@ export function loadDomainStandard(params: {
   artifactKind?: string;
   bundleId?: string;
   projectName?: string;
-}): { standard: DomainStandard; provenance: string } {
+}): { standard: DomainStandard; provenance: string; skillifyAuthored: boolean } {
   const fallbackDomain = selectDomainStandard({
     artifactKind: params.artifactKind,
     bundleId: params.bundleId,
@@ -180,13 +180,18 @@ export function loadDomainStandard(params: {
     if (!parsed) continue;
     const standard = parseDomainStandardFromWiki(parsed, fallbackDomain);
     if (standard) {
-      return { standard, provenance: `wiki/${relPath}` };
+      return {
+        standard,
+        provenance: `wiki/${relPath}`,
+        skillifyAuthored: parsed.metadata.source === 'skillify',
+      };
     }
   }
 
   return {
     standard: DOMAIN_STANDARDS[fallbackDomain],
     provenance: 'fallback:domain-standards',
+    skillifyAuthored: false,
   };
 }
 

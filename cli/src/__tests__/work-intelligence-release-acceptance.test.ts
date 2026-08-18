@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WORK_CONTRACT_VERSION, checkContractVersion } from '../work-intelligence/types.js';
 import type { FounderJournalEntry, FounderEventType, WorkInteractionResponse } from '../work-intelligence/types.js';
+import type { JobTool } from '../work-intelligence/jobs/types.js';
 import {
   configureOutcomeJournalDirectory,
   recordJournalEntry,
@@ -60,6 +61,7 @@ const ALL_FOUNDER_EVENT_TYPES: FounderEventType[] = [
   'action_approved', 'action_failed', 'action_partial',
   'closeout_recorded', 'learning_promoted',
   'skillify_proposed', 'skillify_written',
+  'standard_hit', 'skill_applied',
   'context_accuracy_sample',
   'command_approved', 'command_rejected',
   'command_completed', 'command_failed',
@@ -690,6 +692,155 @@ describe('work-intelligence release acceptance', () => {
       expect(resolver).toContain('wiki/standards/');
       expect(resolver).toContain('skillify');
       expect(resolver).toContain('job-artifacts');
+    });
+
+    it('skillify confirm and all job control routes reject without Bearer', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const server = readFileSync(join(process.cwd(), 'src/server.ts'), 'utf-8');
+      const guardedRoutes = [
+        '/skillify/pending', '/skillify/confirm',
+        '/jobs', '/jobs/pause', '/jobs/resume', '/jobs/kill', '/jobs/run',
+      ];
+      for (const route of guardedRoutes) {
+        const idx = server.indexOf(`case "${route}"`);
+        expect(idx, `route ${route} must exist in server switch`).toBeGreaterThan(-1);
+        expect(server.slice(idx, idx + 200), `route ${route} must be auth-guarded`)
+          .toMatch(/checkAuth\(req\)/);
+      }
+      const enableIdx = server.indexOf('(enable|disable)');
+      expect(enableIdx).toBeGreaterThan(-1);
+      expect(server.slice(enableIdx, enableIdx + 120)).toMatch(/checkAuth\(req\)/);
+    });
+
+    it('skillify confirm outside wiki allowlist writes no file and never marks written', async () => {
+      const { writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { tmpdir } = await import('node:os');
+      const { randomUUID } = await import('node:crypto');
+      const { confirmProposal } = await import('../work-intelligence/skillify/confirm.js');
+      const { configureSkillifyProposalDirectory } = await import('../work-intelligence/skillify/proposal-store.js');
+      const { configureOutcomeJournalDirectory } = await import('../work-intelligence/outcome-journal.js');
+
+      const root = join(tmpdir(), `flyd-gate-badpath-${randomUUID()}`);
+      const prev = process.env.FLYD_DIR;
+      process.env.FLYD_DIR = root;
+      mkdirSync(join(root, 'overlay', 'skillify-proposals'), { recursive: true });
+      mkdirSync(join(root, 'overlay', 'founder-journal'), { recursive: true });
+      configureSkillifyProposalDirectory(undefined);
+      configureOutcomeJournalDirectory(join(root, 'overlay', 'founder-journal'));
+
+      try {
+        const proposalId = randomUUID();
+        const proposal = {
+          id: proposalId,
+          kind: 'domain_standard',
+          targetPath: '../evil.md',
+          body: '---\ntype: domain_standard\n---\nescape',
+          provenance: 'test',
+          sourceOutcome: 'succeeded',
+          domain: 'code',
+          status: 'proposed',
+          dedupeKey: `test:${proposalId}`,
+          revision: 1,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        };
+        writeFileSync(
+          join(root, 'overlay', 'skillify-proposals', `${proposalId}.json`),
+          JSON.stringify(proposal),
+          'utf-8',
+        );
+
+        const result = confirmProposal(proposalId, 1);
+        expect(result.ok).toBe(false);
+        expect(existsSync(join(root, 'wiki', 'evil.md'))).toBe(false);
+        const stored = JSON.parse(
+          readFileSync(join(root, 'overlay', 'skillify-proposals', `${proposalId}.json`), 'utf-8'),
+        );
+        expect(stored.status).not.toBe('written');
+      } finally {
+        configureSkillifyProposalDirectory(undefined);
+        if (prev === undefined) delete process.env.FLYD_DIR;
+        else process.env.FLYD_DIR = prev;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('job audit samples scrub screen/AX/base64 and long raw user text', async () => {
+      const { writeFileSync, readFileSync, mkdirSync, rmSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { tmpdir } = await import('node:os');
+      const { randomUUID } = await import('node:crypto');
+      const { writeJobAudit, listJobAudits } = await import('../work-intelligence/jobs/store.js');
+
+      const root = join(tmpdir(), `flyd-gate-audit-${randomUUID()}`);
+      const prev = process.env.FLYD_DIR;
+      process.env.FLYD_DIR = root;
+      mkdirSync(root, { recursive: true });
+
+      try {
+        const runId = randomUUID();
+        const base64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+        const longText = 'user said ' + 'word '.repeat(400);
+        writeJobAudit({
+          runId,
+          jobId: 'morning-briefing',
+          scheduleSlot: '2026-08-18T08:00:00.000Z',
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          status: 'completed',
+          toolsUsed: ['wiki_read'],
+          notes: `AXButton pressed on screen; ${base64}; ${longText}`,
+        });
+
+        const audits = listJobAudits();
+        const stored = audits.find((a) => a.runId === runId);
+        expect(stored).toBeTruthy();
+        expect(stored!.notes).not.toContain(base64);
+        expect(stored!.notes).not.toContain('AXButton');
+        expect(stored!.notes!.length).toBeLessThanOrEqual(500);
+      } finally {
+        if (prev === undefined) delete process.env.FLYD_DIR;
+        else process.env.FLYD_DIR = prev;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('job toolPolicy listing schedule-mutation or wiki-write still refuses those tools', async () => {
+      const { resolveEffectiveTools, assertToolAllowed } = await import('../work-intelligence/jobs/tool-policy.js');
+      const { ALWAYS_DENIED_TOOLS, DEFAULT_JOB_BUDGETS } = await import('../work-intelligence/jobs/types.js');
+
+      const job = {
+        id: 'gate-job',
+        type: 'morning_briefing' as const,
+        enabled: true,
+        schedule: '08:00',
+        skillIds: [],
+        toolPolicy: ['wiki_write', 'schedule_mutation', 'wiki_read', 'present_bridge'] as JobTool[],
+        budgets: { ...DEFAULT_JOB_BUDGETS },
+        delivery: 'pull' as const,
+        writeMode: 'artifact' as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const effective = resolveEffectiveTools(job);
+      for (const denied of ALWAYS_DENIED_TOOLS) {
+        expect(effective).not.toContain(denied);
+      }
+      expect(effective).toContain('wiki_read');
+      expect(() => assertToolAllowed(job, 'wiki_write')).toThrow();
+      expect(() => assertToolAllowed(job, 'schedule_mutation')).toThrow();
+    });
+
+    it('pending skillify proposal bodies never appear in Diagnose pack modules', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      for (const file of ['ground-pack.ts', 'ground-pack-wiki.ts', 'intervention.ts']) {
+        const source = readFileSync(join(process.cwd(), 'src/work-intelligence', file), 'utf-8');
+        expect(source, `${file} must not read skillify proposals`).not.toMatch(/skillify-proposals|listPendingProposals|proposal-store/);
+      }
     });
   });
 });

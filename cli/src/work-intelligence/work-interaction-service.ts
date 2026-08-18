@@ -17,6 +17,7 @@ import {
   slugifyName,
 } from './ground-pack-wiki.js';
 import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
+import { recordJournalEntry } from './outcome-journal.js';
 
 export interface WorkInteractionParams {
   invocationId: string;
@@ -74,6 +75,31 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     bundleId: currentWork.artifact.bundleId,
     projectName: currentWork.project.value,
   });
+
+  if (domainFromWiki.provenance.startsWith('wiki/')) {
+    try {
+      recordJournalEntry({
+        entryId: `standard-hit-${interactionId}`,
+        interactionId,
+        workSessionId,
+        timestamp: new Date().toISOString(),
+        eventType: 'standard_hit',
+        details: { domain: domainFromWiki.standard.domain, artifactKind: currentWork.artifact.kind },
+      });
+      if (domainFromWiki.skillifyAuthored) {
+        recordJournalEntry({
+          entryId: `skill-applied-${interactionId}`,
+          interactionId,
+          workSessionId,
+          timestamp: new Date().toISOString(),
+          eventType: 'skill_applied',
+          details: { domain: domainFromWiki.standard.domain, artifactKind: currentWork.artifact.kind },
+        });
+      }
+    } catch {
+      // counter failure must never abort the invocation
+    }
+  }
 
   const presentModel = readPresentModel();
   const closeout = readLatestCloseoutForProject(currentWork.project.value);
