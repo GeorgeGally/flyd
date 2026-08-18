@@ -216,16 +216,23 @@ async function agentLoopAnthropic(
   const messages: any[] = [{ role: "user", content: userMessage }];
 
   for (let i = 0; i < maxIterations; i++) {
+    // Last call drops tools so the model must answer with what it gathered
+    // instead of the loop discarding everything at budget exhaustion.
+    const lastCall = i === maxIterations - 1;
     const res = await client.messages.create({
       model,
       max_tokens: 2048,
       temperature: 0.2,
-      system,
-      tools: tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.input_schema,
-      })),
+      system: lastCall
+        ? `${system}\n\nTool budget is exhausted. Answer now from the evidence gathered so far; state plainly what you could not finish.`
+        : system,
+      ...(lastCall ? {} : {
+        tools: tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        })),
+      }),
       messages,
     });
 
@@ -284,11 +291,12 @@ async function agentLoopOpenAI(
   }));
 
   for (let i = 0; i < maxIterations; i++) {
+    const lastCall = i === maxIterations - 1;
     const res = await client.chat.completions.create({
       model,
       ...openAICompletionLimit(2048),
       temperature: 0.2,
-      tools: oaiTools,
+      ...(lastCall ? {} : { tools: oaiTools }),
       messages,
     });
 
@@ -335,11 +343,14 @@ async function agentLoopOpenAIResponses(
   }));
 
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const lastCall = iteration === maxIterations - 1;
     const response = await client.responses.create({
       model,
-      instructions: system,
+      instructions: lastCall
+        ? `${system}\n\nTool budget is exhausted. Answer now from the evidence gathered so far; state plainly what you could not finish.`
+        : system,
       input,
-      tools: responseTools,
+      ...(lastCall ? {} : { tools: responseTools }),
       max_output_tokens: 2048,
     });
     if (response.error) throw new Error(`OpenAI Responses API: ${response.error.message}`);
