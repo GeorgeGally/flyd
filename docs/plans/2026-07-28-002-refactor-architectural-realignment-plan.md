@@ -1,8 +1,10 @@
 ---
 title: Flyd architectural realignment — documentation truth, LIVE reconnection, confirmation contract, delegation decision, and intelligence loop reconciliation
 type: refactor
-status: active
+status: completed
 date: 2026-07-28
+completed: 2026-08-18
+completion_note: All units landed (LIVE shipped incl. U15 flag removal; ResolutionApplier substance shipped via LiveSessionController + NativeExecutor rather than a separate file). Verified against code 2026-08-18.
 origin: ad-hoc architectural review (ChatGPT + DeepSeek + adversarial pass, 2026-07-28)
 deepened: 2026-07-28
 ---

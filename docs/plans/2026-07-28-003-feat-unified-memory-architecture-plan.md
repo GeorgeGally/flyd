@@ -1,8 +1,10 @@
 ---
 title: Memory Convergence & Epistemic Integrity
 type: feat
-status: active
+status: completed
 date: 2026-07-28
+completed: 2026-08-18
+completion_note: U1-U7, U10-U12 landed (epistemic mapping, confidence dimensions, receipt frontmatter, loadable synthesis, graph discovery, Memory Pack, overlay receipt scan, contradictionCount, integration tests). U8/U9 (Rails MemoryEdge, WorldStateCompiler) voided — Rails retired from active architecture. Verified against code 2026-08-18.
 origin: Memory Runtime PRD (user-provided, 2026-07-28) + validated against codebase in ce-plan session
 deepened: 2026-07-28
 supersedes: deferred claim model, memory events, and canonical persistence layer to a follow-up Claim/Event Runtime plan
