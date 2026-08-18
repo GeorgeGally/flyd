@@ -92,4 +92,16 @@ describe("present model surfaces", () => {
     expect(answer).toContain("CleanX");
     expect(presentModelReply("how is the weather", "  Good Neighbours")).toBeNull();
   });
+
+  it("ignores 'active projects' buried inside a long memory paste", async () => {
+    const { presentModelReply } = await import("../../../runtime/conversation-responder.js");
+    const paste = [
+      "add these to memories. this is extracted memories from chatgpt:",
+      "[2025-09-01] - Context at this point treated Koko and Museq1 as active projects.",
+      "x".repeat(500),
+    ].join("\n");
+    expect(
+      presentModelReply(paste, "Get GNM sponsor outreach moving is first — due 5 September."),
+    ).toBeNull();
+  });
 });

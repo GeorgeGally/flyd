@@ -73,7 +73,7 @@ export async function runFlydWorkerLoop(input: {
     definitions: FlydToolDefinition[];
     execute(name: string, args: Record<string, unknown>): Promise<string>;
   };
-  emit(event: { type: string; sessionId: string; text: string | null; status?: string }): void;
+  emit(event: { type: string; sessionId: string; text: string | null; status?: "success" | "partial" | "blocked" }): void;
 }): Promise<{ sessionId: string; output: string }> {
   const sessionId = input.sessionId ?? `flyd-${randomUUID()}`;
   if (!/^flyd-[A-Za-z0-9-]{1,128}$/.test(sessionId)) throw new Error("Invalid Flyd session ID");
@@ -124,6 +124,7 @@ export async function runFlydWorkerLoop(input: {
     for (const call of completion.toolCalls) {
       input.emit({ type: "tool.started", sessionId, text: call.name });
       let result: string;
+      let failed = false;
       try {
         const knownNames = new Set(input.tools.definitions.map((definition) => definition.function.name));
         if (knownNames.size > 0 && !knownNames.has(call.name)) {
@@ -132,13 +133,14 @@ export async function runFlydWorkerLoop(input: {
         result = await input.tools.execute(call.name, call.arguments);
         if (EVIDENCE_TOOLS.has(call.name)) usedRepositoryEvidence = true;
       } catch (error) {
+        failed = true;
         result = `Tool error: ${error instanceof Error ? error.message : String(error)}`;
       }
       state.messages.push({ role: "tool", tool_call_id: call.id, name: call.name, content: result });
       await persistState(input.sessionRoot, state);
       input.emit({ type: "tool.completed", sessionId, text: call.name });
 
-      if (call.name === "complete_task" && !result.startsWith("Tool error:")) {
+      if (call.name === "complete_task" && !failed) {
         if (!usedRepositoryEvidence && input.tools.definitions.length > 0) {
           state.messages.push({
             role: "user",
@@ -148,7 +150,10 @@ export async function runFlydWorkerLoop(input: {
           input.emit({ type: "worker.correction", sessionId, text: "More repository evidence required" });
           continue;
         }
-        const status = typeof call.arguments.status === "string" ? call.arguments.status : "success";
+        const rawStatus = call.arguments.status;
+        const status = rawStatus === "partial" || rawStatus === "blocked" || rawStatus === "success"
+          ? rawStatus
+          : "success";
         input.emit({ type: "worker.completed", sessionId, text: result, status });
         return { sessionId, output: result };
       }

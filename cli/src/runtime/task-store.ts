@@ -26,6 +26,9 @@ function iso(value: Date | string | null): string | null {
   return value ? new Date(value).toISOString() : null;
 }
 
+/** Max length for task corrections / focused next-action text. */
+export const MAX_CORRECTION_CHARS = 4_000;
+
 function boundedText(value: string, label: string, maximum: number): string {
   const text = value.trim();
   if (!text) throw new Error(`${label} is required`);
@@ -888,7 +891,7 @@ export class PostgresTaskStore {
     actorSurface?: "cli" | "rails";
     idempotencyKey: string;
   }): Promise<AgentTask> {
-    const correctedValue = boundedText(correction, "Correction", 4_000);
+    const correctedValue = boundedText(correction, "Correction", MAX_CORRECTION_CHARS);
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.corrected", async (client, row, revision) => {
       const context = row.context_snapshot ?? {};
       const corrections = Array.isArray(context.corrections) ? context.corrections : [];

@@ -20,8 +20,16 @@ import type {
   WorkerCommand,
   WorkerSession,
 } from "./types.js";
-import { nonInteractiveAssignment, type WorkerAdapter, type WorkerHealth } from "./worker-adapter.js";
+import { nonInteractiveAssignment, type WorkerAdapter, type WorkerCompletionStatus, type WorkerHealth } from "./worker-adapter.js";
 import { GitWorktreeManager } from "./worktree-manager.js";
+
+function completionInterventionTrigger(
+  completionStatus: WorkerCompletionStatus | null,
+  exitStatus: number,
+): "verification_failed" | "worker_failed" {
+  if (exitStatus !== 0 || completionStatus === "blocked") return "worker_failed";
+  return "verification_failed";
+}
 
 interface OrchestrationStore {
   updateAssignmentWorkspace(
@@ -456,7 +464,7 @@ export async function orchestrateAssignments(input: {
         readOnly: !assignmentCanWrite,
       });
       let recordedSession: string | null = null;
-      let completionStatus: string | null = null;
+      let completionStatus: "success" | "partial" | "blocked" | null = null;
       let lastPersistedObservationAt = 0;
       let workerTransitions = Promise.resolve(worker);
       const timeout = {} as {
@@ -494,7 +502,9 @@ export async function orchestrateAssignments(input: {
             await workerTransitions;
           },
           onEvent: (event) => {
-            if (event.type === "worker.completed" && event.status) completionStatus = event.status;
+            if (event.type === "worker.completed" && (event.status === "success" || event.status === "partial" || event.status === "blocked")) {
+              completionStatus = event.status;
+            }
             if (!event.sessionId || event.sessionId === recordedSession) return;
             recordedSession = event.sessionId;
             workerTransitions = workerTransitions.then(() => input.deps.store.transitionWorker(worker.workerKey, {
@@ -660,16 +670,35 @@ export async function orchestrateAssignments(input: {
         patchDigest: verification.patchDigest,
         commands: verification.commands.map((command) => [command.command, command.exitStatus, command.outputDigest]),
       })).digest("hex");
+
+      // An explicitly completed worker whose changes cannot be verified (for
+      // example an assignment whose only edits land in writable external roots
+      // outside the git worktree) must not auto-retry: no retry can ever
+      // produce the missing git diff, so it would burn the worker-run budget.
+      // Blocked/partial completions that did change the repository still
+      // retry through the normal intervention path below.
+      if (completionStatus !== null && verification.changedFiles.length === 0) {
+        const reviewIntervention = {
+          action: "escalate" as const,
+          automatic: false,
+          reason: "The worker completed explicitly but made no repository changes that verification could confirm; review required",
+          evidenceDigest,
+        };
+        await input.deps.store.recordAssignmentVerification(assignment.assignmentKey, {
+          status: "blocked",
+          result: { ...verificationPayload(verification), intervention: reviewIntervention },
+          artifacts: verificationArtifacts(verification, result, "rejected"),
+          idempotencyKey: eventKey(`assignment-review:${assignment.assignmentKey}`),
+        });
+        throw new Error(reviewIntervention.reason);
+      }
+
       const replacementAvailable = health.some((candidate) => (
         candidate.healthy && candidate.name !== selected.name && !excluded.includes(candidate.name) &&
         assignment.capabilityRequirements.every((requirement) => candidate.capabilities.includes(requirement))
       ));
       const intervention = chooseIntervention({
-        trigger: completionStatus === "blocked"
-          ? "worker_failed"
-          : completionStatus === "partial"
-            ? "verification_failed"
-            : result.exitStatus === 0 ? "verification_failed" : "worker_failed",
+        trigger: completionInterventionTrigger(completionStatus, result.exitStatus),
         evidenceDigest,
         priorEvidenceDigests,
         remainingRuns: maxWorkerRuns - workerRuns,

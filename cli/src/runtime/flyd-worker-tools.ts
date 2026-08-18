@@ -112,7 +112,8 @@ const DEFAULT_RUNNER: CommandRunner = async (command, args, options) => {
   const home = await mkdtemp(join(tmpdir(), "flyd-tool-home-"));
   try {
     const roots = await Promise.all(options.repositoryRoots.map((path) => realpath(path)));
-    const externalRoots = await Promise.all((options.externalRoots ?? []).map((path) => realpath(path)));
+    const externalRoots = (await Promise.all((options.externalRoots ?? []).map((path) => realpath(path).catch(() => null))))
+      .filter((path): path is string => Boolean(path));
     const profile = buildToolCommandSandboxProfile({
       repositoryRoots: roots,
       externalRoots,
@@ -195,13 +196,16 @@ function isWithin(root: string, candidate: string): boolean {
   return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
 }
 
-function isSensitiveCredentialPath(path: string): boolean {
+export function isSensitiveCredentialPath(path: string): boolean {
   const segments = path.split(sep).map((segment) => segment.toLowerCase());
   const name = segments.at(-1)?.toLowerCase() ?? "";
   if (segments.includes(".git")) return true;
   if (name === ".env" || (name.startsWith(".env.") && ![ ".env.example", ".env.sample", ".env.template" ].includes(name))) return true;
+  if (segments.includes(".ssh") || segments.includes(".gnupg") || segments.includes(".aws")) return true;
+  if (segments.includes("library") && segments.includes("keychains")) return true;
   return [
     ".npmrc", ".netrc", "master.key", "id_rsa", "id_ed25519", "credentials.json",
+    "authorized_keys", "known_hosts", ".gitconfig", ".git-credentials",
   ].includes(name);
 }
 
@@ -234,7 +238,8 @@ async function safeProjectPath(
 ): Promise<string> {
   const roots = await approvedRoots(projectRoot, repositoryRoots);
   const lexicalRoots = [ ...new Set([ projectRoot, ...repositoryRoots ]) ].map((root) => resolve(root));
-  const grantedExternalRoots = await Promise.all(externalRoots.map((root) => realpath(root)));
+  const grantedExternalRoots = (await Promise.all(externalRoots.map((root) => realpath(root).catch(() => null))))
+    .filter((root): root is string => Boolean(root));
   const lexicalExternalRoots = externalRoots.map((root) => resolve(root));
   const writableRoots = await Promise.all(writableRepositoryRoots.map((root) => realpath(root)));
   const lexicalWritableRoots = writableRepositoryRoots.map((root) => resolve(root));
@@ -450,12 +455,13 @@ export function createFlydWorkerTools(input: {
         for (const argument of [ executable, ...commandArgs ]) {
           const path = pathLikeCommandArgument(argument);
           if (path) await safeProjectPath(
-            input.projectRoot, repositoryRoots, writableRepositoryRoots, path, true,
+            input.projectRoot, repositoryRoots, writableRepositoryRoots, path, true, false, externalRoots,
           );
         }
         const result = await run(executable, commandArgs, {
           cwd: input.projectRoot, env: environment, timeout: 10 * 60_000,
           repositoryRoots: [ input.projectRoot, ...repositoryRoots ],
+          externalRoots,
           writableRepositoryRoots,
         });
         return boundedToolResult([ `exit ${result.exitStatus}`, result.stdout, result.stderr ].filter(Boolean).join("\n"));

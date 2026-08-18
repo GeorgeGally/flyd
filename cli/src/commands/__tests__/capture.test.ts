@@ -39,6 +39,23 @@ describe("runCapture", () => {
     expect(files[0]).toMatch(/^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.md$/);
   });
 
+  it("does not overwrite when two captures share a timestamp", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:06:41Z"));
+    try {
+      const { runCapture } = await import("../capture.js");
+      await runCapture("first");
+      await runCapture("second");
+      const files = readdirSync(rawDir).filter((f) => f.endsWith(".md")).sort();
+      expect(files).toEqual(["2026-08-13-12-06-41-001.md", "2026-08-13-12-06-41.md"]);
+      const bodies = files.map((file) => readFileSync(join(rawDir, file), "utf8"));
+      expect(bodies.some((body) => body.includes("first"))).toBe(true);
+      expect(bodies.some((body) => body.includes("second"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("creates the raw directory if it does not exist", async () => {
     rmSync(rawDir, { recursive: true, force: true });
     expect(existsSync(rawDir)).toBe(false);

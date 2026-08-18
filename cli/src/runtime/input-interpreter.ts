@@ -6,6 +6,9 @@ export type AgentInput =
   | { kind: "resume" }
   | { kind: "exit" };
 
+/** Above this, auto-routing to coding is too easy to trip via paste. Use /code. */
+export const MAX_AUTO_CODING_OUTCOME_CHARS = 4_000;
+
 const ACTION_OPENING = /^(?:(?:please|can you|could you|would you|i need you to|i want you to)\s+)?(?:fix|implement|build|add|remove|delete|refactor|update|change|debug|test|ship|wire|migrate|rename|replace|restore|revert|clean up|investigate|review|explore|check|examine|audit|survey|assess|evaluate|analyze|study|search|scan|improve|modify|rewrite|show me)\b/i;
 const UNAMBIGUOUS_CODE_ACTION = /^(?:(?:please|can you|could you|would you|i need you to|i want you to)\s+)?(?:implement|refactor|debug|test|ship|wire|migrate|restore|revert)\b/i;
 const INSPECT_THEN_ACTION = /^(?:(?:please|can you|could you|would you|i need you to|i want you to)\s+)?(?:take a look at|look at|check out|inspect|review)\b[\s\S]*?\b(?:and|then)\s+(?:implement|integrate|install|add|adapt|port|wire|fix|build|apply)\b/i;
@@ -24,6 +27,12 @@ export function interpretAgentInput(input: string): AgentInput {
   if (CONTEXTUAL_ACTION.test(text)) return { kind: "contextual_action", message: text };
   if (normalized.startsWith("/code ")) {
     return { kind: "coding", outcome: text.slice("/code ".length).trim() };
+  }
+
+  // Long pastes often contain code-ish words and used to hijack into the
+  // coding harness, then crash on "Correction is too long". Keep them in chat.
+  if (text.length > MAX_AUTO_CODING_OUTCOME_CHARS) {
+    return { kind: "conversation", message: text };
   }
 
   if (UNAMBIGUOUS_CODE_ACTION.test(text) ||

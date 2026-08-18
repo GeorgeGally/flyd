@@ -8,11 +8,13 @@ export type WorkerCapability =
   | "testing"
   | "resume";
 
+export type WorkerCompletionStatus = "success" | "partial" | "blocked";
+
 export interface WorkerEvent {
   type: string;
   sessionId: string | null;
   text: string | null;
-  status?: string;
+  status?: WorkerCompletionStatus;
 }
 
 export interface WorkerHealth {

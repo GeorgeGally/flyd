@@ -133,7 +133,7 @@ export function buildOpenCodePermissionConfig(input: GrantPermissionInput): Open
       task: "deny",
       webfetch: "deny",
       websearch: "deny",
-      external_directory: "deny",
+      external_directory: canRead ? "ask" : "deny",
       bash,
     },
   };

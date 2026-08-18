@@ -114,4 +114,13 @@ describe("Flyd native worker adapter", () => {
     });
     expect(parseFlydWorkerEvent("not json")).toBeNull();
   });
+
+  it("parses a worker.completed status and drops unknown statuses", () => {
+    expect(parseFlydWorkerEvent('{"type":"worker.completed","sessionId":"flyd-1","text":"done","status":"blocked"}')).toEqual({
+      type: "worker.completed", sessionId: "flyd-1", text: "done", status: "blocked",
+    });
+    expect(parseFlydWorkerEvent('{"type":"worker.completed","sessionId":"flyd-1","text":"done","status":"shipped"}')).toEqual({
+      type: "worker.completed", sessionId: "flyd-1", text: "done", status: undefined,
+    });
+  });
 });

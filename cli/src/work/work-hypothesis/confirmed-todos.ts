@@ -37,9 +37,10 @@ const LIST_CORRECTION_PREFIX =
 const GAVE_ALREADY =
   /^(?:no[,.]?\s+)?i\s+(?:already\s+)?(?:gave|told|showed|sent)\b/i;
 
-/** “add Bridgestone and LinkedIn bio” / “add: x, y” */
-const ADD_TODOS =
-  /^add(?:\s+to\s+(?:my\s+)?(?:to[- ]?dos?|list))?\s*:?\s+(.+)$/i;
+/** “add Bridgestone and LinkedIn bio” / “add to my todos: x, y” — not “add to memories”. */
+const ADD_TODOS_TO_LIST =
+  /^add\s+to\s+(?:my\s+)?(?:to[- ]?dos?|list)\s*:?\s+([\s\S]+)$/i;
+const ADD_TODOS_INLINE = /^add\s*:?\s+(.+)$/i;
 
 const COMPLETION_STOPWORDS = new Set([
   "i", "we", "it", "that", "this", "they", "he", "she", "you", "my", "the", "a", "an",
@@ -292,15 +293,21 @@ export function isConfirmedTodoUtterance(message: string): boolean {
     isTodoListCorrection(trimmed) ||
     isBareTodoList(trimmed) ||
     GAVE_ALREADY.test(trimmed) ||
-    ADD_TODOS.test(trimmed)
+    parseAddTodoItems(trimmed).length > 0
   );
 }
 
 /** Parse “add X and Y” / “add X, Y” into item descriptions. */
 export function parseAddTodoItems(message: string): string[] {
-  const m = message.trim().match(ADD_TODOS);
-  if (!m?.[1]) return [];
-  const body = m[1].trim();
+  const trimmed = message.trim();
+  // Memory ingest is a different surface — never treat as to-dos.
+  if (/\bmemor(?:y|ies)\b/i.test(trimmed.slice(0, 120))) return [];
+
+  const listMatch = trimmed.match(ADD_TODOS_TO_LIST);
+  const inlineMatch = !trimmed.includes("\n") ? trimmed.match(ADD_TODOS_INLINE) : null;
+  const body = (listMatch?.[1] ?? inlineMatch?.[1] ?? "").trim();
+  if (!body) return [];
+
   if (isBareTodoList(body) || body.includes("\n")) return parseTodoItems(body);
 
   const parts = body

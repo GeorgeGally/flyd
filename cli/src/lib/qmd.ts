@@ -180,10 +180,14 @@ export async function updateRawStrict(): Promise<void> {
   await store.update({ collections: ["flyd-raw"] });
 }
 
+export async function embedRawStrict(): Promise<void> {
+  const store = await getStore();
+  await store.embed({ collection: "flyd-raw" });
+}
+
 export async function embedRaw(): Promise<void> {
   try {
-    const store = await getStore();
-    await store.embed({ collection: "flyd-raw" });
+    await embedRawStrict();
   } catch {
     // non-fatal
   }

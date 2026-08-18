@@ -524,6 +524,23 @@ describe("buildConversationPrompt", () => {
     }
   });
 
+  it("indexes memory locally instead of entering the agent loop", async () => {
+    const runAgentLoop = async () => {
+      throw new Error("should not call LLM for index now");
+    };
+    const answer = await respondToConversation(
+      {
+        message: "index now",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      { persistReceipt: async () => undefined as never, runAgentLoop },
+    );
+    expect(answer).toMatch(/Memory index updated/);
+  });
+
   it('answers skill inventory via compound-nl without an LLM round trip', async () => {
     const answer = await respondToConversation(
       {

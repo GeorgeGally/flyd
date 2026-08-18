@@ -70,7 +70,7 @@ describe("OpenCode adapter", () => {
       "*": "deny",
       read: "allow",
       edit: "allow",
-      external_directory: "deny",
+      external_directory: "ask",
       task: "deny",
       webfetch: "deny",
     });
@@ -78,6 +78,19 @@ describe("OpenCode adapter", () => {
       "*": "deny",
       "bin/rails test*": "allow",
       "git status*": "allow",
+    });
+  });
+
+  it("keeps external directories denied when read is not granted", () => {
+    const config = buildOpenCodePermissionConfig({
+      fileOperations: ["write"],
+      commandClasses: [],
+    });
+
+    expect(config.permission).toMatchObject({
+      read: "deny",
+      edit: "allow",
+      external_directory: "deny",
     });
   });
 

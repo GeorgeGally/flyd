@@ -10,7 +10,7 @@ import { buildOpenCodeArgs, parseOpenCodeEvent, runOpenCode } from "../opencode-
 import { inspectRepository } from "../repository-inspector.js";
 import { integrateVerifiedResults } from "../result-integrator.js";
 import { verifyWorkerResult } from "../result-verifier.js";
-import type { AgentTask, TaskAssignment, TaskGrant, WorkerSession } from "../types.js";
+import type { AgentTask, TaskAssignment, TaskGrant, WorkerCommand, WorkerSession } from "../types.js";
 import type { WorkerAdapter, WorkerRunInput } from "../worker-adapter.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
@@ -419,6 +419,107 @@ describe("orchestrateAssignments", () => {
       "worker-1", "retry", expect.any(Object), expect.any(String),
     );
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("resumed worker changed\n");
+  });
+
+  it("routes an explicitly completed worker with no verifiable changes to review instead of retrying", async () => {
+    const repo = await repository();
+    const snapshot = await inspectRepository(repo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-blocked-"));
+    roots.push(managedRoot);
+    const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
+    const workers: WorkerSession[] = [];
+    let queuedTriggers: Array<Record<string, unknown>> = [];
+    let lastQueuedCommand: WorkerCommand | null = null;
+    const store = {
+      updateAssignmentWorkspace: vi.fn(async () => undefined),
+      createWorker: vi.fn(async (input: Record<string, unknown>) => {
+        const worker: WorkerSession = {
+          id: String(workers.length + 1), workerKey: `worker-${workers.length + 1}`,
+          agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1", status: "queued",
+          adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
+          externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
+          output: null, exitStatus: null, startedAt: null, endedAt: null,
+          lastObservedAt: null, stopReason: null,
+        };
+        workers.push(worker);
+        return worker;
+      }),
+      transitionWorker: vi.fn(async (workerKey: string, update: Record<string, unknown>) => {
+        const worker = workers.find((candidate) => candidate.workerKey === workerKey)!;
+        Object.assign(worker, {
+          status: update.status,
+          externalSessionId: update.externalSessionId ?? worker.externalSessionId,
+          exitStatus: update.exitStatus ?? worker.exitStatus,
+        });
+        return worker;
+      }),
+      findWorker: vi.fn(async (workerKey: string) => workers.find((candidate) => candidate.workerKey === workerKey) ?? null),
+      recordAssignmentVerification: vi.fn(async () => undefined),
+      queueWorkerCommand: vi.fn(async (workerKey: string, kind: WorkerCommand["kind"], payload: Record<string, unknown>) => {
+        queuedTriggers.push({ workerKey, kind, payload });
+        const command: WorkerCommand = {
+          id: "1", commandKey: `blocked-command-${queuedTriggers.length}`, agentTaskId: "1", workerSessionId: "1",
+          kind, status: "queued", idempotencyKey: `blocked-command-${queuedTriggers.length}`,
+          payload: {}, dispatchedAt: null, completedAt: null, errorSummary: null,
+        };
+        lastQueuedCommand = command;
+        return { command, worker: workers.find((candidate) => candidate.workerKey === workerKey)! };
+      }),
+      completeWorkerCommand: vi.fn(async () => lastQueuedCommand as WorkerCommand),
+      recordTaskIntegration: vi.fn(async () => undefined),
+    };
+    const blocked: WorkerAdapter = {
+      name: "codex",
+      capabilities: ["implementation"],
+      detect: async () => ({
+        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        capabilities: ["implementation"],
+      }),
+      buildArgs: () => [],
+      parseEvent: () => null,
+      run: async (input) => {
+        await input.onStart?.(130);
+        input.onEvent?.({ type: "session", sessionId: "blocked-thread", text: null });
+        input.onEvent?.({ type: "worker.completed", sessionId: "blocked-thread", text: "Could not proceed", status: "blocked" });
+        return { exitStatus: 0, externalSessionId: "blocked-thread", output: "Could not proceed", error: "" };
+      },
+    };
+    const task: AgentTask = {
+      id: "1", taskKey: "task-blocked", projectId: "1", projectName: "test", projectRoot: repo.root,
+      status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {}, repositorySnapshot: {},
+      recommendedNextAction: null, outcomeSummary: null, verificationResult: {}, revision: 1,
+      startedAt: new Date().toISOString(), completedAt: null, updatedAt: new Date().toISOString(),
+    };
+    const grant: TaskGrant = {
+      id: "2", grantKey: "grant-blocked", agentTaskId: "1", status: "approved", scopeDigest: "digest",
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"], maxConcurrency: 1,
+      budget: { max_worker_runs: 2, max_runtime_minutes: 90 }, providerIdentity: "local",
+      approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
+    };
+
+    const result = await orchestrateAssignments({
+      task, grant, assignments, repository: snapshot, contextPath: "/tmp/context.md",
+      adapters: [blocked], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
+    });
+
+    expect(queuedTriggers).toHaveLength(0);
+    expect(store.recordAssignmentVerification).toHaveBeenCalledWith(
+      "assignment-1",
+      expect.objectContaining({
+        status: "blocked",
+        result: expect.objectContaining({ intervention: expect.objectContaining({ action: "escalate" }) }),
+      }),
+    );
+    expect(store.recordAssignmentVerification).not.toHaveBeenCalledWith(
+      "assignment-1",
+      expect.objectContaining({ status: "verified" }),
+    );
+    expect(result.status, JSON.stringify(result)).toBe("blocked");
   });
 
   it("launches real adapter processes, replaces a failed worker, and integrates both verified patches", async () => {

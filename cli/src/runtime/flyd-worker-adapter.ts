@@ -2,6 +2,7 @@ import { fileURLToPath } from "url";
 import {
   runJsonWorkerProcess,
   type WorkerAdapter,
+  type WorkerCompletionStatus,
   type WorkerEvent,
   type WorkerSpawn,
 } from "./worker-adapter.js";
@@ -41,7 +42,9 @@ export function parseFlydWorkerEvent(line: string): WorkerEvent | null {
       type: event.type,
       sessionId: typeof event.sessionId === "string" ? event.sessionId : null,
       text: typeof event.text === "string" ? event.text : null,
-      status: typeof event.status === "string" ? event.status : undefined,
+      status: event.status === "success" || event.status === "partial" || event.status === "blocked"
+        ? event.status
+        : undefined,
     };
   } catch {
     return null;

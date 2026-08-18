@@ -11,6 +11,12 @@
 
 **Flyd has no primary interface. It has a primary presence.**
 
+Flyd = intelligence + harness + interface.
+
+- **runtime/** makes Flyd capable: execution, memory, tools, orchestration, Git awareness, and coding-agent capabilities. It can be heavily developed without being the user-facing product.
+- **work-intelligence/** makes Flyd a product: the Mac-native manifestation — overlay, voice, scenes, proactive context, interaction.
+- **CLI** exposes the runtime for development, debugging, and dogfooding. It is a useful way to test and operate Flyd, not the destination. Evaluate every runtime task with one question: what capability does this unlock or improve in the Mac interface?
+
 Flyd Core is the intelligence runtime, implemented in TypeScript (`cli/src/server.ts` + friends). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders native UI, handles audio, and executes grounded operations.
 
 **Rails is retired from the active Flyd architecture.** The repository still contains Rails code under `app/`, `bin/rails`, `config/`, `db/`, `lib/`, and `test/`, but it is legacy code only. Do not add new Flyd intelligence, evidence, memory, composition, UI, provider, or runtime work to Rails. Do not make active functionality depend on Rails or PostgreSQL Rails models.
@@ -141,7 +147,9 @@ flyd/
     src/realtime-session.ts    LIVE realtime relay
     src/evidence/              external evidence, deep research and compose layer
     src/lib/                   memory, retrieval, currentness and shared intelligence logic
-    src/runtime/               older coding-task subsystem; do not confuse with overlay Core
+    src/runtime/               harness: execution, tools, orchestration, coding-agent capabilities (flyd CLI)
+    src/work/                  shared Present Model substrate and work-index (SQLite)
+    src/work-intelligence/     product interface pipeline: ground/diagnose/intervene, jobs, skillify, repository action
 
   docs/product/                current product PRDs
   docs/solutions/              documented engineering solutions with YAML frontmatter (module, tags, problem_type); search before implementing or debugging in documented areas

@@ -166,6 +166,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const tools = createFlydWorkerTools({
     projectRoot,
     repositoryRoots: jsonArrayEnvironment("FLYD_WORKER_REPOSITORY_ROOTS"),
+    externalRoots: jsonArrayEnvironment("FLYD_WORKER_EXTERNAL_ROOTS"),
     writableRepositoryRoots: readOnly ? [] : [ projectRoot ],
     fileOperations: readOnly ? grantedFileOperations.filter((operation) => operation !== "write") : grantedFileOperations,
     commandClasses: jsonArrayEnvironment("FLYD_WORKER_COMMAND_CLASSES"),

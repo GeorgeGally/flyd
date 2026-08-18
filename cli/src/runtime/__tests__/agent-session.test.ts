@@ -23,6 +23,24 @@ const actionable = (outcome: string) => ({
 });
 
 describe("runAgentSession", () => {
+  it("splits the FLYD banner green over white and leaves a blank line under it", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => null),
+    });
+
+    const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
+    expect(intro).toContain("\u001b[32m███████╗");
+    expect(intro).toContain("\u001b[97m╚═╝");
+    expect(intro).toMatch(/╚═╝[^\n]*\n\n\s+Good /);
+  });
+
   it("answers conversational input without creating or resuming a coding task", async () => {
     const ui = terminal(["let's just chat", "/exit"]);
     const retrieveMemory = vi.fn(async () => noMemory);

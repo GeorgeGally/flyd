@@ -6,6 +6,8 @@ import type { BriefRepo } from "./repo-registry.js";
 import { stdout } from "process";
 
 const DIM = "\u001b[2m";
+const GREEN = "\u001b[32m";
+const WHITE = "\u001b[97m";
 const RESET = "\u001b[0m";
 
 function useColor(): boolean {
@@ -77,12 +79,12 @@ export type AgentSessionResult =
 const MAX_HISTORY_TURNS = 12;
 
 const ART = [
-  "\u001b[32m███████╗██╗  ██╗   ██╗██████╗ ",
-  "██╔════╝██║  ╚██╗ ██╔╝██╔══██╗",
-  "█████╗  ██║   ╚████╔╝ ██║  ██║",
-  "██╔══╝  ██║    ╚██╔╝  ██║  ██║",
-  "██║     ███████╗██║   ██████╔╝",
-  "╚═╝     ╚══════╝╚═╝   ╚═════╝ \u001b[0m",
+  `${GREEN}███████╗██╗  ██╗   ██╗██████╗ ${RESET}`,
+  `${GREEN}██╔════╝██║  ╚██╗ ██╔╝██╔══██╗${RESET}`,
+  `${GREEN}█████╗  ██║   ╚████╔╝ ██║  ██║${RESET}`,
+  `${WHITE}██╔══╝  ██║    ╚██╔╝  ██║  ██║${RESET}`,
+  `${WHITE}██║     ███████╗██║   ██████╔╝${RESET}`,
+  `${WHITE}╚═╝     ╚══════╝╚═╝   ╚═════╝ ${RESET}`,
 ].join("\n");
 
 function greeting(): string {
@@ -117,7 +119,7 @@ function introLine(
   weather?: string,
   presentHypothesis?: string | null,
 ): string {
-  let line = `\n${ART}\n  ${greeting()}`;
+  let line = `\n${ART}\n\n  ${greeting()}`;
   if (weather) line += ` ${weather}`;
   if (presentHypothesis) line += `\n${presentHypothesis}`;
   return wrapDisplayText(line + "\n\n");
@@ -151,7 +153,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     deps.terminal.write(introLine(situation, weatherText || undefined, presentHypothesis));
 
     while (true) {
-      const text = (await deps.terminal.ask(`\n${promptLabel("You >")}`)).trim();
+      let text: string;
+      try {
+        text = (await deps.terminal.ask(`\n${promptLabel("You >")}`)).trim();
+      } catch (error) {
+        // Ctrl+C during the prompt (TTY raw reader) — leave cleanly.
+        if (error instanceof Error && error.message === "Interrupted") {
+          return { kind: "exit" };
+        }
+        throw error;
+      }
       if (!text) continue;
 
       const repairMatch = text.match(/^\/flyd-fix(?:\s+([\s\S]+))?$/i);

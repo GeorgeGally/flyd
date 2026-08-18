@@ -134,6 +134,50 @@ describe("Flyd worker tools", () => {
       .rejects.toThrow("outside the task grant");
   });
 
+  it("edits, moves, and deletes files inside a granted external root", async () => {
+    const { root, projectRoot } = await fixture();
+    const externalRoot = join(root, "notes");
+    await mkdir(externalRoot);
+    await writeFile(join(externalRoot, "draft.md"), "old\n", "utf8");
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      repositoryRoots: [ projectRoot ],
+      externalRoots: [ externalRoot ],
+      writableRepositoryRoots: [ projectRoot ],
+      fileOperations: [ "read", "write" ],
+      commandClasses: [],
+    });
+
+    await tools.execute("edit_file", { path: join(externalRoot, "draft.md"), old_text: "old", new_text: "new" });
+    await expect(readFile(join(externalRoot, "draft.md"), "utf8")).resolves.toBe("new\n");
+    await tools.execute("move_file", { from: join(externalRoot, "draft.md"), to: join(externalRoot, "renamed.md") });
+    await expect(readFile(join(externalRoot, "renamed.md"), "utf8")).resolves.toBe("new\n");
+    await tools.execute("delete_file", { path: join(externalRoot, "renamed.md") });
+    await expect(access(join(externalRoot, "renamed.md"))).rejects.toThrow();
+  });
+
+  it("rejects a symlink inside a granted external root that escapes every root", async () => {
+    const { root, projectRoot } = await fixture();
+    const externalRoot = join(root, "notes");
+    await mkdir(externalRoot);
+    const outside = join(root, "private.txt");
+    await writeFile(outside, "private", "utf8");
+    await symlink(outside, join(externalRoot, "leak"));
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      repositoryRoots: [ projectRoot ],
+      externalRoots: [ externalRoot ],
+      writableRepositoryRoots: [ projectRoot ],
+      fileOperations: [ "read", "write" ],
+      commandClasses: [],
+    });
+
+    await expect(tools.execute("read_file", { path: join(externalRoot, "leak") }))
+      .rejects.toThrow("outside the task grant");
+    await expect(tools.execute("write_file", { path: join(externalRoot, "leak"), content: "x" }))
+      .rejects.toThrow("outside the task grant");
+  });
+
   it("rejects traversal and symlinks outside every grant-approved repository", async () => {
     const { root, projectRoot } = await fixture();
     const outside = join(root, "outside.txt");
@@ -353,6 +397,30 @@ describe("Flyd worker tools", () => {
       .rejects.toThrow("non-empty string");
     await expect(tools.execute("complete_task", { summary: "Done.", status: "shipped" }))
       .rejects.toThrow("must be success, partial, or blocked");
+  });
+
+  it("runs a grant-approved command against a granted external root", async () => {
+    const { root, projectRoot } = await fixture();
+    const externalRoot = join(root, "notes");
+    await mkdir(externalRoot);
+    await writeFile(join(externalRoot, "draft.md"), "external notes\n", "utf8");
+    const run = vi.fn(async () => ({ stdout: "external notes", stderr: "", exitStatus: 0 }));
+    const tools = createFlydWorkerTools({
+      projectRoot,
+      repositoryRoots: [ projectRoot ],
+      externalRoots: [ externalRoot ],
+      writableRepositoryRoots: [ projectRoot ],
+      fileOperations: [ "read", "write" ],
+      commandClasses: [ "inspect" ],
+      run,
+    });
+
+    const output = await tools.execute("run_command", { command: `cat ${join(externalRoot, "draft.md")}` });
+
+    expect(output).toContain("external notes");
+    expect(run).toHaveBeenCalledWith("cat", [ join(externalRoot, "draft.md") ], expect.objectContaining({
+      externalRoots: [ externalRoot ],
+    }));
   });
 
   it("aborts a stalled remote response at one operation deadline", async () => {

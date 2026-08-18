@@ -1,9 +1,16 @@
 import { createInterface } from "readline/promises";
 import type { Interface } from "readline/promises";
+import { StringDecoder } from "string_decoder";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { stdin, stdout } from "process";
 import { FLYD_DIR } from "../lib/config.js";
+import {
+  BRACKETED_PASTE_DISABLE,
+  BRACKETED_PASTE_ENABLE,
+  createLineReaderState,
+  feedLineReader,
+} from "./tty-line-reader.js";
 
 export const DEFAULT_INPUT_HISTORY_SIZE = 100;
 export const DEFAULT_INPUT_HISTORY_PATH = join(FLYD_DIR, "cli-input-history");
@@ -170,40 +177,69 @@ export type NodeTerminalOptions = {
   output?: NodeJS.WritableStream;
 };
 
+let signalCleanupRegistered = false;
+
 export class NodeTerminal {
-  private readonly interface: Interface;
+  private readonly interface: Interface | null;
   private readonly historyPath: string | null;
   private readonly historySize: number;
   private history: string[];
+  private readonly input: NodeJS.ReadableStream;
+  private readonly output: NodeJS.WritableStream;
+  private readonly isTty: boolean;
+  private pasteEnabled = false;
 
   constructor(options: NodeTerminalOptions = {}) {
     this.historySize = options.historySize ?? DEFAULT_INPUT_HISTORY_SIZE;
     this.historyPath = options.historyPath === undefined
       ? DEFAULT_INPUT_HISTORY_PATH
       : options.historyPath;
-    const input = options.input ?? stdin;
-    const output = options.output ?? stdout;
+    this.input = options.input ?? stdin;
+    this.output = options.output ?? stdout;
     this.history = this.historyPath
       ? loadInputHistory(this.historyPath, this.historySize)
       : [];
+    this.isTty = Boolean((this.input as NodeJS.ReadStream).isTTY);
 
-    this.interface = createInterface({
-      input,
-      output,
-      terminal: Boolean((input as NodeJS.ReadStream).isTTY),
-      // Node readline supports history; @types/node Interface options omit it.
-      history: [...this.history],
-      historySize: this.historySize,
-      removeHistoryDuplicates: true,
-    } as Parameters<typeof createInterface>[0]);
+    // Non-TTY (pipes/tests) still use readline.question.
+    this.interface = this.isTty
+      ? null
+      : createInterface({
+          input: this.input,
+          output: this.output,
+          terminal: false,
+          history: [...this.history],
+          historySize: this.historySize,
+          removeHistoryDuplicates: true,
+        } as Parameters<typeof createInterface>[0]);
+
+    if (this.isTty && !signalCleanupRegistered) {
+      signalCleanupRegistered = true;
+      const onSignal = (signal: NodeJS.Signals) => {
+        this.disableBracketedPaste();
+        try {
+          const stream = this.input as NodeJS.ReadStream;
+          if (typeof stream.setRawMode === "function") stream.setRawMode(false);
+        } catch {
+          // ignore
+        }
+        // Restoring the default handler preserves Node's terminate-on-signal behavior.
+        process.on(signal, () => process.exit(signal === "SIGINT" ? 130 : 143));
+        process.kill(process.pid, signal);
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+    }
   }
 
   write(message: string): void {
-    stdout.write(message);
+    this.output.write(message);
   }
 
   async ask(prompt: string): Promise<string> {
-    const answer = await this.interface.question(`${prompt} `);
+    const answer = this.isTty
+      ? await this.askTty(`${prompt} `)
+      : await this.interface!.question(`${prompt} `);
     this.history = rememberInputLine(this.history, answer, this.historySize);
     this.persistHistory();
     return answer;
@@ -216,16 +252,101 @@ export class NodeTerminal {
 
   async close(): Promise<void> {
     this.persistHistory();
-    this.interface.close();
-    // Readline otherwise keeps stdin open and the process never exits.
+    this.disableBracketedPaste();
+    this.interface?.close();
     try {
-      if (typeof (stdin as NodeJS.ReadStream).setRawMode === "function" && stdin.isTTY) {
-        (stdin as NodeJS.ReadStream).setRawMode(false);
+      const stream = this.input as NodeJS.ReadStream;
+      if (typeof stream.setRawMode === "function" && stream.isTTY) {
+        stream.setRawMode(false);
       }
     } catch {
       // ignore
     }
-    stdin.pause();
+    if (this.input === stdin) stdin.pause();
+  }
+
+  private enableBracketedPaste(): void {
+    if (this.pasteEnabled) return;
+    this.output.write(BRACKETED_PASTE_ENABLE);
+    this.pasteEnabled = true;
+  }
+
+  private disableBracketedPaste(): void {
+    if (!this.pasteEnabled) return;
+    this.output.write(BRACKETED_PASTE_DISABLE);
+    this.pasteEnabled = false;
+  }
+
+  /**
+   * TTY input that does not submit on pasted newlines.
+   * Terminals wrap paste in ESC[200~ … ESC[201~ when bracketed paste is on.
+   */
+  private async askTty(prompt: string): Promise<string> {
+    const stream = this.input as NodeJS.ReadStream;
+    this.output.write(prompt);
+    this.enableBracketedPaste();
+    if (typeof stream.setRawMode === "function") stream.setRawMode(true);
+    stream.resume();
+
+    let state = createLineReaderState();
+    const decoder = new StringDecoder("utf8");
+
+    return new Promise<string>((resolve, reject) => {
+      const cleanup = () => {
+        stream.off("data", onData);
+        stream.off("end", onEnd);
+        stream.off("error", onError);
+        try {
+          if (typeof stream.setRawMode === "function") stream.setRawMode(false);
+        } catch {
+          // ignore
+        }
+        this.disableBracketedPaste();
+      };
+
+      const onEnd = () => {
+        cleanup();
+        reject(new Error("Interrupted"));
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("Interrupted"));
+      };
+
+      const onData = (buf: Buffer | string) => {
+        const chunk = typeof buf === "string" ? buf : decoder.write(buf);
+        const result = feedLineReader(state, chunk, this.history);
+        state = result.state;
+        if (result.echo) this.output.write(result.echo);
+        if (result.pasteEnded) {
+          const lines = state.buffer.split("\n").length;
+          const preview = state.buffer.split("\n")[0]?.slice(0, 60) ?? "";
+          const more = state.buffer.length > 60 || lines > 1 ? "…" : "";
+          this.output.write(
+            `\n[pasted ${lines} line${lines === 1 ? "" : "s"}, ${state.buffer.length} chars — ${preview}${more}]\n` +
+              "(Enter to send, or keep typing)\n",
+          );
+        }
+        if (result.redraw !== undefined) {
+          // Clear current visual line(s) and rewrite buffer.
+          this.output.write(`\r\x1b[2K${prompt}${result.redraw}`);
+        }
+        if (result.interrupt) {
+          cleanup();
+          this.output.write("^C\n");
+          reject(new Error("Interrupted"));
+          return;
+        }
+        if (result.submit !== undefined) {
+          cleanup();
+          resolve(result.submit);
+        }
+      };
+
+      stream.on("data", onData);
+      stream.on("end", onEnd);
+      stream.on("error", onError);
+    });
   }
 
   private persistHistory(): void {

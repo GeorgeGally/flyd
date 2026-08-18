@@ -81,6 +81,58 @@ describe("extractInterests", () => {
     expect(getMatchingInterests("pollutedtopic")).toEqual([]);
   });
 
+  it("extracts interests from dated lines inside one GPT-export capture", async () => {
+    const { extractInterests, getMatchingInterests } = await import("../interests.js");
+    writeCapture(
+      "gpt-export.md",
+      [
+        "[2025-04-23] - Building Kokoland, a parenting voice app.",
+        "[2025-04-24] - Kokoland voice-system concern: interruption handling.",
+        "[2025-05-05] - Focusing on Kokoland as the active product.",
+      ].join("\n"),
+    );
+    const result = extractInterests();
+    expect(result.extracted).toBeGreaterThanOrEqual(1);
+    expect(getMatchingInterests("kokoland").some((match) => match.topic.toLowerCase() === "kokoland")).toBe(true);
+  });
+
+  it("does not double-count captures already extracted (idempotent re-run)", async () => {
+    const { extractInterests } = await import("../interests.js");
+    writeFileSync(testInterestsPath, JSON.stringify({
+      version: 1,
+      updated: "2026-06-14 10:00:00",
+      global: [
+        {
+          topic: "kokoland",
+          keywords: [],
+          priority: "low",
+          auto_extracted: true,
+          first_seen: "2026-06-14 10:00:00",
+          last_active: "2026-06-14 10:00:00",
+          capture_count: 1,
+          staleness_days: 30,
+        },
+      ],
+      projects: {},
+    }), "utf8");
+    writeFileSync(testInterestsStatePath, JSON.stringify({
+      lastExtractedAt: "2026-06-14 13:00:00",
+      capturesProcessed: 1,
+      lastLLMClusterAt: "",
+    }), "utf8");
+    writeCapture(
+      "gpt-export.md",
+      "[2025-04-23] - Building Kokoland.\n[2025-04-24] - Kokoland interruption.\n[2025-05-05] - Kokoland focus.",
+      "test-project",
+      "2026-06-14 12:00:00",
+    );
+
+    const result = extractInterests();
+    expect(result).toEqual({ extracted: 0, updated: 0 });
+    const again = extractInterests();
+    expect(again).toEqual({ extracted: 0, updated: 0 });
+  });
+
   it("updates existing interests on re-extraction", async () => {
     const { extractInterests } = await import("../interests.js");
     writeCapture("1.md", "Rust programming is fun");

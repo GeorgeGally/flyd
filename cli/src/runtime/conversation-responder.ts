@@ -27,6 +27,7 @@ import {
   handleSpeakingPreferenceUtterance,
   speakingStyleSystemRule,
 } from "./speaking-preference.js";
+import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -59,7 +60,10 @@ export function immediateConversationReply(
 }
 
 const CURRENT_WORK_QUESTION =
-  /what (am i|are you) (working on|doing)|(?:active|current) projects|resume (work|where i was)/i;
+  /^(?:what (?:am i|are you) (?:working on|doing)|(?:what(?:'s|s| are)?(?:\s+my)?\s+)?(?:active|current) projects|resume (?:work|where i was))\b/i;
+
+/** Long pastes often contain phrases like "active projects" — ignore those. */
+const CURRENT_WORK_MAX_CHARS = 280;
 
 /** Deterministic Present Model answer — do not let the LLM invent a Flyd status catalog. */
 export function presentModelReply(
@@ -69,7 +73,9 @@ export function presentModelReply(
   if (!presentHypothesis?.trim()) return null;
   if (isTodoListQuestion(message)) return null;
   if (isCompoundNlUtterance(message)) return null;
-  if (!CURRENT_WORK_QUESTION.test(message)) return null;
+  const trimmed = message.trim();
+  if (trimmed.length > CURRENT_WORK_MAX_CHARS) return null;
+  if (!CURRENT_WORK_QUESTION.test(trimmed)) return null;
   return presentHypothesis.trim().replace(/^\s+/, "");
 }
 
@@ -85,7 +91,9 @@ export function missingPersonalFactReply(
 
 export function buildConversationPrompt(input: ConversationInput): { system: string; prompt: string } {
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
-  const currentWorkQuestion = /what (am i|are you) (working on|doing)|(?:active|current) projects|resume (work|where i was)/i.test(input.message);
+  const trimmedMessage = input.message.trim();
+  const currentWorkQuestion =
+    trimmedMessage.length <= CURRENT_WORK_MAX_CHARS && CURRENT_WORK_QUESTION.test(trimmedMessage);
   const includeSituation = input.situation !== null && !currentWorkQuestion;
   const situation = includeSituation && input.situation
     ? `\nCurrent repository and task evidence:
@@ -408,6 +416,28 @@ export async function respondToConversation(
     emit(immediate);
     await record({ model: "local", providerIdentity: "flyd/local" }, [], immediate, "succeeded");
     return immediate;
+  }
+  const fromMemoryIngest = await handleMemoryIngestUtterance(input.message);
+  if (fromMemoryIngest) {
+    emit(fromMemoryIngest);
+    await record(
+      { model: "local", providerIdentity: "flyd/memory-ingest" },
+      [],
+      fromMemoryIngest,
+      "succeeded",
+    );
+    return fromMemoryIngest;
+  }
+  const fromIndexNow = await handleIndexNowUtterance(input.message);
+  if (fromIndexNow) {
+    emit(fromIndexNow);
+    await record(
+      { model: "local", providerIdentity: "flyd/memory-index" },
+      [],
+      fromIndexNow,
+      "succeeded",
+    );
+    return fromIndexNow;
   }
   const compound = handleCompoundNl(input.message, {
     presentHypothesis: input.presentHypothesis,

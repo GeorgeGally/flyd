@@ -483,6 +483,47 @@ describe("runContinuityHarness", () => {
     expect(deps.store.finishTaskSession).toHaveBeenCalledWith("session-1", expect.objectContaining({ interpretation: "focused_corrected" }));
   });
 
+  it("returns a clean interrupted result when Ctrl+C rejects a prompt", async () => {
+    const deps = dependencies();
+    const existing = task({ status: "ready", revision: 4, recommendedNextAction: "Old action" });
+    deps.store.findResumableTask.mockResolvedValue(existing);
+    deps.store.latestWorker.mockResolvedValue({ ...worker, status: "interrupted" as const });
+    deps.store.approvedGrant.mockResolvedValue(grant);
+    deps.terminal.confirm.mockRejectedValue(new Error("Interrupted"));
+
+    const result = await runContinuityHarness({ deps });
+
+    expect(result).toEqual({ status: "interrupted", taskKey: "" });
+    expect(deps.terminal.close).toHaveBeenCalled();
+  });
+
+  it("re-asks instead of crashing when a pasted correction is too long", async () => {
+    const deps = dependencies();
+    const existing = task({ status: "ready", revision: 4, recommendedNextAction: "Old action" });
+    deps.store.findResumableTask.mockResolvedValue(existing);
+    deps.store.latestWorker.mockResolvedValue({ ...worker, status: "interrupted" as const });
+    deps.store.approvedGrant.mockResolvedValue(grant);
+    const oversized = `x${"architecture project repository worker ".repeat(200)}`;
+    expect(oversized.length).toBeGreaterThan(4_000);
+    deps.terminal.ask
+      .mockResolvedValueOnce(oversized)
+      .mockResolvedValueOnce("Short focused next move");
+    deps.terminal.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await runContinuityHarness({ deps });
+
+    expect(deps.terminal.write).toHaveBeenCalledWith(expect.stringMatching(/too long for a correction/i));
+    expect(deps.store.recordCorrection).toHaveBeenCalledWith(
+      "task-1",
+      expect.any(Number),
+      "Short focused next move",
+      expect.any(Object),
+    );
+    expect(deps.runWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ assignment: "Short focused next move" }),
+    );
+  });
+
   it("records an interactive task replacement as a manual context restatement", async () => {
     const deps = dependencies();
     deps.store.findResumableTask.mockResolvedValue(task({ status: "ready", revision: 4 }));

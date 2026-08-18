@@ -137,4 +137,19 @@ describe("interpretAgentInput", () => {
       message: "Take a look at this skill",
     });
   });
+
+  it("keeps long pastes in conversation instead of auto-routing to coding", () => {
+    const longPaste = `implement the project architecture for this repository worker codebase.\n${"x".repeat(4_100)}`;
+    expect(longPaste.length).toBeGreaterThan(4_000);
+    const interpreted = interpretAgentInput(longPaste);
+    expect(interpreted.kind).toBe("conversation");
+    if (interpreted.kind === "conversation") {
+      expect(interpreted.message.length).toBeGreaterThan(4_000);
+    }
+    // Without the length guard this would be coding.
+    expect(interpretAgentInput("implement the project architecture for this repository")).toEqual({
+      kind: "coding",
+      outcome: "implement the project architecture for this repository",
+    });
+  });
 });

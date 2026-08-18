@@ -398,6 +398,41 @@ describe("Flyd native worker loop", () => {
     expect(events.filter((event) => event.type === "worker.completed")).toHaveLength(1);
   });
 
+  it("honors complete_task even when the summary starts with the Tool error: prefix", async () => {
+    const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-toolerror-"));
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: "evidence", name: "read_file", arguments: { path: "README.md" } }],
+      })
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: "finish", name: "complete_task", arguments: { summary: "Tool error: blocked by review", status: "blocked" } }],
+      });
+    const execute = vi.fn(async (name: string) => (name === "read_file" ? "# Repository" : "Tool error: blocked by review"));
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await runFlydWorkerLoop({
+      assignment: "Implement the requested change",
+      taskKey: "task-1",
+      projectRoot: "/work/project",
+      sessionRoot,
+      client: { complete },
+      tools: {
+        definitions: [
+          { type: "function", function: { name: "read_file", description: "Read", parameters: {} } },
+          { type: "function", function: { name: "complete_task", description: "Complete", parameters: {} } },
+        ],
+        execute,
+      },
+      emit: (event) => events.push(event),
+      sessionId: "flyd-session-toolerror",
+    });
+
+    expect(result).toEqual({ sessionId: "flyd-session-toolerror", output: "Tool error: blocked by review" });
+    expect(events.at(-1)).toMatchObject({ type: "worker.completed", status: "blocked" });
+  });
+
   it("redacts credentials from model messages and persisted sessions", async () => {
     const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-redaction-"));
     const complete = vi.fn(async (_input: { messages: Array<Record<string, unknown>> }) => ({ content: "Done", toolCalls: [] }));

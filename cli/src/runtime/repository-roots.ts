@@ -1,6 +1,7 @@
 import { stat } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { isSensitiveCredentialPath } from "./flyd-worker-tools.js";
 import type { RepositorySnapshot } from "./types.js";
 
 type RepositoryInspector = (path?: string) => Promise<RepositorySnapshot>;
@@ -39,7 +40,7 @@ export async function resolveRequestedReadRoots(
     }
     try {
       const info = await stat(candidate);
-      if (info.isFile()) externalRoots.add(candidate);
+      if (info.isFile() && !isSensitiveCredentialPath(candidate)) externalRoots.add(candidate);
     } catch {
       // Path does not exist; not eligible for a read grant.
     }

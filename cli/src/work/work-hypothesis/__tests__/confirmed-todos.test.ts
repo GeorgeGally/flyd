@@ -52,6 +52,13 @@ describe("confirmed todos", () => {
     ]);
   });
 
+  it("does not treat memory imports as to-do adds", () => {
+    const reply = handleConfirmedTodoUtterance(
+      "add these to memories. this is extracted memories from chatgpt:\n[date] - Preferred name: George.\n[date] - Role: Entrepreneur.",
+    );
+    expect(reply).toBeNull();
+  });
+
   it("records bare bullet lists and single-bullet appends", () => {
     const multi = handleConfirmedTodoUtterance(`- dead internet radio
 - post about sea silo

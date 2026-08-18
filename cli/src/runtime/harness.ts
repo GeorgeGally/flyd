@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { actionableTaskNextAction, buildContextPackage, buildOrientation } from "./orientation.js";
+import { MAX_CORRECTION_CHARS } from "./task-store.js";
 import type {
   AgentTask,
   ContextPackage,
@@ -202,7 +203,7 @@ export interface HarnessDependencies {
 }
 
 export interface HarnessResult {
-  status: AgentTask["status"];
+  status: AgentTask["status"] | "interrupted";
   taskKey: string;
 }
 
@@ -304,6 +305,27 @@ function renderStartupOrientation(input: {
 
 function workerIsLive(worker: WorkerSession | null): worker is WorkerSession {
   return Boolean(worker && ["queued", "starting", "running", "stopping"].includes(worker.status));
+}
+
+/**
+ * Focused corrections must fit the store limit. Long pastes used to throw
+ * uncaught ("Correction is too long") and kill the CLI — re-ask instead.
+ */
+async function resolveFocusedCorrection(
+  terminal: { ask(prompt: string): Promise<string>; write(message: string): void },
+  initial: string,
+): Promise<string> {
+  let correction = initial.trim();
+  while (correction.length > MAX_CORRECTION_CHARS) {
+    terminal.write(
+      `That text is too long for a correction (${correction.length} chars; max ${MAX_CORRECTION_CHARS}).\n` +
+        "Paste a short next move, or press Enter to let Flyd handle the recommended action.\n",
+    );
+    correction = (await terminal.ask(
+      "Press Enter to let Flyd handle this, or type a focused correction:",
+    )).trim();
+  }
+  return correction;
 }
 
 function liveWorkerMessage(worker: WorkerSession): string {
@@ -456,14 +478,18 @@ export async function runContinuityHarness(input: {
     if (resumedTask) {
       const explicitOutcome = input.outcome?.trim();
       let replacesInterpretation = Boolean(explicitOutcome && explicitOutcome !== resumedTask.intendedOutcome);
-      const correction = explicitOutcome && explicitOutcome !== resumedTask.intendedOutcome
+      const rawCorrection = explicitOutcome && explicitOutcome !== resumedTask.intendedOutcome
         ? explicitOutcome
         : explicitOutcome
           ? ""
           : (await deps.terminal.ask(
               "Press Enter to let Flyd handle this, or type a focused correction:",
             )).trim();
-      assignment = correction || explicitOutcome || orientation.nextAction;
+      const correction = await resolveFocusedCorrection(deps.terminal, rawCorrection);
+      const usableExplicit = explicitOutcome && explicitOutcome.length <= MAX_CORRECTION_CHARS
+        ? explicitOutcome
+        : "";
+      assignment = correction || usableExplicit || orientation.nextAction;
       if (correction) {
         if (!replacesInterpretation) {
           replacesInterpretation = await deps.terminal.confirm(
@@ -569,7 +595,7 @@ export async function runContinuityHarness(input: {
         task = await currentTask(deps.store, task.taskKey);
       }
       deps.terminal.write(
-        `\nProposed task grant\nRepositories: ${repositoryRoots.join(", ")}\nWorker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: ${fileOperations.includes("write") ? "read/write isolated worktrees in the primary repository" : "read-only repository inspection"}; read additional repositories; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: ${verificationCommands.join(", ")}\n`,
+        `\nProposed task grant\nRepositories: ${repositoryRoots.join(", ")}\n${externalRoots.length > 0 ? `External ${fileOperations.includes("write") ? "read/write" : "read"} access: ${externalRoots.join(", ")}\n` : ""}Worker: ${workerLabel}\nProvider: ${providerLabel}\nAllowed: ${fileOperations.includes("write") ? "read/write isolated worktrees in the primary repository" : "read-only repository inspection"}; read additional repositories; inspect, test, lint, build, integrate verified results, and read Git state\nLimits: ${limitLabel}, 90 minutes each, expires in 8 hours\nRenew approval: destructive actions, external writes, deployment, publication, purchases, secrets, or permission changes\nVerification: ${verificationCommands.join(", ")}\n`,
       );
       if (!await deps.terminal.confirm("Approve this task grant?")) {
         if (resumedTask) {
@@ -827,6 +853,15 @@ export async function runContinuityHarness(input: {
     await deps.store.finishTaskSession(sessionKey, sessionResult());
     sessionKey = null;
     return { status: task.status, taskKey: task.taskKey };
+  } catch (error) {
+    if (error instanceof Error && error.message === "Interrupted") {
+      if (sessionKey) {
+        await deps.store.finishTaskSession(sessionKey, sessionResult());
+        sessionKey = null;
+      }
+      return { status: "interrupted", taskKey: "" };
+    }
+    throw error;
   } finally {
     if (sessionKey) {
       await deps.store.finishTaskSession(sessionKey, sessionResult());

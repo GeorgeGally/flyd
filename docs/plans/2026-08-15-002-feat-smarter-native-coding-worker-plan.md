@@ -102,6 +102,11 @@ Additionally, an in-flight change threading user-referenced external file paths 
 - Exact per-file character caps for injected conventions — start by reusing the conversation path's 1500/2500, then tune only if measured context pressure justifies it.
 - Whether the `complete_task` status vocabulary (success/partial/blocked) should map to task-status transitions beyond worker output — initial mapping is decided in U4 (blocked→retry, partial→review, success→verify); whether that flows into persisted task status depends on orchestrator behavior observed in implementation.
 
+### Resolved During Implementation
+
+- The "partial → review" mapping lands as follows: the intervention policy has no distinct `review` action, so `partial` completions route through the existing review/escalate path (`escalate` intervention, verification recorded `blocked`) whenever verification fails or produces no verifiable repository changes. A `partial` completion whose changes pass verification is deliberately NOT auto-verified (the `completionStatus !== "partial"` guard in the verified shortcut). This keeps the intervention-policy contract unchanged while delivering the review intent; a dedicated `review` outcome is tracked as follow-up if orchestrator behavior warrants it.
+- An explicitly completed worker (any status) that makes no verifiable repository changes — for example an assignment whose only edits land in writable external roots outside the git worktree — escalates to review instead of retrying, because no retry can produce the missing git diff. `blocked`/`partial` completions that did change the repository still retry through the normal intervention path.
+
 ---
 
 ## High-Level Technical Design
@@ -320,6 +325,7 @@ harness (task approved)
 
 - After landing, the worker loop's conventions-injection and completion-tool work is a strong `/ce-compound` candidate — the worker loop currently has no solution doc of its own.
 - The `FLYD_WORKER_EXTERNAL_ROOTS` env threading, the writable external-root write handlers, and the `external_roots` column land as part of U1; `bin/rails db:migrate` (dev) and `RAILS_ENV=test bin/rails db:migrate` (test) apply the schema change.
+- **Deploy ordering (release):** both `proposeGrant` and `approveGrant` INSERTs reference the `external_roots` column, so the Rails migration must land on every runtime DB (`flyd_v1_development`, `flyd_v1_test`, and whatever `FLYD_DATABASE_URL` points at, including production) **before** the TypeScript runtime deploys. A code-first deploy fails every grant INSERT with a raw SQL error, and `mapGrant`'s `?? []` silently degrades reads on a missing column. Rollback is `bin/rails db:rollback` (safe: old code never reads the column). Post-deploy, watch `worker.completed` status distribution and one-time grant revoke/approve churn for 24h.
 
 ---
 

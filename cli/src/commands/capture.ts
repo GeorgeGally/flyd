@@ -1,11 +1,27 @@
-import { mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { basename, join } from "path";
 import { RAW_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { updateRaw, embedRaw } from "../lib/qmd.js";
 import { addToQueue } from "../lib/ingest.js";
 
-export async function runCapture(text: string): Promise<void> {
+export interface CaptureOptions {
+  quiet?: boolean;
+  /** Write the file but leave QMD indexing to the caller. */
+  deferIndex?: boolean;
+}
+
+function nextCapturePath(stamp: string): string {
+  const first = join(RAW_DIR, `${stamp}.md`);
+  if (!existsSync(first)) return first;
+  for (let i = 1; i < 10_000; i++) {
+    const next = join(RAW_DIR, `${stamp}-${String(i).padStart(3, "0")}.md`);
+    if (!existsSync(next)) return next;
+  }
+  throw new Error("capture filename collision");
+}
+
+export async function runCapture(text: string, options: CaptureOptions = {}): Promise<string> {
   mkdirSync(RAW_DIR, { recursive: true });
 
   const now = new Date();
@@ -13,8 +29,8 @@ export async function runCapture(text: string): Promise<void> {
     .toISOString()
     .replace("T", " ")
     .replace(/\.\d+Z$/, "");
-  const filename = timestamp.replace(/[ :]/g, "-") + ".md";
-  const filepath = join(RAW_DIR, filename);
+  const filepath = nextCapturePath(timestamp.replace(/[ :]/g, "-"));
+  const filename = basename(filepath);
 
   const content = serialize(
     {
@@ -27,12 +43,13 @@ export async function runCapture(text: string): Promise<void> {
   );
 
   writeFileSync(filepath, content, "utf8");
-  console.log(`captured ${timestamp}`);
+  if (!options.quiet) console.log(`captured ${timestamp}`);
 
   addToQueue(filename);
 
-  if (!process.env.VITEST) {
+  if (!options.deferIndex && !process.env.VITEST) {
     await updateRaw();
     await embedRaw();
   }
+  return filepath;
 }

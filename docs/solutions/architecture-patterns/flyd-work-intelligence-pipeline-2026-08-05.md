@@ -188,8 +188,10 @@ export async function runWorkIntelligence(params) {
 
 ### Verification: post-execution re-read
 
+> Reference updated 2026-08-15: `cli/src/work-intelligence/verification.ts` (shown below) was retired as dead code. The live post-execution verifier is `cli/src/runtime/result-verifier.ts` → `verifyWorkerResult()` (repository evidence + command re-runs). The text-operation re-read pattern below is preserved as the historical shape.
+
 ```typescript
-// cli/src/work-intelligence/verification.ts:14-47
+// cli/src/work-intelligence/verification.ts:14-47 (retired — see cli/src/runtime/result-verifier.ts verifyWorkerResult)
 export function verifyTextOperation(ctx: VerificationContext): VerificationResult {
   const checks: VerificationChecks = { reRead: checkReRead(ctx) };
   const diagnosisResolved = evaluateDiagnosisResolution(ctx.postExecutionValue, ctx.diagnosedIssueFinding);

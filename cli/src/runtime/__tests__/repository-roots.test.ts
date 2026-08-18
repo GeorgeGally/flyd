@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveRequestedRepositoryRoots } from "../repository-roots.js";
+import { resolveRequestedReadRoots, resolveRequestedRepositoryRoots } from "../repository-roots.js";
 import type { RepositorySnapshot } from "../types.js";
 
 function repository(root: string): RepositorySnapshot {
@@ -39,5 +39,39 @@ describe("requested repository roots", () => {
       "/Users/george/code/flyd",
       inspect,
     )).resolves.toEqual([ "/Users/george/code/flyd" ]);
+  });
+
+  it("classifies existing files outside the primary repository as external roots", async () => {
+    const { mkdtemp, mkdir, writeFile } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const root = await mkdtemp(join(tmpdir(), "flyd-repo-roots-"));
+    await mkdir(join(root, "notes"));
+    await writeFile(join(root, "notes", "draft.md"), "x", "utf8");
+    const inspect = vi.fn(async () => { throw new Error("not a repository"); });
+    const result = await resolveRequestedReadRoots(
+      `Update ${join(root, "notes", "draft.md")}`,
+      "/Users/george/code/flyd",
+      inspect,
+    );
+    expect(result.repositoryRoots).toEqual([ "/Users/george/code/flyd" ]);
+    expect(result.externalRoots).toEqual([ join(root, "notes", "draft.md") ]);
+  });
+
+  it("does not mint external roots for sensitive credential files", async () => {
+    const { mkdtemp, mkdir, writeFile } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const root = await mkdtemp(join(tmpdir(), "flyd-repo-roots-"));
+    await mkdir(join(root, ".ssh"));
+    await writeFile(join(root, ".ssh", "config"), "Host *\n", "utf8");
+    await writeFile(join(root, "notes.md"), "x", "utf8");
+    const inspect = vi.fn(async () => { throw new Error("not a repository"); });
+    const result = await resolveRequestedReadRoots(
+      `Update ${join(root, ".ssh", "config")} and ${join(root, "notes.md")}`,
+      "/Users/george/code/flyd",
+      inspect,
+    );
+    expect(result.externalRoots).toEqual([ join(root, "notes.md") ]);
   });
 });

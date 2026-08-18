@@ -29,6 +29,14 @@ interface ExtractionState {
 }
 
 const MIN_CAPTURES_FOR_INTEREST = 3;
+/** GPT-style memory lines: `[2025-04-23] - Built Koko.` */
+const MEMORY_LINE = /^\[.+?\]\s+[-–—]\s+\S/;
+
+type CaptureDoc = { file: string; timestamp: string; body: string; project: string };
+
+export interface ExtractInterestsOptions {
+  // Reserved: extraction is idempotent by capture timestamp, so no options today.
+}
 
 const STOP_WORDS = new Set([
   "the","a","an","and","or","but","in","on","at","to","for","of","with","by","from",
@@ -99,13 +107,13 @@ function tokenize(text: string): string[] {
   return words;
 }
 
-function getUnprocessedCaptures(state: ExtractionState): Array<{ file: string; timestamp: string; body: string; project: string }> {
+function getUnprocessedCaptures(state: ExtractionState): CaptureDoc[] {
   if (!existsSync(RAW_DIR)) return [];
 
   const files = readdirSync(RAW_DIR).filter(f => f.endsWith(".md")).sort();
   const lastExtractedAt = state.lastExtractedAt ? new Date(state.lastExtractedAt.replace(" ", "T") + "Z").getTime() : 0;
 
-  const results: Array<{ file: string; timestamp: string; body: string; project: string }> = [];
+  const results: CaptureDoc[] = [];
 
   for (const file of files) {
     try {
@@ -133,7 +141,15 @@ function getUnprocessedCaptures(state: ExtractionState): Array<{ file: string; t
   return results;
 }
 
-export function extractInterests(): { extracted: number; updated: number } {
+/** One GPT-export file is many memories — count each dated line as a document. */
+function expandStructuredDocs(capture: CaptureDoc): CaptureDoc[] {
+  const lines = capture.body.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  const entries = lines.filter((line) => MEMORY_LINE.test(line));
+  if (entries.length < MIN_CAPTURES_FOR_INTEREST) return [capture];
+  return entries.map((body) => ({ ...capture, body }));
+}
+
+export function extractInterests(options: ExtractInterestsOptions = {}): { extracted: number; updated: number } {
   const state = loadState();
   const captures = getUnprocessedCaptures(state);
 
@@ -141,10 +157,11 @@ export function extractInterests(): { extracted: number; updated: number } {
     return { extracted: 0, updated: 0 };
   }
 
+  const termDocs = captures.flatMap(expandStructuredDocs);
   const termDocCount = new Map<string, { count: number; lastFile: string; lastTs: string }>();
   const termProjects = new Map<string, Set<string>>();
 
-  for (const capture of captures) {
+  for (const capture of termDocs) {
     const words = tokenize(capture.body);
     const unique = new Set(words);
 
