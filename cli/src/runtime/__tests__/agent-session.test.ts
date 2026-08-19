@@ -41,6 +41,38 @@ describe("runAgentSession", () => {
     expect(intro).toMatch(/╚═╝[^\n]*\n\n\s+Good /);
   });
 
+  it("opens with a valuable next-action signal, not weather or raw telemetry", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: "Ship the release",
+        outcome: "Ship the release",
+        status: "ready",
+        nextAction: "Run the focused tests",
+      })),
+      loadPresentHypothesis: vi.fn(async () =>
+        "GNM sponsor outreach is due 5 September. CleanX and Good Neighbours both moved.",
+      ),
+    });
+
+    const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
+    expect(intro).toContain("Next: Run the focused tests.");
+    expect(intro).not.toContain("It's"); // no weather noise
+    // no raw telemetry dump in the opening
+    expect(intro).not.toContain("sponsor outreach is due");
+  });
+
   it("answers conversational input without creating or resuming a coding task", async () => {
     const ui = terminal(["let's just chat", "/exit"]);
     const retrieveMemory = vi.fn(async () => noMemory);

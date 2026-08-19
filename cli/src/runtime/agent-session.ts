@@ -94,34 +94,32 @@ function greeting(): string {
   return "Good evening, George.";
 }
 
-// ponytail: quick weather fetch, skip if >1s
-async function weatherLine(): Promise<string> {
-  try {
-    const res = await fetch("https://wttr.in?format=%l:+%c+%t", {
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!res.ok) return "";
-    const text = (await res.text()).trim();
-    if (!text) return "";
-    const cleaned = text.replace(/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*:?\s*/, "").trim();
-    if (!cleaned || /^-?\d/.test(cleaned)) return "";
-    const temp = cleaned.replace(/^[^\d+-]*/, "").replace(/^\+/, "").trim();
-    return temp ? `It's ${temp}.` : "";
-  } catch {
-    return "";
+// A PA opening is value, not noise. Lead with the single most useful signal
+// available — a clear next action, then unfinished work, then a blocker. Only
+// fall back to a bare human greeting when there is nothing actionable to say.
+// No weather, no raw project-telemetry dump.
+function valueOpening(situation: AgentSituation | null): string {
+  if (situation?.nextAction) {
+    const next = situation.nextAction.trim();
+    if (!QUESTION_OUTCOME.test(next)) return `Next: ${next}.`;
   }
+  if (situation?.outcome && ["awaiting_grant", "ready", "running", "blocked"].includes(situation.status ?? "")) {
+    const outcome = situation.outcome.trim();
+    if (outcome && !QUESTION_OUTCOME.test(outcome)) return `Carrying on from: ${outcome}.`;
+  }
+  if (situation?.status === "blocked") return "You have a blocked task — say 'resume' and I'll pick it up.";
+  return "";
 }
 
 const QUESTION_OUTCOME = /^(?:so\s+)?(?:how|why|what|when|where|who)\b|[?？]\s*$/i;
 
 function introLine(
-  _situation: AgentSituation | null,
-  weather?: string,
-  presentHypothesis?: string | null,
+  situation: AgentSituation | null,
+  _presentHypothesis?: string | null,
 ): string {
   let line = `\n${ART}\n\n  ${greeting()}`;
-  if (weather) line += ` ${weather}`;
-  if (presentHypothesis) line += `\n${presentHypothesis}`;
+  const value = valueOpening(situation);
+  if (value) line += `\n  ${value}`;
   return wrapDisplayText(line + "\n\n");
 }
 
@@ -138,19 +136,13 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
   let presentHypothesis: string | null = null;
-  let weatherText = "";
 
   try {
-    const [situationResult, weather] = await Promise.all([
-      deps.loadSituation().catch(() => null),
-      weatherLine(),
-    ]);
-    situation = situationResult;
-    weatherText = weather || "";
-    repos = (await deps.loadCrossRepo?.(situationResult?.projectRoot).catch(() => [])) ?? [];
+    situation = await deps.loadSituation().catch(() => null);
+    repos = (await deps.loadCrossRepo?.(situation?.projectRoot).catch(() => [])) ?? [];
     presentHypothesis =
-      (await deps.loadPresentHypothesis?.(situationResult?.projectRoot).catch(() => null)) ?? null;
-    deps.terminal.write(introLine(situation, weatherText || undefined, presentHypothesis));
+      (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ?? null;
+    deps.terminal.write(introLine(situation, presentHypothesis));
 
     while (true) {
       let text: string;
@@ -289,7 +281,6 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
             situation,
             crossRepo: repos,
             presentHypothesis,
-            weather: weatherText || undefined,
             onToken: (token) => {
               if (!streamed) {
                 stopSpinner();
