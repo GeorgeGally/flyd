@@ -160,4 +160,36 @@ describe("coach specialist", () => {
     expect(routeCoachSkill("update my goal: ship it").name).toBe("goal_adjust");
     expect(routeCoachSkill("coach, what should I focus on").name).toBe("diagnose");
   });
+
+  it("archives a goal when the user takes it off their plate", async () => {
+    addGoal("Ship GNM sponsor outreach", "user");
+    const queryText = vi.fn(async () => "should not reach diagnose after a successful drop");
+    const coach = coachSpecialist({ queryText, model: { model: "m", apiKey: "k" } });
+
+    const reply = await coach.dispatch({
+      message: "a friend is handling sponsor outreach, so I can take that off my plate",
+    });
+
+    expect(reply).toContain("GNM sponsor outreach");
+    expect(reply).toContain("stop re-surfacing");
+    expect(queryText).not.toHaveBeenCalled();
+    // goal is archived: no longer active
+    const { listGoals } = await import("../coach-memory.js");
+    expect(listGoals()).toHaveLength(0);
+  });
+
+  it("falls through to diagnose when a drop trigger matches but no goal matches", async () => {
+    addGoal("Ship CleanX", "user");
+    addPattern("Spreads focus", "inferred", "retrospective");
+    const queryText = vi.fn(async () => "coached reply about CleanX");
+    const coach = coachSpecialist({ queryText, model: { model: "m", apiKey: "k" } });
+
+    const reply = await coach.dispatch({
+      message: "I'm done with sponsorship, what should I focus on?",
+    });
+
+    // 'done with' matches drop trigger, but no goal mentions sponsorship → fall through
+    expect(queryText).toHaveBeenCalledTimes(1);
+    expect(reply).toContain("coached reply");
+  });
 });

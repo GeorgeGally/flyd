@@ -3,7 +3,7 @@ import { resolveModelConnection } from "../lib/config.js";
 import { DOMAIN_STANDARDS } from "../work-intelligence/domain-standards.js";
 import {
   listGoals, listPatterns, addGoal,
-  adjustGoal, type CoachPattern,
+  adjustGoal, archiveGoal, type CoachPattern,
 } from "./coach-memory.js";
 import {
   recordJournalEntry, listJournalEntries,
@@ -32,7 +32,7 @@ export interface CoachSkill {
   name: string;
   triggers: string[];
   contract: EvalContract;
-  run(input: { message: string; grounding: string; dependencies: CoachResponderDependencies }): Promise<string>;
+  run(input: { message: string; grounding: string; dependencies: CoachResponderDependencies }): Promise<string | null>;
 }
 
 const MIN_GROUNDING = 2;
@@ -92,6 +92,8 @@ function standardSystem(standard = DOMAIN_STANDARDS.coach): string {
     "You are George's coach — a distillation of the world's best wellness, business, and life coaches.",
     "You never give generic advice. Every intervention is grounded in the user's actual goals, journal, check-ins, and known patterns.",
     "Reply in plain text only. No markdown, no HTML tags, no bold, no headers — just clear conversational words.",
+    "You are a coach, not a task executor. When the user is working through how they feel or a decision, explore the human side — the feeling, the pattern, the underlying want — before any action. Do not jump to drafting messages, writing replies, or issuing action lists unless the user explicitly asks you to do the task.",
+    "Honor corrections. If the user says a goal is off their plate or that they are no longer doing something, stop re-surfacing it immediately. Do not drag the conversation back to a topic the user has already set aside.",
     `Evaluation dimensions: ${standard.evaluationDimensions.join("; ")}`,
     `Avoidances: ${standard.avoidances.join("; ")}`,
     "Be direct and specific. Diagnose the ONE causal issue. Propose ONE high-leverage intervention.",
@@ -236,10 +238,44 @@ const goalAdjustSkill: CoachSkill = {
   },
 };
 
+const goalDropSkill: CoachSkill = {
+  name: "goal_drop",
+  triggers: [
+    "off my plate", "off the plate", "not working on", "stop working on",
+    "done with", "drop the", "drop it", "take that weight off",
+    "someone else is handling", "friend is doing", "not doing anymore",
+  ],
+  contract: {
+    goal: "Honor a deprioritization: archive goals the user has explicitly taken off their plate",
+    dimensions: [
+      "HONOR — the goal is archived so it stops re-surfacing",
+      "SPECIFIC — only the goals the user named are dropped, not unrelated ones",
+    ],
+    hardFails: ["Must not archive a goal the user did not name"],
+  },
+  async run({ message, grounding, dependencies }) {
+    const active = listGoals();
+    const words = message.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    const dropped: string[] = [];
+    for (const goal of active) {
+      const goalWords = goal.statement.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+      const overlap = goalWords.filter((w) => words.includes(w)).length;
+      // only drop when the user's message names the goal's subject
+      if (overlap >= 1) {
+        archiveGoal(goal.id);
+        dropped.push(goal.statement);
+      }
+    }
+    if (dropped.length === 0) return null;
+    return `Taken off your plate: ${dropped.join("; ")}. I'll stop re-surfacing it.`;
+  },
+};
+
 const COACH_SKILLS: CoachSkill[] = [
   checkInSkill,
   retrospectiveSkill,
   goalAdjustSkill,
+  goalDropSkill,
   diagnoseSkill,
 ];
 
@@ -274,13 +310,25 @@ export function coachSpecialist(respond: CoachResponderDependencies = {}): {
       const grounding = buildGrounding(context);
       const skill = routeCoachSkill(context.message);
 
-      // resolve-before-asking: grounding is already assembled; if we have
-      // almost nothing, say what we need rather than prying or guessing.
+      // Diagnose needs real grounding before it coaches — otherwise it would
+      // give generic advice. Other skills (check_in, goal_drop, goal_adjust)
+      // are safe without it.
       if (skill === diagnoseSkill && groundingCount(context) < MIN_GROUNDING) {
         return "I need more grounding before I can coach you usefully. Tell me a current goal, or do a quick check-in (mood, focus, priorities, blockers), and I'll work from real data instead of generic advice.";
       }
 
-      return skill.run({ message: context.message, grounding, dependencies: respond });
+      const reply = await skill.run({ message: context.message, grounding, dependencies: respond });
+
+      // A skill may decline (e.g. goal_drop found nothing to drop) — fall
+      // through to the diagnose skill rather than returning null.
+      if (reply === null) {
+        if (groundingCount(context) < MIN_GROUNDING) {
+          return "I need more grounding before I can coach you usefully. Tell me a current goal, or do a quick check-in (mood, focus, priorities, blockers), and I'll work from real data instead of generic advice.";
+        }
+        return diagnoseSkill.run({ message: context.message, grounding, dependencies: respond });
+      }
+
+      return reply;
     },
   };
 }

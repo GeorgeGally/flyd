@@ -604,4 +604,50 @@ describe("buildConversationPrompt", () => {
 
     expect(answer).toBe("general answer");
   });
+
+  it('does not hijack ordinary sentences that merely contain the word "coach"', async () => {
+    for (const message of ["I coach soccer on weekends", "who is the head coach", "the coach said to try X"]) {
+      const answer = await respondToConversation(
+        {
+          message,
+          history: [],
+          memory: { verdict: "insufficient", matches: [] },
+          situation: null,
+          onToken: () => undefined,
+        },
+        {
+          persistReceipt: async () => undefined as never,
+          runAgentLoop: async () => "<final>general answer</final>",
+        },
+      );
+      expect(answer).toBe("general answer");
+    }
+  });
+
+  it('routes a clear "bring in the coach" directive to the coach specialist', async () => {
+    const { registerSpecialist } = await import("../specialist-registry.js");
+    registerSpecialist({
+      name: "coach",
+      domain: "coaching",
+      dispatch: async () => "Coach here.",
+    });
+
+    const answer = await respondToConversation(
+      {
+        message: "bring in the coach, I need life coaching",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      {
+        persistReceipt: async () => undefined as never,
+        runAgentLoop: async () => {
+          throw new Error("should not reach general path for a coach directive");
+        },
+      },
+    );
+
+    expect(answer).toBe("Coach here.");
+  });
 });

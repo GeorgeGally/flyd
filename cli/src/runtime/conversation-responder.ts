@@ -90,15 +90,19 @@ export function missingPersonalFactReply(
   return "I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.";
 }
 
-const SPECIALIST_MENTION = /\b(?:hey|yo|ok|okay)?\s*(coach|specialist)\b/i;
+// Route to a specialist only on a clear coaching directive — an address
+// ("coach," / "hey coach"), an imperative ("bring in the coach", "talk to the
+// coach"), or "life coach". Avoids hijacking ordinary sentences that merely
+// contain the word "coach" ("I coach soccer", "head coach", "the coach said").
+const SPECIALIST_ADDRESS =
+  /(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i;
 
 export async function specialistHandoff(
   message: string,
   input: ConversationInput,
 ): Promise<string | null> {
-  const match = message.trim().match(SPECIALIST_MENTION);
-  if (!match) return null;
-  const specialist = lookupSpecialist(match[1].toLowerCase());
+  if (!SPECIALIST_ADDRESS.test(message)) return null;
+  const specialist = lookupSpecialist("coach");
   if (!specialist) return null;
   return specialist.dispatch({
     message,
