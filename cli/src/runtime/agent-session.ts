@@ -175,6 +175,23 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         continue;
       }
 
+      if (/^\/brief\b/i.test(text.trim())) {
+        const { composeDailyBrief } = await import("./daily-brief.js");
+        const { getKey } = await import("../lib/config.js");
+        const script = getKey("LAST30DAYS_SCRIPT");
+        const topics = getKey("LAST30DAYS_TOPICS")
+          ?.split(",").map((t) => t.trim()).filter(Boolean);
+        const brief = await composeDailyBrief({ situation, last30daysScript: script, last30daysTopics: topics });
+        const body = [
+          brief.heading,
+          ...brief.state,
+          ...(brief.external.length ? ["\nCurrent signal:"] : []),
+          ...brief.external,
+        ].join("\n");
+        deps.terminal.write(wrapDisplayText(`\n  ${body}\n\n`));
+        continue;
+      }
+
       let input = interpretAgentInput(text);
       if (input.kind === "exit") return { kind: "exit" };
       if (input.kind === "resume") return { kind: "resume" };

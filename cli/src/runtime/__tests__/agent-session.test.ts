@@ -73,6 +73,33 @@ describe("runAgentSession", () => {
     expect(intro).not.toContain("sponsor outreach is due");
   });
 
+  it("renders a value brief on /brief", async () => {
+    const ui = terminal(["/brief", "/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: null,
+        outcome: null,
+        status: null,
+        nextAction: "Ship the release",
+      })),
+    });
+
+    const writes = ui.write.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+    expect(writes).toContain("Daily brief");
+    expect(writes).toContain("Next: Ship the release.");
+  });
+
   it("answers conversational input without creating or resuming a coding task", async () => {
     const ui = terminal(["let's just chat", "/exit"]);
     const retrieveMemory = vi.fn(async () => noMemory);

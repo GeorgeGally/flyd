@@ -77,6 +77,8 @@ interface FlydConfig {
   FLYD_MODEL_API_KEY?: string;
   FLYD_MODEL_BASE_URL?: string;
   FLYD_ZODIAC_SIGN?: string;
+  LAST30DAYS_SCRIPT?: string;
+  LAST30DAYS_TOPICS?: string;
 }
 
 export interface ModelConnection {
