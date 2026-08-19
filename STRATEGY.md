@@ -49,9 +49,9 @@ _Why it serves the approach:_ Judgment without action leaves the user carrying t
 
 ### Phase 3 — Compound
 
-Learn standards and recurring corrections, apply project decisions and rationale, detect repeated work patterns, selectively surface patterns during relevant work.
+Learn standards and recurring corrections, apply project decisions and rationale, detect repeated work patterns, selectively surface patterns during relevant work. A small roster of named specialists (starting with the coach) operates as a bounded compounding experiment on this loop — each specialist owns trigger-routed skills that learn from per-task retrospectives, user corrections, and evidence, the way a team compounds.
 
-_Why it serves the approach:_ The compounding claim requires evidence that learning from prior interventions improves future ones. This track closes the loop.
+_Why it serves the approach:_ The compounding claim requires evidence that learning from prior interventions improves future ones. Specialists let different domains compound independently and measurably.
 
 ## Milestones
 
@@ -60,7 +60,7 @@ _Why it serves the approach:_ The compounding claim requires evidence that learn
 ## Not working on
 
 - Gateway product, messaging channels, mobile companion, or everywhere-chat strategy
-- General-purpose autonomous background assistant
+- General-purpose autonomous background assistant platform (a small roster of named specialists is a Phase 3 compounding experiment, not an agent platform)
 - Broad SaaS integration catalogue, marketplace, or skill ecosystem
 - Dynamic UI as default response mode
 - Additional manifestation modes without a validated user need
