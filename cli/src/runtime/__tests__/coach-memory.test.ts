@@ -43,7 +43,7 @@ describe("coach memory", () => {
     const goal = addGoal("Original goal", "user");
     const adjusted = adjustGoal(goal.id, "Revised goal");
     expect(adjusted?.statement).toBe("Revised goal");
-    expect(adjusted?.adjustedAt >= goal.adjustedAt).toBe(true);
+    expect(adjusted!.adjustedAt >= goal.adjustedAt).toBe(true);
     expect(getGoal(goal.id)?.statement).toBe("Revised goal");
   });
 
