@@ -1,8 +1,9 @@
 ---
 title: "feat: Coach specialist on the work-intelligence pipeline"
 type: feat
-status: active
+status: completed
 date: 2026-08-19
+completed: 2026-08-19
 origin: ce-brainstorm dialogue (2026-08-19) + flyd-work-intelligence-prd.md + flyd-personal-agent-platform-prd.md + STRATEGY.md
 product_contract_source: ce-plan
 ---
