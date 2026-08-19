@@ -559,4 +559,49 @@ describe("buildConversationPrompt", () => {
     );
     expect(answer).toMatch(/Domain standards|Identity skills|Pending Skillify/i);
   });
+
+  it('routes a message addressed to a registered specialist to its dispatcher', async () => {
+    const { registerSpecialist } = await import("../specialist-registry.js");
+    registerSpecialist({
+      name: "coach",
+      domain: "coaching",
+      dispatch: async () => "Coach here, grounded.",
+    });
+
+    const answer = await respondToConversation(
+      {
+        message: "hey coach, what should I focus on?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      {
+        persistReceipt: async () => undefined as never,
+        runAgentLoop: async () => {
+          throw new Error("should not call the general LLM for a specialist turn");
+        },
+      },
+    );
+
+    expect(answer).toBe("Coach here, grounded.");
+  });
+
+  it('does not route a non-specialist message and falls through to the general path', async () => {
+    const answer = await respondToConversation(
+      {
+        message: "what is the weather today?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      {
+        persistReceipt: async () => undefined as never,
+        runAgentLoop: async () => "<final>general answer</final>",
+      },
+    );
+
+    expect(answer).toBe("general answer");
+  });
 });

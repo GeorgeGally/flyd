@@ -28,6 +28,7 @@ import {
   speakingStyleSystemRule,
 } from "./speaking-preference.js";
 import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
+import { lookupSpecialist } from "./specialist-registry.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -87,6 +88,25 @@ export function missingPersonalFactReply(
   const verifiedHoroscope = memory.matches.some((match) => match.kind === "horoscope" && !match.stale);
   if (!asksForHoroscope || verifiedHoroscope) return null;
   return "I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.";
+}
+
+const SPECIALIST_MENTION = /\b(?:hey|yo|ok|okay)?\s*(coach|specialist)\b/i;
+
+export async function specialistHandoff(
+  message: string,
+  input: ConversationInput,
+): Promise<string | null> {
+  const match = message.trim().match(SPECIALIST_MENTION);
+  if (!match) return null;
+  const specialist = lookupSpecialist(match[1].toLowerCase());
+  if (!specialist) return null;
+  return specialist.dispatch({
+    message,
+    presentHypothesis: input.presentHypothesis,
+    situation: input.situation
+      ? { project: input.situation.project, projectRoot: input.situation.projectRoot }
+      : null,
+  });
 }
 
 export function buildConversationPrompt(input: ConversationInput): { system: string; prompt: string } {
@@ -520,6 +540,18 @@ export async function respondToConversation(
     emit(missingFact);
     await record({ model: "local", providerIdentity: "flyd/local" }, [], missingFact, "succeeded");
     return missingFact;
+  }
+
+  const specialistReply = await specialistHandoff(input.message, input);
+  if (specialistReply) {
+    emit(specialistReply);
+    await record(
+      { model: "local", providerIdentity: "flyd/specialist" },
+      [],
+      specialistReply,
+      "succeeded",
+    );
+    return specialistReply;
   }
 
   const mentioned = resolveMentionedProject(input.message, input.crossRepo ?? []);
