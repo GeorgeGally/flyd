@@ -8,6 +8,7 @@ import {
 import {
   recordJournalEntry, listJournalEntries,
 } from "../work-intelligence/outcome-journal.js";
+import { hasCoachGrant } from "./coach-grants.js";
 import type { SpecialistContext } from "./specialist-registry.js";
 
 export interface CoachResponderDependencies {
@@ -247,6 +248,12 @@ export function coachSpecialist(respond: CoachResponderDependencies = {}): {
     domain: "coach",
     skills: COACH_SKILLS,
     async dispatch(context: SpecialistContext): Promise<string | null> {
+      // R5 boundary: only read data scopes the user has granted. Default grant
+      // is existing_signals (what Flyd already holds), always on — no new
+      // capture, no network. Non-default scopes (browsing/extended) are off.
+      if (!hasCoachGrant("existing_signals")) {
+        return "The coach's access to your existing Flyd signals is currently disabled. Re-enable it to get grounded coaching.";
+      }
       const grounding = buildGrounding(context);
       const skill = routeCoachSkill(context.message);
 
