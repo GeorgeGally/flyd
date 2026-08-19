@@ -175,6 +175,14 @@ flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
 ```
 
+> **CLI uses compiled `dist/`, not source.** The `flyd` terminal CLI is the global
+> npm symlink into `cli/dist/index.js`. Source edits under `cli/src/` are NOT
+> picked up until you run `cd cli && npm run build` (regenerates `dist/`). After
+> changing `cli/src/` and verifying with `npm test`, rebuild before claiming a
+> CLI fix is live — a stale `dist/` means the running CLI still uses the old
+> behavior. The Mac overlay/Core auto-rebuilds via `make install`; the plain
+> `flyd` terminal does not.
+
 Legacy Rails commands are not part of the active product workflow.
 
 ## Key files
