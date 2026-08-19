@@ -1,4 +1,4 @@
-export type WorkDomain = 'design' | 'writing' | 'strategy' | 'code' | 'research';
+export type WorkDomain = 'design' | 'writing' | 'strategy' | 'code' | 'research' | 'coach';
 
 export interface DomainStandard {
   domain: WorkDomain;
@@ -116,6 +116,27 @@ export const DOMAIN_STANDARDS: Record<WorkDomain, DomainStandard> = {
       'Do not evaluate your own training data as evidence.',
       'Do not recommend generic research practices ("check more sources").',
       'Name a specific missing dimension or contrary position.',
+    ],
+  },
+
+  coach: {
+    domain: 'coach',
+    evaluationDimensions: [
+      'goal alignment — is the current focus moving the user\'s stated goals forward?',
+      'commitment integrity — are the user\'s commitments being honoured or drifting?',
+      'focus vs drift — is energy going to what matters or scattering?',
+      'progress evidence — what has measurably moved since the last check-in?',
+      'energy and pattern awareness — what recurring pattern is visible in the user\'s data?',
+      'blockers — what is concretely stopping the next step?',
+      'wellbeing without prying — does the user show signs of overload, without invasive probing?',
+    ],
+    focusPrompt: `Evaluate the user's current state — their stated goals, recent journal/check-ins, current work, and known patterns. Identify the ONE causal issue that most threatens their progress or wellbeing. Propose ONE high-leverage intervention grounded in that specific data. Never give generic advice.`,
+    avoidances: [
+      'Do not advise without grounding in the user\'s actual goals, journal, check-ins, or current work.',
+      'Do not give generic motivational or wellbeing platitudes.',
+      'Do not invent personal facts or patterns the data does not support.',
+      'Do not pry into wellbeing beyond what the user has shared.',
+      'Lead with the specific issue, not praise or encouragement.',
     ],
   },
 };
