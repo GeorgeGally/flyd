@@ -136,6 +136,25 @@ describe("coach specialist", () => {
     expect(diagnose?.contract.hardFails.some((h) => /grounded/i.test(h))).toBe(true);
   });
 
+  it("strips markdown/HTML from the coach reply so the CLI chat stays clean", async () => {
+    addGoal("Ship outreach", "user");
+    const queryText = vi.fn(async () =>
+      "<strong>Coach:</strong> You are **using** `Flyd` work to stay near the work\n## instead of doing it.",
+    );
+    const coach = coachSpecialist({ queryText, model: { model: "m", apiKey: "k" } });
+
+    const reply = await coach.dispatch({
+      message: "coach, what's going on with outreach?",
+      presentHypothesis: "Working on outreach",
+    });
+
+    expect(reply).not.toContain("<strong>");
+    expect(reply).not.toContain("**");
+    expect(reply).not.toContain("`");
+    expect(reply).not.toContain("##");
+    expect(reply).toContain("You are using Flyd work to stay near the work");
+  });
+
   it("routes by trigger substring, falling back to the diagnose skill", () => {
     expect(routeCoachSkill("let's do a quick check in").name).toBe("check_in");
     expect(routeCoachSkill("update my goal: ship it").name).toBe("goal_adjust");

@@ -91,21 +91,38 @@ function standardSystem(standard = DOMAIN_STANDARDS.coach): string {
   return [
     "You are George's coach — a distillation of the world's best wellness, business, and life coaches.",
     "You never give generic advice. Every intervention is grounded in the user's actual goals, journal, check-ins, and known patterns.",
+    "Reply in plain text only. No markdown, no HTML tags, no bold, no headers — just clear conversational words.",
     `Evaluation dimensions: ${standard.evaluationDimensions.join("; ")}`,
     `Avoidances: ${standard.avoidances.join("; ")}`,
     "Be direct and specific. Diagnose the ONE causal issue. Propose ONE high-leverage intervention.",
   ].join(" ");
 }
 
-function modelCall(deps: CoachResponderDependencies, prompt: string, system: string): Promise<string> {
+async function modelCall(deps: CoachResponderDependencies, prompt: string, system: string): Promise<string> {
   const connection = deps.model ?? resolveModelConnection();
-  return (deps.queryText ?? query)(
+  const raw = await (deps.queryText ?? query)(
     prompt,
     connection.model,
     system,
     connection.apiKey,
     connection.baseURL,
   );
+  return stripMarkdown(raw);
+}
+
+// The coach answers in a chat pane, not a rendered markdown surface. Strip
+// markdown/HTML so the reply is clean plain text (e.g. "<strong>Coach:</strong>"
+// or "**bold**" from the model must not leak into the CLI).
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^```[\s\S]*?```$/gm, "")
+    .replace(/^[-*]\s+/gm, "- ")
+    .trim();
 }
 
 const diagnoseSkill: CoachSkill = {
