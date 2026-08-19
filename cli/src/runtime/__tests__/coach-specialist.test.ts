@@ -3,13 +3,17 @@ import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { coachSpecialist } from "../coach-specialist.js";
+import { coachSpecialist, routeCoachSkill, coachSkills } from "../coach-specialist.js";
 import {
   configureCoachMemoryDirectory,
   addGoal,
   addPattern,
 } from "../coach-memory.js";
-import { configureOutcomeJournalDirectory, recordJournalEntry } from "../../work-intelligence/outcome-journal.js";
+import {
+  configureOutcomeJournalDirectory,
+  recordJournalEntry,
+  listJournalEntries,
+} from "../../work-intelligence/outcome-journal.js";
 
 describe("coach specialist", () => {
   let root: string;
@@ -85,5 +89,56 @@ describe("coach specialist", () => {
     const prompt = queryText.mock.calls[0][0] as string;
     expect(prompt).toContain("Grow CleanX");
     expect(prompt).toContain("Starts too many projects");
+  });
+
+  it("routes a 'check in' message to the check-in skill and journals a receipt", async () => {
+    const queryText = vi.fn(async (prompt) => {
+      expect(prompt).toContain("User check-in");
+      return "Got it — you're focused on outreach and the blocker is drafting. I won't re-ask.";
+    });
+    const coach = coachSpecialist({ queryText, model: { model: "m", apiKey: "k" } });
+
+    const reply = await coach.dispatch({
+      message: "check in — focus is outreach, blocker is drafting",
+      presentHypothesis: "GNM outreach",
+    });
+
+    expect(reply).toContain("outreach");
+    const checkins = listJournalEntries({ eventTypes: ["coach_checkin"] });
+    expect(checkins.length).toBeGreaterThan(0);
+  });
+
+  it("routes a retrospective message to the retrospective skill and journals a receipt", async () => {
+    const queryText = vi.fn(async () => "What was offered: outreach draft. What happened: nothing. Pattern: needs external accountability.");
+    const coach = coachSpecialist({ queryText, model: { model: "m", apiKey: "k" } });
+
+    await coach.dispatch({ message: "retro — how did the outreach draft go?" });
+
+    const retros = listJournalEntries({ eventTypes: ["coach_retrospective"] });
+    expect(retros.length).toBeGreaterThan(0);
+  });
+
+  it("records a goal when the user asks to adjust or set one", async () => {
+    const coach = coachSpecialist({ model: { model: "m", apiKey: "k" } });
+    const reply = await coach.dispatch({
+      message: "new goal: get GNM sponsors signed by end of month",
+    });
+    expect(reply).toContain("GNM sponsors signed by end of month");
+  });
+
+  it("coach skills carry an eval contract with the no-generic hard-fail", () => {
+    const skills = coachSkills();
+    for (const skill of skills) {
+      expect(skill.contract.goal.length).toBeGreaterThan(0);
+      expect(skill.contract.dimensions.length).toBeGreaterThan(0);
+    }
+    const diagnose = skills.find((s) => s.name === "diagnose");
+    expect(diagnose?.contract.hardFails.some((h) => /grounded/i.test(h))).toBe(true);
+  });
+
+  it("routes by trigger substring, falling back to the diagnose skill", () => {
+    expect(routeCoachSkill("let's do a quick check in").name).toBe("check_in");
+    expect(routeCoachSkill("update my goal: ship it").name).toBe("goal_adjust");
+    expect(routeCoachSkill("coach, what should I focus on").name).toBe("diagnose");
   });
 });
