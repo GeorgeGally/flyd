@@ -79,6 +79,7 @@ interface FlydConfig {
   FLYD_ZODIAC_SIGN?: string;
   LAST30DAYS_SCRIPT?: string;
   LAST30DAYS_TOPICS?: string;
+  FLYD_BRIEF_INTERVAL_MINUTES?: string;
 }
 
 export interface ModelConnection {

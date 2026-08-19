@@ -26,9 +26,12 @@ export async function runAndPersistBrief(deps: DailyBriefDeps = {}): Promise<{ o
 // opening / /brief can show a fresh brief without blocking the session on
 // network research. Not tied to the synchronous job runner (last30days is
 // async). Caller owns lifecycle; returns a stop() handle.
+//
+// Runs once immediately on start (so every Core launch refreshes the brief),
+// then once per day by default. Daily cadence overridable via intervalMs.
 export function startBriefScheduler(config: BriefSchedulerConfig = {}): () => void {
   if (intervalHandle) stopBriefScheduler();
-  const intervalMs = config.intervalMs ?? 15 * 60 * 1000;
+  const intervalMs = config.intervalMs ?? 24 * 60 * 60 * 1000;
   const tick = (): void => {
     void runAndPersistBrief(config.deps).catch((error) => config.onError?.(error));
   };

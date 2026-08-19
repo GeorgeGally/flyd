@@ -1672,7 +1672,14 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
       // Background daily-brief cron: composes and persists the brief so the
       // opening / /brief show a fresh brief without blocking the session on
       // network research. Runs immediately on start, then on an interval.
+      // Default cadence is daily; override minutes via FLYD_BRIEF_INTERVAL_MINUTES.
+      const briefIntervalMs = (() => {
+        const minutes = Number(getKey("FLYD_BRIEF_INTERVAL_MINUTES"));
+        if (Number.isFinite(minutes) && minutes > 0) return minutes * 60 * 1000;
+        return undefined;
+      })();
       startBriefScheduler({
+        intervalMs: briefIntervalMs,
         deps: {
           last30daysScript: getKey("LAST30DAYS_SCRIPT"),
           last30daysTopics: getKey("LAST30DAYS_TOPICS")
