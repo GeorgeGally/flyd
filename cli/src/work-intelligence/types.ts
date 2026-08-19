@@ -262,7 +262,8 @@ export type FounderEventType =
   | 'standard_hit' | 'skill_applied'
   | 'context_accuracy_sample'
   | 'command_approved' | 'command_rejected'
-  | 'command_completed' | 'command_failed';
+  | 'command_completed' | 'command_failed'
+  | 'coach_checkin' | 'coach_retrospective';
 
 export interface FounderJournalEntry {
   entryId: string;
@@ -298,6 +299,9 @@ export interface FounderJournalEntry {
       verdict: 'approved' | 'verified' | 'partial' | 'failed';
       handoffAvailable: boolean;
     };
+    focus?: string;
+    priorities?: string;
+    blockers?: string;
   };
 }
 

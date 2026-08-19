@@ -65,6 +65,7 @@ const ALL_FOUNDER_EVENT_TYPES: FounderEventType[] = [
   'context_accuracy_sample',
   'command_approved', 'command_rejected',
   'command_completed', 'command_failed',
+  'coach_checkin', 'coach_retrospective',
 ];
 
 describe('work-intelligence release acceptance', () => {

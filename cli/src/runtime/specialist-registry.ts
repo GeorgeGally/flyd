@@ -26,3 +26,10 @@ export function lookupSpecialist(name: string): Specialist | null {
 export function listSpecialistNames(): string[] {
   return [...registry.keys()];
 }
+
+// Wire the coach specialist so the PA can hand off to it. Dispatch is lazy —
+// the model call happens only when a coach-addressed message is received.
+// No circular dependency: coach-specialist imports the registry type only.
+import { coachSpecialist } from "./coach-specialist.js";
+registerSpecialist(coachSpecialist());
+
