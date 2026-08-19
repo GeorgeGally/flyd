@@ -8,7 +8,10 @@ import {
   addGoal,
   addPattern,
 } from "../coach-memory.js";
-import { composeStateBrief, composeDailyBrief } from "../daily-brief.js";
+import {
+  composeStateBrief, composeDailyBrief,
+  persistDailyBrief, readLatestBrief, dailyBriefFile,
+} from "../daily-brief.js";
 
 describe("daily brief", () => {
   let root: string;
@@ -67,5 +70,21 @@ describe("daily brief", () => {
       nextAction: null,
     });
     expect(lines.join(" ")).toContain("blocked");
+  });
+
+  it("persists a brief and reads it back while fresh", () => {
+    const brief = {
+      heading: "Daily brief — now",
+      state: ["Next: Ship the release."],
+      external: ["— ai agents: momentum"],
+      degraded: false,
+    };
+    const file = persistDailyBrief(brief);
+    expect(dailyBriefFile()).toBe(file);
+    const latest = readLatestBrief();
+    expect(latest).not.toBeNull();
+    expect(latest!.body).toContain("Daily brief");
+    expect(latest!.body).toContain("Next: Ship the release.");
+    expect(latest!.body).toContain("ai agents");
   });
 });

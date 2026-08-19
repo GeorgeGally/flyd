@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { resolve as resolvePath, join } from 'node:path';
 import { listGoals, listPatterns } from './coach-memory.js';
 import { listJournalEntries } from '../work-intelligence/outcome-journal.js';
+import { FLYD_DIR } from '../lib/config.js';
 import type { AgentSituation } from './agent-session.js';
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +24,10 @@ export interface DailyBrief {
 }
 
 const DEFAULT_TOPICS = ['ai agents', 'software engineering'];
+
+export function dailyBriefFile(): string {
+  return join(FLYD_DIR, 'overlay', 'daily-brief.md');
+}
 
 // Compose the always-available, local-value half of the brief: what is
 // actually on George's plate right now. Never blocks on network.
@@ -113,4 +119,37 @@ export async function composeDailyBrief(deps: DailyBriefDeps = {}): Promise<Dail
     : `Daily brief — ${time} (local)`;
 
   return { heading, state, external, degraded };
+}
+
+export function briefToMarkdown(brief: DailyBrief): string {
+  return [
+    `# ${brief.heading}`,
+    "",
+    ...brief.state,
+    ...(brief.external.length ? ["", "## Current signal", ...brief.external] : []),
+  ].join("\n");
+}
+
+export function persistDailyBrief(brief: DailyBrief, file = dailyBriefFile()): string {
+  const dir = resolvePath(file, "..");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const body = briefToMarkdown(brief);
+  writeFileSync(file, body, { encoding: "utf-8", mode: 0o600 });
+  return file;
+}
+
+export interface LatestBrief {
+  body: string;
+  writtenAt: number;
+}
+
+export function readLatestBrief(file = dailyBriefFile(), maxAgeMs = 12 * 60 * 60 * 1000): LatestBrief | null {
+  if (!existsSync(file)) return null;
+  try {
+    const writtenAt = statSync(file).mtimeMs;
+    if (Date.now() - writtenAt > maxAgeMs) return null;
+    return { body: readFileSync(file, "utf-8"), writtenAt };
+  } catch {
+    return null;
+  }
 }

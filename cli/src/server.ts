@@ -58,6 +58,8 @@ import {
 import { pauseJobs, resumeJobs, killJobs, clearKillJobs, isJobsGloballyPaused } from "./work-intelligence/jobs/controls.js";
 import { runMorningBriefing, runJobById, runDueJobs } from "./work-intelligence/jobs/runner.js";
 import type { JobType } from "./work-intelligence/jobs/types.js";
+import { startBriefScheduler, stopBriefScheduler, runAndPersistBrief } from "./runtime/brief-scheduler.js";
+import { getKey } from "./lib/config.js";
 import { handleCompoundNl, isCompoundNlUtterance } from "./work-intelligence/compound-nl.js";
 import { readPresentModel, projectHypothesisLine } from "./work/work-hypothesis/index.js";
 import { handleJournalPost, handleJournalList, handleJournalEntry, handleWorkInteractionContractNegotiation } from "./http/work-interaction-handlers.js";
@@ -1667,6 +1669,18 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         console.warn(`[Flyd Core] Realtime server failed to start:`, err.message);
       });
 
+      // Background daily-brief cron: composes and persists the brief so the
+      // opening / /brief show a fresh brief without blocking the session on
+      // network research. Runs immediately on start, then on an interval.
+      startBriefScheduler({
+        deps: {
+          last30daysScript: getKey("LAST30DAYS_SCRIPT"),
+          last30daysTopics: getKey("LAST30DAYS_TOPICS")
+            ?.split(",").map((t) => t.trim()).filter(Boolean),
+        },
+      });
+      console.log(`[Flyd Core] Daily brief scheduler started`);
+
       resolvePromise();
     });
   });
@@ -1687,6 +1701,7 @@ export function stopServer(): Promise<void> {
       } else {
         console.log("[Flyd Core] Server stopped");
         const fallback = setTimeout(resolvePromise, 5000);
+        stopBriefScheduler();
         stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => {
           clearTimeout(fallback);
           resolvePromise();
