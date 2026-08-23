@@ -28,7 +28,7 @@ import {
   speakingStyleSystemRule,
 } from "./speaking-preference.js";
 import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
-import { lookupSpecialist } from "./specialist-registry.js";
+import { specialistsForMessage } from "./capability-resolver.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -90,21 +90,16 @@ export function missingPersonalFactReply(
   return "I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.";
 }
 
-// Route to a specialist only on a clear coaching directive — an address
-// ("coach," / "hey coach"), an imperative ("bring in the coach", "talk to the
-// coach"), or "life coach". Avoids hijacking ordinary sentences that merely
-// contain the word "coach" ("I coach soccer", "head coach", "the coach said").
-const SPECIALIST_ADDRESS =
-  /(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i;
-
+// Specialist routing composes per turn: each registered specialist carries
+// its own address patterns (see capability-resolver.ts). The first match
+// wins, so registration order decides precedence.
 export async function specialistHandoff(
   message: string,
   input: ConversationInput,
 ): Promise<string | null> {
-  if (!SPECIALIST_ADDRESS.test(message)) return null;
-  const specialist = lookupSpecialist("coach");
-  if (!specialist) return null;
-  return specialist.dispatch({
+  const [resolved] = specialistsForMessage(message);
+  if (!resolved) return null;
+  return resolved.specialist.dispatch({
     message,
     presentHypothesis: input.presentHypothesis,
     situation: input.situation

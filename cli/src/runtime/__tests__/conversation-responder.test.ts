@@ -565,6 +565,7 @@ describe("buildConversationPrompt", () => {
     registerSpecialist({
       name: "coach",
       domain: "coaching",
+      addresses: [/(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i],
       dispatch: async () => "Coach here, grounded.",
     });
 
@@ -629,6 +630,7 @@ describe("buildConversationPrompt", () => {
     registerSpecialist({
       name: "coach",
       domain: "coaching",
+      addresses: [/(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i],
       dispatch: async () => "Coach here.",
     });
 
