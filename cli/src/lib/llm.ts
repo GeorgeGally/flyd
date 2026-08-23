@@ -1,6 +1,47 @@
+import { readFileSync } from "node:fs";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { isOpenAIModel, defaultModel, resolveModelConnection } from "./config.js";
+
+interface FixtureRule {
+  /** Prompt must contain this substring. */
+  contains?: string;
+  /** Prompt must equal this string exactly. */
+  equals?: string;
+  respond: string;
+}
+
+// Eval fixture seam: when FLYD_MODEL_FIXTURE is set (inline JSON or a path to a
+// JSON file), query() returns canned responses instead of calling a provider.
+// Rules are evaluated in order; an unmatched prompt throws so regressions fail
+// loudly instead of silently passing on the fallback.
+let modelFixtureSpec: string | null = null;
+let modelFixtureCache: { rules?: FixtureRule[]; fallback?: string } | null | undefined;
+
+function loadModelFixture(): { rules?: FixtureRule[]; fallback?: string } | null {
+  const spec = process.env.FLYD_MODEL_FIXTURE;
+  if (!spec) return null;
+  if (modelFixtureCache === undefined || modelFixtureSpec !== spec) {
+    const raw = spec.trimStart().startsWith("{") ? spec : readFileSync(spec, "utf8");
+    modelFixtureCache = JSON.parse(raw) as { rules?: FixtureRule[]; fallback?: string };
+    modelFixtureSpec = spec;
+  }
+  return modelFixtureCache;
+}
+
+function fixtureResponse(prompt: string): string | null {
+  const fixture = loadModelFixture();
+  if (!fixture) return null;
+  for (const rule of fixture.rules ?? []) {
+    const matched =
+      rule.equals !== undefined
+        ? prompt === rule.equals
+        : (rule.contains ?? "") !== "" && prompt.includes(rule.contains ?? "");
+    if (matched) return rule.respond;
+  }
+  if (fixture.fallback !== undefined) return fixture.fallback;
+  throw new Error("FLYD_MODEL_FIXTURE active but no rule matched the prompt");
+}
 
 export interface AgentTool {
   name: string;
@@ -57,6 +98,8 @@ export async function query(
   baseURL?: string,
   options: QueryOptions = {}
 ): Promise<string> {
+  const fixture = fixtureResponse(prompt);
+  if (fixture !== null) return fixture;
   const m = model ?? defaultModel();
   const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
   const resolvedPrompt = enriched.prompt;
