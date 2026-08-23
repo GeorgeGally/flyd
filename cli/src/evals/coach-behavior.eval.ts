@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { coachSpecialist } from "../runtime/coach-specialist.js";
+import { coachSpecialist, routeCoachSkill, resetCoachSkillsCache } from "../runtime/coach-specialist.js";
 import {
   configureCoachMemoryDirectory,
   addGoal,
@@ -117,5 +117,39 @@ describe("coach behavior", () => {
     const reply = await coach.dispatch("what's blocking my Q3 plan?");
 
     expect(reply).not.toMatch(/<[^>]+>|\*\*/);
+  });
+
+  it("routes to skills authored on disk — new capability is a file, not a code change", () => {
+    const agentDir = join(tmpdir(), `flyd-eval-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, "focus_check.md"),
+      `---
+name: focus_check
+triggers:
+  - focus check
+contract_goal: Surface what is actually being worked on right now
+dimensions:
+  - SPECIFIC — names the current artifact
+hard_fails:
+  - Must not invent work
+---
+What are you working on right now? {{message}} Grounding: {{grounding}}
+`,
+    );
+    const prevAgentDir = process.env.FLYD_AGENT_DIR;
+    process.env.FLYD_AGENT_DIR = agentDir;
+    resetCoachSkillsCache();
+
+    try {
+      expect(routeCoachSkill("do a focus check for me")?.name).toBe("focus_check");
+      // built-in routing survives alongside authored additions
+      expect(routeCoachSkill("let's do a quick check in")?.name).toBe("check_in");
+    } finally {
+      if (prevAgentDir === undefined) delete process.env.FLYD_AGENT_DIR;
+      else process.env.FLYD_AGENT_DIR = prevAgentDir;
+      resetCoachSkillsCache();
+      rmSync(agentDir, { recursive: true, force: true });
+    }
   });
 });

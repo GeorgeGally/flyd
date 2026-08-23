@@ -20,7 +20,8 @@
     "prepublishOnly": "npm run lint && npm run build"
   },
   "files": [
-    "dist"
+    "dist",
+    "agent"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",

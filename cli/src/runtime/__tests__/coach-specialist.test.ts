@@ -156,9 +156,9 @@ describe("coach specialist", () => {
   });
 
   it("routes by trigger substring, falling back to the diagnose skill", () => {
-    expect(routeCoachSkill("let's do a quick check in").name).toBe("check_in");
-    expect(routeCoachSkill("update my goal: ship it").name).toBe("goal_adjust");
-    expect(routeCoachSkill("coach, what should I focus on").name).toBe("diagnose");
+    expect(routeCoachSkill("let's do a quick check in")?.name).toBe("check_in");
+    expect(routeCoachSkill("update my goal: ship it")?.name).toBe("goal_adjust");
+    expect(routeCoachSkill("coach, what should I focus on")).toBeUndefined();
   });
 
   it("archives a goal when the user takes it off their plate", async () => {
