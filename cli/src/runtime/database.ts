@@ -9,12 +9,14 @@ export function runtimeDatabaseUrl(): string {
 
 export function createRuntimePool(
   connectionString = runtimeDatabaseUrl(),
-  options: { connectionTimeoutMillis?: number } = {},
+  options: { connectionTimeoutMillis?: number; statementTimeoutMs?: number } = {},
 ): pg.Pool {
   return new Pool({
     connectionString,
     max: 4,
     connectionTimeoutMillis: options.connectionTimeoutMillis ?? 3_000,
+    // A stalled database must hang queries, not requests waiting on them.
+    statement_timeout: options.statementTimeoutMs ?? 30_000,
     options: "-c timezone=UTC",
   });
 }

@@ -71,6 +71,11 @@ export interface CreateRunInput {
   principal: RunPrincipal;
   kind: string;
   checkpoint?: Record<string, unknown>;
+  /**
+   * Optional externally-chosen identity so consumers can look runs up by
+   * their own keys (e.g. grant IDs). Must be globally unique.
+   */
+  runKey?: string;
 }
 
 export interface ParkInput {
@@ -144,13 +149,16 @@ export class PostgresRunStore {
 
   async createRun(input: CreateRunInput): Promise<AgentRun> {
     await this.ensureSchema();
-    const runKey = randomUUID();
+    const runKey = input.runKey ?? randomUUID();
     const result = await this.pool.query(
       `INSERT INTO agent_runs (run_key, principal_kind, principal_id, kind, checkpoint)
        VALUES ($1, $2, $3, $4, $5::jsonb)
        RETURNING ${RUN_COLUMNS}`,
       [runKey, input.principal.kind, input.principal.id, input.kind, JSON.stringify(input.checkpoint ?? {})]
-    );
+    ).catch((err: { code?: string }) => {
+      if (err.code === "23505") throw new Error(`Run key already exists: ${runKey}`);
+      throw err;
+    });
     return mapRun(result.rows[0]);
   }
 
@@ -244,6 +252,23 @@ export class PostgresRunStore {
       values
     );
     return result.rows.map(mapRun);
+  }
+
+  /**
+   * Fail every still-'running' run of a kind left behind by a previous
+   * process. Called at boot: in-process execution cannot survive a restart,
+   * so those runs are interrupted, not active. Parked runs are deliberately
+   * untouched — waiting is exactly what survives a restart.
+   */
+  async failRunningByKind(kind: string, error: string): Promise<number> {
+    await this.ensureSchema();
+    const result = await this.pool.query(
+      `UPDATE agent_runs SET status = 'failed', error = $1, ended_at = NOW(),
+         revision = revision + 1, updated_at = NOW()
+       WHERE kind = $2 AND status = 'running'`,
+      [error, kind]
+    );
+    return result.rowCount ?? 0;
   }
 
   private async finish(

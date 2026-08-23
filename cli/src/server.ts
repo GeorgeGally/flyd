@@ -79,7 +79,7 @@ const PORT = 4815;
 const HOST = "127.0.0.1";
 const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
 const DELEGATION_ENABLED = process.env.FLYD_DELEGATION_ENABLED === "true";
-const repositoryActionJobs = new RepositoryActionJobStore<RepositoryActionResult>();
+const repositoryActionJobs = new RepositoryActionJobStore<RepositoryActionResult>({ durable: true });
 
 function recordRepositoryTerminalOutcome(
   sessionId: string,
@@ -1127,13 +1127,17 @@ async function handleTts(req: IncomingMessage, res: ServerResponse) {
 
 let serverInstance: ReturnType<typeof createServer> | null = null;
 
-export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    if (serverInstance) {
-      reject(new Error("Server is already running"));
-      return;
-    }
+export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
+  if (serverInstance) {
+    throw new Error("Server is already running");
+  }
 
+  // Fail repository-action runs stranded by a previous process BEFORE the
+  // socket opens — otherwise this sweep can clobber jobs started moments
+  // after listen(). Parked runs survive restarts untouched.
+  await repositoryActionJobs.recoverInterrupted().catch(() => undefined);
+
+  return new Promise((resolvePromise, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url || "/", `http://${host}:${port}`);
 
@@ -1392,7 +1396,7 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
             }
 
             try {
-              const job = repositoryActionJobs.start(grant.grantId, async () => {
+              const job = await repositoryActionJobs.start(grant.grantId, async () => {
                 let result: RepositoryActionResult;
                 try {
                   result = await runRepositoryAction(repositoryInput);
@@ -1434,15 +1438,19 @@ export function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
         if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         const jobId = url.searchParams.get("jobId");
         if (!jobId) { sendJson(res, 400, { error: "Missing jobId parameter" }); break; }
-        const job = repositoryActionJobs.get(jobId);
-        if (!job) { sendJson(res, 404, { error: "Repository action not found" }); break; }
-        sendJson(res, 200, {
-          jobId: job.jobId,
-          status: job.status,
-          deadlineAt: job.deadlineAt,
-          result: job.result ? repositoryActionResponse(job.result) : undefined,
-          error: job.error,
-        });
+        void repositoryActionJobs.get(jobId).then((job) => {
+          if (!job) {
+            sendJson(res, 404, { error: "Repository action not found" });
+            return;
+          }
+          sendJson(res, 200, {
+            jobId: job.jobId,
+            status: job.status,
+            deadlineAt: job.deadlineAt,
+            result: job.result ? repositoryActionResponse(job.result) : undefined,
+            error: job.error,
+          });
+        }).catch(() => sendJson(res, 500, { error: "Repository action status failed" }));
         break;
       }
       case "/work-intelligence/command/execute": {

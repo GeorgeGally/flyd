@@ -7,16 +7,16 @@ describe('RepositoryActionJobStore', () => {
     let release!: () => void;
     const blocked = new Promise<void>(resolve => { release = resolve; });
 
-    const job = store.start('grant-1', async () => {
+    const job = await store.start('grant-1', async () => {
       await blocked;
       return { actionId: 'action-1', verified: true };
     });
 
     expect(job).toMatchObject({ jobId: 'grant-1', status: 'running' });
-    expect(store.get('grant-1')).toMatchObject({ status: 'running' });
+    expect(await store.get('grant-1')).toMatchObject({ status: 'running' });
     release();
     await job.completion;
-    expect(store.get('grant-1')).toMatchObject({
+    expect(await store.get('grant-1')).toMatchObject({
       status: 'completed',
       result: { actionId: 'action-1', verified: true },
     });
@@ -24,9 +24,9 @@ describe('RepositoryActionJobStore', () => {
 
   it('retains a bounded failed status when background execution throws', async () => {
     const store = new RepositoryActionJobStore();
-    const job = store.start('grant-2', async () => { throw new Error('worker failed'); });
+    const job = await store.start('grant-2', async () => { throw new Error('worker failed'); });
     await job.completion;
 
-    expect(store.get('grant-2')).toMatchObject({ status: 'failed', error: 'worker failed' });
+    expect(await store.get('grant-2')).toMatchObject({ status: 'failed', error: 'worker failed' });
   });
 });
