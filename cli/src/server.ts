@@ -59,6 +59,7 @@ import { pauseJobs, resumeJobs, killJobs, clearKillJobs, isJobsGloballyPaused } 
 import { runMorningBriefing, runJobById, runDueJobs } from "./work-intelligence/jobs/runner.js";
 import type { JobType } from "./work-intelligence/jobs/types.js";
 import { startBriefScheduler, stopBriefScheduler, runAndPersistBrief } from "./runtime/brief-scheduler.js";
+import { startTransitionJudge, stopTransitionJudge } from "./transitions/judge.js";
 import { getKey } from "./lib/config.js";
 import { handleCompoundNl, isCompoundNlUtterance } from "./work-intelligence/compound-nl.js";
 import { readPresentModel, projectHypothesisLine } from "./work/work-hypothesis/index.js";
@@ -1739,6 +1740,9 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       });
       console.log(`[Flyd Core] Daily brief scheduler started`);
 
+      startTransitionJudge();
+      console.log(`[Flyd Core] Transition judge sweep started`);
+
       resolvePromise();
     });
   });
@@ -1760,6 +1764,7 @@ export function stopServer(): Promise<void> {
         console.log("[Flyd Core] Server stopped");
         const fallback = setTimeout(resolvePromise, 5000);
         stopBriefScheduler();
+        stopTransitionJudge();
         stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => {
           clearTimeout(fallback);
           resolvePromise();
