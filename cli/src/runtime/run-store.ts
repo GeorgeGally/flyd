@@ -38,6 +38,24 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 
 export type WaitOn = "user" | "tool" | "agent";
 
+/**
+ * Backend-agnostic durable-run contract. PostgresRunStore is the durable
+ * implementation; InMemoryRunStore covers tests and surfaces running
+ * without a database. SessionKernel depends on this interface, never on
+ * Postgres directly.
+ */
+export interface RunStore {
+  ensureSchema(): Promise<void>;
+  createRun(input: CreateRunInput): Promise<AgentRun>;
+  getRun(runKey: string): Promise<AgentRun | null>;
+  saveCheckpoint(runKey: string, expectedRevision: number, checkpoint: Record<string, unknown>): Promise<AgentRun>;
+  park(runKey: string, expectedRevision: number, input: ParkInput): Promise<AgentRun>;
+  resume(runKey: string): Promise<AgentRun>;
+  complete(runKey: string, expectedRevision: number, result?: Record<string, unknown>): Promise<AgentRun>;
+  fail(runKey: string, expectedRevision: number, error: string): Promise<AgentRun>;
+  cancel(runKey: string, expectedRevision: number): Promise<AgentRun>;
+}
+
 export interface RunPrincipal {
   kind: "user" | "system" | "agent";
   id: string;
@@ -110,7 +128,7 @@ function mapRun(row: QueryResultRow): AgentRun {
 const RUN_COLUMNS = `run_key, principal_kind, principal_id, kind, status, wait_on, wait_reason,
   pending_request, checkpoint, result, error, revision, created_at, updated_at, ended_at`;
 
-export class PostgresRunStore {
+export class PostgresRunStore implements RunStore {
   private pool: Pool;
   private schemaReady: Promise<void> | null = null;
 
@@ -225,9 +243,7 @@ export class PostgresRunStore {
 
   async complete(runKey: string, expectedRevision: number, result: Record<string, unknown> = {}): Promise<AgentRun> {
     return this.finish(runKey, expectedRevision, ["running", ...WAITING], "completed", result, null);
-  }
-
-  async fail(runKey: string, expectedRevision: number, error: string): Promise<AgentRun> {
+  }  async fail(runKey: string, expectedRevision: number, error: string): Promise<AgentRun> {
     return this.finish(runKey, expectedRevision, ["running", ...WAITING], "failed", null, error);
   }
 
@@ -316,5 +332,149 @@ export class PostgresRunStore {
 
     const fresh = await this.pool.query(`SELECT ${RUN_COLUMNS} FROM agent_runs WHERE run_key = $1`, [runKey]);
     return mapRun(fresh.rows[0]);
+  }
+}
+
+/**
+ * In-memory RunStore with the same revision/transition semantics as the
+ * Postgres implementation. Backs SessionKernel tests and surfaces running
+ * without a database (CLI on machines without Postgres).
+ */
+export class InMemoryRunStore implements RunStore {
+  private runs = new Map<string, AgentRun>();
+  private schemaReady = false;
+
+  async ensureSchema(): Promise<void> {
+    this.schemaReady = true;
+  }
+
+  async createRun(input: CreateRunInput): Promise<AgentRun> {
+    if (!this.schemaReady) await this.ensureSchema();
+    const runKey = input.runKey ?? randomUUID();
+    if ([...this.runs.values()].some((r) => r.runKey === runKey)) {
+      throw new Error(`Run key already exists: ${runKey}`);
+    }
+    const now = new Date();
+    const run: AgentRun = {
+      runKey,
+      principal: input.principal,
+      kind: input.kind,
+      status: "running",
+      waitOn: null,
+      waitReason: null,
+      pendingRequest: null,
+      checkpoint: input.checkpoint ? { ...input.checkpoint } : {},
+      result: null,
+      error: null,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+      endedAt: null,
+    };
+    this.runs.set(runKey, run);
+    return { ...run };
+  }
+
+  async getRun(runKey: string): Promise<AgentRun | null> {
+    const run = this.runs.get(runKey);
+    // Deep-copy object fields so callers can't corrupt stored state through
+    // a returned snapshot — PostgresRunStore hands back fresh rows.
+    return run ? this.snapshot(run) : null;
+  }
+
+  private snapshot(run: AgentRun): AgentRun {
+    return {
+      ...run,
+      checkpoint: { ...run.checkpoint },
+      pendingRequest: run.pendingRequest ? { ...run.pendingRequest } : null,
+      result: run.result ? { ...run.result } : null,
+      principal: { ...run.principal },
+    };
+  }
+
+  async saveCheckpoint(runKey: string, expectedRevision: number, checkpoint: Record<string, unknown>): Promise<AgentRun> {
+    return this.mutate(runKey, expectedRevision, ["running"], (run) => {
+      run.checkpoint = { ...checkpoint };
+    });
+  }
+
+  async park(runKey: string, expectedRevision: number, input: ParkInput): Promise<AgentRun> {
+    return this.mutate(runKey, expectedRevision, ["running"], (run) => {
+      run.status = `waiting_for_${input.waitOn}` as RunStatus;
+      run.waitOn = input.waitOn;
+      run.waitReason = input.reason ?? null;
+      run.pendingRequest = input.pendingRequest ? { ...input.pendingRequest } : null;
+      if (input.checkpoint) run.checkpoint = { ...input.checkpoint };
+    });
+  }
+
+  async resume(runKey: string): Promise<AgentRun> {
+    const run = this.runs.get(runKey);
+    if (!run) throw new Error(`Run ${runKey} not found`);
+    if (!WAITING.has(run.status)) throw new InvalidTransitionError(runKey, run.status, "running");
+    run.status = "running";
+    run.waitOn = null;
+    run.waitReason = null;
+    run.revision += 1;
+    run.updatedAt = new Date();
+    return { ...run };
+  }
+
+  async complete(runKey: string, expectedRevision: number, result: Record<string, unknown> = {}): Promise<AgentRun> {
+    return this.finish(runKey, expectedRevision, "completed", { ...result }, null);
+  }
+
+  async fail(runKey: string, expectedRevision: number, error: string): Promise<AgentRun> {
+    return this.finish(runKey, expectedRevision, "failed", null, error);
+  }
+
+  async cancel(runKey: string, expectedRevision: number): Promise<AgentRun> {
+    return this.finish(runKey, expectedRevision, "cancelled", null, null);
+  }
+
+  async listActive(filter: { principal?: RunPrincipal; kind?: string } = {}): Promise<AgentRun[]> {
+    const active = [...this.runs.values()].filter(
+      (r) =>
+        !TERMINAL.has(r.status) &&
+        (!filter.principal || (r.principal.kind === filter.principal.kind && r.principal.id === filter.principal.id)) &&
+        (!filter.kind || r.kind === filter.kind),
+    );
+    return active.map((r) => ({ ...r }));
+  }
+
+  private mutate(
+    runKey: string,
+    expectedRevision: number,
+    allowedFrom: readonly RunStatus[],
+    apply: (run: AgentRun) => void,
+  ): AgentRun {
+    const run = this.runs.get(runKey);
+    if (!run) throw new Error(`Run ${runKey} not found`);
+    if (!allowedFrom.includes(run.status)) {
+      throw new InvalidTransitionError(runKey, run.status, allowedFrom[0] ?? "running");
+    }
+    if (run.revision !== expectedRevision) throw new RevisionConflictError(runKey);
+    apply(run);
+    run.revision = expectedRevision + 1;
+    run.updatedAt = new Date();
+    return { ...run };
+  }
+
+  private finish(
+    runKey: string,
+    expectedRevision: number,
+    to: RunStatus,
+    result: Record<string, unknown> | null,
+    error: string | null,
+  ): AgentRun {
+    return this.mutate(runKey, expectedRevision, ["running", ...WAITING], (run) => {
+      run.status = to;
+      run.result = result;
+      run.error = error;
+      run.waitOn = null;
+      run.waitReason = null;
+      run.pendingRequest = null;
+      run.endedAt = new Date();
+    });
   }
 }

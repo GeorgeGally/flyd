@@ -3,6 +3,10 @@ import { formatChatReply, wrapDisplayText } from "./terminal.js";
 import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import type { BriefRepo } from "./repo-registry.js";
+import {
+  openChatSession,
+  replyText,
+} from "./cli-chat-kernel.js";
 import { stdout } from "process";
 
 const DIM = "\u001b[2m";
@@ -132,10 +136,97 @@ function hasUnfinishedTask(situation: AgentSituation | null): boolean {
 }
 
 export async function runAgentSession(deps: AgentSessionDependencies): Promise<AgentSessionResult> {
+  // Conversation turns flow through the session kernel (durable trail when
+  // Postgres answers, in-memory otherwise). Control-flow commands — /flyd-fix,
+  // /brief, coding handoffs, resume — are not chat and bypass the kernel.
+  let chat: Awaited<ReturnType<typeof openChatSession>> | null = null;
+  const ensureChat = async () => {
+    if (!chat) {
+      chat = await openChatSession({
+        handleTurn: async (ctx) => {
+          const answer = await runConversationTurn(ctx.message);
+          ctx.emit({ type: "message", text: answer });
+          return { status: "completed", result: {} };
+        },
+      });
+    }
+    return chat;
+  };
+
   const history: ConversationTurn[] = [];
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
   let presentHypothesis: string | null = null;
+
+  /**
+   * One conversation turn, kernel-handler style: refresh state, retrieve
+   * memory, call the model with streaming, and return the full reply.
+   */
+  async function runConversationTurn(message: string): Promise<string> {
+    try {
+      situation = await deps.loadSituation();
+    } catch {
+      // Keep the last known situation when live state cannot be refreshed.
+    }
+    if (deps.applyPresentCorrection) {
+      const { isConfirmedTodoUtterance } = await import("../work/work-hypothesis/confirmed-todos.js");
+      // Confirmed to-do utterances are not Present Model corrections.
+      if (!isConfirmedTodoUtterance(message)) {
+        await deps.applyPresentCorrection(message, situation?.projectRoot).catch(() => {});
+        presentHypothesis =
+          (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
+          presentHypothesis;
+      }
+    }
+    const memory = await deps.retrieveMemory(message);
+    if (deps.loadCrossRepo) {
+      repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
+    }
+
+    // ponytail: spinner while waiting for first token
+    const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinnerIdx = 0;
+    let spinnerActive = true;
+    let spinnerStarted = false;
+    let spinInterval: ReturnType<typeof setInterval> | undefined;
+    const stopSpinner = () => {
+      if (!spinnerActive) return;
+      spinnerActive = false;
+      if (spinInterval) clearInterval(spinInterval);
+      if (spinnerStarted) deps.terminal.write("\b \b");
+      deps.terminal.write("\u001b[?25h");
+    };
+    deps.terminal.write("\u001b[?25l");
+    spinInterval = setInterval(() => {
+      if (!spinnerActive) return;
+      deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : spinner[spinnerIdx]);
+      spinnerStarted = true;
+      spinnerIdx = (spinnerIdx + 1) % spinner.length;
+    }, 100);
+
+    let streamed = false;
+    try {
+      const answer = await deps.respond({
+        sessionId: deps.sessionId,
+        turnNumber: history.length / 2 + 1,
+        message,
+        history: history.slice(-MAX_HISTORY_TURNS),
+        memory,
+        situation,
+        crossRepo: repos,
+        presentHypothesis,
+        onToken: (token) => {
+          if (!streamed) stopSpinner();
+          streamed = true;
+          deps.terminal.write(token);
+        },
+      });
+      if (!streamed && answer) deps.terminal.write(formatChatReply(answer));
+      return answer;
+    } finally {
+      stopSpinner();
+    }
+  }
 
   try {
     situation = await deps.loadSituation().catch(() => null);
@@ -253,71 +344,19 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
 
       deps.terminal.write(`\n${promptLabel("Flyd >")}\n`);
       try {
-        try {
-          situation = await deps.loadSituation();
-        } catch {
-          // Keep the last known situation when live state cannot be refreshed.
+        // The turn runs through the session kernel; the handler does memory,
+        // situation and model streaming. The local history array stays in
+        // lockstep — every push corresponds to a completed submit.
+        const session = await ensureChat();
+        const outputs = await session.kernel.submit(session.sessionKey, {
+          type: "user_message",
+          text: input.message,
+        });
+        const answer = replyText(outputs);
+        if (!answer) {
+          const failed = outputs.find((o) => o.type === "failed");
+          throw new Error(failed && failed.type === "failed" ? failed.error : "Turn produced no reply");
         }
-        if (deps.applyPresentCorrection) {
-          const { isConfirmedTodoUtterance } = await import("../work/work-hypothesis/confirmed-todos.js");
-          // Confirmed to-do utterances are not Present Model corrections.
-          if (!isConfirmedTodoUtterance(input.message)) {
-            await deps.applyPresentCorrection(input.message, situation?.projectRoot).catch(() => {});
-            presentHypothesis =
-              (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
-              presentHypothesis;
-          }
-        }
-        const memory = await deps.retrieveMemory(input.message);
-        if (deps.loadCrossRepo) {
-          repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
-        }
-
-        // ponytail: spinner while waiting for first token
-        const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        let spinnerIdx = 0;
-        let spinnerActive = true;
-        let spinnerStarted = false;
-        let spinInterval: ReturnType<typeof setInterval> | undefined;
-        const stopSpinner = () => {
-          if (!spinnerActive) return;
-          spinnerActive = false;
-          if (spinInterval) clearInterval(spinInterval);
-          if (spinnerStarted) deps.terminal.write("\b \b");
-          deps.terminal.write("\u001b[?25h");
-        };
-        deps.terminal.write("\u001b[?25l");
-        spinInterval = setInterval(() => {
-          if (!spinnerActive) return;
-          deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : spinner[spinnerIdx]);
-          spinnerStarted = true;
-          spinnerIdx = (spinnerIdx + 1) % spinner.length;
-        }, 100);
-
-        let streamed = false;
-        let answer = "";
-        try {
-          answer = await deps.respond({
-            sessionId: deps.sessionId,
-            turnNumber: history.length / 2 + 1,
-            message: input.message,
-            history: history.slice(-MAX_HISTORY_TURNS),
-            memory,
-            situation,
-            crossRepo: repos,
-            presentHypothesis,
-            onToken: (token) => {
-              if (!streamed) {
-                stopSpinner();
-              }
-              streamed = true;
-              deps.terminal.write(token);
-            },
-          });
-        } finally {
-          stopSpinner();
-        }
-        if (!streamed && answer) deps.terminal.write(formatChatReply(answer));
         deps.terminal.write("\n");
         history.push(
           { role: "user", content: input.message },

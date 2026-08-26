@@ -187,7 +187,8 @@ Legacy Rails commands are not part of the active product workflow.
 
 ## Key files
 
-- `docs/product/flyd-work-intelligence-prd.md` — **Active product authority** for the overlay; founder gate, product reset, work loop, and scope boundaries
+- `docs/product/flyd-personal-intelligence-prd.md` — **Active product authority** for Flyd's overall direction (personal intelligence, LEARN consent plane, event runtime, action authority, policy promotion); supersedes the work-intelligence PRD for direction
+- `docs/product/flyd-work-intelligence-prd.md` — product authority for the overlay work loop (ground → diagnose → intervene); superseded for direction by `flyd-personal-intelligence-prd.md`
 - `docs/product/flyd-overlay-prd.md` — overlay product definition (superseded for work-intelligence authority by `flyd-work-intelligence-prd.md`)
 - `docs/product/flyd-evidence-engine-prd.md` — evidence/reach architecture and E0–E5 sequence
 - `docs/product/flyd-evidence-engine-e1.md` — E1 implementation decisions
