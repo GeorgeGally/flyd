@@ -222,7 +222,8 @@ Respond ONLY with the JSON object, no other text.`;
   try {
     return await gateIngestPlan(plan, entries);
   } catch (error) {
-    console.error(`verify: gating failed — writing plan ungated (${error instanceof Error ? error.message : "unknown error"})`);
+    console.error(`verify: gating failed — pages will be written unpromoted until verified (${error instanceof Error ? error.message : "unknown error"})`);
+    plan.unverified = true;
     return plan;
   }
 }
@@ -245,7 +246,8 @@ async function gateIngestPlan(plan: IngestPlan, entries: QueueEntry[]): Promise<
 
   const verification = await verifyIngestPlan(proposals, captures);
   if (!verification.verified) {
-    console.error("verify: verification unavailable — writing plan ungated");
+    console.error("verify: verification unavailable — pages will be written unpromoted until verified");
+    plan.unverified = true;
     return plan;
   }
 
@@ -284,8 +286,16 @@ export async function executeIngestPlan(plan: IngestPlan): Promise<void> {
       tags: p.tags,
       source: "ingest-auto",
       confidence: "high",
+      unverified: plan.unverified === true,
     });
     writeWikiPage(p.path, content);
+  }
+
+  // ponytail: updated pages can't be downgraded in place without rewriting
+  // their frontmatter — they land as-is with a loud warning; add a
+  // parse/serialize downgrade pass if unverified updates become common.
+  if (plan.unverified && plan.updatedPages.length > 0) {
+    console.error("verify: plan is unverified — updated pages are written as-is and NOT downgraded");
   }
 
   for (const u of plan.updatedPages) {

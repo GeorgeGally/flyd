@@ -482,6 +482,7 @@ program
   .action(async (question: string) => {
     const { retrieveRankedBrainEvidence } = await import("./lib/brain-retrieval.js");
     const { formatLibrarianSummary } = await import("./lib/librarian.js");
+    const { evaluateLibrarianEvidence, extractKeywords } = await import("./commands/ask.js");
     const result = await retrieveRankedBrainEvidence(question);
 
     if (!result.entries.length) {
@@ -489,7 +490,8 @@ program
       return;
     }
 
-    console.log(formatLibrarianSummary(result.entries, result.sufficiency));
+    const evaluation = await evaluateLibrarianEvidence(result.entries, extractKeywords(question), question);
+    console.log(formatLibrarianSummary(evaluation.scored, evaluation.sufficiency));
   });
 
 program

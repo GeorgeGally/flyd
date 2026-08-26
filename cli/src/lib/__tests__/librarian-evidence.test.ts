@@ -163,6 +163,32 @@ describe("applyVerification blend", () => {
     expect(blended[0].verifierReason).toBe("Directly describes the mechanism.");
   });
 
+  it("verified conflicts penalize epistemic confidence with the staler side hit harder", () => {
+    const fresher = makeScored({
+      path: "wiki/skills/swift.md",
+      body: "Swift is my main language now.",
+      staleness: { daysSince: 5, stale: false, veryStale: false, lastUpdated: "2026-08-21", message: "" },
+    });
+    const staler = makeScored({
+      path: "wiki/skills/ruby.md",
+      body: "Ruby is my main language.",
+      staleness: { daysSince: 300, stale: true, veryStale: true, lastUpdated: "2025-10-30", message: "[stale]" },
+    });
+    const blended = applyVerification([fresher, staler], makeVerification([
+      { path: fresher.path, relevant: true },
+      { path: staler.path, relevant: true },
+    ], [
+      { a: fresher.path, b: staler.path, reason: "disagree on primary language" },
+    ]));
+
+    const freshEntry = blended.find((e) => e.path === fresher.path)!;
+    const staleEntry = blended.find((e) => e.path === staler.path)!;
+    expect(freshEntry.confidenceProfile.epistemicConfidence).toBeGreaterThan(staleEntry.confidenceProfile.epistemicConfidence);
+    expect(freshEntry.librarianScore).toBeGreaterThan(staleEntry.librarianScore);
+    expect(freshEntry.confidenceProfile.epistemicConfidence).toBeLessThan(0.9);
+    expect(staleEntry.confidenceProfile.epistemicConfidence).toBeLessThan(freshEntry.confidenceProfile.epistemicConfidence);
+  });
+
   it("returns entries unchanged when verification did not verify", () => {
     const scored = [makeScored()];
     const result: VerificationResult = {

@@ -139,9 +139,12 @@ function weightedScore(
 
 /**
  * Blend generative-verifier verdicts into heuristic scores. Only the
- * keyword-density term (0.25 weight) is replaced — freshness, epistemic
- * confidence, affinity and association stay formula-based. Entries without a
- * verdict keep their pure heuristic score.
+ * keyword-density term (0.25 weight) is replaced — affinity and association
+ * stay formula-based. Verified conflicts penalize epistemicConfidence (per
+ * the documented formula: authority + corroboration − contradiction); within
+ * a conflicting pair the staler side takes the heavier penalty, so the more
+ * recent memory keeps more weight. Entries without a verdict keep their pure
+ * heuristic score.
  */
 export function applyVerification(
   scored: ScoredEvidence[],
@@ -150,14 +153,22 @@ export function applyVerification(
   if (!verification.verified) return scored;
 
   const conflictsByPath = new Map<string, number>();
+  const penaltyByPath = new Map<string, number>();
+  const freshnessByPath = new Map(scored.map((e) => [e.path, e.confidenceProfile.freshness]));
   for (const conflict of verification.conflicts) {
     conflictsByPath.set(conflict.a, (conflictsByPath.get(conflict.a) ?? 0) + 1);
     conflictsByPath.set(conflict.b, (conflictsByPath.get(conflict.b) ?? 0) + 1);
+    const fa = freshnessByPath.get(conflict.a) ?? 0.5;
+    const fb = freshnessByPath.get(conflict.b) ?? 0.5;
+    const [stalerSide, fresherSide] = fa <= fb ? [conflict.a, conflict.b] : [conflict.b, conflict.a];
+    penaltyByPath.set(stalerSide, (penaltyByPath.get(stalerSide) ?? 0) + 0.15);
+    penaltyByPath.set(fresherSide, (penaltyByPath.get(fresherSide) ?? 0) + 0.075);
   }
 
   return scored.map((entry) => {
     const verdict = verification.verdicts.get(entry.path);
     const conflictCount = entry.contradictionCount + (conflictsByPath.get(entry.path) ?? 0);
+    const penalty = Math.min(0.3, penaltyByPath.get(entry.path) ?? 0);
 
     if (!verdict) {
       return conflictCount === entry.contradictionCount
@@ -167,8 +178,9 @@ export function applyVerification(
 
     const relevanceTerm = verdict.relevant ? RELEVANT_TERM : IRRELEVANT_TERM;
     const p = entry.confidenceProfile;
+    const epistemicConfidence = Math.max(0.1, p.epistemicConfidence - penalty);
     const librarianScore = weightedScore(
-      p.epistemicConfidence,
+      epistemicConfidence,
       p.freshness,
       relevanceTerm,
       p.interestAffinity,
@@ -181,6 +193,7 @@ export function applyVerification(
       verifiedRelevance: verdict.relevant,
       verifierReason: verdict.reason,
       contradictionCount: conflictCount,
+      confidenceProfile: penalty > 0 ? { ...p, epistemicConfidence } : p,
     };
   });
 }

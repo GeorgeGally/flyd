@@ -285,18 +285,22 @@ export async function verifyIngestPlan(
 
   // Borderline pages get two more votes; promotion requires a strict
   // majority-of-3 for "justified". Anything else (invented, or still
-  // borderline/unresolved) does not reach permanent memory.
+  // borderline/unresolved) does not reach permanent memory. Each vote uses a
+  // different framing so a systematic blind spot in one phrasing is less
+  // likely to sweep all three.
+  // ponytail: same model, different prompts — true independence needs a
+  // second model in the vote; add if correlated verdicts show up in practice.
   const borderlinePaths = [...pages.values()].filter((v) => v.verdict === "borderline").map((v) => v.path);
+  const REVOTE_FRAMINGS = [
+    "You are a skeptical auditor. Assume the page invents facts unless every claim visibly traces to a capture. You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
+    "You are an honest but generous reviewer who wants good knowledge kept. Still, only say it is supported if the captures genuinely back it. You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
+  ];
   for (const path of borderlinePaths) {
     const proposal = proposals.find((p) => p.path === path);
     if (!proposal) continue;
     const votes: PageVerdictValue[] = ["borderline"];
-    for (let i = 0; i < 2; i++) {
-      const extra = await judgePages(
-        "You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
-        [proposal],
-        captures,
-      );
+    for (const framing of REVOTE_FRAMINGS) {
+      const extra = await judgePages(framing, [proposal], captures);
       const revote = extra.get(path)?.verdict;
       if (revote) votes.push(revote);
     }

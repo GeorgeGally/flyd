@@ -94,13 +94,15 @@ export function createTopicPage(opts: {
   tags: string[];
   source: string;
   confidence: string;
+  unverified?: boolean;
 }): string {
   const ts = new Date().toISOString().split("T")[0];
   return serialize(
     {
       type: "topic",
       source: opts.source,
-      confidence: opts.confidence,
+      confidence: opts.unverified ? "low" : opts.confidence,
+      ...(opts.unverified ? { promoted: false } : {}),
       tags: opts.tags,
       aliases: [opts.title.toLowerCase()],
       created: ts,
@@ -188,6 +190,8 @@ export interface IngestPlan {
   contradictions: Array<{ a: string; b: string; claim: string }>;
   crossLinks: Array<{ from: string; to: string; type: string }>;
   skippedCaptures: number;
+  /** Set when the verify-before-promote gate could not run — pages land unpromoted until a later check confirms them. */
+  unverified?: boolean;
 }
 
 interface IngestState {
