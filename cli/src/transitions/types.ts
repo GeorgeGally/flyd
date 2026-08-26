@@ -36,6 +36,8 @@ export interface TransitionNextStateInput {
   invocationId: string;
   origin: TransitionOrigin;
   signal: TransitionSignal;
+  /** Owning surface; routes the event to that source contract. Defaults to overlay. */
+  surface?: TransitionSurface;
   /** Raw user correction words; sanitized only at directive-extraction time. */
   correction?: string;
   /** True when the outcome arrived after its action context expired. */

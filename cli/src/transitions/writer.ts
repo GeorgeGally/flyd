@@ -151,10 +151,10 @@ export function recordNextState(input: TransitionNextStateInput): TransitionWrit
 
   const deterministic = DETERMINISTIC_SIGNALS.has(input.signal);
   const sourceId =
-    input.origin === "verifier" ? "transition.harness" : "transition.overlay";
+    input.origin === "verifier"
+      ? "transition.harness"
+      : SURFACE_SOURCE_IDS[input.surface ?? "overlay"];
   const envelope: ContextEnvelope = {
-    // ponytail: verifier outcomes hard-route to transition.harness; per-surface
-    // routing lands in U2/U4 call sites when they pass origin explicitly.
     pathKind: (input.origin === "verifier" ? "sensor" : "interface") as EnvelopePathKind,
     kind: (deterministic ? "verified_outcome" : "observation") as EpistemicKind,
     sourceId,

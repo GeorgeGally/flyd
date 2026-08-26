@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
 import { resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import { agentLoop, type AgentTool, type ToolHandler } from "../lib/llm.js";
@@ -29,6 +30,7 @@ import {
 } from "./speaking-preference.js";
 import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
 import { specialistsForMessage } from "./capability-resolver.js";
+import { recordAction, recordNextState } from "../transitions/writer.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -403,6 +405,11 @@ export async function respondToConversation(
   input: ConversationInput & { onToken(token: string): void },
   dependencies: ConversationResponderDependencies = {},
 ): Promise<string> {
+  const txSession = input.sessionId ?? randomUUID();
+  const txInvocation = randomUUID();
+  const captureTransition = (write: () => void): void => {
+    try { write(); } catch (error) { console.warn("[transitions] capture failed:", error instanceof Error ? error.message : error); }
+  };
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
   const record = async (
     connection: Pick<ModelConnection, "model" | "providerIdentity">,
@@ -411,6 +418,11 @@ export async function respondToConversation(
     status: TurnReceipt["status"],
     error?: string,
   ): Promise<void> => {
+    captureTransition(() => {
+      const failed = status === "failed";
+      recordAction({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", intent: input.message.trim().slice(0, 200), resolutionMode: connection.providerIdentity, model: connection.model });
+      recordNextState({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", origin: failed ? "tool" : "user", signal: failed ? "error" : "succeeded" });
+    });
     if (!input.sessionId || input.turnNumber === undefined) return;
     await persist({
       sessionId: input.sessionId,
