@@ -164,12 +164,11 @@ ${evidence}${librarianSection}
 ${question}`;
 }
 
-function toVerifierEntry(e: EvidenceEntry): VerifierEntry {
+function toVerifierEntry(e: ScoredEvidence): VerifierEntry {
   return {
     path: e.path,
     body: e.body,
-    freshness: undefined,
-    epistemicConfidence: Number(e.metadata.confidence ?? (e.source === "wiki" ? 0.9 : 0.5)),
+    epistemicConfidence: e.confidenceProfile.epistemicConfidence,
     stalenessMessage: e.staleness?.message ?? null,
   };
 }
@@ -309,11 +308,16 @@ If no page is relevant, return [].`;
     scored = evaluation.scored;
     librarianSufficiency = evaluation.sufficiency;
     // buildPrompt aligns score notes positionally (scored[i]) — keep both
-    // arrays in the same (blended-score) order.
+    // arrays in the same (blended-score) order. Index tracking keeps
+    // same-path entries from collapsing into duplicates.
     const reordered: RetrievedEntry[] = [];
+    const used = new Set<number>();
     for (const s of scored) {
-      const match = entries.find((e) => e.path === s.path);
-      if (match) reordered.push(match);
+      const idx = entries.findIndex((e, i) => !used.has(i) && e.path === s.path);
+      if (idx >= 0) {
+        used.add(idx);
+        reordered.push(entries[idx]);
+      }
     }
     if (reordered.length === entries.length) {
       entries.length = 0;

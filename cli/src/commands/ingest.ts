@@ -5,6 +5,7 @@ import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { search as qmdSearch, updateRaw, embedRaw } from "../lib/qmd.js";
 import { runBatchIngest, executeIngestPlan, populateQueueFromRaw, dequeueSlice, runBatchIngestSlice, getQueueSize, clearQueue } from "../lib/ingest.js";
+import { verifyIngestPlan } from "../lib/librarian-verifier.js";
 
 export async function runIngest(source: string, opts: { topic?: boolean; write?: boolean; model?: string; limit?: number; all?: boolean } = {}): Promise<void> {
   const m = opts.model ?? defaultModel();
@@ -86,6 +87,16 @@ Respond with the proposed wiki page content, starting with a title (# Title) and
 
     if (opts.write) {
       const slug = source.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
+      const path = `topics/${slug}.md`;
+      const verification = await verifyIngestPlan(
+        [{ path, body: result }],
+        captures.map((c) => c.replace(/^\[[^\]]+\]\n/, "")),
+      );
+      const verdict = verification.pages.get(path)?.verdict;
+      if (verification.verified && verdict === "invented") {
+        console.log(`verify: page not written — ${verification.pages.get(path)?.reason ?? "invented content"}`);
+        return;
+      }
       const { writeWikiPage, createTopicPage, appendLog, generateIndex } = await import("../lib/wiki.js");
       const content = createTopicPage({
         slug,
@@ -95,10 +106,10 @@ Respond with the proposed wiki page content, starting with a title (# Title) and
         source: "ingest-manual",
         confidence: "medium",
       });
-      writeWikiPage(`topics/${slug}.md`, content);
-      appendLog({ type: "ingest", title: `manual: ${source}`, affected: [`topics/${slug}.md`] });
+      writeWikiPage(path, content);
+      appendLog({ type: "ingest", title: `manual: ${source}`, affected: [path] });
       await generateIndex();
-      console.log(`filed to wiki/topics/${slug}.md`);
+      console.log(`filed to wiki/${path}`);
     } else {
       console.log("\nDRY RUN — proposed page:\n");
       console.log(result);

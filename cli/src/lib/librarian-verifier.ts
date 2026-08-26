@@ -94,7 +94,7 @@ function parseVerdict(raw: string, paths: Set<string>): VerificationResult | nul
   }
   if (verdicts.size === 0) return null;
 
-  let sufficiency: SufficiencyAssessment = { verdict: "partial", reason: "", coverage: 0 };
+  let sufficiency: SufficiencyAssessment = { verdict: "partial", reason: "Verifier did not return a usable sufficiency verdict.", coverage: 0 };
   if (
     obj.sufficiency &&
     typeof obj.sufficiency.verdict === "string" &&
@@ -256,21 +256,28 @@ export async function verifyIngestPlan(
   );
   if (pages.size === 0) return { verified: false, pages };
 
-  const borderline = [...pages.values()].filter((v) => v.verdict === "borderline").map((v) => v.path);
-  for (const path of borderline) {
+  // Borderline pages get two more votes; promotion requires a strict
+  // majority-of-3 for "justified". Anything else (invented, or still
+  // borderline/unresolved) does not reach permanent memory.
+  const borderlinePaths = [...pages.values()].filter((v) => v.verdict === "borderline").map((v) => v.path);
+  for (const path of borderlinePaths) {
     const proposal = proposals.find((p) => p.path === path)!;
-    const extra = await judgePages(
-      "You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
-      [proposal],
-      captures,
-    );
-    const revote = extra.get(path);
-    if (!revote) continue;
-    const votes = ["borderline", revote.verdict];
-    const keepVotes = votes.filter((v) => v !== "invented").length;
+    const votes: PageVerdictValue[] = ["borderline"];
+    for (let i = 0; i < 2; i++) {
+      const extra = await judgePages(
+        "You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
+        [proposal],
+        captures,
+      );
+      const revote = extra.get(path)?.verdict;
+      if (revote) votes.push(revote);
+    }
+    const countOf = (v: PageVerdictValue) => votes.filter((x) => x === v).length;
+    const finalVerdict: PageVerdictValue = countOf("justified") >= 2 ? "justified" : "invented";
     pages.set(path, {
-      ...revote,
-      verdict: keepVotes >= 2 ? "justified" : "invented",
+      path,
+      verdict: finalVerdict,
+      reason: `majority of ${votes.length} votes: ${votes.join(", ")}`,
     });
   }
 

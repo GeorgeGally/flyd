@@ -222,6 +222,52 @@ describe("verifyIngestPlan", () => {
     expect(result.pages.get("projects/borderline.md")?.verdict).toBe("justified");
   });
 
+  it("drops a borderline page when revotes do not produce a justification majority", async () => {
+    const rules = [
+      {
+        contains: PLAN_MARKER,
+        respond: planVerdictJson([
+          { path: "projects/borderline.md", verdict: "borderline", reason: "Unclear if supported." },
+        ]),
+      },
+      {
+        contains: SINGLE_PAGE_MARKER,
+        respond: planVerdictJson([{ path: "projects/borderline.md", verdict: "invented", reason: "Not supported." }]),
+      },
+    ];
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ rules });
+
+    const result = await verifyIngestPlan(
+      [{ path: "projects/borderline.md", body: "# Borderline" }],
+      ["capture"],
+    );
+
+    expect(result.pages.get("projects/borderline.md")?.verdict).toBe("invented");
+  });
+
+  it("drops a page that stays borderline through all three votes", async () => {
+    const rules = [
+      {
+        contains: PLAN_MARKER,
+        respond: planVerdictJson([
+          { path: "projects/borderline.md", verdict: "borderline", reason: "Unclear." },
+        ]),
+      },
+      {
+        contains: SINGLE_PAGE_MARKER,
+        respond: planVerdictJson([{ path: "projects/borderline.md", verdict: "borderline", reason: "Still unclear." }]),
+      },
+    ];
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ rules });
+
+    const result = await verifyIngestPlan(
+      [{ path: "projects/borderline.md", body: "# Borderline" }],
+      ["capture"],
+    );
+
+    expect(result.pages.get("projects/borderline.md")?.verdict).toBe("invented");
+  });
+
   it("fails soft when the model is unavailable", async () => {
     process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ rules: [] });
 

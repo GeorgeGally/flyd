@@ -205,17 +205,24 @@ Route content to the folder that best matches the captures:
 
 Respond ONLY with the JSON object, no other text.`;
 
+  let plan: IngestPlan;
   try {
     const response = await query(prompt, defaultModel(), system);
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 
-    const plan: IngestPlan = JSON.parse(jsonMatch[0]);
+    plan = JSON.parse(jsonMatch[0]);
     plan.skippedCaptures = entries.length;
-
-    return await gateIngestPlan(plan, entries);
   } catch {
     return null;
+  }
+
+  // Gating sits outside the parse try/catch: an unexpected gating throw must
+  // fall open to the verified plan, not discard the whole chunk.
+  try {
+    return await gateIngestPlan(plan, entries);
+  } catch {
+    return plan;
   }
 }
 
