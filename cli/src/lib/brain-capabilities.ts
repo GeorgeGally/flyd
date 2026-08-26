@@ -45,6 +45,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "jobs", integration: "runtime", description: "Run bounded overnight work jobs with artifact-first delivery.", mutatesArchive: true },
   { id: "daemon", integration: "runtime", description: "Continuously process new captures and refresh derived memory.", mutatesArchive: true },
   { id: "tasks", integration: "interactive", description: "Manage work tasks from the cross-repository work index.", mutatesArchive: true },
+  { id: "transitions", integration: "maintenance", description: "Inspect interaction transitions, judgments, and behavioural directives; export or erase governed transition sources.", mutatesArchive: false },
 ] satisfies BrainCapability[]).sort((a, b) => a.id.localeCompare(b.id));
 
 export function brainCapability(id: string): BrainCapability | undefined {
