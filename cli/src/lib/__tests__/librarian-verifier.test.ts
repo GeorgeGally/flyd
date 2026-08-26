@@ -120,8 +120,8 @@ describe("verifyEvidence", () => {
       rules: [{
         contains: PROMPT_MARKER,
         respond: JSON.stringify({
-          reasoning: "All ten entries are filler.",
-          entries: Array.from({ length: MAX_VERIFY_ENTRIES }, (_, i) => ({
+          reasoning: "All filler entries are equally relevant.",
+          entries: Array.from({ length: MAX_VERIFY_ENTRIES + 5 }, (_, i) => ({
             path: `wiki/entries/e${i}.md`,
             relevant: true,
             reason: "filler",

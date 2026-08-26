@@ -88,13 +88,12 @@ export function scoreEvidence(
   const retrievalUtility = 0.5;
   const associationStrength = 0.0;
 
-  const librarianScore = Math.min(
-    1,
-    epistemicConfidence * 0.25 +
-      freshness * 0.25 +
-      keywordDensity * 0.25 +
-      interestAffinity * 0.15 +
-      associationStrength * 0.10,
+  const librarianScore = weightedScore(
+    epistemicConfidence,
+    freshness,
+    keywordDensity,
+    interestAffinity,
+    associationStrength,
   );
 
   return {
@@ -117,6 +116,26 @@ export function scoreEvidence(
 
 const RELEVANT_TERM = 1;
 const IRRELEVANT_TERM = 0.15;
+
+// Single source of truth for the composite weights. relevanceTerm is
+// keywordDensity in the heuristic path, the generative verdict term when a
+// verifier verdict exists.
+function weightedScore(
+  epistemicConfidence: number,
+  freshness: number,
+  relevanceTerm: number,
+  interestAffinity: number,
+  associationStrength: number,
+): number {
+  return Math.min(
+    1,
+    epistemicConfidence * 0.25 +
+      freshness * 0.25 +
+      relevanceTerm * 0.25 +
+      interestAffinity * 0.15 +
+      associationStrength * 0.10,
+  );
+}
 
 /**
  * Blend generative-verifier verdicts into heuristic scores. Only the
@@ -148,13 +167,12 @@ export function applyVerification(
 
     const relevanceTerm = verdict.relevant ? RELEVANT_TERM : IRRELEVANT_TERM;
     const p = entry.confidenceProfile;
-    const librarianScore = Math.min(
-      1,
-      p.epistemicConfidence * 0.25 +
-        p.freshness * 0.25 +
-        relevanceTerm * 0.25 +
-        p.interestAffinity * 0.15 +
-        p.associationStrength * 0.10,
+    const librarianScore = weightedScore(
+      p.epistemicConfidence,
+      p.freshness,
+      relevanceTerm,
+      p.interestAffinity,
+      p.associationStrength,
     );
 
     return {
@@ -274,11 +292,11 @@ export function formatLibrarianSummary(
     const src = e.source === "wiki" ? "W" : "R";
     const contra = e.contradictionCount > 0 ? ` ⚠${e.contradictionCount}` : "";
     const p = e.confidenceProfile;
-    const verifier = e.verifierReason
-      ? `${e.verifiedRelevance ? "✓" : "✗"} ${e.verifierReason}`
+    const cleanReason = e.verifierReason
+      ? `${e.verifiedRelevance ? "✓" : "✗"} ${e.verifierReason.replace(/[|\n\r]+/g, " ").slice(0, 120)}`
       : "—";
     lines.push(
-      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} | ${verifier} |`,
+      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} | ${cleanReason} |`,
     );
   }
 

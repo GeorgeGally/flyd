@@ -58,7 +58,7 @@ Five independent dimensions on `MemoryMatch.confidenceProfile`:
 | `retrievalUtility` | Has this helped in similar contexts? | 0.5 neutral — deferred until RetrievalTrace. |
 | `associationStrength` | How strong are graph edges? | Max graph edge confidence, 0 if no edges. |
 
-Composite `librarianScore` for ranking: `epistemic * 0.25 + freshness * 0.25 + keywordDensity * 0.25 + interestAffinity * 0.15 + associationStrength * 0.10`
+Composite `librarianScore` for ranking: `epistemic * 0.25 + freshness * 0.25 + relevanceTerm * 0.25 + interestAffinity * 0.15 + associationStrength * 0.10` (shared helper: `weightedScore()` in librarian.ts). `relevanceTerm` is keywordDensity heuristically; when the generative verifier runs (`flyd ask --librarian`, librarian-verifier.ts), a relevant verdict sets it to 1 and irrelevant to 0.15.
 
 ## Runtime layout (`~/.flyd/`)
 

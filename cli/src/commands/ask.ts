@@ -168,6 +168,7 @@ function toVerifierEntry(e: ScoredEvidence): VerifierEntry {
   return {
     path: e.path,
     body: e.body,
+    freshness: e.confidenceProfile.freshness,
     epistemicConfidence: e.confidenceProfile.epistemicConfidence,
     stalenessMessage: e.staleness?.message ?? null,
   };

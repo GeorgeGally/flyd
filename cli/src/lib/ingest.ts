@@ -221,7 +221,8 @@ Respond ONLY with the JSON object, no other text.`;
   // fall open to the verified plan, not discard the whole chunk.
   try {
     return await gateIngestPlan(plan, entries);
-  } catch {
+  } catch (error) {
+    console.error(`verify: gating failed — writing plan ungated (${error instanceof Error ? error.message : "unknown error"})`);
     return plan;
   }
 }
@@ -243,7 +244,10 @@ async function gateIngestPlan(plan: IngestPlan, entries: QueueEntry[]): Promise<
   if (captures.length === 0) return plan;
 
   const verification = await verifyIngestPlan(proposals, captures);
-  if (!verification.verified) return plan;
+  if (!verification.verified) {
+    console.error("verify: verification unavailable — writing plan ungated");
+    return plan;
+  }
 
   const isInvented = (path: string): boolean =>
     verification.pages.get(path)?.verdict === "invented";
@@ -261,6 +265,10 @@ async function gateIngestPlan(plan: IngestPlan, entries: QueueEntry[]): Promise<
       console.log(`  verify: dropped update to ${u.path} — ${verification.pages.get(u.path)?.reason ?? "invented content"}`);
     }
   }
+
+  const surviving = new Set([...keptNew, ...keptUpdated].map((p) => p.path));
+  plan.contradictions = plan.contradictions.filter((c) => surviving.has(c.a) && surviving.has(c.b));
+  plan.crossLinks = plan.crossLinks.filter((l) => surviving.has(l.from) && surviving.has(l.to));
 
   plan.newPages = keptNew;
   plan.updatedPages = keptUpdated;
