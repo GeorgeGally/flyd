@@ -143,3 +143,136 @@ export async function verifyEvidence(
   const paths = new Set(capped.map((e) => e.path));
   return parseVerdict(response, paths) ?? fallback;
 }
+
+export interface IngestPageProposal {
+  path: string;
+  title?: string;
+  body: string;
+}
+
+export type PageVerdictValue = "justified" | "invented" | "borderline";
+
+export interface PageVerdict {
+  path: string;
+  verdict: PageVerdictValue;
+  reason: string;
+}
+
+export interface IngestVerificationResult {
+  verified: boolean;
+  pages: Map<string, PageVerdict>;
+}
+
+const PAGE_VERDICTS = new Set(["justified", "invented", "borderline"]);
+
+function formatCapture(body: string, i: number): string {
+  return `[capture ${i + 1}]\n${body.trim().slice(0, MAX_BODY_CHARS)}`;
+}
+
+function formatProposal(page: IngestPageProposal): string {
+  const title = page.title ? ` (title: ${page.title})` : "";
+  return `[${page.path}]${title}\n${page.body.trim().slice(0, MAX_BODY_CHARS * 2)}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function judgePages(
+  systemMarkerPrompt: string,
+  proposals: IngestPageProposal[],
+  captures: string[],
+): Promise<Map<string, PageVerdict>> {
+  const pages = new Map<string, PageVerdict>();
+  if (proposals.length === 0) return pages;
+
+  const prompt = `${systemMarkerPrompt}
+
+## Source captures (the only permitted factual basis)
+${captures.map(formatCapture).join("\n\n")}
+
+## Proposed wiki changes
+${proposals.map(formatProposal).join("\n\n")}
+
+For each proposed page, judge whether every factual claim in it traces to the source captures above:
+- "justified" — all claims come from the captures.
+- "invented" — contains facts no capture supports.
+- "borderline" — you cannot tell.
+
+Think step by step, then respond with ONLY this JSON:
+{
+  "reasoning": "your step-by-step judgment",
+  "pages": [{ "path": "exact path as given", "verdict": "justified|invented|borderline", "reason": "one sentence" }]
+}`;
+
+  let response: string;
+  try {
+    response = await query(prompt, defaultModel(), SYSTEM, undefined, undefined, { json: true });
+  } catch {
+    return pages;
+  }
+
+  const match = response.match(/\{[\s\S]*\}/);
+  if (!match) return pages;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return pages;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const obj = parsed as any;
+  if (!Array.isArray(obj.pages)) return pages;
+
+  for (const p of obj.pages) {
+    if (!p || typeof p.path !== "string") continue;
+    const known = proposals.some((prop) => prop.path === p.path);
+    if (!known || !PAGE_VERDICTS.has(p.verdict)) continue;
+    pages.set(p.path, {
+      path: p.path,
+      verdict: p.verdict,
+      reason: typeof p.reason === "string" ? p.reason : "",
+    });
+  }
+  return pages;
+}
+
+/**
+ * Verify-before-promote gate for ingest plans: every proposed page is judged
+ * against the captures it was generated from. Borderline pages get two extra
+ * votes and go with the majority (test-time compute spent only where the
+ * first judgment was uncertain). Fail-soft: an unusable model response yields
+ * verified:false and callers fall open.
+ */
+export async function verifyIngestPlan(
+  proposals: IngestPageProposal[],
+  captures: string[],
+): Promise<IngestVerificationResult> {
+  if (proposals.length === 0 || captures.length === 0) {
+    return { verified: false, pages: new Map() };
+  }
+
+  const pages = await judgePages(
+    `You are verifying ${proposals.length} proposed wiki changes before they are written to permanent memory. Only knowledge present in the source captures may be promoted.`,
+    proposals,
+    captures,
+  );
+  if (pages.size === 0) return { verified: false, pages };
+
+  const borderline = [...pages.values()].filter((v) => v.verdict === "borderline").map((v) => v.path);
+  for (const path of borderline) {
+    const proposal = proposals.find((p) => p.path === path)!;
+    const extra = await judgePages(
+      "You are judging a single proposed wiki page against its source captures before it is written to permanent memory.",
+      [proposal],
+      captures,
+    );
+    const revote = extra.get(path);
+    if (!revote) continue;
+    const votes = ["borderline", revote.verdict];
+    const keepVotes = votes.filter((v) => v !== "invented").length;
+    pages.set(path, {
+      ...revote,
+      verdict: keepVotes >= 2 ? "justified" : "invented",
+    });
+  }
+
+  return { verified: true, pages };
+}

@@ -13,6 +13,7 @@ import {
   generateIndex,
   type IngestPlan,
 } from "./wiki.js";
+import { verifyIngestPlan } from "./librarian-verifier.js";
 
 interface QueueEntry {
   id: string;
@@ -212,10 +213,51 @@ Respond ONLY with the JSON object, no other text.`;
     const plan: IngestPlan = JSON.parse(jsonMatch[0]);
     plan.skippedCaptures = entries.length;
 
-    return plan;
+    return await gateIngestPlan(plan, entries);
   } catch {
     return null;
   }
+}
+
+/**
+ * Verify-before-promote: nothing reaches permanent wiki memory without a
+ * generative check that its claims trace to the source captures. Invented
+ * pages are dropped; verification failure falls open rather than blocking
+ * the batch.
+ */
+async function gateIngestPlan(plan: IngestPlan, entries: QueueEntry[]): Promise<IngestPlan> {
+  const proposals = [
+    ...plan.newPages.map((p) => ({ path: p.path, title: p.title, body: p.body })),
+    ...plan.updatedPages.map((u) => ({ path: u.path, body: u.body })),
+  ];
+  if (proposals.length === 0) return plan;
+
+  const captures = entries.map((e) => e.body ?? "").filter((b) => b.length > 0);
+  if (captures.length === 0) return plan;
+
+  const verification = await verifyIngestPlan(proposals, captures);
+  if (!verification.verified) return plan;
+
+  const isInvented = (path: string): boolean =>
+    verification.pages.get(path)?.verdict === "invented";
+
+  const keptNew = plan.newPages.filter((p) => !isInvented(p.path));
+  const keptUpdated = plan.updatedPages.filter((u) => !isInvented(u.path));
+
+  for (const p of plan.newPages) {
+    if (isInvented(p.path)) {
+      console.log(`  verify: dropped new page ${p.path} — ${verification.pages.get(p.path)?.reason ?? "invented content"}`);
+    }
+  }
+  for (const u of plan.updatedPages) {
+    if (isInvented(u.path)) {
+      console.log(`  verify: dropped update to ${u.path} — ${verification.pages.get(u.path)?.reason ?? "invented content"}`);
+    }
+  }
+
+  plan.newPages = keptNew;
+  plan.updatedPages = keptUpdated;
+  return plan;
 }
 
 export async function executeIngestPlan(plan: IngestPlan): Promise<void> {

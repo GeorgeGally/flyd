@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { verifyEvidence, MAX_VERIFY_ENTRIES, type VerifierEntry } from "../librarian-verifier.js";
+import {
+  verifyEvidence,
+  verifyIngestPlan,
+  MAX_VERIFY_ENTRIES,
+  type VerifierEntry,
+} from "../librarian-verifier.js";
 
 function entry(overrides: Partial<VerifierEntry> = {}): VerifierEntry {
   return {
@@ -148,5 +153,84 @@ describe("verifyEvidence", () => {
     const result = await verifyEvidence([entry()], "How does Flyd rank memories?");
 
     expect(result.verified).toBe(true);
+  });
+});
+
+const PLAN_MARKER = "proposed wiki changes";
+const SINGLE_PAGE_MARKER = "single proposed wiki page";
+
+function planVerdictJson(
+  entries: Array<{ path: string; verdict: string; reason: string }>,
+): string {
+  return JSON.stringify({ reasoning: "checked each page against captures", pages: entries });
+}
+
+describe("verifyIngestPlan", () => {
+  beforeEach(() => {
+    process.env.FLYD_MODEL_FIXTURE = "";
+  });
+
+  afterEach(() => {
+    delete process.env.FLYD_MODEL_FIXTURE;
+  });
+
+  it("returns per-page verdicts for justified and invented proposals", async () => {
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({
+      rules: [{
+        contains: PLAN_MARKER,
+        respond: planVerdictJson([
+          { path: "projects/flyd.md", verdict: "justified", reason: "Every claim traces to the captures." },
+          { path: "topics/invented.md", verdict: "invented", reason: "No capture mentions this topic." },
+        ]),
+      }],
+    });
+
+    const result = await verifyIngestPlan(
+      [
+        { path: "projects/flyd.md", body: "# Flyd\nFlyd uses qmd." },
+        { path: "topics/invented.md", body: "# Invented\nCompletely made up." },
+      ],
+      ["capture about flyd using qmd"],
+    );
+
+    expect(result.verified).toBe(true);
+    expect(result.pages.get("projects/flyd.md")?.verdict).toBe("justified");
+    expect(result.pages.get("topics/invented.md")?.verdict).toBe("invented");
+  });
+
+  it("re-judges borderline pages with two extra votes and keeps on majority keep", async () => {
+    const rules = [
+      {
+        contains: PLAN_MARKER,
+        respond: planVerdictJson([
+          { path: "projects/borderline.md", verdict: "borderline", reason: "Unclear if supported." },
+        ]),
+      },
+      {
+        contains: SINGLE_PAGE_MARKER,
+        respond: planVerdictJson([{ path: "projects/borderline.md", verdict: "justified", reason: "Supported by capture." }]),
+      },
+    ];
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ rules });
+
+    const result = await verifyIngestPlan(
+      [{ path: "projects/borderline.md", body: "# Borderline" }],
+      ["capture"],
+    );
+
+    expect(result.verified).toBe(true);
+    expect(result.pages.get("projects/borderline.md")?.verdict).toBe("justified");
+  });
+
+  it("fails soft when the model is unavailable", async () => {
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ rules: [] });
+
+    const result = await verifyIngestPlan(
+      [{ path: "projects/x.md", body: "# X" }],
+      ["capture"],
+    );
+
+    expect(result.verified).toBe(false);
+    expect(result.pages.size).toBe(0);
   });
 });
