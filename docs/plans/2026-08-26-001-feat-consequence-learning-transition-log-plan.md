@@ -1,7 +1,7 @@
 ---
 title: "feat: Consequence-learning transition log and directive layer"
 type: feat
-status: active
+status: completed
 date: 2026-08-26
 ---
 
