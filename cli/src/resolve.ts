@@ -124,6 +124,61 @@ const MEMORY_RETRIEVAL_TIMEOUT_MS = 1500;
 const MEMORY_EXCERPT_MAX_CHARS = 400;
 const MAX_MEMORIES = 5;
 
+const DIRECTIVE_FETCH_TIMEOUT_MS = 500;
+const MAX_BEHAVIOURAL_DIRECTIVES = 5;
+const BEHAVIOURAL_DIRECTIVE_MAX_CHARS = 200;
+/** Days until a directive's freshness term decays to zero. */
+const DIRECTIVE_FRESHNESS_HALF_LIFE_DAYS = 14;
+
+export interface BehaviouralDirectiveInput {
+  text: string;
+  utility?: number;
+  negatives?: number;
+  corroborations?: number;
+  lastSeenAt?: string;
+}
+
+// Rank is computed from the stored dimensions at read time only — freshness,
+// utility-dominance, and corroboration are never merged into persisted data.
+function directiveRank(directive: BehaviouralDirectiveInput, nowMs: number): number {
+  const seenMs = directive.lastSeenAt ? Date.parse(directive.lastSeenAt) : Number.NaN;
+  const ageDays = Number.isFinite(seenMs) ? Math.max(0, (nowMs - seenMs) / 86_400_000) : 0;
+  const freshness = Math.max(0, 1 - ageDays / DIRECTIVE_FRESHNESS_HALF_LIFE_DAYS);
+  const utility = Math.max(0, directive.utility ?? 0);
+  const negatives = Math.max(0, directive.negatives ?? 0);
+  const utilityDominance = (utility + 1) / (utility + negatives + 2);
+  const corroborationWeight = Math.log2(2 + Math.max(0, directive.corroborations ?? 0));
+  return freshness * utilityDominance * corroborationWeight;
+}
+
+export function formatBehaviouralDirectives(directives: BehaviouralDirectiveInput[]): string | null {
+  const usable = directives.filter((d) => typeof d.text === "string" && d.text.trim().length > 0);
+  if (usable.length === 0) return null;
+
+  const nowMs = Date.now();
+  const ranked = [...usable].sort((a, b) => directiveRank(b, nowMs) - directiveRank(a, nowMs));
+  const lines = ranked
+    .slice(0, MAX_BEHAVIOURAL_DIRECTIVES)
+    .map((d) => `- ${d.text.trim().slice(0, BEHAVIOURAL_DIRECTIVE_MAX_CHARS)}`);
+
+  return `\n<behavioural_directives>\nThe following are learned preferences about how Flyd should behave, derived from your own past corrections. Follow them whenever they apply to this request.\n${lines.join("\n")}\n</behavioural_directives>`;
+}
+
+type DirectivesLoader = () => BehaviouralDirectiveInput[] | Promise<BehaviouralDirectiveInput[]>;
+
+async function defaultLoadActiveDirectives(): Promise<BehaviouralDirectiveInput[]> {
+  const { listDirectives } = await import("./transitions/directives-store.js");
+  return listDirectives({ activeOnly: true });
+}
+
+export async function fetchBehaviouralDirectives(load: DirectivesLoader = defaultLoadActiveDirectives): Promise<BehaviouralDirectiveInput[]> {
+  try {
+    const timeout = new Promise<null>((res) => setTimeout(() => res(null), DIRECTIVE_FETCH_TIMEOUT_MS).unref?.());
+    return (await Promise.race([Promise.resolve(load()), timeout])) ?? [];
+  } catch {
+    return [];
+  }
+}
 function memoryKind(body: string, metadata: Record<string, unknown>): RetrievedClaim["kind"] {
   const type = String(metadata.type ?? "");
   if (type === "preference" || type === "constraint") return type;
@@ -259,7 +314,8 @@ export function buildResolutionPrompt(
   consequence?: ConsequenceAssessment,
   conversationTurns: ConversationTurn[] = [],
   isVoiceConversation = false,
-  needsPersonalContext = true
+  needsPersonalContext = true,
+  behaviouralDirectives: BehaviouralDirectiveInput[] | null = null
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -410,9 +466,11 @@ export function buildResolutionPrompt(
 - Lead with the answer. Omit preambles, repeated framing, and generic reassurance.`
     : "";
 
+  const directivesBlock = formatBehaviouralDirectives(behaviouralDirectives ?? []);
+
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
-The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}
+The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}
 
 ROUTE DECISION:
 - Kind: ${route.kind}
@@ -809,7 +867,7 @@ export async function resolve(
 
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
-  const [worldState, memoryPack, classified] = await Promise.all([
+  const [worldState, memoryPack, classified, behaviouralDirectives] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
     buildMemoryPack(intent, environment, projectRoot),
     classifyRoute(
@@ -818,6 +876,7 @@ export async function resolve(
       modality,
       router ?? null
     ),
+    fetchBehaviouralDirectives(),
   ]);
 
   const regexRoute = routeIntent(intent, environment, modality);
@@ -862,7 +921,8 @@ export async function resolve(
     consequence,
     conversationTurns,
     modality === "voice",
-    needsPersonalContext
+    needsPersonalContext,
+    behaviouralDirectives
   );
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";

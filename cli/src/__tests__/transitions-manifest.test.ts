@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { StoredEvent } from "../intelligence/event-store.js";
+import { configureDirectivesStore, listDirectives } from "../transitions/directives-store.js";
+import { formatBehaviouralDirectives } from "../resolve.js";
 
 const TEST_PORT = 14817;
 const TOKEN = "test-transition-token";
@@ -225,5 +227,61 @@ describe("transitions manifest capture", () => {
 
     const after = transitionEvents(await readTransitionEvents()).length;
     expect(after).toBe(before);
+  });
+});
+
+describe("behavioural directive injection into resolution", () => {
+  let dirRoot = "";
+
+  const record = (overrides: Record<string, unknown> & { text: string }) => ({
+    directiveId: `dir-${Math.random().toString(36).slice(2)}`,
+    dedupeKey: overrides.text.toLowerCase(),
+    sourceSeq: 1,
+    sourceCorrelationId: "inv-x",
+    createdAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    occurrences: 1,
+    corroborations: 0,
+    utility: 0,
+    negatives: 0,
+    active: true,
+    ...overrides,
+  });
+
+  beforeAll(() => {
+    dirRoot = mkdtempSync(join(tmpdir(), "flyd-directives-inject-"));
+    configureDirectivesStore(dirRoot);
+  });
+
+  afterAll(() => {
+    configureDirectivesStore(undefined);
+    rmSync(dirRoot, { recursive: true, force: true });
+  });
+
+  it("a suppressed directive never renders even when recently created; actives render ranked inside the boundary", () => {
+    writeFileSync(join(dirRoot, "directives.json"), JSON.stringify([
+      record({ text: "Keep commit messages short.", utility: 4, negatives: 0, corroborations: 3 }),
+      record({
+        text: "Never use emoji in replies.",
+        active: false,
+        inactiveReason: "suppressed:negative_outcomes",
+        createdAt: new Date().toISOString(),
+      }),
+      record({ text: "Always inspect the repo before proposing a fix." }),
+    ]), { encoding: "utf-8", mode: 0o600 });
+
+    const active = listDirectives({ activeOnly: true });
+    expect(active.map((d) => d.text)).toEqual([
+      "Keep commit messages short.",
+      "Always inspect the repo before proposing a fix.",
+    ]);
+
+    const block = formatBehaviouralDirectives(active)!;
+    expect(block).toContain("<behavioural_directives>");
+    expect(block).toContain("</behavioural_directives>");
+    expect(block.indexOf("Keep commit messages short.")).toBeLessThan(block.indexOf("Always inspect the repo"));
+    expect(block).not.toContain("Never use emoji in replies.");
+    expect(block).not.toContain("suppressed");
+    expect(block).not.toMatch(/dir-[a-z0-9]/);
   });
 });

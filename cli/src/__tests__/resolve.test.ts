@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResolutionPrompt, enforceRoutePlacement, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext } from "../resolve.js";
+import { buildResolutionPrompt, enforceRoutePlacement, fetchBehaviouralDirectives, formatBehaviouralDirectives, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext, type BehaviouralDirectiveInput } from "../resolve.js";
 import { resolveRepositoryFromPath } from "../work-intelligence/current-work.js";
 import { isDeterministicDictation } from "../router.js";
 
@@ -394,6 +394,79 @@ describe("buildResolutionPrompt", () => {
       undefined, false, [], undefined, [], true, true
     );
     expect(prompt).toContain("Ship Flyd by Q4 2026.");
+  });
+});
+
+describe("behavioural directives injection", () => {
+  const emptyWorldState: Parameters<typeof buildResolutionPrompt>[0] = {
+    version: "1.0", generatedAt: "", source: "flyd-cli",
+    goals: [], tensions: [], signals: [], curiosity: [], nudges: [], reports: [],
+    recentEvents: [], brainHealth: [], profile: [], knowledge: [], review: [],
+    suggestions: [], capabilities: [],
+  };
+  const route = { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" } as const;
+
+  const directive = (overrides: Partial<BehaviouralDirectiveInput> & { text: string }): BehaviouralDirectiveInput => ({
+    utility: 0,
+    negatives: 0,
+    corroborations: 0,
+    lastSeenAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  it("renders two active directives inside the boundary ordered by rank with no metadata", () => {
+    const staleTimestamp = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const stale = {
+      text: "Keep commit messages short.",
+      utility: 0,
+      negatives: 0,
+      corroborations: 0,
+      lastSeenAt: staleTimestamp,
+      directiveId: "dir-stale-0001",
+      createdAt: "2020-01-01T00:00:00.000Z",
+    } as unknown as BehaviouralDirectiveInput;
+    const fresh = directive({ text: "Always inspect the repo before proposing a fix." });
+
+    const prompt = buildResolutionPrompt(emptyWorldState, env, "draft a reply", route, undefined, false, [], undefined, [], false, true, [stale, fresh]);
+
+    expect(prompt).toContain("<behavioural_directives>");
+    expect(prompt).toContain("</behavioural_directives>");
+    expect(prompt).toContain("learned preferences");
+    expect(prompt.indexOf("Always inspect the repo")).toBeLessThan(prompt.indexOf("Keep commit messages short."));
+    for (const forbidden of ["dir-stale-0001", staleTimestamp, "2020-01-01", "directiveId", "lastSeenAt"]) {
+      expect(prompt).not.toContain(forbidden);
+    }
+  });
+
+  it("omits the block entirely when no directives are passed or empty (byte-identical to golden)", () => {
+    const golden = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route);
+    expect(golden).not.toContain("<behavioural_directives>");
+    expect(buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, undefined, false, [], undefined, [], false, true, [])).toBe(golden);
+    expect(buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, undefined, false, [], undefined, [], false, true, null)).toBe(golden);
+    expect(formatBehaviouralDirectives([])).toBeNull();
+  });
+
+  it("renders at most five directives when eight are active", () => {
+    const eight = Array.from({ length: 8 }, (_, i) => directive({ text: `Directive number ${i + 1}.` }));
+    const block = formatBehaviouralDirectives(eight)!;
+    expect(block).toContain("<behavioural_directives>");
+    const rendered = [...block.matchAll(/^- (.+)$/gm)].map((m) => m[1]);
+    expect(rendered).toHaveLength(5);
+    expect(block).not.toContain("Directive number 6.");
+  });
+
+  it("defensively truncates over-length directive text", () => {
+    const block = formatBehaviouralDirectives([directive({ text: "x".repeat(500) })])!;
+    const rendered = [...block.matchAll(/^- (.+)$/gm)][0][1];
+    expect(rendered.length).toBeLessThanOrEqual(200);
+  });
+
+  it("degrades to no directives when the fetch throws", async () => {
+    await expect(fetchBehaviouralDirectives(() => { throw new Error("store locked"); })).resolves.toEqual([]);
+    await expect(Promise.resolve().then(async () => {
+      const directives = await fetchBehaviouralDirectives(() => { throw new Error("boom"); });
+      return buildResolutionPrompt(emptyWorldState, env, "hello", route, undefined, false, [], undefined, [], false, true, directives);
+    })).resolves.not.toContain("<behavioural_directives>");
   });
 });
 
