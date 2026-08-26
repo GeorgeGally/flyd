@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
 import { resolveModelConnection } from "../lib/config.js";
 import { query } from "../lib/llm.js";
 import type { StoredEvent } from "../intelligence/event-store.js";
 import { defaultIntelligenceDbPath } from "../intelligence/event-store.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import type { LearningCandidate } from "../work-intelligence/types.js";
+import { proposeFromLearningCandidate } from "../work-intelligence/skillify/propose.js";
 import type { JudgmentInput } from "./types.js";
 import {
   isTransitionCaptureDisabled,
@@ -31,6 +34,7 @@ export interface JudgeSweepConfig {
 export interface JudgeSweepResult {
   judged: number;
   candidates: number;
+  proposals: number;
 }
 
 const DEFAULT_GRACE_MS = 2 * 60 * 1000;
@@ -40,6 +44,152 @@ const READ_PAGE_SIZE = 1000;
 const READ_MAX_EVENTS = 20000;
 
 const JUDGE_SOURCE = "transition.judge";
+
+// Skillify bridge thresholds (transition-log plan U7).
+const LESSON_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const LESSON_MIN_OCCURRENCES = 3;
+const LESSON_MIN_SESSIONS = 2;
+const LESSON_DOMAIN = "behaviour";
+
+export interface LessonJudgment {
+  transitionSeq: number;
+  rationale: string;
+  capturedAt: string;
+  correlationId: string;
+  sessionId: string | null;
+  correction: string | null;
+}
+
+export interface NegativeLessonGroup {
+  key: string;
+  occurrences: number;
+  distinctSessions: number;
+  /** Underlying user correction texts, earliest first. */
+  corrections: string[];
+}
+
+export function normalizeLessonKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Pure grouping of negative-verdict judgments by lesson (U7). Key is the
+ * normalized correction text when the judged transition carried one, else
+ * the normalized judgment rationale.
+ */
+export function groupNegativeLessons(
+  judgments: Iterable<LessonJudgment>,
+): Map<string, NegativeLessonGroup> {
+  const byKey = new Map<
+    string,
+    { occurrences: number; sessions: Set<string>; corrections: Array<{ text: string; capturedAt: string; seq: number }> }
+  >();
+  for (const j of judgments) {
+    const lessonText = j.correction?.trim() ? j.correction : j.rationale;
+    const key = normalizeLessonKey(lessonText ?? "");
+    if (!key) continue;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { occurrences: 0, sessions: new Set(), corrections: [] };
+      byKey.set(key, group);
+    }
+    group.occurrences++;
+    group.sessions.add(j.sessionId ?? j.correlationId);
+    if (j.correction?.trim()) {
+      group.corrections.push({ text: j.correction.trim(), capturedAt: j.capturedAt, seq: j.transitionSeq });
+    }
+  }
+
+  const out = new Map<string, NegativeLessonGroup>();
+  for (const [key, group] of byKey) {
+    out.set(key, {
+      key,
+      occurrences: group.occurrences,
+      distinctSessions: group.sessions.size,
+      corrections: group.corrections
+        .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.seq - b.seq)
+        .map((c) => c.text),
+    });
+  }
+  return out;
+}
+
+function collectNegativeLessonJudgments(now: number): LessonJudgment[] {
+  const windowStartMs = now - LESSON_WINDOW_MS;
+  const actionsBySeq = new Map<number, StoredEvent>();
+  const outcomesByCorrelation = new Map<string, StoredEvent>();
+  const out: LessonJudgment[] = [];
+  for (const event of readEvents()) {
+    if (event.sourceId === JUDGE_SOURCE) {
+      const payload = event.payload ?? {};
+      if (payload.verdict !== -1) continue;
+      const capturedMs = Date.parse(event.capturedAt);
+      if (!Number.isFinite(capturedMs) || capturedMs < windowStartMs) continue;
+      const transitionSeq = typeof payload.transitionSeq === "number" ? payload.transitionSeq : -1;
+      const action = actionsBySeq.get(transitionSeq);
+      // Corrections and session ids ride the correlated next-state event,
+      // not the judged action itself.
+      const outcome = action?.correlationId
+        ? outcomesByCorrelation.get(action.correlationId)
+        : undefined;
+      const nextState = outcome?.payload?.nextState as Record<string, unknown> | undefined;
+      const rawCorrection = nextState?.correction;
+      const sessionId = outcome?.payload?.sessionId ?? action?.payload?.sessionId;
+      out.push({
+        transitionSeq,
+        rationale: typeof payload.rationale === "string" ? payload.rationale : "",
+        capturedAt: event.capturedAt,
+        correlationId: action?.correlationId ?? event.correlationId ?? "",
+        sessionId: typeof sessionId === "string" ? sessionId : null,
+        correction: typeof rawCorrection === "string" && rawCorrection.trim() ? rawCorrection : null,
+      });
+      continue;
+    }
+    if (!event.sourceId.startsWith("transition.")) continue;
+    if (event.kind === "proposed_action") actionsBySeq.set(event.sequence, event);
+    else if (event.correlationId) outcomesByCorrelation.set(event.correlationId, event);
+  }
+  return out;
+}
+
+/**
+ * Recurring judge-observed negative lessons become skillify proposals for
+ * human confirmation — never auto-injected prompt content (R7/D6). Proposal
+ * bodies quote real user corrections only; rationale-only groups are skipped.
+ */
+export function bridgeNegativeLessonsToSkillify(): number {
+  const groups = groupNegativeLessons(collectNegativeLessonJudgments(Date.now()));
+  let created = 0;
+  for (const group of groups.values()) {
+    if (group.occurrences < LESSON_MIN_OCCURRENCES) continue;
+    if (group.distinctSessions < LESSON_MIN_SESSIONS) continue;
+    // ponytail: earliest correction only — keeps the proposal body (and thus
+    // its derived dedupeKey) stable across sweeps so repeats coalesce instead
+    // of stacking; full history lands in the wiki at confirm time.
+    const content = group.corrections[0];
+    if (!content) continue;
+
+    const candidate: LearningCandidate = {
+      id: `judge-lesson-${createHash("sha256").update(group.key).digest("hex").slice(0, 16)}`,
+      source: "correction",
+      content,
+      domain: LESSON_DOMAIN,
+      outcomeRef: `judgment:${group.key.slice(0, 120)}`,
+      epistemicConfidence: "medium",
+      timestamp: new Date().toISOString(),
+    };
+    const proposal = proposeFromLearningCandidate(candidate, {
+      workSessionId: "transition-judge",
+      interactionId: `judge-${candidate.id}`,
+    });
+    if (proposal) created++;
+  }
+  return created;
+}
 
 interface TransitionCandidate {
   seq: number;
@@ -262,24 +412,24 @@ export async function runJudgeSweep(
   deps: JudgeSweepDeps = {},
   config: JudgeSweepConfig = {},
 ): Promise<JudgeSweepResult> {
-  if (isTransitionCaptureDisabled() || sweepInFlight) return { judged: 0, candidates: 0 };
+  if (isTransitionCaptureDisabled() || sweepInFlight) return { judged: 0, candidates: 0, proposals: 0 };
   try {
     resolveModelConnection();
   } catch {
-    return { judged: 0, candidates: 0 };
+    return { judged: 0, candidates: 0, proposals: 0 };
   }
 
   sweepInFlight = true;
   try {
     const candidates = selectCandidates(config);
-    if (candidates.length === 0) return { judged: 0, candidates: 0 };
+    if (candidates.length === 0) return { judged: 0, candidates: 0, proposals: 0 };
 
     let raw: string;
     try {
       raw = await (deps.modelCall ?? defaultModelCall)(buildPrompt(candidates));
     } catch (error) {
       console.warn("[transitions/judge] model call failed:", error instanceof Error ? error.message : error);
-      return { judged: 0, candidates: candidates.length };
+      return { judged: 0, candidates: candidates.length, proposals: 0 };
     }
 
     let judged = 0;
@@ -294,7 +444,17 @@ export async function runJudgeSweep(
       if (written.ok) judged++;
       else console.warn(`[transitions/judge] judgment rejected for seq ${candidate.seq}: ${written.rejection}`);
     }
-    return { judged, candidates: candidates.length };
+
+    let proposals = 0;
+    try {
+      proposals = bridgeNegativeLessonsToSkillify();
+    } catch (error) {
+      console.warn(
+        "[transitions/judge] skillify bridge failed:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    return { judged, candidates: candidates.length, proposals };
   } finally {
     sweepInFlight = false;
   }
