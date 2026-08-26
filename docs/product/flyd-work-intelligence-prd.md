@@ -9,6 +9,8 @@
 **Primary platform:** macOS  
 **Document role:** Product authority for the next Flyd phase. Once approved, this supersedes `flyd-overlay-prd.md` as the product definition. The older document remains useful implementation history.
 
+**Superseded for direction — 2026-08-22:** `flyd-personal-intelligence-prd.md` is now the product authority for Flyd's overall direction (personal intelligence, LEARN consent plane, event runtime, action authority, policy promotion). This document remains the authority for the overlay work loop (ground → diagnose → intervene, work sessions, closeouts). See the supersession map in the personal-intelligence PRD.
+
 ---
 
 ## 1. Executive summary

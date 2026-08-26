@@ -18,6 +18,10 @@ struct PrivacyInvariant {
         case 9: return PrivacyInvariants.verifyTelemetryLimits()
         case 10: return PrivacyInvariants.verifyAuditLogPurity()
         case 11: return PrivacyInvariants.verifyPresentNetworkSilence()
+        case 12: return PrivacyInvariants.verifyLearnOffByDefault()
+        case 13: return PrivacyInvariants.verifyNoSensitiveLearnSources()
+        case 14: return PrivacyInvariants.verifyRevocationStopsCapture()
+        case 15: return PrivacyInvariants.verifyErasureCompleteness()
         default: return (false, "Unknown invariant")
         }
     }
@@ -36,6 +40,13 @@ enum PrivacyInvariants {
         PrivacyInvariant(id: 9, description: "Telemetry limited to: invocation_count, operation_count, error_rate (no string fields)", falsificationTest: "Telemetry payload has no string fields"),
         PrivacyInvariant(id: 10, description: "Audit log contains no raw screen content, AX trees, or user text", falsificationTest: "Audit log has no base64 or >200 char values"),
         PrivacyInvariant(id: 11, description: "PRESENT state only sends bounded complaint text to Flyd Core on localhost; no external network traffic", falsificationTest: "PRESENT makes an external request or persists general foreground context"),
+        // LEARN invariants (flyd-personal-intelligence-prd.md §3). LEARN has no
+        // enabled source yet; these invariants hold vacuously today and become
+        // falsifiable the moment a source contract ships.
+        PrivacyInvariant(id: 12, description: "LEARN sensing is off by default; no personal event is created while LEARN is disabled", falsificationTest: "A sensor emits a personal event while LEARN consent is disabled"),
+        PrivacyInvariant(id: 13, description: "No high-sensitivity LEARN source (raw screen text, clipboard, mic content, communications, location, health, finance) may be active", falsificationTest: "A sensitive source appears in the active LEARN source set"),
+        PrivacyInvariant(id: 14, description: "Source revocation stops LEARN capture immediately", falsificationTest: "Events are emitted from a revoked source after revocation"),
+        PrivacyInvariant(id: 15, description: "Erasure leaves no readable payload or derived value from a deleted source — only a non-identifying deletion tombstone", falsificationTest: "A readable payload or derived value survives source erasure"),
     ]
 
     static var capturedAXNodeCount: Int = 0
@@ -45,6 +56,18 @@ enum PrivacyInvariants {
     static var hasEverStoredEnvironment: Bool = false
     static var lastAXRefInvocationId: String?
     static var audioEngineActive: Bool = false
+
+    // LEARN consent state. Defaults encode the off-by-default contract;
+    // sensor implementations must maintain these, not bypass them.
+    static var learnConsentEnabled: Bool = false
+    static var learnEventsEmittedWhileDisabled: Int = 0
+    static var activeLearnSourceIds: Set<String> = []
+    static let sensitiveLearnSourceIds: Set<String> = [
+        "screen.raw_text", "clipboard", "microphone.content",
+        "communications", "location", "health", "finance",
+    ]
+    static var revokedLearnSourcesStillEmitting: Set<String> = []
+    static var erasureResidualPayloadCount: Int = 0
 
     static func verifyAll() -> [(Int, Bool, String)] {
         all.map { invariant in
@@ -131,5 +154,34 @@ enum PrivacyInvariants {
             return (false, "\(externalNetworkCallsDuringPresent) external network calls detected during PRESENT state")
         }
         return (true, "Only the authenticated localhost feedback endpoint is permitted during PRESENT")
+    }
+
+    static func verifyLearnOffByDefault() -> (Bool, String) {
+        if !learnConsentEnabled && learnEventsEmittedWhileDisabled > 0 {
+            return (false, "\(learnEventsEmittedWhileDisabled) personal events emitted while LEARN consent was disabled")
+        }
+        return (true, "No personal events while LEARN is disabled")
+    }
+
+    static func verifyNoSensitiveLearnSources() -> (Bool, String) {
+        let active = activeLearnSourceIds.intersection(sensitiveLearnSourceIds)
+        if !active.isEmpty {
+            return (false, "Sensitive LEARN sources active: \(active.sorted().joined(separator: ", "))")
+        }
+        return (true, "No high-sensitivity LEARN sources active")
+    }
+
+    static func verifyRevocationStopsCapture() -> (Bool, String) {
+        if !revokedLearnSourcesStillEmitting.isEmpty {
+            return (false, "Revoked sources still emitting: \(revokedLearnSourcesStillEmitting.sorted().joined(separator: ", "))")
+        }
+        return (true, "Revocation stops LEARN capture")
+    }
+
+    static func verifyErasureCompleteness() -> (Bool, String) {
+        if erasureResidualPayloadCount > 0 {
+            return (false, "\(erasureResidualPayloadCount) readable payloads/derived values survived source erasure")
+        }
+        return (true, "Erasure leaves only a non-identifying tombstone")
     }
 }

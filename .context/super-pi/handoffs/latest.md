@@ -1,0 +1,26 @@
+# Handoff — 2026-08-15 Smarter Native Coding Worker
+
+- currentStage: 02-plan
+- nextStage: 03-work
+- contextHealth: good
+- activeFiles:
+  - docs/plans/2026-08-15-002-feat-smarter-native-coding-worker-plan.md
+  - cli/src/runtime/flyd-worker-loop.ts
+  - cli/src/runtime/flyd-worker-tools.ts
+  - cli/src/runtime/orientation.ts
+  - cli/src/runtime/conversation-responder.ts
+- blocker: N/A (plan written; awaiting review choice A/B/C)
+- verification: research complete; `npm run lint` currently 12 errors (externalRoots, enumerated in plan U1)
+- activeRules:
+  - main is source of truth; land work on main before reporting completion
+  - Rails retired — no runtime/intelligence work in Rails
+  - Preserve "Do not ask questions or pause for confirmation" constraint verbatim
+  - Verification = filesystem/git evidence, never worker narration (docs/plans/2026-08-09-001)
+  - TDD gates: RED → GREEN → REFACTOR per unit
+- currentTruth:
+  - Worker loop: flyd-worker-loop.ts runFlydWorkerLoop, SYSTEM_PROMPT lines 29-31, completion = zero tool calls (line 92), grounding gate lines 95-103
+  - Tools: flyd-worker-tools.ts, always-present = list_files/read_file/search/run_command; write tools gated by fileOperations; fetch_url gated by allowedNetworkUrls
+  - Context: orientation.ts buildContextPackage (line 61) — no repo conventions today; conversation path injectProjectContext (conversation-responder.ts ~316) is the precedent
+  - externalRoots: DB migration + store + tools threaded; 12 tsc errors = harness.ts:577, task-store.ts:1124/1144, harness.test.ts:21, orchestrator.test.ts x7 (160/268/398/512/602/683/762), runtime-command-service.test.ts:22
+  - No complete_task/load_skill exists anywhere in cli/src
+  - No eve-style skill infra; closest = injectProjectContext walk + task-loop.ts VALID_STEP_KINDS
