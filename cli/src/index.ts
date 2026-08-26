@@ -29,6 +29,7 @@ import { runWorkStatus } from "./commands/tasks.js";
 import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
+import { runTransitions } from "./commands/transitions.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runAgent, runCode } from "./commands/code.js";
 import { runFix } from "./commands/fix.js";
@@ -632,6 +633,14 @@ repos
   .description("Reconcile PROJECT.md with recent Git activity")
   .argument("[path]", "specific repository path (omit for all)")
   .action((path?: string) => runReposReconcile(path));
+
+program
+  .command("transitions")
+  .description("Inspect, export, or erase transition-log data (governance)")
+  .option("--json", "Structured JSON output")
+  .option("--forget <sourceId>", "Erase a transition source (e.g. transition.overlay) — irreversible")
+  .option("--export <sourceId>", "Export every stored event for a transition source")
+  .action((opts: { json?: boolean; forget?: string; export?: string }) => runTransitions(opts));
 
 const tasks = program
   .command("tasks")

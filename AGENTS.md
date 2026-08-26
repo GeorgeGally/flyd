@@ -173,6 +173,8 @@ flyd doctor --json                   # structured diagnostics
 flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
+flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
+FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)
 ```
 
 > **CLI uses compiled `dist/`, not source.** The `flyd` terminal CLI is the global
