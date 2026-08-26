@@ -74,6 +74,7 @@ import {
   type ForegroundFeedbackInput,
 } from "./runtime/foreground-feedback.js";
 import { syncInstalledOpenCodePlugin } from "./runtime/opencode-plugin-sync.js";
+import { recordAction, recordNextState } from "./transitions/writer.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -254,6 +255,20 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
           environmentSummary: parsed.environment.application?.name ?? "",
           timestamp: Date.now(),
         });
+
+        try {
+          recordAction({
+            sessionId: parsed.work_session_id ?? parsed.conversation_id ?? parsed.invocation_id,
+            invocationId: parsed.invocation_id,
+            surface: "overlay",
+            intent: parsed.intent,
+            resolutionMode: "requires_augment",
+            appSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+          });
+        } catch (error) {
+          console.warn("[Flyd Core] Transition action capture failed:", (error as Error).message);
+        }
+
         sendJson(res, 200, {
           mode: "requires_augment",
           resolutionId: randomUUID(),
@@ -496,6 +511,20 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       timestamp: Date.now(),
     });
 
+    try {
+      recordAction({
+        sessionId: workSessionId,
+        invocationId: parsed.invocation_id,
+        surface: "overlay",
+        intent: parsed.intent,
+        resolutionMode: resolution.mode,
+        model: config.model || undefined,
+        appSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+      });
+    } catch (error) {
+      console.warn("[Flyd Core] Transition action capture failed:", (error as Error).message);
+    }
+
     const assistantText = [
         ...(resolution.augmentations ?? [])
           .filter((augmentation) => augmentation.kind === "explanation")
@@ -612,6 +641,20 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
   );
 
   const resolved = resolvedContexts.get(outcome.invocationId);
+
+  try {
+    recordNextState({
+      sessionId: resolved?.workSessionId,
+      invocationId: outcome.invocationId,
+      origin: "user",
+      signal: outcome.status as "succeeded" | "rejected" | "failed" | "cancelled",
+      correction: outcome.correction ?? undefined,
+      causalComplete: Boolean(resolved),
+    });
+  } catch (error) {
+    console.warn("[Flyd Core] Transition next-state capture failed:", (error as Error).message);
+  }
+
   if (resolved) {
     resolvedContexts.delete(outcome.invocationId);
 
