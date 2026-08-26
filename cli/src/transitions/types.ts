@@ -42,6 +42,8 @@ export interface TransitionNextStateInput {
   correction?: string;
   /** True when the outcome arrived after its action context expired. */
   causalComplete?: boolean;
+  /** Structured exit-signal fields (exit codes, timeouts); never raw output text. */
+  detail?: Record<string, unknown>;
 }
 
 export interface JudgmentInput {

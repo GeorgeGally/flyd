@@ -172,6 +172,7 @@ export function recordNextState(input: TransitionNextStateInput): TransitionWrit
         signal: input.signal,
         correction: input.correction,
         causalComplete: input.causalComplete,
+        ...(input.detail ? { detail: input.detail } : {}),
       },
     },
   };

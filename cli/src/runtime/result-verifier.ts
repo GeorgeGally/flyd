@@ -4,8 +4,17 @@ import { mkdtemp, readdir, realpath, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { delimiter, join, resolve } from "path";
 import { promisify } from "util";
+import { recordNextState } from "../transitions/writer.js";
 
 const execFileAsync = promisify(nodeExecFile);
+
+function captureTransition(write: () => void): void {
+  try {
+    write();
+  } catch (error) {
+    console.warn("[transitions] capture failed:", error instanceof Error ? error.message : error);
+  }
+}
 
 export function filesOutsideScope(changedFiles: string[], declaredFileScope: string[]): string[] {
   return changedFiles.filter((file) => !declaredFileScope.some((scope) => (
@@ -248,6 +257,8 @@ export async function verifyWorkerResult(input: {
   commandTimeoutMs?: number;
   requireChanges?: boolean;
   requireUnchanged?: boolean;
+  /** Stable per-execution correlation key (task/assignment id); derived when absent. */
+  invocationId?: string;
 }): Promise<VerifiedWorkerResult> {
   const canonicalWorktree = await realpath(resolve(input.worktreePath));
   await assertNoEscapingSymlinks(canonicalWorktree);
@@ -297,19 +308,39 @@ export async function verifyWorkerResult(input: {
     }
   };
   const workerEvidence = await captureRepositoryEvidence();
+  const invocationId = input.invocationId ?? `harness:${input.baseHead.slice(0, 12)}:${workerEvidence.patchDigest.slice(0, 12)}`;
   const commands: VerificationCommandResult[] = [];
   for (const command of input.commands) {
-    commands.push(await runVerificationCommand(input.worktreePath, command, input.commandTimeoutMs ?? 15 * 60 * 1000));
+    const result = await runVerificationCommand(input.worktreePath, command, input.commandTimeoutMs ?? 15 * 60 * 1000);
+    commands.push(result);
+    if (result.exitStatus !== 0) {
+      captureTransition(() => recordNextState({
+        invocationId,
+        origin: "verifier",
+        signal: "error",
+        surface: "harness",
+        causalComplete: false,
+        detail: { exitCode: result.exitStatus },
+      }));
+    }
     await assertNoEscapingSymlinks(canonicalWorktree);
   }
 
   const verifiedEvidence = await captureRepositoryEvidence();
+  const passed = commands.every((command) => command.exitStatus === 0) &&
+    verifiedEvidence.head === input.baseHead &&
+    verifiedEvidence.patchDigest === workerEvidence.patchDigest &&
+    (!input.requireChanges || workerEvidence.changedFiles.length > 0) &&
+    (!input.requireUnchanged || workerEvidence.changedFiles.length === 0);
+  captureTransition(() => recordNextState({
+    invocationId,
+    origin: "verifier",
+    signal: passed ? "verified" : "failed",
+    surface: "harness",
+    causalComplete: false,
+  }));
   return {
-    passed: commands.every((command) => command.exitStatus === 0) &&
-      verifiedEvidence.head === input.baseHead &&
-      verifiedEvidence.patchDigest === workerEvidence.patchDigest &&
-      (!input.requireChanges || workerEvidence.changedFiles.length > 0) &&
-      (!input.requireUnchanged || workerEvidence.changedFiles.length === 0),
+    passed,
     worktreePath: input.worktreePath,
     baseHead: input.baseHead,
     head: verifiedEvidence.head,
