@@ -30,6 +30,8 @@ export interface SourceContract {
   egressDestinations: string[];
   /** Human-readable purpose line shown in privacy UI. */
   purpose: string;
+  /** When true, registration enables the source instead of the disabled default. */
+  enabledByDefault?: boolean;
 }
 
 export interface SourceConsentState {
@@ -59,6 +61,66 @@ export const CALENDAR_METADATA_CONTRACT: SourceContract = {
   purpose: "Ground daily briefings and scheduling awareness in event times, not content.",
 };
 
+/**
+ * Consequence-learning transition sources (transition-log plan U1/D1).
+ * Low sensitivity, local retention, enabled by default and revocable like
+ * every other LEARN source.
+ */
+export const TRANSITION_OVERLAY_CONTRACT: SourceContract = {
+  sourceId: "transition.overlay",
+  displayName: "Overlay transitions",
+  sensitivity: "low",
+  scopes: ["transition.overlay"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Record invocation actions and their outcomes so Flyd learns what worked.",
+  enabledByDefault: true,
+};
+
+export const TRANSITION_CLI_CHAT_CONTRACT: SourceContract = {
+  sourceId: "transition.cli-chat",
+  displayName: "CLI chat transitions",
+  sensitivity: "low",
+  scopes: ["transition.cli-chat"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Record CLI chat turns and their outcomes so Flyd learns what worked.",
+  enabledByDefault: true,
+};
+
+export const TRANSITION_HARNESS_CONTRACT: SourceContract = {
+  sourceId: "transition.harness",
+  displayName: "Harness verification verdicts",
+  sensitivity: "low",
+  scopes: ["transition.harness"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Record deterministic worker verification verdicts as outcome signals.",
+  enabledByDefault: true,
+};
+
+export const TRANSITION_JUDGE_CONTRACT: SourceContract = {
+  sourceId: "transition.judge",
+  displayName: "Transition judge",
+  sensitivity: "low",
+  scopes: ["transition.judge"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Record background evaluative judgments of ambiguous transitions.",
+  enabledByDefault: true,
+};
+
+export const TRANSITION_SOURCE_CONTRACTS: readonly SourceContract[] = [
+  TRANSITION_OVERLAY_CONTRACT,
+  TRANSITION_CLI_CHAT_CONTRACT,
+  TRANSITION_HARNESS_CONTRACT,
+  TRANSITION_JUDGE_CONTRACT,
+];
+
 export class SourceContractRegistry {
   private readonly contracts = new Map<string, SourceContract>();
   private readonly states = new Map<string, SourceConsentState>();
@@ -85,7 +147,10 @@ export class SourceContractRegistry {
     }
     this.contracts.set(contract.sourceId, contract);
     if (!this.states.has(contract.sourceId)) {
-      this.states.set(contract.sourceId, { status: "disabled", changedAt: new Date().toISOString() });
+      this.states.set(contract.sourceId, {
+        status: contract.enabledByDefault ? "enabled" : "disabled",
+        changedAt: new Date().toISOString(),
+      });
     }
     this.persist();
   }
