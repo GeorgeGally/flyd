@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scoreEvidence } from "../librarian.js";
+import { scoreEvidence, applyVerification, type ScoredEvidence } from "../librarian.js";
+import type { VerificationResult } from "../librarian-verifier.js";
 
 describe("librarian evidence authority", () => {
   it("does not assign curated-wiki confidence to an unpromoted conversation index", () => {
@@ -79,5 +80,99 @@ describe("librarian evidence authority", () => {
       staleness: null,
     }, ["test"], "test");
     expect(scored.confidenceProfile.retrievalUtility).toBe(0.5);
+  });
+});
+
+describe("applyVerification blend", () => {
+  function makeScored(entryOverrides: Partial<Parameters<typeof scoreEvidence>[0]> = {}): ScoredEvidence {
+    return scoreEvidence({
+      path: "wiki/projects/flyd.md",
+      body: "An entry about memory ranking internals.",
+      source: "wiki",
+      score: 80,
+      metadata: { status: "canon", confidence: 0.9 },
+      staleness: null,
+      ...entryOverrides,
+    }, ["unrelated", "terms"], "What about something else?");
+  }
+
+  function makeVerification(
+    verdicts: Array<{ path: string; relevant: boolean; reason?: string }>,
+    conflicts: VerificationResult["conflicts"] = [],
+  ): VerificationResult {
+    return {
+      verified: true,
+      verdicts: new Map(verdicts.map((v) => [v.path, { relevant: v.relevant, reason: v.reason ?? "" }])),
+      sufficiency: { verdict: "partial", reason: "", coverage: 0 },
+      conflicts,
+    };
+  }
+
+  it("a relevant verdict replaces the keyword-density term at full weight", () => {
+    const scored = [makeScored()];
+    const blended = applyVerification(scored, makeVerification([
+      { path: "wiki/projects/flyd.md", relevant: true, reason: "Direct answer." },
+    ]));
+
+    const p = blended[0].confidenceProfile;
+    const expected = Math.round(Math.min(
+      1,
+      p.epistemicConfidence * 0.25 + p.freshness * 0.25 + 0.25 + p.interestAffinity * 0.15 + p.associationStrength * 0.10,
+    ) * 100) / 100;
+    expect(blended[0].librarianScore).toBe(expected);
+    expect(blended[0].librarianScore).toBeGreaterThan(scored[0].librarianScore);
+  });
+
+  it("an irrelevant verdict caps the relevance term low instead of zeroing it", () => {
+    const scored = [makeScored()];
+    const blended = applyVerification(scored, makeVerification([
+      { path: "wiki/projects/flyd.md", relevant: false, reason: "Off topic." },
+    ]));
+
+    expect(blended[0].librarianScore).toBeLessThan(scored[0].librarianScore);
+    expect(blended[0].verifiedRelevance).toBe(false);
+  });
+
+  it("entries without a verdict keep the pure heuristic score", () => {
+    const scored = [makeScored(), makeScored({ path: "wiki/entries/other.md" })];
+    const other = scored[1];
+    const blended = applyVerification([scored[0], other], makeVerification([
+      { path: "wiki/projects/flyd.md", relevant: true },
+    ]));
+
+    expect(blended[1].librarianScore).toBe(other.librarianScore);
+    expect(blended[1].verifiedRelevance).toBeUndefined();
+  });
+
+  it("verified conflicts increment contradictionCount on both entries", () => {
+    const a = { ...makeScored() };
+    const b = { ...makeScored(), path: "wiki/skills/swift.md" };
+    const blended = applyVerification([a, b], makeVerification([], [
+      { a: a.path, b: b.path, reason: "disagree on primary language" },
+    ]));
+
+    expect(blended.find((e) => e.path === a.path)?.contradictionCount).toBe(1);
+    expect(blended.find((e) => e.path === b.path)?.contradictionCount).toBe(1);
+  });
+
+  it("surfaces the verifier reason on the entry", () => {
+    const blended = applyVerification([makeScored()], makeVerification([
+      { path: "wiki/projects/flyd.md", relevant: true, reason: "Directly describes the mechanism." },
+    ]));
+
+    expect(blended[0].verifierReason).toBe("Directly describes the mechanism.");
+  });
+
+  it("returns entries unchanged when verification did not verify", () => {
+    const scored = [makeScored()];
+    const result: VerificationResult = {
+      verified: false,
+      verdicts: new Map(),
+      sufficiency: { verdict: "insufficient", reason: "", coverage: 0 },
+      conflicts: [],
+    };
+
+    const blended = applyVerification(scored, result);
+    expect(blended[0].librarianScore).toBe(scored[0].librarianScore);
   });
 });

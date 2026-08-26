@@ -1,6 +1,7 @@
 import { getActiveInterests } from "./interests.js";
 import { getStaleness, type StalenessResult } from "./staleness.js";
 import { getHalfLife } from "./decay.js";
+import type { VerificationResult } from "./librarian-verifier.js";
 
 export interface EvidenceEntry {
   path: string;
@@ -32,6 +33,9 @@ export interface ScoredEvidence extends EvidenceEntry {
   confidenceProfile: ConfidenceProfile;
   /** Set by currentness-gate.ts — true only when corroborated by a live Present Model signal. */
   isCurrent?: boolean;
+  /** Generative-verifier judgment for this entry, when the verifier ran and returned a verdict. */
+  verifiedRelevance?: boolean;
+  verifierReason?: string;
 }
 
 export interface SufficiencyAssessment {
@@ -109,6 +113,58 @@ export function scoreEvidence(
       associationStrength,
     },
   };
+}
+
+const RELEVANT_TERM = 1;
+const IRRELEVANT_TERM = 0.15;
+
+/**
+ * Blend generative-verifier verdicts into heuristic scores. Only the
+ * keyword-density term (0.25 weight) is replaced — freshness, epistemic
+ * confidence, affinity and association stay formula-based. Entries without a
+ * verdict keep their pure heuristic score.
+ */
+export function applyVerification(
+  scored: ScoredEvidence[],
+  verification: VerificationResult,
+): ScoredEvidence[] {
+  if (!verification.verified) return scored;
+
+  const conflictsByPath = new Map<string, number>();
+  for (const conflict of verification.conflicts) {
+    conflictsByPath.set(conflict.a, (conflictsByPath.get(conflict.a) ?? 0) + 1);
+    conflictsByPath.set(conflict.b, (conflictsByPath.get(conflict.b) ?? 0) + 1);
+  }
+
+  return scored.map((entry) => {
+    const verdict = verification.verdicts.get(entry.path);
+    const conflictCount = entry.contradictionCount + (conflictsByPath.get(entry.path) ?? 0);
+
+    if (!verdict) {
+      return conflictCount === entry.contradictionCount
+        ? entry
+        : { ...entry, contradictionCount: conflictCount };
+    }
+
+    const relevanceTerm = verdict.relevant ? RELEVANT_TERM : IRRELEVANT_TERM;
+    const p = entry.confidenceProfile;
+    const librarianScore = Math.min(
+      1,
+      p.epistemicConfidence * 0.25 +
+        p.freshness * 0.25 +
+        relevanceTerm * 0.25 +
+        p.interestAffinity * 0.15 +
+        p.associationStrength * 0.10,
+    );
+
+    return {
+      ...entry,
+      librarianScore: Math.round(librarianScore * 100) / 100,
+      verifiedRelevance: verdict.relevant,
+      verifierReason: verdict.reason,
+      contradictionCount: conflictCount,
+    };
+  });
 }
 
 export function corroborate(
@@ -212,14 +268,17 @@ export function formatLibrarianSummary(
   lines.push("");
 
   const sorted = [...scored].sort((a, b) => b.librarianScore - a.librarianScore);
-  lines.push("| # | Source | Entry | Score | Epistemic | Freshness | Affinity | Corroborations |");
-  lines.push("|---|--------|-------|-------|-----------|-----------|----------|----------------|");
+  lines.push("| # | Source | Entry | Score | Epistemic | Freshness | Affinity | Corroborations | Verifier |");
+  lines.push("|---|--------|-------|-------|-----------|-----------|----------|----------------|----------|");
   for (const e of sorted) {
     const src = e.source === "wiki" ? "W" : "R";
     const contra = e.contradictionCount > 0 ? ` ⚠${e.contradictionCount}` : "";
     const p = e.confidenceProfile;
+    const verifier = e.verifierReason
+      ? `${e.verifiedRelevance ? "✓" : "✗"} ${e.verifierReason}`
+      : "—";
     lines.push(
-      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} |`,
+      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} | ${verifier} |`,
     );
   }
 
