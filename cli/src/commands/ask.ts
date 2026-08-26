@@ -25,10 +25,13 @@ import {
   scoreEvidence,
   corroborate,
   estimateSufficiency,
+  applyVerification,
   formatLibrarianSummary,
   type EvidenceEntry,
   type ScoredEvidence,
+  type SufficiencyAssessment,
 } from "../lib/librarian.js";
+import { verifyEvidence, type VerifierEntry } from "../lib/librarian-verifier.js";
 
 export interface RetrievedEntry extends BaseEntry {
   fullPath: string;
@@ -78,6 +81,7 @@ export function buildPrompt(
   scored?: ScoredEvidence[],
   intent?: RecallIntent,
   presentModel?: PresentModel | null,
+  sufficiencyOverride?: SufficiencyAssessment,
 ): string {
   const currentEntries = entries.filter((e) => e.isCurrent === true);
   const backgroundEntries = entries.filter((e) => e.isCurrent !== true);
@@ -147,7 +151,7 @@ export function buildPrompt(
 
   let librarianSection = "";
   if (scored) {
-    const sufficiency = estimateSufficiency(scored, question);
+    const sufficiency = sufficiencyOverride ?? estimateSufficiency(scored, question);
     librarianSection = `\n\n## Librarian Assessment\nSufficiency: ${sufficiency.verdict} — ${sufficiency.reason}\n`;
   }
 
@@ -158,6 +162,49 @@ ${evidence}${librarianSection}
 
 ## Question
 ${question}`;
+}
+
+function toVerifierEntry(e: EvidenceEntry): VerifierEntry {
+  return {
+    path: e.path,
+    body: e.body,
+    freshness: undefined,
+    epistemicConfidence: Number(e.metadata.confidence ?? (e.source === "wiki" ? 0.9 : 0.5)),
+    stalenessMessage: e.staleness?.message ?? null,
+  };
+}
+
+export interface LibrarianEvaluation {
+  scored: ScoredEvidence[];
+  sufficiency: SufficiencyAssessment;
+}
+
+/**
+ * Heuristic scoring + corroboration, then one generative verification pass
+ * blended over the top. Falls back to pure heuristics when the model is
+ * unavailable or the verdict is unusable.
+ */
+export async function evaluateLibrarianEvidence(
+  evidenceEntries: EvidenceEntry[],
+  keywords: string[],
+  question: string,
+): Promise<LibrarianEvaluation> {
+  let scored = corroborate(
+    evidenceEntries.map((e) => scoreEvidence(e, keywords, question)),
+  ).sort((a, b) => b.librarianScore - a.librarianScore);
+
+  const verifiable = scored.filter((s) => !s.path.startsWith("git:"));
+  if (verifiable.length === 0) {
+    return { scored, sufficiency: estimateSufficiency(scored, question) };
+  }
+
+  const verification = await verifyEvidence(verifiable.map(toVerifierEntry), question);
+  if (!verification.verified) {
+    return { scored, sufficiency: estimateSufficiency(scored, question) };
+  }
+
+  scored = applyVerification(scored, verification).sort((a, b) => b.librarianScore - a.librarianScore);
+  return { scored, sufficiency: verification.sufficiency };
 }
 
 function formatEvidence(entries: RetrievedEntry[], scored?: ScoredEvidence[]): string {
@@ -248,6 +295,7 @@ If no page is relevant, return [].`;
 
   // Run librarian evaluation if requested
   let scored: ScoredEvidence[] | undefined;
+  let librarianSufficiency: SufficiencyAssessment | undefined;
   if (opts?.librarian) {
     const evidenceEntries: EvidenceEntry[] = entries.map((e) => ({
       path: e.path,
@@ -257,8 +305,20 @@ If no page is relevant, return [].`;
       metadata: e.metadata,
       staleness: e.staleness,
     }));
-    scored = evidenceEntries.map((e) => scoreEvidence(e, keywords, question));
-    scored = corroborate(scored);
+    const evaluation = await evaluateLibrarianEvidence(evidenceEntries, keywords, question);
+    scored = evaluation.scored;
+    librarianSufficiency = evaluation.sufficiency;
+    // buildPrompt aligns score notes positionally (scored[i]) — keep both
+    // arrays in the same (blended-score) order.
+    const reordered: RetrievedEntry[] = [];
+    for (const s of scored) {
+      const match = entries.find((e) => e.path === s.path);
+      if (match) reordered.push(match);
+    }
+    if (reordered.length === entries.length) {
+      entries.length = 0;
+      entries.push(...reordered);
+    }
   }
 
   const evidenceSummary = formatEvidence(entries, scored);
@@ -268,9 +328,10 @@ If no page is relevant, return [].`;
     return;
   }
 
-  const librarianSummary = scored ? formatLibrarianSummary(scored, estimateSufficiency(scored, question)) : "";
+  const sufficiencyForSummary = librarianSufficiency ?? (scored ? estimateSufficiency(scored, question) : undefined);
+  const librarianSummary = scored && sufficiencyForSummary ? formatLibrarianSummary(scored, sufficiencyForSummary) : "";
   const answer = await query(
-    buildPrompt(question, entries, scored, retrieval.intent, retrieval.presentModel),
+    buildPrompt(question, entries, scored, retrieval.intent, retrieval.presentModel, librarianSufficiency),
     m,
     buildSystemPrompt(question),
   );
