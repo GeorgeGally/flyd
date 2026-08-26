@@ -1,6 +1,7 @@
 ---
 title: Separate epistemic confidence from freshness in retrieval scoring
 date: 2026-07-28
+last_updated: 2026-08-26
 category: architecture-patterns
 module: brain-retrieval
 problem_type: architecture_pattern
@@ -67,9 +68,11 @@ freshness = max(0, 1 - daysSince / halfLifeDays)
 The composite for ranking is:
 
 ```
-librarianScore = epistemicConfidence * 0.25 + freshness * 0.25 + keywordDensity * 0.25
+librarianScore = epistemicConfidence * 0.25 + freshness * 0.25 + relevanceTerm * 0.25
                + interestAffinity * 0.15 + associationStrength * 0.10
 ```
+
+**Update (2026-08-26):** the relevance term and contradiction handling evolved when a generative verification layer was added. `relevanceTerm` is still `keywordDensity` heuristically, but when the LLM verifier runs (`flyd ask --librarian`), a relevant verdict sets it to 1 and irrelevant to 0.15 (`applyVerification()` in librarian.ts, shared weights in `weightedScore()`). Verified conflicts now apply the documented contradiction penalty with a recency tilt: the staler side of a conflicting pair loses −0.15/conflict, the fresher side −0.075 (cap 0.3) — so the more recent memory keeps more weight. The no-age-decay rule for epistemicConfidence still holds; the penalty derives from verified contradictions, not from age directly. Full pattern: `librarian-generative-verifier.md` in this directory.
 
 At the retrieval boundary, map wiki statuses explicitly to preserve the full taxonomy:
 

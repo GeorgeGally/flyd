@@ -153,6 +153,7 @@ flyd/
 
   docs/product/                current product PRDs
   docs/solutions/              documented engineering solutions with YAML frontmatter (module, tags, problem_type); search before implementing or debugging in documented areas
+  CONCEPTS.md                  shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts
 
   app/, db/, lib/, test/       legacy Rails tree — historical only; do not extend for active Flyd
 ```
