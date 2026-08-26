@@ -11,6 +11,7 @@ import {
   TRANSITION_SOURCE_CONTRACTS,
 } from "../intelligence/sensors/source-contracts.js";
 import type { JudgmentInput, TransitionActionInput, TransitionNextStateInput } from "./types.js";
+import { applySignalToDirectives, ingestCorrectionDirective } from "./directives.js";
 
 /**
  * Transition spine writer (transition-log plan U1).
@@ -176,7 +177,37 @@ export function recordNextState(input: TransitionNextStateInput): TransitionWrit
       },
     },
   };
-  return appendTransition(envelope);
+  const result = appendTransition(envelope);
+  if (result.ok && !result.skipped) updateDirectivesAfterNextState(input, result.event.sequence);
+  return result;
+}
+
+/**
+ * Fire-and-forget directive lifecycle after a successful next-state append
+ * (transition-log plan U6). Outcome signals apply to directives that already
+ * existed for this correlation; a carried correction is ingested afterwards so
+ * a fresh directive is never scored by its own birthing outcome.
+ */
+function updateDirectivesAfterNextState(input: TransitionNextStateInput, sourceSeq: number): void {
+  try {
+    if (input.signal === "succeeded" || input.signal === "verified") {
+      applySignalToDirectives(input.invocationId, 1);
+    } else if (input.signal === "rejected" || input.signal === "failed") {
+      applySignalToDirectives(input.invocationId, -1);
+    }
+    if (input.correction && input.correction.trim()) {
+      ingestCorrectionDirective({
+        text: input.correction,
+        sourceSeq,
+        sourceCorrelationId: input.invocationId,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[transitions] directive capture failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 export function recordJudgment(input: JudgmentInput): TransitionWriteResult {
