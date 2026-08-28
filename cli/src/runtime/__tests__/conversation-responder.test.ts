@@ -777,13 +777,15 @@ describe("conversation action tools", () => {
     }
   });
 
-  it("bash rejects destructive commands", async () => {
+  it("bash rejects destructive commands but allows a plain push", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
     try {
-      expect(await runToolCall("bash", { command: "git push origin main" }, root))
-        .toBe("Blocked: git push origin main — destructive command; run it yourself if intended");
+      expect(await runToolCall("bash", { command: "git push --force origin main" }, root))
+        .toBe("Blocked: git push --force origin main — destructive command; run it yourself if intended");
       expect(await runToolCall("bash", { command: "rm -rf node_modules" }, root))
         .toBe("Blocked: rm -rf node_modules — destructive command; run it yourself if intended");
+      expect(await runToolCall("bash", { command: "git push origin main" }, root))
+        .not.toContain("Blocked");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

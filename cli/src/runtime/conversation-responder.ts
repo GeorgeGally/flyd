@@ -270,7 +270,7 @@ const conversationTools: AgentTool[] = [
   },
 ];
 
-const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
+const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push\s+(?:--force(?:-with-lease)?|-f)\b|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
 
 function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (token: string) => void): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
