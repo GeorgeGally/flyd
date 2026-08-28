@@ -42,7 +42,7 @@ describe("runAgentSession", () => {
     expect(intro).toMatch(/╚═╝[^\n]*\n\n\s+Good /);
   });
 
-  it("opens with a valuable next-action signal, not weather or raw telemetry", async () => {
+  it("opens with the present briefing, not a git telemetry restatement", async () => {
     const ui = terminal(["/exit"]);
 
     await runAgentSession({
@@ -68,10 +68,9 @@ describe("runAgentSession", () => {
     });
 
     const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
-    expect(intro).toContain("Next: Run the focused tests.");
+    expect(intro).toContain("sponsor outreach is due 5 September");
     expect(intro).not.toContain("It's"); // no weather noise
-    // no raw telemetry dump in the opening
-    expect(intro).not.toContain("sponsor outreach is due");
+    expect(intro).not.toContain("Next: Run the focused tests.");
   });
 
   it("renders a value brief on /brief", async () => {
@@ -709,7 +708,7 @@ describe("runAgentSession", () => {
     expect(intro).toContain("CleanX and Good Neighbours both moved.");
   });
 
-  it("does not append the hypothesis when a next action exists", async () => {
+  it("appends the briefing even when a git next action exists", async () => {
     const ui = terminal(["/exit"]);
 
     await runAgentSession({
@@ -733,7 +732,7 @@ describe("runAgentSession", () => {
     });
 
     const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
-    expect(intro).toContain("Next: Run the focused tests.");
-    expect(intro).not.toContain("sponsor outreach is due");
+    expect(intro).toContain("sponsor outreach is due");
+    expect(intro).not.toContain("Next: Run the focused tests.");
   });
 });

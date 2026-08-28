@@ -102,10 +102,6 @@ function greeting(): string {
   return "Good evening, George.";
 }
 
-// A PA opening is value, not noise. Lead with the single most useful signal
-// available — a clear next action, then unfinished work, then a blocker. Only
-// fall back to a bare human greeting when there is nothing actionable to say.
-// No weather, no raw project-telemetry dump.
 function valueOpening(situation: AgentSituation | null): string {
   if (situation?.nextAction) {
     const next = situation.nextAction.trim();
@@ -126,20 +122,20 @@ function introLine(
   presentHypothesis?: string | null,
 ): string {
   let line = `\n${ART}\n\n  ${greeting()}`;
+  const hypothesis = (presentHypothesis ?? "").trim();
+  if (
+    hypothesis &&
+    hypothesis !== "I don't have a clear picture yet." &&
+    hypothesis !== "Nothing urgent on the board."
+  ) {
+    line += `\n  ${hypothesis}`;
+    return wrapDisplayText(line + "\n\n");
+  }
   const value = valueOpening(situation);
   if (value) {
     line += `\n  ${value}`;
   } else {
-    const hypothesis = (presentHypothesis ?? "").trim().split("\n")[0] ?? "";
-    if (
-      hypothesis &&
-      hypothesis !== "I don't have a clear picture yet." &&
-      hypothesis !== "Nothing urgent on the board."
-    ) {
-      line += `\n  ${hypothesis}`;
-    } else {
-      line += `\n  What are we working on today?`;
-    }
+    line += `\n  What are we working on today?`;
   }
   return wrapDisplayText(line + "\n\n");
 }
