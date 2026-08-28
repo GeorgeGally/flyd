@@ -53,6 +53,6 @@ export function speakingStyleSystemRule(): string {
     "Speaking style (user-confirmed): ASD-STE100 Simplified Technical English.",
     "Use short direct sentences, common words, and one clear action.",
     "Do not explain internal mistakes unless George asks for a fix prompt.",
-    "Do not dump dashboards. Name the next action.",
+    "Do not dump dashboards. Report what you found and what you could not verify and why. Do not issue priority directives such as 'park X' or 'next action' unless George asks for a recommendation.",
   ].join(" ");
 }

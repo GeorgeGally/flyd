@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
 import { resolveModelConnection, type ModelConnection } from "../lib/config.js";
+import type { FetchLike } from "../evidence/adapters/common.js";
+import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -50,6 +52,7 @@ interface ConversationResponderDependencies {
   runAgentLoop?: typeof agentLoop;
   resolveConnection?: () => ModelConnection;
   persistReceipt?: typeof persistTurnReceipt;
+  fetchFn?: FetchLike;
 }
 
 const CHAT_OPENING = /^(?:let(?:'s|s| us) (?:just )?chat|i (?:just )?want to chat)[.!]?$/i;
@@ -168,7 +171,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "Current repository and task evidence outranks older memory for claims about current code or active coding work."
         : "",
       currentWorkQuestion
-        ? "For current-work questions, inspect the named projects' actual current state before advising — read their repos, check the live web presence, and use memory. Never invent a task that is not confirmed to exist. Do not synthesize a ranked repo catalog."
+        ? "For current-work questions, inspect the named projects' actual current state before advising — read their repos, check the live web presence, and use memory. Never invent a task that is not confirmed to exist. Report what you found and what you could not verify and why. Do not issue priority directives such as 'park X' or 'next action' unless George asks for a recommendation. Do not synthesize a ranked repo catalog."
         : "",
       repositoryQuestion
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
@@ -288,11 +291,84 @@ const conversationTools: AgentTool[] = [
 
 const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push\s+(?:--force(?:-with-lease)?|-f)\b|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
 
+export function isInstagramLoginWall(url: string, text: string): boolean {
+  return /instagram\.com/i.test(url)
+    && /log\s*in/i.test(text)
+    && !/followers?|bio|post/i.test(text);
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
+}
+
+function extractMetaContent(html: string, property: string): string | undefined {
+  const tag = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]*>`, "i"))?.[0];
+  if (!tag) return undefined;
+  const content = tag.match(/content=["']([^"']*)["']/i)?.[1];
+  return content ? decodeHtmlEntities(content).trim() : undefined;
+}
+
+function metaRefreshTarget(html: string): string | undefined {
+  const tag = html.match(/<meta[^>]+http-equiv=["']?refresh["']?[^>]*>/i)?.[0];
+  if (!tag) return undefined;
+  const content = tag.match(/content=["'][^"']*url\s*=\s*([^"']+)["']?/i)?.[1];
+  return content?.trim();
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function readUrlHtml(fetchFn: FetchLike, url: string, signal: AbortSignal): Promise<string> {
+  const response = await fetchFn(url, {
+    signal,
+    redirect: "follow",
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; Flyd)" },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  return await response.text();
+}
+
+function truncateText(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}\n... (truncated)` : text;
+}
+
+async function searchLoginWallFallback(url: string, fetchFn: FetchLike): Promise<string | null> {
+  const apiKey = process.env.JINA_API_KEY;
+  if (!apiKey) return null;
+  const match = url.match(/instagram\.com\/([^/?#]+)/i);
+  const query = match ? `${match[1]} instagram` : url;
+  const adapter = new JinaSearchAdapter({ fetchFn, apiKey });
+  try {
+    const items = await adapter.search({ query, queryLabel: "login-wall fallback", limit: 5 });
+    if (items.length === 0) return null;
+    const lines = items.map((item, index) => {
+      const content = truncateText(item.content ?? "", 400);
+      return `${index + 1}. ${item.title ?? item.locator}\n${content}${item.locator ? `\nSource: ${item.locator}` : ""}`;
+    });
+    return `Search results for "${query}":\n${lines.join("\n\n")}`;
+  } catch {
+    return null;
+  }
+}
+
 function createToolHandler(
   projectRoot: string,
   knownRepos: string[],
   onToken: (token: string) => void,
   askUser?: (prompt: string) => Promise<boolean>,
+  fetchFn: FetchLike = fetch,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -483,21 +559,33 @@ function createToolHandler(
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 12_000);
         try {
-          const response = await fetch(url, {
-            signal: controller.signal,
-            redirect: "follow",
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; Flyd)" },
-          });
-          if (!response.ok) return `Error: HTTP ${response.status} for ${url}`;
-          const html = await response.text();
-          const text = html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-          if (!text) return `No readable text on ${url}`;
-          return text.length > 8000 ? `${text.slice(0, 8000)}\n... (truncated)` : text;
+          let html = await readUrlHtml(fetchFn, url, controller.signal);
+          const refreshTarget = metaRefreshTarget(html);
+          if (refreshTarget) {
+            const target = new URL(refreshTarget, url).toString();
+            if (target !== url) {
+              try {
+                html = await readUrlHtml(fetchFn, target, controller.signal);
+              } catch {
+                return `Error: meta-refresh to ${target} failed for ${url}`;
+              }
+            }
+          }
+          const title = extractMetaContent(html, "og:title") ?? extractMetaContent(html, "title");
+          const description = extractMetaContent(html, "og:description") ?? extractMetaContent(html, "description");
+          const text = htmlToText(html);
+          const metaBlock = [title, description].filter((value): value is string => Boolean(value));
+          if (isInstagramLoginWall(url, text)) {
+            const fallback = await searchLoginWallFallback(url, fetchFn);
+            const counts = description ? `Profile: ${description}.` : "";
+            const wall = "Posts and bio are behind a login wall that requires a signed-in session.";
+            return [counts, wall, fallback]
+              .filter((value): value is string => Boolean(value))
+              .join("\n\n");
+          }
+          if (!text && metaBlock.length === 0) return `No readable text on ${url}`;
+          const body = [...metaBlock, text].filter((value) => Boolean(value)).join("\n\n");
+          return truncateText(body, 8000);
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           return `Error fetching ${url}: ${message}`;
@@ -766,7 +854,7 @@ export async function respondToConversation(
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
-  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser);
+  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn);
   const observedHandler: ToolHandler = async (name, toolInput) => {
     try {
       const result = await handler(name, toolInput);

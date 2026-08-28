@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationPrompt,
   immediateConversationReply,
+  isInstagramLoginWall,
   missingPersonalFactReply,
   respondToConversation,
 } from "../conversation-responder.js";
@@ -529,6 +530,144 @@ describe("buildConversationPrompt", () => {
     expect(seen).toBe("has read_url");
   });
 
+  it("detects an Instagram login wall and explains it instead of returning the shell", () => {
+    expect(isInstagramLoginWall(
+      "https://www.instagram.com/goodneighboursmarket/",
+      "Good Neighbours Market Instagram Log In Sign Up Meta About",
+    )).toBe(true);
+    expect(isInstagramLoginWall(
+      "https://www.instagram.com/goodneighboursmarket/",
+      "Good Neighbours Market 1,200 followers 45 posts bio link",
+    )).toBe(false);
+    expect(isInstagramLoginWall("https://example.com", "Log In")).toBe(false);
+  });
+
+  it("reads Instagram follower counts from og meta tags instead of calling the page a wall", async () => {
+    let readUrlOut = "";
+    const fakeFetch = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith("https://www.instagram.com/goodneighboursmarket/")) {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta property="og:title" content="Good Neighbours Market (@goodneighboursmarket) &bull; Instagram photos and videos"><meta property="og:description" content="1,332 Followers, 235 Following, 353 Posts"></head><body><h1>Log In</h1><span>Sign Up</span><nav>Meta About</nav></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    };
+    await respondToConversation({
+      message: "check the good neighbours instagram",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "flyd", branch: "main", head: "abc", dirty: false,
+        changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      onToken: () => undefined,
+    }, {
+      fetchFn: fakeFetch,
+      runAgentLoop: async (_s, _p, _tools, onToolCall) => {
+        readUrlOut = await onToolCall("read_url", { url: "https://www.instagram.com/goodneighboursmarket/" });
+        return "<final>done</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(readUrlOut).toContain("1,332 Followers, 235 Following, 353 Posts");
+    expect(readUrlOut).toContain("behind a login wall that requires a signed-in session.");
+  });
+
+  it("follows a meta-refresh hop to reach the real GNM homepage content", async () => {
+    let readUrlOut = "";
+    const fakeFetch = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "https://goodneighboursmarket.com/") {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=index.php"><title>Good Neighbours Market</title></head><body><a href="index.php">Continue to homepage</a></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      if (url === "https://goodneighboursmarket.com/index.php") {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta property="og:title" content="Good Neighbours Market | Curated Saturday Market in Kerobokan"></head><body><h1>Eat &bull; Shop &bull; Hangout</h1><p>Saturday September 5 &bull; 12 &ndash; 7pm</p><p>Geo Open Space Kerobokan</p></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    };
+    await respondToConversation({
+      message: "check the GNM website",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "flyd", branch: "main", head: "abc", dirty: false,
+        changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      onToken: () => undefined,
+    }, {
+      fetchFn: fakeFetch,
+      runAgentLoop: async (_s, _p, _tools, onToolCall) => {
+        readUrlOut = await onToolCall("read_url", { url: "https://goodneighboursmarket.com/" });
+        return "<final>done</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(readUrlOut).toContain("Curated Saturday Market in Kerobokan");
+    expect(readUrlOut).toContain("Saturday September 5");
+  });
+
+  it("falls back to search snippets when an Instagram account is behind a login wall", async () => {
+    let readUrlOut = "";
+    const fakeFetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://www.instagram.com/goodneighboursmarket/")) {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta property="og:title" content="Good Neighbours Market (@goodneighboursmarket)"></head><body><h1>Log In</h1></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      if (url.startsWith("https://s.jina.ai/")) {
+        return new Response(
+          JSON.stringify({ data: [
+            { title: "Good Neighbours Market on Instagram", url: "https://www.instagram.com/p/DcbFAz_oE-B/", content: "A gourmet tent fill with treats. 70+ vendors. Saturday 5 September 12 - 7 PM Free entrance." },
+          ] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const savedKey = process.env.JINA_API_KEY;
+    process.env.JINA_API_KEY = "test-key";
+    try {
+      await respondToConversation({
+        message: "what is good neighbours posting",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "flyd", branch: "main", head: "abc", dirty: false,
+          changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+          projectRoot: "/Users/radarboy3000/Documents/flyd",
+        },
+        onToken: () => undefined,
+      }, {
+        fetchFn: fakeFetch,
+        runAgentLoop: async (_s, _p, _tools, onToolCall) => {
+          readUrlOut = await onToolCall("read_url", { url: "https://www.instagram.com/goodneighboursmarket/" });
+          return "<final>done</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+    } finally {
+      if (savedKey === undefined) delete process.env.JINA_API_KEY;
+      else process.env.JINA_API_KEY = savedKey;
+    }
+
+    expect(readUrlOut).toContain("70+ vendors");
+    expect(readUrlOut).toContain("behind a login wall");
+  });
+
   it("lets the model page through long source files instead of losing later evidence", async () => {
     let laterEvidence = "";
     await respondToConversation({
@@ -557,7 +696,7 @@ describe("buildConversationPrompt", () => {
       runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
         laterEvidence = await onToolCall("read_file", {
           path: "src/runtime/conversation-responder.ts",
-          offset: 16_000,
+          offset: 30_000,
           limit: 20_000,
         });
         return "<final>Inspected the complete runtime.</final>";
