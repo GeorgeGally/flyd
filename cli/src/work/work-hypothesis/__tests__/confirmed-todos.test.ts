@@ -11,6 +11,8 @@ import {
   listOpenConfirmedTodos,
   demotePresentThread,
   isBareTodoList,
+  parseTodoPriorityCorrection,
+  applyTodoPriorityCorrection,
 } from "../confirmed-todos.js";
 import { writePresentModel } from "../store.js";
 import { presentModelReply } from "../../../runtime/conversation-responder.js";
@@ -185,5 +187,104 @@ describe("confirmed todos", () => {
     }));
     expect(note).toMatch(/Memory recall/);
     expect(note).toMatch(/Bridgestone interview/);
+  });
+
+  it("parses an explicit too-late-for replacement correction", () => {
+    expect(parseTodoPriorityCorrection(
+      "no. the event is in a week, too late for sponsor outreach. now must just get visitors there",
+    )).toEqual({ closedQuery: "sponsor outreach", replacement: "get visitors there" });
+    expect(parseTodoPriorityCorrection(
+      "too late for sponsor outreach; now get visitors there",
+    )).toEqual({ closedQuery: "sponsor outreach", replacement: "get visitors there" });
+  });
+
+  it("closes the stale todo and promotes the replacement, preserving the due date", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 5 September");
+    handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
+    handleConfirmedTodoUtterance("- Add DIR to portfolio");
+
+    const result = applyTodoPriorityCorrection(
+      "too late for sponsor outreach; now get visitors there",
+    );
+    expect(result).not.toBeNull();
+    expect(result?.closed.description).toBe("Get GNM sponsor outreach moving");
+    expect(result?.closed.status).toBe("done");
+    expect(result?.added.description).toBe("Get visitors to GNM event");
+    expect(result?.added.status).toBe("open");
+    expect(result?.added.dueAt).toBe("2026-09-05");
+
+    const open = listOpenConfirmedTodos().map((t) => t.description);
+    expect(open).toEqual(["Get visitors to GNM event", "Apply for jobs and fix resume", "Add DIR to portfolio"]);
+  });
+
+  it("routes a priority correction through the utterance handler without the LLM", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 5 September");
+    handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
+
+    const reply = handleConfirmedTodoUtterance(
+      "too late for sponsor outreach; now get visitors there",
+    );
+    expect(reply?.reply).toContain("Corrected and persisted");
+    expect(reply?.reply).toContain("Get visitors to GNM event");
+    expect(listOpenConfirmedTodos().map((t) => t.description))
+      .toEqual(["Get visitors to GNM event", "Apply for jobs and fix resume"]);
+  });
+
+  it("parses the first-priority and is-closed correction forms", () => {
+    expect(parseTodoPriorityCorrection(
+      "sponsor outreach is now closed; now get visitors there",
+    )).toEqual({ closedQuery: "sponsor outreach", replacement: "get visitors there" });
+    expect(parseTodoPriorityCorrection(
+      "visitor turnout is the first priority",
+    )).toBeNull();
+  });
+
+  it("does not close a todo on a bare status statement", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving");
+    const result = applyTodoPriorityCorrection(
+      "I stopped working on sponsor outreach; now I need to focus on the report",
+    );
+    expect(result).toBeNull();
+    expect(listOpenConfirmedTodos().map((t) => t.description))
+      .toEqual(["Get GNM sponsor outreach moving"]);
+  });
+
+  it("resolves a closedQuery only through the word-overlap path", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving");
+    handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
+
+    const result = applyTodoPriorityCorrection(
+      "too late for outreach sponsor; now get visitors there",
+    );
+    expect(result?.closed.description).toBe("Get GNM sponsor outreach moving");
+  });
+
+  it("refuses to close when several open todos share overlapping words", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving");
+    handleConfirmedTodoUtterance("- Get GNM visitor turnout launched");
+
+    const result = applyTodoPriorityCorrection(
+      "too late for gnm moving; now get visitors there",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("does not duplicate the replacement when it already exists open", () => {
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving");
+    handleConfirmedTodoUtterance("- Get visitors to GNM event");
+
+    const result = applyTodoPriorityCorrection(
+      "too late for sponsor outreach; now get visitors there",
+    );
+    expect(result?.added.description).toBe("Get visitors to GNM event");
+    expect(listOpenConfirmedTodos().filter((t) => t.description === "Get visitors to GNM event")).toHaveLength(1);
+  });
+
+  it("derives a non-GNM replacement from the source todo", () => {
+    handleConfirmedTodoUtterance("- Get CleanX free-scan launch moving");
+    const result = applyTodoPriorityCorrection(
+      "too late for free-scan launch; now get visitors there",
+    );
+    expect(result?.added.description).toBe("Get visitors to the event");
   });
 });

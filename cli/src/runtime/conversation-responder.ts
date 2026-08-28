@@ -29,6 +29,7 @@ import {
   speakingStyleSystemRule,
 } from "./speaking-preference.js";
 import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
+import { interpretAgentInput } from "./input-interpreter.js";
 import { specialistsForMessage } from "./capability-resolver.js";
 import { recordAction, recordNextState } from "../transitions/writer.js";
 
@@ -54,6 +55,8 @@ interface ConversationResponderDependencies {
 const CHAT_OPENING = /^(?:let(?:'s|s| us) (?:just )?chat|i (?:just )?want to chat)[.!]?$/i;
 const CHAT_OPENING_REPLY = "What are you thinking about that does not belong in a task yet?";
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
+const CONVERSATION_MAX_ITERATIONS = 8;
+const CODING_MAX_ITERATIONS = 40;
 
 export function immediateConversationReply(
   message: string,
@@ -735,6 +738,10 @@ export async function respondToConversation(
       throw error;
     }
   };
+  const codingIntent = interpretAgentInput(input.message).kind;
+  const maxIterations = codingIntent === "contextual_action"
+    ? CODING_MAX_ITERATIONS
+    : CONVERSATION_MAX_ITERATIONS;
   try {
     const answer = await (dependencies.runAgentLoop ?? agentLoop)(
       system,
@@ -742,12 +749,21 @@ export async function respondToConversation(
       conversationTools,
       observedHandler,
       model,
-      8,
+      maxIterations,
     );
     if (PROJECT_EVIDENCE_QUESTION.test(input.message)
       && !toolCalls.some((call) => call.succeeded)
       && !evidence && !facts) {
-      throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
+      if (input.askUser) {
+        const approved = await input.askUser(
+          "I could not inspect the project with any tool, so I have no grounded evidence for this answer. Answer anyway from general knowledge? [y/N]",
+        );
+        if (!approved) {
+          throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
+        }
+      } else {
+        throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
+      }
     }
     const final = extractFinal(answer);
     emit(final);

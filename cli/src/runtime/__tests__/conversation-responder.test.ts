@@ -363,6 +363,90 @@ describe("buildConversationPrompt", () => {
     }
   });
 
+  it("asks the user and answers an ungrounded project question when approved", async () => {
+    const emptyDir = join(tmpdir(), `flyd-test-empty-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
+    let asked = "";
+    try {
+      const answer = await respondToConversation({
+        sessionId: "ungrounded-approved",
+        turnNumber: 1,
+        message: "how can flyd improve",
+        history: [],
+        memory: { verdict: "partial", matches: [] },
+        situation: {
+          project: "GeorgeGally/flyd", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: "current commit", outcome: null, status: null,
+          nextAction: null, projectRoot: emptyDir,
+        },
+        askUser: async (prompt) => { asked = prompt; return true; },
+        onToken: () => undefined,
+      }, {
+        resolveConnection: () => ({
+          model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
+        }),
+        runAgentLoop: async () => "<final>Improve contextual understanding and analytics.</final>",
+        persistReceipt: async (input) => input as never,
+      });
+
+      expect(answer).toContain("Improve contextual understanding");
+      expect(asked).toContain("no grounded evidence");
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still refuses an ungrounded project question when the user declines", async () => {
+    const emptyDir = join(tmpdir(), `flyd-test-empty-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
+    try {
+      await expect(respondToConversation({
+        message: "how can flyd improve",
+        history: [],
+        memory: { verdict: "partial", matches: [] },
+        situation: {
+          project: "GeorgeGally/flyd", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: "current commit", outcome: null, status: null,
+          nextAction: null, projectRoot: emptyDir,
+        },
+        askUser: async () => false,
+        onToken: () => undefined,
+      }, {
+        resolveConnection: () => ({
+          model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
+        }),
+        runAgentLoop: async () => "<final>Improve contextual understanding and analytics.</final>",
+        persistReceipt: async (input) => input as never,
+      })).rejects.toThrow("refused an ungrounded project answer");
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives coding turns a large tool budget but keeps conversation turns tight", async () => {
+    const budgets: number[] = [];
+    const loop = async (_system: string, _prompt: string, _tools: unknown[], _onToolCall: unknown, _model: string, iterations?: number) => {
+      budgets.push(iterations ?? 0);
+      return "<final>done</final>";
+    };
+    const baseInput = {
+      history: [], memory: { verdict: "insufficient" as const, matches: [] }, situation: null,
+      onToken: () => undefined,
+    };
+    const deps = {
+      persistReceipt: async (input: unknown) => input as never,
+      runAgentLoop: loop,
+    };
+
+    await respondToConversation({ message: "Implement dark mode for the CLI", ...baseInput }, deps);
+    await respondToConversation({ message: "do it", ...baseInput }, deps);
+    await respondToConversation({ message: "what should I work on next?", ...baseInput }, deps);
+
+    expect(budgets[0]).toBe(8);
+    expect(budgets[1]).toBe(40);
+    expect(budgets[2]).toBe(8);
+  });
+
   it("lets the model page through long source files instead of losing later evidence", async () => {
     let laterEvidence = "";
     await respondToConversation({

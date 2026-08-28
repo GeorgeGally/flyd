@@ -144,22 +144,9 @@ export function replaceConfirmedTodos(descriptions: string[]): ConfirmedTodo[] {
     `UPDATE confirmed_todos SET status = 'done', updated_at = ?, completed_at = ? WHERE status = 'open'`,
   ).run(now, now);
   const inserted: ConfirmedTodo[] = [];
-  const stmt = db.prepare(
-    `INSERT INTO confirmed_todos (id, description, status, sort_order, created_at, updated_at, due_at)
-     VALUES (?, ?, 'open', ?, ?, ?, ?)`,
-  );
   drafts.forEach((draft, i) => {
-    const id = `todo-${randomUUID().slice(0, 8)}`;
-    stmt.run(id, draft.description, i, now, now, draft.dueAt ?? null);
-    inserted.push({
-      id,
-      description: draft.description,
-      status: "open",
-      sortOrder: i,
-      createdAt: now,
-      updatedAt: now,
-      dueAt: draft.dueAt,
-    });
+    const todo = insertTodo(draft.description, i, now, draft.dueAt);
+    inserted.push(todo);
   });
   return inserted;
 }
@@ -173,36 +160,121 @@ export function appendConfirmedTodos(descriptions: string[]): ConfirmedTodo[] {
     .filter((d) => !existing.has(d.description.toLowerCase()));
   if (!drafts.length) return open;
 
-  const db = getDb();
-  const now = new Date().toISOString();
   let order = open.length ? Math.max(...open.map((t) => t.sortOrder)) + 1 : 0;
-  const stmt = db.prepare(
-    `INSERT INTO confirmed_todos (id, description, status, sort_order, created_at, updated_at, due_at)
-     VALUES (?, ?, 'open', ?, ?, ?, ?)`,
-  );
   for (const draft of drafts) {
-    stmt.run(`todo-${randomUUID().slice(0, 8)}`, draft.description, order, now, now, draft.dueAt ?? null);
+    insertTodo(draft.description, order, new Date().toISOString(), draft.dueAt);
     order += 1;
   }
   return listOpenConfirmedTodos();
 }
 
-export function completeConfirmedTodo(query: string): ConfirmedTodo | null {
-  const open = listOpenConfirmedTodos();
-  if (!open.length) return null;
+function matchingOpenTodo(query: string, open = listOpenConfirmedTodos()): ConfirmedTodo | null {
   const q = query.trim().toLowerCase();
-  const match =
-    open.find((t) => t.description.toLowerCase() === q) ??
-    open.find((t) => t.description.toLowerCase().includes(q) || q.includes(t.description.toLowerCase()));
+  if (!q) return null;
+  const exact = open.find((t) => t.description.toLowerCase() === q);
+  if (exact) return exact;
+  const contained = open.find(
+    (t) => t.description.toLowerCase().includes(q) || q.includes(t.description.toLowerCase()),
+  );
+  if (contained) return contained;
+
+  const words = new Set(q.match(/[a-z0-9]+/g)?.filter((w) => w.length >= 4) ?? []);
+  const overlap = open.filter((t) => {
+    const todoWords = t.description.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    return todoWords.filter((w) => words.has(w)).length >= 2;
+  });
+  return overlap.length === 1 ? overlap[0] : null;
+}
+
+export function completeConfirmedTodo(query: string): ConfirmedTodo | null {
+  const match = matchingOpenTodo(query);
   if (!match) return null;
 
   const now = new Date().toISOString();
+  markTodoDone(match.id, now);
+  return { ...match, status: "done", updatedAt: now, completedAt: now };
+}
+
+function markTodoDone(id: string, now: string): void {
   getDb()
     .prepare(
       `UPDATE confirmed_todos SET status = 'done', updated_at = ?, completed_at = ? WHERE id = ?`,
     )
-    .run(now, now, match.id);
-  return { ...match, status: "done", updatedAt: now, completedAt: now };
+    .run(now, now, id);
+}
+
+function insertTodo(description: string, sortOrder: number, now: string, dueAt: string | null | undefined): ConfirmedTodo {
+  const id = `todo-${randomUUID().slice(0, 8)}`;
+  getDb()
+    .prepare(
+      `INSERT INTO confirmed_todos (id, description, status, sort_order, created_at, updated_at, due_at)
+       VALUES (?, ?, 'open', ?, ?, ?, ?)`,
+    )
+    .run(id, description, sortOrder, now, now, dueAt ?? null);
+  return { id, description, status: "open", sortOrder, createdAt: now, updatedAt: now, dueAt: dueAt ?? undefined };
+}
+
+interface TodoPriorityCorrection {
+  closedQuery: string;
+  replacement: string;
+}
+
+export function parseTodoPriorityCorrection(message: string): TodoPriorityCorrection | null {
+  const closed = message.match(/(?:too late for\s+([^.;,]+)|([^.;,]+?)\s+is\s+(?:now\s+)?closed)\s*[.;,]/i);
+  const next = message.match(/\bnow\s+(?:(?:we|i)\s+)?(?:(?:must|need to|should)\s+)?(?:just\s+)?([^.;]+)[.!]?$/i)
+    ?? message.match(/\b([^.;]+?)\s+is\s+(?:the\s+)?first\s+priority\b/i);
+  if (!closed?.[1] && !closed?.[2]) return null;
+  const closedQuery = (closed[1] ?? closed[2]).trim();
+  if (!closedQuery || !next?.[1]) return null;
+  return { closedQuery, replacement: next[1].trim() };
+}
+
+function eventOrg(description: string): string | null {
+  const gnm = description.match(/\bGNM\d*\b/i)?.[0];
+  if (gnm) return gnm;
+  const neighbours = description.match(/\bGood Neighbours\b/i)?.[0];
+  if (neighbours) return neighbours;
+  return null;
+}
+
+function replacementDescription(parsed: TodoPriorityCorrection, closed: ConfirmedTodo): string {
+  const replacement = parsed.replacement.replace(/^[Tt]o\s+/, "").replace(/[.!]+$/, "").trim();
+  if (/\bvisitors?\b/i.test(replacement) && /\bthere\b/i.test(replacement)) {
+    const org = eventOrg(closed.description);
+    if (org) return `Get visitors to ${org} event`;
+    return "Get visitors to the event";
+  }
+  return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+}
+
+export function applyTodoPriorityCorrection(message: string): { closed: ConfirmedTodo; added: ConfirmedTodo } | null {
+  const parsed = parseTodoPriorityCorrection(message);
+  if (!parsed) return null;
+  const closed = matchingOpenTodo(parsed.closedQuery);
+  if (!closed) return null;
+
+  const now = new Date().toISOString();
+  const description = replacementDescription(parsed, closed);
+  const existing = listOpenConfirmedTodos().find(
+    (t) => t.description.toLowerCase() === description.toLowerCase(),
+  );
+  const db = getDb();
+  let added: ConfirmedTodo | null = null;
+  try {
+    const apply = db.transaction(() => {
+      markTodoDone(closed.id, now);
+      if (!existing) {
+        added = insertTodo(description, closed.sortOrder, now, closed.dueAt ?? null);
+      }
+    });
+    apply();
+    return {
+      closed: { ...closed, status: "done", updatedAt: now, completedAt: now },
+      added: existing ?? added!,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function formatTodoList(todos: ConfirmedTodo[]): string {
@@ -426,6 +498,14 @@ export function handleConfirmedTodoUtterance(
 
   if (isTodoListQuestion(trimmed)) {
     return { reply: formatTodoList(listOpenConfirmedTodos()) };
+  }
+
+  const priorityCorrection = applyTodoPriorityCorrection(trimmed);
+  if (priorityCorrection) {
+    return {
+      reply: `Corrected and persisted: ${priorityCorrection.closed.description} is closed.\nNew first priority: ${priorityCorrection.added.description}${priorityCorrection.added.dueAt ? ` (due ${formatDueLabel(priorityCorrection.added.dueAt)})` : ""}.`,
+      recallFor: [priorityCorrection.added.description],
+    };
   }
 
   if (GAVE_ALREADY.test(trimmed)) {
