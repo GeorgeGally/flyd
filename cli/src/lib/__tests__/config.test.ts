@@ -57,6 +57,7 @@ describe("Flyd directory configuration", () => {
 
   it("resolves chat through the canonical Flyd model connection", async () => {
     vi.stubEnv("FLYD_MODEL", "gpt-4.6");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_MODEL_API_KEY", "flyd-key");
     vi.stubEnv("FLYD_MODEL_BASE_URL", "https://models.example.test/v1/");
     vi.stubEnv("OPENAI_API_KEY", "wrong-key");

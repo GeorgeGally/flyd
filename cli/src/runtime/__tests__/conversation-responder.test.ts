@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -306,7 +306,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -391,7 +391,7 @@ describe("buildConversationPrompt", () => {
       runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
         laterEvidence = onToolCall("read_file", {
           path: "src/runtime/conversation-responder.ts",
-          offset: 8_000,
+          offset: 16_000,
           limit: 20_000,
         });
         return "<final>Inspected the complete runtime.</final>";
@@ -651,5 +651,155 @@ describe("buildConversationPrompt", () => {
     );
 
     expect(answer).toBe("Coach here.");
+  });
+});
+
+describe("conversation action tools", () => {
+  async function runToolCall(
+    tool: string,
+    input: Record<string, unknown>,
+    projectRoot: string,
+  ): Promise<string> {
+    let result = "";
+    await respondToConversation({
+      message: "use the tool",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "test/project", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+        projectRoot: realpathSync(projectRoot),
+      },
+      onToken: () => undefined,
+    }, {
+      runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+        result = onToolCall(tool, input);
+        return "<final>done</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+    return result;
+  }
+
+  it("edit_file replaces a unique old_string and returns a short confirmation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-edit-"));
+    try {
+      writeFileSync(join(root, "a.txt"), "hello world\n");
+      const out = await runToolCall("edit_file", {
+        path: "a.txt", old_string: "world", new_string: "there",
+      }, root);
+      expect(out).toBe("Edited a.txt: there");
+      expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("hello there\n");
+      expect(existsSync(join(root, "a.txt.flyd-tmp"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("edit_file reports a missing old_string", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-edit-"));
+    try {
+      writeFileSync(join(root, "a.txt"), "hello world\n");
+      const out = await runToolCall("edit_file", {
+        path: "a.txt", old_string: "nope", new_string: "x",
+      }, root);
+      expect(out).toBe("Error: old_string not found in a.txt");
+      expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("hello world\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("edit_file rejects an ambiguous old_string", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-edit-"));
+    try {
+      writeFileSync(join(root, "a.txt"), "dup dup\n");
+      const out = await runToolCall("edit_file", {
+        path: "a.txt", old_string: "dup", new_string: "x",
+      }, root);
+      expect(out).toBe("Error: old_string is ambiguous (2 matches in a.txt)");
+      expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("dup dup\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("edit_file denies .env paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-edit-"));
+    try {
+      writeFileSync(join(root, ".env"), "SECRET=1\n");
+      const out = await runToolCall("edit_file", {
+        path: ".env", old_string: "1", new_string: "2",
+      }, root);
+      expect(out).toBe("Access denied: .env");
+      expect(readFileSync(join(root, ".env"), "utf8")).toBe("SECRET=1\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("write_file creates a file under a nested missing directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-write-"));
+    try {
+      const out = await runToolCall("write_file", {
+        path: "nested/deep/b.txt", content: "hi",
+      }, root);
+      expect(out).toBe("Wrote nested/deep/b.txt (2 chars)");
+      expect(readFileSync(join(root, "nested/deep/b.txt"), "utf8")).toBe("hi");
+      expect(existsSync(join(root, "nested/deep/b.txt.flyd-tmp"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("write_file denies .env paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-write-"));
+    try {
+      const out = await runToolCall("write_file", {
+        path: ".env", content: "SECRET=1",
+      }, root);
+      expect(out).toBe("Access denied: .env");
+      expect(existsSync(join(root, ".env"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash runs a command in the repo cwd", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    try {
+      const out = await runToolCall("bash", {
+        command: "node -e \"console.log('ok')\"",
+      }, root);
+      expect(out.trim()).toBe("ok");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash rejects destructive commands", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    try {
+      expect(await runToolCall("bash", { command: "git push origin main" }, root))
+        .toBe("Blocked: git push origin main — destructive command; run it yourself if intended");
+      expect(await runToolCall("bash", { command: "rm -rf node_modules" }, root))
+        .toBe("Blocked: rm -rf node_modules — destructive command; run it yourself if intended");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects action tools on a repo outside allowed roots", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "flyd-action-outside-"));
+    try {
+      const denied = `Repository not found: ${realpathSync(outside)}`;
+      expect(await runToolCall("edit_file", { path: "a.txt", old_string: "x", new_string: "y", repo: realpathSync(outside) }, root)).toBe(denied);
+      expect(await runToolCall("write_file", { path: "a.txt", content: "x", repo: realpathSync(outside) }, root)).toBe(denied);
+      expect(await runToolCall("bash", { command: "ls", repo: realpathSync(outside) }, root)).toBe(denied);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

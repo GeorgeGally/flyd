@@ -81,6 +81,7 @@ export type AgentSessionResult =
   | { kind: "resume" };
 
 const MAX_HISTORY_TURNS = 12;
+const CROSS_REPO_TTL_MS = 5 * 60 * 1000;
 
 const ART = [
   `${GREEN}███████╗██╗  ██╗   ██╗██████╗ ${RESET}`,
@@ -157,6 +158,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
   let presentHypothesis: string | null = null;
+  let lastContextRefresh = 0;
 
   /**
    * One conversation turn, kernel-handler style: refresh state, retrieve
@@ -179,11 +181,10 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }
     }
     const memory = await deps.retrieveMemory(message);
-    if (deps.loadCrossRepo) {
+    if (deps.loadCrossRepo && Date.now() - lastContextRefresh > CROSS_REPO_TTL_MS) {
       repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
+      lastContextRefresh = Date.now();
     }
-
-    // ponytail: spinner while waiting for first token
     const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let spinnerIdx = 0;
     let spinnerActive = true;
@@ -233,6 +234,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     repos = (await deps.loadCrossRepo?.(situation?.projectRoot).catch(() => [])) ?? [];
     presentHypothesis =
       (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ?? null;
+    lastContextRefresh = Date.now();
     deps.terminal.write(introLine(situation, presentHypothesis));
 
     while (true) {

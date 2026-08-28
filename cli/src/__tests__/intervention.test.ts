@@ -113,6 +113,18 @@ describe('intervention prompt', () => {
     expect(prompt).toContain('FOREGROUND');
   });
 
+  it('subordinates foreground grounding to the user intent', () => {
+    const cw = makeCurrentWork();
+    const prompt = buildWorkIntelligencePrompt({
+      currentWork: cw,
+      domainStandard: DOMAIN_STANDARDS.code,
+      intent: 'gpt says this about GNM: sponsor outreach plan',
+    });
+
+    expect(prompt).toContain('Answer the USER INTENT first');
+    expect(prompt).not.toContain('it is stale');
+  });
+
   it('includes conversation history when provided', () => {
     const cw = makeCurrentWork();
     const standard = DOMAIN_STANDARDS.writing;

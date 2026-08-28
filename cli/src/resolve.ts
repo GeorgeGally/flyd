@@ -303,6 +303,19 @@ export function shouldInjectPersonalContext(intent: string, route: IntentRoute):
   return route.kind === "ask_answer" && FIRST_PERSON.test(intent);
 }
 
+const SECOND_PERSON_ADDRESS = /\b(you|your|yours|yourself)\b/i;
+
+// ponytail: lexical gate, classifier-gated routing once the router runs
+// before work-intelligence instead of after.
+export function skipsWorkIntelligence(
+  intent: string,
+  modality: ManifestRequest["modality"]
+): boolean {
+  if (modality !== "text") return false;
+  const text = intent.trim();
+  return QUESTION_STARTS.test(text) || ANSWER_PREFIXES.test(text) || SECOND_PERSON_ADDRESS.test(text);
+}
+
 export function buildResolutionPrompt(
   worldState: IntelligenceState,
   environment: EnvironmentCapture,
@@ -818,13 +831,15 @@ export async function resolve(
 
   // U3: Work-intelligence gate — substantial invocations route through
   // Ground → Diagnose → Intervene instead of general scene selection.
+  // Assistant-directed intents (questions, second-person address) are
+  // conversation, not work diagnosis; they take the general pipeline.
   const isDictation = isDeterministicDictation({
     intent,
     modality,
     elementRole: environment.focused_element.role,
   });
 
-  if (!isDictation && model && apiKey) {
+  if (!isDictation && !skipsWorkIntelligence(intent, modality) && model && apiKey) {
     try {
       const wiOutput = await runWorkIntelligence({
         invocationId: invocation_id,

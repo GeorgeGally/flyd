@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResolutionPrompt, enforceRoutePlacement, fetchBehaviouralDirectives, formatBehaviouralDirectives, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext, type BehaviouralDirectiveInput } from "../resolve.js";
+import { buildResolutionPrompt, enforceRoutePlacement, fetchBehaviouralDirectives, formatBehaviouralDirectives, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext, skipsWorkIntelligence, type BehaviouralDirectiveInput } from "../resolve.js";
 import { resolveRepositoryFromPath } from "../work-intelligence/current-work.js";
 import { isDeterministicDictation } from "../router.js";
 
@@ -68,6 +68,27 @@ describe("parseResolutionResponse", () => {
     }), "inv-1");
 
     expect(resolution.augmentations?.[0]?.options).toEqual(["Inter", "Helvetica", "Georgia", "Courier"]);
+  });
+});
+
+describe("skipsWorkIntelligence", () => {
+  it("routes text questions to the general resolution pipeline", () => {
+    expect(skipsWorkIntelligence("what is GNM and who sponsors it?", "text")).toBe(true);
+    expect(skipsWorkIntelligence("summarize the pros and cons", "text")).toBe(true);
+  });
+
+  it("routes second-person address away from work diagnosis", () => {
+    expect(skipsWorkIntelligence("do you remember my GNM sponsor list?", "text")).toBe(true);
+    expect(skipsWorkIntelligence("eh, I was talking to you about GNM", "text")).toBe(true);
+  });
+
+  it("keeps artifact-shaped intents in work intelligence", () => {
+    expect(skipsWorkIntelligence("rewrite this paragraph to be shorter", "text")).toBe(false);
+    expect(skipsWorkIntelligence("fix the null check in this function", "text")).toBe(false);
+  });
+
+  it("leaves voice behavior untouched", () => {
+    expect(skipsWorkIntelligence("rewrite this to be shorter", "voice")).toBe(false);
   });
 });
 

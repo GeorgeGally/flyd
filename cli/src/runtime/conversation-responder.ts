@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
@@ -153,9 +153,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
 
   return {
     system: [
-      "You are Flyd, a Mac-native work intelligence overlay (Swift macOS adapter + TypeScript Core). You capture foreground context, diagnose the most important issue, and deliver one high-leverage intervention. Support modes: PRESENT (passive observation), INVOKED (text/voice invocation), and LIVE (realtime voice session).",
-      "Think through your answer inside <think>...</think> before responding. Then output your visible response inside <final>...</final>. No other text outside these tags.",
-      "## Tools\n- read_file(path, repo?): read a file\n- grep(pattern, include?, repo?): search code with ripgrep\n- list_files(path?, repo?): list directory\n- git_log(count?, repo?): recent commits\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+      "You are Flyd, George's personal coding agent. You work in his repositories, recall his memory, and act on evidence.",
+      "## Tools\n- read_file(path, repo?): read a file\n- grep(pattern, include?, repo?): search code with ripgrep\n- list_files(path?, repo?): list directory\n- git_log(count?, repo?): recent commits\n- edit_file(path, old_string, new_string, repo?): edit a file by replacing text\n- write_file(path, content, repo?): write a file\n- bash(command, repo?): run a shell command in the repo\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. When asked about a project, inspect the codebase with tools BEFORE answering — grep the code, read key files, check git history. Project questions require project evidence. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
       "Use relevant personal memory to improve the answer, but never invent personal facts. Respect the memory authority labels attached to each item.",
@@ -166,15 +165,11 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       currentWorkQuestion
         ? "For current-work questions, use the shared Present Model hypothesis. Do not synthesize a ranked repo catalog."
         : "",
-      "Present Model activity is observed work, not a confirmed to-do list. Never invent commitments or priority rankings from repo activity alone. Confirmed to-dos are only what George explicitly recorded. A confirmed to-do is not a substitute for inspecting that project's git state when George asks what needs to be done there.",
       repositoryQuestion
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
-      "Do not expose retrieval scores, evidence bookkeeping, or internal runtime terminology unless George asks.",
-      "Do not claim that code was changed or an action was performed when this is a conversational turn.",
-      "You are Flyd, not a generic AI. The Project Context above contains concrete facts about this project — package.json, README, AGENTS.md. When asked about the project, use those facts. Do not give generic advice that could apply to any AI assistant. If you see a package.json, you know the exact dependencies, scripts, and description. Use them.",
-      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. Your tools are read-only investigation: when George approves a change, deliver the change itself — exact edits, drafts, or content — rather than promising future work.",
+      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). Never run destructive commands (push, rm -rf, reset --hard, sudo) — refuse and tell George.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
@@ -234,7 +229,48 @@ const conversationTools: AgentTool[] = [
       required: [],
     },
   },
+  {
+    name: "edit_file",
+    description: "Edit a file by replacing text",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path, relative to repo root" },
+        old_string: { type: "string", description: "Exact text to replace" },
+        new_string: { type: "string", description: "Replacement text" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
+      },
+      required: ["path", "old_string", "new_string"],
+    },
+  },
+  {
+    name: "write_file",
+    description: "Write a file (creates missing parent directories)",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path, relative to repo root" },
+        content: { type: "string", description: "Full file content" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "bash",
+    description: "Run a shell command in the repo",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to run" },
+        repo: { type: "string", description: "Repository root path (omit for current project)" },
+      },
+      required: ["command"],
+    },
+  },
 ];
+
+const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
 
 function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (token: string) => void): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
@@ -327,6 +363,90 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
           }).trim() || "No commits found";
         } catch {
           return "Unable to get git log (not a git repository or git not found)";
+        }
+      }
+      case "edit_file": {
+        const rawPath = String(input.path);
+        const p = resolvePath(rawPath, repoRoot);
+        if (/\.env(\..+)?$/i.test(rawPath) || !p) {
+          return `Access denied: ${rawPath}`;
+        }
+        if (!existsSync(p)) return `File not found: ${p}`;
+        const oldString = String(input.old_string ?? "");
+        const newString = String(input.new_string ?? "");
+        try {
+          const content = readFileSync(p, "utf8");
+          const matches = content.split(oldString).length - 1;
+          if (matches === 0) return `Error: old_string not found in ${rawPath}`;
+          if (matches > 1) return `Error: old_string is ambiguous (${matches} matches in ${rawPath})`;
+          const tmp = `${p}.flyd-tmp`;
+          writeFileSync(tmp, content.replace(oldString, newString), "utf8");
+          renameSync(tmp, p);
+          const fragment = newString.split("\n")[0].trim().slice(0, 80) || rawPath;
+          return `Edited ${rawPath}: ${fragment}`;
+        } catch (e) {
+          return `Error editing ${p}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      case "write_file": {
+        const rawPath = String(input.path);
+        let p = resolvePath(rawPath, repoRoot);
+        if (/\.env(\..+)?$/i.test(rawPath)) {
+          return `Access denied: ${rawPath}`;
+        }
+        if (!p) {
+          // resolvePath needs an existing parent; walk up to the nearest existing ancestor.
+          const parts: string[] = [];
+          let dir = resolve(repoRoot, rawPath || ".");
+          for (;;) {
+            const real = canonicalRoot(dir);
+            if (real) {
+              if (real === repoRoot || real.startsWith(`${repoRoot}${sep}`)) {
+                p = join(real, ...parts.reverse());
+              }
+              break;
+            }
+            const parent = dirname(dir);
+            if (parent === dir) break;
+            parts.push(basename(dir));
+            dir = parent;
+          }
+          if (!p) return `Access denied: ${rawPath}`;
+        }
+        const content = String(input.content ?? "");
+        try {
+          mkdirSync(dirname(p), { recursive: true });
+          const tmp = `${p}.flyd-tmp`;
+          writeFileSync(tmp, content, "utf8");
+          renameSync(tmp, p);
+          return `Wrote ${rawPath} (${content.length} chars)`;
+        } catch (e) {
+          return `Error writing ${p}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      case "bash": {
+        const command = String(input.command ?? "").trim();
+        if (!command) return "Error: empty command";
+        if (BLOCKED_COMMAND.test(command)) {
+          return `Blocked: ${command} — destructive command; run it yourself if intended`;
+        }
+        try {
+          const stdout = execFileSync("/bin/bash", ["-c", command], {
+            cwd: repoRoot, encoding: "utf8", timeout: 60000, maxBuffer: 4 * 1024 * 1024,
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          const output = String(stdout ?? "");
+          return output.length > 8000
+            ? `${output.slice(0, 8000)}\n... (truncated)`
+            : output;
+        } catch (e) {
+          const err = e as { stderr?: unknown };
+          const stderrText = err.stderr ? String(err.stderr).trim() : "";
+          const message = e instanceof Error ? e.message : String(e);
+          const combined = stderrText ? `${message}\n${stderrText}` : message;
+          return combined.length > 8000
+            ? `${combined.slice(0, 8000)}\n... (truncated)`
+            : combined;
         }
       }
       default:

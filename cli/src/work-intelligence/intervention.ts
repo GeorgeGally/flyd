@@ -16,7 +16,7 @@ export function buildWorkIntelligencePrompt(params: {
 
   const projectLine = `Project: ${currentWork.project.value} (confidence: ${currentWork.project.confidence}${currentWork.project.isHypothesis ? ', hypothesis' : ''})`;
   const projectSourceLine = currentWork.project.source === 'foreground' && currentWork.project.confidence === 'high'
-    ? `You are currently in the ${currentWork.project.value} repository. This is authoritative foreground evidence — work from this context.`
+    ? `You are currently in the ${currentWork.project.value} repository. This grounds work-related intents; it does not outrank an explicit question on another topic.`
     : `Project context is uncertain. Ask if the project matters.`;
   const objectiveLine = `Objective: ${currentWork.objective.value} (confidence: ${currentWork.objective.confidence}${currentWork.objective.isHypothesis ? ', hypothesis' : ''})`;
   const artifactLine = `Artifact: ${currentWork.artifact.title} (${currentWork.artifact.kind})`;
@@ -56,7 +56,7 @@ export function buildWorkIntelligencePrompt(params: {
     ? `\nGROUND PACK (deterministic context — labeled sections; foreground wins over background):\n${formatGroundPackForPrompt(groundPack)}`
     : '';
 
-  return `You are Flyd, an intelligent work assistant. The user has invoked you while working. Your job is to understand the work, identify the most important issue or opportunity, and deliver ONE high-leverage intervention.
+  return `You are Flyd, an intelligent work assistant. The user has invoked you while working. Answer the USER INTENT first and completely. When the intent is about the focused work, understand it, identify the most important issue or opportunity, and deliver ONE high-leverage intervention.
 
 FOREGROUND CONTEXT (authoritative — this is what the user is doing RIGHT NOW):
 - ${projectLine}
@@ -71,7 +71,7 @@ Evaluation dimensions:
 ${domainStandard.evaluationDimensions.map(d => `  - ${d}`).join('\n')}
 
 GROUND RULES:
-- The foreground context is authoritative. If your memory suggests a different project, it is stale — use the foreground.
+- Foreground evidence grounds work-related intents. It wins over conflicting memory about the current project, never over the user's actual request.
 - Lead with the ONE most important issue, not a list.
 - Explain WHY it matters — the causal link between the issue and the outcome.
 - Propose ONE stronger alternative or next move.
