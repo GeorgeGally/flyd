@@ -389,7 +389,7 @@ describe("buildConversationPrompt", () => {
         providerIdentity: "models.example.test/gpt-4.6",
       }),
       runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-        laterEvidence = onToolCall("read_file", {
+        laterEvidence = await onToolCall("read_file", {
           path: "src/runtime/conversation-responder.ts",
           offset: 16_000,
           limit: 20_000,
@@ -471,8 +471,8 @@ describe("buildConversationPrompt", () => {
           model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
         }),
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-          observed.push(onToolCall("read_file", { path: "secret-link" }));
-          observed.push(onToolCall("list_files", { path: "outside-dir" }));
+          observed.push(await onToolCall("read_file", { path: "secret-link" }));
+          observed.push(await onToolCall("list_files", { path: "outside-dir" }));
           return "<final>Inspected safely.</final>";
         },
         persistReceipt: async (input) => input as never,
@@ -511,7 +511,7 @@ describe("buildConversationPrompt", () => {
           model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
         }),
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-          observed = onToolCall("read_file", { repo: realpathSync(unregisteredRoot), path: "secret.txt" });
+          observed = await onToolCall("read_file", { repo: realpathSync(unregisteredRoot), path: "secret.txt" });
           return "<final>Inspection denied.</final>";
         },
         persistReceipt: async (input) => input as never,
@@ -659,6 +659,7 @@ describe("conversation action tools", () => {
     tool: string,
     input: Record<string, unknown>,
     projectRoot: string,
+    askUser?: (prompt: string) => Promise<boolean>,
   ): Promise<string> {
     let result = "";
     await respondToConversation({
@@ -671,9 +672,10 @@ describe("conversation action tools", () => {
         projectRoot: realpathSync(projectRoot),
       },
       onToken: () => undefined,
+      askUser,
     }, {
       runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-        result = onToolCall(tool, input);
+        result = await onToolCall(tool, input);
         return "<final>done</final>";
       },
       persistReceipt: async (input) => input as never,
@@ -786,6 +788,61 @@ describe("conversation action tools", () => {
         .toBe("Blocked: rm -rf node_modules — destructive command; run it yourself if intended");
       expect(await runToolCall("bash", { command: "git push origin main" }, root))
         .not.toContain("Blocked");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash asks for approval on a blocked command and runs when approved", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    let asked = 0;
+    try {
+      const out = await runToolCall("bash", { command: "git push --force origin main" }, root, async () => {
+        asked += 1;
+        return true;
+      });
+      expect(asked).toBe(1);
+      expect(out).not.toContain("Blocked");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash refuses a blocked command when the user denies", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    let asked = 0;
+    try {
+      const out = await runToolCall("bash", { command: "git push --force origin main" }, root, async () => {
+        asked += 1;
+        return false;
+      });
+      expect(asked).toBe(1);
+      expect(out).toBe("Blocked: git push --force origin main — destructive command; run it yourself if intended");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash refuses a blocked command when no askUser is wired", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    try {
+      expect(await runToolCall("bash", { command: "git push --force origin main" }, root))
+        .toBe("Blocked: git push --force origin main — destructive command; run it yourself if intended");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bash does not prompt for a non-blocked command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
+    let asked = 0;
+    try {
+      const out = await runToolCall("bash", { command: "echo hi" }, root, async () => {
+        asked += 1;
+        return true;
+      });
+      expect(asked).toBe(0);
+      expect(out).toContain("hi");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

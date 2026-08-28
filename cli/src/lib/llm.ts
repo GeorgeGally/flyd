@@ -53,7 +53,7 @@ export interface AgentTool {
   };
 }
 
-export type ToolHandler = (name: string, input: Record<string, unknown>) => string;
+export type ToolHandler = (name: string, input: Record<string, unknown>) => string | Promise<string>;
 
 export interface QueryOptions {
   json?: boolean;
@@ -291,13 +291,15 @@ async function agentLoopAnthropic(
     if (res.stop_reason === "tool_use") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blocks = res.content as any[];
-      const results = blocks
-        .filter((b) => b.type === "tool_use")
-        .map((b) => ({
+      const results = [];
+      for (const b of blocks) {
+        if (b.type !== "tool_use") continue;
+        results.push({
           type: "tool_result" as const,
           tool_use_id: b.id as string,
-          content: onToolCall(b.name as string, b.input as Record<string, unknown>),
-        }));
+          content: await onToolCall(b.name as string, b.input as Record<string, unknown>),
+        });
+      }
       messages.push({ role: "user", content: results });
       continue;
     }
@@ -351,7 +353,7 @@ async function agentLoopOpenAI(
     if (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
         const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-        messages.push({ role: "tool", tool_call_id: tc.id, content: onToolCall(tc.function.name, input) });
+        messages.push({ role: "tool", tool_call_id: tc.id, content: await onToolCall(tc.function.name, input) });
       }
       continue;
     }
@@ -411,7 +413,7 @@ async function agentLoopOpenAIResponses(
       input.push({
         type: "function_call_output",
         call_id: call.call_id,
-        output: onToolCall(call.name, parameters),
+        output: await onToolCall(call.name, parameters),
       });
     }
   }

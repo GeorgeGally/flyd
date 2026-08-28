@@ -42,6 +42,7 @@ interface ConversationInput {
   crossRepo?: BriefRepo[];
   presentHypothesis?: string | null;
   weather?: string;
+  askUser?: (prompt: string) => Promise<boolean>;
 }
 
 interface ConversationResponderDependencies {
@@ -272,7 +273,12 @@ const conversationTools: AgentTool[] = [
 
 const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push\s+(?:--force(?:-with-lease)?|-f)\b|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
 
-function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (token: string) => void): ToolHandler {
+function createToolHandler(
+  projectRoot: string,
+  knownRepos: string[],
+  onToken: (token: string) => void,
+  askUser?: (prompt: string) => Promise<boolean>,
+): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
   };
@@ -302,7 +308,7 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
     return full.startsWith(`${root}${sep}`) || full === root ? full : null;
   };
 
-  return (name: string, input: Record<string, unknown>): string => {
+  return async (name: string, input: Record<string, unknown>): Promise<string> => {
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
     switch (name) {
@@ -428,7 +434,14 @@ function createToolHandler(projectRoot: string, knownRepos: string[], onToken: (
         const command = String(input.command ?? "").trim();
         if (!command) return "Error: empty command";
         if (BLOCKED_COMMAND.test(command)) {
-          return `Blocked: ${command} — destructive command; run it yourself if intended`;
+          if (askUser) {
+            const approved = await askUser(`Run destructive command? "${command}"\nType y to approve, anything else to refuse: `);
+            if (!approved) {
+              return `Blocked: ${command} — destructive command; run it yourself if intended`;
+            }
+          } else {
+            return `Blocked: ${command} — destructive command; run it yourself if intended`;
+          }
         }
         try {
           const stdout = execFileSync("/bin/bash", ["-c", command], {
@@ -709,10 +722,10 @@ export async function respondToConversation(
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
-  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken);
-  const observedHandler: ToolHandler = (name, toolInput) => {
+  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser);
+  const observedHandler: ToolHandler = async (name, toolInput) => {
     try {
-      const result = handler(name, toolInput);
+      const result = await handler(name, toolInput);
       const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool)/.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
       return result;

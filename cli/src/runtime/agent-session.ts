@@ -43,6 +43,7 @@ export interface ConversationTurn {
 interface AgentTerminal {
   write(message: string): void;
   ask(prompt: string): Promise<string>;
+  confirm(prompt: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -71,6 +72,7 @@ interface AgentSessionDependencies {
     crossRepo: BriefRepo[];
     presentHypothesis?: string | null;
     weather?: string;
+    askUser?(prompt: string): Promise<boolean>;
     onToken(token: string): void;
   }): Promise<string>;
 }
@@ -120,11 +122,24 @@ const QUESTION_OUTCOME = /^(?:so\s+)?(?:how|why|what|when|where|who)\b|[?？]\s*
 
 function introLine(
   situation: AgentSituation | null,
-  _presentHypothesis?: string | null,
+  presentHypothesis?: string | null,
 ): string {
   let line = `\n${ART}\n\n  ${greeting()}`;
   const value = valueOpening(situation);
-  if (value) line += `\n  ${value}`;
+  if (value) {
+    line += `\n  ${value}`;
+  } else {
+    const hypothesis = (presentHypothesis ?? "").trim().split("\n")[0] ?? "";
+    if (
+      hypothesis &&
+      hypothesis !== "I don't have a clear picture yet." &&
+      hypothesis !== "Nothing urgent on the board."
+    ) {
+      line += `\n  ${hypothesis}`;
+    } else {
+      line += `\n  What are we working on today?`;
+    }
+  }
   return wrapDisplayText(line + "\n\n");
 }
 
@@ -216,6 +231,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         situation,
         crossRepo: repos,
         presentHypothesis,
+        askUser: (prompt) => deps.terminal.confirm(prompt),
         onToken: (token) => {
           if (!streamed) stopSpinner();
           streamed = true;

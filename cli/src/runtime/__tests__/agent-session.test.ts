@@ -10,6 +10,7 @@ function terminal(answers: string[]) {
   return {
     write: vi.fn(),
     ask: vi.fn(async () => answers.shift() ?? "/exit"),
+    confirm: vi.fn(async () => false),
     close: vi.fn(async () => undefined),
   };
 }
@@ -663,5 +664,76 @@ describe("runAgentSession", () => {
     expect(respond).toHaveBeenCalledWith(expect.objectContaining({
       message: "so how do we fix this?",
     }));
+  });
+
+  it("opens with the PA fallback question when there is no signal and no hypothesis", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => null),
+    });
+
+    const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
+    expect(intro).toContain("What are we working on today?");
+  });
+
+  it("opens with the present hypothesis when nothing is actionable", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: null,
+        outcome: null,
+        status: null,
+        nextAction: null,
+      })),
+      loadPresentHypothesis: vi.fn(async () => "CleanX and Good Neighbours both moved."),
+    });
+
+    const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
+    expect(intro).toContain("CleanX and Good Neighbours both moved.");
+  });
+
+  it("does not append the hypothesis when a next action exists", async () => {
+    const ui = terminal(["/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => ({
+        project: "GeorgeGally/flyd",
+        branch: "main",
+        head: "abc123",
+        dirty: false,
+        changedFiles: 0,
+        latestCommit: null,
+        outcome: null,
+        status: null,
+        nextAction: "Run the focused tests",
+      })),
+      loadPresentHypothesis: vi.fn(async () => "sponsor outreach is due"),
+    });
+
+    const intro = String(ui.write.mock.calls[0]?.[0] ?? "");
+    expect(intro).toContain("Next: Run the focused tests.");
+    expect(intro).not.toContain("sponsor outreach is due");
   });
 });
