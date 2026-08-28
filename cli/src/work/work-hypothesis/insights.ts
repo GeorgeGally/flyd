@@ -183,34 +183,29 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
-/** Spoken morning brief — priority, what moved, what's stuck. No catalogs. */
+/** Spoken morning brief — risk, then what's stuck, then forward deadline. No recaps. */
 export function formatPresentModelText(
   insights: PresentInsights,
   _options: { preferCoreHome?: boolean; demotedNames?: string[] } = {},
 ): string {
   const parts: string[] = [];
-  const today = spokenName(insights.nextTodo);
-  if (today && insights.nextDueAt) {
-    parts.push(`${today} is first — due ${formatDueSpoken(insights.nextDueAt)}.`);
-  } else if (today) {
-    parts.push(`${today} is first today.`);
+
+  for (const tension of insights.tensions) {
+    parts.push(tension);
   }
 
-  const movers = uniqueNames(
-    insights.latestMoves
-      .filter((m) => !/flyd/i.test(m.name))
-      .map((m) => spokenName(m.name)),
-  ).filter((n) => !today || n.toLowerCase() !== today.toLowerCase());
-
-  if (movers.length === 1) parts.push(`${movers[0]} moved.`);
-  else if (movers.length === 2) parts.push(`${movers[0]} and ${movers[1]} both moved.`);
-  else if (movers.length > 2) parts.push(`${joinNames(movers)} all moved.`);
-
+  const today = spokenName(insights.nextTodo);
   const stalled = uniqueNames(insights.stalledThreads.map((n) => spokenName(n))).filter(
     (n) => !today || n.toLowerCase() !== today.toLowerCase(),
   );
-  if (stalled.length === 1) parts.push(`${stalled[0]} still hasn't.`);
-  else if (stalled.length > 1) parts.push(`${joinNames(stalled)} still haven't.`);
+  if (stalled.length === 1) parts.push(`${stalled[0]} still hasn't moved.`);
+  else if (stalled.length > 1) parts.push(`${joinNames(stalled)} still haven't moved.`);
+
+  if (today && insights.nextDueAt) {
+    parts.push(`${today} is due ${formatDueSpoken(insights.nextDueAt)}.`);
+  } else if (today) {
+    parts.push(`Next: ${today}.`);
+  }
 
   if (parts.length) return parts.join(" ");
 

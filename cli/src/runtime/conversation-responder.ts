@@ -67,10 +67,15 @@ export function immediateConversationReply(
 }
 
 const CURRENT_WORK_QUESTION =
-  /^(?:what (?:am i|are you) (?:working on|doing)|(?:what(?:'s|s| are)?(?:\s+my)?\s+)?(?:active|current) projects|resume (?:work|where i was))\b/i;
+  /^(?:what (?:am i|are you) (?:working on|doing)|what(?:'s|s| is) on my plate|(?:what(?:'s|s| are)?(?:\s+my)?\s+)?(?:active|current) projects|resume (?:work|where i was))\b/i;
 
 /** Long pastes often contain phrases like "active projects" — ignore those. */
 const CURRENT_WORK_MAX_CHARS = 280;
+
+export function isCurrentWorkQuestion(message: string): boolean {
+  const trimmed = message.trim();
+  return trimmed.length <= CURRENT_WORK_MAX_CHARS && CURRENT_WORK_QUESTION.test(trimmed);
+}
 
 /** Deterministic Present Model answer — do not let the LLM invent a Flyd status catalog. */
 export function presentModelReply(
@@ -116,9 +121,7 @@ export async function specialistHandoff(
 
 export function buildConversationPrompt(input: ConversationInput): { system: string; prompt: string } {
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
-  const trimmedMessage = input.message.trim();
-  const currentWorkQuestion =
-    trimmedMessage.length <= CURRENT_WORK_MAX_CHARS && CURRENT_WORK_QUESTION.test(trimmedMessage);
+  const currentWorkQuestion = isCurrentWorkQuestion(input.message);
   const includeSituation = input.situation !== null && !currentWorkQuestion;
   const situation = includeSituation && input.situation
     ? `\nCurrent repository and task evidence:
@@ -148,11 +151,9 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   // For every other turn, keep Documents/git visibility — otherwise named projects
   // like DIR disappear even when they are registered under ~/Documents.
   const crossRepo =
-    currentWorkQuestion
-      ? ""
-      : input.crossRepo?.length
-        ? crossRepoContext(input.crossRepo)
-        : "";
+    input.crossRepo?.length
+      ? crossRepoContext(input.crossRepo)
+      : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
 
   return {
@@ -167,7 +168,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "Current repository and task evidence outranks older memory for claims about current code or active coding work."
         : "",
       currentWorkQuestion
-        ? "For current-work questions, use the shared Present Model hypothesis. Do not synthesize a ranked repo catalog."
+        ? "For current-work questions, inspect the named projects' actual current state before advising — read their repos, check the live web presence, and use memory. Never invent a task that is not confirmed to exist. Do not synthesize a ranked repo catalog."
         : "",
       repositoryQuestion
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
@@ -270,6 +271,17 @@ const conversationTools: AgentTool[] = [
         repo: { type: "string", description: "Repository root path (omit for current project)" },
       },
       required: ["command"],
+    },
+  },
+  {
+    name: "read_url",
+    description: "Fetch a public web page and return its text content. Use to inspect live websites, social pages, or docs before advising.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Absolute http(s) URL to fetch" },
+      },
+      required: ["url"],
     },
   },
 ];
@@ -463,6 +475,34 @@ function createToolHandler(
           return combined.length > 8000
             ? `${combined.slice(0, 8000)}\n... (truncated)`
             : combined;
+        }
+      }
+      case "read_url": {
+        const url = String(input.url ?? "").trim();
+        if (!/^https?:\/\//i.test(url)) return `Error: read_url requires an absolute http(s) URL`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+        try {
+          const response = await fetch(url, {
+            signal: controller.signal,
+            redirect: "follow",
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; Flyd)" },
+          });
+          if (!response.ok) return `Error: HTTP ${response.status} for ${url}`;
+          const html = await response.text();
+          const text = html
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (!text) return `No readable text on ${url}`;
+          return text.length > 8000 ? `${text.slice(0, 8000)}\n... (truncated)` : text;
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          return `Error fetching ${url}: ${message}`;
+        } finally {
+          clearTimeout(timer);
         }
       }
       default:
@@ -676,7 +716,8 @@ export async function respondToConversation(
     );
     return answer;
   }
-  const fromPresent = presentModelReply(input.message, input.presentHypothesis);
+  const hasInspectableProject = Boolean(input.situation?.projectRoot || (input.crossRepo?.length ?? 0) > 0);
+  const fromPresent = hasInspectableProject ? null : presentModelReply(input.message, input.presentHypothesis);
   if (fromPresent) {
     emit(fromPresent);
     await record({ model: "local", providerIdentity: "flyd/present-model" }, [], fromPresent, "succeeded");
@@ -751,7 +792,10 @@ export async function respondToConversation(
       model,
       maxIterations,
     );
-    if (PROJECT_EVIDENCE_QUESTION.test(input.message)
+    const inspectionRequired = PROJECT_EVIDENCE_QUESTION.test(input.message)
+      || isCurrentWorkQuestion(input.message)
+      || mentioned !== null;
+    if (inspectionRequired
       && !toolCalls.some((call) => call.succeeded)
       && !evidence && !facts) {
       if (input.askUser) {

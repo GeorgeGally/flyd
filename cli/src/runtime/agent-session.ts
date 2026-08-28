@@ -7,6 +7,7 @@ import {
   openChatSession,
   replyText,
 } from "./cli-chat-kernel.js";
+import { isCurrentWorkQuestion } from "./conversation-responder.js";
 import { stdout } from "process";
 
 const DIM = "\u001b[2m";
@@ -180,6 +181,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
    * memory, call the model with streaming, and return the full reply.
    */
   async function runConversationTurn(message: string): Promise<string> {
+    const currentWorkQuestion = isCurrentWorkQuestion(message);
     try {
       situation = await deps.loadSituation();
     } catch {
@@ -195,7 +197,10 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           presentHypothesis;
       }
     }
-    const memory = await deps.retrieveMemory(message);
+    const memoryQuery = currentWorkQuestion
+      ? [message, presentHypothesis ?? "", (repos.map((r) => r.name).join(" ") || "")].filter(Boolean).join(" ")
+      : message;
+    const memory = await deps.retrieveMemory(memoryQuery);
     if (deps.loadCrossRepo && Date.now() - lastContextRefresh > CROSS_REPO_TTL_MS) {
       repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
       lastContextRefresh = Date.now();

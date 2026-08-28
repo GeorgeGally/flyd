@@ -306,7 +306,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -445,6 +445,88 @@ describe("buildConversationPrompt", () => {
     expect(budgets[0]).toBe(8);
     expect(budgets[1]).toBe(40);
     expect(budgets[2]).toBe(8);
+  });
+
+  it("routes a current-work plate question through the agent when a project is inspectable", async () => {
+    const streamed: string[] = [];
+    let ranLoop = false;
+    const answer = await respondToConversation({
+      message: "whats on my plate",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "flyd", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      crossRepo: [
+        {
+          root: "/Users/radarboy3000/Documents/goodneighboursmarket",
+          name: "goodneighboursmarket", branch: "main", dirty: false,
+          lastCommitRelative: "2 days ago", isForeground: false,
+        },
+      ],
+      presentHypothesis: "  Get visitors to GNM event is due 5 September.",
+      onToken: (token) => streamed.push(token),
+    }, {
+      runAgentLoop: async () => {
+        ranLoop = true;
+        return "<final>inspect the GNM site and repo before advising</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(ranLoop).toBe(true);
+    expect(answer).toContain("inspect the GNM site");
+  });
+
+  it("requires a successful inspection tool call before a concrete current-work answer", async () => {
+    const emptyDir = join(tmpdir(), `flyd-plate-guard-${Date.now()}`);
+    mkdirSync(emptyDir, { recursive: true });
+    try {
+      await expect(respondToConversation({
+        message: "whats on my plate",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "flyd", branch: "main", head: "abc", dirty: false,
+          changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+          projectRoot: emptyDir,
+        },
+        crossRepo: [],
+        presentHypothesis: "  Get visitors to GNM event is due 5 September.",
+        onToken: () => undefined,
+      }, {
+        runAgentLoop: async () => "<final>next action: build the landing page</final>",
+        persistReceipt: async (input) => input as never,
+      })).rejects.toThrow("refused an ungrounded project answer");
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces the read_url tool for live web inspection", async () => {
+    let seen = "";
+    await respondToConversation({
+      message: "check the GNM website",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "flyd", branch: "main", head: "abc", dirty: false,
+        changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      onToken: () => undefined,
+    }, {
+      runAgentLoop: async (_s, _p, tools, onToolCall) => {
+        const urlTool = (tools as Array<{ name: string }>).find((t) => t.name === "read_url");
+        seen = urlTool ? "has read_url" : "missing";
+        return "<final>inspected</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(seen).toBe("has read_url");
   });
 
   it("lets the model page through long source files instead of losing later evidence", async () => {

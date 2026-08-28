@@ -3,7 +3,7 @@ import { buildConversationPrompt } from "../../../runtime/conversation-responder
 import { projectHypothesisLine } from "../store.js";
 
 describe("present model surfaces", () => {
-  it("current-work prompts use Present Model and omit catalog dump", () => {
+  it("current-work prompts surface repo paths for inspection and forbid catalog synthesis", () => {
     const hypothesis =
       "Good Neighbours · CleanX look like tonight's active threads.";
     const { prompt, system } = buildConversationPrompt({
@@ -30,14 +30,24 @@ describe("present model surfaces", () => {
           lastCommitRelative: "11 months ago",
           isForeground: false,
         },
+        {
+          root: "/tmp/cleanx",
+          name: "cleanx",
+          branch: "main",
+          dirty: false,
+          lastCommitRelative: "2 days ago",
+          isForeground: false,
+        },
       ],
       presentHypothesis: `  ${hypothesis}`,
     });
 
     expect(prompt).toContain(hypothesis);
     expect(prompt).toContain("<present-model>");
-    expect(prompt).not.toContain("aigc");
-    expect(system).toMatch(/Present Model/);
+    expect(prompt).toContain("aigc");
+    expect(prompt).toContain("/tmp/aigc");
+    expect(system).toMatch(/inspect the named projects' actual current state/);
+    expect(system).toMatch(/Do not synthesize a ranked repo catalog/);
   });
 
   it("keeps Documents/git visibility when Present Model is set but the question is about a named project", () => {

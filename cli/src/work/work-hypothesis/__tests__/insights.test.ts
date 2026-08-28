@@ -92,7 +92,7 @@ describe("present insights", () => {
     expect(insights.tensions.some((t) => /Attention split|Uncommitted/i.test(t))).toBe(true);
 
     const text = formatPresentModelText(insights, { preferCoreHome: true });
-    expect(text).toBe("CleanX moved. Jobs still hasn't.");
+    expect(text).toBe("Uncommitted work sitting on Jobs without recent commits. Jobs still hasn't moved.");
     expect(text).not.toMatch(/Today:|Active:|Watch:|Moved:|Finished:|Insights:/);
     expect(text).not.toMatch(/Flyd/);
   });
@@ -121,9 +121,9 @@ describe("present insights", () => {
     expect(insights.nextLeverage).toMatch(/dead internet radio/i);
 
     const text = formatPresentModelText(insights, { preferCoreHome: true });
-    expect(text).toBe("Dead Internet Radio is first today. CleanX moved.");
+    expect(text).toBe("Next: Dead Internet Radio.");
     expect(text).not.toMatch(/\(DIR\)/);
-    expect(text).not.toMatch(/Today:|Active:/);
+    expect(text).not.toMatch(/Today:|Active:|Moved:/);
   });
 
   it("puts a dated commitment first in the spoken brief", async () => {
