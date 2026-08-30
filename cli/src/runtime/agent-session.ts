@@ -218,7 +218,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     deps.terminal.write("\u001b[?25l");
     spinInterval = setInterval(() => {
       if (!spinnerActive) return;
-      deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : `${spinner[spinnerIdx]}${THINKING_LABEL}`);
+      deps.terminal.write(`\x1b[${THINKING_LABEL_LEN}D${spinner[spinnerIdx]}${THINKING_LABEL}`);
       spinnerStarted = true;
       spinnerIdx = (spinnerIdx + 1) % spinner.length;
     }, 100);
