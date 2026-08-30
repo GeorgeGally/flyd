@@ -159,4 +159,77 @@ describe("feedLineReader / bracketed paste", () => {
     expect(result.state.cursor).toBe(1);
     expect(result.echo).toBe("a");
   });
+
+  it("jumps left by a word with Alt+Left", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[1;3D");
+    expect(result.state.cursor).toBe(6);
+    expect(result.echo).toBe("\x1b[5D");
+  });
+
+  it("jumps right by a word with Alt+Right", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[1;3D\x1b[1;3D");
+    state = result.state;
+    expect(state.cursor).toBe(0);
+    result = feedLineReader(state, "\x1b[1;3C");
+    expect(result.state.cursor).toBe(6);
+    expect(result.echo).toBe("\x1b[6C");
+  });
+
+  it("jumps to the start of the line with Home", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[H");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("\x1b[11D");
+  });
+
+  it("jumps to the end of the line with End", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[H");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[F");
+    expect(result.state.cursor).toBe(11);
+    expect(result.echo).toBe("\x1b[11C");
+  });
+
+  it("clamps word jumps at the start and end of the line", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[1;3D\x1b[1;3D");
+    state = result.state;
+    expect(state.cursor).toBe(0);
+    result = feedLineReader(state, "\x1b[1;3D");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("");
+
+    result = feedLineReader(state, "\x1b[1;3C\x1b[1;3C");
+    state = result.state;
+    expect(state.cursor).toBe(11);
+    result = feedLineReader(state, "\x1b[1;3C");
+    expect(result.state.cursor).toBe(11);
+    expect(result.echo).toBe("");
+  });
+
+  it("jumps by word with Alt+b and Alt+f", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "hello world");
+    state = result.state;
+    result = feedLineReader(state, "\x1bb");
+    state = result.state;
+    expect(state.cursor).toBe(6);
+    expect(result.echo).toBe("\x1b[5D");
+    result = feedLineReader(state, "\x1bf");
+    expect(result.state.cursor).toBe(11);
+    expect(result.echo).toBe("\x1b[5C");
+  });
 });

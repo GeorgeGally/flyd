@@ -196,6 +196,55 @@ export function feedLineReader(
         i += 4;
         continue;
       }
+      // Modifier + arrows jump by word (Alt/Cmd/Ctrl+Left/Right).
+      const wordJump = rest.match(/^\x1b\[1;(\d+)([CD])/);
+      if (wordJump) {
+        if (wordJump[2] === "D" && cursor > 0) {
+          const target = wordLeft(buffer, cursor);
+          const k = cursor - target;
+          cursor = target;
+          echo += `\x1b[${k}D`;
+        }
+        if (wordJump[2] === "C" && cursor < buffer.length) {
+          const target = wordRight(buffer, cursor);
+          const k = target - cursor;
+          cursor = target;
+          echo += `\x1b[${k}C`;
+        }
+        i += wordJump[0].length;
+        continue;
+      }
+      if (rest.startsWith("\x1bb") && cursor > 0) {
+        const target = wordLeft(buffer, cursor);
+        const k = cursor - target;
+        cursor = target;
+        echo += `\x1b[${k}D`;
+        i += 2;
+        continue;
+      }
+      if (rest.startsWith("\x1bf") && cursor < buffer.length) {
+        const target = wordRight(buffer, cursor);
+        const k = target - cursor;
+        cursor = target;
+        echo += `\x1b[${k}C`;
+        i += 2;
+        continue;
+      }
+      // Home / End jump to the start / end of the line.
+      const homeMod = rest.match(/^\x1b\[1;(\d+)H/);
+      if ((homeMod || rest.startsWith("\x1b[H") || rest.startsWith("\x1bOH") || rest.startsWith("\x1b[1~")) && cursor > 0) {
+        echo += `\x1b[${cursor}D`;
+        cursor = 0;
+        i += homeMod ? homeMod[0].length : rest.startsWith("\x1b[1~") ? 4 : 3;
+        continue;
+      }
+      const endMod = rest.match(/^\x1b\[1;(\d+)F/);
+      if ((endMod || rest.startsWith("\x1b[F") || rest.startsWith("\x1bOF") || rest.startsWith("\x1b[4~")) && cursor < buffer.length) {
+        echo += `\x1b[${buffer.length - cursor}C`;
+        cursor = buffer.length;
+        i += endMod ? endMod[0].length : rest.startsWith("\x1b[4~") ? 4 : 3;
+        continue;
+      }
       if (isIncompleteCsi(input, i)) {
         pending = rest;
         break;
@@ -227,6 +276,20 @@ export function feedLineReader(
 
 function insertAt(str: string, index: number, ins: string): string {
   return str.slice(0, index) + ins + str.slice(index);
+}
+
+function wordLeft(buffer: string, cursor: number): number {
+  let i = cursor;
+  while (i > 0 && buffer[i - 1] === " ") i -= 1;
+  while (i > 0 && buffer[i - 1] !== " ") i -= 1;
+  return i;
+}
+
+function wordRight(buffer: string, cursor: number): number {
+  let i = cursor;
+  while (i < buffer.length && buffer[i] !== " ") i += 1;
+  while (i < buffer.length && buffer[i] === " ") i += 1;
+  return i;
 }
 
 function isIncompleteMarker(input: string, index: number, marker: string): boolean {
