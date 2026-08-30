@@ -65,4 +65,98 @@ describe("feedLineReader / bracketed paste", () => {
     const result = feedLineReader(state, "abc\x03");
     expect(result.interrupt).toBe(true);
   });
+
+  it("moves the edit cursor with left and right arrows", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "abc");
+    state = result.state;
+    expect(state.cursor).toBe(3);
+
+    result = feedLineReader(state, "\x1b[D");
+    state = result.state;
+    expect(state.cursor).toBe(2);
+    expect(result.echo).toBe("\x1b[D");
+
+    result = feedLineReader(state, "\x1b[C");
+    state = result.state;
+    expect(state.cursor).toBe(3);
+    expect(result.echo).toBe("\x1b[C");
+
+    result = feedLineReader(state, "\x1b[D\x1b[D\x1b[D\x1b[D");
+    expect(result.state.cursor).toBe(0);
+    result = feedLineReader(state, "\x1b[C\x1b[C\x1b[C\x1b[C");
+    expect(result.state.cursor).toBe(3);
+  });
+
+  it("forward-deletes the character at the edit cursor", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "abc");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[D\x1b[D");
+    state = result.state;
+    expect(state.cursor).toBe(1);
+
+    result = feedLineReader(state, "\x1b[3~");
+    expect(result.state.buffer).toBe("ac");
+    expect(result.state.cursor).toBe(1);
+    expect(result.echo).toBe("\x1b[0Kc\x1b[1D");
+  });
+
+  it("forward-delete at end of line does nothing", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "ab");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[3~");
+    expect(result.state.buffer).toBe("ab");
+    expect(result.state.cursor).toBe(2);
+    expect(result.echo).toBe("");
+  });
+
+  it("backspaces the character before the edit cursor mid-line", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "abc");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[D\x1b[D");
+    state = result.state;
+    expect(state.cursor).toBe(1);
+
+    result = feedLineReader(state, "\x7f");
+    expect(result.state.buffer).toBe("bc");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("\b\x1b[0Kbc\x1b[2D");
+  });
+
+  it("backspace at the start of the line does nothing", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "ab");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[D\x1b[D");
+    state = result.state;
+    expect(state.cursor).toBe(0);
+    result = feedLineReader(state, "\x7f");
+    expect(result.state.buffer).toBe("ab");
+    expect(result.state.cursor).toBe(0);
+  });
+
+  it("inserts typed characters at the edit cursor", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "ab");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[D");
+    state = result.state;
+    expect(state.cursor).toBe(1);
+
+    result = feedLineReader(state, "X");
+    expect(result.state.buffer).toBe("aXb");
+    expect(result.state.cursor).toBe(2);
+    expect(result.echo).toBe("Xb\x1b[1D");
+  });
+
+  it("types at end of line keep the simple append echo", () => {
+    let state = createLineReaderState();
+    const result = feedLineReader(state, "a");
+    expect(result.state.buffer).toBe("a");
+    expect(result.state.cursor).toBe(1);
+    expect(result.echo).toBe("a");
+  });
 });

@@ -10,6 +10,8 @@ const PASTE_END = "\x1b[201~";
 
 export interface LineReaderState {
   buffer: string;
+  /** UTF-16 offset of the edit cursor in buffer. */
+  cursor: number;
   pasteMode: boolean;
   /** Incomplete escape / paste marker at end of prior chunk. */
   pending: string;
@@ -18,7 +20,7 @@ export interface LineReaderState {
 }
 
 export function createLineReaderState(): LineReaderState {
-  return { buffer: "", pasteMode: false, pending: "", historyIndex: -1, stash: "" };
+  return { buffer: "", cursor: 0, pasteMode: false, pending: "", historyIndex: -1, stash: "" };
 }
 
 export interface LineReaderResult {
@@ -44,7 +46,7 @@ export function feedLineReader(
   chunk: string,
   history: string[] = [],
 ): LineReaderResult {
-  let { buffer, pasteMode, pending, historyIndex, stash } = state;
+  let { buffer, cursor, pasteMode, pending, historyIndex, stash } = state;
   let echo = "";
   let submit: string | undefined;
   let interrupt = false;
@@ -85,7 +87,8 @@ export function feedLineReader(
         continue;
       }
       if (ch === "\n") {
-        buffer += "\n";
+        buffer = insertAt(buffer, cursor, "\n");
+        cursor += 1;
         i += 1;
         continue;
       }
@@ -99,7 +102,8 @@ export function feedLineReader(
         i = skipped;
         continue;
       }
-      buffer += ch;
+      buffer = insertAt(buffer, cursor, ch);
+      cursor += ch.length;
       i += 1;
       continue;
     }
@@ -113,6 +117,7 @@ export function feedLineReader(
       submit = buffer;
       echo += "\n";
       buffer = "";
+      cursor = 0;
       historyIndex = -1;
       stash = "";
       i += 1;
@@ -121,10 +126,16 @@ export function feedLineReader(
       break;
     }
     if (ch === "\x7f" || ch === "\b") {
-      if (buffer.length) {
-        const removed = buffer.slice(-1);
-        buffer = buffer.slice(0, -1);
-        echo += removed === "\n" ? "\x1b[1A\x1b[0K" : "\b \b";
+      if (cursor > 0) {
+        const removed = buffer[cursor - 1] ?? "";
+        buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+        cursor -= 1;
+        if (removed === "\n") {
+          echo += "\x1b[1A\x1b[0K";
+        } else {
+          const tail = buffer.slice(cursor);
+          echo += tail ? `\b\x1b[0K${tail}\x1b[${tail.length}D` : "\b \b";
+        }
       }
       i += 1;
       continue;
@@ -142,6 +153,7 @@ export function feedLineReader(
           const next = Math.min(history.length - 1, historyIndex + 1);
           historyIndex = next;
           buffer = history[next] ?? buffer;
+          cursor = buffer.length;
           redraw = buffer;
         }
         i += 3;
@@ -151,9 +163,37 @@ export function feedLineReader(
         if (historyIndex >= 0) {
           historyIndex -= 1;
           buffer = historyIndex < 0 ? stash : (history[historyIndex] ?? "");
+          cursor = buffer.length;
           redraw = buffer;
         }
         i += 3;
+        continue;
+      }
+      // Left / right arrows move the edit cursor.
+      if (rest.startsWith("\x1b[D")) {
+        if (cursor > 0) {
+          cursor -= 1;
+          echo += "\x1b[D";
+        }
+        i += 3;
+        continue;
+      }
+      if (rest.startsWith("\x1b[C")) {
+        if (cursor < buffer.length) {
+          cursor += 1;
+          echo += "\x1b[C";
+        }
+        i += 3;
+        continue;
+      }
+      // Forward Delete removes the char at the cursor.
+      if (rest.startsWith("\x1b[3~")) {
+        if (cursor < buffer.length) {
+          buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+          const tail = buffer.slice(cursor);
+          echo += tail ? `\x1b[0K${tail}\x1b[${tail.length}D` : "\x1b[0K";
+        }
+        i += 4;
         continue;
       }
       if (isIncompleteCsi(input, i)) {
@@ -168,19 +208,25 @@ export function feedLineReader(
       i += 1;
       continue;
     }
-    buffer += ch;
-    echo += ch;
+    buffer = insertAt(buffer, cursor, ch);
+    cursor += ch.length;
+    const tail = buffer.slice(cursor);
+    echo += tail ? `${ch}${tail}\x1b[${tail.length}D` : ch;
     i += 1;
   }
 
   return {
-    state: { buffer, pasteMode, pending, historyIndex, stash },
+    state: { buffer, cursor, pasteMode, pending, historyIndex, stash },
     echo,
     ...(submit !== undefined ? { submit } : {}),
     ...(interrupt ? { interrupt: true } : {}),
     ...(redraw !== undefined ? { redraw } : {}),
     ...(pasteEnded ? { pasteEnded: true } : {}),
   };
+}
+
+function insertAt(str: string, index: number, ins: string): string {
+  return str.slice(0, index) + ins + str.slice(index);
 }
 
 function isIncompleteMarker(input: string, index: number, marker: string): boolean {
