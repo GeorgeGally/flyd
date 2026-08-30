@@ -202,6 +202,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       lastContextRefresh = Date.now();
     }
     const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const THINKING_LABEL = " Thinking...";
+    const THINKING_LABEL_LEN = THINKING_LABEL.length + 1;
     let spinnerIdx = 0;
     let spinnerActive = true;
     let spinnerStarted = false;
@@ -210,13 +212,13 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       if (!spinnerActive) return;
       spinnerActive = false;
       if (spinInterval) clearInterval(spinInterval);
-      if (spinnerStarted) deps.terminal.write("\b \b");
+      if (spinnerStarted) deps.terminal.write("\b \b".repeat(THINKING_LABEL_LEN));
       deps.terminal.write("\u001b[?25h");
     };
     deps.terminal.write("\u001b[?25l");
     spinInterval = setInterval(() => {
       if (!spinnerActive) return;
-      deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : spinner[spinnerIdx]);
+      deps.terminal.write(spinnerStarted ? `\b${spinner[spinnerIdx]}` : `${spinner[spinnerIdx]}${THINKING_LABEL}`);
       spinnerStarted = true;
       spinnerIdx = (spinnerIdx + 1) % spinner.length;
     }, 100);

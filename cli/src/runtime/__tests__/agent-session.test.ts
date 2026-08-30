@@ -151,7 +151,7 @@ describe("runAgentSession", () => {
     });
 
     const output = ui.write.mock.calls.map(([value]) => value).join("");
-    expect(output).toContain("\nFlyd >\n\u001b[?25l⠋");
+    expect(output).toContain("\nFlyd >\n\u001b[?25l⠋ Thinking...");
     expect(output).toContain("\u001b[?25hHello back.");
   });
 
