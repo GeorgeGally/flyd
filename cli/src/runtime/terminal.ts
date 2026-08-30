@@ -326,6 +326,7 @@ export class NodeTerminal {
             `\n[pasted ${lines} line${lines === 1 ? "" : "s"}, ${state.buffer.length} chars — ${preview}${more}]\n` +
               "(Enter to send, or keep typing)\n",
           );
+          this.output.write(state.buffer);
         }
         if (result.redraw !== undefined) {
           // Clear current visual line(s) and rewrite buffer.
