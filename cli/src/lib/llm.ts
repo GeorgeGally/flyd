@@ -243,6 +243,21 @@ async function streamAnthropic(
   return full;
 }
 
+// ponytail: a plain conversation turn budgets 8 iterations, but a self-repair
+// turn that starts editing files must be able to finish the edit; a successful
+// write extends the ceiling to WRITE_TOOL_CEILING, per-account ceilings if needed.
+const WRITE_TOOL_CEILING = 40;
+const WRITE_TOOLS = new Set(["edit_file", "write_file"]);
+const WRITE_FAILURE_PREFIX = /^(?:Error |Access denied|File not found)/;
+
+function isWriteTool(name: string): boolean {
+  return WRITE_TOOLS.has(name);
+}
+
+function isFailedWrite(content: string): boolean {
+  return WRITE_FAILURE_PREFIX.test(content);
+}
+
 async function agentLoopAnthropic(
   system: string,
   userMessage: string,
@@ -258,10 +273,11 @@ async function agentLoopAnthropic(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [{ role: "user", content: userMessage }];
 
-  for (let i = 0; i < maxIterations; i++) {
+  let editing = false;
+  for (let i = 0; i < (editing ? WRITE_TOOL_CEILING : maxIterations); i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
-    const lastCall = i === maxIterations - 1;
+    const lastCall = i === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
     const res = await client.messages.create({
       model,
       max_tokens: 2048,
@@ -294,10 +310,12 @@ async function agentLoopAnthropic(
       const results = [];
       for (const b of blocks) {
         if (b.type !== "tool_use") continue;
+        const content = await onToolCall(b.name as string, b.input as Record<string, unknown>);
+        if (isWriteTool(b.name) && !isFailedWrite(content)) editing = true;
         results.push({
           type: "tool_result" as const,
           tool_use_id: b.id as string,
-          content: await onToolCall(b.name as string, b.input as Record<string, unknown>),
+          content,
         });
       }
       messages.push({ role: "user", content: results });
@@ -335,8 +353,9 @@ async function agentLoopOpenAI(
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
 
-  for (let i = 0; i < maxIterations; i++) {
-    const lastCall = i === maxIterations - 1;
+  let editing = false;
+  for (let i = 0; i < (editing ? WRITE_TOOL_CEILING : maxIterations); i++) {
+    const lastCall = i === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
     const res = await client.chat.completions.create({
       model,
       ...openAICompletionLimit(2048),
@@ -353,7 +372,9 @@ async function agentLoopOpenAI(
     if (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
         const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-        messages.push({ role: "tool", tool_call_id: tc.id, content: await onToolCall(tc.function.name, input) });
+        const content = await onToolCall(tc.function.name, input);
+        if (isWriteTool(tc.function.name) && !isFailedWrite(content)) editing = true;
+        messages.push({ role: "tool", tool_call_id: tc.id, content });
       }
       continue;
     }
@@ -387,8 +408,9 @@ async function agentLoopOpenAIResponses(
     strict: false,
   }));
 
-  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-    const lastCall = iteration === maxIterations - 1;
+  let editing = false;
+  for (let iteration = 0; iteration < (editing ? WRITE_TOOL_CEILING : maxIterations); iteration += 1) {
+    const lastCall = iteration === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
     const response = await client.responses.create({
       model,
       instructions: lastCall
@@ -410,10 +432,12 @@ async function agentLoopOpenAIResponses(
       } catch {
         throw new Error(`Invalid tool arguments for ${call.name}`);
       }
+      const output = await onToolCall(call.name, parameters);
+      if (isWriteTool(call.name) && !isFailedWrite(output)) editing = true;
       input.push({
         type: "function_call_output",
         call_id: call.call_id,
-        output: await onToolCall(call.name, parameters),
+        output,
       });
     }
   }
