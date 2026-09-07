@@ -159,7 +159,6 @@ async function queryOpenAIWithConfig(
   const res = await client.chat.completions.create({
     model,
     ...openAICompletionLimit(options.json ? 4096 : 2048),
-    temperature: 0.2,
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
   });
@@ -203,7 +202,6 @@ async function streamOpenAI(
   const stream = await client.chat.completions.create({
     model,
     ...openAICompletionLimit(2048),
-    temperature: 0.2,
     messages,
     stream: true,
   });
@@ -359,7 +357,6 @@ async function agentLoopOpenAI(
     const res = await client.chat.completions.create({
       model,
       ...openAICompletionLimit(2048),
-      temperature: 0.2,
       ...(lastCall ? {} : { tools: oaiTools }),
       messages,
     });

@@ -26,7 +26,6 @@ async function queryOpenAI(prompt: string, model: string): Promise<string> {
   const res = await client.chat.completions.create({
     model,
     max_tokens: 400,
-    temperature: 0.3,
     messages: [{ role: "user", content: prompt }],
   });
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");

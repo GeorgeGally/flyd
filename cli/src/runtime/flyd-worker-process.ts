@@ -86,7 +86,6 @@ export function completionClient(
       messages: input.messages as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools: input.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
       tool_choice: "auto",
-      temperature: 0.2,
     }) as unknown as CompletionResponse;
   });
   let activeProvider = 0;

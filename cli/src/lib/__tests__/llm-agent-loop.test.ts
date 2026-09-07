@@ -19,6 +19,19 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
+vi.mock("openai", () => ({
+  default: class {
+    chat = {
+      completions: {
+        create: (params: Record<string, unknown>) => {
+          calls.push(params);
+          return { choices: [{ finish_reason: "stop", message: { content: "answer" } }] };
+        },
+      },
+    };
+  },
+}));
+
 import { agentLoop } from "../llm.js";
 
 describe("agentLoop budget exhaustion", () => {
@@ -46,5 +59,11 @@ describe("agentLoop budget exhaustion", () => {
     expect(calls[0].tools).toBeTruthy();
     expect(calls[1].tools).toBeUndefined();
     expect(String(calls[1].system)).toContain("Tool budget is exhausted");
+  });
+
+  it("omits temperature from OpenAI-compatible chat requests", async () => {
+    await agentLoop("system", "answer", [], () => "", "gpt-4o-mini", 1);
+
+    expect(calls.at(-1)).not.toHaveProperty("temperature");
   });
 });
