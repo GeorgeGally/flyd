@@ -1,6 +1,4 @@
-import { existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { inspectRepositoryFromPath } from '../work/repository-intelligence.js';
 import type {
   CurrentWork,
   EvidenceItem,
@@ -147,8 +145,6 @@ function buildArtifactIdentity(
 function classifyArtifactKind(env: EnvironmentCapture): ArtifactIdentity['kind'] {
   const bundleId = (env.application?.bundle_id || '').toLowerCase();
   const role = env.focused_element?.role || '';
-  const surfaceKind = env.surface?.kind;
-  const windowTitle = (env.window?.title || '').toLowerCase();
 
   if (bundleId.includes('xcode') || bundleId.includes('vscode') || bundleId.includes('cursor') ||
       bundleId.includes('jetbrains') || bundleId.includes('terminal') || bundleId.includes('iterm')) {
@@ -286,72 +282,9 @@ export function resolveRepositoryFromPath(documentPath?: string): {
   recentCommits?: string[];
   changedFiles?: string[];
 } {
-  if (!documentPath) return {};
-
-  try {
-    const root = findGitRoot(documentPath);
-    if (!root) return {};
-
-    const branch = gitOutput(root, 'rev-parse --abbrev-ref HEAD') || undefined;
-    const headDigest = gitOutput(root, 'rev-parse HEAD') || undefined;
-    const status = gitStatusOutput(root);
-    const statusDigest = createHash('sha256').update(status || 'clean').digest('hex');
-    const isDirty = status.length > 0;
-
-    const recentCommitsRaw = gitOutput(root, 'log --oneline -5');
-    const recentCommits = recentCommitsRaw
-      ? recentCommitsRaw.split('\n').filter(Boolean)
-      : undefined;
-
-    const changedFiles = status
-      ? status.split('\n').map(statusPath).filter(Boolean).slice(0, 20)
-      : undefined;
-
-    return { root, branch, headDigest, statusDigest, isDirty, recentCommits, changedFiles };
-  } catch {
-    return {};
-  }
-}
-
-function statusPath(line: string): string {
-  const path = line.slice(3).trim();
-  const renameSeparator = path.indexOf(' -> ');
-  return renameSeparator >= 0 ? path.slice(renameSeparator + 4) : path;
-}
-
-function gitStatusOutput(root: string): string {
-  try {
-    return execSync(`git -C "${root}" status --porcelain=v1 --untracked-files=all`, {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 3000,
-    }).trimEnd();
-  } catch {
-    return '';
-  }
-}
-
-function findGitRoot(startPath: string): string | null {
-  let current = startPath;
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(`${current}/.git`)) return current;
-    const parent = current.substring(0, current.lastIndexOf('/'));
-    if (!parent || parent === current) break;
-    current = parent;
-  }
-  return null;
-}
-
-function gitOutput(root: string, args: string): string {
-  try {
-    return execSync(`git -C "${root}" ${args}`, {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 3000,
-    }).trim();
-  } catch {
-    return '';
-  }
+  const snapshot = inspectRepositoryFromPath(documentPath);
+  if (!snapshot) return {};
+  return snapshot;
 }
 
 function extractProjectName(repoRoot: string): string {
