@@ -1,91 +1,51 @@
-import { randomUUID } from "node:crypto";
 import type { ArtifactCheckResult, HandoffReport } from "./verification-types.js";
 import { validateHandoff } from "./handoff.js";
+import {
+  buildRuntimeTaskRequest,
+  isExplicitDelegationRequest,
+  type RuntimeTaskRequest,
+} from "./runtime/delegation-request.js";
 
-export interface DelegationEnvelope {
-  delegationId: string;
-  intent: string;
-  worldState: Record<string, unknown>;
-  observationRefs: string[];
-  memory: {
-    goals: Array<{ content: unknown }>;
-    tensions: Array<{ content: unknown }>;
-    profile: Array<{ content: unknown }>;
-  };
-  currentProject: string | null;
-  availableCapabilities: string[];
-  goal: string;
-  /** What "done" means for this delegation — the runner verifies against this. */
-  finishCondition: string;
-  completionContract: {
-    requiresHandoff: true;
-    requiresVerifiedArtifacts: true;
-  };
-  grant: {
-    repositories: string[];
-    maxRuntimeMinutes: number;
-    writeAllowed: boolean;
-    networkAllowed: boolean;
-  };
-}
+/**
+ * Compatibility alias for the dormant /manifest delegation field.
+ *
+ * Delegation is no longer a parallel execution model: the payload is now a
+ * RuntimeTaskRequest that must be materialized into the canonical AgentTask /
+ * TaskGrant / WorkerSession runtime before any work starts.
+ */
+export type DelegationEnvelope = RuntimeTaskRequest;
 
 export function buildDelegationEnvelope(
   intent: string,
   worldState: Record<string, unknown>,
   observationRefs: string[],
-  project: string | null
+  project: string | null,
 ): DelegationEnvelope {
-  const goals =
-    (worldState.goals as Array<{ content: unknown }>)?.slice(0, 3) || [];
-  const tensions =
-    (worldState.tensions as Array<{ content: unknown }>)?.slice(0, 2) || [];
-  const profile =
-    (worldState.profile as Array<{ content: unknown }>)?.slice(0, 2) || [];
-
-  return {
-    delegationId: randomUUID(),
+  return buildRuntimeTaskRequest({
     intent,
-    worldState,
+    contextSnapshot: worldState,
     observationRefs,
-    memory: { goals, tensions, profile },
-    currentProject: project,
-    availableCapabilities: [
-      "code_generation",
-      "code_review",
-      "debugging",
-      "research",
-      "verification",
-      "integration",
-    ],
-    goal: `Resolve intent: "${intent.slice(0, 100)}"`,
-    finishCondition: `The intent "${intent.slice(0, 200)}" is resolved with a verified, user-facing outcome.`,
-    completionContract: {
-      requiresHandoff: true,
-      requiresVerifiedArtifacts: true,
-    },
-    grant: {
-      repositories: [],
-      maxRuntimeMinutes: 10,
-      writeAllowed: false,
-      networkAllowed: true,
-    },
-  };
+    projectRoot: project,
+    source: "manifest",
+    taskIntent: "ship",
+  });
 }
 
+/**
+ * Compatibility export for the dormant manifest path. New product routing
+ * should choose Scout/Ship from resolved intent instead of magic phrases.
+ */
 export function isDelegationIntent(intent: string): boolean {
-  const delegationPatterns = [
-    /delegate\s+/i,
-    /spawn\s+(a|an)\s+agent\s+(to|for)\s+/i,
-    /run\s+(a|an)\s+agent\s+(to|for)\s+/i,
-    /create\s+(a|an)\s+agent\s+(to|for)\s+/i,
-    /do\s+this\s+in\s+the\s+background/i,
-  ];
-
-  return delegationPatterns.some((p) => p.test(intent));
+  return isExplicitDelegationRequest(intent);
 }
 
 export type DelegationCompletionStatus = "completed" | "failed" | "blocked";
 
+/**
+ * Legacy completion receipt accepted by the dormant /delegation/complete
+ * endpoint. It remains validation-only while callers migrate to canonical
+ * runtime verification/artifact/task state.
+ */
 export interface DelegationCompletion {
   delegationId: string;
   invocationId: string;
@@ -105,9 +65,8 @@ export interface DelegationCompletion {
 }
 
 /**
- * The completion rule: a delegated task reports an outcome, not activity.
- * "completed" is structurally impossible without a validated handoff and
- * verification evidence that predates the claim.
+ * Legacy receipt validation only. Canonical runtime completion remains owned by
+ * task verification/integration; this validator must never promote a task.
  */
 export function validateDelegationCompletion(c: DelegationCompletion): string | null {
   if (!c.delegationId || !c.invocationId) {
