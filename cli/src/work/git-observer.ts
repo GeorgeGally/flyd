@@ -9,7 +9,6 @@ import {
   setRepositoryIndexedHead,
   insertActivity,
   listRepositories,
-  listActivities,
 } from "./repository-registry.js";
 
 export interface RepositoryObservation {
@@ -165,13 +164,6 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
       workActivityAt,
     });
     setRepositoryIndexedHead(repositoryId, obs.head);
-
-    // ponytail: auto-reconcile PROJECT.md when new commits land
-    try {
-      autoReconcileIfStale(repo.root, repositoryId);
-    } catch {
-      // reconciliation is best-effort, don't block observation
-    }
   } else {
     // Dirty-only / branch-only / fingerprint change: observe, do not stamp as work activity.
     setRepositoryObservation(repositoryId, {
@@ -253,17 +245,4 @@ function classifyDelta(commits: CommitEntry[]): "implementation" | "fix" | "refa
 
 function makeSummary(commits: CommitEntry[]): string {
   return commits.map((c) => c.subject).join("; ");
-}
-
-function autoReconcileIfStale(root: string, repositoryId: string): void {
-  const { join } = require("path") as typeof import("path");
-  const { existsSync } = require("fs") as typeof import("fs");
-  const projectPath = join(root, "PROJECT.md");
-  if (!existsSync(projectPath)) return;
-
-  // ponytail: dynamic import to avoid circular dependency at module load
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { reconcileProject } = require("./project-reconciler.js") as typeof import("./project-reconciler.js");
-  const activities = listActivities(repositoryId, 5);
-  reconcileProject(root, activities);
 }
