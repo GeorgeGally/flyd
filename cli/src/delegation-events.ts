@@ -2,18 +2,11 @@ import { EventEmitter } from "node:events";
 import type { DelegationCompletion, DelegationEnvelope } from "./delegation.js";
 
 /**
- * In-process bridge between the delegation HTTP endpoints (server.ts) and
- * live voice sessions (realtime-session.ts). Both run in the same process,
- * so a plain event emitter is sufficient — no new transport, no polling.
+ * Legacy in-process bridge for the dormant delegation HTTP path.
  *
- * Three event kinds, kept separate so bookkeeping never double-counts:
- * - "pending"    — a job was registered (flyd_delegate call)
- * - "completion" — a real runner accepted-and-verified completion arrived
- *                  via POST /delegation/complete
- * - "timeout"    — the pending sweep gave up waiting for a runner and
- *                  synthesized a blocked completion. Kept distinct from
- *                  "completion" so server.ts can store+meter it without
- *                  double-recording real completions.
+ * This bridge is compatibility-only. It does not own execution authority,
+ * grants, worker deadlines, verification, or completion state. Those belong to
+ * the canonical runtime task system.
  */
 
 type Listener<T> = (payload: T) => void;
@@ -59,7 +52,12 @@ class TypedDelegationEmitter {
 export const delegationEvents = new TypedDelegationEmitter();
 
 const pendingDelegations = new Map<string, { envelope: DelegationEnvelope; registeredAt: number }>();
-const GRACE_MS = 2 * 60 * 1000;
+
+/**
+ * Fixed compatibility timeout for a path that has no execution authority.
+ * Canonical worker/runtime deadlines must come from TaskGrant instead.
+ */
+export const LEGACY_PENDING_TIMEOUT_MS = 12 * 60 * 1000;
 
 export function registerPendingDelegation(envelope: DelegationEnvelope): void {
   pendingDelegations.set(envelope.delegationId, { envelope, registeredAt: Date.now() });
@@ -78,26 +76,25 @@ function synthesizeTimeoutCompletion(envelope: DelegationEnvelope): DelegationCo
   const now = new Date().toISOString();
   return {
     delegationId: envelope.delegationId,
-    invocationId: envelope.delegationId,
+    invocationId: envelope.invocationId ?? envelope.delegationId,
     status: "blocked",
     handoff: null,
     activity: [],
     verification: null,
-    blocker: "runner_timeout: no runner reported completion within the grant window",
+    blocker: "legacy_runner_timeout: compatibility runner did not report completion",
     claimedAt: now,
   };
 }
 
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 
-/** Sweeps pending jobs older than grant.maxRuntimeMinutes + grace; emits a synthetic blocked completion for each. */
+/** Sweep only the legacy pending bridge; this is not a worker/runtime deadline. */
 export function startPendingSweep(intervalMs = 30_000): void {
   if (sweepInterval) return;
   sweepInterval = setInterval(() => {
     const now = Date.now();
     for (const [id, entry] of pendingDelegations) {
-      const deadline = entry.registeredAt + entry.envelope.grant.maxRuntimeMinutes * 60_000 + GRACE_MS;
-      if (now >= deadline) {
+      if (now - entry.registeredAt >= LEGACY_PENDING_TIMEOUT_MS) {
         pendingDelegations.delete(id);
         delegationEvents.emitTimeout(synthesizeTimeoutCompletion(entry.envelope));
       }
