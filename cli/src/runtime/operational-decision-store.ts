@@ -24,6 +24,13 @@ function decisionEvent(row: QueryResultRow): OperationalDecisionEvent {
   } as OperationalDecisionEvent;
 }
 
+export interface OpenOperationalDecisionFact {
+  decision: OperationalDecision;
+  taskKey: string;
+  projectName: string;
+  projectRoot: string;
+}
+
 export class OperationalDecisionStore {
   constructor(private readonly pool: Pool) {}
 
@@ -83,6 +90,28 @@ export class OperationalDecisionStore {
   async listOpenDecisions(taskKey?: string): Promise<OperationalDecision[]> {
     const events = taskKey ? await this.eventsForTask(taskKey) : await this.allDecisionEvents();
     return openOperationalDecisions(events);
+  }
+
+  async listOpenDecisionFacts(): Promise<OpenOperationalDecisionFact[]> {
+    const decisions = await this.listOpenDecisions();
+    if (decisions.length === 0) return [];
+
+    const taskIds = [...new Set(decisions.map((decision) => decision.taskId))];
+    const result = await this.pool.query(`SELECT t.id, t.task_key, p.name AS project_name, p.root_path AS project_root
+      FROM agent_tasks t JOIN projects p ON p.id = t.project_id
+      WHERE t.id = ANY($1::bigint[])`, [taskIds]);
+    const taskById = new Map(result.rows.map((row) => [String(row.id), row]));
+
+    return decisions.flatMap((decision) => {
+      const task = taskById.get(decision.taskId);
+      if (!task) return [];
+      return [{
+        decision,
+        taskKey: task.task_key,
+        projectName: task.project_name,
+        projectRoot: task.project_root,
+      }];
+    });
   }
 
   private async requireOpen(taskKey: string, decisionId: string): Promise<OperationalDecision> {
