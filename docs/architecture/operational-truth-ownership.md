@@ -9,7 +9,7 @@ Flyd may have multiple stores and projections, but every semantic fact must have
 
 | Truth | Canonical owner | Current implementation | Consumers / projections | Migration direction |
 |---|---|---|---|---|
-| User intent and requested outcome | Intent / policy layer | Core resolution + runtime task creation | execution runtime, Present, intelligence | keep one intent-to-task path |
+| User intent and requested outcome | Intent / policy layer | Core resolution + `RuntimeTaskRequest` compatibility seam | execution runtime, Present, intelligence | materialize confirmed requests into `AgentTask`; retire magic-phrase routing |
 | Task lifecycle | Execution Runtime | `cli/src/runtime/task-store.ts` + runtime types | Present, UI, intelligence outcomes | canonicalize on `AgentTask` |
 | Assignment lifecycle | Execution Runtime | `TaskAssignment` | supervisor, verifier, Present | keep |
 | Authority / capability grant | Execution Runtime | `TaskGrant` | workers, verifier, supervisor | keep; UX presets compile to grants |
@@ -82,9 +82,26 @@ High-level subsystems must not independently shell out for basic repository stat
 
 Deep Git operations remain valid when semantically required, but they should be exposed as Repository Intelligence capabilities rather than reimplemented ad hoc.
 
+### 6. Intent requests do not carry execution authority
+
+`RuntimeTaskRequest` is the compatibility seam between intent resolution and execution. It may contain intended outcome, task intent, evidence references, and context, but it must not contain write/network permission or runtime deadlines.
+
+A confirmed request is materialized through the canonical runtime sequence:
+
+```text
+RuntimeTaskRequest
+  -> independently observed RepositorySnapshot
+  -> createTask()
+  -> recordOrientation()
+  -> propose/approve TaskGrant
+  -> assignments/workers/verification/integration
+```
+
+The legacy `delegationId` is an alias for request identity only while `/delegation/complete` remains. It is not a second task identifier.
+
 ## Known duplicate truths to retire
 
-1. `DelegationEnvelope` / `DelegationCompletion` versus runtime `AgentTask` / `TaskGrant` / `WorkerSession`.
+1. Legacy delegation completion/pending bridge versus runtime task verification and lifecycle. `DelegationEnvelope` itself is now only a compatibility alias over `RuntimeTaskRequest`; it no longer carries grant authority.
 2. Work-index tasks versus runtime delegated tasks.
 3. Multiple independent Git reads in work-hypothesis, current-work, and runtime paths.
 4. Dynamic `PROJECT.md` state versus Flyd's own live project understanding.
