@@ -13,6 +13,14 @@ export interface ManagedRepository {
   defaultBranch?: string;
   lastSeenHead?: string;
   lastIndexedHead?: string;
+  /** Fingerprint of the last fully observed repository state. */
+  lastObservationFingerprint?: string;
+  /** Cached branch from the last full repository observation. */
+  observedBranch?: string;
+  /** Cached dirty state from the last full repository observation. */
+  observedDirty?: boolean;
+  /** Cached uncommitted file count from the last full repository observation. */
+  observedUncommittedFiles?: number;
   /** Last verified work activity (commit time), not observation time. */
   lastActivityAt?: string;
   /** Last time Flyd observed this repo (scan/fingerprint). */
@@ -165,6 +173,12 @@ function mapRepoRow(r: Record<string, unknown>): ManagedRepository {
     defaultBranch: (r.default_branch as string) || undefined,
     lastSeenHead: (r.last_seen_head as string) || undefined,
     lastIndexedHead: (r.last_indexed_head as string) || undefined,
+    lastObservationFingerprint: (r.last_observation_fingerprint as string) || undefined,
+    observedBranch: (r.observed_branch as string) || undefined,
+    observedDirty: r.observed_dirty == null ? undefined : Boolean(r.observed_dirty),
+    observedUncommittedFiles: r.observed_uncommitted_files == null
+      ? undefined
+      : Number(r.observed_uncommitted_files),
     lastActivityAt: (r.last_activity_at as string) || undefined,
     observedAt: (r.observed_at as string) || undefined,
     projectFileExists: Boolean(r.project_file_exists),
@@ -248,9 +262,62 @@ export function registerDiscoveredRepos(): { added: number; existing: number } {
 }
 
 /**
- * Record an observation of a repository.
- * Updates fingerprint head + observed_at. Does NOT treat observation as work activity.
- * Pass workActivityAt (commit author time) only when recording real git work.
+ * Record a full repository observation. The fingerprint and cached observation
+ * fields describe the same observed state and must be updated atomically.
+ * workActivityAt is commit-author time and is only supplied for real work.
+ */
+export function setRepositoryObservation(
+  repositoryId: string,
+  input: {
+    head: string;
+    fingerprint: string;
+    branch: string;
+    dirty: boolean;
+    uncommittedFiles: number;
+    workActivityAt?: string;
+  },
+): void {
+  const db = getDb();
+  const observedAt = new Date().toISOString();
+  if (input.workActivityAt) {
+    db.prepare(
+      `UPDATE repositories
+       SET last_seen_head = ?, last_observation_fingerprint = ?, observed_branch = ?,
+           observed_dirty = ?, observed_uncommitted_files = ?, observed_at = ?,
+           last_activity_at = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      input.head,
+      input.fingerprint,
+      input.branch,
+      input.dirty ? 1 : 0,
+      input.uncommittedFiles,
+      observedAt,
+      input.workActivityAt,
+      repositoryId,
+    );
+  } else {
+    db.prepare(
+      `UPDATE repositories
+       SET last_seen_head = ?, last_observation_fingerprint = ?, observed_branch = ?,
+           observed_dirty = ?, observed_uncommitted_files = ?, observed_at = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      input.head,
+      input.fingerprint,
+      input.branch,
+      input.dirty ? 1 : 0,
+      input.uncommittedFiles,
+      observedAt,
+      repositoryId,
+    );
+  }
+}
+
+/**
+ * Legacy-compatible head/activity update for callers that have not produced a
+ * full observation snapshot. Does not alter observation fingerprints/caches.
  */
 export function setRepositoryActivity(
   repositoryId: string,
