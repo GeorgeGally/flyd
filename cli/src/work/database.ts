@@ -42,6 +42,7 @@ export function getDb(): Database.Database {
       default_branch TEXT,
       last_seen_head TEXT,
       last_indexed_head TEXT,
+      last_observation_fingerprint TEXT,
       last_activity_at TEXT,
       project_file_exists INTEGER NOT NULL DEFAULT 0,
       agents_file_exists INTEGER NOT NULL DEFAULT 0,
@@ -142,6 +143,9 @@ function columnExists(db: Database.Database, table: string, column: string): boo
 function migrateSchema(db: Database.Database): void {
   if (!columnExists(db, "repositories", "observed_at")) {
     db.exec(`ALTER TABLE repositories ADD COLUMN observed_at TEXT`);
+  }
+  if (!columnExists(db, "repositories", "last_observation_fingerprint")) {
+    db.exec(`ALTER TABLE repositories ADD COLUMN last_observation_fingerprint TEXT`);
   }
   if (!columnExists(db, "work_hypotheses", "insights")) {
     db.exec(`ALTER TABLE work_hypotheses ADD COLUMN insights TEXT`);
