@@ -1,11 +1,11 @@
 import { execSync } from "child_process";
 import { statSync } from "fs";
 import { createHash } from "crypto";
-import { join, resolve } from "path";
+import { join } from "path";
 import type { ProjectSnapshot } from "./repository-registry.js";
 import {
   getRepository,
-  setRepositoryActivity,
+  setRepositoryObservation,
   setRepositoryIndexedHead,
   insertActivity,
   listRepositories,
@@ -119,20 +119,30 @@ export function observeRepository(root: string, repositoryId: string): Repositor
   };
 }
 
-export function observeAndRecord(repositoryId: string): ProjectSnapshot {
+export function observeAndRecord(repositoryId: string, knownFingerprint?: string): ProjectSnapshot {
   const repo = getRepository(repositoryId);
   if (!repo) throw new Error(`Repository not found: ${repositoryId}`);
 
+  const fingerprint = knownFingerprint ?? computeFingerprint(repo.root);
   const obs = observeRepository(repo.root, repositoryId);
+  const uncommittedFiles = obs.stagedFiles.length + obs.modifiedFiles.length + obs.untrackedFiles.length;
+  let lastActivityAt = repo.lastActivityAt;
 
   if (!repo.lastIndexedHead && obs.head && obs.head !== "unknown") {
-    setRepositoryActivity(repositoryId, obs.head);
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+    });
     setRepositoryIndexedHead(repositoryId, obs.head);
   } else if (obs.commitsSinceLastIndex.length > 0) {
     const type = classifyDelta(obs.commitsSinceLastIndex);
     const summary = makeSummary(obs.commitsSinceLastIndex);
     const fileRefs = [...new Set([...obs.stagedFiles, ...obs.modifiedFiles])];
     const workActivityAt = obs.commitsSinceLastIndex[0].authorDate || obs.observedAt;
+    lastActivityAt = workActivityAt;
 
     insertActivity({
       id: `git-${repositoryId}-${obs.commitsSinceLastIndex[0].hash.slice(0, 8)}`,
@@ -146,7 +156,14 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
       verified: false,
     });
 
-    setRepositoryActivity(repositoryId, obs.head, workActivityAt);
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+      workActivityAt,
+    });
     setRepositoryIndexedHead(repositoryId, obs.head);
 
     // ponytail: auto-reconcile PROJECT.md when new commits land
@@ -156,8 +173,14 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
       // reconciliation is best-effort, don't block observation
     }
   } else {
-    // Dirty-only / fingerprint change: observe, do not stamp as work activity
-    setRepositoryActivity(repositoryId, obs.head);
+    // Dirty-only / branch-only / fingerprint change: observe, do not stamp as work activity.
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+    });
   }
 
   return {
@@ -167,10 +190,10 @@ export function observeAndRecord(repositoryId: string): ProjectSnapshot {
     branch: obs.branch,
     head: obs.head,
     dirty: obs.dirty,
-    lastActivityAt: repo.lastActivityAt ?? (obs.commitsSinceLastIndex[0]?.authorDate),
+    lastActivityAt,
     projectFileExists: repo.projectFileExists,
     agentsFileExists: repo.agentsFileExists,
-    uncommittedFiles: obs.stagedFiles.length + obs.modifiedFiles.length + obs.untrackedFiles.length,
+    uncommittedFiles,
   };
 }
 
@@ -181,20 +204,30 @@ export function observeAllRepos(): ProjectSnapshot[] {
   for (const repo of repos) {
     if (!repo.enabled) continue;
     try {
-      const fp = computeFingerprint(repo.root);
-      // ponytail: only deep-observe if fingerprint changed or no prior observation
-      if (fp !== repo.lastSeenHead || !repo.lastActivityAt) {
-        results.push(observeAndRecord(repo.id));
+      const fingerprint = computeFingerprint(repo.root);
+      const cacheIncomplete =
+        !repo.observedAt ||
+        !repo.lastObservationFingerprint ||
+        !repo.lastSeenHead ||
+        !repo.observedBranch ||
+        repo.observedDirty === undefined ||
+        repo.observedUncommittedFiles === undefined;
+
+      // Only deep-observe when Git state changed or there is no complete cached observation.
+      if (cacheIncomplete || fingerprint !== repo.lastObservationFingerprint) {
+        results.push(observeAndRecord(repo.id, fingerprint));
       } else {
         results.push({
           repositoryId: repo.id,
           name: repo.name,
           root: repo.root,
-          dirty: false,
+          branch: repo.observedBranch,
+          head: repo.lastSeenHead,
+          dirty: repo.observedDirty,
           lastActivityAt: repo.lastActivityAt,
           projectFileExists: repo.projectFileExists,
           agentsFileExists: repo.agentsFileExists,
-          uncommittedFiles: 0,
+          uncommittedFiles: repo.observedUncommittedFiles,
         });
       }
     } catch {
