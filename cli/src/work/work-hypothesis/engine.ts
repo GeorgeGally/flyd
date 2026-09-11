@@ -7,6 +7,7 @@ import {
   registerDiscoveredRepos,
   purgeEphemeralRepositories,
 } from "../repository-registry.js";
+import { observeAllRepos } from "../git-observer.js";
 import { listOpenTasks } from "../task-store.js";
 import { getRecentCommits } from "../../lib/recent-commits.js";
 import { assembleCandidates, displayName } from "./candidates.js";
@@ -45,6 +46,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
   const repos = listRepositories().filter(
     (r) => r.enabled && existsSync(r.root) && !isEphemeralRepoRoot(r.root, r.name),
   );
+  const snapshotsById = new Map(observeAllRepos().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
 
@@ -59,16 +61,9 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
       lastCommitAt = repo.lastActivityAt;
     }
 
-    let isDirty = false;
-    try {
-      const status = execFileSync("git", ["-C", repo.root, "status", "--porcelain"], {
-        encoding: "utf8",
-        timeout: 5000,
-      }).trim();
-      isDirty = status.length > 0;
-    } catch {
-      isDirty = false;
-    }
+    // Dirty state belongs to Repository Intelligence. Do not reconstruct it here.
+    const repositorySnapshot = snapshotsById.get(repo.id);
+    const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
 
     let gitCommonDir: string | undefined;
     try {
