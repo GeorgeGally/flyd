@@ -15,7 +15,7 @@ const repository: RepositorySnapshot = {
 };
 
 describe("materializeRuntimeTaskRequest", () => {
-  it("uses observed repository identity rather than request context", () => {
+  it("uses observed repository identity and preserves request provenance in orientation", () => {
     const request = buildRuntimeTaskRequest({
       intent: "Fix the scheduler",
       contextSnapshot: { projectRoot: "/tmp/untrusted", projectName: "fake" },
@@ -23,20 +23,37 @@ describe("materializeRuntimeTaskRequest", () => {
       invocationId: "inv-1",
     });
 
-    const input = materializeRuntimeTaskRequest(request, repository);
+    const materialized = materializeRuntimeTaskRequest(request, repository);
 
-    expect(input.projectName).toBe("bloom");
-    expect(input.projectRoot).toBe("/work/bloom");
-    expect(input.repository).toEqual(repository);
-    expect(input.intendedOutcome).toBe("Fix the scheduler");
-    expect(input.idempotencyKey).toBe(`runtime-task-request:${request.requestId}`);
-    expect(input.contextSnapshot.runtime_task_request).toMatchObject({
+    expect(materialized.createTask.projectName).toBe("bloom");
+    expect(materialized.createTask.projectRoot).toBe("/work/bloom");
+    expect(materialized.createTask.repository).toEqual(repository);
+    expect(materialized.createTask.intendedOutcome).toBe("Fix the scheduler");
+    expect(materialized.createTask.idempotencyKey).toBe(`runtime-task-request:${request.requestId}:create`);
+    expect(materialized.orientation.contextSnapshot.runtime_task_request).toMatchObject({
       request_id: request.requestId,
       invocation_id: "inv-1",
       task_intent: "ship",
       observation_refs: ["obs-1"],
       source: "manifest",
     });
+    expect(materialized.orientation.repositorySnapshot).toMatchObject({
+      root: "/work/bloom",
+      branch: "main",
+      head: "abc123",
+      status_digest: "clean",
+    });
+    expect(materialized.orientation.recommendedNextAction).toMatch(/minimum required grant/i);
+  });
+
+  it("makes scout materialization explicitly read-oriented", () => {
+    const request = buildRuntimeTaskRequest({
+      intent: "Investigate why pulls stopped",
+      taskIntent: "scout",
+    });
+
+    const materialized = materializeRuntimeTaskRequest(request, repository);
+    expect(materialized.orientation.recommendedNextAction).toMatch(/without modifying/i);
   });
 
   it("rejects disagreement between a resolved request root and observed reality", () => {
