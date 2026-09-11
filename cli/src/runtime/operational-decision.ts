@@ -12,63 +12,40 @@ export interface OperationalDecision {
   supersededBy?: string;
 }
 
-export type OperationalDecisionEvent =
-  | {
-      eventType: "decision.opened";
-      taskId: string;
-      occurredAt: string;
-      payload: {
-        decision_id: string;
-        question: string;
-        context?: string;
-      };
-    }
-  | {
-      eventType: "decision.resolved";
-      taskId: string;
-      occurredAt: string;
-      payload: {
-        decision_id: string;
-        resolution: string;
-      };
-    }
-  | {
-      eventType: "decision.superseded";
-      taskId: string;
-      occurredAt: string;
-      payload: {
-        decision_id: string;
-        superseded_by: string;
-      };
-    }
-  | {
-      eventType: "decision.cancelled";
-      taskId: string;
-      occurredAt: string;
-      payload: {
-        decision_id: string;
-        reason?: string;
-      };
-    };
+export interface RuntimeProjectionEvent {
+  eventType: string;
+  taskId: string;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+}
 
 /**
- * Fold only decision events. Unrelated runtime activity is intentionally unable
- * to close or hide an open decision.
+ * Decision state is folded independently from general runtime status. Unrelated
+ * worker/task events can never overwrite or implicitly resolve an open decision.
  */
 export function projectOperationalDecisions(
-  events: OperationalDecisionEvent[],
+  events: RuntimeProjectionEvent[],
 ): OperationalDecision[] {
   const decisions = new Map<string, OperationalDecision>();
 
   for (const event of events) {
-    const id = event.payload.decision_id;
+    if (!event.eventType.startsWith("decision.")) continue;
+
+    const id = typeof event.payload.decision_id === "string"
+      ? event.payload.decision_id
+      : "";
+    if (!id) continue;
+
     if (event.eventType === "decision.opened") {
-      if (decisions.has(id)) continue;
+      const question = typeof event.payload.question === "string"
+        ? event.payload.question.trim()
+        : "";
+      if (!question || decisions.has(id)) continue;
       decisions.set(id, {
         decisionId: id,
         taskId: event.taskId,
-        question: event.payload.question.trim(),
-        context: event.payload.context?.trim() ?? "",
+        question,
+        context: typeof event.payload.context === "string" ? event.payload.context.trim() : "",
         status: "open",
         requestedAt: event.occurredAt,
       });
@@ -79,24 +56,32 @@ export function projectOperationalDecisions(
     if (!existing || existing.status !== "open") continue;
 
     if (event.eventType === "decision.resolved") {
+      const resolution = typeof event.payload.resolution === "string"
+        ? event.payload.resolution.trim()
+        : "";
+      if (!resolution) continue;
       decisions.set(id, {
         ...existing,
         status: "resolved",
-        resolution: event.payload.resolution,
+        resolution,
         resolvedAt: event.occurredAt,
       });
     } else if (event.eventType === "decision.superseded") {
+      const supersededBy = typeof event.payload.superseded_by === "string"
+        ? event.payload.superseded_by
+        : "";
+      if (!supersededBy) continue;
       decisions.set(id, {
         ...existing,
         status: "superseded",
-        supersededBy: event.payload.superseded_by,
+        supersededBy,
         resolvedAt: event.occurredAt,
       });
     } else if (event.eventType === "decision.cancelled") {
       decisions.set(id, {
         ...existing,
         status: "cancelled",
-        resolution: event.payload.reason,
+        resolution: typeof event.payload.reason === "string" ? event.payload.reason : undefined,
         resolvedAt: event.occurredAt,
       });
     }
@@ -106,7 +91,7 @@ export function projectOperationalDecisions(
 }
 
 export function openOperationalDecisions(
-  events: OperationalDecisionEvent[],
+  events: RuntimeProjectionEvent[],
 ): OperationalDecision[] {
   return projectOperationalDecisions(events).filter((decision) => decision.status === "open");
 }
