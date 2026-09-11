@@ -1,15 +1,17 @@
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { execFileSync } from "child_process";
 import {
   listRepositories,
   registerDiscoveredRepos,
   purgeEphemeralRepositories,
 } from "../repository-registry.js";
-import { observeAllRepos } from "../git-observer.js";
+import {
+  observeKnownRepositories,
+  recentRepositoryCommits,
+  repositoryCommonDir,
+} from "../repository-intelligence.js";
 import { listOpenTasks } from "../task-store.js";
-import { getRecentCommits } from "../../lib/recent-commits.js";
 import { assembleCandidates, displayName } from "./candidates.js";
 import { isEphemeralRepoRoot } from "./ephemeral.js";
 import {
@@ -46,7 +48,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
   const repos = listRepositories().filter(
     (r) => r.enabled && existsSync(r.root) && !isEphemeralRepoRoot(r.root, r.name),
   );
-  const snapshotsById = new Map(observeAllRepos().map((snapshot) => [snapshot.repositoryId, snapshot]));
+  const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
 
@@ -54,27 +56,16 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
     let lastCommitAt: string | undefined;
     let latestSubject: string | undefined;
     try {
-      const commits = await getRecentCommits(repo.root, 1);
+      const commits = await recentRepositoryCommits(repo.root, 1);
       lastCommitAt = commits[0]?.committedAt;
       latestSubject = commits[0]?.subject;
     } catch {
       lastCommitAt = repo.lastActivityAt;
     }
 
-    // Dirty state belongs to Repository Intelligence. Do not reconstruct it here.
     const repositorySnapshot = snapshotsById.get(repo.id);
     const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
-
-    let gitCommonDir: string | undefined;
-    try {
-      const common = execFileSync("git", ["-C", repo.root, "rev-parse", "--git-common-dir"], {
-        encoding: "utf8",
-        timeout: 3000,
-      }).trim();
-      gitCommonDir = resolve(repo.root, common);
-    } catch {
-      gitCommonDir = undefined;
-    }
+    const gitCommonDir = repositoryCommonDir(repo.root);
 
     const tasks = listOpenTasks(repo.id);
     results.push({
