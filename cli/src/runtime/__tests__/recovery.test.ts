@@ -16,7 +16,7 @@ function worker(overrides: Partial<WorkerSession>): WorkerSession {
 }
 
 describe("recoverInterruptedWorkers", () => {
-  it("marks dead and never-started workers interrupted and terminates orphaned live groups", async () => {
+  it("marks dead and never-started workers interrupted while preserving live workers", async () => {
     const workers = [
       worker({ workerKey: "dead", processId: 123 }),
       worker({ workerKey: "queued", status: "queued", processId: null }),
@@ -32,16 +32,17 @@ describe("recoverInterruptedWorkers", () => {
       transition,
     });
 
-    expect(recovered).toBe(3);
-    expect(transition).toHaveBeenCalledTimes(3);
+    expect(recovered).toBe(2);
+    expect(transition).toHaveBeenCalledTimes(2);
     expect(transition).toHaveBeenCalledWith("dead", expect.objectContaining({
       status: "interrupted",
       error: "Flyd restarted after the worker process ended",
     }));
-    expect(terminateProcessGroup).toHaveBeenCalledWith(workers[2]);
-    expect(transition).toHaveBeenCalledWith("alive", expect.objectContaining({
-      error: "Flyd restarted and terminated an orphaned worker process group",
+    expect(transition).toHaveBeenCalledWith("queued", expect.objectContaining({
+      status: "interrupted",
     }));
+    expect(terminateProcessGroup).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalledWith("alive", expect.anything());
   });
 
   it("rejects a reused live PID whose command is not the recorded executable", () => {
@@ -72,7 +73,24 @@ describe("recoverInterruptedWorkers", () => {
     expect(transition).not.toHaveBeenCalled();
   });
 
-  it("terminates a worker after a transient liveness miss confirms the process is alive", async () => {
+  it("preserves a live worker even when its previous supervisor lease is stale", async () => {
+    const transition = vi.fn();
+    const terminateProcessGroup = vi.fn();
+
+    const recovered = await recoverInterruptedWorkers({
+      workers: [ worker({ processId: 123, lastObservedAt: "2026-07-21T09:00:00.000Z" }) ],
+      isProcessAlive: () => true,
+      terminateProcessGroup,
+      transition,
+      now: () => new Date("2026-07-21T10:00:00.000Z"),
+    });
+
+    expect(recovered).toBe(0);
+    expect(terminateProcessGroup).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it("preserves a worker after a transient liveness miss confirms the process is alive", async () => {
     const transition = vi.fn();
     const terminateProcessGroup = vi.fn();
     const isProcessAlive = vi.fn()
@@ -86,10 +104,10 @@ describe("recoverInterruptedWorkers", () => {
       transition,
     });
 
-    expect(recovered).toBe(1);
+    expect(recovered).toBe(0);
     expect(isProcessAlive).toHaveBeenCalledTimes(2);
-    expect(terminateProcessGroup).toHaveBeenCalledTimes(1);
-    expect(transition).toHaveBeenCalledTimes(1);
+    expect(terminateProcessGroup).not.toHaveBeenCalled();
+    expect(transition).not.toHaveBeenCalled();
   });
 
   it("interrupts a recently observed worker once two liveness checks confirm it is dead", async () => {
