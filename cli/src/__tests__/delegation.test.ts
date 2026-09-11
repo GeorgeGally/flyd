@@ -35,25 +35,28 @@ const completed = (overrides: Partial<DelegationCompletion> = {}): DelegationCom
   ...overrides,
 });
 
-describe("buildDelegationEnvelope", () => {
-  it("carries identity, finish condition, and completion contract", () => {
+describe("buildDelegationEnvelope compatibility", () => {
+  it("returns an authority-free runtime task request", () => {
     const envelope = buildDelegationEnvelope("research topic x", {}, [], null);
     expect(envelope.delegationId).toBeTruthy();
-    expect(envelope.finishCondition).toContain("research topic x");
-    expect(envelope.completionContract.requiresHandoff).toBe(true);
-    expect(envelope.completionContract.requiresVerifiedArtifacts).toBe(true);
-    expect(envelope.grant.writeAllowed).toBe(false);
+    expect(envelope.requestId).toBe(envelope.delegationId);
+    expect(envelope.intendedOutcome).toBe("research topic x");
+    expect(envelope.taskIntent).toBe("ship");
+    expect(envelope.confirmationRequired).toBe(true);
+    expect(envelope).not.toHaveProperty("grant");
+    expect(envelope).not.toHaveProperty("finishCondition");
+    expect(envelope).not.toHaveProperty("completionContract");
   });
 
-  it("mints a unique delegationId per envelope", () => {
+  it("mints a unique request/delegation id per compatibility envelope", () => {
     const a = buildDelegationEnvelope("x", {}, [], null);
     const b = buildDelegationEnvelope("x", {}, [], null);
     expect(a.delegationId).not.toBe(b.delegationId);
   });
 });
 
-describe("validateDelegationCompletion — the completion rule", () => {
-  it("accepts a verified completion", () => {
+describe("validateDelegationCompletion — legacy receipt validation", () => {
+  it("accepts a verified completion receipt", () => {
     expect(validateDelegationCompletion(completed())).toBeNull();
   });
 
