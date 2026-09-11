@@ -9,6 +9,8 @@ import { randomUUID } from "node:crypto";
  */
 export interface RuntimeTaskRequest {
   requestId: string;
+  /** Temporary alias used by the legacy /delegation/complete receipt path. */
+  delegationId: string;
   invocationId?: string;
   intendedOutcome: string;
   taskIntent: "scout" | "ship";
@@ -32,8 +34,10 @@ export function buildRuntimeTaskRequest(input: {
   const intendedOutcome = input.intent.trim();
   if (!intendedOutcome) throw new Error("Runtime task request requires an intended outcome");
 
+  const requestId = `task-request-${randomUUID()}`;
   return {
-    requestId: `task-request-${randomUUID()}`,
+    requestId,
+    delegationId: requestId,
     invocationId: input.invocationId,
     intendedOutcome,
     taskIntent: input.taskIntent ?? "ship",
