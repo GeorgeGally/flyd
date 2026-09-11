@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { observeAllRepos } from "./git-observer.js";
 import type { ProjectSnapshot } from "./repository-registry.js";
+import { getRecentCommits, type RecentCommit } from "../lib/recent-commits.js";
 
 /**
  * Canonical read surface for repository reality.
@@ -25,6 +26,15 @@ export interface RepositoryPathSnapshot {
 
 export function observeKnownRepositories(): ProjectSnapshot[] {
   return observeAllRepos();
+}
+
+export async function recentRepositoryCommits(root: string, limit = 5): Promise<RecentCommit[]> {
+  return getRecentCommits(root, limit);
+}
+
+export function repositoryCommonDir(root: string): string | undefined {
+  const common = runGit(root, ["rev-parse", "--git-common-dir"]);
+  return common ? resolve(root, common) : undefined;
 }
 
 export function inspectRepositoryFromPath(path?: string): RepositoryPathSnapshot | undefined {
