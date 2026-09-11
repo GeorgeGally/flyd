@@ -28,6 +28,15 @@ export interface WorkThread {
   demoted: boolean;
 }
 
+export interface PresentDecision {
+  decisionId: string;
+  taskId: string;
+  taskKey?: string;
+  projectName?: string;
+  question: string;
+  context: string;
+  requestedAt: string;
+}
 
 export interface WorkHypothesis {
   id: string;
@@ -39,6 +48,8 @@ export interface WorkHypothesis {
   confidence: "high" | "medium" | "low";
   uncertainty: { field: string; reason: string }[];
   evidenceRefs: string[];
+  /** Durable operational facts that explicitly require attention. */
+  openDecisions?: PresentDecision[];
   /** Project names hard-demoted until reaffirm. */
   demotions: string[];
   /** Derived insight layer — workstreams vs moves vs tensions. */
