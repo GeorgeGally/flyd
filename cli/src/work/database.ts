@@ -43,6 +43,9 @@ export function getDb(): Database.Database {
       last_seen_head TEXT,
       last_indexed_head TEXT,
       last_observation_fingerprint TEXT,
+      observed_branch TEXT,
+      observed_dirty INTEGER,
+      observed_uncommitted_files INTEGER,
       last_activity_at TEXT,
       project_file_exists INTEGER NOT NULL DEFAULT 0,
       agents_file_exists INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +149,15 @@ function migrateSchema(db: Database.Database): void {
   }
   if (!columnExists(db, "repositories", "last_observation_fingerprint")) {
     db.exec(`ALTER TABLE repositories ADD COLUMN last_observation_fingerprint TEXT`);
+  }
+  if (!columnExists(db, "repositories", "observed_branch")) {
+    db.exec(`ALTER TABLE repositories ADD COLUMN observed_branch TEXT`);
+  }
+  if (!columnExists(db, "repositories", "observed_dirty")) {
+    db.exec(`ALTER TABLE repositories ADD COLUMN observed_dirty INTEGER`);
+  }
+  if (!columnExists(db, "repositories", "observed_uncommitted_files")) {
+    db.exec(`ALTER TABLE repositories ADD COLUMN observed_uncommitted_files INTEGER`);
   }
   if (!columnExists(db, "work_hypotheses", "insights")) {
     db.exec(`ALTER TABLE work_hypotheses ADD COLUMN insights TEXT`);
