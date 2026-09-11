@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearPendingDelegation,
   delegationEvents,
+  LEGACY_PENDING_TIMEOUT_MS,
   listPendingDelegations,
   registerPendingDelegation,
   resetDelegationEventsForTests,
@@ -10,10 +11,8 @@ import {
 } from "../delegation-events.js";
 import { buildDelegationEnvelope } from "../delegation.js";
 
-function makeEnvelope(maxRuntimeMinutes = 10) {
-  const envelope = buildDelegationEnvelope("research something", {}, [], null);
-  envelope.grant.maxRuntimeMinutes = maxRuntimeMinutes;
-  return envelope;
+function makeEnvelope() {
+  return buildDelegationEnvelope("research something", {}, [], null);
 }
 
 beforeEach(() => {
@@ -50,60 +49,60 @@ describe("pending delegation registry", () => {
   });
 });
 
-describe("pending sweep — timeout as honesty mechanism", () => {
-  it("does not time out a job within its grant window", () => {
+describe("legacy pending sweep", () => {
+  it("does not time out before the fixed compatibility timeout", () => {
     const listener = vi.fn();
     delegationEvents.onTimeout(listener);
-    registerPendingDelegation(makeEnvelope(10));
+    registerPendingDelegation(makeEnvelope());
 
     startPendingSweep(1000);
-    vi.advanceTimersByTime(5 * 60_000); // 5 min — well inside 10 min grant + grace
+    vi.advanceTimersByTime(LEGACY_PENDING_TIMEOUT_MS - 1000);
 
     expect(listener).not.toHaveBeenCalled();
     delegationEvents.offTimeout(listener);
   });
 
-  it("emits a synthetic blocked completion after grant + grace elapses", () => {
+  it("emits a synthetic blocked completion after the compatibility timeout", () => {
     const listener = vi.fn();
     delegationEvents.onTimeout(listener);
-    const envelope = makeEnvelope(10);
+    const envelope = makeEnvelope();
     registerPendingDelegation(envelope);
 
     startPendingSweep(1000);
-    vi.advanceTimersByTime(13 * 60_000); // 10 min grant + 2 min grace + margin
+    vi.advanceTimersByTime(LEGACY_PENDING_TIMEOUT_MS + 1000);
 
     expect(listener).toHaveBeenCalledTimes(1);
     const completion = listener.mock.calls[0][0];
     expect(completion.delegationId).toBe(envelope.delegationId);
     expect(completion.status).toBe("blocked");
-    expect(completion.blocker).toContain("runner_timeout");
+    expect(completion.blocker).toContain("legacy_runner_timeout");
     expect(completion.handoff).toBeNull();
     expect(completion.verification).toBeNull();
     delegationEvents.offTimeout(listener);
   });
 
   it("clears the pending entry once it times out", () => {
-    const envelope = makeEnvelope(10);
+    const envelope = makeEnvelope();
     registerPendingDelegation(envelope);
     startPendingSweep(1000);
-    vi.advanceTimersByTime(13 * 60_000);
+    vi.advanceTimersByTime(LEGACY_PENDING_TIMEOUT_MS + 1000);
     expect(listPendingDelegations()).toEqual([]);
   });
 
   it("does not double-register the sweep interval", () => {
     startPendingSweep(1000);
-    startPendingSweep(1000); // second call should be a no-op
-    const envelope = makeEnvelope(10);
+    startPendingSweep(1000);
+    const envelope = makeEnvelope();
     registerPendingDelegation(envelope);
     const listener = vi.fn();
     delegationEvents.onTimeout(listener);
-    vi.advanceTimersByTime(13 * 60_000);
-    expect(listener).toHaveBeenCalledTimes(1); // not twice
+    vi.advanceTimersByTime(LEGACY_PENDING_TIMEOUT_MS + 1000);
+    expect(listener).toHaveBeenCalledTimes(1);
     delegationEvents.offTimeout(listener);
   });
 
   it("stopPendingSweep halts further timeouts", () => {
-    const envelope = makeEnvelope(10);
+    const envelope = makeEnvelope();
     registerPendingDelegation(envelope);
     startPendingSweep(1000);
     stopPendingSweep();
