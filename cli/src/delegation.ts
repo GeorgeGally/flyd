@@ -19,13 +19,18 @@ export function buildDelegationEnvelope(
   intent: string,
   worldState: Record<string, unknown>,
   observationRefs: string[],
-  project: string | null,
+  foregroundAppBundleId: string | null,
 ): DelegationEnvelope {
   return buildRuntimeTaskRequest({
     intent,
-    contextSnapshot: worldState,
+    contextSnapshot: {
+      ...worldState,
+      ...(foregroundAppBundleId ? { foregroundAppBundleId } : {}),
+    },
     observationRefs,
-    projectRoot: project,
+    // The legacy manifest caller passes an application bundle id here, not a
+    // repository root. Repository authority must be resolved independently.
+    projectRoot: null,
     source: "manifest",
     taskIntent: "ship",
   });
