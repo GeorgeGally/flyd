@@ -16,6 +16,7 @@ describe("RuntimeTaskRequest", () => {
     expect(request.projectRoot).toBe("/work/bloom");
     expect(request.observationRefs).toEqual(["obs-1", "obs-2"]);
     expect(request.confirmationRequired).toBe(true);
+    expect(request.delegationId).toBe(request.requestId);
 
     // Authority belongs to TaskGrant, not to an intent/request payload.
     expect(request).not.toHaveProperty("grant");
@@ -40,13 +41,17 @@ describe("RuntimeTaskRequest", () => {
       "Delegate fixing the pull bug",
       { goals: [{ content: "Reliable collection" }] },
       ["el_01"],
-      "/work/bloom",
+      "com.tinyspeck.slackmacgap",
     );
 
     expect(envelope.requestId).toMatch(/^task-request-/);
+    expect(envelope.delegationId).toBe(envelope.requestId);
     expect(envelope.intendedOutcome).toBe("Delegate fixing the pull bug");
-    expect(envelope.projectRoot).toBe("/work/bloom");
-    expect(envelope.contextSnapshot).toMatchObject({ goals: [{ content: "Reliable collection" }] });
+    expect(envelope.projectRoot).toBeNull();
+    expect(envelope.contextSnapshot).toMatchObject({
+      goals: [{ content: "Reliable collection" }],
+      foregroundAppBundleId: "com.tinyspeck.slackmacgap",
+    });
     expect(envelope).not.toHaveProperty("grant");
   });
 
