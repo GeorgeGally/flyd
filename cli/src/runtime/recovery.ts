@@ -10,11 +10,11 @@ interface RecoveryInput {
     error: string;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  /** @deprecated Recovery no longer terminates a live worker. Retained while callers migrate. */
   terminateProcessGroup?(worker: WorkerSession): Promise<void>;
+  /** @deprecated Live-worker recovery no longer depends on a supervisor lease age. */
   now?: () => Date;
 }
-
-const ACTIVE_SUPERVISOR_LEASE_MS = 10_000;
 
 export function processIsAlive(processId: number): boolean {
   try {
@@ -123,26 +123,14 @@ export async function recoverInterruptedWorkers(input: RecoveryInput): Promise<n
   let recovered = 0;
   for (const worker of input.workers) {
     // Confirm a negative observation once before treating a persisted worker as dead.
+    // A positively identified live worker survives Core restart. Recovery is
+    // reconciliation, not ownership transfer by process termination.
     const processAlive = worker.processId && (
       input.isProcessAlive(worker.processId, worker) ||
       input.isProcessAlive(worker.processId, worker)
     );
-    if (processAlive) {
-      if (!input.terminateProcessGroup) continue;
-      const observedAt = worker.lastObservedAt ? Date.parse(worker.lastObservedAt) : Number.NaN;
-      const elapsedSinceObservation = (input.now?.() ?? new Date()).getTime() - observedAt;
-      if (Number.isFinite(observedAt) && elapsedSinceObservation >= 0 && elapsedSinceObservation < ACTIVE_SUPERVISOR_LEASE_MS) {
-        continue;
-      }
-      await input.terminateProcessGroup(worker);
-      await input.transition(worker.workerKey, {
-        status: "interrupted",
-        error: "Flyd restarted and terminated an orphaned worker process group",
-        idempotencyKey: `worker-recovery:${worker.workerKey}:${worker.processGroupId ?? worker.processId}:orphaned`,
-      });
-      recovered += 1;
-      continue;
-    }
+    if (processAlive) continue;
+
     await input.transition(worker.workerKey, {
       status: "interrupted",
       error: "Flyd restarted after the worker process ended",
