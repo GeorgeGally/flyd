@@ -2,7 +2,7 @@ import { getActiveInterests } from "./interests.js";
 import { getStaleness, type StalenessResult } from "./staleness.js";
 import { getHalfLife } from "./decay.js";
 import type { VerificationResult } from "./librarian-verifier.js";
-import { applyTailPreservation } from "./tail-significance.js";
+import { applyTailPreservation, applyTailPreservationAfterRescore } from "./tail-significance.js";
 
 export interface EvidenceEntry {
   path: string;
@@ -138,14 +138,14 @@ export function applyVerification(scored: ScoredEvidence[], verification: Verifi
     const p = entry.confidenceProfile;
     const epistemicConfidence = Math.max(0.1, p.epistemicConfidence - penalty);
     const librarianScore = weightedScore(epistemicConfidence, p.freshness, relevanceTerm, p.interestAffinity, p.associationStrength);
-    return {
+    return applyTailPreservationAfterRescore({
       ...entry,
       librarianScore: Math.round(librarianScore * 100) / 100,
       verifiedRelevance: verdict.relevant,
       verifierReason: verdict.reason,
       contradictionCount: conflictCount,
       confidenceProfile: penalty > 0 ? { ...p, epistemicConfidence } : p,
-    };
+    });
   });
 }
 
