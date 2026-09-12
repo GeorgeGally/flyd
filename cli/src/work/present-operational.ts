@@ -22,6 +22,7 @@ export function attachOperationalDecisions(
     .map((decision) => {
       const task = taskById.get(decision.taskId);
       return {
+        epistemicClass: "fact" as const,
         decisionId: decision.decisionId,
         taskId: decision.taskId,
         taskKey: task?.taskKey,
