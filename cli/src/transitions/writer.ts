@@ -134,6 +134,11 @@ export function recordAction(input: TransitionActionInput): TransitionWriteResul
     payload: {
       sessionId: input.sessionId,
       invocationId: input.invocationId,
+      ...(input.stateBeforeId ? { stateBeforeId: input.stateBeforeId } : {}),
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.repositoryRoot ? { repositoryRoot: input.repositoryRoot } : {}),
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.threadId ? { threadId: input.threadId } : {}),
       actor: { surface: input.surface },
       action: {
         intent: input.intent,
@@ -168,6 +173,7 @@ export function recordNextState(input: TransitionNextStateInput): TransitionWrit
     payload: {
       sessionId: input.sessionId,
       invocationId: input.invocationId,
+      ...(input.stateAfterId ? { stateAfterId: input.stateAfterId } : {}),
       nextState: {
         origin: input.origin,
         signal: input.signal,
