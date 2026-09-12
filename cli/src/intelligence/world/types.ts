@@ -50,3 +50,37 @@ export interface FreshnessConfig {
   halfLifeDays: number;
   now: Date;
 }
+
+/** Shared confidence vocabulary for derived planning state. */
+export type PlanningConfidence = "high" | "medium" | "low" | "unknown";
+
+/**
+ * A planning snapshot field is a projection of canonical/observed state, not a
+ * new source of truth. Provenance records where the value came from.
+ */
+export interface StateFact<T = unknown> {
+  value: T;
+  confidence: PlanningConfidence;
+  freshness?: string;
+  provenance: string[];
+}
+
+/**
+ * Point-in-time world projection used for consequence prediction. It may only
+ * be persisted at an explicit INVOKED/agent-action boundary; ambient PRESENT
+ * observation remains zero-persistence.
+ */
+export interface WorldStateSnapshot {
+  id: string;
+  capturedAt: string;
+  projectId?: string;
+  activeProjects: StateFact<string[]>;
+  activeTasks: StateFact<Array<{ id?: string; description: string; status: string }>>;
+  repoStates: StateFact<Array<{ root: string; branch?: string; dirty: boolean; head?: string }>>;
+  blockers: StateFact<string[]>;
+  decisions: StateFact<string[]>;
+  commitments: StateFact<string[]>;
+  entities: StateFact<string[]>;
+  deadlines: StateFact<string[]>;
+  agentWork: StateFact<string[]>;
+}
