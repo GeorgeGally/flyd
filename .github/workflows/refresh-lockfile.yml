@@ -8,13 +8,16 @@ on:
       - '.github/workflows/refresh-lockfile.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lockfile:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -23,9 +26,14 @@ jobs:
       - name: Refresh lockfile only
         working-directory: cli
         run: npm install --package-lock-only --ignore-scripts
-      - name: Upload refreshed lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-package-lock
-          path: cli/package-lock.json
-          if-no-files-found: error
+      - name: Commit refreshed lockfile
+        run: |
+          if git diff --quiet -- cli/package-lock.json; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cli/package-lock.json
+          git commit -m "chore(deps): refresh CLI lockfile"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
