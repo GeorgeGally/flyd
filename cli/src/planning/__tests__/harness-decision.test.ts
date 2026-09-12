@@ -47,6 +47,41 @@ describe("live harness decision policy", () => {
     expect(decision.evaluation.action.description).toContain("CI is failing before deployment");
   });
 
+  it("keeps investigating when the task is ready but grounded blocker evidence remains", async () => {
+    const decision = await decideHarnessEntry({
+      state: state({
+        activeTasks: fact([{
+          id: "task-1",
+          description: "Ship the planner integration",
+          status: "ready",
+        }]),
+        blockers: fact(["The verification environment is still unavailable"]),
+      }),
+      requestedOutcome: "continue",
+    });
+
+    expect(decision.recommendation.mode).toBe("investigate");
+    expect(decision.recommendation.actionId).toBe("investigate-active-task-blocker");
+    expect(decision.evaluation.action.description).toContain("verification environment");
+  });
+
+  it("resumes after refreshed state has no blocker evidence", async () => {
+    const decision = await decideHarnessEntry({
+      state: state({
+        activeTasks: fact([{
+          id: "task-1",
+          description: "Ship the planner integration",
+          status: "ready",
+        }]),
+        blockers: fact([]),
+      }),
+      requestedOutcome: "continue",
+    });
+
+    expect(decision.recommendation.mode).toBe("act");
+    expect(decision.recommendation.actionId).toBe("resume-active-task");
+  });
+
   it("keeps contextual resume behavior for an unblocked active task", async () => {
     const decision = await decideHarnessEntry({
       state: state({
