@@ -16,14 +16,10 @@ function state(overrides: Partial<WorldStateSnapshot> = {}): WorldStateSnapshot 
   };
 }
 
-function deps(): HarnessLearningDependencies & {
-  saveTrace: ReturnType<typeof vi.fn>;
-  saveOutcome: ReturnType<typeof vi.fn>;
-} {
-  return {
-    saveTrace: vi.fn(),
-    saveOutcome: vi.fn(),
-  };
+function deps() {
+  const saveTrace = vi.fn((..._args: Parameters<HarnessLearningDependencies["saveTrace"]>) => undefined);
+  const saveOutcome = vi.fn((..._args: Parameters<HarnessLearningDependencies["saveOutcome"]>) => undefined);
+  return { saveTrace, saveOutcome };
 }
 
 describe("live harness prediction learning", () => {
