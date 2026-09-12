@@ -5,7 +5,7 @@ This directory is Flyd's deterministic world-model foundation.
 ## Invariants
 
 - PRESENT remains zero-persistence. Never turn ambient PRESENT observation into durable snapshots here.
-- Create `WorldStateSnapshot` only at an explicit INVOKED or authorized agent-action boundary.
+- Create `WorldStateSnapshot` only at an explicit INVOKED or authorized agent-action boundary. `flyd future` is an explicit developer invocation and may persist its snapshot/trace; read-only inspection commands must not manufacture world state.
 - Planning never grants authority. Execution still goes through existing Flyd permission, grant and approval machinery.
 - Persist structured planning inputs/outputs, predictions, scores, alternatives and uncertainty. Never persist hidden chain-of-thought.
 - Keep epistemic confidence separate from importance, retrieval utility, urgency and consequence.
@@ -33,6 +33,15 @@ This directory is Flyd's deterministic world-model foundation.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts` or a planning-gated regression test.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
 
+## Agent workflow
+
+- Inspect Git/repository state and the active task before changing planning behavior. Prefer the canonical work index and PRESENT projection over reconstructing work from chat text.
+- Search existing architecture/docs before adding a new model or store. The transition spine owns action trajectories; the intelligence event store owns durable planning telemetry.
+- Preserve important blockers, failures, corrections, and architectural decisions as durable project evidence instead of silently dropping them after a run.
+- Verify the observed after-state before claiming an action succeeded. A worker saying “done” is not evidence by itself.
+- When a change alters a durable architectural rule, update the relevant product/architecture note in the same change.
+- Use `flyd future`, `flyd trajectory`, and `flyd decisions` while dogfooding. These are inspection surfaces for structured state and outcomes, not alternate execution paths.
+
 ## Architecture
 
 ```text
@@ -59,6 +68,7 @@ PRESENT foreground + canonical work index
   -> reconcilePrediction + causal attribution
   -> trajectory/calibration data
        -> empirical transition + execution history
+       -> flyd trajectory / flyd decisions
 ```
 
 ## Verification
@@ -66,8 +76,11 @@ PRESENT foreground + canonical work index
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/empirical-future-model.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/empirical-future-model.test.ts src/planning/__tests__/inspection.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning
+node dist/entry.js future --json
+node dist/entry.js trajectory --limit 5 --json
+node dist/entry.js decisions --limit 5 --json
 ```
