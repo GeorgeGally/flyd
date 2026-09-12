@@ -75,7 +75,8 @@ import {
   type ForegroundFeedbackInput,
 } from "./runtime/foreground-feedback.js";
 import { syncInstalledOpenCodePlugin } from "./runtime/opencode-plugin-sync.js";
-import { recordAction, recordNextState } from "./transitions/writer.js";
+import { recordAction, recordNextState, isTransitionCaptureDisabled } from "./transitions/writer.js";
+import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -146,8 +147,64 @@ function sendUnauthorized(res: ServerResponse) {
 }
 
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
-const resolvedContexts = new Map<string, { intent: string; resolutionMode: string; environmentSummary: string; consequenceClass?: string; workSessionId?: string; timestamp: number }>();
+interface ResolvedContext {
+  intent: string;
+  resolutionMode: string;
+  environmentSummary: string;
+  consequenceClass?: string;
+  workSessionId?: string;
+  projectRoot?: string;
+  actionCapture?: Promise<void>;
+  timestamp: number;
+}
+const resolvedContexts = new Map<string, ResolvedContext>();
 const completedDelegations = new Map<string, { completion: DelegationCompletion; timestamp: number }>();
+
+function stageOverlayTransition(input: {
+  invocationId: string;
+  sessionId: string;
+  intent: string;
+  resolutionMode: string;
+  environmentSummary: string;
+  consequenceClass?: string;
+  projectRoot?: string | null;
+  model?: string;
+}): void {
+  const context: ResolvedContext = {
+    intent: input.intent,
+    resolutionMode: input.resolutionMode,
+    environmentSummary: input.environmentSummary,
+    ...(input.consequenceClass ? { consequenceClass: input.consequenceClass } : {}),
+    workSessionId: input.sessionId,
+    ...(input.projectRoot ? { projectRoot: input.projectRoot } : {}),
+    timestamp: Date.now(),
+  };
+
+  if (!isTransitionCaptureDisabled()) {
+    context.actionCapture = (async () => {
+      const before = await captureRuntimeSnapshot({
+        correlationId: input.invocationId,
+        projectRoot: input.projectRoot,
+      });
+      const result = recordAction({
+        sessionId: input.sessionId,
+        invocationId: input.invocationId,
+        surface: "overlay",
+        intent: input.intent,
+        resolutionMode: input.resolutionMode,
+        model: input.model,
+        appSummary: input.environmentSummary,
+        ...(before ? { stateBeforeId: before.id } : {}),
+        ...(input.projectRoot ? { repositoryRoot: input.projectRoot } : {}),
+      });
+      if (!result.ok) console.warn("[Flyd Core] Transition action capture rejected:", result.rejection);
+    })().catch((error) => {
+      console.warn("[Flyd Core] Transition action capture failed:", (error as Error).message);
+    });
+  }
+
+  resolvedContexts.set(input.invocationId, context);
+}
 
 setInterval(() => {
   const cutoff = Date.now() - 60 * 60 * 1000;
@@ -250,25 +307,15 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         projectHint: present?.primaryThreads?.[0]?.name,
       });
       if (compound) {
-        resolvedContexts.set(parsed.invocation_id, {
-          intent: parsed.intent,
-          resolutionMode: "requires_augment",
-          environmentSummary: parsed.environment.application?.name ?? "",
-          timestamp: Date.now(),
-        });
-
-        try {
-          recordAction({
-            sessionId: parsed.work_session_id ?? parsed.conversation_id ?? parsed.invocation_id,
-            invocationId: parsed.invocation_id,
-            surface: "overlay",
-            intent: parsed.intent,
-            resolutionMode: "requires_augment",
-            appSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
-          });
-        } catch (error) {
-          console.warn("[Flyd Core] Transition action capture failed:", (error as Error).message);
-        }
+      const repoInfo = resolveRepositoryFromPath(parsed.environment?.document_path);
+      stageOverlayTransition({
+        invocationId: parsed.invocation_id,
+        sessionId: parsed.work_session_id ?? parsed.conversation_id ?? parsed.invocation_id,
+        intent: parsed.intent,
+        resolutionMode: "requires_augment",
+        environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+        projectRoot: repoInfo.root,
+      });
 
         sendJson(res, 200, {
           mode: "requires_augment",
@@ -415,14 +462,16 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
       intentHistory.push({ intent: parsed.intent, timestamp: new Date().toISOString() });
       if (intentHistory.length > 100) intentHistory.shift();
-
-      resolvedContexts.set(parsed.invocation_id, {
-        intent: parsed.intent,
-        resolutionMode: mode,
-        environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
-        workSessionId: wiResult.workSessionId,
-        timestamp: Date.now(),
-      });
+    const wiRepoInfo = resolveRepositoryFromPath(parsed.environment?.document_path);
+    stageOverlayTransition({
+      invocationId: parsed.invocation_id,
+      sessionId: wiResult.workSessionId,
+      intent: parsed.intent,
+      resolutionMode: mode,
+      environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+      projectRoot: wiRepoInfo.root,
+      model: config.model || undefined,
+    });
 
       return;
     }
@@ -502,29 +551,17 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
     const workSessionId = parsed.conversation_id || workSessionStore.createSession().sessionId;
     workSessionStore.bump(workSessionId);
-
-    resolvedContexts.set(parsed.invocation_id, {
-      intent: parsed.intent,
-      resolutionMode: resolution.mode,
-      environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
-      consequenceClass: resolution.consequence?.class,
-      workSessionId,
-      timestamp: Date.now(),
-    });
-
-    try {
-      recordAction({
-        sessionId: workSessionId,
-        invocationId: parsed.invocation_id,
-        surface: "overlay",
-        intent: parsed.intent,
-        resolutionMode: resolution.mode,
-        model: config.model || undefined,
-        appSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
-      });
-    } catch (error) {
-      console.warn("[Flyd Core] Transition action capture failed:", (error as Error).message);
-    }
+  const transitionRepoInfo = resolveRepositoryFromPath(parsed.environment?.document_path);
+  stageOverlayTransition({
+    invocationId: parsed.invocation_id,
+    sessionId: workSessionId,
+    intent: parsed.intent,
+    resolutionMode: resolution.mode,
+    environmentSummary: `${parsed.environment.application?.bundle_id || "unknown"} — ${parsed.environment.focused_element?.role || "unknown"}`,
+    consequenceClass: resolution.consequence?.class,
+    projectRoot: transitionRepoInfo.root,
+    model: config.model || undefined,
+  });
 
     const assistantText = [
         ...(resolution.augmentations ?? [])
@@ -642,19 +679,28 @@ async function handleOutcome(req: IncomingMessage, res: ServerResponse) {
   );
 
   const resolved = resolvedContexts.get(outcome.invocationId);
-
-  try {
-    recordNextState({
+  const captureOutcomeTransition = async () => {
+    if (resolved?.actionCapture) await resolved.actionCapture;
+    const after = resolved && !isTransitionCaptureDisabled()
+      ? await captureRuntimeSnapshot({
+          correlationId: outcome.invocationId,
+          projectRoot: resolved.projectRoot,
+        })
+      : null;
+    const result = recordNextState({
       sessionId: resolved?.workSessionId,
       invocationId: outcome.invocationId,
       origin: "user",
       signal: outcome.status as "succeeded" | "rejected" | "failed" | "cancelled",
       correction: outcome.correction ?? undefined,
       causalComplete: Boolean(resolved),
+      ...(after ? { stateAfterId: after.id } : {}),
     });
-  } catch (error) {
+    if (!result.ok) console.warn("[Flyd Core] Transition next-state capture rejected:", result.rejection);
+  };
+  void captureOutcomeTransition().catch((error) => {
     console.warn("[Flyd Core] Transition next-state capture failed:", (error as Error).message);
-  }
+  });
 
   if (resolved) {
     resolvedContexts.delete(outcome.invocationId);
