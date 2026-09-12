@@ -7,10 +7,13 @@ const present: PresentModel = {
   generatedAt: "2026-09-12T00:00:00.000Z",
   repository: {
     root: "/work/flyd",
+    name: "flyd",
+    remote: "https://github.com/GeorgeGally/flyd.git",
     branch: "main",
     head: "abc123",
     dirty: false,
     statusLines: [],
+    statusDigest: "clean",
   },
   activeTask: {
     taskKey: "task-1",
