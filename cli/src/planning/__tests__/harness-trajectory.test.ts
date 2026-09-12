@@ -49,7 +49,8 @@ describe("harness trajectory bridge", () => {
       threadId: "assignment-1",
     }));
 
-    await completeHarnessTrajectory({ handle, signal: "verified", detail: { exitCode: 0 } }, d);
+    const observed = await completeHarnessTrajectory({ handle, signal: "verified", detail: { exitCode: 0 } }, d);
+    expect(observed?.id).toBe("after-1");
     expect(d.recordNextState).toHaveBeenCalledWith(expect.objectContaining({
       invocationId: "harness:worker-1",
       surface: "harness",
@@ -75,8 +76,9 @@ describe("harness trajectory bridge", () => {
     const d = deps();
     d.disabled = () => true;
     const handle = await beginHarnessTrajectory({ sessionId: "task-1", intent: "inspect", projectRoot: "/tmp/flyd" }, d);
-    await completeHarnessTrajectory({ handle, signal: "verified" }, d);
+    const observed = await completeHarnessTrajectory({ handle, signal: "verified" }, d);
     expect(handle.stateBefore).toBeNull();
+    expect(observed).toBeNull();
     expect(d.capture).not.toHaveBeenCalled();
     expect(d.recordAction).not.toHaveBeenCalled();
     expect(d.recordNextState).not.toHaveBeenCalled();

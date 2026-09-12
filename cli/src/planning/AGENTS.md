@@ -17,6 +17,9 @@ This directory is Flyd's deterministic world-model foundation.
 - Verify declared postconditions after execution. Absence of postconditions means outcome verification is unknown, not successful by default.
 - Correlation is not causation. Attribute an observed change to Flyd only when it matches a predicted effect and complete correlated tool/verifier evidence exists. Otherwise retain weaker `action_consistent`, `external_or_unknown`, or `contradictory` labels.
 - Treat one supervised `runCode()` attempt as the live harness action boundary. Worker routing/retries are implementation detail; task grants, worker authority, verification, and integration remain owned by the existing runtime harness.
+- The prediction, action trajectory, observed after-state, and reconciliation for a live harness run must share one correlation id.
+- If a prediction declares no expected effects, reconcile it as `insufficient_evidence` even when the world changes. Retain the observed changes for future modeling, but never score an unmodeled transition as wrong.
+- Calibration distinguishes observed runs from scorable predictions. `insufficient_evidence` belongs in the learning dataset but is excluded from the correctness denominator.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts`.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
 
@@ -45,7 +48,7 @@ PRESENT / work hypothesis
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning

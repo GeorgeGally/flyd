@@ -77,15 +77,16 @@ export async function beginHarnessTrajectory(input: {
 /**
  * Close a previously-started harness trajectory after the supervised runtime
  * produces an observed outcome. `causalComplete` is true only when the matching
- * action event was actually captured in this process.
+ * action event was actually captured in this process. Returns the observed
+ * after-state so prediction reconciliation can use the exact same evidence.
  */
 export async function completeHarnessTrajectory(input: {
   handle: HarnessTrajectoryHandle;
   signal: TransitionSignal;
   origin?: TransitionOrigin;
   detail?: Record<string, unknown>;
-}, deps: HarnessTrajectoryDependencies = defaultDependencies): Promise<void> {
-  if (deps.disabled()) return;
+}, deps: HarnessTrajectoryDependencies = defaultDependencies): Promise<WorldStateSnapshot | null> {
+  if (deps.disabled()) return null;
 
   try {
     const after = await deps.capture({
@@ -105,7 +106,9 @@ export async function completeHarnessTrajectory(input: {
     if (!result.ok) {
       console.warn("[planning] harness outcome trajectory rejected:", result.rejection);
     }
+    return after;
   } catch (error) {
     console.warn("[planning] harness outcome trajectory capture failed:", error instanceof Error ? error.message : error);
+    return null;
   }
 }

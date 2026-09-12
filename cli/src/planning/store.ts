@@ -22,6 +22,18 @@ export interface PlanningStoreOptions {
   registryPath?: string;
 }
 
+export interface CalibrationBucket {
+  confidence: string;
+  /** All reconciled predictions observed at this confidence, including unscorable ones. */
+  total: number;
+  /** Predictions that declared at least one effect and can therefore be scored. */
+  scored: number;
+  /** Observed runs retained for learning but excluded from prediction accuracy. */
+  unscored: number;
+  correct: number;
+  correctRate: number;
+}
+
 type PlanningPayload =
   | { type: "world_state_snapshot"; snapshot: WorldStateSnapshot }
   | { type: "planning_trace"; trace: PlanningTrace }
@@ -80,23 +92,28 @@ export class PlanningStore {
     );
   }
 
-  calibrationReport(): Array<{ confidence: string; total: number; correct: number; correctRate: number }> {
-    const buckets = new Map<string, { total: number; correct: number }>();
+  calibrationReport(): CalibrationBucket[] {
+    const buckets = new Map<string, { total: number; scored: number; correct: number }>();
     for (const event of this.events()) {
       const payload = event.payload as unknown as PlanningPayload | undefined;
       if (payload?.type !== "prediction_outcome") continue;
       const outcome = payload.outcome;
       const key = outcome.confidenceAtPrediction.level;
-      const bucket = buckets.get(key) ?? { total: 0, correct: 0 };
+      const bucket = buckets.get(key) ?? { total: 0, scored: 0, correct: 0 };
       bucket.total += 1;
-      if (outcome.category === "correct") bucket.correct += 1;
+      if (outcome.category !== "insufficient_evidence") {
+        bucket.scored += 1;
+        if (outcome.category === "correct") bucket.correct += 1;
+      }
       buckets.set(key, bucket);
     }
     return [...buckets.entries()].map(([confidence, bucket]) => ({
       confidence,
       total: bucket.total,
+      scored: bucket.scored,
+      unscored: bucket.total - bucket.scored,
       correct: bucket.correct,
-      correctRate: bucket.total ? bucket.correct / bucket.total : 0,
+      correctRate: bucket.scored ? bucket.correct / bucket.scored : 0,
     }));
   }
 
