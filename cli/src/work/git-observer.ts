@@ -193,17 +193,28 @@ export function observeAllRepos(): ProjectSnapshot[] {
       if (cacheIncomplete || fingerprint !== repo.lastObservationFingerprint) {
         results.push(observeAndRecord(repo.id, fingerprint));
       } else {
+        // The fingerprint check itself is a fresh observation of HEAD, branch,
+        // and porcelain status. Refresh observedAt without inventing new work
+        // activity so downstream consumers can distinguish fresh unchanged
+        // state from genuinely stale cached state.
+        setRepositoryObservation(repo.id, {
+          head: repo.lastSeenHead,
+          fingerprint,
+          branch: repo.observedBranch,
+          dirty: repo.observedDirty,
+          uncommittedFiles: repo.observedUncommittedFiles,
+        });
         results.push({
           repositoryId: repo.id,
           name: repo.name,
           root: repo.root,
           branch: repo.observedBranch,
           head: repo.lastSeenHead,
-          dirty: repo.observedDirty ?? false,
+          dirty: repo.observedDirty,
           lastActivityAt: repo.lastActivityAt,
           projectFileExists: repo.projectFileExists,
           agentsFileExists: repo.agentsFileExists,
-          uncommittedFiles: repo.observedUncommittedFiles ?? 0,
+          uncommittedFiles: repo.observedUncommittedFiles,
         });
       }
     } catch {
