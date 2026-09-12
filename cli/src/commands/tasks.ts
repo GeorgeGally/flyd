@@ -2,6 +2,9 @@ import { listOpenTasks, addTask, updateTaskStatus, deleteTask, listTasks } from 
 import { extractTasksFromAllProjects } from "../work/task-extractor.js";
 import { listRepositories, getRepository } from "../work/repository-registry.js";
 import { answerQuestion } from "../work/recall-router.js";
+import { answerFromCanonicalPresent } from "../work/runtime-recall.js";
+import { readCanonicalPresent } from "../work/runtime-present.js";
+import { createRuntimePool } from "../runtime/database.js";
 
 export async function runTasksList(): Promise<void> {
   const tasks = listOpenTasks();
@@ -109,11 +112,20 @@ export async function runTasksSync(): Promise<void> {
 
 export async function runWorkStatus(query?: string): Promise<void> {
   const foregroundRoot = process.cwd();
-  const result = query
-    ? answerQuestion(query, foregroundRoot)
-    : answerQuestion("what am I working on", foregroundRoot);
+  const question = query ?? "what am I working on";
+  const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 400, statementTimeoutMs: 800 });
+  try {
+    const present = await readCanonicalPresent(pool).catch(() => null);
+    const runtimeAnswer = answerFromCanonicalPresent(question, present);
+    if (runtimeAnswer) {
+      console.log(runtimeAnswer);
+      return;
+    }
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
 
-  console.log(result.answer);
+  console.log(answerQuestion(question, foregroundRoot).answer);
 }
 
 export async function runTasksAll(): Promise<void> {
