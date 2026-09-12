@@ -2,6 +2,7 @@ import { getActiveInterests } from "./interests.js";
 import { getStaleness, type StalenessResult } from "./staleness.js";
 import { getHalfLife } from "./decay.js";
 import type { VerificationResult } from "./librarian-verifier.js";
+import { applyTailPreservation } from "./tail-significance.js";
 
 export interface EvidenceEntry {
   path: string;
@@ -44,59 +45,37 @@ export interface SufficiencyAssessment {
   coverage: number;
 }
 
-export function decayedConfidence(
-  originalConfidence: number,
-  daysSince: number,
-): number {
+export function decayedConfidence(originalConfidence: number, daysSince: number): number {
   if (daysSince <= 0) return originalConfidence;
   const halfLife = 180;
   const decayed = originalConfidence * Math.pow(0.5, daysSince / halfLife);
   return Math.max(0.1, Math.round(decayed * 100) / 100);
 }
 
-export function scoreEvidence(
-  entry: EvidenceEntry,
-  keywords: string[],
-  question: string,
-): ScoredEvidence {
+export function scoreEvidence(entry: EvidenceEntry, keywords: string[], question: string): ScoredEvidence {
   const unpromoted = entry.metadata.promoted === false || entry.metadata.type === "conversation-index";
   const defaultConfidence = entry.source === "wiki" && !unpromoted ? 0.9 : 0.5;
   const parsedConfidence = Number(entry.metadata.confidence ?? defaultConfidence);
-  const rawConfidence = Number.isFinite(parsedConfidence)
-    ? Math.max(0, Math.min(1, parsedConfidence))
-    : defaultConfidence;
+  const rawConfidence = Number.isFinite(parsedConfidence) ? Math.max(0, Math.min(1, parsedConfidence)) : defaultConfidence;
   const daysSince = entry.staleness?.daysSince ?? 0;
   const halfLife = getHalfLife(entry.metadata);
-
   const epistemicConfidence = rawConfidence;
   const freshness = Math.max(0, 1 - daysSince / Math.max(1, halfLife));
 
   const activeInterests = getActiveInterests();
   const interestAffinity = activeInterests.some(
-    (i) =>
-      entry.body.toLowerCase().includes(i.topic.toLowerCase()) ||
-      i.keywords.some((k) => entry.body.toLowerCase().includes(k.toLowerCase())),
-  )
-    ? 0.15
-    : 0;
+    (i) => entry.body.toLowerCase().includes(i.topic.toLowerCase()) || i.keywords.some((k) => entry.body.toLowerCase().includes(k.toLowerCase())),
+  ) ? 0.15 : 0;
 
   const cleanBody = entry.body.toLowerCase();
   const questionWords = question.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
   const keywordHits = questionWords.filter((w) => cleanBody.includes(w)).length;
   const keywordDensity = questionWords.length > 0 ? keywordHits / questionWords.length : 0;
-
   const retrievalUtility = 0.5;
   const associationStrength = 0.0;
 
-  const librarianScore = weightedScore(
-    epistemicConfidence,
-    freshness,
-    keywordDensity,
-    interestAffinity,
-    associationStrength,
-  );
-
-  return {
+  const librarianScore = weightedScore(epistemicConfidence, freshness, keywordDensity, interestAffinity, associationStrength);
+  return applyTailPreservation({
     ...entry,
     librarianScore: Math.round(librarianScore * 100) / 100,
     recencyWeight: Math.round(freshness * 100) / 100,
@@ -111,15 +90,12 @@ export function scoreEvidence(
       retrievalUtility,
       associationStrength,
     },
-  };
+  });
 }
 
 const RELEVANT_TERM = 1;
 const IRRELEVANT_TERM = 0.15;
 
-// Single source of truth for the composite weights. relevanceTerm is
-// keywordDensity in the heuristic path, the generative verdict term when a
-// verifier verdict exists.
 function weightedScore(
   epistemicConfidence: number,
   freshness: number,
@@ -127,31 +103,17 @@ function weightedScore(
   interestAffinity: number,
   associationStrength: number,
 ): number {
-  return Math.min(
-    1,
+  return Math.min(1,
     epistemicConfidence * 0.25 +
-      freshness * 0.25 +
-      relevanceTerm * 0.25 +
-      interestAffinity * 0.15 +
-      associationStrength * 0.10,
+    freshness * 0.25 +
+    relevanceTerm * 0.25 +
+    interestAffinity * 0.15 +
+    associationStrength * 0.10,
   );
 }
 
-/**
- * Blend generative-verifier verdicts into heuristic scores. Only the
- * keyword-density term (0.25 weight) is replaced — affinity and association
- * stay formula-based. Verified conflicts penalize epistemicConfidence (per
- * the documented formula: authority + corroboration − contradiction); within
- * a conflicting pair the staler side takes the heavier penalty, so the more
- * recent memory keeps more weight. Entries without a verdict keep their pure
- * heuristic score.
- */
-export function applyVerification(
-  scored: ScoredEvidence[],
-  verification: VerificationResult,
-): ScoredEvidence[] {
+export function applyVerification(scored: ScoredEvidence[], verification: VerificationResult): ScoredEvidence[] {
   if (!verification.verified) return scored;
-
   const conflictsByPath = new Map<string, number>();
   const penaltyByPath = new Map<string, number>();
   const freshnessByPath = new Map(scored.map((e) => [e.path, e.confidenceProfile.freshness]));
@@ -169,24 +131,13 @@ export function applyVerification(
     const verdict = verification.verdicts.get(entry.path);
     const conflictCount = entry.contradictionCount + (conflictsByPath.get(entry.path) ?? 0);
     const penalty = Math.min(0.3, penaltyByPath.get(entry.path) ?? 0);
-
     if (!verdict) {
-      return conflictCount === entry.contradictionCount
-        ? entry
-        : { ...entry, contradictionCount: conflictCount };
+      return conflictCount === entry.contradictionCount ? entry : { ...entry, contradictionCount: conflictCount };
     }
-
     const relevanceTerm = verdict.relevant ? RELEVANT_TERM : IRRELEVANT_TERM;
     const p = entry.confidenceProfile;
     const epistemicConfidence = Math.max(0.1, p.epistemicConfidence - penalty);
-    const librarianScore = weightedScore(
-      epistemicConfidence,
-      p.freshness,
-      relevanceTerm,
-      p.interestAffinity,
-      p.associationStrength,
-    );
-
+    const librarianScore = weightedScore(epistemicConfidence, p.freshness, relevanceTerm, p.interestAffinity, p.associationStrength);
     return {
       ...entry,
       librarianScore: Math.round(librarianScore * 100) / 100,
@@ -198,9 +149,7 @@ export function applyVerification(
   });
 }
 
-export function corroborate(
-  scored: ScoredEvidence[],
-): ScoredEvidence[] {
+export function corroborate(scored: ScoredEvidence[]): ScoredEvidence[] {
   const byTopic = new Map<string, ScoredEvidence[]>();
   for (const entry of scored) {
     const words = entry.body.toLowerCase().split(/\s+/).filter((w) => w.length > 5);
@@ -210,15 +159,11 @@ export function corroborate(
       byTopic.get(w)!.push(entry);
     }
   }
-
   for (const [, group] of byTopic) {
     if (group.length < 2) continue;
     const unique = new Set(group.map((e) => e.path));
-    for (const entry of group) {
-      entry.corroborationCount = Math.max(entry.corroborationCount, unique.size - 1);
-    }
+    for (const entry of group) entry.corroborationCount = Math.max(entry.corroborationCount, unique.size - 1);
   }
-
   return scored;
 }
 
@@ -230,74 +175,40 @@ export function countContradictions(
     const entryLower = entry.path.toLowerCase();
     for (const gr of graphResults) {
       if (gr.rel_type !== "contradicts") continue;
-      if (entryLower.includes(gr.from) || entryLower.includes(gr.to)) {
-        entry.contradictionCount++;
-      }
+      if (entryLower.includes(gr.from) || entryLower.includes(gr.to)) entry.contradictionCount++;
     }
   }
   return scored;
 }
 
-export function estimateSufficiency(
-  entries: ScoredEvidence[],
-  question: string,
-): SufficiencyAssessment {
-  if (entries.length === 0) {
-    return { verdict: "insufficient", reason: "No evidence retrieved.", coverage: 0 };
-  }
-
+export function estimateSufficiency(entries: ScoredEvidence[], question: string): SufficiencyAssessment {
+  if (entries.length === 0) return { verdict: "insufficient", reason: "No evidence retrieved.", coverage: 0 };
   const highQuality = entries.filter((e) => e.confidenceProfile.epistemicConfidence >= 0.6);
-  const mediumQuality = entries.filter(
-    (e) => e.confidenceProfile.epistemicConfidence >= 0.4 && e.confidenceProfile.epistemicConfidence < 0.6,
-  );
-
+  const mediumQuality = entries.filter((e) => e.confidenceProfile.epistemicConfidence >= 0.4 && e.confidenceProfile.epistemicConfidence < 0.6);
   const hasContradictions = entries.some((e) => e.contradictionCount > 0);
   const questionWords = question.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-  const coveredWords = questionWords.filter((w) =>
-    entries.some((e) => e.body.toLowerCase().includes(w)),
-  );
+  const coveredWords = questionWords.filter((w) => entries.some((e) => e.body.toLowerCase().includes(w)));
   const coverage = questionWords.length > 0 ? coveredWords.length / questionWords.length : 0;
 
-  if (hasContradictions && highQuality.length >= 2) {
-    return {
-      verdict: "conflicting",
-      reason: `${highQuality.length} high-quality entries found but they contain conflicting claims.`,
-      coverage,
-    };
-  }
-
-  if (highQuality.length >= 2 && coverage >= 0.5) {
-    return {
-      verdict: "sufficient",
-      reason: `${highQuality.length} strong sources covering ${Math.round(coverage * 100)}% of query terms.`,
-      coverage,
-    };
-  }
-
-  if (highQuality.length >= 1 || mediumQuality.length >= 2) {
-    return {
-      verdict: "partial",
-      reason: `${highQuality.length} strong + ${mediumQuality.length} moderate sources, coverage ${Math.round(coverage * 100)}%. May be incomplete.`,
-      coverage,
-    };
-  }
-
+  if (hasContradictions && highQuality.length >= 2) return {
+    verdict: "conflicting", reason: `${highQuality.length} high-quality entries found but they contain conflicting claims.`, coverage,
+  };
+  if (highQuality.length >= 2 && coverage >= 0.5) return {
+    verdict: "sufficient", reason: `${highQuality.length} strong sources covering ${Math.round(coverage * 100)}% of query terms.`, coverage,
+  };
+  if (highQuality.length >= 1 || mediumQuality.length >= 2) return {
+    verdict: "partial", reason: `${highQuality.length} strong + ${mediumQuality.length} moderate sources, coverage ${Math.round(coverage * 100)}%. May be incomplete.`, coverage,
+  };
   return {
-    verdict: "insufficient",
-    reason: `Only ${entries.length} low-quality or unmatched entries found. Coverage ${Math.round(coverage * 100)}%.`,
-    coverage,
+    verdict: "insufficient", reason: `Only ${entries.length} low-quality or unmatched entries found. Coverage ${Math.round(coverage * 100)}%.`, coverage,
   };
 }
 
-export function formatLibrarianSummary(
-  scored: ScoredEvidence[],
-  sufficiency: SufficiencyAssessment,
-): string {
+export function formatLibrarianSummary(scored: ScoredEvidence[], sufficiency: SufficiencyAssessment): string {
   const lines: string[] = ["## Librarian Assessment", ""];
   lines.push(`**Sufficiency:** ${sufficiency.verdict}`);
   lines.push(`**Reason:** ${sufficiency.reason}`);
   lines.push("");
-
   const sorted = [...scored].sort((a, b) => b.librarianScore - a.librarianScore);
   lines.push("| # | Source | Entry | Score | Epistemic | Freshness | Affinity | Corroborations | Verifier |");
   lines.push("|---|--------|-------|-------|-----------|-----------|----------|----------------|----------|");
@@ -308,10 +219,7 @@ export function formatLibrarianSummary(
     const cleanReason = e.verifierReason
       ? `${e.verifiedRelevance ? "✓" : "✗"} ${e.verifierReason.replace(/[|\n\r]+/g, " ").slice(0, 120)}`
       : "—";
-    lines.push(
-      `| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} | ${cleanReason} |`,
-    );
+    lines.push(`| ${e.corroborationCount > 0 ? "✓" : " "} | ${src} | ${e.path} | ${(e.librarianScore * 100).toFixed(0)}% | ${(p.epistemicConfidence * 100).toFixed(0)}% | ${(p.freshness * 100).toFixed(0)}% | ${(p.interestAffinity * 100).toFixed(0)}% | ${e.corroborationCount}${contra} | ${cleanReason} |`);
   }
-
   return lines.join("\n");
 }
