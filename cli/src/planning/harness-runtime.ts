@@ -33,7 +33,12 @@ export async function runContinuityHarness(
       requestedOutcome: input.outcome,
     });
 
-    if (decision.recommendation.mode === "ask_user") {
+    if (decision.recommendation.actionId === "resume-active-task") {
+      // A contextual utterance such as "continue" names no new outcome. Let
+      // the existing harness resolve its durable resumable task instead of
+      // misclassifying the contextual phrase as a replacement outcome.
+      runtimeInput = { ...input, outcome: undefined };
+    } else if (decision.recommendation.mode === "ask_user") {
       const clarified = (await input.deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
       if (!clarified) {
         await completeHarnessTrajectory({
