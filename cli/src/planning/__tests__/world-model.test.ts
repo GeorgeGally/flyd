@@ -201,10 +201,10 @@ describe("tail event preservation", () => {
 });
 
 describe("planning benchmark", () => {
-  it("contains twenty representative scenarios and currently passes", async () => {
-    expect(PLANNING_BENCHMARK).toHaveLength(20);
+  it("contains representative scenarios and currently passes", async () => {
+    expect(PLANNING_BENCHMARK).toHaveLength(21);
     const result = await runPlanningBenchmark();
     expect(result.failures).toEqual([]);
-    expect(result.passed).toBe(20);
+    expect(result.passed).toBe(21);
   });
 });
