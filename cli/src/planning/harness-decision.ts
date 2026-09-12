@@ -5,26 +5,28 @@ import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 const RESUMABLE_STATUSES = new Set(["awaiting_grant", "ready", "running", "blocked"]);
 const CONTEXTUAL_OUTCOME = /^(?:continue|carry on|resume|go ahead|do it|fix it|implement it|this|that|it)$/i;
 
+type ActiveTask = { id?: string; description: string; status: string };
+
 export interface HarnessDecision {
   recommendation: DecisionRecommendation;
   intent: string;
-  activeTask: { id?: string; description: string; status: string } | null;
+  activeTask: ActiveTask | null;
 }
 
-function activeTask(state: WorldStateSnapshot) {
-  return state.activeTasks.value.find((task) => RESUMABLE_STATUSES.has(task.status)) ?? null;
+function activeTask(state: WorldStateSnapshot): { task: ActiveTask; index: number } | null {
+  const index = state.activeTasks.value.findIndex((task) => RESUMABLE_STATUSES.has(task.status));
+  return index === -1 ? null : { task: state.activeTasks.value[index], index };
 }
 
-function goalFor(intent: string, task: ReturnType<typeof activeTask>): GoalSpec {
-  if (task) {
-    const index = 0;
+function goalFor(intent: string, active: ReturnType<typeof activeTask>): GoalSpec {
+  if (active) {
     return {
-      id: task.id ? `task:${task.id}` : `task:${intent}`,
-      statement: task.description || intent,
+      id: active.task.id ? `task:${active.task.id}` : `task:${intent}`,
+      statement: active.task.description || intent,
       successCriteria: [{
         id: "task-completed",
         description: "the active task is completed",
-        path: `activeTasks.value.${index}.status`,
+        path: `activeTasks.value.${active.index}.status`,
         operator: "equals",
         value: "completed",
       }],
@@ -64,12 +66,12 @@ export async function decideHarnessEntry(input: {
   requestedOutcome?: string;
 }): Promise<HarnessDecision> {
   const requested = input.requestedOutcome?.trim() ?? "";
-  const task = activeTask(input.state);
+  const active = activeTask(input.state);
   const contextual = !requested || CONTEXTUAL_OUTCOME.test(requested);
-  const intent = contextual && task ? task.description : requested;
+  const intent = contextual && active ? active.task.description : requested;
   const gaps: PlanningGap[] = [];
 
-  if (contextual && !task) {
+  if (contextual && !active) {
     gaps.push({
       id: "coding-outcome",
       kind: "user_preference",
@@ -81,9 +83,9 @@ export async function decideHarnessEntry(input: {
   }
 
   const action: CandidateAction = {
-    id: task && contextual ? "resume-active-task" : "execute-requested-outcome",
-    description: task && contextual ? `Resume: ${task.description}` : `Execute: ${intent}`,
-    kind: task && contextual ? "resume" : "execution",
+    id: active && contextual ? "resume-active-task" : "execute-requested-outcome",
+    description: active && contextual ? `Resume: ${active.task.description}` : `Execute: ${intent}`,
+    kind: active && contextual ? "resume" : "execution",
   };
   const prediction = await new DeterministicFutureModel().predict({
     currentState: input.state,
@@ -92,9 +94,9 @@ export async function decideHarnessEntry(input: {
   const evaluation = new ActionEvaluator().evaluate(
     action,
     prediction,
-    scores(task && contextual ? "resume" : "execute"),
+    scores(active && contextual ? "resume" : "execute"),
   );
-  const goal = goalFor(intent, task);
+  const goal = goalFor(intent, active);
   const recommendation = new DecisionPolicy().decide({
     goal,
     state: input.state,
@@ -102,5 +104,5 @@ export async function decideHarnessEntry(input: {
     gaps,
   });
 
-  return { recommendation, intent, activeTask: task };
+  return { recommendation, intent, activeTask: active?.task ?? null };
 }
