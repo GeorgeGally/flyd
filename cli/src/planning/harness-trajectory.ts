@@ -9,6 +9,7 @@ export interface HarnessTrajectoryHandle {
   sessionId: string;
   projectRoot: string;
   actionCaptured: boolean;
+  stateBefore: WorldStateSnapshot | null;
 }
 
 export interface HarnessTrajectoryDependencies {
@@ -43,6 +44,7 @@ export async function beginHarnessTrajectory(input: {
     sessionId: input.sessionId,
     projectRoot: input.projectRoot,
     actionCaptured: false,
+    stateBefore: null,
   };
 
   if (deps.disabled()) return handle;
@@ -52,6 +54,7 @@ export async function beginHarnessTrajectory(input: {
       correlationId: invocationId,
       projectRoot: input.projectRoot,
     });
+    handle.stateBefore = before;
     const result = deps.recordAction({
       sessionId: input.sessionId,
       invocationId,
