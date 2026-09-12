@@ -6,7 +6,7 @@ import type { WorkerSession } from "./types.js";
 
 export interface ProjectSupervisorDependencies {
   taskStore: Pick<PostgresTaskStore, "liveWorkers" | "transitionWorker" | "observeWorker">;
-  decisionStore: Pick<OperationalDecisionStore, "listOpenDecisionRecords">;
+  decisionStore: Pick<OperationalDecisionStore, "listOpenDecisionFacts">;
   observeReality?: (worker: WorkerSession) => WorkerRealityObservation;
 }
 
@@ -19,12 +19,17 @@ export async function superviseProject(
   projectRoot: string,
   deps: ProjectSupervisorDependencies,
 ): Promise<SuperviseWorkersResult> {
-  const [workers, decisions] = await Promise.all([
+  const [workers, allDecisionFacts] = await Promise.all([
     deps.taskStore.liveWorkers(projectRoot),
-    deps.decisionStore.listOpenDecisionRecords(projectRoot),
+    deps.decisionStore.listOpenDecisionFacts(),
   ]);
 
-  const openDecisionTaskIds = new Set(decisions.map((decision) => decision.taskId));
+  const openDecisionTaskIds = new Set(
+    allDecisionFacts
+      .filter((fact) => fact.projectRoot === projectRoot)
+      .map((fact) => fact.decision.taskId),
+  );
+
   return superviseWorkers({
     workers,
     store: deps.taskStore,
