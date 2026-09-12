@@ -1,5 +1,6 @@
 import { runContinuityHarness as runRuntimeHarness } from "../runtime/harness.js";
 import type { TransitionSignal } from "../transitions/types.js";
+import { decideHarnessEntry } from "./harness-decision.js";
 import { beginHarnessTrajectory, completeHarnessTrajectory } from "./harness-trajectory.js";
 
 export function harnessSignalForStatus(status: string): TransitionSignal {
@@ -25,8 +26,35 @@ export async function runContinuityHarness(
     projectRoot: repository.root,
   });
 
+  let runtimeInput = input;
+  if (trajectory.stateBefore) {
+    const decision = await decideHarnessEntry({
+      state: trajectory.stateBefore,
+      requestedOutcome: input.outcome,
+    });
+
+    if (decision.recommendation.actionId === "resume-active-task") {
+      // A contextual utterance such as "continue" names no new outcome. Let
+      // the existing harness resolve its durable resumable task instead of
+      // misclassifying the contextual phrase as a replacement outcome.
+      runtimeInput = { ...input, outcome: undefined };
+    } else if (decision.recommendation.mode === "ask_user") {
+      const clarified = (await input.deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
+      if (!clarified) {
+        await completeHarnessTrajectory({
+          handle: trajectory,
+          origin: "user",
+          signal: "cancelled",
+          detail: { decisionMode: "ask_user", reason: "missing_intended_outcome" },
+        });
+        throw new Error("An intended outcome is required");
+      }
+      runtimeInput = { ...input, outcome: clarified };
+    }
+  }
+
   try {
-    const result = await runRuntimeHarness(input);
+    const result = await runRuntimeHarness(runtimeInput);
     await completeHarnessTrajectory({
       handle: trajectory,
       origin: "tool",
