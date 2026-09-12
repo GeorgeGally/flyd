@@ -66,7 +66,7 @@ export function annotateTailSignificance<T extends { metadata: Record<string, un
 /**
  * Retrieval-side guarantee: consequential tail events get enough bounded
  * utility to survive ordinary rank truncation while epistemic confidence is
- * left untouched. This keeps importance separate from truth confidence.
+ * left untouched. Idempotent so verifier rescoring can safely reapply it.
  */
 export function applyTailPreservation<T extends {
   metadata: Record<string, unknown>;
@@ -75,14 +75,27 @@ export function applyTailPreservation<T extends {
 }>(entry: T): T {
   const annotated = annotateTailSignificance(entry);
   const tail = scoreTailSignificance(entry.metadata);
-  if (!tail.preserve) return annotated;
-  const boost = 0.12 + tail.score * 0.13;
+  const previousBoost = unit(entry.metadata.tailPreservationBoost);
+  const baseScore = Math.max(0, annotated.librarianScore - previousBoost);
+  const baseUtility = Math.max(0, annotated.confidenceProfile.retrievalUtility - previousBoost);
+
+  if (!tail.preserve) {
+    return {
+      ...annotated,
+      metadata: { ...annotated.metadata, tailPreservationBoost: 0 },
+      librarianScore: baseScore,
+      confidenceProfile: { ...annotated.confidenceProfile, retrievalUtility: baseUtility },
+    };
+  }
+
+  const boost = Math.round((0.12 + tail.score * 0.13) * 1000) / 1000;
   return {
     ...annotated,
-    librarianScore: Math.min(1, annotated.librarianScore + boost),
+    metadata: { ...annotated.metadata, tailPreservationBoost: boost },
+    librarianScore: Math.min(1, baseScore + boost),
     confidenceProfile: {
       ...annotated.confidenceProfile,
-      retrievalUtility: Math.min(1, annotated.confidenceProfile.retrievalUtility + boost),
+      retrievalUtility: Math.min(1, baseUtility + boost),
     },
   };
 }
