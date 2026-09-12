@@ -1,4 +1,4 @@
-import { ActionEvaluator, DeterministicFutureModel, type ActionEvaluation, type ActionScores, type CandidateAction } from "./future-model.js";
+import { ActionEvaluator, DeterministicFutureModel, type ActionEvaluation, type ActionScores, type CandidateAction, type FutureModel } from "./future-model.js";
 import { DecisionPolicy, type DecisionRecommendation, type GoalSpec, type PlanningGap } from "./decision-policy.js";
 import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
@@ -12,6 +12,10 @@ export interface HarnessDecision {
   intent: string;
   activeTask: ActiveTask | null;
   evaluation: ActionEvaluation;
+}
+
+export interface HarnessDecisionDependencies {
+  futureModel?: FutureModel;
 }
 
 function activeTask(state: WorldStateSnapshot): { task: ActiveTask; index: number } | null {
@@ -33,11 +37,9 @@ function goalFor(intent: string, active: ReturnType<typeof activeTask>): GoalSpe
       }],
     };
   }
-
   return {
     id: `outcome:${intent || "unspecified"}`,
     statement: intent || "Clarify the intended coding outcome",
-    // We do not fabricate observable success criteria for arbitrary natural-language outcomes.
     successCriteria: [],
   };
 }
@@ -55,17 +57,10 @@ function scores(kind: "execute" | "resume"): ActionScores {
   };
 }
 
-/**
- * Live entry policy for the supervised coding harness.
- *
- * This deliberately handles only high-confidence structure available before
- * execution. It does not infer hidden user preferences, does not grant
- * authority, and does not block work when planning telemetry is unavailable.
- */
 export async function decideHarnessEntry(input: {
   state: WorldStateSnapshot;
   requestedOutcome?: string;
-}): Promise<HarnessDecision> {
+}, deps: HarnessDecisionDependencies = {}): Promise<HarnessDecision> {
   const requested = input.requestedOutcome?.trim() ?? "";
   const active = activeTask(input.state);
   const contextual = !requested || CONTEXTUAL_OUTCOME.test(requested);
@@ -88,7 +83,7 @@ export async function decideHarnessEntry(input: {
     description: active && contextual ? `Resume: ${active.task.description}` : `Execute: ${intent}`,
     kind: active && contextual ? "resume" : "execution",
   };
-  const prediction = await new DeterministicFutureModel().predict({
+  const prediction = await (deps.futureModel ?? new DeterministicFutureModel()).predict({
     currentState: input.state,
     candidateAction: action,
   });
@@ -97,9 +92,8 @@ export async function decideHarnessEntry(input: {
     prediction,
     scores(active && contextual ? "resume" : "execute"),
   );
-  const goal = goalFor(intent, active);
   const recommendation = new DecisionPolicy().decide({
-    goal,
+    goal: goalFor(intent, active),
     state: input.state,
     evaluations: [evaluation],
     gaps,
