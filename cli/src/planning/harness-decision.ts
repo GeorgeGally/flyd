@@ -177,7 +177,7 @@ export async function decideHarnessEntry(input: {
     gaps,
   });
   const evaluation = evaluations.find((candidate) => candidate.action.id === recommendation.actionId)
-    ?? evaluations[0];
+    ?? evaluations[0]!;
 
   return {
     recommendation,
