@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { captureRuntimeSnapshot } from "./runtime-capture.js";
 import { isTransitionCaptureDisabled, recordAction, recordNextState } from "../transitions/writer.js";
-import type { TransitionActionInput, TransitionNextStateInput, TransitionSignal } from "../transitions/types.js";
+import type { TransitionActionInput, TransitionNextStateInput, TransitionOrigin, TransitionSignal } from "../transitions/types.js";
 import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
 export interface HarnessTrajectoryHandle {
@@ -26,7 +26,7 @@ const defaultDependencies: HarnessTrajectoryDependencies = {
 };
 
 /**
- * Start a live coding-harness trajectory immediately before worker execution.
+ * Start a live coding-harness trajectory immediately before supervised work.
  * This is best-effort telemetry, never execution authority.
  */
 export async function beginHarnessTrajectory(input: {
@@ -72,13 +72,14 @@ export async function beginHarnessTrajectory(input: {
 }
 
 /**
- * Close a previously-started harness trajectory after repository evidence has
- * been observed. `causalComplete` is true only when the matching action event
- * was actually captured in this process.
+ * Close a previously-started harness trajectory after the supervised runtime
+ * produces an observed outcome. `causalComplete` is true only when the matching
+ * action event was actually captured in this process.
  */
 export async function completeHarnessTrajectory(input: {
   handle: HarnessTrajectoryHandle;
   signal: TransitionSignal;
+  origin?: TransitionOrigin;
   detail?: Record<string, unknown>;
 }, deps: HarnessTrajectoryDependencies = defaultDependencies): Promise<void> {
   if (deps.disabled()) return;
@@ -92,7 +93,7 @@ export async function completeHarnessTrajectory(input: {
       sessionId: input.handle.sessionId,
       invocationId: input.handle.invocationId,
       surface: "harness",
-      origin: "verifier",
+      origin: input.origin ?? "verifier",
       signal: input.signal,
       causalComplete: input.handle.actionCaptured,
       ...(after ? { stateAfterId: after.id } : {}),
