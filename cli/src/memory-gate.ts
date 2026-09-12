@@ -28,7 +28,7 @@ export interface MemoryGateResult {
   shouldRemember: boolean;
   reason: string;
   confidence: "low" | "medium" | "high";
-  category: "explicit_preference" | "correction" | "repeated_topic" | "teaching" | "confirmation" | "recurring_routine" | "generic_qa";
+  category: "explicit_preference" | "correction" | "failed_outcome" | "repeated_topic" | "teaching" | "confirmation" | "recurring_routine" | "generic_qa";
 }
 
 const PREFERENCE_PATTERNS = [
@@ -63,103 +63,58 @@ const TEACHING_PATTERNS = [
 
 export function memoryGate(input: MemoryGateInput): MemoryGateResult {
   if (input.correction && input.correction.length > 0) {
-    return {
-      shouldRemember: true,
-      reason: "User provided a correction",
-      confidence: "high",
-      category: "correction",
-    };
+    return { shouldRemember: true, reason: "User provided a correction", confidence: "high", category: "correction" };
+  }
+
+  // Failures are sparse consequence signals. Keep the event so later
+  // distillation can reason about it; this does not promote the failure into a
+  // learned rule (gateLearningCandidate still rejects failed_action sources).
+  if (input.outcomeStatus === "failed") {
+    return { shouldRemember: true, reason: "Failed outcome preserved as a consequence signal", confidence: "high", category: "failed_outcome" };
   }
 
   for (const pattern of PREFERENCE_PATTERNS) {
     if (pattern.test(input.intent)) {
-      return {
-        shouldRemember: true,
-        reason: `Explicit preference detected: "${input.intent.slice(0, 80)}"`,
-        confidence: "high",
-        category: "explicit_preference",
-      };
+      return { shouldRemember: true, reason: `Explicit preference detected: "${input.intent.slice(0, 80)}"`, confidence: "high", category: "explicit_preference" };
     }
   }
 
   for (const pattern of CORRECTION_PATTERNS) {
     if (pattern.test(input.intent)) {
-      return {
-        shouldRemember: true,
-        reason: `Correction pattern detected: "${input.intent.slice(0, 80)}"`,
-        confidence: "high",
-        category: "correction",
-      };
+      return { shouldRemember: true, reason: `Correction pattern detected: "${input.intent.slice(0, 80)}"`, confidence: "high", category: "correction" };
     }
   }
 
   for (const pattern of TEACHING_PATTERNS) {
     if (pattern.test(input.intent)) {
-      return {
-        shouldRemember: true,
-        reason: `Multi-step teaching detected: "${input.intent.slice(0, 80)}"`,
-        confidence: "medium",
-        category: "teaching",
-      };
+      return { shouldRemember: true, reason: `Multi-step teaching detected: "${input.intent.slice(0, 80)}"`, confidence: "medium", category: "teaching" };
     }
   }
 
-  const similarIntents = input.intentHistory.filter(
-    (h) => similarity(h.intent.toLowerCase(), input.intent.toLowerCase()) > 0.6
-  );
-
+  const similarIntents = input.intentHistory.filter((history) => similarity(history.intent.toLowerCase(), input.intent.toLowerCase()) > 0.6);
   if (similarIntents.length >= 2) {
-    return {
-      shouldRemember: true,
-      reason: `Repeated topic (${similarIntents.length} similar intents)`,
-      confidence: "high",
-      category: "repeated_topic",
-    };
+    return { shouldRemember: true, reason: `Repeated topic (${similarIntents.length} similar intents)`, confidence: "high", category: "repeated_topic" };
   }
 
   if (input.outcomeStatus === "succeeded" && input.topicCount >= 5) {
-    const recentInLast24h = input.intentHistory.filter((h) => {
-      const then = new Date(h.timestamp).getTime();
-      const now = Date.now();
-      return (now - then) < 24 * 60 * 60 * 1000;
-    });
-
+    const recentInLast24h = input.intentHistory.filter((history) => (Date.now() - new Date(history.timestamp).getTime()) < 24 * 60 * 60 * 1000);
     const hourBuckets = new Map<number, number>();
-    for (const h of recentInLast24h) {
-      const hour = new Date(h.timestamp).getHours();
+    for (const history of recentInLast24h) {
+      const hour = new Date(history.timestamp).getHours();
       hourBuckets.set(hour, (hourBuckets.get(hour) || 0) + 1);
     }
-
     for (const [, count] of hourBuckets) {
       if (count >= 3) {
-        return {
-          shouldRemember: true,
-          reason: "Recurring routine detected (3+ intents in same hour window)",
-          confidence: "medium",
-          category: "recurring_routine",
-        };
+        return { shouldRemember: true, reason: "Recurring routine detected (3+ intents in same hour window)", confidence: "medium", category: "recurring_routine" };
       }
     }
   }
 
-  if (
-    input.intent.length < 30 &&
-    /^(what|who|when|where|how|is|are|can|do|does|why)\b/i.test(input.intent)
-  ) {
-    return {
-      shouldRemember: false,
-      reason: "Generic Q&A — not significant",
-      confidence: "high",
-      category: "generic_qa",
-    };
+  if (input.intent.length < 30 && /^(what|who|when|where|how|is|are|can|do|does|why)\b/i.test(input.intent)) {
+    return { shouldRemember: false, reason: "Generic Q&A — not significant", confidence: "high", category: "generic_qa" };
   }
 
-  return {
-    shouldRemember: false,
-    reason: "No significance signal detected",
-    confidence: "low",
-    category: "generic_qa",
-  };
+  return { shouldRemember: false, reason: "No significance signal detected", confidence: "low", category: "generic_qa" };
 }
 
 const QUALIFYING_SOURCES = new Set([
@@ -167,39 +122,17 @@ const QUALIFYING_SOURCES = new Set([
   'productive_procedure', 'verified_outcome',
 ]);
 
-const REJECTED_SOURCES = new Set([
-  'routine_question', 'dismissed_suggestion', 'failed_action', 'unverified_claim',
-]);
-
 export function gateLearningCandidate(candidate: LearningCandidate): LearningGateResult {
   const { source, epistemicConfidence, content } = candidate;
-
   if (!QUALIFYING_SOURCES.has(source)) {
-    return {
-      shouldRemember: false,
-      reason: `Source type "${source}" is not a qualifying learning source`,
-      category: source,
-      confidence: 'low',
-    };
+    return { shouldRemember: false, reason: `Source type "${source}" is not a qualifying learning source`, category: source, confidence: 'low' };
   }
-
   if (epistemicConfidence === 'low') {
-    return {
-      shouldRemember: false,
-      reason: `Low epistemic confidence on "${content.slice(0, 60)}"`,
-      category: source,
-      confidence: 'low',
-    };
+    return { shouldRemember: false, reason: `Low epistemic confidence on "${content.slice(0, 60)}"`, category: source, confidence: 'low' };
   }
-
   const categoryLabels: Record<string, string> = {
-    correction: 'correction',
-    accepted_standard: 'accepted_standard',
-    durable_decision: 'durable_decision',
-    productive_procedure: 'productive_procedure',
-    verified_outcome: 'verified_outcome',
+    correction: 'correction', accepted_standard: 'accepted_standard', durable_decision: 'durable_decision', productive_procedure: 'productive_procedure', verified_outcome: 'verified_outcome',
   };
-
   return {
     shouldRemember: true,
     reason: `${categoryLabels[source] ?? source} with ${epistemicConfidence} confidence`,
@@ -209,15 +142,10 @@ export function gateLearningCandidate(candidate: LearningCandidate): LearningGat
 }
 
 function similarity(a: string, b: string): number {
-  const wordsA = new Set(a.split(/\s+/).filter((w) => w.length > 2));
-  const wordsB = new Set(b.split(/\s+/).filter((w) => w.length > 2));
-
+  const wordsA = new Set(a.split(/\s+/).filter((word) => word.length > 2));
+  const wordsB = new Set(b.split(/\s+/).filter((word) => word.length > 2));
   if (wordsA.size === 0 || wordsB.size === 0) return 0;
-
   let intersection = 0;
-  for (const word of wordsA) {
-    if (wordsB.has(word)) intersection++;
-  }
-
+  for (const word of wordsA) if (wordsB.has(word)) intersection++;
   return intersection / Math.max(wordsA.size, wordsB.size);
 }
