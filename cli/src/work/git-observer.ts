@@ -215,11 +215,11 @@ export function observeAllRepos(): ProjectSnapshot[] {
           root: repo.root,
           branch: repo.observedBranch,
           head: repo.lastSeenHead,
-          dirty: repo.observedDirty,
+          dirty: repo.observedDirty ?? false,
           lastActivityAt: repo.lastActivityAt,
           projectFileExists: repo.projectFileExists,
           agentsFileExists: repo.agentsFileExists,
-          uncommittedFiles: repo.observedUncommittedFiles,
+          uncommittedFiles: repo.observedUncommittedFiles ?? 0,
         });
       }
     } catch {
