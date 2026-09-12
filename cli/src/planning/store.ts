@@ -1,121 +1,98 @@
-import { getDb } from "../work/database.js";
-import type {
-  PlanningTrace,
-  PredictionOutcome,
-  TrajectoryEvent,
-  WorldStateSnapshot,
-} from "./world-model.js";
+import { IntelligenceEventStore, type StoredEvent } from "../intelligence/event-store.js";
+import { validateEnvelope, type ContextEnvelope } from "../intelligence/context-envelope.js";
+import { SourceContractRegistry, type SourceContract } from "../intelligence/sensors/source-contracts.js";
+import type { PlanningTrace, PredictionOutcome, WorldStateSnapshot } from "./world-model.js";
 
-function ensureSchema(): void {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS world_state_snapshots (
-      id TEXT PRIMARY KEY,
-      captured_at TEXT NOT NULL,
-      project_id TEXT,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_world_state_snapshots_captured ON world_state_snapshots(captured_at);
-    CREATE INDEX IF NOT EXISTS idx_world_state_snapshots_project ON world_state_snapshots(project_id);
+export const PLANNING_RUNTIME_SOURCE_ID = "planning.runtime";
+export const PLANNING_RUNTIME_CONTRACT: SourceContract = {
+  sourceId: PLANNING_RUNTIME_SOURCE_ID,
+  displayName: "Planning runtime",
+  sensitivity: "low",
+  scopes: [PLANNING_RUNTIME_SOURCE_ID],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Retain structured planning snapshots, predictions and reconciliation outcomes for calibration.",
+  enabledByDefault: true,
+};
 
-    CREATE TABLE IF NOT EXISTS trajectory_events (
-      id TEXT PRIMARY KEY,
-      occurred_at TEXT NOT NULL,
-      project_id TEXT,
-      repository_root TEXT,
-      task_id TEXT,
-      thread_id TEXT,
-      state_before_id TEXT NOT NULL REFERENCES world_state_snapshots(id),
-      state_after_id TEXT REFERENCES world_state_snapshots(id),
-      outcome TEXT NOT NULL,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_trajectory_events_occurred ON trajectory_events(occurred_at);
-    CREATE INDEX IF NOT EXISTS idx_trajectory_events_project ON trajectory_events(project_id);
-
-    CREATE TABLE IF NOT EXISTS planning_traces (
-      id TEXT PRIMARY KEY,
-      created_at TEXT NOT NULL,
-      snapshot_id TEXT NOT NULL REFERENCES world_state_snapshots(id),
-      chosen_action_id TEXT,
-      outcome_id TEXT,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_planning_traces_created ON planning_traces(created_at);
-
-    CREATE TABLE IF NOT EXISTS prediction_outcomes (
-      id TEXT PRIMARY KEY,
-      prediction_id TEXT NOT NULL,
-      observed_snapshot_id TEXT NOT NULL REFERENCES world_state_snapshots(id),
-      category TEXT NOT NULL,
-      reconciled_at TEXT NOT NULL,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_prediction_outcomes_prediction ON prediction_outcomes(prediction_id);
-  `);
+export interface PlanningStoreOptions {
+  dbPath?: string;
+  registryPath?: string;
 }
 
-export class PlanningStore {
-  constructor() { ensureSchema(); }
+type PlanningPayload =
+  | { type: "world_state_snapshot"; snapshot: WorldStateSnapshot }
+  | { type: "planning_trace"; trace: PlanningTrace }
+  | { type: "prediction_outcome"; outcome: PredictionOutcome };
 
-  saveSnapshot(snapshot: WorldStateSnapshot): void {
-    getDb().prepare(`
-      INSERT OR REPLACE INTO world_state_snapshots (id, captured_at, project_id, payload)
-      VALUES (?, ?, ?, ?)
-    `).run(snapshot.id, snapshot.capturedAt, snapshot.projectId ?? null, JSON.stringify(snapshot));
+/**
+ * Planning persistence is a governed projection on Flyd's canonical
+ * IntelligenceEventStore. Action/outcome trajectories remain owned by the
+ * existing transition spine; this store deliberately does not duplicate them.
+ */
+export class PlanningStore {
+  private readonly store: IntelligenceEventStore;
+  private readonly registry: SourceContractRegistry;
+
+  constructor(options: PlanningStoreOptions = {}) {
+    this.store = new IntelligenceEventStore({ path: options.dbPath });
+    this.registry = new SourceContractRegistry(options.registryPath ? { path: options.registryPath } : {});
+    this.registry.register(PLANNING_RUNTIME_CONTRACT);
+  }
+
+  close(): void {
+    this.store.close();
+  }
+
+  saveSnapshot(snapshot: WorldStateSnapshot, correlationId?: string): StoredEvent {
+    return this.append(
+      `snapshot:${snapshot.id}`,
+      { type: "world_state_snapshot", snapshot },
+      correlationId,
+    );
   }
 
   getSnapshot(id: string): WorldStateSnapshot | null {
-    const row = getDb().prepare("SELECT payload FROM world_state_snapshots WHERE id = ?").get(id) as { payload: string } | undefined;
-    return row ? JSON.parse(row.payload) as WorldStateSnapshot : null;
+    const event = this.events().find((candidate) => {
+      const payload = candidate.payload as PlanningPayload | undefined;
+      return payload?.type === "world_state_snapshot" && payload.snapshot.id === id;
+    });
+    const payload = event?.payload as PlanningPayload | undefined;
+    return payload?.type === "world_state_snapshot" ? payload.snapshot : null;
   }
 
-  saveTrajectory(event: TrajectoryEvent): void {
-    getDb().prepare(`
-      INSERT OR REPLACE INTO trajectory_events
-      (id, occurred_at, project_id, repository_root, task_id, thread_id, state_before_id, state_after_id, outcome, payload)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      event.id, event.occurredAt, event.projectId ?? null, event.repositoryRoot ?? null,
-      event.taskId ?? null, event.threadId ?? null, event.stateBeforeId, event.stateAfterId ?? null,
-      event.outcome, JSON.stringify(event),
+  saveTrace(trace: PlanningTrace, correlationId?: string): StoredEvent {
+    return this.append(
+      `trace:${trace.id}`,
+      { type: "planning_trace", trace },
+      correlationId,
     );
   }
 
-  trajectoriesForProject(projectId: string, limit = 100): TrajectoryEvent[] {
-    const rows = getDb().prepare(`
-      SELECT payload FROM trajectory_events WHERE project_id = ? ORDER BY occurred_at DESC LIMIT ?
-    `).all(projectId, limit) as Array<{ payload: string }>;
-    return rows.map((row) => JSON.parse(row.payload) as TrajectoryEvent).reverse();
-  }
-
-  saveTrace(trace: PlanningTrace): void {
-    getDb().prepare(`
-      INSERT OR REPLACE INTO planning_traces (id, created_at, snapshot_id, chosen_action_id, outcome_id, payload)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(trace.id, trace.createdAt, trace.snapshotId, trace.chosenActionId ?? null, trace.outcomeId ?? null, JSON.stringify(trace));
-  }
-
   getTrace(id: string): PlanningTrace | null {
-    const row = getDb().prepare("SELECT payload FROM planning_traces WHERE id = ?").get(id) as { payload: string } | undefined;
-    return row ? JSON.parse(row.payload) as PlanningTrace : null;
+    const event = this.events().find((candidate) => {
+      const payload = candidate.payload as PlanningPayload | undefined;
+      return payload?.type === "planning_trace" && payload.trace.id === id;
+    });
+    const payload = event?.payload as PlanningPayload | undefined;
+    return payload?.type === "planning_trace" ? payload.trace : null;
   }
 
-  savePredictionOutcome(outcome: PredictionOutcome): void {
-    getDb().prepare(`
-      INSERT OR REPLACE INTO prediction_outcomes
-      (id, prediction_id, observed_snapshot_id, category, reconciled_at, payload)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      outcome.id, outcome.predictionId, outcome.observedSnapshotId,
-      outcome.category, outcome.reconciledAt, JSON.stringify(outcome),
+  savePredictionOutcome(outcome: PredictionOutcome, correlationId?: string): StoredEvent {
+    return this.append(
+      `prediction-outcome:${outcome.id}`,
+      { type: "prediction_outcome", outcome },
+      correlationId,
     );
   }
 
   calibrationReport(): Array<{ confidence: string; total: number; correct: number; correctRate: number }> {
-    const rows = getDb().prepare("SELECT payload FROM prediction_outcomes").all() as Array<{ payload: string }>;
     const buckets = new Map<string, { total: number; correct: number }>();
-    for (const row of rows) {
-      const outcome = JSON.parse(row.payload) as PredictionOutcome;
+    for (const event of this.events()) {
+      const payload = event.payload as PlanningPayload | undefined;
+      if (payload?.type !== "prediction_outcome") continue;
+      const outcome = payload.outcome;
       const key = outcome.confidenceAtPrediction.level;
       const bucket = buckets.get(key) ?? { total: 0, correct: 0 };
       bucket.total += 1;
@@ -128,5 +105,46 @@ export class PlanningStore {
       correct: bucket.correct,
       correctRate: bucket.total ? bucket.correct / bucket.total : 0,
     }));
+  }
+
+  private append(idempotencyKey: string, payload: PlanningPayload, correlationId?: string): StoredEvent {
+    if (this.registry.status(PLANNING_RUNTIME_SOURCE_ID) !== "enabled") {
+      throw new Error(`Planning runtime source is ${this.registry.status(PLANNING_RUNTIME_SOURCE_ID) ?? "unregistered"}`);
+    }
+    const envelope: ContextEnvelope = {
+      pathKind: "executive",
+      kind: "observation",
+      sourceId: PLANNING_RUNTIME_SOURCE_ID,
+      consent: {
+        grantedAt: new Date().toISOString(),
+        scopes: PLANNING_RUNTIME_CONTRACT.scopes,
+      },
+      retentionClass: PLANNING_RUNTIME_CONTRACT.retentionClass,
+      payloadClassification: "personal",
+      provenance: "planning:runtime",
+      idempotencyKey,
+      correlationId,
+      payload: payload as unknown as Record<string, unknown>,
+    };
+    const validation = validateEnvelope(envelope, {
+      consentLookup: { isRevoked: (sourceId) => this.registry.status(sourceId) === "revoked" },
+    });
+    if (!validation.ok) throw new Error(`Planning event rejected: ${validation.rejection}: ${validation.detail}`);
+    const event = this.store.append(envelope);
+    if (!event) throw new Error("Planning event store returned no event");
+    return event;
+  }
+
+  private events(): StoredEvent[] {
+    const result: StoredEvent[] = [];
+    let cursor = 0;
+    while (true) {
+      const batch = this.store.readFrom(cursor, 1000);
+      if (batch.length === 0) break;
+      result.push(...batch.filter((event) => event.sourceId === PLANNING_RUNTIME_SOURCE_ID && !event.erased));
+      cursor = batch[batch.length - 1].sequence;
+      if (batch.length < 1000) break;
+    }
+    return result;
   }
 }
