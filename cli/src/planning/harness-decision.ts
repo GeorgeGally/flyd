@@ -171,7 +171,7 @@ export async function decideHarnessEntry(input: {
     candidates.map(({ action, kind }) => evaluateCandidate(input.state, action, kind, futureModel)),
   );
   const recommendation = new DecisionPolicy().decide({
-    goal: goalFor(intent, active),
+    goal: goalFor(intent, contextual ? active : null),
     state: input.state,
     evaluations,
     gaps,
