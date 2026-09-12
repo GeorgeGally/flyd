@@ -1,0 +1,31 @@
+name: Refresh CLI lockfile
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cli/package.json'
+      - '.github/workflows/refresh-lockfile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - name: Refresh lockfile only
+        working-directory: cli
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Upload refreshed lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-package-lock
+          path: cli/package-lock.json
+          if-no-files-found: error
