@@ -49,8 +49,6 @@ function fingerprintDir(path: string): string {
 }
 
 export function computeFingerprint(root: string): string {
-  // Git reads can refresh index metadata. Read semantic state first, then
-  // sample metadata so repeated fingerprints remain stable when nothing changed.
   const head = execGit("rev-parse HEAD", root);
   const branch = execGit("branch --show-current", root);
   const statusOutput = execGit("status --porcelain", root);
@@ -106,6 +104,7 @@ export function observeRepository(root: string, repositoryId: string): Repositor
   }
 
   const dirty = stagedFiles.length > 0 || modifiedFiles.length > 0 || untrackedFiles.length > 0;
+
   return {
     repositoryId,
     observedAt: now,
@@ -129,7 +128,13 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
   let lastActivityAt = repo.lastActivityAt;
 
   if (!repo.lastIndexedHead && obs.head && obs.head !== "unknown") {
-    setRepositoryObservation(repositoryId, { head: obs.head, fingerprint, branch: obs.branch, dirty: obs.dirty, uncommittedFiles });
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+    });
     setRepositoryIndexedHead(repositoryId, obs.head);
   } else if (obs.commitsSinceLastIndex.length > 0) {
     const type = classifyDelta(obs.commitsSinceLastIndex);
@@ -150,10 +155,24 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
       verified: false,
     });
 
-    setRepositoryObservation(repositoryId, { head: obs.head, fingerprint, branch: obs.branch, dirty: obs.dirty, uncommittedFiles, workActivityAt });
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+      workActivityAt,
+    });
     setRepositoryIndexedHead(repositoryId, obs.head);
   } else {
-    setRepositoryObservation(repositoryId, { head: obs.head, fingerprint, branch: obs.branch, dirty: obs.dirty, uncommittedFiles });
+    // Dirty-only / branch-only / fingerprint change: observe, do not stamp as work activity.
+    setRepositoryObservation(repositoryId, {
+      head: obs.head,
+      fingerprint,
+      branch: obs.branch,
+      dirty: obs.dirty,
+      uncommittedFiles,
+    });
   }
 
   return {
@@ -186,6 +205,7 @@ export function observeAllRepos(): ProjectSnapshot[] {
         repo.observedDirty === undefined ||
         repo.observedUncommittedFiles === undefined;
 
+      // Only deep-observe when Git state changed or there is no complete cached observation.
       if (cacheIncomplete || fingerprint !== repo.lastObservationFingerprint) {
         results.push(observeAndRecord(repo.id, fingerprint));
       } else {
@@ -210,11 +230,13 @@ export function observeAllRepos(): ProjectSnapshot[] {
   return results;
 }
 
+// ponytail: simple keyword-based classification, no LLM needed for obvious cases
 function classifyDelta(commits: CommitEntry[]): "implementation" | "fix" | "refactor" | "research" | "documentation" | "release" | "setup" | "unknown" {
   const text = commits.map((c) => c.subject.toLowerCase()).join(" ");
   if (/^fix/i.test(commits[0]?.subject ?? "")) return "fix";
   if (text.includes("refactor")) return "refactor";
-  if (text.includes("release") || text.includes("version") || /^v\d/.test(commits[0]?.subject ?? "")) return "release";
+  if (text.includes("release") || text.includes("version") || /^v\d/.test(commits[0]?.subject ?? ""))
+    return "release";
   if (text.includes("doc") || text.includes("readme")) return "documentation";
   if (text.includes("setup") || text.includes("init")) return "setup";
   if (text.includes("research") || text.includes("explore") || text.includes("spike")) return "research";
