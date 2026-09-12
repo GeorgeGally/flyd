@@ -48,7 +48,7 @@ jobs:
 
       - name: Test planning foundations and benchmark
         working-directory: cli
-        run: npx vitest run src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/empirical-future-model.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/decision-policy.test.ts src/__tests__/memory-gate.test.ts
+        run: npx vitest run src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/empirical-future-model.test.ts src/planning/__tests__/harness-decision.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/decision-policy.test.ts src/__tests__/memory-gate.test.ts
 
   dependency-audit:
     runs-on: ubuntu-latest
