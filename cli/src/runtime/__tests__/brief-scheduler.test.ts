@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { configureCoachMemoryDirectory, addGoal } from "../coach-memory.js";
 import { configureOutcomeJournalDirectory } from "../../work-intelligence/outcome-journal.js";
 import { startBriefScheduler, stopBriefScheduler, runAndPersistBrief } from "../brief-scheduler.js";
+import { refreshRepositoryIntelligence } from "../repository-intelligence-refresh.js";
 import { readLatestBrief } from "../daily-brief.js";
 
 describe("brief scheduler", () => {
@@ -23,6 +24,8 @@ describe("brief scheduler", () => {
 
   afterEach(() => {
     stopBriefScheduler();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     if (prevFlydDir === undefined) delete process.env.FLYD_DIR;
     else process.env.FLYD_DIR = prevFlydDir;
     if (existsSync(root)) rmSync(root, { recursive: true, force: true });
@@ -37,14 +40,51 @@ describe("brief scheduler", () => {
     expect(latest!.body).toContain("Ship CleanX");
   });
 
-  it("starts and runs immediately, and stop clears the interval", async () => {
+  it("refreshes repository intelligence immediately before composing the brief", async () => {
     addGoal("Grow the business", "user");
-    const stop = startBriefScheduler({ intervalMs: 60_000, deps: { situation: null } });
+    const repositoryRefresh = vi.fn(async () => undefined);
+    const stop = startBriefScheduler({
+      intervalMs: 60_000,
+      deps: { situation: null },
+      repositoryRefresh,
+    });
     expect(stop).toBe(stopBriefScheduler);
-    // first tick is synchronous-ish via the immediate run; give it a beat
-    await new Promise((r) => setTimeout(r, 20));
-    const latest = readLatestBrief();
-    expect(latest?.body).toContain("Grow the business");
+
+    await vi.waitFor(() => expect(repositoryRefresh).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(readLatestBrief()?.body).toContain("Grow the business"));
     stopBriefScheduler();
+  });
+
+  it("repeats repository refresh on the maintenance cadence and stops cleanly", async () => {
+    vi.useFakeTimers();
+    const repositoryRefresh = vi.fn(async () => undefined);
+    startBriefScheduler({
+      intervalMs: 60_000,
+      deps: { situation: null },
+      repositoryRefresh,
+    });
+
+    await vi.runAllTicks();
+    expect(repositoryRefresh).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(repositoryRefresh).toHaveBeenCalledTimes(2);
+
+    stopBriefScheduler();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(repositoryRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps repository refresh best-effort when the work index is unavailable", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await refreshRepositoryIntelligence(async () => {
+      throw new Error("work index unavailable");
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warn).toHaveBeenCalledWith(
+      "[repository-intelligence] refresh failed:",
+      "work index unavailable",
+    );
   });
 });
