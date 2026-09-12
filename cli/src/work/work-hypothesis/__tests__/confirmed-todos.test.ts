@@ -157,15 +157,19 @@ describe("confirmed todos", () => {
 
   it("does not treat Present Model questions as to-do list questions", () => {
     expect(isTodoListQuestion("what am I working on?")).toBe(false);
-    expect(presentModelReply("whats my to do list?", "  CleanX looks active")).toBeNull();
+    expect(
+      presentModelReply("whats my to do list?", "  CleanX looks active"),
+    ).toBeNull();
   });
 
   it("parses messy correction lists", () => {
     expect(isBareTodoList(`- dead internet radio
 - post about sea silo`)).toBe(true);
-    expect(parseTodoItems(`actually its this: - dead internet radio
+    expect(
+      parseTodoItems(`actually its this: - dead internet radio
 - post about sea silo
-- apply 2 jobs`)).toEqual(["dead internet radio", "post about sea silo", "apply 2 jobs"]);
+- apply 2 jobs`),
+    ).toEqual(["dead internet radio", "post about sea silo", "apply 2 jobs"]);
   });
 
   it("recalls memory for newly added todo items", async () => {
@@ -195,13 +199,15 @@ describe("confirmed todos", () => {
   });
 
   it("closes the stale todo and promotes the replacement, preserving the due date", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 2026-09-05");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
     handleConfirmedTodoUtterance("- Add DIR to portfolio");
 
-    const result = applyTodoPriorityCorrection("too late for sponsor outreach; now get visitors there");
+    const result = applyTodoPriorityCorrection(
+      "too late for sponsor outreach; now get visitors there",
+    );
     expect(result).not.toBeNull();
-    expect(result?.closed.description).toBe("Get GNM sponsor outreach moving before");
+    expect(result?.closed.description).toBe("Get GNM sponsor outreach moving");
     expect(result?.closed.status).toBe("done");
     expect(result?.added.description).toBe("Get visitors to GNM event");
     expect(result?.added.status).toBe("open");
@@ -212,10 +218,12 @@ describe("confirmed todos", () => {
   });
 
   it("routes a priority correction through the utterance handler without the LLM", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 2026-09-05");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
 
-    const reply = handleConfirmedTodoUtterance("too late for sponsor outreach; now get visitors there");
+    const reply = handleConfirmedTodoUtterance(
+      "too late for sponsor outreach; now get visitors there",
+    );
     expect(reply?.reply).toContain("Corrected and persisted");
     expect(reply?.reply).toContain("Get visitors to GNM event");
     expect(listOpenConfirmedTodos().map((t) => t.description))
@@ -226,7 +234,9 @@ describe("confirmed todos", () => {
     expect(parseTodoPriorityCorrection(
       "sponsor outreach is now closed; now get visitors there",
     )).toEqual({ closedQuery: "sponsor outreach", replacement: "get visitors there" });
-    expect(parseTodoPriorityCorrection("visitor turnout is the first priority")).toBeNull();
+    expect(parseTodoPriorityCorrection(
+      "visitor turnout is the first priority",
+    )).toBeNull();
   });
 
   it("does not close a todo on a bare status statement", () => {
