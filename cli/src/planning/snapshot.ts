@@ -15,6 +15,8 @@ function fact<T>(value: T, confidence: PlanningConfidence, provenance: string[],
 export function snapshotFromPresent(input: {
   present: PresentModel;
   work?: WorkHypothesis | null;
+  repoStates?: StateFact<WorldStateSnapshot["repoStates"]["value"]>;
+  blockerFact?: StateFact<string[]>;
   blockers?: string[];
   commitments?: string[];
   entities?: string[];
@@ -37,12 +39,23 @@ export function snapshotFromPresent(input: {
     status: present.activeTask.status,
   }] : [];
   const decisions = (work?.openDecisions ?? []).map((decision) => `${decision.question}: ${decision.context}`);
-  const repositoryStates = repository ? [{
+  const fallbackRepositoryStates = repository ? [{
     root: repository.root,
     branch: repository.branch,
     dirty: repository.dirty,
     head: repository.head,
   }] : [];
+  const repoStates = input.repoStates ?? fact(
+    fallbackRepositoryStates,
+    repository ? confidence : "unknown",
+    ["present-model:repository"],
+    present.generatedAt,
+  );
+  const blockers = input.blockerFact ?? fact(
+    input.blockers ?? [],
+    "medium",
+    ["invocation-context"],
+  );
 
   return {
     id: randomUUID(),
@@ -50,8 +63,8 @@ export function snapshotFromPresent(input: {
     ...(input.projectId ? { projectId: input.projectId } : {}),
     activeProjects: fact(activeProjects, work?.confidence ?? confidence, ["work-hypothesis"], work?.generatedAt),
     activeTasks: fact(tasks, confidence, ["present-model:activeTask"], present.generatedAt),
-    repoStates: fact(repositoryStates, repository ? confidence : "unknown", ["present-model:repository"], present.generatedAt),
-    blockers: fact(input.blockers ?? [], "medium", ["invocation-context"]),
+    repoStates,
+    blockers,
     decisions: fact(decisions, decisions.length ? "high" : "unknown", ["work-hypothesis:openDecisions"], work?.generatedAt),
     commitments: fact(input.commitments ?? [], "medium", ["invocation-context"]),
     entities: fact(input.entities ?? [], "medium", ["invocation-context"]),
