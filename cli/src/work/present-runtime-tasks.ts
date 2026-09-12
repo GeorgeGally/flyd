@@ -9,7 +9,7 @@ export function attachRuntimeTasks(
 ): RuntimeAwarePresent {
   const activeRuntimeTasks: PresentRuntimeTaskFact[] = tasks
     .filter((task) => ACTIVE_TASK_STATUSES.has(task.status))
-    .map((task) => ({
+    .map((task): PresentRuntimeTaskFact => ({
       epistemicClass: "fact",
       taskId: task.id,
       taskKey: task.taskKey,
