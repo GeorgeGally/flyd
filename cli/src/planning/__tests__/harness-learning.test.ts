@@ -59,6 +59,30 @@ describe("live harness prediction learning", () => {
     expect(d.saveOutcome).toHaveBeenCalledWith(outcome, "inv-2");
   });
 
+  it("retains supervised completion separately from state-effect correctness", async () => {
+    const decision = await decideHarnessEntry({
+      state: state(),
+      requestedOutcome: "Verify the release",
+    });
+    const d = deps();
+
+    const outcome = reconcileHarnessPrediction(
+      decision,
+      state({ id: "state-after" }),
+      "inv-verified",
+      d,
+      { status: "completed", signal: "verified" },
+    );
+
+    expect(outcome?.category).toBe("insufficient_evidence");
+    expect(outcome?.executionStatus).toBe("completed");
+    expect(outcome?.executionSignal).toBe("verified");
+    expect(d.saveOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      executionStatus: "completed",
+      executionSignal: "verified",
+    }), "inv-verified");
+  });
+
   it("does not persist a prediction when policy asks the user instead of acting", async () => {
     const decision = await decideHarnessEntry({ state: state(), requestedOutcome: "fix it" });
     const d = deps();
