@@ -28,6 +28,7 @@ describe("recoverInterruptedWorkers", () => {
     const recovered = await recoverInterruptedWorkers({
       workers,
       isProcessAlive: (processId) => processId === 456,
+      worktreeExists: () => true,
       terminateProcessGroup,
       transition,
     });
@@ -36,7 +37,7 @@ describe("recoverInterruptedWorkers", () => {
     expect(transition).toHaveBeenCalledTimes(2);
     expect(transition).toHaveBeenCalledWith("dead", expect.objectContaining({
       status: "interrupted",
-      error: "Flyd restarted after the worker process ended",
+      error: expect.stringContaining("worktree survives"),
     }));
     expect(transition).toHaveBeenCalledWith("queued", expect.objectContaining({
       status: "interrupted",
@@ -56,76 +57,86 @@ describe("recoverInterruptedWorkers", () => {
     expect(workerProcessIsAlive(recorded, () => "node /usr/local/bin/opencode run task", sameStart)).toBe(true);
   });
 
-  it("leaves a live worker alone while another Flyd supervisor holds a fresh lease", async () => {
+  it("preserves an identity-proven live running worker", async () => {
     const transition = vi.fn();
-    const terminateProcessGroup = vi.fn();
-
     const recovered = await recoverInterruptedWorkers({
-      workers: [ worker({ processId: 123, lastObservedAt: "2026-07-21T10:00:00.000Z" }) ],
+      workers: [worker({ processId: 123 })],
       isProcessAlive: () => true,
-      terminateProcessGroup,
+      worktreeExists: () => true,
       transition,
-      now: () => new Date("2026-07-21T10:00:05.000Z"),
     });
 
     expect(recovered).toBe(0);
-    expect(terminateProcessGroup).not.toHaveBeenCalled();
     expect(transition).not.toHaveBeenCalled();
   });
 
-  it("preserves a live worker even when its previous supervisor lease is stale", async () => {
-    const transition = vi.fn();
-    const terminateProcessGroup = vi.fn();
+  it("reattaches an identity-proven live worker whose durable status is starting", async () => {
+    const current = worker({ status: "starting", processId: 123 });
+    const transition = vi.fn(async () => current);
 
     const recovered = await recoverInterruptedWorkers({
-      workers: [ worker({ processId: 123, lastObservedAt: "2026-07-21T09:00:00.000Z" }) ],
+      workers: [current],
       isProcessAlive: () => true,
-      terminateProcessGroup,
+      worktreeExists: () => true,
       transition,
-      now: () => new Date("2026-07-21T10:00:00.000Z"),
     });
 
-    expect(recovered).toBe(0);
-    expect(terminateProcessGroup).not.toHaveBeenCalled();
-    expect(transition).not.toHaveBeenCalled();
+    expect(recovered).toBe(1);
+    expect(transition).toHaveBeenCalledWith("worker-1", expect.objectContaining({
+      status: "running",
+      processId: 123,
+      processIdentity: current.processIdentity,
+    }));
   });
 
   it("preserves a worker after a transient liveness miss confirms the process is alive", async () => {
     const transition = vi.fn();
-    const terminateProcessGroup = vi.fn();
     const isProcessAlive = vi.fn()
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
 
     const recovered = await recoverInterruptedWorkers({
-      workers: [ worker({ processId: 123 }) ],
+      workers: [worker({ processId: 123 })],
       isProcessAlive,
-      terminateProcessGroup,
+      worktreeExists: () => true,
       transition,
     });
 
     expect(recovered).toBe(0);
     expect(isProcessAlive).toHaveBeenCalledTimes(2);
-    expect(terminateProcessGroup).not.toHaveBeenCalled();
     expect(transition).not.toHaveBeenCalled();
   });
 
-  it("interrupts a recently observed worker once two liveness checks confirm it is dead", async () => {
+  it("interrupts only when two liveness checks fail and the worktree survives", async () => {
     const transition = vi.fn();
     const isProcessAlive = vi.fn().mockReturnValue(false);
 
     const recovered = await recoverInterruptedWorkers({
-      workers: [ worker({ lastObservedAt: "2026-07-20T10:49:39.000Z" }) ],
+      workers: [worker({})],
       isProcessAlive,
+      worktreeExists: () => true,
       transition,
-      now: () => new Date("2026-07-20T10:49:46.000Z"),
     });
 
     expect(recovered).toBe(1);
     expect(isProcessAlive).toHaveBeenCalledTimes(2);
     expect(transition).toHaveBeenCalledWith("worker-1", expect.objectContaining({
       status: "interrupted",
-      error: "Flyd restarted after the worker process ended",
+      error: expect.stringContaining("worktree survives"),
     }));
+  });
+
+  it("does not invent a terminal state when both process and worktree are missing", async () => {
+    const transition = vi.fn();
+
+    const recovered = await recoverInterruptedWorkers({
+      workers: [worker({})],
+      isProcessAlive: () => false,
+      worktreeExists: () => false,
+      transition,
+    });
+
+    expect(recovered).toBe(0);
+    expect(transition).not.toHaveBeenCalled();
   });
 });
