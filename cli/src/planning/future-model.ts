@@ -300,7 +300,7 @@ export function reconcilePrediction(
   const predictedPaths = new Set(prediction.expectedEffects.map((effect) => effect.path));
   const missed = observedChanges.filter((change) => !predictedPaths.has(change.path));
   let category: PredictionError;
-  if (prediction.expectedEffects.length === 0 && missed.length === 0) category = "insufficient_evidence";
+  if (prediction.expectedEffects.length === 0) category = "insufficient_evidence";
   else if (incorrect.length === 0 && missed.length === 0) category = "correct";
   else if (correct.length > 0) category = "partially_correct";
   else if (incorrect.length > 0) category = "effect_did_not_occur";
