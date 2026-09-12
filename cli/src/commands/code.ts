@@ -10,7 +10,7 @@ import { createRuntimePool } from "../runtime/database.js";
 import { createFlydWorkerAdapter } from "../runtime/flyd-worker-adapter.js";
 import { loadFlydWorkerConfigs } from "../runtime/flyd-worker-config.js";
 import { createFlydTextGenerator } from "../runtime/flyd-worker-process.js";
-import { runContinuityHarness } from "../runtime/harness.js";
+import { runContinuityHarness } from "../planning/harness-runtime.js";
 import { orchestrateAssignments } from "../runtime/orchestrator.js";
 import { inspectRepository } from "../runtime/repository-inspector.js";
 import { resolveRequestedReadRoots } from "../runtime/repository-roots.js";
