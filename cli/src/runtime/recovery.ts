@@ -1,15 +1,22 @@
 import { execFileSync } from "child_process";
+import { existsSync } from "fs";
 import { resolve } from "path";
+import { reconcileWorker } from "./worker-reconciler.js";
 import type { WorkerSession } from "./types.js";
 
 interface RecoveryInput {
   workers: WorkerSession[];
+  /** Returns true only when the live process can be positively identified as this worker. */
   isProcessAlive(processId: number, worker: WorkerSession): boolean;
   transition(workerKey: string, update: {
-    status: "interrupted";
-    error: string;
+    status: "running" | "interrupted";
+    processId?: number | null;
+    processGroupId?: number | null;
+    processIdentity?: string | null;
+    error?: string;
     idempotencyKey: string;
   }): Promise<WorkerSession>;
+  worktreeExists?(worker: WorkerSession): boolean;
   /** @deprecated Recovery no longer terminates a live worker. Retained while callers migrate. */
   terminateProcessGroup?(worker: WorkerSession): Promise<void>;
   /** @deprecated Live-worker recovery no longer depends on a supervisor lease age. */
@@ -119,24 +126,47 @@ export async function terminateWorkerProcessGroup(worker: WorkerSession, graceMs
       (!worker.processGroupId || workerProcessGroupBelongsToWorker(worker))) signal("SIGKILL");
 }
 
+/**
+ * Reconcile persisted active workers after a Core restart or before a status read.
+ * Positive liveness means identity-proven ownership; a negative result is checked
+ * twice before any state transition. Judgment-requiring states are left untouched.
+ */
 export async function recoverInterruptedWorkers(input: RecoveryInput): Promise<number> {
   let recovered = 0;
   for (const worker of input.workers) {
-    // Confirm a negative observation once before treating a persisted worker as dead.
-    // A positively identified live worker survives Core restart. Recovery is
-    // reconciliation, not ownership transfer by process termination.
-    const processAlive = worker.processId && (
-      input.isProcessAlive(worker.processId, worker) ||
-      input.isProcessAlive(worker.processId, worker)
+    const firstAlive = worker.processId ? input.isProcessAlive(worker.processId, worker) : false;
+    const identityProvenAlive = firstAlive || Boolean(
+      worker.processId && input.isProcessAlive(worker.processId, worker),
     );
-    if (processAlive) continue;
+    const worktreeExists = input.worktreeExists?.(worker) ?? existsSync(worker.workingDirectory);
 
-    await input.transition(worker.workerKey, {
-      status: "interrupted",
-      error: "Flyd restarted after the worker process ended",
-      idempotencyKey: `worker-recovery:${worker.workerKey}:${worker.processId ?? "not-started"}`,
+    const reconciliation = reconcileWorker(worker, {
+      observedAt: new Date().toISOString(),
+      processAlive: identityProvenAlive,
+      processIdentityMatches: identityProvenAlive,
+      worktreeExists,
     });
-    recovered += 1;
+
+    if (reconciliation.action === "reattach") {
+      await input.transition(worker.workerKey, {
+        status: "running",
+        processId: worker.processId,
+        processGroupId: worker.processGroupId ?? null,
+        processIdentity: worker.processIdentity,
+        idempotencyKey: `worker-recovery:${worker.workerKey}:${worker.processIdentity ?? worker.processId ?? "unknown"}:reattach`,
+      });
+      recovered += 1;
+      continue;
+    }
+
+    if (reconciliation.action === "mark_interrupted") {
+      await input.transition(worker.workerKey, {
+        status: "interrupted",
+        error: reconciliation.reason,
+        idempotencyKey: `worker-recovery:${worker.workerKey}:${worker.processIdentity ?? worker.processId ?? "not-started"}:interrupted`,
+      });
+      recovered += 1;
+    }
   }
   return recovered;
 }
