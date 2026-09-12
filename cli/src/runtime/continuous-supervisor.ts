@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { OperationalDecisionStore } from "./operational-decision-store.js";
 import { PostgresTaskStore } from "./task-store.js";
 import { superviseProject } from "./project-supervisor.js";
+import { finalizeDetachedProject } from "./detached-finalizer.js";
 import type { AgentTask } from "./types.js";
 
 const ACTIVE_TASK_STATUSES = new Set(["awaiting_grant", "ready", "running", "blocked"]);
@@ -20,6 +21,7 @@ export interface ContinuousSupervisor {
 export interface SupervisorSweepDependencies {
   listTasks(): Promise<AgentTask[]>;
   superviseProject(projectRoot: string): Promise<unknown>;
+  finalizeProject?(projectRoot: string): Promise<unknown>;
 }
 
 export async function runSupervisorSweep(deps: SupervisorSweepDependencies): Promise<string[]> {
@@ -31,14 +33,15 @@ export async function runSupervisorSweep(deps: SupervisorSweepDependencies): Pro
 
   for (const root of roots) {
     await deps.superviseProject(root);
+    if (deps.finalizeProject) await deps.finalizeProject(root);
   }
   return roots;
 }
 
 /**
- * Continuously reconcile durable execution state with process/worktree reality.
- * The loop is deterministic and model-free. It only visits repositories that
- * currently own active runtime tasks, and it never overlaps sweeps.
+ * Continuously reconcile durable execution state with process/worktree reality,
+ * then recover detached completions through the normal verification/integration
+ * machinery. The loop is deterministic and model-free and never overlaps sweeps.
  */
 export function startContinuousSupervisor(
   pool: Pool,
@@ -57,6 +60,7 @@ export function startContinuousSupervisor(
       await runSupervisorSweep({
         listTasks: () => taskStore.listTasks(undefined, 200),
         superviseProject: (projectRoot) => superviseProject(projectRoot, { taskStore, decisionStore }),
+        finalizeProject: (projectRoot) => finalizeDetachedProject(pool, projectRoot),
       });
     } finally {
       running = false;
