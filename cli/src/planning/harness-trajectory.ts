@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { captureRuntimeSnapshot } from "./runtime-capture.js";
 import { isTransitionCaptureDisabled, recordAction, recordNextState } from "../transitions/writer.js";
-import type { TransitionSignal } from "../transitions/types.js";
+import type { TransitionActionInput, TransitionNextStateInput, TransitionSignal } from "../transitions/types.js";
+import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
 export interface HarnessTrajectoryHandle {
   invocationId: string;
@@ -9,6 +10,20 @@ export interface HarnessTrajectoryHandle {
   projectRoot: string;
   actionCaptured: boolean;
 }
+
+export interface HarnessTrajectoryDependencies {
+  disabled: () => boolean;
+  capture: (input: { correlationId: string; projectRoot?: string | null }) => Promise<WorldStateSnapshot | null>;
+  recordAction: (input: TransitionActionInput) => ReturnType<typeof recordAction>;
+  recordNextState: (input: TransitionNextStateInput) => ReturnType<typeof recordNextState>;
+}
+
+const defaultDependencies: HarnessTrajectoryDependencies = {
+  disabled: isTransitionCaptureDisabled,
+  capture: captureRuntimeSnapshot,
+  recordAction,
+  recordNextState,
+};
 
 /**
  * Start a live coding-harness trajectory immediately before worker execution.
@@ -21,7 +36,7 @@ export async function beginHarnessTrajectory(input: {
   taskId?: string;
   threadId?: string;
   invocationId?: string;
-}): Promise<HarnessTrajectoryHandle> {
+}, deps: HarnessTrajectoryDependencies = defaultDependencies): Promise<HarnessTrajectoryHandle> {
   const invocationId = input.invocationId ?? `harness:${input.sessionId}:${randomUUID()}`;
   const handle: HarnessTrajectoryHandle = {
     invocationId,
@@ -30,14 +45,14 @@ export async function beginHarnessTrajectory(input: {
     actionCaptured: false,
   };
 
-  if (isTransitionCaptureDisabled()) return handle;
+  if (deps.disabled()) return handle;
 
   try {
-    const before = await captureRuntimeSnapshot({
+    const before = await deps.capture({
       correlationId: invocationId,
       projectRoot: input.projectRoot,
     });
-    const result = recordAction({
+    const result = deps.recordAction({
       sessionId: input.sessionId,
       invocationId,
       surface: "harness",
@@ -65,15 +80,15 @@ export async function completeHarnessTrajectory(input: {
   handle: HarnessTrajectoryHandle;
   signal: TransitionSignal;
   detail?: Record<string, unknown>;
-}): Promise<void> {
-  if (isTransitionCaptureDisabled()) return;
+}, deps: HarnessTrajectoryDependencies = defaultDependencies): Promise<void> {
+  if (deps.disabled()) return;
 
   try {
-    const after = await captureRuntimeSnapshot({
+    const after = await deps.capture({
       correlationId: input.handle.invocationId,
       projectRoot: input.handle.projectRoot,
     });
-    const result = recordNextState({
+    const result = deps.recordNextState({
       sessionId: input.handle.sessionId,
       invocationId: input.handle.invocationId,
       surface: "harness",
