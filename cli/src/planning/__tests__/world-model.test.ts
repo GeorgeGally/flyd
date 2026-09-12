@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { scoreEvidence } from "../../lib/librarian.js";
+import { applyVerification, scoreEvidence } from "../../lib/librarian.js";
 import { scoreTailSignificance } from "../../lib/tail-significance.js";
 import { configureTransitionStore, recordAction, recordNextState } from "../../transitions/writer.js";
 import type { WorldStateSnapshot } from "../../intelligence/world/types.js";
@@ -176,6 +176,27 @@ describe("tail event preservation", () => {
     expect(tail.confidenceProfile.epistemicConfidence).toBe(routine.confidenceProfile.epistemicConfidence);
     expect(tail.confidenceProfile.retrievalUtility).toBeGreaterThan(routine.confidenceProfile.retrievalUtility);
     expect(tail.metadata.preservationRequired).toBe(true);
+  });
+
+  it("keeps the tail boost after verifier relevance rescoring", () => {
+    const entry = scoreEvidence({
+      path: "events/failure.md",
+      body: "production deploy failed",
+      source: "raw",
+      score: .5,
+      staleness: null,
+      metadata: { outcome: "failure", consequence: 1, surprise: .9, confidence: .5 },
+    }, [], "deploy");
+    const boost = Number(entry.metadata.tailPreservationBoost);
+    const verified = applyVerification([entry], {
+      verified: true,
+      verdicts: new Map([[entry.path, { relevant: true, reason: "directly answers the deployment question" }]]),
+      sufficiency: { verdict: "sufficient", reason: "direct evidence", coverage: 1 },
+      conflicts: [],
+    })[0];
+    expect(verified.metadata.tailPreservationBoost).toBe(boost);
+    expect(verified.librarianScore).toBeGreaterThan(boost);
+    expect(verified.confidenceProfile.epistemicConfidence).toBe(entry.confidenceProfile.epistemicConfidence);
   });
 });
 
