@@ -99,12 +99,20 @@ describe("task command formatting", () => {
   });
 
   it("does not print internal blocker strings as next actions", () => {
-    expect(formatTask({ ...task, recommendedNextAction: "No healthy worker satisfies: implementation, testing" }))
-      .toContain("Next: Worker routing is unavailable; Flyd needs to recover or replace its worker before continuing.");
-    expect(formatTask({ ...task, recommendedNextAction: "Current repository evidence invalidated the assignment base" }))
-      .toContain("Next: The repository changed while work was running; Flyd needs to re-check the current files before continuing.");
-    expect(formatTask({ ...task, recommendedNextAction: "Flyd already intervened on this exact evidence" }))
-      .toContain("Next: Flyd already tried the safe automatic move here; review the current state before intervening again.");
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "No healthy worker satisfies: implementation, testing",
+    })).toContain("Next: Worker routing is unavailable; Flyd needs to recover or replace its worker before continuing.");
+
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "Current repository evidence invalidated the assignment base",
+    })).toContain("Next: The repository changed while work was running; Flyd needs to re-check the current files before continuing.");
+
+    expect(formatTask({
+      ...task,
+      recommendedNextAction: "Flyd already intervened on this exact evidence",
+    })).toContain("Next: Flyd already tried the safe automatic move here; review the current state before intervening again.");
   });
 
   it("recovers dead live workers before status reports them", async () => {
@@ -136,6 +144,7 @@ describe("task command formatting", () => {
 
   it("shows controllable worker identity, assignment, adapter, and worktree", () => {
     const output = formatWorker(worker);
+
     expect(output).toContain("worker-12345678");
     expect(output).toContain("Assignment: 4");
     expect(output).toContain("Assignment revision: 3");
@@ -166,10 +175,11 @@ describe("task command formatting", () => {
       realSessions: 0, resumedSessions: 0, resumedWithoutRestatement: 0,
       acceptedInterpretations: 0, correctedInterpretations: 0, replacedInterpretations: 0,
       recommendedActions: 0, acceptedOrAdaptedActions: 0, acceptedInterventionWeeks: 0,
-      acceptedInterventionWeekDates: [], completedTasks: 0,
-      completedTasksWithVerifiedOutcomeAndReentry: 0,
-      parityEvidenceCount: 0, propagationLatenciesMs: [], memorySafetyReviews: [],
-      rationaleReviews: [], automatedAcceptanceRuns: [], realSessionDates: [],
+      acceptedInterventionWeekDates: [],
+      completedTasks: 0, completedTasksWithVerifiedOutcomeAndReentry: 0,
+      parityEvidenceCount: 0, propagationLatenciesMs: [],
+      memorySafetyReviews: [], rationaleReviews: [], automatedAcceptanceRuns: [],
+      realSessionDates: [],
     });
 
     const output = formatAcceptanceReport(report);
@@ -183,12 +193,12 @@ describe("task command formatting", () => {
     const output = formatMetrics({
       windowStartedAt: "2026-07-14T00:00:00.000Z",
       tasks: 2, completedTasks: 1, sessions: 5, resumedSessions: 4, resumedWithoutRestatement: 3,
-      acceptedInterpretations: 2, correctedInterpretations: 1, replacedInterpretations: 1,
-      manualContextRestatements: 1, toolEscapes: 0, routedAssignments: 2, flydAssignments: 2,
-      codexAssignments: 0, openCodeAssignments: 0, acceptedInterventions: 1,
-      stopControls: 0, retryControls: 1, redirectControls: 0, replaceControls: 0,
-      integrationConflicts: 0, permissionRenewals: 1, verifiedIntegrations: 1,
-      manualContextTransfers: 1,
+      acceptedInterpretations: 2, correctedInterpretations: 1,
+      replacedInterpretations: 1, manualContextRestatements: 1, toolEscapes: 0,
+      routedAssignments: 2, flydAssignments: 2, codexAssignments: 0, openCodeAssignments: 0,
+      acceptedInterventions: 1, stopControls: 0, retryControls: 1,
+      redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
+      permissionRenewals: 1, verifiedIntegrations: 1, manualContextTransfers: 1,
     });
 
     expect(output).toContain("Resumed without context restatement: 75% (3/4)");
@@ -206,11 +216,11 @@ describe("task command formatting", () => {
       windowStartedAt: "2026-07-14T00:00:00.000Z",
       tasks: 1, completedTasks: 0, sessions: 1, resumedSessions: 0, resumedWithoutRestatement: 0,
       acceptedInterpretations: 1, correctedInterpretations: 0, replacedInterpretations: 0,
-      manualContextRestatements: 0, toolEscapes: 0, routedAssignments: 0, flydAssignments: 0,
-      codexAssignments: 0, openCodeAssignments: 0, acceptedInterventions: 0,
-      stopControls: 0, retryControls: 0, redirectControls: 0, replaceControls: 0,
-      integrationConflicts: 0, permissionRenewals: 0, verifiedIntegrations: 0,
-      manualContextTransfers: 0,
+      manualContextRestatements: 0, toolEscapes: 0,
+      routedAssignments: 0, flydAssignments: 0, codexAssignments: 0, openCodeAssignments: 0,
+      acceptedInterventions: 0, stopControls: 0, retryControls: 0,
+      redirectControls: 0, replaceControls: 0, integrationConflicts: 0,
+      permissionRenewals: 0, verifiedIntegrations: 0, manualContextTransfers: 0,
     });
 
     expect(output).toContain("Release 1B control trial: insufficient evidence");
