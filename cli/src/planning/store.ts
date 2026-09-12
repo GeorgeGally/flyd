@@ -1,7 +1,8 @@
 import { IntelligenceEventStore, type StoredEvent } from "../intelligence/event-store.js";
 import { validateEnvelope, type ContextEnvelope } from "../intelligence/context-envelope.js";
 import { SourceContractRegistry, type SourceContract } from "../intelligence/sensors/source-contracts.js";
-import type { PlanningTrace, PredictionOutcome, WorldStateSnapshot } from "./world-model.js";
+import type { WorldStateSnapshot } from "../intelligence/world/types.js";
+import type { PlanningTrace, PredictionOutcome } from "./future-model.js";
 
 export const PLANNING_RUNTIME_SOURCE_ID = "planning.runtime";
 export const PLANNING_RUNTIME_CONTRACT: SourceContract = {
@@ -46,36 +47,28 @@ export class PlanningStore {
   }
 
   saveSnapshot(snapshot: WorldStateSnapshot, correlationId?: string): StoredEvent {
-    return this.append(
-      `snapshot:${snapshot.id}`,
-      { type: "world_state_snapshot", snapshot },
-      correlationId,
-    );
+    return this.append(`snapshot:${snapshot.id}`, { type: "world_state_snapshot", snapshot }, correlationId);
   }
 
   getSnapshot(id: string): WorldStateSnapshot | null {
     const event = this.events().find((candidate) => {
-      const payload = candidate.payload as PlanningPayload | undefined;
+      const payload = candidate.payload as unknown as PlanningPayload | undefined;
       return payload?.type === "world_state_snapshot" && payload.snapshot.id === id;
     });
-    const payload = event?.payload as PlanningPayload | undefined;
+    const payload = event?.payload as unknown as PlanningPayload | undefined;
     return payload?.type === "world_state_snapshot" ? payload.snapshot : null;
   }
 
   saveTrace(trace: PlanningTrace, correlationId?: string): StoredEvent {
-    return this.append(
-      `trace:${trace.id}`,
-      { type: "planning_trace", trace },
-      correlationId,
-    );
+    return this.append(`trace:${trace.id}`, { type: "planning_trace", trace }, correlationId);
   }
 
   getTrace(id: string): PlanningTrace | null {
     const event = this.events().find((candidate) => {
-      const payload = candidate.payload as PlanningPayload | undefined;
+      const payload = candidate.payload as unknown as PlanningPayload | undefined;
       return payload?.type === "planning_trace" && payload.trace.id === id;
     });
-    const payload = event?.payload as PlanningPayload | undefined;
+    const payload = event?.payload as unknown as PlanningPayload | undefined;
     return payload?.type === "planning_trace" ? payload.trace : null;
   }
 
@@ -90,7 +83,7 @@ export class PlanningStore {
   calibrationReport(): Array<{ confidence: string; total: number; correct: number; correctRate: number }> {
     const buckets = new Map<string, { total: number; correct: number }>();
     for (const event of this.events()) {
-      const payload = event.payload as PlanningPayload | undefined;
+      const payload = event.payload as unknown as PlanningPayload | undefined;
       if (payload?.type !== "prediction_outcome") continue;
       const outcome = payload.outcome;
       const key = outcome.confidenceAtPrediction.level;
@@ -123,13 +116,15 @@ export class PlanningStore {
       payloadClassification: "personal",
       provenance: "planning:runtime",
       idempotencyKey,
-      correlationId,
+      ...(correlationId ? { correlationId } : {}),
       payload: payload as unknown as Record<string, unknown>,
     };
     const validation = validateEnvelope(envelope, {
       consentLookup: { isRevoked: (sourceId) => this.registry.status(sourceId) === "revoked" },
     });
-    if (!validation.ok) throw new Error(`Planning event rejected: ${validation.rejection}: ${validation.detail}`);
+    if (!validation.ok) {
+      throw new Error(`Planning event rejected: ${validation.rejection}: ${validation.detail}`);
+    }
     const event = this.store.append(envelope);
     if (!event) throw new Error("Planning event store returned no event");
     return event;
