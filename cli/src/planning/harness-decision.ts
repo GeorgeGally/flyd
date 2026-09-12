@@ -130,18 +130,19 @@ export async function decideHarnessEntry(input: {
       kind: "resume",
     });
 
-    if (active.task.status === "blocked") {
-      const blocker = input.state.blockers.value[0];
+    const blocker = input.state.blockers.value[0];
+    const hasUnresolvedBlocker = active.task.status === "blocked" || input.state.blockers.value.length > 0;
+    if (hasUnresolvedBlocker) {
       gaps.push({
         id: "active-task-blocker",
         kind: "missing_state",
         description: blocker
-          ? `The active task is blocked: ${blocker}`
+          ? `The active task still has a blocker: ${blocker}`
           : "The active task is blocked but the resolution is not yet known",
         severity: "high",
         blocking: true,
         evidenceNeeded: blocker
-          ? "Evidence that identifies whether the blocker can be resolved safely"
+          ? "Evidence that identifies whether the blocker is actually resolved"
           : "The concrete cause of the active task blocker",
       });
       candidates.push({
