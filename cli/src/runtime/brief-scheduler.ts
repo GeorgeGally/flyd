@@ -1,8 +1,13 @@
 import { composeDailyBrief, persistDailyBrief, dailyBriefFile, type DailyBriefDeps } from "./daily-brief.js";
+import {
+  refreshRepositoryIntelligence,
+  type RepositoryIntelligenceRefresh,
+} from "./repository-intelligence-refresh.js";
 
 export interface BriefSchedulerConfig {
   intervalMs?: number;
   deps?: DailyBriefDeps;
+  repositoryRefresh?: RepositoryIntelligenceRefresh;
   onError?: (error: unknown) => void;
 }
 
@@ -22,18 +27,22 @@ export async function runAndPersistBrief(deps: DailyBriefDeps = {}): Promise<{ o
   }
 }
 
-// Runs the daily brief on a background interval and persists it, so the
-// opening / /brief can show a fresh brief without blocking the session on
-// network research. Not tied to the synchronous job runner (last30days is
-// async). Caller owns lifecycle; returns a stop() handle.
+// Core's lightweight daily maintenance loop. Repository intelligence refreshes
+// first so the canonical work index, commit/activity distillation, and durable
+// work hypothesis are current before the brief is composed. The brief remains
+// independently best-effort; either maintenance task can fail without taking
+// Core down.
 //
-// Runs once immediately on start (so every Core launch refreshes the brief),
-// then once per day by default. Daily cadence overridable via intervalMs.
+// Runs once immediately on start, then once per day by default. Cadence is
+// overridable via intervalMs. Caller owns lifecycle; returns a stop() handle.
 export function startBriefScheduler(config: BriefSchedulerConfig = {}): () => void {
   if (intervalHandle) stopBriefScheduler();
   const intervalMs = config.intervalMs ?? 24 * 60 * 60 * 1000;
   const tick = (): void => {
-    void runAndPersistBrief(config.deps).catch((error) => config.onError?.(error));
+    void (async () => {
+      await refreshRepositoryIntelligence(config.repositoryRefresh);
+      await runAndPersistBrief(config.deps);
+    })().catch((error) => config.onError?.(error));
   };
   tick(); // run once immediately on start
   intervalHandle = setInterval(tick, intervalMs);
