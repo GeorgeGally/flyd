@@ -7,6 +7,7 @@ import { buildWorkIntelligencePrompt, parseWorkIntelligenceResponse } from './in
 import { recordLlmResolution } from '../overlay-metrics.js';
 import type { ActionProposal, CurrentWork, Diagnosis, Intervention } from './types.js';
 import { readPresentModel } from '../work/work-hypothesis/index.js';
+import type { WorkHypothesis } from '../work/work-hypothesis/types.js';
 import { assembleGroundPack, buildForegroundSummary } from './ground-pack.js';
 import {
   loadDomainStandard,
@@ -27,6 +28,7 @@ export interface WorkInteractionParams {
   conversationId?: string;
   screenshotBase64?: string;
   modelConfig: { model: string; apiKey: string; baseURL: string };
+  presentModel?: WorkHypothesis | null;
 }
 
 export interface WorkInteractionOutput {
@@ -101,7 +103,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     }
   }
 
-  const presentModel = readPresentModel();
+  const presentModel = params.presentModel === undefined ? readPresentModel() : params.presentModel;
   const closeout = readLatestCloseoutForProject(currentWork.project.value);
   const wikiProjectSection = loadWikiProjectSection(currentWork.project.value);
   const projectParsed = readSafeWikiPage(`projects/${slugifyName(currentWork.project.value)}.md`);
