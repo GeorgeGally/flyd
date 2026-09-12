@@ -91,6 +91,7 @@ export async function runContinuityHarness(
       executedDecision,
       observed,
       trajectory.invocationId,
+      undefined,
       { status: result.status, signal },
     );
     return result;
@@ -105,6 +106,7 @@ export async function runContinuityHarness(
       executedDecision,
       observed,
       trajectory.invocationId,
+      undefined,
       { status: "failed", signal: "failed" },
     );
     throw error;
