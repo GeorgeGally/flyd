@@ -11,7 +11,10 @@ export interface HarnessDecision {
   recommendation: DecisionRecommendation;
   intent: string;
   activeTask: ActiveTask | null;
+  /** Evaluation selected by policy. Kept for existing learning callers. */
   evaluation: ActionEvaluation;
+  /** All legitimate candidates considered at the live decision boundary. */
+  evaluations: ActionEvaluation[];
 }
 
 export interface HarnessDecisionDependencies {
@@ -44,17 +47,28 @@ function goalFor(intent: string, active: ReturnType<typeof activeTask>): GoalSpe
   };
 }
 
-function scores(kind: "execute" | "resume", forecast?: ExecutionForecast): ActionScores {
-  const base: ActionScores = {
-    progress: kind === "resume" ? 0.9 : 0.8,
-    reachability: 0.75,
-    leverage: 0.7,
-    urgency: 0.5,
-    userEffort: 0.15,
-    risk: 0.25,
-    reversibility: 0.7,
-    confidence: 0.7,
-  };
+function scores(kind: "execute" | "resume" | "investigate", forecast?: ExecutionForecast): ActionScores {
+  const base: ActionScores = kind === "investigate"
+    ? {
+        progress: 0.55,
+        reachability: 0.9,
+        leverage: 0.75,
+        urgency: 0.7,
+        userEffort: 0.1,
+        risk: 0.1,
+        reversibility: 0.95,
+        confidence: 0.8,
+      }
+    : {
+        progress: kind === "resume" ? 0.9 : 0.8,
+        reachability: 0.75,
+        leverage: 0.7,
+        urgency: 0.5,
+        userEffort: 0.15,
+        risk: 0.25,
+        reversibility: 0.7,
+        confidence: 0.7,
+      };
   if (!forecast) return base;
   // Keep empirical execution reliability influential but bounded. Historical
   // success informs ranking; it never becomes execution authority.
@@ -66,6 +80,23 @@ function scores(kind: "execute" | "resume", forecast?: ExecutionForecast): Actio
   };
 }
 
+async function evaluateCandidate(
+  state: WorldStateSnapshot,
+  action: CandidateAction,
+  kind: "execute" | "resume" | "investigate",
+  futureModel: FutureModel,
+): Promise<ActionEvaluation> {
+  const prediction = await futureModel.predict({
+    currentState: state,
+    candidateAction: action,
+  });
+  return new ActionEvaluator().evaluate(
+    action,
+    prediction,
+    scores(kind, prediction.outcomeForecast),
+  );
+}
+
 export async function decideHarnessEntry(input: {
   state: WorldStateSnapshot;
   requestedOutcome?: string;
@@ -75,6 +106,8 @@ export async function decideHarnessEntry(input: {
   const contextual = !requested || CONTEXTUAL_OUTCOME.test(requested);
   const intent = contextual && active ? active.task.description : requested;
   const gaps: PlanningGap[] = [];
+  const futureModel = deps.futureModel ?? new DeterministicFutureModel();
+  const candidates: Array<{ action: CandidateAction; kind: "execute" | "resume" | "investigate" }> = [];
 
   if (contextual && !active) {
     gaps.push({
@@ -87,26 +120,70 @@ export async function decideHarnessEntry(input: {
     });
   }
 
-  const action: CandidateAction = {
-    id: active && contextual ? "resume-active-task" : "execute-requested-outcome",
-    description: active && contextual ? `Resume: ${active.task.description}` : `Execute: ${intent}`,
-    kind: active && contextual ? "resume" : "execution",
-  };
-  const prediction = await (deps.futureModel ?? new DeterministicFutureModel()).predict({
-    currentState: input.state,
-    candidateAction: action,
-  });
-  const evaluation = new ActionEvaluator().evaluate(
-    action,
-    prediction,
-    scores(active && contextual ? "resume" : "execute", prediction.outcomeForecast),
+  if (active && contextual) {
+    candidates.push({
+      action: {
+        id: "resume-active-task",
+        description: `Resume: ${active.task.description}`,
+        kind: "resume",
+      },
+      kind: "resume",
+    });
+
+    if (active.task.status === "blocked") {
+      const blocker = input.state.blockers.value[0];
+      gaps.push({
+        id: "active-task-blocker",
+        kind: "missing_state",
+        description: blocker
+          ? `The active task is blocked: ${blocker}`
+          : "The active task is blocked but the resolution is not yet known",
+        severity: "high",
+        blocking: true,
+        evidenceNeeded: blocker
+          ? "Evidence that identifies whether the blocker can be resolved safely"
+          : "The concrete cause of the active task blocker",
+      });
+      candidates.push({
+        action: {
+          id: "investigate-active-task-blocker",
+          description: blocker
+            ? `Investigate the active-task blocker before resuming: ${blocker}`
+            : `Investigate why the active task is blocked before resuming: ${active.task.description}`,
+          kind: "information_gathering",
+          metadata: { resolvesGapIds: ["active-task-blocker"] },
+        },
+        kind: "investigate",
+      });
+    }
+  } else {
+    candidates.push({
+      action: {
+        id: "execute-requested-outcome",
+        description: `Execute: ${intent}`,
+        kind: "execution",
+      },
+      kind: "execute",
+    });
+  }
+
+  const evaluations = await Promise.all(
+    candidates.map(({ action, kind }) => evaluateCandidate(input.state, action, kind, futureModel)),
   );
   const recommendation = new DecisionPolicy().decide({
     goal: goalFor(intent, active),
     state: input.state,
-    evaluations: [evaluation],
+    evaluations,
     gaps,
   });
+  const evaluation = evaluations.find((candidate) => candidate.action.id === recommendation.actionId)
+    ?? evaluations[0];
 
-  return { recommendation, intent, activeTask: active?.task ?? null, evaluation };
+  return {
+    recommendation,
+    intent,
+    activeTask: active?.task ?? null,
+    evaluation,
+    evaluations,
+  };
 }
