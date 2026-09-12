@@ -8,6 +8,8 @@ import { readRuntimeAwarePresent } from "./present-runtime-reader.js";
 import { readPresentModel } from "./work-hypothesis/index.js";
 import type { RuntimeAwarePresent } from "./runtime-present-types.js";
 
+const ACTIVE_TASK_STATUSES = new Set(["awaiting_grant", "ready", "running", "blocked"]);
+
 /**
  * Compose the persisted work hypothesis with canonical runtime facts and
  * read-only worker observations. This function never mutates runtime state.
@@ -18,22 +20,26 @@ export async function readCanonicalPresent(pool: Pool): Promise<RuntimeAwarePres
 
   const decisionStore = new OperationalDecisionStore(pool);
   const taskStore = new PostgresTaskStore(pool);
-  const decisionFacts = await decisionStore.listOpenDecisionFacts();
+  const [decisionFacts, recentRuntimeTasks] = await Promise.all([
+    decisionStore.listOpenDecisionFacts(),
+    taskStore.listTasks(undefined, 50),
+  ]);
+  const activeRuntimeTasks = recentRuntimeTasks.filter((task) => ACTIVE_TASK_STATUSES.has(task.status));
   const decisionTaskIds = new Set(decisionFacts.map((fact) => fact.decision.taskId));
 
   const roots = [...new Set([
     ...base.primaryThreads.map((thread) => thread.root),
     ...base.secondaryThreads.map((thread) => thread.root),
     ...decisionFacts.map((fact) => fact.projectRoot),
+    ...activeRuntimeTasks.map((task) => task.projectRoot),
   ].filter(Boolean))];
 
-  const runtimeGroups = await Promise.all(roots.map(async (root) => ({
+  const workerGroups = await Promise.all(roots.map(async (root) => ({
     root,
     workers: await taskStore.liveWorkers(root),
-    tasks: await taskStore.listTasks(root, 10),
   })));
 
-  const workerObservations = runtimeGroups.flatMap(({ root, workers }) => workers.map((worker) => {
+  const workerObservations = workerGroups.flatMap(({ root, workers }) => workers.map((worker) => {
     const observed = observeWorkerReality(worker);
     const reconciliation = reconcileWorker(worker, {
       ...observed,
@@ -55,8 +61,5 @@ export async function readCanonicalPresent(pool: Pool): Promise<RuntimeAwarePres
   });
   if (!runtimeAware) return null;
 
-  return attachRuntimeTasks(
-    runtimeAware,
-    runtimeGroups.flatMap((group) => group.tasks),
-  );
+  return attachRuntimeTasks(runtimeAware, activeRuntimeTasks);
 }
