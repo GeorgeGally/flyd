@@ -17,6 +17,13 @@ export interface TransitionActionInput {
   resolutionMode?: string;
   model?: string;
   appSummary?: string;
+  /** Optional governed planning snapshot captured immediately before the action. */
+  stateBeforeId?: string;
+  /** Optional operational/project refs. They are references, not competing truth stores. */
+  projectId?: string;
+  repositoryRoot?: string;
+  taskId?: string;
+  threadId?: string;
 }
 
 export type TransitionOrigin = "user" | "tool" | "verifier";
@@ -42,6 +49,8 @@ export interface TransitionNextStateInput {
   correction?: string;
   /** True when the outcome arrived after its action context expired. */
   causalComplete?: boolean;
+  /** Optional governed planning snapshot captured after the action/outcome. */
+  stateAfterId?: string;
   /** Structured exit-signal fields (exit codes, timeouts); never raw output text. */
   detail?: Record<string, unknown>;
 }
