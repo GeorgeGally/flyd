@@ -44,44 +44,15 @@ describe("present insights", () => {
 
   it("keeps workstreams compact and latest moves event-specific", () => {
     const primary = [
-      thread({
-        name: "Flyd",
-        root: "/tmp/flyd",
-        lastCommitAt: "2026-08-12T11:00:00.000Z",
-        latestSubject: "feat: present model insights",
-        signals: ["commit:x"],
-      }),
-      thread({
-        name: "CleanX",
-        root: "/tmp/cleanx",
-        lastCommitAt: "2026-08-12T10:00:00.000Z",
-        latestSubject: "fix(credits): Gate unfollows at selection",
-        signals: ["commit:x"],
-      }),
+      thread({ name: "Flyd", root: "/tmp/flyd", lastCommitAt: "2026-08-12T11:00:00.000Z", latestSubject: "feat: present model insights", signals: ["commit:x"] }),
+      thread({ name: "CleanX", root: "/tmp/cleanx", lastCommitAt: "2026-08-12T10:00:00.000Z", latestSubject: "fix(credits): Gate unfollows at selection", signals: ["commit:x"] }),
     ];
     const secondary = [
-      thread({
-        name: "Robots",
-        root: "/tmp/robots",
-        demoted: true,
-        lastCommitAt: "2026-08-11T10:00:00.000Z",
-        latestSubject: "docs",
-      }),
-      thread({
-        name: "Jobs",
-        root: "/tmp/jobs",
-        lastCommitAt: "2026-07-01T10:00:00.000Z",
-        latestSubject: "old work",
-        hasTasks: true,
-        isDirty: true,
-      }),
+      thread({ name: "Robots", root: "/tmp/robots", demoted: true, lastCommitAt: "2026-08-11T10:00:00.000Z", latestSubject: "docs" }),
+      thread({ name: "Jobs", root: "/tmp/jobs", lastCommitAt: "2026-07-01T10:00:00.000Z", latestSubject: "old work", hasTasks: true, isDirty: true }),
     ];
 
-    const insights = derivePresentInsights(primary, secondary, {
-      preferCoreHome: true,
-      now: NOW,
-    });
-
+    const insights = derivePresentInsights(primary, secondary, { preferCoreHome: true, now: NOW });
     expect(insights.workstreams).toEqual(["CleanX", "Jobs"]);
     expect(insights.workstreams).not.toContain("Robots");
     expect(insights.workstreams).not.toContain("Flyd");
@@ -102,14 +73,7 @@ describe("present insights", () => {
     replaceConfirmedTodos(["dead internet radio", "post about sea silo"]);
 
     const insights = derivePresentInsights(
-      [
-        thread({
-          name: "CleanX",
-          root: "/tmp/cleanx",
-          lastCommitAt: "2026-08-12T10:00:00.000Z",
-          latestSubject: "fix(credits): Gate unfollows at selection",
-        }),
-      ],
+      [thread({ name: "CleanX", root: "/tmp/cleanx", lastCommitAt: "2026-08-12T10:00:00.000Z", latestSubject: "fix(credits): Gate unfollows at selection" })],
       [],
       { preferCoreHome: true, now: NOW },
     );
@@ -129,7 +93,7 @@ describe("present insights", () => {
   it("puts a dated commitment first in the spoken brief", async () => {
     const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
     replaceConfirmedTodos([
-      "Get GNM sponsor outreach moving by 5 September",
+      "Get GNM sponsor outreach moving 2026-09-05",
       "Apply for jobs and fix resume",
       "Add DIR to portfolio",
     ]);
