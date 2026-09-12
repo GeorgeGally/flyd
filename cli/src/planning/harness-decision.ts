@@ -1,4 +1,4 @@
-import { ActionEvaluator, DeterministicFutureModel, type ActionEvaluation, type ActionScores, type CandidateAction, type FutureModel } from "./future-model.js";
+import { ActionEvaluator, DeterministicFutureModel, type ActionEvaluation, type ActionScores, type CandidateAction, type ExecutionForecast, type FutureModel } from "./future-model.js";
 import { DecisionPolicy, type DecisionRecommendation, type GoalSpec, type PlanningGap } from "./decision-policy.js";
 import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
@@ -44,8 +44,8 @@ function goalFor(intent: string, active: ReturnType<typeof activeTask>): GoalSpe
   };
 }
 
-function scores(kind: "execute" | "resume"): ActionScores {
-  return {
+function scores(kind: "execute" | "resume", forecast?: ExecutionForecast): ActionScores {
+  const base: ActionScores = {
     progress: kind === "resume" ? 0.9 : 0.8,
     reachability: 0.75,
     leverage: 0.7,
@@ -54,6 +54,15 @@ function scores(kind: "execute" | "resume"): ActionScores {
     risk: 0.25,
     reversibility: 0.7,
     confidence: 0.7,
+  };
+  if (!forecast) return base;
+  // Keep empirical execution reliability influential but bounded. Historical
+  // success informs ranking; it never becomes execution authority.
+  return {
+    ...base,
+    reachability: Math.max(0.2, Math.min(0.95, 0.35 + 0.6 * forecast.successRate)),
+    risk: Math.max(0.05, Math.min(0.9, 0.1 + 0.75 * (1 - forecast.successRate))),
+    confidence: forecast.samples >= 5 ? 0.85 : 0.72,
   };
 }
 
@@ -90,7 +99,7 @@ export async function decideHarnessEntry(input: {
   const evaluation = new ActionEvaluator().evaluate(
     action,
     prediction,
-    scores(active && contextual ? "resume" : "execute"),
+    scores(active && contextual ? "resume" : "execute", prediction.outcomeForecast),
   );
   const recommendation = new DecisionPolicy().decide({
     goal: goalFor(intent, active),

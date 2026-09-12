@@ -59,12 +59,18 @@ export function reconcileHarnessPrediction(
   observed: WorldStateSnapshot | null,
   correlationId: string,
   deps: HarnessLearningDependencies = defaultDependencies,
+  execution?: { status?: string; signal?: string },
 ): PredictionOutcome | null {
   if (!decision || !observed) return null;
   if (decision.recommendation.mode !== "act" || !decision.recommendation.actionId) return null;
   if (decision.evaluation.action.id !== decision.recommendation.actionId) return null;
 
-  const outcome = reconcilePrediction(decision.evaluation.prediction, observed);
+  const reconciled = reconcilePrediction(decision.evaluation.prediction, observed);
+  const outcome: PredictionOutcome = {
+    ...reconciled,
+    ...(execution?.status ? { executionStatus: execution.status } : {}),
+    ...(execution?.signal ? { executionSignal: execution.signal } : {}),
+  };
   try {
     deps.saveOutcome(outcome, correlationId);
   } catch (error) {

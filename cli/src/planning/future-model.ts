@@ -35,6 +35,13 @@ export interface PredictedEffect {
   rationale: string;
 }
 
+export interface ExecutionForecast {
+  disposition: "likely_success" | "mixed" | "likely_failure";
+  successRate: number;
+  samples: number;
+  rationale: string;
+}
+
 export interface FuturePrediction {
   id: string;
   snapshotId: string;
@@ -45,6 +52,8 @@ export interface FuturePrediction {
   assumptions: string[];
   confidence: ConfidenceAssessment;
   risks: string[];
+  /** Execution/verification likelihood is not world state and stays separate. */
+  outcomeForecast?: ExecutionForecast;
   createdAt: string;
 }
 
@@ -89,6 +98,9 @@ export interface PredictionOutcome {
   confidenceAtPrediction: ConfidenceAssessment;
   horizon: number;
   category: PredictionError;
+  /** Runtime result is retained independently from state-effect correctness. */
+  executionStatus?: string;
+  executionSignal?: string;
   reconciledAt: string;
 }
 
