@@ -8,6 +8,7 @@ import {
   completeHarnessTrajectory,
   type HarnessTrajectoryHandle,
 } from "./harness-trajectory.js";
+import type { FutureModel } from "./future-model.js";
 import { PlanningStore } from "./store.js";
 
 export function harnessSignalForStatus(status: string): TransitionSignal {
@@ -33,6 +34,26 @@ function liveFutureModel(): EmpiricalFutureModel {
 
 type RuntimeInput = Parameters<typeof runRuntimeHarness>[0];
 type RuntimeResult = Awaited<ReturnType<typeof runRuntimeHarness>>;
+
+export interface HarnessRuntimePlanningDependencies {
+  futureModelFactory: () => FutureModel;
+  decide: typeof decideHarnessEntry;
+  beginTrajectory: typeof beginHarnessTrajectory;
+  completeTrajectory: typeof completeHarnessTrajectory;
+  recordPrediction: typeof recordHarnessPrediction;
+  reconcilePrediction: typeof reconcileHarnessPrediction;
+  runHarness: typeof runRuntimeHarness;
+}
+
+const defaultPlanningDependencies: HarnessRuntimePlanningDependencies = {
+  futureModelFactory: liveFutureModel,
+  decide: decideHarnessEntry,
+  beginTrajectory: beginHarnessTrajectory,
+  completeTrajectory: completeHarnessTrajectory,
+  recordPrediction: recordHarnessPrediction,
+  reconcilePrediction: reconcileHarnessPrediction,
+  runHarness: runRuntimeHarness,
+};
 
 function keepTerminalOpen(input: RuntimeInput): RuntimeInput {
   const terminal = input.deps.terminal;
@@ -81,18 +102,19 @@ async function executeDecision(input: {
   runtimeInput: RuntimeInput;
   decision: HarnessDecision;
   trajectory: HarnessTrajectoryHandle;
+  planning: HarnessRuntimePlanningDependencies;
 }): Promise<{ result: RuntimeResult; observed: Awaited<ReturnType<typeof completeHarnessTrajectory>> }> {
-  recordHarnessPrediction(input.decision, input.trajectory.invocationId);
+  input.planning.recordPrediction(input.decision, input.trajectory.invocationId);
   try {
-    const result = await runRuntimeHarness(input.runtimeInput);
+    const result = await input.planning.runHarness(input.runtimeInput);
     const signal = harnessSignalForStatus(result.status);
-    const observed = await completeHarnessTrajectory({
+    const observed = await input.planning.completeTrajectory({
       handle: input.trajectory,
       origin: "tool",
       signal,
       detail: { status: result.status, taskKey: result.taskKey },
     });
-    reconcileHarnessPrediction(
+    input.planning.reconcilePrediction(
       input.decision,
       observed,
       input.trajectory.invocationId,
@@ -101,13 +123,13 @@ async function executeDecision(input: {
     );
     return { result, observed };
   } catch (error) {
-    const observed = await completeHarnessTrajectory({
+    const observed = await input.planning.completeTrajectory({
       handle: input.trajectory,
       origin: "tool",
       signal: "failed",
       detail: { errorClass: error instanceof Error ? error.name : "unknown" },
     });
-    reconcileHarnessPrediction(
+    input.planning.reconcilePrediction(
       input.decision,
       observed,
       input.trajectory.invocationId,
@@ -130,19 +152,24 @@ async function executeDecision(input: {
  */
 export async function runContinuityHarness(
   input: RuntimeInput,
+  overrides: Partial<HarnessRuntimePlanningDependencies> = {},
 ): ReturnType<typeof runRuntimeHarness> {
+  const planning: HarnessRuntimePlanningDependencies = {
+    ...defaultPlanningDependencies,
+    ...overrides,
+  };
   const repository = await input.deps.inspectRepository(input.cwd);
-  const trajectory = await beginHarnessTrajectory({
+  const trajectory = await planning.beginTrajectory({
     sessionId: `code:${process.pid}`,
     intent: input.outcome?.trim() || "resume current supervised coding task",
     projectRoot: repository.root,
   });
-  const futureModel = liveFutureModel();
+  const futureModel = planning.futureModelFactory();
 
-  if (!trajectory.stateBefore) return runRuntimeHarness(input);
+  if (!trajectory.stateBefore) return planning.runHarness(input);
 
   let requestedOutcome = input.outcome;
-  let decision = await decideHarnessEntry({
+  let decision = await planning.decide({
     state: trajectory.stateBefore,
     requestedOutcome,
   }, { futureModel });
@@ -150,7 +177,7 @@ export async function runContinuityHarness(
   if (decision.recommendation.mode === "ask_user") {
     const clarified = (await input.deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
     if (!clarified) {
-      await completeHarnessTrajectory({
+      await planning.completeTrajectory({
         handle: trajectory,
         origin: "user",
         signal: "cancelled",
@@ -159,14 +186,14 @@ export async function runContinuityHarness(
       throw new Error("An intended outcome is required");
     }
     requestedOutcome = clarified;
-    decision = await decideHarnessEntry({
+    decision = await planning.decide({
       state: trajectory.stateBefore,
       requestedOutcome: clarified,
     }, { futureModel });
   }
 
   if (decision.recommendation.mode !== "act" && decision.recommendation.mode !== "investigate") {
-    return runRuntimeHarness({ ...input, outcome: requestedOutcome });
+    return planning.runHarness({ ...input, outcome: requestedOutcome });
   }
 
   const investigated = decision.recommendation.mode === "investigate";
@@ -178,6 +205,7 @@ export async function runContinuityHarness(
     ),
     decision,
     trajectory,
+    planning,
   });
 
   if (!investigated) return first.result;
@@ -189,7 +217,7 @@ export async function runContinuityHarness(
     return first.result;
   }
 
-  const replanned = await decideHarnessEntry({
+  const replanned = await planning.decide({
     state: first.observed,
     requestedOutcome,
   }, { futureModel });
@@ -201,20 +229,21 @@ export async function runContinuityHarness(
     return first.result;
   }
 
-  const followupTrajectory = await beginHarnessTrajectory({
+  const followupTrajectory = await planning.beginTrajectory({
     sessionId: `code:${process.pid}`,
     intent: replanned.intent,
     projectRoot: repository.root,
   });
 
   if (!followupTrajectory.stateBefore) {
-    return runRuntimeHarness(runtimeInputForDecision({ ...input, outcome: requestedOutcome }, replanned));
+    return planning.runHarness(runtimeInputForDecision({ ...input, outcome: requestedOutcome }, replanned));
   }
 
   const followup = await executeDecision({
     runtimeInput: runtimeInputForDecision({ ...input, outcome: requestedOutcome }, replanned),
     decision: replanned,
     trajectory: followupTrajectory,
+    planning,
   });
   return followup.result;
 }
