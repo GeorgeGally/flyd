@@ -374,6 +374,8 @@ export async function runContinuityHarness(input: {
   outcome?: string;
   cwd?: string;
   deps: HarnessDependencies;
+  /** Internal planner focus. Narrows the next supervised assignment without becoming a user correction or replacing the task outcome. */
+  focusedAssignment?: string;
 }): Promise<HarnessResult> {
   const { deps } = input;
   let sessionKey: string | null = null;
@@ -389,6 +391,7 @@ export async function runContinuityHarness(input: {
     const resumableIntegrationIsCurrent = resumedTask?.verificationResult.integrated === true &&
       Number(resumedTask.verificationResult.integration_revision) === resumedTask.revision;
     const previousWorker = resumedTask ? await deps.store.latestWorker(resumedTask.id) : null;
+    const focusedAssignment = input.focusedAssignment?.trim() || "";
     const outcome = input.outcome?.trim() || resumedTask?.intendedOutcome ||
       (await deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
     if (!outcome) throw new Error("An intended outcome is required");
@@ -420,6 +423,7 @@ export async function runContinuityHarness(input: {
       orientation: orientation.kind,
       memory_verdict: memory.verdict,
       evidence_refs: orientation.evidenceRefs,
+      ...(focusedAssignment ? { planner_focus: focusedAssignment } : {}),
     });
     task = await currentTask(deps.store, task.taskKey);
 
@@ -428,9 +432,10 @@ export async function runContinuityHarness(input: {
         memory_verdict: memory.verdict,
         evidence_refs: orientation.evidenceRefs,
         orientation: orientation.kind,
+        ...(focusedAssignment ? { planner_focus: focusedAssignment } : {}),
       },
       repositorySnapshot: repositoryState(repository),
-      recommendedNextAction: resumedTask ? orientation.nextAction : outcome,
+      recommendedNextAction: focusedAssignment || (resumedTask ? orientation.nextAction : outcome),
       idempotencyKey: eventKey(task.taskKey, "oriented"),
     });
     if (task.recommendedNextAction?.trim()) {
@@ -449,7 +454,7 @@ export async function runContinuityHarness(input: {
     }
 
     const briefingTask = resumedTask ?? task;
-    if ((!resumedTask || !input.outcome?.trim()) && requestsLocalProjectBriefing(briefingTask, orientation.nextAction)) {
+    if ((!resumedTask || (!input.outcome?.trim() && !focusedAssignment)) && requestsLocalProjectBriefing(briefingTask, orientation.nextAction)) {
       await deps.store.actOnTaskRecommendation(sessionKey, "accepted");
       deps.terminal.write(renderLocalProjectBriefing({
         task: briefingTask,
@@ -474,8 +479,8 @@ export async function runContinuityHarness(input: {
       return { status: task.status, taskKey: task.taskKey };
     }
 
-    let assignment = outcome;
-    if (resumedTask) {
+    let assignment = focusedAssignment || outcome;
+    if (resumedTask && !focusedAssignment) {
       const explicitOutcome = input.outcome?.trim();
       let replacesInterpretation = Boolean(explicitOutcome && explicitOutcome !== resumedTask.intendedOutcome);
       const rawCorrection = explicitOutcome && explicitOutcome !== resumedTask.intendedOutcome
@@ -641,7 +646,7 @@ export async function runContinuityHarness(input: {
     const context = buildContextPackage({ task, repository, worker: previousWorker, memory, repositoryRoots });
     if (deps.orchestrate) {
       let orchestration;
-      if (resumableIntegrationIsCurrent && interpretation === "accepted") {
+      if (resumableIntegrationIsCurrent && interpretation === "accepted" && !focusedAssignment) {
         const changedFiles = Array.isArray(task.verificationResult.changed_files)
           ? task.verificationResult.changed_files
           : [];
@@ -677,7 +682,7 @@ export async function runContinuityHarness(input: {
       task = await currentTask(deps.store, task.taskKey);
       repository = await deps.inspectRepository(repository.root);
       deps.terminal.write(`\nFlyd review\n${orchestration.summary}\n`);
-      if (orchestration.status === "integrated" &&
+      if (!focusedAssignment && orchestration.status === "integrated" &&
           await deps.terminal.confirm("Does the verified integrated result satisfy the intended outcome?")) {
         task = await deps.store.completeTask(task.taskKey, task.revision, {
           summary: orchestration.summary.trim().slice(0, 4_000) || "Verified integrated result confirmed by the user.",
@@ -691,11 +696,13 @@ export async function runContinuityHarness(input: {
         });
       } else {
         task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
-          nextAction: orchestration.status === "blocked"
-            ? orchestrationReentryAction(task, assignment, orchestration.summary)
-            : "Review the integrated changes and provide a focused correction",
+          nextAction: focusedAssignment
+            ? (orchestration.summary.trim().slice(0, 4_000) || actionableTaskNextAction(task))
+            : orchestration.status === "blocked"
+              ? orchestrationReentryAction(task, assignment, orchestration.summary)
+              : "Review the integrated changes and provide a focused correction",
           repositorySnapshot: repositoryState(repository),
-          idempotencyKey: eventKey(task.taskKey, "orchestration-reentry"),
+          idempotencyKey: eventKey(task.taskKey, focusedAssignment ? "planner-focus-reentry" : "orchestration-reentry"),
         });
       }
       await deps.store.finishTaskSession(sessionKey, sessionResult());
@@ -834,20 +841,28 @@ export async function runContinuityHarness(input: {
     }
 
     deps.terminal.write(`\nWorker report\n${result.output.trim() || "No textual summary was returned."}\n`);
-    const verified = await deps.terminal.confirm("Does the repository now satisfy the intended outcome?");
-    if (verified) {
-      task = await deps.store.completeTask(task.taskKey, task.revision, {
-        summary: result.output.trim().slice(0, 4_000) || "Worker completed and the user verified the repository outcome.",
-        verification: { user_confirmed: true, confirmed_at: deps.now().toISOString() },
+    if (focusedAssignment) {
+      task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+        nextAction: result.output.trim().slice(0, 4_000) || actionableTaskNextAction(task),
         repositorySnapshot: repositoryState(repository),
-        idempotencyKey: eventKey(task.taskKey, "completed"),
+        idempotencyKey: eventKey(task.taskKey, "planner-focus-completed"),
       });
     } else {
-      task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
-        nextAction: "Review the worker changes and provide a focused correction",
-        repositorySnapshot: repositoryState(repository),
-        idempotencyKey: eventKey(task.taskKey, "verification-deferred"),
-      });
+      const verified = await deps.terminal.confirm("Does the repository now satisfy the intended outcome?");
+      if (verified) {
+        task = await deps.store.completeTask(task.taskKey, task.revision, {
+          summary: result.output.trim().slice(0, 4_000) || "Worker completed and the user verified the repository outcome.",
+          verification: { user_confirmed: true, confirmed_at: deps.now().toISOString() },
+          repositorySnapshot: repositoryState(repository),
+          idempotencyKey: eventKey(task.taskKey, "completed"),
+        });
+      } else {
+        task = await deps.store.keepTaskOpen(task.taskKey, task.revision, {
+          nextAction: "Review the worker changes and provide a focused correction",
+          repositorySnapshot: repositoryState(repository),
+          idempotencyKey: eventKey(task.taskKey, "verification-deferred"),
+        });
+      }
     }
 
     await deps.store.finishTaskSession(sessionKey, sessionResult());
