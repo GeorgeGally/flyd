@@ -50,6 +50,13 @@ export function recordHarnessPrediction(
       ...decision.evaluation.prediction.risks,
     ],
   });
+  // Raw ranking is advisory. DecisionPolicy can intentionally choose a lower
+  // scored investigation when a blocking gap exists, so persist the policy
+  // decision rather than rewriting history as "highest score won".
+  trace.chosenActionId = decision.recommendation.actionId;
+  trace.rejectedActionIds = decision.evaluations
+    .map((candidate) => candidate.action.id)
+    .filter((id) => id !== decision.recommendation.actionId);
   try {
     deps.saveTrace(trace, correlationId);
   } catch (error) {
