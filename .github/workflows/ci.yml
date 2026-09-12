@@ -82,6 +82,22 @@ jobs:
 
   core:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: flyd
+          POSTGRES_PASSWORD: flyd
+          POSTGRES_DB: flyd_v1_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flyd -d flyd_v1_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      FLYD_TEST_DATABASE_URL: postgres://flyd:flyd@127.0.0.1:5432/flyd_v1_test
 
     steps:
       - name: Checkout code
