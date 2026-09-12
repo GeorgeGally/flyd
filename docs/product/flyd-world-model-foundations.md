@@ -32,13 +32,23 @@ PREDICTION RECONCILIATION
 TRAJECTORY + CALIBRATION DATA
 ```
 
-PRESENT itself remains zero-persistence. `snapshotFromPresent()` only persists when an authorized caller explicitly creates a planning snapshot at a meaningful action boundary.
+PRESENT itself remains zero-persistence. `snapshotFromPresent()` only creates a durable snapshot when an authorized caller explicitly invokes it at a meaningful action boundary.
+
+## Canonical ownership
+
+This feature follows `docs/architecture/operational-truth-ownership.md`.
+
+- Personal durable planning state belongs to the canonical `IntelligenceEventStore`.
+- Action → next-state/outcome trajectories remain owned by the existing `cli/src/transitions/` spine.
+- Planning does not create a second trajectory table or second truth authority.
+- `stateBeforeId` and `stateAfterId` optionally link transition records to governed planning snapshots.
+- PRESENT remains a projection and is never made durable merely because it was observed.
 
 ## Modules
 
 - `cli/src/planning/world-model.ts`
   - `WorldStateSnapshot`
-  - `TrajectoryEvent`
+  - `TrajectoryEvent` projection type
   - `FutureModel`
   - `DeterministicFutureModel`
   - `ActionEvaluator`
@@ -47,9 +57,11 @@ PRESENT itself remains zero-persistence. `snapshotFromPresent()` only persists w
   - `MultiStepPlanner`
   - state diff + confidence calibration primitives
 - `cli/src/planning/snapshot.ts`
-  - governed conversion from PRESENT/work hypothesis into a durable planning snapshot
+  - governed conversion from caller-supplied PRESENT/work hypothesis state into a planning snapshot
 - `cli/src/planning/store.ts`
-  - SQLite persistence in the existing work-index for snapshots, trajectories, traces and prediction outcomes
+  - governed persistence of snapshots, planning traces and prediction outcomes on `IntelligenceEventStore`
+- `cli/src/transitions/types.ts` + `writer.ts`
+  - canonical trajectory spine, extended with optional `stateBeforeId` / `stateAfterId` references
 - `cli/src/lib/tail-significance.ts`
   - consequence-aware preservation scoring for unusual/important memory events
 - `cli/src/planning/benchmark.ts`
@@ -99,13 +111,26 @@ When the preservation threshold is crossed, metadata records why and retrieval u
 
 ## Learning data
 
-Every meaningful action can eventually yield:
+The existing transition spine already captures action → outcome pairs. This foundation allows those events to reference governed before/after snapshots, producing:
 
 ```text
 state_before → action → predicted_state → observed_state → outcome
 ```
 
-This provides the substrate for calibration and, later, a learned dynamics model without committing Flyd to one today.
+Prediction reconciliation stores the comparison separately, preserving both the original forecast and observed reality. This provides the substrate for calibration and, later, a learned dynamics model without committing Flyd to one today.
+
+## Current integration boundary
+
+The planning engine is deliberately not inserted as a new execution authority. Existing invocation, harness, grant and approval paths remain unchanged.
+
+Today:
+
+- transition capture is already live in overlay, CLI chat and harness paths;
+- snapshot/trace/prediction persistence uses the canonical intelligence spine;
+- deterministic `FutureModel`, `ActionEvaluator` and `MultiStepPlanner` are available as composable Core primitives;
+- `flyd eval planning` exercises the planner independently.
+
+A caller that has multiple legitimate candidate actions can use these primitives before handing the selected action to the existing authority layer. We do not manufacture fake alternatives merely to force planning into a path that currently has one proposed action.
 
 ## Evaluation
 
@@ -113,7 +138,7 @@ Run:
 
 ```bash
 cd cli
-npm test
+npm test -- src/planning/__tests__/world-model.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning
@@ -127,5 +152,6 @@ The planning benchmark currently encodes 20 representative cases including faili
 - No autonomous execution added by planning.
 - No bypass of grants, permissions or approval requirements.
 - No ambient PRESENT persistence.
+- No duplicate trajectory store.
 - No opaque chain-of-thought persistence; planning traces contain structured decision inputs, predictions, scores, alternatives and uncertainty only.
 - Semantic prediction remains a future `FutureModel` implementation behind the existing interface.
