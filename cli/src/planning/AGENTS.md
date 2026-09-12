@@ -16,6 +16,7 @@ This directory is Flyd's deterministic world-model foundation.
 - An action reaching execution must satisfy its declared preconditions in `ExecutionGuard`. Approval remains a separate explicit input; a satisfied state precondition never implies approval.
 - Verify declared postconditions after execution. Absence of postconditions means outcome verification is unknown, not successful by default.
 - Correlation is not causation. Attribute an observed change to Flyd only when it matches a predicted effect and complete correlated tool/verifier evidence exists. Otherwise retain weaker `action_consistent`, `external_or_unknown`, or `contradictory` labels.
+- Treat one supervised `runCode()` attempt as the live harness action boundary. Worker routing/retries are implementation detail; task grants, worker authority, verification, and integration remain owned by the existing runtime harness.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts`.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
 
@@ -32,6 +33,7 @@ PRESENT / work hypothesis
        -> act | investigate | ask_user | defer
   -> ExecutionGuard.checkBefore
   -> existing execution authority
+       -> supervised coding harness (one live trajectory per runCode attempt)
   -> observed snapshot
   -> ExecutionGuard.verifyAfter
   -> reconcilePrediction + causal attribution
@@ -43,7 +45,7 @@ PRESENT / work hypothesis
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning
