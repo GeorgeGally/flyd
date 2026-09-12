@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { answerFromCanonicalPresent } from "../runtime-recall.js";
-import type { WorkHypothesis } from "../work-hypothesis/types.js";
+import { canonicalStatusAnswer } from "../canonical-status.js";
+import type { RuntimeAwarePresent } from "../runtime-present-types.js";
 
-function present(): WorkHypothesis {
+function present(): RuntimeAwarePresent {
   return {
     id: "wh-1",
     hypothesisText: "You're primarily working on Bloom.",
@@ -19,6 +19,17 @@ function present(): WorkHypothesis {
     confidence: "high",
     uncertainty: [],
     evidenceRefs: [],
+    activeRuntimeTasks: [{
+      epistemicClass: "fact",
+      taskId: "1",
+      taskKey: "task-1",
+      projectName: "Bloom",
+      projectRoot: "/work/bloom",
+      status: "blocked",
+      intendedOutcome: "Repair collection freshness",
+      recommendedNextAction: "Choose a provider",
+      updatedAt: "2026-09-12T03:00:30.000Z",
+    }],
     openDecisions: [{
       epistemicClass: "fact",
       decisionId: "d1",
@@ -47,23 +58,25 @@ function present(): WorkHypothesis {
   };
 }
 
-describe("answerFromCanonicalPresent", () => {
-  it("includes durable decisions and consequential worker observations in active status", () => {
-    const answer = answerFromCanonicalPresent("what am I working on", present());
+describe("canonicalStatusAnswer", () => {
+  it("includes runtime task facts, decisions, and consequential worker observations", () => {
+    const answer = canonicalStatusAnswer("what am I working on", present());
     expect(answer).toContain("Bloom [dirty]");
+    expect(answer).toContain("Active runtime work:");
+    expect(answer).toContain("Repair collection freshness");
     expect(answer).toContain("Needs you:");
     expect(answer).toContain("Use provider A or B?");
-    expect(answer).toContain("Operational attention:");
     expect(answer).toContain("interrupted");
   });
 
-  it("answers what needs me from explicit facts before inference", () => {
-    const answer = answerFromCanonicalPresent("what needs me?", present());
+  it("answers what needs me from explicit runtime truth", () => {
+    const answer = canonicalStatusAnswer("what needs me?", present());
     expect(answer).toContain("Bloom: Use provider A or B?");
+    expect(answer).toContain("Bloom [blocked]: Choose a provider");
     expect(answer).toContain("interrupted:");
   });
 
   it("declines unrelated query shapes so callers can use the legacy fallback", () => {
-    expect(answerFromCanonicalPresent("show recent commits", present())).toBeNull();
+    expect(canonicalStatusAnswer("show recent commits", present())).toBeNull();
   });
 });
