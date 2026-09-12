@@ -54,6 +54,12 @@ export async function runContinuityHarness(
     if (decision.recommendation.actionId === "resume-active-task") {
       runtimeInput = { ...input, outcome: undefined };
       executedDecision = decision;
+    } else if (decision.recommendation.mode === "investigate") {
+      // Investigation is still ordinary supervised harness work. Planning only
+      // changes the requested outcome; grants, worker authority, verification,
+      // and integration remain owned by the runtime harness.
+      runtimeInput = { ...input, outcome: decision.evaluation.action.description };
+      executedDecision = decision;
     } else if (decision.recommendation.mode === "ask_user") {
       const clarified = (await input.deps.terminal.ask("What outcome should Flyd accomplish?")).trim();
       if (!clarified) {
@@ -70,7 +76,12 @@ export async function runContinuityHarness(
         state: trajectory.stateBefore,
         requestedOutcome: clarified,
       }, { futureModel });
-      executedDecision = decision.recommendation.mode === "act" ? decision : null;
+      executedDecision = decision.recommendation.mode === "act" || decision.recommendation.mode === "investigate"
+        ? decision
+        : null;
+      if (decision.recommendation.mode === "investigate") {
+        runtimeInput = { ...input, outcome: decision.evaluation.action.description };
+      }
     } else if (decision.recommendation.mode === "act") {
       executedDecision = decision;
     }

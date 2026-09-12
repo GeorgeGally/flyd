@@ -27,24 +27,36 @@ const defaultDependencies: HarnessLearningDependencies = {
   },
 };
 
+function reachedHarnessExecution(decision: HarnessDecision): boolean {
+  return (decision.recommendation.mode === "act" || decision.recommendation.mode === "investigate")
+    && Boolean(decision.recommendation.actionId)
+    && decision.evaluation.action.id === decision.recommendation.actionId;
+}
+
 /** Persist the structured prediction that actually reached execution. */
 export function recordHarnessPrediction(
   decision: HarnessDecision,
   correlationId: string,
   deps: HarnessLearningDependencies = defaultDependencies,
 ): PlanningTrace | null {
-  if (decision.recommendation.mode !== "act" || !decision.recommendation.actionId) return null;
-  if (decision.evaluation.action.id !== decision.recommendation.actionId) return null;
+  if (!reachedHarnessExecution(decision)) return null;
 
   const trace = buildPlanningTrace({
     snapshotId: decision.evaluation.prediction.snapshotId,
     goal: decision.intent,
-    candidates: [decision.evaluation],
+    candidates: decision.evaluations,
     uncertainty: [
       ...decision.evaluation.prediction.assumptions,
       ...decision.evaluation.prediction.risks,
     ],
   });
+  // Raw ranking is advisory. DecisionPolicy can intentionally choose a lower
+  // scored investigation when a blocking gap exists, so persist the policy
+  // decision rather than rewriting history as "highest score won".
+  trace.chosenActionId = decision.recommendation.actionId;
+  trace.rejectedActionIds = decision.evaluations
+    .map((candidate) => candidate.action.id)
+    .filter((id) => id !== decision.recommendation.actionId);
   try {
     deps.saveTrace(trace, correlationId);
   } catch (error) {
@@ -61,9 +73,7 @@ export function reconcileHarnessPrediction(
   deps: HarnessLearningDependencies = defaultDependencies,
   execution?: { status?: string; signal?: string },
 ): PredictionOutcome | null {
-  if (!decision || !observed) return null;
-  if (decision.recommendation.mode !== "act" || !decision.recommendation.actionId) return null;
-  if (decision.evaluation.action.id !== decision.recommendation.actionId) return null;
+  if (!decision || !observed || !reachedHarnessExecution(decision)) return null;
 
   const reconciled = reconcilePrediction(decision.evaluation.prediction, observed);
   const outcome: PredictionOutcome = {

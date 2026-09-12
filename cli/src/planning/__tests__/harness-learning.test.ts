@@ -37,6 +37,43 @@ describe("live harness prediction learning", () => {
     expect(d.saveTrace).toHaveBeenCalledWith(trace, "inv-1");
   });
 
+  it("persists the policy-selected blocker investigation rather than the highest raw score", async () => {
+    const fact = <T>(value: T) => ({ value, confidence: "high" as const, provenance: ["test"] });
+    const decision = await decideHarnessEntry({
+      state: state({
+        activeTasks: fact([{
+          id: "task-blocked",
+          description: "Ship the planner integration",
+          status: "blocked",
+        }]),
+        blockers: fact(["CI is failing before deployment"]),
+      }),
+      requestedOutcome: "continue",
+    });
+    const d = deps();
+
+    const trace = recordHarnessPrediction(decision, "inv-investigate", d);
+
+    expect(decision.recommendation.mode).toBe("investigate");
+    expect(trace?.chosenActionId).toBe("investigate-active-task-blocker");
+    expect(trace?.candidates.map((candidate) => candidate.action.id)).toEqual(expect.arrayContaining([
+      "resume-active-task",
+      "investigate-active-task-blocker",
+    ]));
+    expect(trace?.rejectedActionIds).toContain("resume-active-task");
+    expect(d.saveTrace).toHaveBeenCalledWith(trace, "inv-investigate");
+
+    const outcome = reconcileHarnessPrediction(
+      decision,
+      state({ id: "state-after" }),
+      "inv-investigate",
+      d,
+      { status: "completed", signal: "verified" },
+    );
+    expect(outcome?.executionStatus).toBe("completed");
+    expect(d.saveOutcome).toHaveBeenCalledWith(outcome, "inv-investigate");
+  });
+
   it("keeps unmodeled effects as insufficient evidence while retaining observed changes", async () => {
     const decision = await decideHarnessEntry({
       state: state(),
