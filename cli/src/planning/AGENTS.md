@@ -22,6 +22,9 @@ This directory is Flyd's deterministic world-model foundation.
 - Calibration distinguishes observed runs from scorable predictions. `insufficient_evidence` belongs in the learning dataset but is excluded from the correctness denominator.
 - Empirical effects are subordinate to declared deterministic effects. Promote them only from repeated correlated local runs: minimum three comparable examples and at least 80% consistency by default. A single run must never become a rule.
 - Do not learn volatile exact values such as commit hashes as transition laws. Start with stable semantic effects and widen only with benchmark evidence.
+- Learn repository effects by stable repository identity/root, not array position. A cross-repo rule must only materialize when that same repository is present in the current snapshot.
+- Never memorise blocker text as a generic law. It is acceptable to learn stable structure such as repeated blocker-clearing, but not to predict the contents of a future blocker from unrelated runs.
+- Supervised execution/verification outcome is not world state. Keep execution forecasts separate from `expectedEffects`; use them to inform reachability/risk/confidence, never to fabricate snapshot changes or execution authority.
 - If empirical history is unavailable, prediction must fall back to the deterministic baseline rather than blocking execution.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts` or a planning-gated regression test.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
@@ -34,7 +37,8 @@ PRESENT / work hypothesis
   -> GoalSpec + PlanningGap[]
   -> FutureModel
        -> deterministic effects first
-       -> conservative empirical effects from repeated reconciled runs
+       -> conservative empirical state effects from repeated reconciled runs
+       -> separate supervised execution/verification forecast
   -> ActionEvaluator
   -> MultiStepPlanner
   -> DecisionPolicy
@@ -42,11 +46,11 @@ PRESENT / work hypothesis
   -> ExecutionGuard.checkBefore
   -> existing execution authority
        -> supervised coding harness (one live trajectory per runCode attempt)
-  -> observed snapshot
+  -> observed snapshot + runtime result
   -> ExecutionGuard.verifyAfter
   -> reconcilePrediction + causal attribution
   -> trajectory/calibration data
-       -> empirical transition history
+       -> empirical transition + execution history
 ```
 
 ## Verification
