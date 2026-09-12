@@ -1,8 +1,10 @@
 import { runContinuityHarness as runRuntimeHarness } from "../runtime/harness.js";
 import type { TransitionSignal } from "../transitions/types.js";
+import { EmpiricalFutureModel } from "./empirical-future-model.js";
 import { decideHarnessEntry, type HarnessDecision } from "./harness-decision.js";
 import { reconcileHarnessPrediction, recordHarnessPrediction } from "./harness-learning.js";
 import { beginHarnessTrajectory, completeHarnessTrajectory } from "./harness-trajectory.js";
+import { PlanningStore } from "./store.js";
 
 export function harnessSignalForStatus(status: string): TransitionSignal {
   if (status === "completed") return "verified";
@@ -10,6 +12,19 @@ export function harnessSignalForStatus(status: string): TransitionSignal {
   if (status === "failed" || status === "blocked" || status === "interrupted") return "failed";
   if (status === "running" || status === "ready" || status === "awaiting_grant") return "partial";
   return "ambiguous";
+}
+
+function liveFutureModel(): EmpiricalFutureModel {
+  return new EmpiricalFutureModel({
+    examples: () => {
+      const store = new PlanningStore();
+      try {
+        return store.learningExamples();
+      } finally {
+        store.close();
+      }
+    },
+  });
 }
 
 /**
@@ -26,6 +41,7 @@ export async function runContinuityHarness(
     intent: input.outcome?.trim() || "resume current supervised coding task",
     projectRoot: repository.root,
   });
+  const futureModel = liveFutureModel();
 
   let runtimeInput = input;
   let executedDecision: HarnessDecision | null = null;
@@ -33,12 +49,9 @@ export async function runContinuityHarness(
     let decision = await decideHarnessEntry({
       state: trajectory.stateBefore,
       requestedOutcome: input.outcome,
-    });
+    }, { futureModel });
 
     if (decision.recommendation.actionId === "resume-active-task") {
-      // A contextual utterance such as "continue" names no new outcome. Let
-      // the existing harness resolve its durable resumable task instead of
-      // misclassifying the contextual phrase as a replacement outcome.
       runtimeInput = { ...input, outcome: undefined };
       executedDecision = decision;
     } else if (decision.recommendation.mode === "ask_user") {
@@ -53,21 +66,17 @@ export async function runContinuityHarness(
         throw new Error("An intended outcome is required");
       }
       runtimeInput = { ...input, outcome: clarified };
-      // The prediction must describe the action Flyd will actually execute,
-      // not the unresolved contextual phrase that caused the clarification.
       decision = await decideHarnessEntry({
         state: trajectory.stateBefore,
         requestedOutcome: clarified,
-      });
+      }, { futureModel });
       executedDecision = decision.recommendation.mode === "act" ? decision : null;
     } else if (decision.recommendation.mode === "act") {
       executedDecision = decision;
     }
   }
 
-  if (executedDecision) {
-    recordHarnessPrediction(executedDecision, trajectory.invocationId);
-  }
+  if (executedDecision) recordHarnessPrediction(executedDecision, trajectory.invocationId);
 
   try {
     const result = await runRuntimeHarness(runtimeInput);
