@@ -23,6 +23,10 @@ import {
 import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 import { recordJournalEntry } from './outcome-journal.js';
 
+// server.ts imports this service during Core boot. Start deterministic operational
+// supervision with the Core module lifecycle, while keeping test imports inert.
+if (process.env.NODE_ENV !== 'test') ensureContinuousSupervisionStarted();
+
 export interface WorkInteractionParams {
   invocationId: string;
   intent: string;
@@ -58,7 +62,6 @@ async function resolvePresentModel(explicit: WorkHypothesis | null | undefined):
 }
 
 export async function runWorkIntelligence(params: WorkInteractionParams): Promise<WorkInteractionOutput> {
-  ensureContinuousSupervisionStarted();
   const startedAt = Date.now();
   const interactionId = randomUUID();
 
