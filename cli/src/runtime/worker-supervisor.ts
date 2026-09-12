@@ -29,6 +29,11 @@ export interface SuperviseWorkerResult {
   mutated: boolean;
 }
 
+export interface SuperviseWorkersResult {
+  mutated: number;
+  results: Array<{ workerKey: string; result: SuperviseWorkerResult }>;
+}
+
 export function observeWorkerReality(worker: WorkerSession): WorkerRealityObservation {
   const rawProcessAlive = worker.processId ? processIsAlive(worker.processId) : false;
   const identityMatches = rawProcessAlive ? workerProcessIsAlive(worker) : false;
@@ -84,4 +89,27 @@ export async function superviseWorker(input: SuperviseWorkerInput): Promise<Supe
   }
 
   return { reconciliation, mutated: false };
+}
+
+export async function superviseWorkers(input: {
+  workers: WorkerSession[];
+  store: WorkerSupervisorStore;
+  openDecisionTaskIds?: ReadonlySet<string>;
+  observeReality?: (worker: WorkerSession) => WorkerRealityObservation;
+}): Promise<SuperviseWorkersResult> {
+  const results: SuperviseWorkersResult["results"] = [];
+  let mutated = 0;
+
+  for (const worker of input.workers) {
+    const result = await superviseWorker({
+      worker,
+      store: input.store,
+      openDecision: input.openDecisionTaskIds?.has(worker.agentTaskId) ?? false,
+      observeReality: input.observeReality,
+    });
+    if (result.mutated) mutated += 1;
+    results.push({ workerKey: worker.workerKey, result });
+  }
+
+  return { mutated, results };
 }
