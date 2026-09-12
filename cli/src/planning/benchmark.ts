@@ -1,32 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { ActionEvaluator, DeterministicFutureModel, type ActionScores, type CandidateAction, type WorldStateSnapshot } from "./world-model.js";
+import { ActionEvaluator, DeterministicFutureModel, type ActionScores, type CandidateAction } from "./future-model.js";
+import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
-interface BenchmarkAction {
-  action: CandidateAction;
-  scores: ActionScores;
-}
-
-export interface PlanningBenchmarkScenario {
-  name: string;
-  goal: string;
-  expectedActionId: string;
-  actions: BenchmarkAction[];
-}
+interface BenchmarkAction { action: CandidateAction; scores: ActionScores; }
+export interface PlanningBenchmarkScenario { name: string; goal: string; expectedActionId: string; actions: BenchmarkAction[]; }
 
 function baseState(): WorldStateSnapshot {
   const fact = <T>(value: T) => ({ value, confidence: "high" as const, provenance: ["planning-benchmark"] });
-  return {
-    id: randomUUID(), capturedAt: new Date(0).toISOString(),
-    activeProjects: fact(["flyd"]), activeTasks: fact([]), repoStates: fact([]), blockers: fact([]),
-    decisions: fact([]), commitments: fact([]), entities: fact([]), deadlines: fact([]), agentWork: fact([]),
-  };
+  return { id: randomUUID(), capturedAt: new Date(0).toISOString(), activeProjects: fact(["flyd"]), activeTasks: fact([]), repoStates: fact([]), blockers: fact([]), decisions: fact([]), commitments: fact([]), entities: fact([]), deadlines: fact([]), agentWork: fact([]) };
 }
-
-const score = (overrides: Partial<ActionScores>): ActionScores => ({
-  progress: 0.5, reachability: 0.7, leverage: 0.5, urgency: 0.5,
-  userEffort: 0.3, risk: 0.2, reversibility: 0.8, confidence: 0.7, ...overrides,
-});
-
+const score = (overrides: Partial<ActionScores>): ActionScores => ({ progress: .5, reachability: .7, leverage: .5, urgency: .5, userEffort: .3, risk: .2, reversibility: .8, confidence: .7, ...overrides });
 const action = (id: string, description: string): CandidateAction => ({ id, description });
 
 export const PLANNING_BENCHMARK: PlanningBenchmarkScenario[] = [
@@ -53,18 +36,7 @@ export const PLANNING_BENCHMARK: PlanningBenchmarkScenario[] = [
 ];
 
 export async function runPlanningBenchmark(): Promise<{ passed: number; total: number; failures: Array<{ scenario: string; expected: string; actual?: string }> }> {
-  const model = new DeterministicFutureModel();
-  const evaluator = new ActionEvaluator();
-  const failures: Array<{ scenario: string; expected: string; actual?: string }> = [];
-  for (const scenario of PLANNING_BENCHMARK) {
-    const state = baseState();
-    const evaluations = [];
-    for (const candidate of scenario.actions) {
-      const prediction = await model.predict({ currentState: state, candidateAction: candidate.action });
-      evaluations.push(evaluator.evaluate(candidate.action, prediction, candidate.scores));
-    }
-    const actual = evaluator.rank(evaluations)[0]?.action.id;
-    if (actual !== scenario.expectedActionId) failures.push({ scenario: scenario.name, expected: scenario.expectedActionId, actual });
-  }
+  const model = new DeterministicFutureModel(); const evaluator = new ActionEvaluator(); const failures: Array<{ scenario: string; expected: string; actual?: string }> = [];
+  for (const scenario of PLANNING_BENCHMARK) { const state = baseState(); const evaluations = []; for (const candidate of scenario.actions) { const prediction = await model.predict({ currentState: state, candidateAction: candidate.action }); evaluations.push(evaluator.evaluate(candidate.action, prediction, candidate.scores)); } const actual = evaluator.rank(evaluations)[0]?.action.id; if (actual !== scenario.expectedActionId) failures.push({ scenario: scenario.name, expected: scenario.expectedActionId, actual }); }
   return { passed: PLANNING_BENCHMARK.length - failures.length, total: PLANNING_BENCHMARK.length, failures };
 }
