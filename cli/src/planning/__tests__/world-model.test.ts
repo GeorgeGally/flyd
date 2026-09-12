@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { scoreEvidence } from "../../lib/librarian.js";
 import { scoreTailSignificance } from "../../lib/tail-significance.js";
 import { configureTransitionStore, recordAction, recordNextState } from "../../transitions/writer.js";
+import type { WorldStateSnapshot } from "../../intelligence/world/types.js";
 import { PlanningStore } from "../store.js";
 import {
   ActionEvaluator,
@@ -17,8 +18,7 @@ import {
   reconcilePrediction,
   type ActionScores,
   type CandidateAction,
-  type WorldStateSnapshot,
-} from "../world-model.js";
+} from "../future-model.js";
 import { PLANNING_BENCHMARK, runPlanningBenchmark } from "../benchmark.js";
 
 let planningStore: PlanningStore | null = null;
@@ -143,18 +143,10 @@ describe("world-state planning foundations", () => {
     const dbPath = tempPath("transition.sqlite");
     const registryPath = tempPath("transition-consents.json");
     configureTransitionStore({ dbPath, registryPath });
-    const before = state();
-    const after = state();
-    const action = recordAction({
-      sessionId: "session-1", invocationId: "inv-trajectory", surface: "harness",
-      intent: "fix failing build", stateBeforeId: before.id, projectId: "flyd", repositoryRoot: "/flyd",
-    });
-    const next = recordNextState({
-      invocationId: "inv-trajectory", surface: "harness", origin: "verifier",
-      signal: "verified", stateAfterId: after.id,
-    });
-    expect(action.ok).toBe(true);
-    expect(next.ok).toBe(true);
+    const before = state(); const after = state();
+    const action = recordAction({ sessionId: "session-1", invocationId: "inv-trajectory", surface: "harness", intent: "fix failing build", stateBeforeId: before.id, projectId: "flyd", repositoryRoot: "/flyd" });
+    const next = recordNextState({ invocationId: "inv-trajectory", surface: "harness", origin: "verifier", signal: "verified", stateAfterId: after.id });
+    expect(action.ok).toBe(true); expect(next.ok).toBe(true);
     if (action.ok && !action.skipped && next.ok && !next.skipped) {
       expect(action.event.correlationId).toBe(next.event.correlationId);
       expect(action.event.payload?.stateBeforeId).toBe(before.id);
@@ -178,10 +170,7 @@ describe("tail event preservation", () => {
   });
 
   it("boosts retrieval utility without inflating epistemic confidence", () => {
-    const base = {
-      path: "events/failure.md", body: "production deploy failed", source: "raw" as const,
-      score: .5, staleness: null,
-    };
+    const base = { path: "events/failure.md", body: "production deploy failed", source: "raw" as const, score: .5, staleness: null };
     const routine = scoreEvidence({ ...base, metadata: { type: "commit", confidence: .5 } }, [], "deploy");
     const tail = scoreEvidence({ ...base, metadata: { outcome: "failure", consequence: 1, surprise: .9, confidence: .5 } }, [], "deploy");
     expect(tail.confidenceProfile.epistemicConfidence).toBe(routine.confidenceProfile.epistemicConfidence);
