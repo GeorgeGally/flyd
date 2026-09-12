@@ -29,6 +29,7 @@ export interface WorkThread {
 }
 
 export interface PresentDecision {
+  epistemicClass: "fact";
   decisionId: string;
   taskId: string;
   taskKey?: string;
@@ -36,6 +37,18 @@ export interface PresentDecision {
   question: string;
   context: string;
   requestedAt: string;
+}
+
+export interface PresentWorkerObservation {
+  epistemicClass: "observation";
+  workerKey: string;
+  taskId: string;
+  projectRoot: string;
+  state: string;
+  action: string;
+  reason: string;
+  observedAt: string;
+  consequential: boolean;
 }
 
 export interface WorkHypothesis {
@@ -50,6 +63,8 @@ export interface WorkHypothesis {
   evidenceRefs: string[];
   /** Durable operational facts that explicitly require attention. */
   openDecisions?: PresentDecision[];
+  /** Read-only reconciliation observations from the execution runtime. */
+  workerObservations?: PresentWorkerObservation[];
   /** Project names hard-demoted until reaffirm. */
   demotions: string[];
   /** Derived insight layer — workstreams vs moves vs tensions. */
