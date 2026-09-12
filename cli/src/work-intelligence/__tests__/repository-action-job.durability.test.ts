@@ -17,7 +17,6 @@ function durableStore(): RepositoryActionJobStore<unknown> {
 
 async function cleanRuns(): Promise<void> {
   await runStore.ensureSchema();
-  await pool.query("DELETE FROM agent_run_sessions WHERE session_key LIKE 'ra-test-%'");
   await pool.query("DELETE FROM agent_runs WHERE principal_id = 'core' AND kind = 'repository_action'");
 }
 

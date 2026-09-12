@@ -129,7 +129,7 @@ describe("present insights", () => {
   it("puts a dated commitment first in the spoken brief", async () => {
     const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
     replaceConfirmedTodos([
-      "Get GNM sponsor outreach moving by 5 September",
+      "Get GNM sponsor outreach moving 2026-09-05",
       "Apply for jobs and fix resume",
       "Add DIR to portfolio",
     ]);

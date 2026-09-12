@@ -19,6 +19,8 @@ export interface RuntimeProjectionEvent {
   payload: Record<string, unknown>;
 }
 
+export type OperationalDecisionEvent = RuntimeProjectionEvent;
+
 /**
  * Decision state is folded independently from general runtime status. Unrelated
  * worker/task events can never overwrite or implicitly resolve an open decision.

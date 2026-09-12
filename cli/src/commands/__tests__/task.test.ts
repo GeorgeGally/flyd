@@ -30,7 +30,7 @@ const worker: WorkerSession = {
   id: "2", workerKey: "worker-12345678", agentTaskId: "1", taskGrantId: "3",
   taskAssignmentId: "4", status: "running", adapter: "codex",
   capabilities: ["implementation", "testing"], executablePath: "/bin/codex",
-  executableVersion: "codex-cli 0.144.2", workingDirectory: "/tmp/flyd/worktree",
+  executableVersion: "codex-cli 0.144.2", workingDirectory: "/tmp",
   externalSessionId: "thread-1", processId: 42, processIdentity: "process-42", errorSummary: null, output: null,
   exitStatus: null, startedAt: "2026-07-17T00:00:00.000Z", endedAt: null,
   lastObservedAt: "2026-07-17T00:01:00.000Z", stopReason: null,
@@ -136,7 +136,7 @@ describe("task command formatting", () => {
         workerKey: worker.workerKey,
         update: expect.objectContaining({
           status: "interrupted",
-          error: "Flyd restarted after the worker process ended",
+          error: "Worker process is gone, but its worktree survives and work can be recovered.",
         }),
       },
     ]);
@@ -149,7 +149,7 @@ describe("task command formatting", () => {
     expect(output).toContain("Assignment: 4");
     expect(output).toContain("Assignment revision: 3");
     expect(output).toContain("codex");
-    expect(output).toContain("/tmp/flyd/worktree");
+    expect(output).toContain("/tmp");
     expect(output).toContain("Last heartbeat: 2026-07-17T00:01:00.000Z");
     expect(output).toContain("Pending control: retry");
   });

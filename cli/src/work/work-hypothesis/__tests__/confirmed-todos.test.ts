@@ -199,7 +199,7 @@ describe("confirmed todos", () => {
   });
 
   it("closes the stale todo and promotes the replacement, preserving the due date", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 5 September");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
     handleConfirmedTodoUtterance("- Add DIR to portfolio");
 
@@ -218,7 +218,7 @@ describe("confirmed todos", () => {
   });
 
   it("routes a priority correction through the utterance handler without the LLM", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving before 5 September");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
 
     const reply = handleConfirmedTodoUtterance(
