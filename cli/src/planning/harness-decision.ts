@@ -1,4 +1,4 @@
-import { ActionEvaluator, DeterministicFutureModel, type ActionScores, type CandidateAction } from "./future-model.js";
+import { ActionEvaluator, DeterministicFutureModel, type ActionEvaluation, type ActionScores, type CandidateAction } from "./future-model.js";
 import { DecisionPolicy, type DecisionRecommendation, type GoalSpec, type PlanningGap } from "./decision-policy.js";
 import type { WorldStateSnapshot } from "../intelligence/world/types.js";
 
@@ -11,6 +11,7 @@ export interface HarnessDecision {
   recommendation: DecisionRecommendation;
   intent: string;
   activeTask: ActiveTask | null;
+  evaluation: ActionEvaluation;
 }
 
 function activeTask(state: WorldStateSnapshot): { task: ActiveTask; index: number } | null {
@@ -104,5 +105,5 @@ export async function decideHarnessEntry(input: {
     gaps,
   });
 
-  return { recommendation, intent, activeTask: active?.task ?? null };
+  return { recommendation, intent, activeTask: active?.task ?? null, evaluation };
 }
