@@ -19,11 +19,7 @@ function unit(value: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
 }
 
-/**
- * Consequence-aware preservation signal for distillation/retrieval.
- * Metadata is deliberately explicit so callers can persist and inspect why
- * an otherwise rare event survived compression.
- */
+/** Consequence-aware preservation signal for distillation/retrieval. */
 export function scoreTailSignificance(metadata: Record<string, unknown>): TailSignificance {
   const signals: TailSignals = {
     surprise: unit(metadata.surprise ?? metadata.novelty),
@@ -63,6 +59,30 @@ export function annotateTailSignificance<T extends { metadata: Record<string, un
       tailSignificance: tail.score,
       preservationRequired: tail.preserve,
       preservationReasons: tail.reasons,
+    },
+  };
+}
+
+/**
+ * Retrieval-side guarantee: consequential tail events get enough bounded
+ * utility to survive ordinary rank truncation while epistemic confidence is
+ * left untouched. This keeps importance separate from truth confidence.
+ */
+export function applyTailPreservation<T extends {
+  metadata: Record<string, unknown>;
+  librarianScore: number;
+  confidenceProfile: { retrievalUtility: number };
+}>(entry: T): T {
+  const annotated = annotateTailSignificance(entry);
+  const tail = scoreTailSignificance(entry.metadata);
+  if (!tail.preserve) return annotated;
+  const boost = 0.12 + tail.score * 0.13;
+  return {
+    ...annotated,
+    librarianScore: Math.min(1, annotated.librarianScore + boost),
+    confidenceProfile: {
+      ...annotated.confidenceProfile,
+      retrievalUtility: Math.min(1, annotated.confidenceProfile.retrievalUtility + boost),
     },
   };
 }
