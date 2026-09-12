@@ -17,7 +17,7 @@ const present: WorkHypothesis = {
 };
 
 describe("readRuntimeAwarePresent", () => {
-  it("attaches open decision facts without mutating runtime state", async () => {
+  it("attaches decision facts and worker observations without mutating runtime state", async () => {
     const readBasePresent = vi.fn(() => present);
     const listOpenDecisionFacts = vi.fn(async () => [{
       decision: {
@@ -32,25 +32,58 @@ describe("readRuntimeAwarePresent", () => {
       projectName: "Bloom",
       projectRoot: "/work/bloom",
     }]);
+    const listWorkerObservations = vi.fn(async () => [{
+      workerKey: "worker-1",
+      taskId: "1",
+      projectRoot: "/work/bloom",
+      observedAt: "2026-09-11T06:02:00.000Z",
+      reconciliation: {
+        state: "waiting_decision" as const,
+        action: "ask_user" as const,
+        reason: "An explicit operational decision is open for this work.",
+        consequential: true,
+      },
+    }]);
 
-    const result = await readRuntimeAwarePresent({ readBasePresent, listOpenDecisionFacts });
+    const result = await readRuntimeAwarePresent({
+      readBasePresent,
+      listOpenDecisionFacts,
+      listWorkerObservations,
+    });
 
     expect(result?.openDecisions).toEqual([
-      expect.objectContaining({ decisionId: "d1", taskKey: "task-1", projectName: "Bloom" }),
+      expect.objectContaining({
+        epistemicClass: "fact",
+        decisionId: "d1",
+        taskKey: "task-1",
+        projectName: "Bloom",
+      }),
+    ]);
+    expect(result?.workerObservations).toEqual([
+      expect.objectContaining({
+        epistemicClass: "observation",
+        workerKey: "worker-1",
+        state: "waiting_decision",
+        action: "ask_user",
+      }),
     ]);
     expect(readBasePresent).toHaveBeenCalledTimes(1);
     expect(listOpenDecisionFacts).toHaveBeenCalledTimes(1);
+    expect(listWorkerObservations).toHaveBeenCalledTimes(1);
   });
 
-  it("does not query runtime facts when no base Present model exists", async () => {
+  it("does not query runtime state when no base Present model exists", async () => {
     const listOpenDecisionFacts = vi.fn(async () => []);
+    const listWorkerObservations = vi.fn(async () => []);
 
     const result = await readRuntimeAwarePresent({
       readBasePresent: () => null,
       listOpenDecisionFacts,
+      listWorkerObservations,
     });
 
     expect(result).toBeNull();
     expect(listOpenDecisionFacts).not.toHaveBeenCalled();
+    expect(listWorkerObservations).not.toHaveBeenCalled();
   });
 });
