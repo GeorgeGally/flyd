@@ -28,6 +28,28 @@ jobs:
         working-directory: cli
         run: npx vitest run src/evidence
 
+  planning:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Test planning foundations and benchmark
+        working-directory: cli
+        run: npx vitest run src/planning/__tests__/world-model.test.ts src/__tests__/memory-gate.test.ts
+
   dependency-audit:
     runs-on: ubuntu-latest
 
