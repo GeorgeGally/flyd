@@ -94,6 +94,18 @@ describe("world-state planning foundations", () => {
     expect(outcome.correctEffects).toHaveLength(1);
   });
 
+  it("does not call an unmodeled prediction wrong when reality changes", async () => {
+    const current = state();
+    const prediction = await new DeterministicFutureModel().predict({
+      currentState: current,
+      candidateAction: { id: "unknown", description: "execute an unmodeled action" },
+    });
+    const observed = state({ blockers: { value: ["new blocker"], confidence: "high", provenance: ["test"] } });
+    const outcome = reconcilePrediction(prediction, observed);
+    expect(outcome.category).toBe("insufficient_evidence");
+    expect(outcome.missedEffects.length).toBeGreaterThan(0);
+  });
+
   it("calibrates deterministic fresh transitions above contradictory external predictions", () => {
     expect(assessConfidence({ sourceFresh: true, deterministic: true, supportingObservations: 2 }).level).toBe("high");
     expect(assessConfidence({ sourceFresh: false, contradictions: 2, externalDependency: true, horizon: 4 }).level).toBe("unknown");
@@ -136,7 +148,11 @@ describe("world-state planning foundations", () => {
     planningStore.saveSnapshot(prediction.predictedState, "inv-1");
     const outcome = reconcilePrediction(prediction, prediction.predictedState);
     planningStore.savePredictionOutcome(outcome, "inv-1");
-    expect(planningStore.calibrationReport()[0]?.total).toBe(1);
+    const calibration = planningStore.calibrationReport()[0];
+    expect(calibration?.total).toBe(1);
+    expect(calibration?.scored).toBe(0);
+    expect(calibration?.unscored).toBe(1);
+    expect(calibration?.correctRate).toBe(0);
   });
 
   it("links snapshot ids into the existing transition trajectory spine", () => {
