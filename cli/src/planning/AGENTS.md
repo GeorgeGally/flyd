@@ -20,7 +20,10 @@ This directory is Flyd's deterministic world-model foundation.
 - The prediction, action trajectory, observed after-state, and reconciliation for a live harness run must share one correlation id.
 - If a prediction declares no expected effects, reconcile it as `insufficient_evidence` even when the world changes. Retain the observed changes for future modeling, but never score an unmodeled transition as wrong.
 - Calibration distinguishes observed runs from scorable predictions. `insufficient_evidence` belongs in the learning dataset but is excluded from the correctness denominator.
-- Every new planning heuristic should add or update a scenario in `benchmark.ts`.
+- Empirical effects are subordinate to declared deterministic effects. Promote them only from repeated correlated local runs: minimum three comparable examples and at least 80% consistency by default. A single run must never become a rule.
+- Do not learn volatile exact values such as commit hashes as transition laws. Start with stable semantic effects and widen only with benchmark evidence.
+- If empirical history is unavailable, prediction must fall back to the deterministic baseline rather than blocking execution.
+- Every new planning heuristic should add or update a scenario in `benchmark.ts` or a planning-gated regression test.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
 
 ## Architecture
@@ -30,6 +33,8 @@ PRESENT / work hypothesis
   -> snapshotFromPresent (explicit boundary)
   -> GoalSpec + PlanningGap[]
   -> FutureModel
+       -> deterministic effects first
+       -> conservative empirical effects from repeated reconciled runs
   -> ActionEvaluator
   -> MultiStepPlanner
   -> DecisionPolicy
@@ -41,6 +46,7 @@ PRESENT / work hypothesis
   -> ExecutionGuard.verifyAfter
   -> reconcilePrediction + causal attribution
   -> trajectory/calibration data
+       -> empirical transition history
 ```
 
 ## Verification
@@ -48,7 +54,7 @@ PRESENT / work hypothesis
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/empirical-future-model.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning
