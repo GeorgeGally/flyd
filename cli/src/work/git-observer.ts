@@ -149,7 +149,6 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
     });
     setRepositoryIndexedHead(repositoryId, obs.head);
   } else {
-    // Dirty-only / branch-only / fingerprint change: observe, do not stamp as work activity.
     setRepositoryObservation(repositoryId, {
       head: obs.head,
       fingerprint,
@@ -181,40 +180,47 @@ export function observeAllRepos(): ProjectSnapshot[] {
     if (!repo.enabled) continue;
     try {
       const fingerprint = computeFingerprint(repo.root);
-      const cacheIncomplete =
-        !repo.observedAt ||
-        !repo.lastObservationFingerprint ||
-        !repo.lastSeenHead ||
-        !repo.observedBranch ||
-        repo.observedDirty === undefined ||
-        repo.observedUncommittedFiles === undefined;
+      const cacheComplete = Boolean(
+        repo.observedAt
+        && repo.lastObservationFingerprint
+        && repo.lastSeenHead
+        && repo.observedBranch
+        && repo.observedDirty !== undefined
+        && repo.observedUncommittedFiles !== undefined,
+      );
 
-      // Only deep-observe when Git state changed or there is no complete cached observation.
-      if (cacheIncomplete || fingerprint !== repo.lastObservationFingerprint) {
+      if (!cacheComplete || fingerprint !== repo.lastObservationFingerprint) {
         results.push(observeAndRecord(repo.id, fingerprint));
       } else {
-        // The fingerprint check itself is a fresh observation of HEAD, branch,
-        // and porcelain status. Refresh observedAt without inventing new work
-        // activity so downstream consumers can distinguish fresh unchanged
-        // state from genuinely stale cached state.
+        const head = repo.lastSeenHead;
+        const branch = repo.observedBranch;
+        const dirty = repo.observedDirty;
+        const uncommittedFiles = repo.observedUncommittedFiles;
+        if (!head || !branch || dirty === undefined || uncommittedFiles === undefined) {
+          results.push(observeAndRecord(repo.id, fingerprint));
+          continue;
+        }
+
+        // The fingerprint check itself freshly verifies HEAD, branch and status.
+        // Refresh observation freshness without inventing new work activity.
         setRepositoryObservation(repo.id, {
-          head: repo.lastSeenHead,
+          head,
           fingerprint,
-          branch: repo.observedBranch,
-          dirty: repo.observedDirty,
-          uncommittedFiles: repo.observedUncommittedFiles,
+          branch,
+          dirty,
+          uncommittedFiles,
         });
         results.push({
           repositoryId: repo.id,
           name: repo.name,
           root: repo.root,
-          branch: repo.observedBranch,
-          head: repo.lastSeenHead,
-          dirty: repo.observedDirty,
+          branch,
+          head,
+          dirty,
           lastActivityAt: repo.lastActivityAt,
           projectFileExists: repo.projectFileExists,
           agentsFileExists: repo.agentsFileExists,
-          uncommittedFiles: repo.observedUncommittedFiles,
+          uncommittedFiles,
         });
       }
     } catch {
@@ -225,13 +231,11 @@ export function observeAllRepos(): ProjectSnapshot[] {
   return results;
 }
 
-// ponytail: simple keyword-based classification, no LLM needed for obvious cases
 function classifyDelta(commits: CommitEntry[]): "implementation" | "fix" | "refactor" | "research" | "documentation" | "release" | "setup" | "unknown" {
   const text = commits.map((c) => c.subject.toLowerCase()).join(" ");
   if (/^fix/i.test(commits[0]?.subject ?? "")) return "fix";
   if (text.includes("refactor")) return "refactor";
-  if (text.includes("release") || text.includes("version") || /^v\d/.test(commits[0]?.subject ?? ""))
-    return "release";
+  if (text.includes("release") || text.includes("version") || /^v\d/.test(commits[0]?.subject ?? "")) return "release";
   if (text.includes("doc") || text.includes("readme")) return "documentation";
   if (text.includes("setup") || text.includes("init")) return "setup";
   if (text.includes("research") || text.includes("explore") || text.includes("spike")) return "research";
