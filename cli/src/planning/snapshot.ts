@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PresentModel } from "../lib/present-model.js";
 import type { WorkHypothesis } from "../work/work-hypothesis/types.js";
-import type { ConfidenceLevel, StateFact, WorldStateSnapshot } from "./world-model.js";
+import type { PlanningConfidence, StateFact, WorldStateSnapshot } from "../intelligence/world/types.js";
 
-function fact<T>(value: T, confidence: ConfidenceLevel, provenance: string[], freshness?: string): StateFact<T> {
+function fact<T>(value: T, confidence: PlanningConfidence, provenance: string[], freshness?: string): StateFact<T> {
   return { value, confidence, provenance, ...(freshness ? { freshness } : {}) };
 }
 
@@ -24,7 +24,7 @@ export function snapshotFromPresent(input: {
   now?: Date;
 }): WorldStateSnapshot {
   const { present, work } = input;
-  const confidence: ConfidenceLevel = present.gaps.length === 0 ? "high" : "medium";
+  const confidence: PlanningConfidence = present.gaps.length === 0 ? "high" : "medium";
   const repository = present.repository;
   const projectNames = [
     ...(work?.primaryThreads.map((thread) => thread.name) ?? []),
