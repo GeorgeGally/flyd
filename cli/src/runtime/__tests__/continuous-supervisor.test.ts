@@ -28,8 +28,10 @@ function task(overrides: Partial<AgentTask>): AgentTask {
 }
 
 describe("runSupervisorSweep", () => {
-  it("supervises each active runtime project once", async () => {
-    const superviseProject = vi.fn(async () => undefined);
+  it("reconciles then finalizes each active runtime project once", async () => {
+    const calls: string[] = [];
+    const superviseProject = vi.fn(async (root: string) => { calls.push(`supervise:${root}`); });
+    const finalizeProject = vi.fn(async (root: string) => { calls.push(`finalize:${root}`); });
     const roots = await runSupervisorSweep({
       listTasks: async () => [
         task({ taskKey: "a", projectRoot: "/work/flyd", status: "running" }),
@@ -38,22 +40,29 @@ describe("runSupervisorSweep", () => {
         task({ taskKey: "d", projectRoot: "/work/obj0", status: "completed" }),
       ],
       superviseProject,
+      finalizeProject,
     });
 
     expect(roots).toEqual(["/work/flyd", "/work/bloom"]);
-    expect(superviseProject).toHaveBeenCalledTimes(2);
-    expect(superviseProject).toHaveBeenNthCalledWith(1, "/work/flyd");
-    expect(superviseProject).toHaveBeenNthCalledWith(2, "/work/bloom");
+    expect(calls).toEqual([
+      "supervise:/work/flyd",
+      "finalize:/work/flyd",
+      "supervise:/work/bloom",
+      "finalize:/work/bloom",
+    ]);
   });
 
   it("does nothing when no execution task is active", async () => {
     const superviseProject = vi.fn(async () => undefined);
+    const finalizeProject = vi.fn(async () => undefined);
     const roots = await runSupervisorSweep({
       listTasks: async () => [task({ status: "completed" }), task({ status: "cancelled" })],
       superviseProject,
+      finalizeProject,
     });
 
     expect(roots).toEqual([]);
     expect(superviseProject).not.toHaveBeenCalled();
+    expect(finalizeProject).not.toHaveBeenCalled();
   });
 });
