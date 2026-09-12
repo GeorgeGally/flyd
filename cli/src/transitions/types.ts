@@ -47,7 +47,7 @@ export interface TransitionNextStateInput {
   surface?: TransitionSurface;
   /** Raw user correction words; sanitized only at directive-extraction time. */
   correction?: string;
-  /** True when the outcome arrived after its action context expired. */
+  /** True when the originating action context is still available and causally linkable. */
   causalComplete?: boolean;
   /** Optional governed planning snapshot captured after the action/outcome. */
   stateAfterId?: string;

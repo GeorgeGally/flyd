@@ -13,6 +13,9 @@ This directory is Flyd's deterministic world-model foundation.
 - Goals should expose explicit success criteria when they are known. Do not keep taking actions after those criteria are satisfied.
 - A blocking information gap must interrupt action selection. Investigate first when Flyd can resolve the gap; ask the user only for genuine preference/approval; otherwise defer instead of guessing.
 - `DecisionPolicy` sits between ranking and execution. It may recommend act/investigate/ask/defer, but it never grants execution authority.
+- An action reaching execution must satisfy its declared preconditions in `ExecutionGuard`. Approval remains a separate explicit input; a satisfied state precondition never implies approval.
+- Verify declared postconditions after execution. Absence of postconditions means outcome verification is unknown, not successful by default.
+- Correlation is not causation. Attribute an observed change to Flyd only when it matches a predicted effect and complete correlated tool/verifier evidence exists. Otherwise retain weaker `action_consistent`, `external_or_unknown`, or `contradictory` labels.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts`.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
 
@@ -27,9 +30,11 @@ PRESENT / work hypothesis
   -> MultiStepPlanner
   -> DecisionPolicy
        -> act | investigate | ask_user | defer
+  -> ExecutionGuard.checkBefore
   -> existing execution authority
   -> observed snapshot
-  -> reconcilePrediction
+  -> ExecutionGuard.verifyAfter
+  -> reconcilePrediction + causal attribution
   -> trajectory/calibration data
 ```
 
@@ -38,7 +43,7 @@ PRESENT / work hypothesis
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning
