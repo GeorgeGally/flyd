@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { OperationalDecisionStore } from "./operational-decision-store.js";
 import { inspectRepository } from "./repository-inspector.js";
 import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
 import { integrateRepositoryGroups } from "./orchestrator.js";
@@ -62,6 +63,14 @@ async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedT
         WHERE live.agent_task_id = t.id
           AND live.status IN ('queued','starting','running','stopping')
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM runtime_events recovered
+        WHERE recovered.agent_task_id = t.id
+          AND (
+            recovered.idempotency_key LIKE 'detached-integration:%'
+            OR recovered.idempotency_key LIKE 'detached-integration-blocked:%'
+          )
+      )
       AND EXISTS (
         SELECT 1 FROM worker_sessions done
         WHERE done.agent_task_id = t.id AND done.status = 'completed' AND done.exit_status = 0
@@ -122,10 +131,34 @@ export async function finalizeDetachedProject(
   manager = new GitWorktreeManager(),
 ): Promise<DetachedFinalizationResult[]> {
   const store = new PostgresTaskStore(pool);
-  const candidates = await detachedTasks(pool, projectRoot);
+  const decisionStore = new OperationalDecisionStore(pool);
+  const [candidates, openDecisionFacts] = await Promise.all([
+    detachedTasks(pool, projectRoot),
+    decisionStore.listOpenDecisionFacts(),
+  ]);
+  const openDecisionTaskIds = new Set(openDecisionFacts.map((fact) => fact.decision.taskId));
   const outcomes: DetachedFinalizationResult[] = [];
 
   for (const task of candidates) {
+    if (openDecisionTaskIds.has(task.taskId)) {
+      outcomes.push({
+        taskKey: task.taskKey,
+        status: "skipped",
+        reason: "An operational decision is open for this task",
+      });
+      continue;
+    }
+
+    if (task.verificationCommands.length === 0) {
+      const reason = "Detached completion has no persisted verification commands";
+      await store.recordTaskIntegration(task.taskKey, {
+        result: { status: "blocked", reason, changedFiles: [], patchDigest: null },
+        idempotencyKey: `detached-integration-blocked:${task.taskKey}:${reason}`,
+      });
+      outcomes.push({ taskKey: task.taskKey, status: "blocked", reason });
+      continue;
+    }
+
     const verified = new Map<string, VerifiedWorkerResult>();
     let blockedReason: string | null = null;
 
