@@ -71,7 +71,7 @@ async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedT
   for (const task of tasks.rows) {
     const assignments = await pool.query(`SELECT a.assignment_key, a.repository_root, a.base_head,
         a.declared_file_scope, a.status,
-        w.worker_key, w.working_directory
+        w.worker_key, w.working_directory, w.status AS worker_status, w.exit_status, w.ended_at
       FROM task_assignments a
       LEFT JOIN LATERAL (
         SELECT worker_key, working_directory, status, exit_status, ended_at
@@ -83,7 +83,11 @@ async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedT
       ORDER BY a.created_at, a.id`, [task.id]);
 
     if (assignments.rows.length === 0) continue;
-    if (assignments.rows.some((row) => !row.worker_key || !row.working_directory || !row.base_head)) continue;
+    if (assignments.rows.some((row) =>
+      !row.worker_key || !row.working_directory || !row.base_head ||
+      row.worker_status !== "completed" || Number(row.exit_status) !== 0 ||
+      !row.ended_at || Date.now() - new Date(row.ended_at).getTime() < 10_000
+    )) continue;
 
     out.push({
       taskId: String(task.id),
