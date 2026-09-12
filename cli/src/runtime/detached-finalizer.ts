@@ -20,6 +20,7 @@ interface DetachedTask {
   taskId: string;
   taskKey: string;
   projectRoot: string;
+  recordedRepository: { head?: string; status_digest?: string };
   assignments: DetachedAssignment[];
   verificationCommands: string[];
 }
@@ -45,7 +46,7 @@ function verificationPayload(result: VerifiedWorkerResult): Record<string, unkno
  * finish first; this path is recovery, not a competitor to the live runner.
  */
 async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedTask[]> {
-  const tasks = await pool.query(`SELECT t.id, t.task_key, p.root_path AS project_root,
+  const tasks = await pool.query(`SELECT t.id, t.task_key, t.repository_snapshot, p.root_path AS project_root,
       COALESCE(g.verification_commands, '[]'::jsonb) AS verification_commands
     FROM agent_tasks t
     JOIN projects p ON p.id = t.project_id
@@ -93,6 +94,7 @@ async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedT
       taskId: String(task.id),
       taskKey: task.task_key,
       projectRoot: task.project_root,
+      recordedRepository: task.repository_snapshot ?? {},
       verificationCommands: Array.isArray(task.verification_commands) ? task.verification_commands : [],
       assignments: assignments.rows.map((row) => ({
         assignmentKey: row.assignment_key,
@@ -160,6 +162,20 @@ export async function finalizeDetachedProject(
         break;
       }
       verified.set(assignment.assignmentKey, result);
+    }
+
+    if (!blockedReason) {
+      const roots = new Set(task.assignments.map((assignment) => assignment.repositoryRoot));
+      if (roots.size !== 1 || !roots.has(task.projectRoot)) {
+        blockedReason = "Detached multi-repository landing is blocked until per-assignment base snapshots are persisted";
+      } else {
+        const current = await inspectRepository(task.projectRoot);
+        const recordedHead = task.recordedRepository.head;
+        const recordedDigest = task.recordedRepository.status_digest;
+        if (!recordedHead || !recordedDigest || current.head !== recordedHead || current.statusDigest !== recordedDigest) {
+          blockedReason = "Source repository changed since the task snapshot; detached landing cannot be proven safe";
+        }
+      }
     }
 
     if (blockedReason) {
