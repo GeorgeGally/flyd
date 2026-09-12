@@ -10,6 +10,7 @@ import { readPresentModel } from '../work/work-hypothesis/index.js';
 import type { WorkHypothesis } from '../work/work-hypothesis/types.js';
 import { readCanonicalPresent } from '../work/runtime-present.js';
 import { createRuntimePool } from '../runtime/database.js';
+import { ensureContinuousSupervisionStarted } from '../runtime/supervision-runtime.js';
 import { assembleGroundPack, buildForegroundSummary } from './ground-pack.js';
 import {
   loadDomainStandard,
@@ -57,6 +58,7 @@ async function resolvePresentModel(explicit: WorkHypothesis | null | undefined):
 }
 
 export async function runWorkIntelligence(params: WorkInteractionParams): Promise<WorkInteractionOutput> {
+  ensureContinuousSupervisionStarted();
   const startedAt = Date.now();
   const interactionId = randomUUID();
 
