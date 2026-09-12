@@ -159,36 +159,46 @@ export function buildPresentModelSection(
 ): GroundPackSection | null {
   if (!presentModel) return null;
 
-  const lines: string[] = [
-    presentModel.hypothesisText,
-  ];
+  const lines: string[] = [presentModel.hypothesisText];
 
   if (presentModel.objective?.value) {
     lines.push(`Objective: ${presentModel.objective.value}`);
   }
 
   if (presentModel.primaryThreads.length > 0) {
-    lines.push(
-      `Primary threads: ${presentModel.primaryThreads.map((t) => t.name).join(', ')}`,
-    );
+    lines.push(`Primary threads: ${presentModel.primaryThreads.map((t) => t.name).join(', ')}`);
   }
 
   if (presentModel.secondaryThreads.length > 0) {
-    lines.push(
-      `Secondary threads: ${presentModel.secondaryThreads.map((t) => t.name).join(', ')}`,
-    );
+    lines.push(`Secondary threads: ${presentModel.secondaryThreads.map((t) => t.name).join(', ')}`);
+  }
+
+  if ((presentModel.openDecisions?.length ?? 0) > 0) {
+    lines.push('Runtime facts — open decisions:');
+    for (const decision of presentModel.openDecisions ?? []) {
+      lines.push(`  - [FACT] ${decision.projectName ?? 'Work'}: ${decision.question}`);
+      if (decision.context) lines.push(`    Context: ${decision.context}`);
+    }
+  }
+
+  const consequentialWorkers = (presentModel.workerObservations ?? []).filter((worker) => worker.consequential);
+  if (consequentialWorkers.length > 0) {
+    lines.push('Runtime observations requiring attention:');
+    for (const worker of consequentialWorkers) {
+      lines.push(`  - [OBSERVATION] ${worker.state} / ${worker.action}: ${worker.reason}`);
+    }
   }
 
   if (presentModel.uncertainty.length > 0) {
-    lines.push(
-      ...presentModel.uncertainty.map((u) => `Uncertainty (${u.field}): ${u.reason}`),
-    );
+    lines.push(...presentModel.uncertainty.map((u) => `Uncertainty (${u.field}): ${u.reason}`));
   }
 
   return {
     kind: 'present_model',
     label: 'PRESENT_MODEL',
-    provenance: 'work-hypothesis',
+    provenance: (presentModel.openDecisions?.length || presentModel.workerObservations?.length)
+      ? 'work-hypothesis+runtime'
+      : 'work-hypothesis',
     content: lines.join('\n'),
     uncertain: resolution.conflict,
   };
@@ -286,16 +296,12 @@ export function formatGroundPackForPrompt(pack: GroundPack): string {
   const blocks: string[] = [];
 
   if (pack.project.conflict && pack.project.uncertaintyReason) {
-    blocks.push(
-      `PROJECT CONFLICT (foreground wins): ${pack.project.uncertaintyReason}`,
-    );
+    blocks.push(`PROJECT CONFLICT (foreground wins): ${pack.project.uncertaintyReason}`);
   }
 
   for (const section of pack.sections) {
     const uncertainTag = section.uncertain ? ' [uncertain — background only]' : '';
-    blocks.push(
-      `${section.label}${uncertainTag} (${section.provenance}):\n${section.content}`,
-    );
+    blocks.push(`${section.label}${uncertainTag} (${section.provenance}):\n${section.content}`);
   }
 
   if (pack.gaps.length > 0) {
