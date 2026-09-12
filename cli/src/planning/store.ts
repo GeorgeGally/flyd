@@ -24,14 +24,17 @@ export interface PlanningStoreOptions {
 
 export interface CalibrationBucket {
   confidence: string;
-  /** All reconciled predictions observed at this confidence, including unscorable ones. */
   total: number;
-  /** Predictions that declared at least one effect and can therefore be scored. */
   scored: number;
-  /** Observed runs retained for learning but excluded from prediction accuracy. */
   unscored: number;
   correct: number;
   correctRate: number;
+}
+
+export interface PlanningLearningExample {
+  correlationId: string;
+  trace: PlanningTrace;
+  outcome: PredictionOutcome;
 }
 
 type PlanningPayload =
@@ -39,11 +42,6 @@ type PlanningPayload =
   | { type: "planning_trace"; trace: PlanningTrace }
   | { type: "prediction_outcome"; outcome: PredictionOutcome };
 
-/**
- * Planning persistence is a governed projection on Flyd's canonical
- * IntelligenceEventStore. Action/outcome trajectories remain owned by the
- * existing transition spine; this store deliberately does not duplicate them.
- */
 export class PlanningStore {
   private readonly store: IntelligenceEventStore;
   private readonly registry: SourceContractRegistry;
@@ -54,9 +52,7 @@ export class PlanningStore {
     this.registry.register(PLANNING_RUNTIME_CONTRACT);
   }
 
-  close(): void {
-    this.store.close();
-  }
+  close(): void { this.store.close(); }
 
   saveSnapshot(snapshot: WorldStateSnapshot, correlationId?: string): StoredEvent {
     return this.append(`snapshot:${snapshot.id}`, { type: "world_state_snapshot", snapshot }, correlationId);
@@ -85,11 +81,30 @@ export class PlanningStore {
   }
 
   savePredictionOutcome(outcome: PredictionOutcome, correlationId?: string): StoredEvent {
-    return this.append(
-      `prediction-outcome:${outcome.id}`,
-      { type: "prediction_outcome", outcome },
-      correlationId,
-    );
+    return this.append(`prediction-outcome:${outcome.id}`, { type: "prediction_outcome", outcome }, correlationId);
+  }
+
+  /**
+   * Join the structured prediction trace and its eventual reconciliation by
+   * correlation id. This is training evidence, not execution authority.
+   */
+  learningExamples(): PlanningLearningExample[] {
+    const traces = new Map<string, PlanningTrace>();
+    const outcomes = new Map<string, PredictionOutcome>();
+    for (const event of this.events()) {
+      if (!event.correlationId) continue;
+      const payload = event.payload as unknown as PlanningPayload | undefined;
+      if (payload?.type === "planning_trace") traces.set(event.correlationId, payload.trace);
+      if (payload?.type === "prediction_outcome") outcomes.set(event.correlationId, payload.outcome);
+    }
+    const examples: PlanningLearningExample[] = [];
+    for (const [correlationId, trace] of traces) {
+      const outcome = outcomes.get(correlationId);
+      if (!outcome) continue;
+      if (!trace.candidates.some((candidate) => candidate.prediction.id === outcome.predictionId)) continue;
+      examples.push({ correlationId, trace, outcome });
+    }
+    return examples;
   }
 
   calibrationReport(): CalibrationBucket[] {
@@ -125,10 +140,7 @@ export class PlanningStore {
       pathKind: "executive",
       kind: "observation",
       sourceId: PLANNING_RUNTIME_SOURCE_ID,
-      consent: {
-        grantedAt: new Date().toISOString(),
-        scopes: PLANNING_RUNTIME_CONTRACT.scopes,
-      },
+      consent: { grantedAt: new Date().toISOString(), scopes: PLANNING_RUNTIME_CONTRACT.scopes },
       retentionClass: PLANNING_RUNTIME_CONTRACT.retentionClass,
       payloadClassification: "personal",
       provenance: "planning:runtime",
@@ -139,9 +151,7 @@ export class PlanningStore {
     const validation = validateEnvelope(envelope, {
       consentLookup: { isRevoked: (sourceId) => this.registry.status(sourceId) === "revoked" },
     });
-    if (!validation.ok) {
-      throw new Error(`Planning event rejected: ${validation.rejection}: ${validation.detail}`);
-    }
+    if (!validation.ok) throw new Error(`Planning event rejected: ${validation.rejection}: ${validation.detail}`);
     const event = this.store.append(envelope);
     if (!event) throw new Error("Planning event store returned no event");
     return event;
