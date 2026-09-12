@@ -58,8 +58,8 @@ export function reconcileHarnessPrediction(
   decision: HarnessDecision | null,
   observed: WorldStateSnapshot | null,
   correlationId: string,
-  execution?: { status?: string; signal?: string },
   deps: HarnessLearningDependencies = defaultDependencies,
+  execution?: { status?: string; signal?: string },
 ): PredictionOutcome | null {
   if (!decision || !observed) return null;
   if (decision.recommendation.mode !== "act" || !decision.recommendation.actionId) return null;
