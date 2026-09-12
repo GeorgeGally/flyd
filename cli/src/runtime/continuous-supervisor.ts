@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { OperationalDecisionStore } from "./operational-decision-store.js";
 import { PostgresTaskStore } from "./task-store.js";
 import { superviseProject } from "./project-supervisor.js";
+import type { AgentTask } from "./types.js";
 
 const ACTIVE_TASK_STATUSES = new Set(["awaiting_grant", "ready", "running", "blocked"]);
 const DEFAULT_INTERVAL_MS = 15_000;
@@ -14,6 +15,24 @@ export interface ContinuousSupervisorOptions {
 export interface ContinuousSupervisor {
   runOnce(): Promise<void>;
   stop(): void;
+}
+
+export interface SupervisorSweepDependencies {
+  listTasks(): Promise<AgentTask[]>;
+  superviseProject(projectRoot: string): Promise<unknown>;
+}
+
+export async function runSupervisorSweep(deps: SupervisorSweepDependencies): Promise<string[]> {
+  const tasks = await deps.listTasks();
+  const roots = [...new Set(tasks
+    .filter((task) => ACTIVE_TASK_STATUSES.has(task.status))
+    .map((task) => task.projectRoot)
+    .filter(Boolean))];
+
+  for (const root of roots) {
+    await deps.superviseProject(root);
+  }
+  return roots;
 }
 
 /**
@@ -35,15 +54,10 @@ export function startContinuousSupervisor(
     if (stopped || running) return;
     running = true;
     try {
-      const tasks = await taskStore.listTasks(undefined, 200);
-      const roots = [...new Set(tasks
-        .filter((task) => ACTIVE_TASK_STATUSES.has(task.status))
-        .map((task) => task.projectRoot)
-        .filter(Boolean))];
-
-      for (const root of roots) {
-        await superviseProject(root, { taskStore, decisionStore });
-      }
+      await runSupervisorSweep({
+        listTasks: () => taskStore.listTasks(undefined, 200),
+        superviseProject: (projectRoot) => superviseProject(projectRoot, { taskStore, decisionStore }),
+      });
     } finally {
       running = false;
     }
