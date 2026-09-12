@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { closeDb, resetWorkIndexPath, useWorkIndexPath } from "../../work/database.js";
+import { scoreEvidence } from "../../lib/librarian.js";
 import { scoreTailSignificance } from "../../lib/tail-significance.js";
+import { configureTransitionStore, recordAction, recordNextState } from "../../transitions/writer.js";
 import { PlanningStore } from "../store.js";
 import {
   ActionEvaluator,
@@ -20,13 +21,25 @@ import {
 } from "../world-model.js";
 import { PLANNING_BENCHMARK, runPlanningBenchmark } from "../benchmark.js";
 
-let dbPath: string | null = null;
+let planningStore: PlanningStore | null = null;
+const tempPaths: string[] = [];
+
 afterEach(() => {
-  closeDb();
-  resetWorkIndexPath();
-  if (dbPath) rmSync(dbPath, { force: true });
-  dbPath = null;
+  planningStore?.close();
+  planningStore = null;
+  configureTransitionStore();
+  for (const path of tempPaths.splice(0)) {
+    rmSync(path, { force: true });
+    rmSync(`${path}-wal`, { force: true });
+    rmSync(`${path}-shm`, { force: true });
+  }
 });
+
+function tempPath(suffix: string): string {
+  const path = join(tmpdir(), `flyd-planning-${randomUUID()}-${suffix}`);
+  tempPaths.push(path);
+  return path;
+}
 
 function state(overrides: Partial<WorldStateSnapshot> = {}): WorldStateSnapshot {
   const fact = <T>(value: T) => ({ value, confidence: "high" as const, provenance: ["test"] });
@@ -105,32 +118,48 @@ describe("world-state planning foundations", () => {
     expect(new Set(plans[0].steps.map((step) => step.action.id)).size).toBe(2);
   });
 
-  it("persists snapshots, trajectories, traces and calibration outcomes in the work index", async () => {
-    dbPath = join(tmpdir(), `flyd-planning-${randomUUID()}.sqlite`);
-    useWorkIndexPath(dbPath);
-    const store = new PlanningStore();
+  it("persists snapshots, traces and calibration on the canonical intelligence spine", async () => {
+    const dbPath = tempPath("intelligence.sqlite");
+    const registryPath = tempPath("consents.json");
+    planningStore = new PlanningStore({ dbPath, registryPath });
     const before = state();
-    const after = state();
-    store.saveSnapshot(before);
-    store.saveSnapshot(after);
-    store.saveTrajectory({
-      id: randomUUID(), occurredAt: new Date().toISOString(), projectId: "flyd",
-      stateBeforeId: before.id, stateAfterId: after.id,
-      action: { id: "fix", description: "fix issue" }, actor: "flyd", outcome: "success",
-      evidence: ["verified test"], confidence: { level: "high", reasons: ["verified"] },
-    });
-    expect(store.trajectoriesForProject("flyd")).toHaveLength(1);
+    planningStore.saveSnapshot(before, "inv-1");
+    expect(planningStore.getSnapshot(before.id)?.projectId).toBe("flyd");
 
     const model = new DeterministicFutureModel();
     const prediction = await model.predict({ currentState: before, candidateAction: { id: "noop", description: "no-op" } });
     const evaluation = new ActionEvaluator().evaluate({ id: "noop", description: "no-op" }, prediction, scores());
     const trace = buildPlanningTrace({ snapshotId: before.id, goal: "test", candidates: [evaluation] });
-    store.saveTrace(trace);
-    expect(store.getTrace(trace.id)?.goal).toBe("test");
+    planningStore.saveTrace(trace, "inv-1");
+    expect(planningStore.getTrace(trace.id)?.goal).toBe("test");
+
+    planningStore.saveSnapshot(prediction.predictedState, "inv-1");
     const outcome = reconcilePrediction(prediction, prediction.predictedState);
-    store.saveSnapshot(prediction.predictedState);
-    store.savePredictionOutcome(outcome);
-    expect(store.calibrationReport()[0]?.total).toBe(1);
+    planningStore.savePredictionOutcome(outcome, "inv-1");
+    expect(planningStore.calibrationReport()[0]?.total).toBe(1);
+  });
+
+  it("links snapshot ids into the existing transition trajectory spine", () => {
+    const dbPath = tempPath("transition.sqlite");
+    const registryPath = tempPath("transition-consents.json");
+    configureTransitionStore({ dbPath, registryPath });
+    const before = state();
+    const after = state();
+    const action = recordAction({
+      sessionId: "session-1", invocationId: "inv-trajectory", surface: "harness",
+      intent: "fix failing build", stateBeforeId: before.id, projectId: "flyd", repositoryRoot: "/flyd",
+    });
+    const next = recordNextState({
+      invocationId: "inv-trajectory", surface: "harness", origin: "verifier",
+      signal: "verified", stateAfterId: after.id,
+    });
+    expect(action.ok).toBe(true);
+    expect(next.ok).toBe(true);
+    if (action.ok && !action.skipped && next.ok && !next.skipped) {
+      expect(action.event.correlationId).toBe(next.event.correlationId);
+      expect(action.event.payload?.stateBeforeId).toBe(before.id);
+      expect(next.event.payload?.stateAfterId).toBe(after.id);
+    }
   });
 });
 
@@ -146,6 +175,18 @@ describe("tail event preservation", () => {
   it("protects explicit decisions and user corrections", () => {
     expect(scoreTailSignificance({ type: "decision", consequence: .7 }).preserve).toBe(true);
     expect(scoreTailSignificance({ type: "user_correction", surprise: .7 }).preserve).toBe(true);
+  });
+
+  it("boosts retrieval utility without inflating epistemic confidence", () => {
+    const base = {
+      path: "events/failure.md", body: "production deploy failed", source: "raw" as const,
+      score: .5, staleness: null,
+    };
+    const routine = scoreEvidence({ ...base, metadata: { type: "commit", confidence: .5 } }, [], "deploy");
+    const tail = scoreEvidence({ ...base, metadata: { outcome: "failure", consequence: 1, surprise: .9, confidence: .5 } }, [], "deploy");
+    expect(tail.confidenceProfile.epistemicConfidence).toBe(routine.confidenceProfile.epistemicConfidence);
+    expect(tail.confidenceProfile.retrievalUtility).toBeGreaterThan(routine.confidenceProfile.retrievalUtility);
+    expect(tail.metadata.preservationRequired).toBe(true);
   });
 });
 
