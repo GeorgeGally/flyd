@@ -1,7 +1,5 @@
 import { execSync } from "child_process";
-import { statSync } from "fs";
 import { createHash } from "crypto";
-import { join } from "path";
 import type { ProjectSnapshot } from "./repository-registry.js";
 import {
   getRepository,
@@ -37,27 +35,13 @@ function execGit(args: string, cwd: string): string {
   }
 }
 
-function fingerprintDir(path: string): string {
-  try {
-    const stat = statSync(path);
-    const hash = createHash("sha1");
-    hash.update(`${stat.mtimeMs}:${stat.size}`);
-    return hash.digest("hex").slice(0, 12);
-  } catch {
-    return "missing";
-  }
-}
-
 export function computeFingerprint(root: string): string {
   const head = execGit("rev-parse HEAD", root);
   const branch = execGit("branch --show-current", root);
   const statusOutput = execGit("status --porcelain", root);
-  const indexFp = fingerprintDir(join(root, ".git", "index"));
-  const headFp = fingerprintDir(join(root, ".git", "HEAD"));
-  const refsFp = fingerprintDir(join(root, ".git", "refs"));
 
   const hash = createHash("sha1");
-  hash.update(`${indexFp}:${headFp}:${refsFp}:${head}:${branch}:${statusOutput}`);
+  hash.update(`${head}:${branch}:${statusOutput}`);
   return hash.digest("hex");
 }
 
