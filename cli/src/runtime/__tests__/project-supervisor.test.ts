@@ -26,7 +26,7 @@ describe("superviseProject", () => {
       transitionWorker: vi.fn(),
       observeWorker: vi.fn(async () => undefined),
     };
-    const decisionStore = { listOpenDecisionRecords: vi.fn(async () => []) };
+    const decisionStore = { listOpenDecisionFacts: vi.fn(async () => []) };
 
     const result = await superviseProject("/work/flyd", {
       taskStore, decisionStore, observeReality: () => healthy,
@@ -44,7 +44,12 @@ describe("superviseProject", () => {
       observeWorker: vi.fn(async () => undefined),
     };
     const decisionStore = {
-      listOpenDecisionRecords: vi.fn(async () => [{ taskId: "task-1" }]),
+      listOpenDecisionFacts: vi.fn(async () => [{
+        decision: { taskId: "task-1" },
+        taskKey: "task-key-1",
+        projectName: "flyd",
+        projectRoot: "/work/flyd",
+      }]),
     };
 
     const result = await superviseProject("/work/flyd", {
@@ -54,5 +59,28 @@ describe("superviseProject", () => {
     expect(result.results[0].result.reconciliation.action).toBe("ask_user");
     expect(taskStore.observeWorker).not.toHaveBeenCalled();
     expect(taskStore.transitionWorker).not.toHaveBeenCalled();
+  });
+
+  it("ignores decisions belonging to another project", async () => {
+    const taskStore = {
+      liveWorkers: vi.fn(async () => [worker]),
+      transitionWorker: vi.fn(),
+      observeWorker: vi.fn(async () => undefined),
+    };
+    const decisionStore = {
+      listOpenDecisionFacts: vi.fn(async () => [{
+        decision: { taskId: "task-1" },
+        taskKey: "other-task",
+        projectName: "other",
+        projectRoot: "/work/other",
+      }]),
+    };
+
+    const result = await superviseProject("/work/flyd", {
+      taskStore, decisionStore: decisionStore as never, observeReality: () => healthy,
+    });
+
+    expect(result.results[0].result.reconciliation.action).toBe("noop");
+    expect(taskStore.observeWorker).toHaveBeenCalledWith("worker-1");
   });
 });
