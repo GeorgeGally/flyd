@@ -80,13 +80,19 @@ export async function runContinuityHarness(
 
   try {
     const result = await runRuntimeHarness(runtimeInput);
+    const signal = harnessSignalForStatus(result.status);
     const observed = await completeHarnessTrajectory({
       handle: trajectory,
       origin: "tool",
-      signal: harnessSignalForStatus(result.status),
+      signal,
       detail: { status: result.status, taskKey: result.taskKey },
     });
-    reconcileHarnessPrediction(executedDecision, observed, trajectory.invocationId);
+    reconcileHarnessPrediction(
+      executedDecision,
+      observed,
+      trajectory.invocationId,
+      { status: result.status, signal },
+    );
     return result;
   } catch (error) {
     const observed = await completeHarnessTrajectory({
@@ -95,7 +101,12 @@ export async function runContinuityHarness(
       signal: "failed",
       detail: { errorClass: error instanceof Error ? error.name : "unknown" },
     });
-    reconcileHarnessPrediction(executedDecision, observed, trajectory.invocationId);
+    reconcileHarnessPrediction(
+      executedDecision,
+      observed,
+      trajectory.invocationId,
+      { status: "failed", signal: "failed" },
+    );
     throw error;
   }
 }
