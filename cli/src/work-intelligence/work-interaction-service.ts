@@ -8,6 +8,8 @@ import { recordLlmResolution } from '../overlay-metrics.js';
 import type { ActionProposal, CurrentWork, Diagnosis, Intervention } from './types.js';
 import { readPresentModel } from '../work/work-hypothesis/index.js';
 import type { WorkHypothesis } from '../work/work-hypothesis/types.js';
+import { readCanonicalPresent } from '../work/runtime-present.js';
+import { createRuntimePool } from '../runtime/database.js';
 import { assembleGroundPack, buildForegroundSummary } from './ground-pack.js';
 import {
   loadDomainStandard,
@@ -40,6 +42,18 @@ export interface WorkInteractionOutput {
   intervention: Intervention;
   timing: { total_ms: number };
   isDeterministic: boolean;
+}
+
+async function resolvePresentModel(explicit: WorkHypothesis | null | undefined): Promise<WorkHypothesis | null> {
+  if (explicit !== undefined) return explicit;
+  const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 400, statementTimeoutMs: 800 });
+  try {
+    return await readCanonicalPresent(pool) ?? readPresentModel();
+  } catch {
+    return readPresentModel();
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
 }
 
 export async function runWorkIntelligence(params: WorkInteractionParams): Promise<WorkInteractionOutput> {
@@ -103,7 +117,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     }
   }
 
-  const presentModel = params.presentModel === undefined ? readPresentModel() : params.presentModel;
+  const presentModel = await resolvePresentModel(params.presentModel);
   const closeout = readLatestCloseoutForProject(currentWork.project.value);
   const wikiProjectSection = loadWikiProjectSection(currentWork.project.value);
   const projectParsed = readSafeWikiPage(`projects/${slugifyName(currentWork.project.value)}.md`);
