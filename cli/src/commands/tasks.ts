@@ -2,7 +2,7 @@ import { listOpenTasks, addTask, updateTaskStatus, deleteTask, listTasks } from 
 import { extractTasksFromAllProjects } from "../work/task-extractor.js";
 import { listRepositories, getRepository } from "../work/repository-registry.js";
 import { answerQuestion } from "../work/recall-router.js";
-import { answerFromCanonicalPresent } from "../work/runtime-recall.js";
+import { canonicalStatusAnswer } from "../work/canonical-status.js";
 import { readCanonicalPresent } from "../work/runtime-present.js";
 import { createRuntimePool } from "../runtime/database.js";
 
@@ -116,7 +116,7 @@ export async function runWorkStatus(query?: string): Promise<void> {
   const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 400, statementTimeoutMs: 800 });
   try {
     const present = await readCanonicalPresent(pool).catch(() => null);
-    const runtimeAnswer = answerFromCanonicalPresent(question, present);
+    const runtimeAnswer = canonicalStatusAnswer(question, present);
     if (runtimeAnswer) {
       console.log(runtimeAnswer);
       return;
