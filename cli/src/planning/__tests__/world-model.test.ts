@@ -218,9 +218,9 @@ describe("tail event preservation", () => {
 
 describe("planning benchmark", () => {
   it("contains representative scenarios and currently passes", async () => {
-    expect(PLANNING_BENCHMARK).toHaveLength(21);
+    expect(PLANNING_BENCHMARK).toHaveLength(22);
     const result = await runPlanningBenchmark();
     expect(result.failures).toEqual([]);
-    expect(result.passed).toBe(21);
+    expect(result.passed).toBe(22);
   });
 });
