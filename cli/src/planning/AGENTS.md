@@ -25,6 +25,10 @@ This directory is Flyd's deterministic world-model foundation.
 - Learn repository effects by stable repository identity/root, not array position. A cross-repo rule must only materialize when that same repository is present in the current snapshot.
 - Never memorise blocker text as a generic law. It is acceptable to learn stable structure such as repeated blocker-clearing, but not to predict the contents of a future blocker from unrelated runs.
 - Supervised execution/verification outcome is not world state. Keep execution forecasts separate from `expectedEffects`; use them to inform reachability/risk/confidence, never to fabricate snapshot changes or execution authority.
+- INVOKED multi-repo context must reuse the canonical SQLite work index. Do not add another repository scanner. The foreground repo may be live PRESENT; secondary repo state must come from a bounded, fresh cached observation.
+- Never present a stale cached dirty/branch state as current. Secondary repository observations older than the planning freshness window are omitted rather than guessed.
+- Blockers must come from authoritative runtime/work evidence. Prefer explicit blocked worker reasons; if only blocked task status is known, state that the task is blocked without inventing the cause.
+- If work-index context is unavailable, keep the foreground live snapshot usable rather than failing the action.
 - If empirical history is unavailable, prediction must fall back to the deterministic baseline rather than blocking execution.
 - Every new planning heuristic should add or update a scenario in `benchmark.ts` or a planning-gated regression test.
 - When a real outcome becomes observable, reconcile it with the prediction and retain the trajectory rather than silently overwriting the prediction.
@@ -32,7 +36,11 @@ This directory is Flyd's deterministic world-model foundation.
 ## Architecture
 
 ```text
-PRESENT / work hypothesis
+PRESENT foreground + canonical work index
+  -> INVOKED context projection
+       -> live foreground repo
+       -> fresh cached active secondary repos
+       -> grounded blocker observations
   -> snapshotFromPresent (explicit boundary)
   -> GoalSpec + PlanningGap[]
   -> FutureModel
@@ -58,7 +66,7 @@ PRESENT / work hypothesis
 Run from `cli/`:
 
 ```bash
-npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/empirical-future-model.test.ts
+npm test -- src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/decision-policy.test.ts src/planning/__tests__/execution-guard.test.ts src/planning/__tests__/harness-trajectory.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/empirical-future-model.test.ts
 npm run lint
 npm run build
 node dist/entry.js eval planning

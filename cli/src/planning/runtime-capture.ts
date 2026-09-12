@@ -1,6 +1,8 @@
 import { buildPresentModel, type PresentModel } from "../lib/present-model.js";
+import { listRepositories, type ManagedRepository } from "../work/repository-registry.js";
 import { readPresentModel, type WorkHypothesis } from "../work/work-hypothesis/index.js";
 import type { WorldStateSnapshot } from "../intelligence/world/types.js";
+import { projectInvocationContext } from "./invocation-context.js";
 import { snapshotFromPresent } from "./snapshot.js";
 import { PlanningStore } from "./store.js";
 
@@ -13,6 +15,8 @@ export interface RuntimeSnapshotCaptureInput {
 export interface RuntimeSnapshotCaptureDependencies {
   buildPresent: (projectRoot?: string | null) => Promise<PresentModel>;
   readWork: () => WorkHypothesis | null;
+  /** Canonical cached work-index observations; this path must not scan disk. */
+  readRepositories?: () => ManagedRepository[];
   persist: (snapshot: WorldStateSnapshot, correlationId: string) => void;
   now: () => Date;
 }
@@ -25,6 +29,7 @@ const defaultDependencies: RuntimeSnapshotCaptureDependencies = {
     projectRoot || undefined,
   ),
   readWork: () => readPresentModel(),
+  readRepositories: () => listRepositories(),
   persist: (snapshot, correlationId) => {
     const store = new PlanningStore();
     try {
@@ -51,11 +56,24 @@ export async function captureRuntimeSnapshot(
   try {
     const present = await deps.buildPresent(input.projectRoot);
     const work = deps.readWork();
+    let repositories: ManagedRepository[] = [];
+    try {
+      repositories = deps.readRepositories?.() ?? [];
+    } catch (error) {
+      console.warn(
+        "[planning] work-index repository projection unavailable:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    const now = deps.now();
+    const context = projectInvocationContext({ present, work, repositories, now });
     const snapshot = snapshotFromPresent({
       present,
       work,
+      repoStates: context.repoStates,
+      blockerFact: context.blockers,
       ...(input.projectId ? { projectId: input.projectId } : {}),
-      now: deps.now(),
+      now,
     });
     deps.persist(snapshot, input.correlationId);
     return snapshot;
