@@ -45,6 +45,22 @@ export function actionFamily(action: CandidateAction): string {
   return "execution:other";
 }
 
+export function actionTargetRepoRoot(action: CandidateAction): string | undefined {
+  const root = action.metadata?.targetRepoRoot;
+  return typeof root === "string" && root.trim() ? root : undefined;
+}
+
+function chosenAction(example: PlanningLearningExample): CandidateAction | undefined {
+  return example.trace.candidates.find((candidate) => candidate.action.id === example.trace.chosenActionId)?.action;
+}
+
+function matchesActionContext(example: PlanningLearningExample, family: string, targetRepoRoot?: string): boolean {
+  const chosen = chosenAction(example);
+  if (!chosen || actionFamily(chosen) !== family) return false;
+  if (!targetRepoRoot) return true;
+  return actionTargetRepoRoot(chosen) === targetRepoRoot;
+}
+
 function repoDirtyEffects(change: StateChange): SemanticEffect[] {
   if (change.path !== "repoStates.value" || !Array.isArray(change.before) || !Array.isArray(change.after)) return [];
   const before = change.before as Array<{ root?: string; dirty?: boolean }>;
@@ -64,8 +80,6 @@ function activeTaskEffects(change: StateChange): SemanticEffect[] {
   if (change.path !== "activeTasks.value" || !Array.isArray(change.before) || !Array.isArray(change.after)) return [];
   const before = change.before as Array<{ id?: string; description?: string; status?: string }>;
   const after = change.after as Array<{ id?: string; description?: string; status?: string }>;
-  // Live PRESENT currently exposes one active task. Keep the learned rule generic
-  // across task ids, but do not guess when multiple tasks are present.
   if (before.length !== 1 || after.length !== 1) return [];
   const sameTask = before[0]?.id && after[0]?.id
     ? before[0].id === after[0].id
@@ -76,8 +90,6 @@ function activeTaskEffects(change: StateChange): SemanticEffect[] {
 
 function blockerEffects(change: StateChange): SemanticEffect[] {
   if (change.path !== "blockers.value" || !Array.isArray(change.before) || !Array.isArray(change.after)) return [];
-  // We can safely generalise "blockers cleared" without memorising blocker text.
-  // We deliberately do not predict newly-created blocker contents.
   if (change.before.length > 0 && change.after.length === 0) return [{ kind: "blockers_cleared" }];
   return [];
 }
@@ -85,9 +97,6 @@ function blockerEffects(change: StateChange): SemanticEffect[] {
 function exactEffect(effect: PredictedEffect): SemanticEffect[] {
   const repo = effect.path.match(/^repoStates\.value\.(\d+)\.dirty$/);
   if (repo && typeof effect.after === "boolean" && repo[1] === "0") {
-    // Exact persisted effects do not carry the repository root. Retain backward
-    // compatibility for the primary repo; richer cross-repo learning comes from
-    // observed whole-array diffs where roots are available.
     return [{ kind: "repo_dirty", root: "__primary__", value: effect.after }];
   }
   const task = effect.path.match(/^activeTasks\.value\.0\.status$/);
@@ -98,13 +107,14 @@ function exactEffect(effect: PredictedEffect): SemanticEffect[] {
   return [];
 }
 
-export function observedSemanticEffects(example: PlanningLearningExample): SemanticEffect[] {
+export function observedSemanticEffects(example: PlanningLearningExample, targetRepoRoot?: string): SemanticEffect[] {
   const effects: SemanticEffect[] = [];
   for (const change of example.outcome.missedEffects) {
     effects.push(...repoDirtyEffects(change), ...activeTaskEffects(change), ...blockerEffects(change));
   }
   for (const effect of example.outcome.correctEffects) effects.push(...exactEffect(effect));
-  return effects;
+  if (!targetRepoRoot) return effects;
+  return effects.filter((effect) => effect.kind !== "repo_dirty" || effect.root === targetRepoRoot);
 }
 
 function effectKey(effect: SemanticEffect): string {
@@ -208,15 +218,13 @@ export class EmpiricalFutureModel implements FutureModel {
       return baseline;
     }
     const family = actionFamily(input.candidateAction);
-    const matching = examples.filter((example) => {
-      const chosen = example.trace.candidates.find((candidate) => candidate.action.id === example.trace.chosenActionId);
-      return chosen ? actionFamily(chosen.action) === family : false;
-    });
+    const targetRepoRoot = actionTargetRepoRoot(input.candidateAction);
+    const matching = examples.filter((example) => matchesActionContext(example, family, targetRepoRoot));
     if (matching.length < this.minExamples) return baseline;
 
     const counts = new Map<string, { effect: SemanticEffect; count: number }>();
     for (const example of matching) {
-      const unique = new Map(observedSemanticEffects(example).map((effect) => [effectKey(effect), effect]));
+      const unique = new Map(observedSemanticEffects(example, targetRepoRoot).map((effect) => [effectKey(effect), effect]));
       for (const [key, effect] of unique) {
         const current = counts.get(key) ?? { effect, count: 0 };
         current.count += 1;
@@ -244,7 +252,11 @@ export class EmpiricalFutureModel implements FutureModel {
       total: matching.length,
       examples: matching,
     });
-    const assumptions = [`Action family ${family} is comparable to ${matching.length} prior local runs`];
+    const assumptions = [
+      targetRepoRoot
+        ? `Action family ${family} in repository ${targetRepoRoot} is comparable to ${matching.length} prior local runs`
+        : `Action family ${family} is comparable to ${matching.length} prior local runs`,
+    ];
     if (forecast) assumptions.push(forecast.rationale);
     const risks = promoted.length > 0
       ? ["Empirical state effect is learned from local history and is not deterministic"]

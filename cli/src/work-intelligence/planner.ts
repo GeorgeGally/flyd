@@ -66,8 +66,9 @@ function isInformationGathering(proposal: ActionProposal): boolean {
   return false;
 }
 
-function candidateAction(proposal: ActionProposal, blockedGapId?: string): CandidateAction {
+function candidateAction(proposal: ActionProposal, blockedGapId?: string, targetRepoRoot?: string | null): CandidateAction {
   const informationGathering = isInformationGathering(proposal);
+  const ownedRepoRoot = proposal.targetFingerprint.repositoryRoot ?? targetRepoRoot ?? undefined;
   return {
     id: proposal.actionId,
     description: proposal.description,
@@ -75,6 +76,7 @@ function candidateAction(proposal: ActionProposal, blockedGapId?: string): Candi
     metadata: {
       proposalKind: proposal.kind,
       finishCondition: proposal.finishCondition,
+      ...(ownedRepoRoot ? { targetRepoRoot: ownedRepoRoot } : {}),
       ...(informationGathering && blockedGapId ? { resolvesGapIds: [blockedGapId] } : {}),
     },
   };
@@ -142,8 +144,6 @@ function applyForecast(scores: ActionScores, evaluation: Awaited<ReturnType<Futu
 }
 
 function lookaheadScores(scores: ActionScores, depth: number): ActionScores {
-  // Earlier steps matter more because only step 1 can ever reach approval from
-  // this invocation. Later steps are advisory and must be replanned after new evidence.
   const discount = Math.max(0.6, 1 - depth * 0.2);
   return {
     ...scores,
@@ -191,8 +191,6 @@ async function boundedLookahead(input: {
       return lookaheadScores(applyForecast(baseScores(proposal, input.currentWork), prediction), depth);
     },
   });
-  // DecisionPolicy owns the immediate safety boundary. Lookahead can rank what
-  // follows, but it cannot replace the policy-selected first step.
   return plans.find((plan) => plan.steps[0]?.action.id === input.selectedActionId) ?? null;
 }
 
@@ -225,7 +223,7 @@ export async function selectWorkIntelligenceAction(input: {
   const boundedCandidates = input.candidates.slice(0, 3);
   const gap = blockingGap(input.currentWork);
   const evaluator = new ActionEvaluator();
-  const actions = boundedCandidates.map((proposal) => candidateAction(proposal, gap?.id));
+  const actions = boundedCandidates.map((proposal) => candidateAction(proposal, gap?.id, input.projectRoot));
   const evaluations = await Promise.all(actions.map(async (action) => {
     const proposal = boundedCandidates.find((candidate) => candidate.actionId === action.id)!;
     const prediction = await deps.futureModel.predict({ currentState: state!, candidateAction: action });
