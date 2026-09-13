@@ -22,6 +22,7 @@ import {
 } from './ground-pack-wiki.js';
 import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 import { recordJournalEntry } from './outcome-journal.js';
+import { selectWorkIntelligenceAction } from './planner.js';
 
 // server.ts imports this service during Core boot. Start deterministic operational
 // supervision with the Core module lifecycle, while keeping test imports inert.
@@ -166,6 +167,24 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
 
   const result = parseWorkIntelligenceResponse(responseText);
   recordLlmResolution();
+
+  // The model proposes a bounded candidate set; canonical planning state chooses
+  // which single action is allowed to reach the existing approval/execution UI.
+  // Selection is advisory only and never grants execution authority.
+  try {
+    const selection = await selectWorkIntelligenceAction({
+      intent: params.intent,
+      interactionId,
+      currentWork,
+      candidates: result.candidateActions,
+      projectRoot: repoInfo.root,
+    });
+    result.intervention.proposedAction = selection.proposal;
+  } catch {
+    // Planning is best-effort. Preserve the first bounded proposal rather than
+    // making Work Intelligence unavailable if planner telemetry/state fails.
+    result.intervention.proposedAction = result.candidateActions[0];
+  }
 
   workSessionStore.updateCurrentWork(workSessionId, currentWork);
 

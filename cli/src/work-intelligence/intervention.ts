@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CurrentWork, Diagnosis, Intervention, ActionProposal, ShellCommand, FileOperation } from './types.js';
+import type { CurrentWork, Diagnosis, Intervention, ActionProposal, FileOperation } from './types.js';
 import type { DomainStandard } from './domain-standards.js';
 import type { GroundPack } from './ground-pack.js';
 import { formatGroundPackForPrompt } from './ground-pack.js';
@@ -74,7 +74,10 @@ GROUND RULES:
 - Foreground evidence grounds work-related intents. It wins over conflicting memory about the current project, never over the user's actual request.
 - Lead with the ONE most important issue, not a list.
 - Explain WHY it matters — the causal link between the issue and the outcome.
-- Propose ONE stronger alternative or next move.
+- Propose ONE stronger alternative or next move in the intervention copy.
+- When an executable action would help, provide 1-3 DISTINCT bounded candidate actions in proposed_actions. They are candidates, not a ranking; Flyd will evaluate them against live world state.
+- If the current work is blocked or materially uncertain, include a read/grep/inspect/verify candidate that could resolve the uncertainty before any mutating candidate.
+- Candidate actions must stay within the user's stated intent. Do not invent unrelated work just to create alternatives.
 - Distinguish fact from inference. Name uncertainty where it exists.
 - If a field is unknown and material, ask ONE clarifying question. Otherwise proceed with what you have.
 - Do not praise, narrate process, repeat the request, or pad.
@@ -103,18 +106,20 @@ Respond with ONLY a JSON object in this format:
     "options": [
       {"label": "<short action label>", "description": "<what happens if chosen>", "consequence": "<expected result or null>"}
     ],
-    "proposed_action": {
-      "kind": "<text_edit|repository_action|shell_execute|file_read|file_grep|file_write|task_plan>",
-      "description": "<what the action will do>",
-      "finish_condition": "<specific, independently verifiable condition that proves the action succeeded>",
-      "shell_commands": [
-        {"command": "<exact command to run>", "working_directory": "<absolute path>", "explanation": "<one-line description for approval UI>", "is_destructive": <true|false>}
-      ],
-      "file_operations": [
-        {"kind": "<read|grep|write>", "path": "<file path relative to project>", "pattern": "<grep pattern if kind=grep>", "content": "<content to write if kind=write>", "explanation": "<why this operation>"}
-      ],
-      "task_intent": "<if kind=task_plan, the intent to plan a multi-step task for>"
-    }
+    "proposed_actions": [
+      {
+        "kind": "<text_edit|repository_action|shell_execute|file_read|file_grep|file_write|task_plan>",
+        "description": "<what this candidate action will do>",
+        "finish_condition": "<specific, independently verifiable condition that proves the action succeeded>",
+        "shell_commands": [
+          {"command": "<exact command to run>", "working_directory": "<absolute path>", "explanation": "<one-line description for approval UI>", "is_destructive": <true|false>}
+        ],
+        "file_operations": [
+          {"kind": "<read|grep|write>", "path": "<file path relative to project>", "pattern": "<grep pattern if kind=grep>", "content": "<content to write if kind=write>", "explanation": "<why this operation>"}
+        ],
+        "task_intent": "<if kind=task_plan, the intent to plan a multi-step task for>"
+      }
+    ]
   }
 }`;
 }
@@ -123,6 +128,8 @@ export interface WorkIntelligenceResult {
   groundingNotes: string;
   diagnosis: Diagnosis;
   intervention: Intervention;
+  /** Bounded alternatives for the planning layer. The UI still receives one selected proposedAction. */
+  candidateActions: ActionProposal[];
 }
 
 export function parseWorkIntelligenceResponse(raw: string): WorkIntelligenceResult {
@@ -143,6 +150,14 @@ export function parseWorkIntelligenceResponse(raw: string): WorkIntelligenceResu
   const d = (parsed.diagnosis as Record<string, unknown>) || {};
   const pi = (d.primary_issue as Record<string, unknown>) || {};
   const iv = (parsed.intervention as Record<string, unknown>) || {};
+  const rawCandidates = Array.isArray(iv.proposed_actions)
+    ? iv.proposed_actions.slice(0, 3)
+    : iv.proposed_action && typeof iv.proposed_action === 'object'
+      ? [iv.proposed_action]
+      : [];
+  const candidateActions = rawCandidates
+    .map((candidate) => parseProposedAction(candidate as Record<string, unknown>))
+    .filter((candidate): candidate is ActionProposal => Boolean(candidate));
 
   const result: WorkIntelligenceResult = {
     groundingNotes: g,
@@ -168,8 +183,9 @@ export function parseWorkIntelligenceResponse(raw: string): WorkIntelligenceResu
             consequence: o.consequence || undefined,
           }))
         : undefined,
-      proposedAction: parseProposedAction(iv.proposed_action as Record<string, unknown> | undefined),
+      proposedAction: candidateActions[0],
     },
+    candidateActions,
   };
 
   return result;
@@ -192,6 +208,7 @@ function fallbackResult(reason: string): WorkIntelligenceResult {
       kind: 'insight',
       content: `I couldn't produce a structured response. ${reason}. Please try again with a more specific question or different context.`,
     },
+    candidateActions: [],
   };
 }
 
