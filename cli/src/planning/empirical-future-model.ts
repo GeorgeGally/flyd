@@ -173,10 +173,25 @@ function applyEffect(state: WorldStateSnapshot, effect: PredictedEffect): void {
 }
 
 function executionForecast(examples: PlanningLearningExample[], minExamples: number, consistency: number): ExecutionForecast | undefined {
-  const observed = examples.filter((example) => typeof example.outcome.executionStatus === "string");
+  const observed = examples.filter((example) =>
+    typeof example.outcome.executionSignal === "string" || typeof example.outcome.executionStatus === "string"
+  );
   if (observed.length < minExamples) return undefined;
-  const successes = observed.filter((example) => example.outcome.executionStatus === "completed").length;
-  const successRate = successes / observed.length;
+
+  const verified = observed.filter((example) =>
+    example.outcome.executionSignal === "verified"
+      || (!example.outcome.executionSignal && example.outcome.executionStatus === "completed")
+  ).length;
+  const partial = observed.filter((example) =>
+    example.outcome.executionSignal === "partial"
+      || (!example.outcome.executionSignal && ["running", "ready", "awaiting_grant"].includes(example.outcome.executionStatus ?? ""))
+  ).length;
+  const failed = observed.filter((example) =>
+    ["failed", "cancelled"].includes(example.outcome.executionSignal ?? "")
+      || (!example.outcome.executionSignal && ["failed", "blocked", "interrupted", "cancelled"].includes(example.outcome.executionStatus ?? ""))
+  ).length;
+
+  const successRate = verified / observed.length;
   const disposition: ExecutionForecast["disposition"] = successRate >= consistency
     ? "likely_success"
     : successRate <= 1 - consistency
@@ -186,7 +201,7 @@ function executionForecast(examples: PlanningLearningExample[], minExamples: num
     disposition,
     successRate,
     samples: observed.length,
-    rationale: `${successes}/${observed.length} matching supervised runs completed successfully`,
+    rationale: `${verified}/${observed.length} matching supervised runs verified; ${partial} partial; ${failed} failed/cancelled`,
   };
 }
 
@@ -263,7 +278,7 @@ export class EmpiricalFutureModel implements FutureModel {
       : ["State effects are not modeled yet"];
     if (confidence.level === "low") risks.push("Prior predictions for this action family are poorly calibrated");
     if (forecast?.disposition === "mixed") risks.push("Comparable supervised runs have mixed verification outcomes");
-    if (forecast?.disposition === "likely_failure") risks.push("Comparable supervised runs usually fail to complete successfully");
+    if (forecast?.disposition === "likely_failure") risks.push("Comparable supervised runs rarely verify successfully");
 
     return {
       ...baseline,
