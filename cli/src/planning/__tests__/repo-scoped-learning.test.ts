@@ -96,6 +96,28 @@ describe("repository-scoped empirical planning", () => {
     expect(prediction.outcomeForecast).toBeUndefined();
   });
 
+  it("prefers verification signals over nominal completion status", async () => {
+    const action = scopedAction("/flyd");
+    const examples = await Promise.all([1, 2, 3, 4].map((index) => example(index, action, state(false, false), state(false, false))));
+    const signals = ["verified", "verified", "partial", "failed"];
+    examples.forEach((item, index) => {
+      item.outcome.executionStatus = "completed";
+      item.outcome.executionSignal = signals[index];
+    });
+
+    const prediction = await new EmpiricalFutureModel({ examples: () => examples }, { minConsistency: .75 }).predict({
+      currentState: state(false, false),
+      candidateAction: action,
+    });
+
+    expect(prediction.outcomeForecast).toMatchObject({
+      disposition: "mixed",
+      successRate: .5,
+      samples: 4,
+    });
+    expect(prediction.outcomeForecast?.rationale).toContain("2/4 matching supervised runs verified; 1 partial; 1 failed/cancelled");
+  });
+
   it("stamps normal Work Intelligence candidates with the foreground repository", async () => {
     const seen: CandidateAction[] = [];
     const futureModel: FutureModel = {
