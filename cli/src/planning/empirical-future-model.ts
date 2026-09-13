@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { PlanningConfidence, WorldStateSnapshot } from "../intelligence/world/types.js";
+import type { WorldStateSnapshot } from "../intelligence/world/types.js";
+import { calibratedEmpiricalConfidence } from "./calibration.js";
 import type { PlanningLearningExample } from "./store.js";
 import {
   DeterministicFutureModel,
@@ -161,11 +162,6 @@ function applyEffect(state: WorldStateSnapshot, effect: PredictedEffect): void {
   }
 }
 
-function empiricalConfidence(support: number, total: number): PlanningConfidence {
-  const ratio = total ? support / total : 0;
-  return support >= 5 && ratio >= 0.9 ? "high" : "medium";
-}
-
 function executionForecast(examples: PlanningLearningExample[], minExamples: number, consistency: number): ExecutionForecast | undefined {
   const observed = examples.filter((example) => typeof example.outcome.executionStatus === "string");
   if (observed.length < minExamples) return undefined;
@@ -243,12 +239,17 @@ export class EmpiricalFutureModel implements FutureModel {
     const weakestSupport = promoted.length > 0
       ? Math.min(...promoted.map(({ count }) => count))
       : Math.round((forecast?.successRate ?? 0.5) * (forecast?.samples ?? matching.length));
-    const confidence = empiricalConfidence(Math.max(weakestSupport, this.minExamples), matching.length);
+    const confidence = calibratedEmpiricalConfidence({
+      support: Math.max(weakestSupport, this.minExamples),
+      total: matching.length,
+      examples: matching,
+    });
     const assumptions = [`Action family ${family} is comparable to ${matching.length} prior local runs`];
     if (forecast) assumptions.push(forecast.rationale);
     const risks = promoted.length > 0
       ? ["Empirical state effect is learned from local history and is not deterministic"]
       : ["State effects are not modeled yet"];
+    if (confidence.level === "low") risks.push("Prior predictions for this action family are poorly calibrated");
     if (forecast?.disposition === "mixed") risks.push("Comparable supervised runs have mixed verification outcomes");
     if (forecast?.disposition === "likely_failure") risks.push("Comparable supervised runs usually fail to complete successfully");
 
@@ -259,12 +260,8 @@ export class EmpiricalFutureModel implements FutureModel {
       expectedEffects: promoted.map(({ effect }) => effect),
       assumptions,
       confidence: {
-        level: confidence,
-        reasons: [
-          promoted.length > 0
-            ? `${weakestSupport}/${matching.length} prior matching runs support the weakest promoted state effect`
-            : forecast?.rationale ?? "empirical history is available",
-        ],
+        level: confidence.level,
+        reasons: confidence.reasons,
       },
       risks,
       ...(forecast ? { outcomeForecast: forecast } : {}),
