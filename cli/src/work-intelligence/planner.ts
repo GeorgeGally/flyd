@@ -3,10 +3,12 @@ import { DecisionPolicy, type PlanningGap } from "../planning/decision-policy.js
 import { EmpiricalFutureModel } from "../planning/empirical-future-model.js";
 import {
   ActionEvaluator,
+  MultiStepPlanner,
   buildPlanningTrace,
   type ActionEvaluation,
   type ActionScores,
   type CandidateAction,
+  type CandidatePlan,
   type FutureModel,
 } from "../planning/future-model.js";
 import { captureRuntimeSnapshot } from "../planning/runtime-capture.js";
@@ -18,6 +20,8 @@ export interface WorkActionSelection {
   evaluations: ActionEvaluation[];
   mode: "act" | "investigate" | "ask_user" | "defer" | "fallback";
   reasons: string[];
+  /** Advisory lookahead only. Every future step must be replanned after observed reality changes. */
+  plannedActionIds?: string[];
 }
 
 export interface WorkActionPlannerDependencies {
@@ -137,6 +141,20 @@ function applyForecast(scores: ActionScores, evaluation: Awaited<ReturnType<Futu
   };
 }
 
+function lookaheadScores(scores: ActionScores, depth: number): ActionScores {
+  // Earlier steps matter more because only step 1 can ever reach approval from
+  // this invocation. Later steps are advisory and must be replanned after new evidence.
+  const discount = Math.max(0.6, 1 - depth * 0.2);
+  return {
+    ...scores,
+    progress: scores.progress * discount,
+    leverage: scores.leverage * discount,
+    urgency: scores.urgency * discount,
+    userEffort: Math.min(1, scores.userEffort * (1 + depth * 0.1)),
+    risk: Math.min(1, scores.risk * (1 + depth * 0.08)),
+  };
+}
+
 function blockingGap(currentWork: CurrentWork): PlanningGap | undefined {
   const blockedLoop = currentWork.openLoops.find((loop) => loop.status === "blocked");
   if (currentWork.nextAction.value.readiness !== "blocked" && !blockedLoop) return undefined;
@@ -148,6 +166,34 @@ function blockingGap(currentWork: CurrentWork): PlanningGap | undefined {
     blocking: true,
     evidenceNeeded: "Evidence that identifies or clears the current work blocker before mutation",
   };
+}
+
+async function boundedLookahead(input: {
+  state: WorldStateSnapshot;
+  candidates: ActionProposal[];
+  actions: CandidateAction[];
+  currentWork: CurrentWork;
+  selectedActionId?: string;
+  futureModel: FutureModel;
+}): Promise<CandidatePlan | null> {
+  if (!input.selectedActionId || input.actions.length < 2) return null;
+  const byId = new Map(input.candidates.map((proposal) => [proposal.actionId, proposal]));
+  const plans = await new MultiStepPlanner(input.futureModel).plan({
+    state: input.state,
+    actions: input.actions,
+    maxDepth: Math.min(3, input.actions.length),
+    maxCandidates: 8,
+    score: (action, prediction, depth) => {
+      const proposal = byId.get(action.id);
+      if (!proposal) {
+        return { progress: 0, reachability: 0, leverage: 0, urgency: 0, userEffort: 1, risk: 1, reversibility: 0, confidence: 0 };
+      }
+      return lookaheadScores(applyForecast(baseScores(proposal, input.currentWork), prediction), depth);
+    },
+  });
+  // DecisionPolicy owns the immediate safety boundary. Lookahead can rank what
+  // follows, but it cannot replace the policy-selected first step.
+  return plans.find((plan) => plan.steps[0]?.action.id === input.selectedActionId) ?? null;
 }
 
 export async function selectWorkIntelligenceAction(input: {
@@ -176,10 +222,12 @@ export async function selectWorkIntelligenceAction(input: {
     };
   }
 
+  const boundedCandidates = input.candidates.slice(0, 3);
   const gap = blockingGap(input.currentWork);
   const evaluator = new ActionEvaluator();
-  const evaluations = await Promise.all(input.candidates.slice(0, 3).map(async (proposal) => {
-    const action = candidateAction(proposal, gap?.id);
+  const actions = boundedCandidates.map((proposal) => candidateAction(proposal, gap?.id));
+  const evaluations = await Promise.all(actions.map(async (action) => {
+    const proposal = boundedCandidates.find((candidate) => candidate.actionId === action.id)!;
     const prediction = await deps.futureModel.predict({ currentState: state!, candidateAction: action });
     return evaluator.evaluate(action, prediction, applyForecast(baseScores(proposal, input.currentWork), prediction));
   }));
@@ -196,8 +244,34 @@ export async function selectWorkIntelligenceAction(input: {
     gaps: gap ? [gap] : [],
   });
   const selected = recommendation.actionId
-    ? input.candidates.find((proposal) => proposal.actionId === recommendation.actionId)
+    ? boundedCandidates.find((proposal) => proposal.actionId === recommendation.actionId)
     : undefined;
+
+  let plannedActionIds: string[] | undefined;
+  try {
+    const plan = await boundedLookahead({
+      state,
+      candidates: boundedCandidates,
+      actions,
+      currentWork: input.currentWork,
+      selectedActionId: recommendation.actionId,
+      futureModel: deps.futureModel,
+    });
+    if (plan && plan.steps.length > 1) {
+      plannedActionIds = plan.steps.map((step) => step.action.id);
+      const selectedEvaluation = evaluations.find((item) => item.action.id === recommendation.actionId);
+      if (selectedEvaluation) {
+        selectedEvaluation.action.metadata = {
+          ...selectedEvaluation.action.metadata,
+          lookaheadActionIds: plannedActionIds,
+          lookaheadHorizon: plannedActionIds.length,
+          lookaheadAdvisory: true,
+        };
+      }
+    }
+  } catch {
+    // Lookahead is optional planning intelligence; immediate policy still stands.
+  }
 
   const trace = buildPlanningTrace({
     snapshotId: state.id,
@@ -220,6 +294,10 @@ export async function selectWorkIntelligenceAction(input: {
     proposal: selected,
     evaluations,
     mode: recommendation.mode,
-    reasons: recommendation.reasons,
+    reasons: [
+      ...recommendation.reasons,
+      ...(plannedActionIds ? [`bounded lookahead: ${plannedActionIds.join(" -> ")}; only step 1 is eligible for approval`] : []),
+    ],
+    ...(plannedActionIds ? { plannedActionIds } : {}),
   };
 }
