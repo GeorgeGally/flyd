@@ -63,19 +63,80 @@ describe("reconcileWorker", () => {
   it("preserves recoverable work when the process died but worktree survived", () => {
     expect(reconcileWorker(worker(), { ...reality, processAlive: false, processIdentityMatches: false })).toMatchObject({
       state: "interrupted",
-      action: "mark_interrupted",
+      action: "resume",
       consequential: true,
     });
   });
 
-  it("treats completion as unverified until the verifier settles it", () => {
+  it("treats completion as verifying until the verifier settles it", () => {
     expect(reconcileWorker(worker({ status: "completed" }), {
       ...reality,
       completionReported: true,
       verificationPending: true,
     })).toMatchObject({
-      state: "completed_unverified",
+      state: "verifying",
       action: "verify",
+    });
+  });
+
+  it("routes a failed verification to a retry decision, not to silent noop", () => {
+    expect(reconcileWorker(worker({ status: "completed" }), {
+      ...reality,
+      completionReported: true,
+      verificationPending: false,
+      verificationFailed: true,
+    })).toMatchObject({
+      state: "verifying",
+      action: "retry",
+      consequential: true,
+    });
+  });
+
+  it("moves a verified worker into integrating while output lands", () => {
+    expect(reconcileWorker(worker({ status: "completed" }), {
+      ...reality,
+      verificationPending: false,
+      integrationPending: true,
+    })).toMatchObject({
+      state: "integrating",
+      action: "noop",
+      consequential: false,
+    });
+  });
+
+  it("marks a worker landed once verified output is in the source repository", () => {
+    expect(reconcileWorker(worker({ status: "completed" }), {
+      ...reality,
+      verificationPending: false,
+      integrationLanded: true,
+    })).toMatchObject({
+      state: "landed",
+      action: "noop",
+      consequential: false,
+    });
+  });
+
+  it("demands replacement when a failed worker's worktree is gone", () => {
+    expect(reconcileWorker(worker({ status: "failed" }), {
+      ...reality,
+      processAlive: false,
+      worktreeExists: false,
+    })).toMatchObject({
+      state: "failed",
+      action: "replace",
+      consequential: true,
+    });
+  });
+
+  it("cleans up when a cancelled worker's worktree is gone", () => {
+    expect(reconcileWorker(worker({ status: "cancelled" }), {
+      ...reality,
+      processAlive: false,
+      worktreeExists: false,
+    })).toMatchObject({
+      state: "failed",
+      action: "cleanup",
+      consequential: true,
     });
   });
 

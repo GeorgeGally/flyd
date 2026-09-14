@@ -169,4 +169,29 @@ describe("OperationalDecisionStore", { timeout: 15_000 }, () => {
       `decision-resolve-again:${task.taskKey}`,
     )).rejects.toThrow(/already resolved/i);
   });
+
+  it("keeps open-decision facts when the agent task row is gone (orphaned decision)", async () => {
+    const task = await createTask();
+    const decision = await decisionStore.openDecision(task.taskKey, {
+      question: "Orphaned decision still visible?",
+      idempotencyKey: `decision-open:${task.taskKey}`,
+    });
+
+    await pool.query(
+      "ALTER TABLE runtime_events DROP CONSTRAINT IF EXISTS runtime_events_agent_task_id_fkey, DROP CONSTRAINT IF EXISTS fk_rails_2a3aa7fe54",
+    );
+    try {
+      await pool.query("DELETE FROM agent_tasks WHERE id = $1", [task.id]);
+
+      const facts = await decisionStore.listOpenDecisionFacts();
+      const fact = facts.find((item) => item.decision.decisionId === decision.decisionId);
+      expect(fact).toBeDefined();
+      expect(fact!.taskKey).toBe("");
+    } finally {
+      await pool.query("DELETE FROM runtime_events WHERE agent_task_id = $1", [task.id]);
+      await pool.query(
+        "ALTER TABLE runtime_events ADD CONSTRAINT runtime_events_agent_task_id_fkey FOREIGN KEY (agent_task_id) REFERENCES agent_tasks(id)",
+      );
+    }
+  });
 });

@@ -2,8 +2,8 @@ import { existsSync, readdirSync, statSync, readFileSync } from "fs";
 import { join, resolve, basename } from "path";
 import { homedir } from "os";
 import { getDb } from "./database.js";
+import { listOpenTasks } from "./task-store.js";
 import { createHash } from "crypto";
-import { observeRepository } from "./git-observer.js";
 
 export interface ManagedRepository {
   id: string;
@@ -437,6 +437,8 @@ export function buildGlobalPresentModel(foregroundRoot?: string): GlobalPresentM
   const repos = listRepositories();
   const gaps: string[] = [];
 
+  // ponytail: pure cached read, no git execs per query. observeAllRepos()
+  // (background sweep) owns freshness; a query must not cold-scan every repo (PRD §21/§22).
   const activeProjects: ProjectSnapshot[] = repos.map((r) => {
     if (!existsSync(r.root)) {
       gaps.push(`repo_unavailable:${r.name}`);
@@ -452,35 +454,19 @@ export function buildGlobalPresentModel(foregroundRoot?: string): GlobalPresentM
         uncommittedFiles: 0,
       };
     }
-    
-    try {
-      const obs = observeRepository(r.root, r.id);
-      return {
-        repositoryId: r.id,
-        name: r.name,
-        root: r.root,
-        branch: obs.branch,
-        head: obs.head !== "unknown" ? obs.head : r.lastSeenHead,
-        dirty: obs.dirty,
-        lastActivityAt: r.lastActivityAt,
-        projectFileExists: r.projectFileExists,
-        agentsFileExists: r.agentsFileExists,
-        uncommittedFiles: obs.stagedFiles.length + obs.modifiedFiles.length + obs.untrackedFiles.length,
-      };
-    } catch {
-      gaps.push(`repo_observation_failed:${r.name}`);
-      return {
-        repositoryId: r.id,
-        name: r.name,
-        root: r.root,
-        head: r.lastSeenHead,
-        dirty: false,
-        lastActivityAt: r.lastActivityAt,
-        projectFileExists: r.projectFileExists,
-        agentsFileExists: r.agentsFileExists,
-        uncommittedFiles: 0,
-      };
-    }
+
+    return {
+      repositoryId: r.id,
+      name: r.name,
+      root: r.root,
+      branch: r.observedBranch,
+      head: r.lastSeenHead,
+      dirty: r.observedDirty ?? false,
+      lastActivityAt: r.lastActivityAt,
+      projectFileExists: r.projectFileExists,
+      agentsFileExists: r.agentsFileExists,
+      uncommittedFiles: r.observedUncommittedFiles ?? 0,
+    };
   });
 
   let foregroundProject: ProjectSnapshot | undefined;
@@ -490,11 +476,18 @@ export function buildGlobalPresentModel(foregroundRoot?: string): GlobalPresentM
 
   const recentActivity = listActivities(undefined, 20);
 
+  const openTasks = listOpenTasks().map((t) => ({
+    ...t,
+    projectId: t.projectId ?? undefined,
+    sourceRef: t.sourceRef ?? undefined,
+    completedAt: t.completedAt ?? undefined,
+  }));
+
   return {
     foregroundProject,
     activeProjects,
     recentActivity,
-    openTasks: [],
+    openTasks,
     gaps,
   };
 }

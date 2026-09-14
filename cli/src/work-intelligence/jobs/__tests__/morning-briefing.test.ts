@@ -55,6 +55,7 @@ describe('morning briefing', () => {
       generatedAt: new Date().toISOString(),
       fromCache: false,
       ...overrides,
+      epistemicClass: "inference",
     };
   }
 

@@ -79,7 +79,7 @@ export async function superviseWorker(input: SuperviseWorkerInput): Promise<Supe
     return { reconciliation, mutated: true };
   }
 
-  if (reconciliation.action === "mark_interrupted") {
+  if (reconciliation.action === "resume") {
     await input.store.transitionWorker(input.worker.workerKey, {
       status: "interrupted",
       error: reconciliation.reason,

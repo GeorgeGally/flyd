@@ -39,6 +39,7 @@ describe('jobs runner', () => {
 
   function freshPm(name = 'flyd'): WorkHypothesis {
     return {
+      epistemicClass: 'inference',
       id: 'wh-1',
       hypothesisText: `Working on ${name}`,
       primaryThreads: [{

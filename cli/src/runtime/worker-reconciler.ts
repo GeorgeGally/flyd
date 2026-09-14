@@ -6,7 +6,9 @@ export type ReconciledWorkerState =
   | "waiting_decision"
   | "possibly_stale"
   | "interrupted"
-  | "completed_unverified"
+  | "verifying"
+  | "integrating"
+  | "landed"
   | "failed"
   | "unknown";
 
@@ -15,9 +17,12 @@ export type ReconcilerAction =
   | "recheck"
   | "reattach"
   | "verify"
+  | "retry"
+  | "resume"
+  | "replace"
+  | "cleanup"
   | "ask_flyd"
-  | "ask_user"
-  | "mark_interrupted";
+  | "ask_user";
 
 export interface WorkerRealityObservation {
   observedAt: string;
@@ -28,6 +33,9 @@ export interface WorkerRealityObservation {
   recentActivityAt?: string | null;
   completionReported?: boolean;
   verificationPending?: boolean;
+  verificationFailed?: boolean;
+  integrationPending?: boolean;
+  integrationLanded?: boolean;
   externalWait?: boolean;
   openDecision?: boolean;
 }
@@ -68,8 +76,32 @@ export function reconcileWorker(
   }
 
   if (worker.status === "completed") {
+    if (reality.integrationLanded) {
+      return {
+        state: "landed",
+        action: "noop",
+        reason: "Verified worker output has landed in the source repository.",
+        consequential: false,
+      };
+    }
+    if (reality.integrationPending) {
+      return {
+        state: "integrating",
+        action: "noop",
+        reason: "Verification passed; verified output is being integrated.",
+        consequential: false,
+      };
+    }
+    if (reality.verificationFailed) {
+      return {
+        state: "verifying",
+        action: "retry",
+        reason: "Worker claims complete but independent verification failed; intelligence may decide a retry strategy.",
+        consequential: true,
+      };
+    }
     return {
-      state: "completed_unverified",
+      state: "verifying",
       action: reality.verificationPending === false ? "noop" : "verify",
       reason: "Worker completion is a claim until independent verification finishes.",
       consequential: reality.verificationPending !== false,
@@ -77,6 +109,22 @@ export function reconcileWorker(
   }
 
   if (worker.status === "failed" || worker.status === "cancelled") {
+    if (worker.status === "failed" && !reality.worktreeExists) {
+      return {
+        state: "failed",
+        action: "replace",
+        reason: "Worker failed and its worktree is gone; a replacement worker is required.",
+        consequential: true,
+      };
+    }
+    if (worker.status === "cancelled" && !reality.worktreeExists) {
+      return {
+        state: "failed",
+        action: "cleanup",
+        reason: "Worker was cancelled and its worktree is gone; cleanup is complete.",
+        consequential: true,
+      };
+    }
     return {
       state: "failed",
       action: "ask_flyd",
@@ -124,7 +172,7 @@ export function reconcileWorker(
   if (reality.processAlive === false && reality.worktreeExists) {
     return {
       state: "interrupted",
-      action: "mark_interrupted",
+      action: "resume",
       reason: "Worker process is gone, but its worktree survives and work can be recovered.",
       consequential: true,
     };

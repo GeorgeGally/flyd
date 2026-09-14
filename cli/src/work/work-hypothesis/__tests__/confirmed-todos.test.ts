@@ -131,6 +131,7 @@ describe("confirmed todos", () => {
       lastCommitAt: now,
     });
     writePresentModel({
+      epistemicClass: "inference",
       hypothesisText: "CleanX, Good Neighbours, and Robots look active",
       primaryThreads: [
         thread("CleanX", "/tmp/cleanx"),

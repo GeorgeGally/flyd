@@ -112,6 +112,47 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
   let lastActivityAt = repo.lastActivityAt;
 
   if (!repo.lastIndexedHead && obs.head && obs.head !== "unknown") {
+    const firstCommitLog = execGit(`log -1 --format="%H||%s||%aI"`, repo.root);
+    if (firstCommitLog && !firstCommitLog.startsWith("fatal:")) {
+      const [hash, subject, authorDate] = firstCommitLog.split("||");
+      if (hash && subject) {
+        const entry: CommitEntry = { hash, subject, authorDate: authorDate || obs.observedAt };
+        const firstActivityAt = entry.authorDate || obs.observedAt;
+        lastActivityAt = firstActivityAt;
+        insertActivity({
+          id: `git-${repositoryId}-${hash.slice(0, 8)}`,
+          projectId: repositoryId,
+          occurredAt: firstActivityAt,
+          type: classifyDelta([entry]),
+          summary: subject,
+          significance: "minor",
+          commitRefs: [`git:${repositoryId}:${hash.slice(0, 7)}`],
+          fileRefs: [],
+          verified: false,
+        });
+        setRepositoryObservation(repositoryId, {
+          head: obs.head,
+          fingerprint,
+          branch: obs.branch,
+          dirty: obs.dirty,
+          uncommittedFiles,
+          workActivityAt: firstActivityAt,
+        });
+        setRepositoryIndexedHead(repositoryId, obs.head);
+        return {
+          repositoryId,
+          name: repo.name,
+          root: repo.root,
+          branch: obs.branch,
+          head: obs.head,
+          dirty: obs.dirty,
+          lastActivityAt,
+          projectFileExists: repo.projectFileExists,
+          agentsFileExists: repo.agentsFileExists,
+          uncommittedFiles,
+        };
+      }
+    }
     setRepositoryObservation(repositoryId, {
       head: obs.head,
       fingerprint,

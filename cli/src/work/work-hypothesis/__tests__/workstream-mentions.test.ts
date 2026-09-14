@@ -16,6 +16,7 @@ const NOW = "2026-08-12T12:00:00.000Z";
 function belief(streams: string[]): WorkHypothesis {
   return {
     id: "wh-test",
+    epistemicClass: "inference",
     hypothesisText: `Workstreams: ${streams.join(", ")}.`,
     primaryThreads: [],
     secondaryThreads: [],
@@ -24,6 +25,7 @@ function belief(streams: string[]): WorkHypothesis {
     evidenceRefs: [],
     demotions: [],
     insights: {
+      epistemicClass: "inference",
       workstreams: streams,
       latestMoves: [],
       tensions: [],

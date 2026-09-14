@@ -161,6 +161,7 @@ export function derivePresentInsights(
   }
 
   return {
+    epistemicClass: "inference",
     workstreams,
     latestMoves,
     tensions,

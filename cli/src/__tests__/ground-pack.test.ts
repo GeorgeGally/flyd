@@ -12,6 +12,7 @@ import type { GroundPackSection } from '../work-intelligence/ground-pack.js';
 
 function makePresentModel(primaryName: string): WorkHypothesis {
   return {
+    epistemicClass: 'inference',
     id: 'h1',
     hypothesisText: `Working on ${primaryName}`,
     primaryThreads: [{ root: '/p', name: primaryName, isDirty: false, hasTasks: false, isForeground: false, signals: [], demoted: false }],

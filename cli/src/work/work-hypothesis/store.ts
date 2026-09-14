@@ -13,6 +13,7 @@ function parseJson<T>(raw: string, fallback: T): T {
 
 function mapHypothesis(row: Record<string, unknown>): WorkHypothesis {
   return {
+    epistemicClass: "inference",
     id: row.id as string,
     hypothesisText: row.hypothesis_text as string,
     primaryThreads: parseJson(row.primary_threads as string, []),
