@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { OperationalDecisionStore } from "./operational-decision-store.js";
 import { inspectRepository } from "./repository-inspector.js";
 import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
+import { authorizesRuntimeIntegration, parseDeliveryContract } from "./delivery-contract.js";
 import { integrateRepositoryGroups } from "./orchestrator.js";
 import { PostgresTaskStore } from "./task-store.js";
 import { GitWorktreeManager } from "./worktree-manager.js";
@@ -21,6 +22,7 @@ interface DetachedTask {
   taskId: string;
   taskKey: string;
   projectRoot: string;
+  contextSnapshot: Record<string, unknown> | null;
   recordedRepository: { head?: string; status_digest?: string };
   assignments: DetachedAssignment[];
   verificationCommands: string[];
@@ -42,7 +44,7 @@ function verificationPayload(result: VerifiedWorkerResult): Record<string, unkno
 }
 
 async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedTask[]> {
-  const tasks = await pool.query(`SELECT t.id, t.task_key, t.repository_snapshot, p.root_path AS project_root,
+  const tasks = await pool.query(`SELECT t.id, t.task_key, t.repository_snapshot, t.context_snapshot, p.root_path AS project_root,
       COALESCE(g.verification_commands, '[]'::jsonb) AS verification_commands
     FROM agent_tasks t
     JOIN projects p ON p.id = t.project_id
@@ -98,6 +100,7 @@ async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedT
       taskId: String(task.id),
       taskKey: task.task_key,
       projectRoot: task.project_root,
+      contextSnapshot: (task.context_snapshot as Record<string, unknown> | null) ?? {},
       recordedRepository: task.repository_snapshot ?? {},
       verificationCommands: Array.isArray(task.verification_commands) ? task.verification_commands : [],
       assignments: assignments.rows.map((row) => ({
@@ -149,6 +152,19 @@ export async function finalizeDetachedProject(
 
     if (task.verificationCommands.length === 0) {
       const reason = "Detached completion has no persisted verification commands";
+      await store.recordTaskIntegration(task.taskKey, {
+        result: { status: "blocked", reason, changedFiles: [], patchDigest: null },
+        idempotencyKey: `detached-integration-blocked:${task.taskKey}:${reason}`,
+      });
+      outcomes.push({ taskKey: task.taskKey, status: "blocked", reason });
+      continue;
+    }
+
+    const delivery = parseDeliveryContract(task.contextSnapshot?.delivery);
+    if (!authorizesRuntimeIntegration(delivery)) {
+      const reason = delivery
+        ? `Task delivery contract does not authorize runtime integration (mode=${delivery.mode}, mergeAuthority=${delivery.mergeAuthority}); refusing to integrate`
+        : "Task has no delivery contract; refusing to guess how its work ships or who may merge it";
       await store.recordTaskIntegration(task.taskKey, {
         result: { status: "blocked", reason, changedFiles: [], patchDigest: null },
         idempotencyKey: `detached-integration-blocked:${task.taskKey}:${reason}`,
