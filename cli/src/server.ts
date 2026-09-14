@@ -13,7 +13,7 @@ import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowled
 import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
-import { trackLiveTaskAndPlan, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
+import { buildTaskPlanResponse, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
 import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -354,8 +354,8 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         && wiResult.intervention.proposedAction?.fileOperations
         && wiResult.intervention.proposedAction.fileOperations.length > 0;
 
-      const isTaskPlan = wiResult.intervention.proposedAction?.kind === 'task_plan'
-        && wiResult.intervention.proposedAction?.taskIntent;
+      const taskDecision = resolveLiveTaskIntent(wiResult.intervention.proposedAction);
+      const isTaskPlan = taskDecision !== null;
 
       const isRepositoryAction = wiResult.intervention.proposedAction?.kind === 'repository_action';
 
@@ -386,8 +386,8 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         );
         const projectRoot = repoInfo.root || process.cwd();
 
-        const outcome = await trackLiveTaskAndPlan({
-          decision: resolveLiveTaskIntent(wiResult.intervention.proposedAction)!,
+        const response = await buildTaskPlanResponse({
+          decision: taskDecision,
           projectRoot: repoInfo.root,
           intakeOptions: {
             invocationId: parsed.invocation_id,
@@ -407,9 +407,10 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
           deps: { store: runtimeTaskStore() },
         });
 
-        (augmentJson.augmentations as Record<string, unknown>[]).push(...outcome.augmentations);
-        if (outcome.delegatedTask) augmentJson.delegatedTask = outcome.delegatedTask;
-        if (!outcome.planned) augmentJson.mode = 'requires_augment';
+        (augmentJson.augmentations as Record<string, unknown>[]).push(...response.augmentations);
+        if (response.delegatedTask) augmentJson.delegatedTask = response.delegatedTask;
+        if (response.taskPlan) augmentJson.taskPlan = response.taskPlan;
+        augmentJson.mode = response.mode;
       } else if (hasShellCommands) {
         (augmentJson.augmentations as Record<string, unknown>[]).push({
           kind: 'execution',

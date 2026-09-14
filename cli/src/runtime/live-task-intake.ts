@@ -61,6 +61,14 @@ export interface LiveTaskPlanResult {
   delegatedTask: LiveTaskDelegation | null;
   planned: boolean;
   trackingFailed: boolean;
+  plan: unknown | null;
+}
+
+export interface LiveTaskPlanResponse {
+  augmentations: Record<string, unknown>[];
+  delegatedTask: LiveTaskDelegation | null;
+  taskPlan: unknown | null;
+  mode: "requires_task" | "requires_augment";
 }
 
 export interface LiveTaskPlanOptions {
@@ -199,16 +207,17 @@ export async function trackLiveTaskAndPlan(options: LiveTaskPlanOptions): Promis
   }
 
   const planIntent = tracked?.task.intendedOutcome ?? options.decision.intendedOutcome;
+  let producedPlan: unknown = null;
   let planned = false;
   try {
-    const plan = await options.plan(planIntent);
-    if (plan) {
+    producedPlan = await options.plan(planIntent);
+    if (producedPlan) {
       planned = true;
       augmentations.push({
         kind: "task_plan",
         content: options.currentWork,
         placement: "cursor",
-        taskPlan: plan,
+        taskPlan: producedPlan,
       });
     } else {
       augmentations.push({
@@ -225,5 +234,15 @@ export async function trackLiveTaskAndPlan(options: LiveTaskPlanOptions): Promis
     });
   }
 
-  return { augmentations, delegatedTask, planned, trackingFailed };
+  return { augmentations, delegatedTask, planned, trackingFailed, plan: producedPlan };
+}
+
+export async function buildTaskPlanResponse(options: LiveTaskPlanOptions): Promise<LiveTaskPlanResponse> {
+  const outcome = await trackLiveTaskAndPlan(options);
+  return {
+    augmentations: outcome.augmentations,
+    delegatedTask: outcome.delegatedTask,
+    taskPlan: outcome.plan,
+    mode: !outcome.planned || outcome.trackingFailed ? "requires_augment" : "requires_task",
+  };
 }

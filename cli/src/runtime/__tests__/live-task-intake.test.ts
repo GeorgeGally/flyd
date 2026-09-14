@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { intakeLiveTask, isTaskContinuation, resolveLiveTaskIntent, trackLiveTaskAndPlan } from "../live-task-intake.js";
+import { buildTaskPlanResponse, intakeLiveTask, isTaskContinuation, resolveLiveTaskIntent, trackLiveTaskAndPlan } from "../live-task-intake.js";
 import type { AgentTask, RepositorySnapshot } from "../types.js";
 
 const repository: RepositorySnapshot = {
@@ -272,5 +272,60 @@ describe("trackLiveTaskAndPlan", () => {
     const failure = outcome.augmentations.map((a) => String(a.content)).join(" ");
     expect(failure).toContain("Task planning failed");
     expect(failure).not.toContain("model unavailable");
+  });
+});
+
+describe("buildTaskPlanResponse", () => {
+  const decision = { intendedOutcome: "Fix the Instagram pull issue", taskIntent: "ship" as const };
+  const planFor = async (intent: string) => ({ planId: "plan-1", intent });
+
+  it("puts the produced plan on the top-level taskPlan field when tracking succeeds", async () => {
+    const { deps } = fakeDeps();
+
+    const response = await buildTaskPlanResponse({
+      decision,
+      projectRoot: repository.root,
+      intakeOptions: {},
+      currentWork: "the work",
+      plan: planFor,
+      deps,
+    });
+
+    expect(response.taskPlan).toEqual({ planId: "plan-1", intent: "Fix the Instagram pull issue" });
+    expect(response.mode).toBe("requires_task");
+    expect(response.delegatedTask?.taskKey).toBe("task-key-1");
+  });
+
+  it("puts the plan on the top-level taskPlan field when tracking fails", async () => {
+    const { deps } = fakeDeps({ resumableError: new Error("connect ECONNREFUSED 127.0.0.1:5432") });
+
+    const response = await buildTaskPlanResponse({
+      decision,
+      projectRoot: repository.root,
+      intakeOptions: {},
+      currentWork: "the work",
+      plan: planFor,
+      deps,
+    });
+
+    expect(response.taskPlan).toEqual({ planId: "plan-1", intent: "Fix the Instagram pull issue" });
+    expect(response.mode).toBe("requires_augment");
+    expect(response.delegatedTask).toBeNull();
+  });
+
+  it("keeps taskPlan unset and forces augment mode when the plan cannot be produced", async () => {
+    const { deps } = fakeDeps();
+
+    const response = await buildTaskPlanResponse({
+      decision,
+      projectRoot: repository.root,
+      intakeOptions: {},
+      currentWork: "the work",
+      plan: async () => { throw new Error("model unavailable"); },
+      deps,
+    });
+
+    expect(response.taskPlan).toBeNull();
+    expect(response.mode).toBe("requires_augment");
   });
 });
