@@ -4,6 +4,7 @@ import type { RuntimeAwarePresent } from "../runtime-present-types.js";
 
 function present(): RuntimeAwarePresent {
   return {
+    epistemicClass: "inference",
     id: "wh-1",
     hypothesisText: "You're primarily working on Bloom.",
     primaryThreads: [{

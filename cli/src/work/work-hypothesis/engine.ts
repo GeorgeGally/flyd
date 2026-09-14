@@ -299,6 +299,7 @@ export async function buildPresentModelBelief(
   }
 
   const belief: WorkHypothesis = {
+    epistemicClass: "inference",
     id: prior?.id ?? `wh-${randomUUID().slice(0, 8)}`,
     hypothesisText,
     primaryThreads: primary,

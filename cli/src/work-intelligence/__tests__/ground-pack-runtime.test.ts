@@ -3,6 +3,7 @@ import { buildPresentModelSection } from "../ground-pack.js";
 import type { WorkHypothesis } from "../../work/work-hypothesis/types.js";
 
 const present: WorkHypothesis = {
+  epistemicClass: "inference",
   id: "wh-1",
   hypothesisText: "You're primarily working on Bloom.",
   primaryThreads: [{

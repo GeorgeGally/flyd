@@ -28,6 +28,7 @@ const present: PresentModel = {
 };
 
 const work: WorkHypothesis = {
+  epistemicClass: "inference",
   id: "work-1",
   hypothesisText: "Flyd is active",
   primaryThreads: [{

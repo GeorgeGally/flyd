@@ -29,6 +29,7 @@ import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { closeWorkSession } from "./work-intelligence/work-session-closeout-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
+import { stopContinuousSupervision } from "./runtime/supervision-runtime.js";
 import { runRepositoryAction, validateRepositoryActionInput, verifyModuleDependencyBoundary, type RepositoryActionResult } from "./work-intelligence/repository-action.js";
 import { terminalizeRepositoryAction, type RepositoryTerminalOutcome } from "./work-intelligence/repository-action-terminal.js";
 import { RepositoryActionJobStore } from "./work-intelligence/repository-action-job.js";
@@ -1805,7 +1806,7 @@ export function stopServer(): Promise<void> {
         const fallback = setTimeout(resolvePromise, 5000);
         stopBriefScheduler();
         stopTransitionJudge();
-        stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => {
+        stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => stopContinuousSupervision()).then(() => {
           clearTimeout(fallback);
           resolvePromise();
         }).catch((stopErr) => {

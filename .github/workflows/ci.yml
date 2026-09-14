@@ -112,9 +112,14 @@ jobs:
           src/runtime/__tests__/operational-decision.test.ts
           src/runtime/__tests__/delegation-request.test.ts
           src/runtime/__tests__/task-request-materializer.test.ts
+          src/runtime/__tests__/runtime-schema.test.ts
+          src/runtime/__tests__/detached-finalizer.integration.test.ts
       - name: Test operational decision persistence
         working-directory: cli
-        run: npx vitest run src/runtime/__tests__/operational-decision-store.integration.test.ts
+        run: >-
+          npx vitest run
+          src/runtime/__tests__/operational-decision-store.integration.test.ts
+          src/runtime/__tests__/runtime-schema.integration.test.ts
       - name: Upload Core failure log
         uses: actions/upload-artifact@v4
         if: failure()

@@ -26,6 +26,7 @@ describe("work hypothesis store", () => {
 
   it("round-trips a structured hypothesis", () => {
     const written = writePresentModel({
+      epistemicClass: "inference",
       hypothesisText: "Good Neighbours · CleanX look like tonight's active threads.",
       primaryThreads: [
         {

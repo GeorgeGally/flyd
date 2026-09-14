@@ -51,7 +51,7 @@ describe("superviseWorker", () => {
       worker: makeWorker(), store,
       observeReality: () => ({ ...healthy, processAlive: false, processIdentityMatches: false }),
     });
-    expect(result.reconciliation.action).toBe("mark_interrupted");
+    expect(result.reconciliation.action).toBe("resume");
     expect(store.transitionWorker).toHaveBeenCalledWith("worker-1", expect.objectContaining({ status: "interrupted" }));
   });
 

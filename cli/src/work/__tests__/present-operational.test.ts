@@ -4,6 +4,7 @@ import type { OperationalDecision } from "../../runtime/operational-decision.js"
 import type { WorkHypothesis } from "../work-hypothesis/types.js";
 
 const present: WorkHypothesis = {
+  epistemicClass: "inference",
   id: "wh-1",
   hypothesisText: "Working on Bloom",
   primaryThreads: [],

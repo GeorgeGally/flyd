@@ -13,6 +13,7 @@ import {
 import { parseProjectMd } from "../work/project-state.js";
 import { readProjectState } from "../work/project-state.js";
 import { addRepository, removeRepository, listRepositories, listActivities, buildGlobalPresentModel, scanDirectories } from "../work/repository-registry.js";
+import { observeAllRepos } from "../work/git-observer.js";
 import { addTask, listOpenTasks, syncProjectTasks, listTasks } from "../work/task-store.js";
 import { useWorkIndexPath, resetWorkIndexPath, closeDb } from "../work/database.js";
 import { mkdtempSync, rmSync } from "fs";
@@ -189,7 +190,7 @@ describe("Git observer baseline", () => {
     rmSync(dbDir, { recursive: true, force: true });
   });
 
-  it("establishes initial baseline without creating activity", () => {
+  it("records the initial commit as activity on first observation", () => {
     const tmp = mkdtempSync(join(tmpdir(), "flyd-test-"));
     execSync("git init -b main", { cwd: tmp });
     execSync('git config user.email "test@example.com"', { cwd: tmp });
@@ -202,16 +203,16 @@ describe("Git observer baseline", () => {
     const repos = listRepositories();
     const repo = repos.find((r) => r.root === tmp)!;
 
-    // First observation should just set the baseline
+    // First observation sets the baseline AND records the current commit as activity
     const snapshot1 = observeAndRecord(repo.id);
     expect(snapshot1.head).toBeDefined();
 
     const storedRepo = listRepositories().find((r) => r.id === repo.id)!;
     expect(storedRepo.lastIndexedHead).toBe(snapshot1.head);
 
-    // Should NOT have created activity for the baseline
     const activities1 = listActivities(repo.id);
-    expect(activities1.length).toBe(0);
+    expect(activities1.length).toBe(1);
+    expect(activities1[0].summary).toBe("Initial commit");
 
     // Second commit should create activity
     writeFileSync(join(tmp, "README.md"), "hello world");
@@ -223,8 +224,8 @@ describe("Git observer baseline", () => {
     expect(storedRepo2.lastIndexedHead).toBe(snapshot2.head);
     
     const activities2 = listActivities(repo.id);
-    expect(activities2.length).toBe(1);
-    expect(activities2[0].summary).toBe("Second commit");
+    expect(activities2.length).toBe(2);
+    expect(activities2.map((a) => a.summary).sort()).toEqual(["Initial commit", "Second commit"]);
   });
 
   it("prevents repository ID collisions for same basenames", () => {
@@ -252,7 +253,7 @@ describe("Git observer baseline", () => {
     expect(repo1_again.id).toBe(repo1.id);
   });
 
-  it("reports actual dirty repository state in global present model", () => {
+  it("reads observed dirty state from cache without a per-query git scan", () => {
     const tmp = mkdtempSync(join(tmpdir(), "flyd-test-dirty-"));
     execSync("git init -b main", { cwd: tmp });
     execSync('git config user.email "test@example.com"', { cwd: tmp });
@@ -267,7 +268,16 @@ describe("Git observer baseline", () => {
 
     // Make it dirty
     writeFileSync(join(tmp, "untracked.txt"), "hello");
-    
+
+    // A present-model read must not cold-scan git (PRD §21/§22); freshness
+    // is owned by the background observation sweep.
+    model = buildGlobalPresentModel();
+    r = model.activeProjects.find((p: any) => p.repositoryId === repo.id);
+    expect(r).toBeDefined();
+    expect(r!.dirty).toBe(false);
+    expect(r!.uncommittedFiles).toBe(0);
+
+    observeAllRepos();
     model = buildGlobalPresentModel();
     r = model.activeProjects.find((p: any) => p.repositoryId === repo.id);
     expect(r).toBeDefined();

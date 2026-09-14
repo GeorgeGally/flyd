@@ -52,6 +52,7 @@ export interface PresentWorkerObservation {
 }
 
 export interface WorkHypothesis {
+  epistemicClass: "inference";
   id: string;
   /** Human-readable projection for startup/chat. */
   hypothesisText: string;
@@ -75,6 +76,7 @@ export interface WorkHypothesis {
 }
 
 export interface PresentInsights {
+  epistemicClass: "inference";
   workstreams: string[];
   latestMoves: { name: string; subject: string; at?: string }[];
   tensions: string[];

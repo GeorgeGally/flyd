@@ -159,7 +159,7 @@ export async function recoverInterruptedWorkers(input: RecoveryInput): Promise<n
       continue;
     }
 
-    if (reconciliation.action === "mark_interrupted") {
+    if (reconciliation.action === "resume") {
       await input.transition(worker.workerKey, {
         status: "interrupted",
         error: reconciliation.reason,
