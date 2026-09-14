@@ -392,7 +392,10 @@ export function ensureRuntimeSchema(
 ): Promise<void> {
   const existing = schemaReady.get(pool);
   if (existing) return existing;
-  const ready = runRuntimeSchema(rawQuery);
+  const ready = runRuntimeSchema(rawQuery).catch((error) => {
+    schemaReady.delete(pool);
+    throw error;
+  });
   schemaReady.set(pool, ready);
   return ready;
 }

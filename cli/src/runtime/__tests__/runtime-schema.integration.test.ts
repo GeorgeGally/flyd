@@ -6,6 +6,12 @@ import { OperationalDecisionStore } from "../operational-decision-store.js";
 
 const adminUrl = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
 
+function databaseUrl(base: string, dbName: string): string {
+  const url = new URL(base);
+  url.pathname = `/${dbName}`;
+  return url.toString();
+}
+
 // Proves Core owns the runtime schema: a brand-new database with zero tables
 // bootstraps itself through the pool and runtime writes succeed — no
 // bin/rails db:prepare involved.
@@ -19,7 +25,7 @@ describe("runtime schema bootstrap on a fresh database", () => {
     await admin.connect();
     dbName = `flyd_v1_schema_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
     await admin.query(`CREATE DATABASE ${dbName}`);
-    pool = createRuntimePool(`postgres:///${dbName}`);
+    pool = createRuntimePool(databaseUrl(adminUrl, dbName));
   });
 
   afterAll(async () => {

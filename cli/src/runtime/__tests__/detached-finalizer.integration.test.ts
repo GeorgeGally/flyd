@@ -143,7 +143,7 @@ async function seedDetachedSurvivor(repo: { root: string; head: string }) {
   return { projectRoot: repo.root, taskKey: task.taskKey, manager, worktreePath: worktree.path };
 }
 
-describe("detached-finalizer integration", { timeout: 30_000 }, () => {
+describe("detached-finalizer integration (macOS-only: verification sandbox requires darwin, so these tests skip elsewhere)", { timeout: 30_000 }, () => {
   beforeAll(async () => {
     await ensureRuntimeSchema(pool);
   });
