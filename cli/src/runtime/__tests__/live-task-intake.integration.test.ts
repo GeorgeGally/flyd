@@ -83,6 +83,25 @@ describe("live task intake", { timeout: 15_000 }, () => {
     expect(tasks.rows).toHaveLength(1);
   });
 
+  it("does not resume an unrelated task for a distinct utterance", async () => {
+    const first = await intakeLiveTask(
+      resolveLiveTaskIntent({ kind: "task_plan", taskIntent: "Deploy the landing page" })!,
+      projectRoot,
+      {},
+      { store, inspectRepository: async () => repository },
+    );
+    expect(first.created).toBe(true);
+
+    const distinct = resolveLiveTaskIntent({ kind: "task_plan", taskIntent: "Fix the Instagram pull issue" })!;
+    await expect(
+      intakeLiveTask(distinct, projectRoot, {}, { store, inspectRepository: async () => repository }),
+    ).rejects.toThrow(/unfinished/i);
+
+    const resumable = await store.findResumableTask(projectRoot);
+    expect(resumable?.taskKey).toBe(first.task.taskKey);
+    expect(resumable?.intendedOutcome).toBe("Deploy the landing page");
+  });
+
   it("creates no task for an ambiguous utterance", async () => {
     const decision = resolveLiveTaskIntent({ kind: "explanation", taskIntent: "What is the capital of France?" });
     expect(decision).toBeNull();

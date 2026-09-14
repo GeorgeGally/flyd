@@ -13,7 +13,7 @@ import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowled
 import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
-import { intakeLiveTask, resolveLiveTaskIntent, runtimeTaskStore, type LiveTaskIntakeResult } from "./runtime/live-task-intake.js";
+import { trackLiveTaskAndPlan, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
 import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -385,74 +385,31 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
           (parsed.environment as ManifestRequest['environment'])?.document_path
         );
         const projectRoot = repoInfo.root || process.cwd();
-        const taskIntent = wiResult.intervention.proposedAction!.taskIntent!;
 
-        let tracked: LiveTaskIntakeResult | null = null;
-        try {
-          tracked = await intakeLiveTask(
-            resolveLiveTaskIntent(wiResult.intervention.proposedAction)!,
-            repoInfo.root,
-            {
-              invocationId: parsed.invocation_id,
-              observationRefs: [],
-              source: (parsed.modality || 'text') === 'voice' ? 'voice' : 'manifest',
-            },
-            { store: runtimeTaskStore() },
-          );
-          (augmentJson.augmentations as Record<string, unknown>[]).push({
-            kind: 'explanation',
-            content: tracked.created
-              ? `Task created: ${taskIntent}`
-              : `Continuing existing task: ${tracked.task.intendedOutcome}`,
-            placement: 'cursor',
-          });
-          augmentJson.delegatedTask = {
-            taskKey: tracked.task.taskKey,
-            projectRoot: tracked.task.projectRoot,
-            status: tracked.task.status,
-            created: tracked.created,
-          };
-        } catch (error) {
-          (augmentJson.augmentations as Record<string, unknown>[]).push({
-            kind: 'explanation',
-            content: `Could not create task: ${error instanceof Error ? error.message : String(error)}`,
-            placement: 'cursor',
-          });
-          augmentJson.mode = 'requires_augment';
-        }
-
-        if (tracked) {
-          try {
+        const outcome = await trackLiveTaskAndPlan({
+          decision: resolveLiveTaskIntent(wiResult.intervention.proposedAction)!,
+          projectRoot: repoInfo.root,
+          intakeOptions: {
+            invocationId: parsed.invocation_id,
+            observationRefs: [],
+            source: (parsed.modality || 'text') === 'voice' ? 'voice' : 'manifest',
+          },
+          currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
+          plan: async (intent) => {
             const config = loadFlydWorkerConfig();
-            const plan = await planTask({
-              intent: taskIntent,
+            return planTask({
+              intent,
               projectRoot,
               currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n${wiResult.intervention.content}`,
               modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
             });
+          },
+          deps: { store: runtimeTaskStore() },
+        });
 
-            if (plan) {
-              (augmentJson.augmentations as Record<string, unknown>[]).push({
-                kind: 'task_plan',
-                content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
-                placement: 'cursor',
-                taskPlan: plan,
-              });
-            } else {
-              (augmentJson.augmentations as Record<string, unknown>[]).push({
-                kind: 'explanation',
-                content: `Failed to produce task plan for: ${taskIntent}`,
-                placement: 'cursor',
-              });
-            }
-          } catch {
-            (augmentJson.augmentations as Record<string, unknown>[]).push({
-              kind: 'explanation',
-              content: `Task planning failed. Try a more specific request.`,
-              placement: 'cursor',
-            });
-          }
-        }
+        (augmentJson.augmentations as Record<string, unknown>[]).push(...outcome.augmentations);
+        if (outcome.delegatedTask) augmentJson.delegatedTask = outcome.delegatedTask;
+        if (!outcome.planned) augmentJson.mode = 'requires_augment';
       } else if (hasShellCommands) {
         (augmentJson.augmentations as Record<string, unknown>[]).push({
           kind: 'execution',

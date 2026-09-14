@@ -49,6 +49,29 @@ export interface LiveTaskIntakeDeps {
   inspectRepository?: (cwd: string) => Promise<RepositorySnapshot>;
 }
 
+export interface LiveTaskDelegation {
+  taskKey: string;
+  projectRoot: string;
+  status: string;
+  created: boolean;
+}
+
+export interface LiveTaskPlanResult {
+  augmentations: Record<string, unknown>[];
+  delegatedTask: LiveTaskDelegation | null;
+  planned: boolean;
+  trackingFailed: boolean;
+}
+
+export interface LiveTaskPlanOptions {
+  decision: LiveTaskDecision;
+  projectRoot: string | null | undefined;
+  intakeOptions: LiveTaskIntakeOptions;
+  currentWork: string;
+  plan: (intent: string) => Promise<unknown>;
+  deps: LiveTaskIntakeDeps;
+}
+
 let store: PostgresTaskStore | null = null;
 
 export function runtimeTaskStore(): PostgresTaskStore {
@@ -65,6 +88,35 @@ export function resolveLiveTaskIntent(
   return { intendedOutcome, taskIntent: "ship" };
 }
 
+// ponytail: whole-utterance continuation cues only. A cue embedded in new content
+// ("continue fixing X") is treated as a new task rather than hijacking the resumable one.
+const CONTINUATION_CUE = /^(?:ok(?:ay)?|please|now)?[,\s]*(?:continue|carry on|keep going|keep working|keep at it|resume|proceed|go on|finish (?:it|that|this)|same task|as before|pick up where (?:we|i) left off|where we left off)[.!\s]*$/i;
+
+function normalizeIntent(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
+}
+
+export function isTaskContinuation(utterance: string, task: AgentTask): boolean {
+  const normalized = normalizeIntent(utterance);
+  if (!normalized) return false;
+  if (normalized === normalizeIntent(task.intendedOutcome)) return true;
+  return CONTINUATION_CUE.test(normalized);
+}
+
+function describeTrackingFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/no repository identified/i.test(message)) {
+    return "No git repository was identified, so this request was not tracked as a task.";
+  }
+  if (/one_unfinished_per_project|duplicate key/i.test(message)) {
+    return "An unfinished task already exists for this project, so this request was not tracked as a new task.";
+  }
+  if (/econnrefused|connect|timeout|database|pool|does not exist/i.test(message)) {
+    return "The task database is unavailable, so this request was not tracked as a task.";
+  }
+  return "This request was not tracked as a task.";
+}
+
 export async function intakeLiveTask(
   decision: LiveTaskDecision,
   projectRoot: string | null | undefined,
@@ -75,7 +127,9 @@ export async function intakeLiveTask(
   if (!root) throw new Error("no repository identified for live task intake");
   const repository = await (deps.inspectRepository ?? inspectRepository)(root);
   const resumed = await deps.store.findResumableTask(repository.root);
-  if (resumed) return { task: resumed, created: false };
+  if (resumed && isTaskContinuation(decision.intendedOutcome, resumed)) {
+    return { task: resumed, created: false };
+  }
 
   const request = buildRuntimeTaskRequest({
     intent: decision.intendedOutcome,
@@ -112,4 +166,64 @@ function repositoryState(repository: RepositorySnapshot): Record<string, unknown
     status_digest: repository.statusDigest,
     observed_at: new Date().toISOString(),
   };
+}
+
+export async function trackLiveTaskAndPlan(options: LiveTaskPlanOptions): Promise<LiveTaskPlanResult> {
+  const augmentations: Record<string, unknown>[] = [];
+  let delegatedTask: LiveTaskDelegation | null = null;
+  let trackingFailed = false;
+  let tracked: LiveTaskIntakeResult | null = null;
+
+  try {
+    tracked = await intakeLiveTask(options.decision, options.projectRoot, options.intakeOptions, options.deps);
+    augmentations.push({
+      kind: "explanation",
+      content: tracked.created
+        ? `Task created: ${tracked.task.intendedOutcome}`
+        : `Continuing existing task: ${tracked.task.intendedOutcome}`,
+      placement: "cursor",
+    });
+    delegatedTask = {
+      taskKey: tracked.task.taskKey,
+      projectRoot: tracked.task.projectRoot,
+      status: tracked.task.status,
+      created: tracked.created,
+    };
+  } catch (error) {
+    trackingFailed = true;
+    augmentations.push({
+      kind: "explanation",
+      content: describeTrackingFailure(error),
+      placement: "cursor",
+    });
+  }
+
+  const planIntent = tracked?.task.intendedOutcome ?? options.decision.intendedOutcome;
+  let planned = false;
+  try {
+    const plan = await options.plan(planIntent);
+    if (plan) {
+      planned = true;
+      augmentations.push({
+        kind: "task_plan",
+        content: options.currentWork,
+        placement: "cursor",
+        taskPlan: plan,
+      });
+    } else {
+      augmentations.push({
+        kind: "explanation",
+        content: `Failed to produce task plan for: ${planIntent}`,
+        placement: "cursor",
+      });
+    }
+  } catch {
+    augmentations.push({
+      kind: "explanation",
+      content: `Task planning failed. Try a more specific request.`,
+      placement: "cursor",
+    });
+  }
+
+  return { augmentations, delegatedTask, planned, trackingFailed };
 }
