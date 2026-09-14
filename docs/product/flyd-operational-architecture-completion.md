@@ -10,6 +10,7 @@ The Operational Architecture PRD is implemented. The architecture is now governe
 
 - Repository Intelligence owns high-level repository observation and distinct observation fingerprints.
 - `AgentTask` / `TaskAssignment` / `TaskGrant` / `WorkerSession` are the canonical executable-work vocabulary.
+- TypeScript Core owns the runtime schema as an idempotent bootstrap applied at Core start; a fresh database needs no Rails `db:prepare`, and the legacy Rails migrations remain untouched.
 - Legacy manifest magic-phrase delegation can no longer launch the compatibility envelope.
 - Operational decisions are durable first-class runtime facts.
 - Restart recovery preserves positively identified surviving workers.
