@@ -8,70 +8,51 @@ on:
 jobs:
   evidence:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: cli/package-lock.json
-
       - name: Install CLI dependencies
         working-directory: cli
         run: npm ci
-
       - name: Test Evidence Engine
         working-directory: cli
         run: npx vitest run src/evidence
 
   planning:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: cli/package-lock.json
-
       - name: Install CLI dependencies
         working-directory: cli
         run: npm ci
-
       - name: Test planning foundations and benchmark
         working-directory: cli
         run: npx vitest run src/planning/__tests__/world-model.test.ts src/planning/__tests__/runtime-capture.test.ts src/planning/__tests__/empirical-future-model.test.ts src/planning/__tests__/calibration.test.ts src/planning/__tests__/repo-scoped-learning.test.ts src/planning/__tests__/harness-decision.test.ts src/planning/__tests__/harness-learning.test.ts src/planning/__tests__/harness-runtime-loop.test.ts src/planning/__tests__/inspection.test.ts src/runtime/__tests__/harness-planner-focus.test.ts src/planning/__tests__/decision-policy.test.ts src/work-intelligence/__tests__/planner.test.ts src/work-intelligence/__tests__/candidate-actions.test.ts src/__tests__/memory-gate.test.ts
 
   dependency-audit:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: cli/package-lock.json
-
       - name: Install CLI dependencies
         working-directory: cli
         run: npm ci
-
       - name: Enforce no high-severity production vulnerabilities
         working-directory: cli
         run: npm audit --omit=dev --audit-level=high
-
       - name: Keep accepted QMD server advisory unreachable
         working-directory: cli
         run: |
@@ -98,26 +79,19 @@ jobs:
           --health-retries 5
     env:
       FLYD_TEST_DATABASE_URL: postgres://flyd:flyd@127.0.0.1:5432/flyd_v1_test
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: cli/package-lock.json
-
       - name: Install CLI dependencies
         working-directory: cli
         run: npm ci
-
       - name: Typecheck TypeScript Core
         working-directory: cli
         run: npm run lint
-
       - name: Test active Core
         working-directory: cli
         run: |
@@ -126,7 +100,21 @@ jobs:
           status=$?
           cat /tmp/core-test.log
           exit $status
-
+      - name: Test operational runtime invariants
+        working-directory: cli
+        run: >-
+          npx vitest run
+          src/runtime/__tests__/continuous-supervisor.test.ts
+          src/runtime/__tests__/worker-reconciler.test.ts
+          src/runtime/__tests__/worker-supervisor.test.ts
+          src/runtime/__tests__/project-supervisor.test.ts
+          src/runtime/__tests__/recovery.test.ts
+          src/runtime/__tests__/operational-decision.test.ts
+          src/runtime/__tests__/delegation-request.test.ts
+          src/runtime/__tests__/task-request-materializer.test.ts
+      - name: Test operational decision persistence
+        working-directory: cli
+        run: npx vitest run src/runtime/__tests__/operational-decision-store.integration.test.ts
       - name: Upload Core failure log
         uses: actions/upload-artifact@v4
         if: failure()
@@ -134,18 +122,14 @@ jobs:
           name: core-test-log
           path: /tmp/core-test.log
           if-no-files-found: ignore
-
       - name: Build TypeScript Core
         working-directory: cli
         run: npm run build
 
   mac-adapter:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
+      - uses: actions/checkout@v6
       - name: Test Mac adapter
         working-directory: mac-adapter
         run: swift test
