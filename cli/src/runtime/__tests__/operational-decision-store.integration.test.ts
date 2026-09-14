@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { OperationalDecisionStore } from "../operational-decision-store.js";
 import { PostgresTaskStore } from "../task-store.js";
@@ -10,6 +10,57 @@ const taskStore = new PostgresTaskStore(pool);
 const decisionStore = new OperationalDecisionStore(pool);
 const projectRoot = `/tmp/flyd-decision-${process.pid}`;
 const projectName = `decision-test-${process.pid}`;
+
+/**
+ * This integration test runs against a blank Postgres service in CI. Runtime
+ * persistence must not depend on booting the retired Rails application merely
+ * to test its own transactional/event semantics, so create the narrow schema
+ * owned by this test explicitly.
+ */
+async function ensureDecisionTestSchema(): Promise<void> {
+  await pool.query(`CREATE TABLE IF NOT EXISTS projects (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    root_path VARCHAR,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS agent_tasks (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES projects(id),
+    task_key VARCHAR NOT NULL UNIQUE,
+    status VARCHAR NOT NULL DEFAULT 'awaiting_grant',
+    intended_outcome TEXT NOT NULL,
+    success_criteria JSONB NOT NULL DEFAULT '[]'::jsonb,
+    verification_criteria JSONB NOT NULL DEFAULT '[]'::jsonb,
+    plan JSONB NOT NULL DEFAULT '{}'::jsonb,
+    context_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    repository_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    recommended_next_action TEXT,
+    outcome_summary TEXT,
+    verification_result JSONB NOT NULL DEFAULT '{}'::jsonb,
+    revision INTEGER NOT NULL DEFAULT 0,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS runtime_events (
+    id BIGSERIAL PRIMARY KEY,
+    agent_task_id BIGINT NOT NULL REFERENCES agent_tasks(id),
+    task_grant_id BIGINT,
+    worker_session_id BIGINT,
+    event_key VARCHAR NOT NULL,
+    event_type VARCHAR NOT NULL,
+    idempotency_key VARCHAR NOT NULL UNIQUE,
+    task_revision INTEGER NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    occurred_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`);
+}
 
 async function cleanProject(): Promise<void> {
   const projects = await pool.query("SELECT id FROM projects WHERE root_path = $1 OR name = $2", [projectRoot, projectName]);
@@ -44,6 +95,7 @@ async function createTask() {
 }
 
 describe("OperationalDecisionStore", { timeout: 15_000 }, () => {
+  beforeAll(ensureDecisionTestSchema);
   beforeEach(cleanProject);
   afterAll(async () => {
     await cleanProject();
@@ -64,7 +116,7 @@ describe("OperationalDecisionStore", { timeout: 15_000 }, () => {
       task.id,
       randomUUID(),
       `unrelated:${task.taskKey}`,
-    ]).catch(() => undefined);
+    ]);
 
     expect((await decisionStore.listOpenDecisions(task.taskKey)).map((item) => item.decisionId)).toContain(decision.decisionId);
 
