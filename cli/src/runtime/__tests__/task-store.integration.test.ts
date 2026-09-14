@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { createRuntimePool } from "../database.js";
+import { deliveryContractOf } from "../delivery-contract.js";
 import { PostgresTaskStore } from "../task-store.js";
 import type { WorkerSession } from "../types.js";
 
@@ -234,6 +235,48 @@ describe("PostgresTaskStore", { timeout: 15_000 }, () => {
       replacedInterpretations: 0,
       toolEscapes: 1,
     });
+  });
+
+  it("records an explicit delivery contract at creation and carries it through orientation", async () => {
+    const task = await store.createTask({
+      projectName,
+      projectRoot,
+      intendedOutcome: "Prove delivery contract carry-through",
+      repository: { root: projectRoot, name: projectName, remote: null, branch: "main", head: "a", dirty: false, statusLines: [], statusDigest: "clean" },
+      idempotencyKey: `delivery-carry:${projectRoot}`,
+      delivery: { mode: "integrate", mergeAuthority: "user" },
+    });
+    expect(deliveryContractOf(task)).toEqual({ mode: "integrate", mergeAuthority: "user" });
+
+    const oriented = await store.recordOrientation(task.taskKey, task.revision, {
+      contextSnapshot: { memory_refs: ["memory:1"] },
+      repositorySnapshot: { head: "a", status_digest: "clean" },
+      recommendedNextAction: "Plan the requested outcome",
+      idempotencyKey: `delivery-orient:${task.taskKey}`,
+    });
+    expect(oriented.contextSnapshot.memory_refs).toEqual(["memory:1"]);
+    expect(deliveryContractOf(oriented)).toEqual({ mode: "integrate", mergeAuthority: "user" });
+
+    const loaded = await store.findTask(task.taskKey);
+    expect(deliveryContractOf(loaded!)).toEqual({ mode: "integrate", mergeAuthority: "user" });
+  });
+
+  it("refuses to integrate a task that carries no delivery contract", async () => {
+    const project = await pool.query(`INSERT INTO projects (name, root_path, created_at, updated_at)
+      VALUES ($1, $2, NOW(), NOW()) RETURNING id`, [`legacy-${process.pid}`, projectRoot]);
+    const task = await pool.query(`INSERT INTO agent_tasks
+      (project_id, task_key, status, intended_outcome, success_criteria, verification_criteria,
+       plan, context_snapshot, repository_snapshot, verification_result, revision, started_at,
+       created_at, updated_at)
+      VALUES ($1, $2, 'ready', 'Legacy work', '[]'::jsonb, '[]'::jsonb,
+       '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 1, NOW(),
+       NOW(), NOW()) RETURNING task_key`, [project.rows[0].id, randomUUID()]);
+    const taskKey = task.rows[0].task_key;
+
+    await expect(store.recordTaskIntegration(taskKey, {
+      result: { status: "integrated", reason: null, changedFiles: [], patchDigest: null },
+      idempotencyKey: `legacy-integrate:${taskKey}`,
+    })).rejects.toThrow(/delivery contract/i);
   });
 
   it("completes a read-only project briefing without successful worker evidence", async () => {

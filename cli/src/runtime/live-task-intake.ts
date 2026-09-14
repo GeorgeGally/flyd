@@ -1,5 +1,6 @@
 import { createRuntimePool } from "./database.js";
 import { buildRuntimeTaskRequest } from "./delegation-request.js";
+import type { DeliveryContract } from "./delivery-contract.js";
 import { inspectRepository } from "./repository-inspector.js";
 import { PostgresTaskStore } from "./task-store.js";
 import { materializeRuntimeTaskRequest } from "./task-request-materializer.js";
@@ -29,6 +30,7 @@ export interface LiveTaskIntakeStore {
     intendedOutcome: string;
     repository: RepositorySnapshot;
     idempotencyKey: string;
+    delivery?: DeliveryContract;
   }): Promise<AgentTask>;
   startTaskSession(taskId: string, resumed: boolean, startupSnapshot: Record<string, unknown>): Promise<string>;
   findTask(taskKey: string): Promise<AgentTask | null>;

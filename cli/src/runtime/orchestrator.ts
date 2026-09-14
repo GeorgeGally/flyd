@@ -8,6 +8,7 @@ import {
 } from "./result-integrator.js";
 import { filesOutsideScope, verifyWorkerResult, type VerifiedWorkerResult } from "./result-verifier.js";
 import { chooseIntervention } from "./intervention-policy.js";
+import { authorizesRuntimeIntegration, deliveryContractOf } from "./delivery-contract.js";
 import { readProcessIdentity } from "./recovery.js";
 import { inspectRepository } from "./repository-inspector.js";
 import { routeWorker } from "./worker-router.js";
@@ -349,6 +350,16 @@ export async function orchestrateAssignments(input: {
   adapters: WorkerAdapter[];
   deps: { store: OrchestrationStore; manager: GitWorktreeManager };
 }): Promise<OrchestrationResult> {
+  const delivery = deliveryContractOf(input.task);
+  if (!authorizesRuntimeIntegration(delivery)) {
+    return {
+      status: "blocked",
+      summary: delivery
+        ? `Task delivery contract does not authorize runtime integration (mode=${delivery.mode}, mergeAuthority=${delivery.mergeAuthority}); refusing to integrate`
+        : "Task has no delivery contract; refusing to guess how its work ships or who may merge it",
+      verification: { passed: false, delivery_contract: delivery },
+    };
+  }
   const health = await Promise.all(input.adapters.map((adapter) => adapter.detect().catch((error): WorkerHealth => ({
     name: adapter.name,
     executable: "",
@@ -366,6 +377,8 @@ export async function orchestrateAssignments(input: {
   for (const [root, commands] of Object.entries(input.verificationCommandsByRepository ?? {})) {
     verificationCommandsByRepository.set(await realpath(root), commands);
   }
+  const verificationCommandsFor = (repositoryRoot: string): string[] =>
+    verificationCommandsByRepository.get(repositoryRoot) ?? input.grant.verificationCommands;
   const repositorySnapshots = new Map<string, RepositorySnapshot>([[primaryRepositoryRoot, input.repository]]);
   const assignmentRepositories = new Map<string, string>();
   const workerOutcomes = new Map<string, string>();
@@ -456,7 +469,7 @@ export async function orchestrateAssignments(input: {
       const assignmentCanWrite = input.grant.fileOperations.includes("write") &&
         assignment.capabilityRequirements.includes("implementation");
       const args = adapter.buildArgs({
-        assignment: nonInteractiveAssignment(assignment.instructions),
+        assignment: nonInteractiveAssignment(assignment.instructions, verificationCommandsFor(repositoryRoot)),
         projectRoot: worktree.path,
         taskKey: input.task.taskKey,
         contextPath: input.contextPath,
@@ -622,7 +635,7 @@ export async function orchestrateAssignments(input: {
       const verification = await verifyWorkerResult({
         worktreePath: worktree.path,
         baseHead: repository.head,
-        commands: verificationCommandsByRepository.get(repositoryRoot) ?? input.grant.verificationCommands,
+        commands: verificationCommandsFor(repositoryRoot),
         requireChanges: assignmentCanWrite,
         requireUnchanged: !assignmentCanWrite,
       });
@@ -761,7 +774,7 @@ export async function orchestrateAssignments(input: {
       groups: [...assignmentGroups].map(([repositoryRoot, assignments]) => ({
         repositoryRoot,
         results: assignments.map((assignment) => verified.get(assignment.assignmentKey)!),
-        verificationCommands: verificationCommandsByRepository.get(repositoryRoot) ?? input.grant.verificationCommands,
+        verificationCommands: verificationCommandsFor(repositoryRoot),
       })),
       taskKey: input.task.taskKey,
       primaryRepositoryRoot,
