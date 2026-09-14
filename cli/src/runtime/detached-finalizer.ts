@@ -41,11 +41,6 @@ function verificationPayload(result: VerifiedWorkerResult): Record<string, unkno
   };
 }
 
-/**
- * Find tasks whose workers completed successfully while no orchestrator owns
- * the completion anymore. A short grace period lets the normal orchestrator
- * finish first; this path is recovery, not a competitor to the live runner.
- */
 async function detachedTasks(pool: Pool, projectRoot: string): Promise<DetachedTask[]> {
   const tasks = await pool.query(`SELECT t.id, t.task_key, t.repository_snapshot, p.root_path AS project_root,
       COALESCE(g.verification_commands, '[]'::jsonb) AS verification_commands
@@ -125,6 +120,13 @@ export interface DetachedFinalizationResult {
   reason?: string;
 }
 
+/**
+ * Recover worker completions that outlived their original orchestrator.
+ * Every assignment is independently re-verified. Before integration, each
+ * source repository must still be clean on main at the assignment's recorded
+ * base HEAD. This is conservative but gives multi-repository recovery the same
+ * safety property as live orchestration without inventing historical state.
+ */
 export async function finalizeDetachedProject(
   pool: Pool,
   projectRoot: string,
@@ -141,11 +143,7 @@ export async function finalizeDetachedProject(
 
   for (const task of candidates) {
     if (openDecisionTaskIds.has(task.taskId)) {
-      outcomes.push({
-        taskKey: task.taskKey,
-        status: "skipped",
-        reason: "An operational decision is open for this task",
-      });
+      outcomes.push({ taskKey: task.taskKey, status: "skipped", reason: "An operational decision is open for this task" });
       continue;
     }
 
@@ -197,17 +195,28 @@ export async function finalizeDetachedProject(
       verified.set(assignment.assignmentKey, result);
     }
 
+    if (verified.size !== task.assignments.length && !blockedReason) {
+      outcomes.push({ taskKey: task.taskKey, status: "skipped", reason: "Not every assignment has a recoverable completed worker" });
+      continue;
+    }
+
+    const baseSnapshots = new Map<string, RepositorySnapshot>();
     if (!blockedReason) {
-      const roots = new Set(task.assignments.map((assignment) => assignment.repositoryRoot));
-      if (roots.size !== 1 || !roots.has(task.projectRoot)) {
-        blockedReason = "Detached multi-repository landing is blocked until per-assignment base snapshots are persisted";
-      } else {
-        const current = await inspectRepository(task.projectRoot);
-        const recordedHead = task.recordedRepository.head;
-        const recordedDigest = task.recordedRepository.status_digest;
-        if (!recordedHead || !recordedDigest || current.head !== recordedHead || current.statusDigest !== recordedDigest) {
-          blockedReason = "Source repository changed since the task snapshot; detached landing cannot be proven safe";
+      for (const assignment of task.assignments) {
+        if (baseSnapshots.has(assignment.repositoryRoot)) continue;
+        const sameRepoAssignments = task.assignments.filter((item) => item.repositoryRoot === assignment.repositoryRoot);
+        const heads = new Set(sameRepoAssignments.map((item) => item.baseHead));
+        if (heads.size !== 1) {
+          blockedReason = `Assignments for ${assignment.repositoryRoot} do not share one recorded base HEAD`;
+          break;
         }
+        const current = await inspectRepository(assignment.repositoryRoot);
+        const expectedHead = assignment.baseHead;
+        if (current.head !== expectedHead || current.dirty || current.branch !== "main") {
+          blockedReason = `Source repository ${assignment.repositoryRoot} changed since assignment start; detached landing cannot be proven safe`;
+          break;
+        }
+        baseSnapshots.set(assignment.repositoryRoot, current);
       }
     }
 
@@ -220,20 +229,12 @@ export async function finalizeDetachedProject(
       continue;
     }
 
-    if (verified.size !== task.assignments.length) {
-      outcomes.push({ taskKey: task.taskKey, status: "skipped", reason: "Not every assignment has a recoverable completed worker" });
-      continue;
-    }
-
     const groups = new Map<string, VerifiedWorkerResult[]>();
     for (const assignment of task.assignments) {
       const list = groups.get(assignment.repositoryRoot) ?? [];
       list.push(verified.get(assignment.assignmentKey)!);
       groups.set(assignment.repositoryRoot, list);
     }
-
-    const repositorySnapshots = new Map<string, RepositorySnapshot>();
-    for (const [root] of groups) repositorySnapshots.set(root, await inspectRepository(root));
 
     const integration = await integrateRepositoryGroups({
       groups: [...groups].map(([repositoryRoot, results]) => ({
@@ -243,7 +244,7 @@ export async function finalizeDetachedProject(
       })),
       taskKey: task.taskKey,
       primaryRepositoryRoot: task.projectRoot,
-      repositorySnapshots,
+      repositorySnapshots: baseSnapshots,
       manager,
     });
 
@@ -251,11 +252,7 @@ export async function finalizeDetachedProject(
       result: integration,
       idempotencyKey: `detached-integration:${task.taskKey}:${integration.patchDigest ?? integration.reason ?? integration.status}`,
     });
-    outcomes.push({
-      taskKey: task.taskKey,
-      status: integration.status,
-      reason: integration.reason ?? undefined,
-    });
+    outcomes.push({ taskKey: task.taskKey, status: integration.status, reason: integration.reason ?? undefined });
   }
 
   return outcomes;
