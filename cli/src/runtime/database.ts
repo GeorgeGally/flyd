@@ -7,6 +7,11 @@ const { Pool } = pg;
 // Raw query executors for bootstrapped pools, so the schema DDL (and
 // transactions, which bypass the query wrapper) never recurse through it.
 const rawQueries = new WeakMap<pg.Pool, (sql: string) => Promise<unknown>>();
+const databaseKeys = new WeakMap<pg.Pool, string>();
+
+function ensurePoolSchema(pool: pg.Pool): Promise<void> {
+  return ensureRuntimeSchema(pool, rawQueries.get(pool), databaseKeys.get(pool));
+}
 
 export function runtimeDatabaseUrl(): string {
   return process.env.FLYD_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgres:///flyd_v1_development";
@@ -30,13 +35,14 @@ export function createRuntimePool(
   // TABLE; add a pg_advisory_lock around the bootstrap if Core ever runs multi-process.
   const rawQuery = pool.query.bind(pool);
   rawQueries.set(pool, (sql) => rawQuery(sql));
+  databaseKeys.set(pool, connectionString);
   pool.query = ((...args: Parameters<typeof rawQuery>) =>
-    ensureRuntimeSchema(pool, rawQueries.get(pool)).then(() => rawQuery(...args))) as typeof pool.query;
+    ensurePoolSchema(pool).then(() => rawQuery(...args))) as typeof pool.query;
   return pool;
 }
 
 export async function withTransaction<T>(pool: pg.Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
-  await ensureRuntimeSchema(pool, rawQueries.get(pool));
+  await ensurePoolSchema(pool);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

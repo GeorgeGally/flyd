@@ -383,20 +383,28 @@ export const RUNTIME_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS index_release_acceptance_observations_on_kind_and_observed_at ON release_acceptance_observations (kind, observed_at)`,
 ];
 
-const schemaReady = new WeakMap<pg.Pool, Promise<void>>();
+// Keyed by target database, not pool instance: the invocation path creates a
+// fresh pool per call, so pool-keyed memoization re-ran the whole DDL every
+// invocation. `databaseKey` is the resolved connection string; pools with no
+// declared key (raw pools, tests) fall back to per-pool memoization.
+const schemaReadyByDatabase = new Map<string, Promise<void>>();
+const schemaReadyByPool = new WeakMap<pg.Pool, Promise<void>>();
 
 // `rawQuery` must bypass the pool's own bootstrap wrapper or this recurses.
 export function ensureRuntimeSchema(
   pool: pg.Pool,
   rawQuery: (sql: string) => Promise<unknown> = (sql) => pool.query(sql),
+  databaseKey?: string,
 ): Promise<void> {
-  const existing = schemaReady.get(pool);
+  const existing = databaseKey === undefined ? schemaReadyByPool.get(pool) : schemaReadyByDatabase.get(databaseKey);
   if (existing) return existing;
   const ready = runRuntimeSchema(rawQuery).catch((error) => {
-    schemaReady.delete(pool);
+    if (databaseKey === undefined) schemaReadyByPool.delete(pool);
+    else schemaReadyByDatabase.delete(databaseKey);
     throw error;
   });
-  schemaReady.set(pool, ready);
+  if (databaseKey === undefined) schemaReadyByPool.set(pool, ready);
+  else schemaReadyByDatabase.set(databaseKey, ready);
   return ready;
 }
 
