@@ -27,29 +27,46 @@ export interface CommitEntry {
   authorDate: string;
 }
 
-function execGit(args: string, cwd: string): string {
+const REPOSITORY_READ_TIMEOUT_MS = 3000;
+
+export class RepositoryReadStalledError extends Error {
+  constructor(args: string, cwd: string) {
+    super(`git ${args} timed out in ${cwd}`);
+    this.name = "RepositoryReadStalledError";
+  }
+}
+
+export type GitRead = (args: string, cwd: string) => string;
+
+export function isGitReadTimeout(error: unknown): boolean {
+  const candidate = error as { code?: string; killed?: boolean } | undefined;
+  return Boolean(candidate && (candidate.code === "ETIMEDOUT" || candidate.killed === true));
+}
+
+export function defaultGitRead(args: string, cwd: string): string {
   try {
-    return execSync(`git ${args}`, { cwd, encoding: "utf8", timeout: 10000 }).trim();
-  } catch {
+    return execSync(`git ${args}`, { cwd, encoding: "utf8", timeout: REPOSITORY_READ_TIMEOUT_MS }).trim();
+  } catch (error) {
+    if (isGitReadTimeout(error)) throw new RepositoryReadStalledError(args, cwd);
     return "";
   }
 }
 
-export function computeFingerprint(root: string): string {
-  const head = execGit("rev-parse HEAD", root);
-  const branch = execGit("branch --show-current", root);
-  const statusOutput = execGit("status --porcelain", root);
+export function computeFingerprint(root: string, read: GitRead = defaultGitRead): string {
+  const head = read("rev-parse HEAD", root);
+  const branch = read("branch --show-current", root);
+  const statusOutput = read("status --porcelain", root);
 
   const hash = createHash("sha1");
   hash.update(`${head}:${branch}:${statusOutput}`);
   return hash.digest("hex");
 }
 
-export function observeRepository(root: string, repositoryId: string): RepositoryObservation {
+export function observeRepository(root: string, repositoryId: string, read: GitRead = defaultGitRead): RepositoryObservation {
   const now = new Date().toISOString();
-  const head = execGit("rev-parse HEAD", root) || "unknown";
-  const branch = execGit("branch --show-current", root) || "unknown";
-  const statusOutput = execGit("status --porcelain", root);
+  const head = read("rev-parse HEAD", root) || "unknown";
+  const branch = read("branch --show-current", root) || "unknown";
+  const statusOutput = read("status --porcelain", root);
 
   const stagedFiles: string[] = [];
   const modifiedFiles: string[] = [];
@@ -72,7 +89,7 @@ export function observeRepository(root: string, repositoryId: string): Repositor
 
   if (lastIndexedHead && head && head !== "unknown") {
     const range = `${lastIndexedHead}..${head}`;
-    const log = execGit(`log --format="%H||%s||%aI" ${range}`, root);
+    const log = read(`log --format="%H||%s||%aI" ${range}`, root);
     if (log && !log.startsWith("fatal:")) {
       for (const line of log.split("\n")) {
         const parts = line.split("||");
@@ -102,17 +119,17 @@ export function observeRepository(root: string, repositoryId: string): Repositor
   };
 }
 
-export function observeAndRecord(repositoryId: string, knownFingerprint?: string): ProjectSnapshot {
+export function observeAndRecord(repositoryId: string, knownFingerprint?: string, read: GitRead = defaultGitRead): ProjectSnapshot {
   const repo = getRepository(repositoryId);
   if (!repo) throw new Error(`Repository not found: ${repositoryId}`);
 
-  const fingerprint = knownFingerprint ?? computeFingerprint(repo.root);
-  const obs = observeRepository(repo.root, repositoryId);
+  const fingerprint = knownFingerprint ?? computeFingerprint(repo.root, read);
+  const obs = observeRepository(repo.root, repositoryId, read);
   const uncommittedFiles = obs.stagedFiles.length + obs.modifiedFiles.length + obs.untrackedFiles.length;
   let lastActivityAt = repo.lastActivityAt;
 
   if (!repo.lastIndexedHead && obs.head && obs.head !== "unknown") {
-    const firstCommitLog = execGit(`log -1 --format="%H||%s||%aI"`, repo.root);
+    const firstCommitLog = read(`log -1 --format="%H||%s||%aI"`, repo.root);
     if (firstCommitLog && !firstCommitLog.startsWith("fatal:")) {
       const [hash, subject, authorDate] = firstCommitLog.split("||");
       if (hash && subject) {
@@ -213,14 +230,21 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
   };
 }
 
-export function observeAllRepos(): ProjectSnapshot[] {
+let repositoryReadsStalled = false;
+
+export function repositoryReadsAreStalled(): boolean {
+  return repositoryReadsStalled;
+}
+
+export function observeAllRepos(read: GitRead = defaultGitRead): ProjectSnapshot[] {
   const repos = listRepositories();
   const results: ProjectSnapshot[] = [];
+  repositoryReadsStalled = false;
 
   for (const repo of repos) {
     if (!repo.enabled) continue;
     try {
-      const fingerprint = computeFingerprint(repo.root);
+      const fingerprint = computeFingerprint(repo.root, read);
       const cacheComplete = Boolean(
         repo.observedAt
         && repo.lastObservationFingerprint
@@ -231,14 +255,14 @@ export function observeAllRepos(): ProjectSnapshot[] {
       );
 
       if (!cacheComplete || fingerprint !== repo.lastObservationFingerprint) {
-        results.push(observeAndRecord(repo.id, fingerprint));
+        results.push(observeAndRecord(repo.id, fingerprint, read));
       } else {
         const head = repo.lastSeenHead;
         const branch = repo.observedBranch;
         const dirty = repo.observedDirty;
         const uncommittedFiles = repo.observedUncommittedFiles;
         if (!head || !branch || dirty === undefined || uncommittedFiles === undefined) {
-          results.push(observeAndRecord(repo.id, fingerprint));
+          results.push(observeAndRecord(repo.id, fingerprint, read));
           continue;
         }
 
@@ -264,7 +288,12 @@ export function observeAllRepos(): ProjectSnapshot[] {
           uncommittedFiles,
         });
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof RepositoryReadStalledError) {
+        // ponytail: latch is per-sweep, so a still-wedged repo re-pays one bound next sweep; persist it if that ever matters
+        repositoryReadsStalled = true;
+        break;
+      }
       // repo inaccessible, skip
     }
   }

@@ -440,6 +440,7 @@ export function buildGlobalPresentModel(foregroundRoot?: string): GlobalPresentM
   // ponytail: pure cached read, no git execs per query. observeAllRepos()
   // (background sweep) owns freshness; a query must not cold-scan every repo (PRD §21/§22).
   const activeProjects: ProjectSnapshot[] = repos.map((r) => {
+    if (!r.observedAt) gaps.push(`stale_observation:${r.name}`);
     if (!existsSync(r.root)) {
       gaps.push(`repo_unavailable:${r.name}`);
       return {

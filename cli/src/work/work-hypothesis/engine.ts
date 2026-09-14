@@ -10,7 +10,9 @@ import {
   observeKnownRepositories,
   recentRepositoryCommits,
   repositoryCommonDir,
+  repositoryReadsAreStalled,
 } from "../repository-intelligence.js";
+import { isGitReadTimeout } from "../git-observer.js";
 import { listOpenTasks } from "../task-store.js";
 import { assembleCandidates, displayName } from "./candidates.js";
 import { isEphemeralRepoRoot } from "./ephemeral.js";
@@ -51,21 +53,29 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
   const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
+  let readsStalled = repositoryReadsAreStalled();
 
   for (const repo of repos) {
-    let lastCommitAt: string | undefined;
+    let lastCommitAt: string | undefined = repo.lastActivityAt;
     let latestSubject: string | undefined;
-    try {
-      const commits = await recentRepositoryCommits(repo.root, 1);
-      lastCommitAt = commits[0]?.committedAt;
-      latestSubject = commits[0]?.subject;
-    } catch {
-      lastCommitAt = repo.lastActivityAt;
+    let gitCommonDir: string | undefined;
+
+    if (!readsStalled) {
+      try {
+        const commits = await recentRepositoryCommits(repo.root, 1);
+        lastCommitAt = commits[0]?.committedAt;
+        latestSubject = commits[0]?.subject;
+      } catch (error) {
+        lastCommitAt = repo.lastActivityAt;
+        if (isGitReadTimeout(error)) readsStalled = true;
+      }
+      if (!readsStalled) {
+        gitCommonDir = repositoryCommonDir(repo.root);
+      }
     }
 
     const repositorySnapshot = snapshotsById.get(repo.id);
     const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
-    const gitCommonDir = repositoryCommonDir(repo.root);
 
     const tasks = listOpenTasks(repo.id);
     results.push({
