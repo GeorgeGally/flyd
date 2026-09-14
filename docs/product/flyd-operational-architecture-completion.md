@@ -11,6 +11,7 @@ The Operational Architecture PRD is implemented. The architecture is now governe
 - Repository Intelligence owns high-level repository observation and distinct observation fingerprints.
 - `AgentTask` / `TaskAssignment` / `TaskGrant` / `WorkerSession` are the canonical executable-work vocabulary.
 - Legacy manifest magic-phrase delegation can no longer launch the compatibility envelope.
+- Live `task_plan` utterances route into canonical `AgentTask` intake with a rendered plan; `/manifest` returns `delegatedTask` and top-level `taskPlan`.
 - Operational decisions are durable first-class runtime facts.
 - Restart recovery preserves positively identified surviving workers.
 - A deterministic reconciler and continuous supervisor compare runtime state with observed reality.
