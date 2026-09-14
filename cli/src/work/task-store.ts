@@ -57,7 +57,9 @@ export function addTask(task: {
   sourceRef?: string;
 }): ProjectTodo {
   const db = getDb();
-  const id = `todo-${randomUUID()}`;
+  // Historical IDs retain the task- prefix for storage/API compatibility.
+  // The semantic type is ProjectTodo; executable work is AgentTask.
+  const id = `task-${randomUUID()}`;
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO tasks (id, project_id, description, status, priority, source_type, source_ref, created_at, updated_at)
@@ -121,7 +123,7 @@ export function syncProjectTasks(projectId: string, descriptions: string[]): { n
     const now = new Date().toISOString();
     for (const desc of descriptions) {
       if (!existingDescs.has(desc)) {
-        const id = `todo-${randomUUID()}`;
+        const id = `task-${randomUUID()}`;
         db.prepare(
           `INSERT INTO tasks (id, project_id, description, status, priority, source_type, created_at, updated_at)
            VALUES (?, ?, ?, 'open', 'medium', 'project_md', ?, ?)`,
