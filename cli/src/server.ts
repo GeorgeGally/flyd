@@ -13,6 +13,7 @@ import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowled
 import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
 import { resolve, ManifestRequest } from "./resolve.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
+import { buildTaskPlanResponse, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
 import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -353,8 +354,8 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         && wiResult.intervention.proposedAction?.fileOperations
         && wiResult.intervention.proposedAction.fileOperations.length > 0;
 
-      const isTaskPlan = wiResult.intervention.proposedAction?.kind === 'task_plan'
-        && wiResult.intervention.proposedAction?.taskIntent;
+      const taskDecision = resolveLiveTaskIntent(wiResult.intervention.proposedAction);
+      const isTaskPlan = taskDecision !== null;
 
       const isRepositoryAction = wiResult.intervention.proposedAction?.kind === 'repository_action';
 
@@ -385,38 +386,31 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         );
         const projectRoot = repoInfo.root || process.cwd();
 
-        try {
-          const config = loadFlydWorkerConfig();
-          const plan = await planTask({
-            intent: wiResult.intervention.proposedAction!.taskIntent!,
-            projectRoot,
-            currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n${wiResult.intervention.content}`,
-            modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
-          });
+        const response = await buildTaskPlanResponse({
+          decision: taskDecision,
+          projectRoot: repoInfo.root,
+          intakeOptions: {
+            invocationId: parsed.invocation_id,
+            observationRefs: [],
+            source: (parsed.modality || 'text') === 'voice' ? 'voice' : 'manifest',
+          },
+          currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
+          plan: async (intent) => {
+            const config = loadFlydWorkerConfig();
+            return planTask({
+              intent,
+              projectRoot,
+              currentWork: `${wiResult.diagnosis.primaryIssue.finding}\n${wiResult.intervention.content}`,
+              modelConfig: { model: config.model, apiKey: config.apiKey, baseURL: config.baseURL },
+            });
+          },
+          deps: { store: runtimeTaskStore() },
+        });
 
-          if (plan) {
-            (augmentJson.augmentations as Record<string, unknown>[]).push({
-              kind: 'task_plan',
-              content: `${wiResult.diagnosis.primaryIssue.finding}\n\n${wiResult.intervention.content}`,
-              placement: 'cursor',
-              taskPlan: plan,
-            });
-          } else {
-            (augmentJson.augmentations as Record<string, unknown>[]).push({
-              kind: 'explanation',
-              content: `Failed to produce task plan for: ${wiResult.intervention.proposedAction!.taskIntent}`,
-              placement: 'cursor',
-            });
-            augmentJson.mode = 'requires_augment';
-          }
-        } catch {
-          (augmentJson.augmentations as Record<string, unknown>[]).push({
-            kind: 'explanation',
-            content: `Task planning failed. Try a more specific request.`,
-            placement: 'cursor',
-          });
-          augmentJson.mode = 'requires_augment';
-        }
+        (augmentJson.augmentations as Record<string, unknown>[]).push(...response.augmentations);
+        if (response.delegatedTask) augmentJson.delegatedTask = response.delegatedTask;
+        if (response.taskPlan) augmentJson.taskPlan = response.taskPlan;
+        augmentJson.mode = response.mode;
       } else if (hasShellCommands) {
         (augmentJson.augmentations as Record<string, unknown>[]).push({
           kind: 'execution',

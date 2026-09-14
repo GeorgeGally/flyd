@@ -39,12 +39,13 @@ These are Core outcomes, not adapter modes.
 | Native | Text operations (insert, replace) executed in the focused element | Shipped |
 | Augment | Explanation, choice, or annotation cards overlaid on screen | Shipped |
 | Compose | Full generated Flyd surface when a richer temporary interface is required | Shipped for evidence dossiers through Core; renderer must never be Rails |
+| Task | Live `task_plan` utterance becomes a tracked canonical `AgentTask` plus a rendered plan (`requires_task`) | Shipped |
 
 ### Deferred features
 
 | Feature | Status |
 |---------|--------|
-| DELEGATED | Server infrastructure dormant behind `FLYD_DELEGATION_ENABLED`. Adapter-side not implemented. `/manifest` does not produce delegation responses. |
+| DELEGATED (legacy envelope) | Capability envelope dormant behind `FLYD_DELEGATION_ENABLED`; `/delegation/complete` returns 501 without it. Live task intake (above) is the supported path. |
 
 **Voice is a modality. LIVE is a consciousness/runtime state.**
 
@@ -64,7 +65,8 @@ TypeScript Core (intelligence, memory, evidence, resolution)
     ├── Memory: unified archive/retrieval/currentness pipeline
     ├── Evidence Engine: health → multi-lens planning → retrieval → fusion → clusters/conflicts
     ├── Compose: loopback-only, short-lived generated evidence dossiers
-    └── Delegation: intent pattern matching → capability envelope (dormant)
+    ├── Live task intake: `task_plan` utterance → canonical `AgentTask` + plan (`requires_task`)
+    └── Delegation: legacy intent pattern matching → capability envelope (dormant)
 ```
 
 ### Evidence Engine
