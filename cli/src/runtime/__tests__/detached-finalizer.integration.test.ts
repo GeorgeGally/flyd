@@ -57,6 +57,49 @@ async function cleanProject(rootPath: string): Promise<void> {
   }
 }
 
+async function seedLegacyDetachedSurvivor(repo: { root: string; head: string }) {
+  const projectName = `detached-legacy-${randomUUID().slice(0, 8)}`;
+  const managedRoot = mkdtempSync(join(tmpdir(), "flyd-detached-managed-"));
+  cleanedManaged.push(managedRoot);
+  const manager = new GitWorktreeManager({ managedRoot });
+  const project = await pool.query(`INSERT INTO projects (name, root_path, created_at, updated_at)
+    VALUES ($1, $2, NOW(), NOW()) RETURNING id`, [projectName, repo.root]);
+  const taskKey = randomUUID();
+  const task = await pool.query(`INSERT INTO agent_tasks
+    (project_id, task_key, status, intended_outcome, success_criteria, verification_criteria,
+     plan, context_snapshot, repository_snapshot, verification_result, revision, started_at,
+     created_at, updated_at)
+    VALUES ($1, $2, 'ready', 'Legacy detached work', '["Changed"]'::jsonb, '["git diff --check"]'::jsonb,
+     '{}'::jsonb, '{}'::jsonb, $3::jsonb, '{}'::jsonb, 1, NOW(), NOW(), NOW()) RETURNING id`,
+    [project.rows[0].id, taskKey, JSON.stringify({ head: repo.head, status_digest: "clean" })]);
+  const taskId = task.rows[0].id;
+  const assignmentKey = randomUUID();
+  await pool.query(`INSERT INTO task_assignments
+    (agent_task_id, assignment_key, status, title, instructions, success_criteria, capability_requirements,
+     dependency_keys, declared_file_scope, repository_root, base_head, revision, created_at, updated_at)
+    VALUES ($1, $2, 'running', 'Legacy assignment', 'Change one.txt', '["Changed"]'::jsonb, '["implementation"]'::jsonb,
+     '[]'::jsonb, '["one.txt"]'::jsonb, $3, $4, 1, NOW(), NOW())`,
+    [taskId, assignmentKey, repo.root, repo.head]);
+  await pool.query(`INSERT INTO task_grants
+    (agent_task_id, grant_key, status, scope_digest, repository_roots, worktree_paths, worker_adapters,
+     file_operations, command_classes, verification_commands, renewal_required_actions, max_concurrency,
+     budget, expires_at, created_at, updated_at)
+    VALUES ($1, $2, 'approved', 'digest', $3::jsonb, $4::jsonb, '["codex"]'::jsonb, '["read","write"]'::jsonb,
+     '["test","git_status"]'::jsonb, '["git diff --check"]'::jsonb, '["deploy"]'::jsonb, 1,
+     '{"max_worker_runs":1,"max_runtime_minutes":90}'::jsonb, NOW() + INTERVAL '8 hours', NOW(), NOW())`,
+    [taskId, randomUUID(), JSON.stringify([repo.root]), JSON.stringify([managedRoot])]);
+  const worktree = await manager.prepare({ repositoryRoot: repo.root, taskKey, assignmentKey, baseHead: repo.head });
+  appendFileSync(join(worktree.path, "one.txt"), "worker edit\n");
+  await pool.query(`INSERT INTO worker_sessions
+    (agent_task_id, task_grant_id, task_assignment_id, worker_key, status, adapter, executable_path,
+     executable_version, working_directory, exit_status, output, started_at, ended_at, created_at, updated_at)
+    VALUES ($1, (SELECT id FROM task_grants WHERE agent_task_id = $1 LIMIT 1), (SELECT id FROM task_assignments WHERE assignment_key = $2),
+     $3, 'completed', 'codex', '/usr/local/bin/codex', '1.0.0', $4, 0, 'detached output', NOW() - INTERVAL '5 minutes',
+     NOW() - INTERVAL '12 seconds', NOW(), NOW())`,
+    [taskId, assignmentKey, randomUUID(), worktree.path]);
+  return { projectRoot: repo.root, taskKey, manager };
+}
+
 async function seedDetachedSurvivor(repo: { root: string; head: string }) {
   const projectName = `detached-${randomUUID().slice(0, 8)}`;
   const managedRoot = mkdtempSync(join(tmpdir(), "flyd-detached-managed-"));
@@ -159,6 +202,29 @@ describe("detached-finalizer integration (macOS-only: verification sandbox requi
   afterAll(async () => {
     await pool.end();
   });
+
+  it.skipIf(process.platform !== "darwin")(
+    "blocks detached landing for a legacy task with no delivery contract before any repository mutation",
+    async () => {
+      const repo = await repository();
+      const seeded = await seedLegacyDetachedSurvivor(repo);
+
+      const results = await finalizeDetachedProject(pool, seeded.projectRoot, seeded.manager);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("blocked");
+      expect(results[0].reason).toMatch(/no delivery contract/i);
+      const head = await git(repo.root, "rev-parse", "HEAD");
+      expect(head).toBe(repo.head);
+      expect(await git(repo.root, "log", "-1", "--format=%s")).toBe("base");
+      const blockedEvent = await pool.query(
+        `SELECT payload FROM runtime_events WHERE event_type = 'task.integration_blocked'
+          AND agent_task_id = (SELECT id FROM agent_tasks WHERE task_key = $1)`,
+        [seeded.taskKey],
+      );
+      expect(blockedEvent.rows[0]?.payload.reason).toMatch(/no delivery contract/i);
+    },
+  );
 
   it.skipIf(process.platform !== "darwin")(
     "integrates a completed detached worker after a machine restart (survivors recovered)",
