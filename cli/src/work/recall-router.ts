@@ -1,5 +1,5 @@
 import { buildGlobalPresentModel, listRepositories, listActivities } from "./repository-registry.js";
-import { repositoryReadsAreStalled } from "./git-observer.js";
+import { repositoryReadsAreStalled, stalledSkippedRepositoryNames } from "./git-observer.js";
 import type { GlobalPresentModel, ProjectSnapshot, WorkActivity } from "./repository-registry.js";
 import { listOpenTasks, listTasks } from "./task-store.js";
 import type { Task } from "./task-store.js";
@@ -64,10 +64,12 @@ function stalenessNote(model: GlobalPresentModel): string | null {
   const unobserved = model.gaps
     .filter((gap) => gap.startsWith("stale_observation:"))
     .map((gap) => gap.slice("stale_observation:".length));
-  if (!repositoryReadsAreStalled() && unobserved.length === 0) return null;
+  const skipped = stalledSkippedRepositoryNames();
+  if (!repositoryReadsAreStalled() && unobserved.length === 0 && skipped.length === 0) return null;
   const reasons: string[] = [];
   if (repositoryReadsAreStalled()) reasons.push("a repository read stalled");
   if (unobserved.length > 0) reasons.push(`no observation for ${unobserved.join(", ")}`);
+  if (skipped.length > 0) reasons.push(`possibly stale: ${skipped.join(", ")}`);
   return `Note: repository state may be stale (${reasons.join("; ")}).`;
 }
 

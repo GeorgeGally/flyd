@@ -231,17 +231,23 @@ export function observeAndRecord(repositoryId: string, knownFingerprint?: string
 }
 
 let repositoryReadsStalled = false;
+let stalledSkippedRepoNames: string[] = [];
 
 export function repositoryReadsAreStalled(): boolean {
   return repositoryReadsStalled;
+}
+
+export function stalledSkippedRepositoryNames(): string[] {
+  return stalledSkippedRepoNames;
 }
 
 export function observeAllRepos(read: GitRead = defaultGitRead): ProjectSnapshot[] {
   const repos = listRepositories();
   const results: ProjectSnapshot[] = [];
   repositoryReadsStalled = false;
+  stalledSkippedRepoNames = [];
 
-  for (const repo of repos) {
+  for (const [index, repo] of repos.entries()) {
     if (!repo.enabled) continue;
     try {
       const fingerprint = computeFingerprint(repo.root, read);
@@ -292,6 +298,7 @@ export function observeAllRepos(read: GitRead = defaultGitRead): ProjectSnapshot
       if (error instanceof RepositoryReadStalledError) {
         // ponytail: latch is per-sweep, so a still-wedged repo re-pays one bound next sweep; persist it if that ever matters
         repositoryReadsStalled = true;
+        stalledSkippedRepoNames = repos.slice(index + 1).filter((r) => r.enabled).map((r) => r.name);
         break;
       }
       // repo inaccessible, skip

@@ -9,6 +9,7 @@ import {
   observeAllRepos,
   RepositoryReadStalledError,
   repositoryReadsAreStalled,
+  stalledSkippedRepositoryNames,
   type GitRead,
 } from "../work/git-observer.js";
 import * as gitObserver from "../work/git-observer.js";
@@ -96,5 +97,30 @@ describe("bounded repository reads on the observation sweep", () => {
     expect(project?.dirty).toBe(false);
     expect(result.answer).toContain("Dirty: no");
     expect(result.answer).not.toContain("may be stale");
+  });
+
+  it("repositories skipped by a stalled sweep are marked possibly stale, not fresh", () => {
+    const [storedA] = listRepositories().filter((r) => r.root === repoA);
+    const [storedB] = listRepositories().filter((r) => r.root === repoB);
+    const [storedC] = listRepositories().filter((r) => r.root === repoC);
+
+    observeAllRepos();
+    expect(buildGlobalPresentModel().gaps.filter((g) => g.startsWith("stale_observation:"))).toEqual([]);
+
+    const read: GitRead = (args, cwd) => {
+      if (cwd === storedA.root) throw new RepositoryReadStalledError(args, cwd);
+      return defaultGitRead(args, cwd);
+    };
+    observeAllRepos(read);
+
+    expect(repositoryReadsAreStalled()).toBe(true);
+    expect(stalledSkippedRepositoryNames()).toEqual([storedB.name, storedC.name]);
+
+    const result = answerQuestion(`status of ${storedB.name}`);
+
+    expect(result.answer).toContain("possibly stale");
+    expect(result.answer).toContain(storedB.name);
+    const project = result.data.projects?.find((p) => p.repositoryId === storedB.id);
+    expect(project?.dirty).toBe(false);
   });
 });
