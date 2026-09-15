@@ -137,6 +137,32 @@ describe("present insights", () => {
     const insights = derivePresentInsights([], [], { preferCoreHome: true, now: NOW });
     expect(insights.nextDueAt).toBe("2026-09-05");
     expect(insights.nextTodo).toMatch(/GNM sponsor/i);
-    expect(formatPresentModelText(insights)).toMatch(/due 5 September/);
+    expect(insights.nextLeverage).toMatch(/due 5 September/);
+    expect(formatPresentModelText(insights, { now: NOW })).toMatch(/is due 5 September/);
+  });
+
+  it("reports a passed deadline as overdue instead of upcoming", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos(["Get visitors to GNM event 2026-09-05"]);
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
+
+    expect(insights.nextTodo).toMatch(/Get visitors to GNM event/);
+    expect(insights.nextLeverage).toMatch(/was due 5 September, 10 days overdue/);
+
+    const text = formatPresentModelText(insights, { now });
+    expect(text).toContain("was due 5 September (10 days overdue)");
+    expect(text).not.toMatch(/is due 5 September/);
+  });
+
+  it("names a deadline that falls today without a date", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos(["Get GNM sponsor outreach 2026-09-15"]);
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0);
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
+    const text = formatPresentModelText(insights, { now });
+    expect(text).toContain("is due today");
   });
 });

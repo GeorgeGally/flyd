@@ -13,6 +13,8 @@ import {
   isBareTodoList,
   parseTodoPriorityCorrection,
   applyTodoPriorityCorrection,
+  parseDueDate,
+  formatTodoList,
 } from "../confirmed-todos.js";
 import { writePresentModel } from "../store.js";
 import { presentModelReply } from "../../../runtime/conversation-responder.js";
@@ -287,5 +289,23 @@ describe("confirmed todos", () => {
       "too late for free-scan launch; now get visitors there",
     );
     expect(result?.added.description).toBe("Get visitors to the event");
+  });
+
+  it("keeps a missed deadline in the past so it reads as overdue", () => {
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
+    expect(parseDueDate("by 5 September", now)).toBe("2026-09-05");
+    expect(parseDueDate("due 5 Sep", now)).toBe("2026-09-05");
+    expect(parseDueDate("by 25 September", now)).toBe("2026-09-25");
+    expect(parseDueDate("by 2 January", new Date(2026, 11, 30, 12, 0, 0, 0))).toBe("2027-01-02");
+  });
+
+  it("marks an overdue item in the spoken list", () => {
+    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-05");
+    handleConfirmedTodoUtterance("- Add DIR to portfolio");
+
+    const list = formatTodoList(listOpenConfirmedTodos(), new Date(2026, 8, 15, 12, 0, 0, 0));
+    expect(list).toContain("Get visitors to GNM event (due 5 Sep, 10 days overdue)");
+    expect(list).toContain("2. Add DIR to portfolio");
+    expect(list).not.toContain("Add DIR to portfolio (");
   });
 });

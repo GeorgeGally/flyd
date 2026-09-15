@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLYD_DIR } from "../../lib/config.js";
 import { getDb } from "../database.js";
+import { dueStatus, formatDueLabel, overdueDaysPhrase, resolveDueYear } from "./due-dates.js";
 import { appendCorrection, activeDemotions, readPresentModel, enforceDemotionConstraints } from "./store.js";
 
 export interface ConfirmedTodo {
@@ -96,10 +97,7 @@ export function parseDueDate(text: string, now = new Date()): string | undefined
   const month = MONTHS[monthName.toLowerCase()];
   if (month === undefined || !Number.isFinite(day) || day < 1 || day > 31) return undefined;
 
-  let year = now.getFullYear();
-  const candidate = new Date(Date.UTC(year, month, day));
-  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-  if (candidate.getTime() < today.getTime() - 2 * 86400000) year += 1;
+  const year = resolveDueYear(month, day, now);
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
@@ -277,22 +275,23 @@ export function applyTodoPriorityCorrection(message: string): { closed: Confirme
   }
 }
 
-export function formatTodoList(todos: ConfirmedTodo[]): string {
+export function formatTodoList(todos: ConfirmedTodo[], now: Date = new Date()): string {
   if (!todos.length) {
     return "No confirmed to-dos yet. Paste the list (one `- item` per line) and I'll record it.";
   }
-  const lines = todos.map((t, i) => {
-    const due = t.dueAt ? ` (due ${formatDueLabel(t.dueAt)})` : "";
-    return `${i + 1}. ${t.description}${due}`;
-  });
+  const lines = todos.map((t, i) => `${i + 1}. ${t.description}${dueSuffix(t.dueAt, now)}`);
   return `Confirmed to-dos:\n${lines.join("\n")}`;
 }
 
-function formatDueLabel(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  if (!y || !m || !d) return isoDate;
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${d} ${months[m - 1]}`;
+/** "(due 20 Sep)", "(due today)" or "(due 5 Sep, 10 days overdue)". */
+function dueSuffix(dueAt: string | undefined, now: Date = new Date()): string {
+  if (!dueAt) return "";
+  const status = dueStatus(dueAt, now);
+  if (status?.state === "overdue") {
+    return ` (due ${formatDueLabel(dueAt, now)}, ${overdueDaysPhrase(status.daysPastDue)})`;
+  }
+  if (status?.state === "today") return " (due today)";
+  return ` (due ${formatDueLabel(dueAt, now)})`;
 }
 
 function uniqueDescriptions(descriptions: string[]): string[] {
@@ -503,7 +502,7 @@ export function handleConfirmedTodoUtterance(
   const priorityCorrection = applyTodoPriorityCorrection(trimmed);
   if (priorityCorrection) {
     return {
-      reply: `Corrected and persisted: ${priorityCorrection.closed.description} is closed.\nNew first priority: ${priorityCorrection.added.description}${priorityCorrection.added.dueAt ? ` (due ${formatDueLabel(priorityCorrection.added.dueAt)})` : ""}.`,
+      reply: `Corrected and persisted: ${priorityCorrection.closed.description} is closed.\nNew first priority: ${priorityCorrection.added.description}${dueSuffix(priorityCorrection.added.dueAt)}.`,
       recallFor: [priorityCorrection.added.description],
     };
   }

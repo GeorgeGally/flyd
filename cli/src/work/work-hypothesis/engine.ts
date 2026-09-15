@@ -182,6 +182,7 @@ function integrityHypothesisText(
   const text = formatPresentModelText(insights, {
     preferCoreHome: options.preferCoreHome,
     demotedNames,
+    now: options.now,
   });
   return { text, insights };
 }

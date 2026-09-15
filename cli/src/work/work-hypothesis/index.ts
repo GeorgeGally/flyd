@@ -27,6 +27,15 @@ export {
 } from "./confirmed-todos.js";
 export { derivePresentInsights, formatPresentModelText, isConcreteMove } from "./insights.js";
 export {
+  dueStatus,
+  isOverdue,
+  formatDueLabel,
+  formatDueNote,
+  formatDueSpoken,
+  overdueDaysPhrase,
+  resolveDueYear,
+} from "./due-dates.js";
+export {
   handleWorkstreamMention,
   parseWorkstreamMention,
   alreadyListedWorkstream,

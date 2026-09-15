@@ -1,5 +1,11 @@
 import { getDb } from "../database.js";
 import { displayName, hasDisplayAlias } from "./candidates.js";
+import {
+  dueStatus,
+  formatDueNote,
+  formatDueSpoken,
+  overdueDaysPhrase,
+} from "./due-dates.js";
 import type { PresentInsights, WorkThread } from "./types.js";
 
 export type { PresentInsights };
@@ -53,14 +59,17 @@ function openTodoDescriptions(): string[] {
   return openTodoRows().map((r) => r.description);
 }
 
-function formatDueSpoken(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  if (!y || !m || !d) return isoDate;
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ];
-  return `${d} ${months[m - 1]}`;
+/**
+ * One spoken line for a dated commitment. A passed date is reported as passed —
+ * never restated as if it were still ahead.
+ */
+function formatCommitmentLine(name: string, dueAt: string, now: Date): string {
+  const status = dueStatus(dueAt, now);
+  if (status?.state === "overdue") {
+    return `${name} was due ${formatDueSpoken(dueAt, now)} (${overdueDaysPhrase(status.daysPastDue)}).`;
+  }
+  if (status?.state === "today") return `${name} is due today.`;
+  return `${name} is due ${formatDueSpoken(dueAt, now)}.`;
 }
 
 /** Concrete commit subject — not just a project name restatement. */
@@ -149,7 +158,7 @@ export function derivePresentInsights(
   const nextTodo = nextRow ? displayNameForStream(nextRow.description) : undefined;
   let nextLeverage: string | undefined;
   if (nextTodo && nextRow?.dueAt) {
-    nextLeverage = `Next confirmed to-do: ${nextTodo} (due ${formatDueSpoken(nextRow.dueAt)}).`;
+    nextLeverage = `Next confirmed to-do: ${nextTodo} (${formatDueNote(nextRow.dueAt, now)}).`;
   } else if (nextTodo) {
     nextLeverage = `Next confirmed to-do: ${nextTodo}.`;
   } else if (stalledThreads.length) {
@@ -187,8 +196,9 @@ function joinNames(names: string[]): string {
 /** Spoken morning brief — risk, then what's stuck, then forward deadline. No recaps. */
 export function formatPresentModelText(
   insights: PresentInsights,
-  _options: { preferCoreHome?: boolean; demotedNames?: string[] } = {},
+  _options: { preferCoreHome?: boolean; demotedNames?: string[]; now?: Date } = {},
 ): string {
+  const now = _options.now ?? new Date();
   const parts: string[] = [];
 
   for (const tension of insights.tensions) {
@@ -203,7 +213,7 @@ export function formatPresentModelText(
   else if (stalled.length > 1) parts.push(`${joinNames(stalled)} still haven't moved.`);
 
   if (today && insights.nextDueAt) {
-    parts.push(`${today} is due ${formatDueSpoken(insights.nextDueAt)}.`);
+    parts.push(formatCommitmentLine(today, insights.nextDueAt, now));
   } else if (today) {
     parts.push(`Next: ${today}.`);
   }
