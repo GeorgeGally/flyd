@@ -29,11 +29,13 @@ export { derivePresentInsights, formatPresentModelText, isConcreteMove } from ".
 export {
   dueStatus,
   isOverdue,
+  formatDaySpoken,
   formatDueLabel,
   formatDueNote,
   formatDueSpoken,
   overdueDaysPhrase,
   resolveDueYear,
+  todayLine,
 } from "./due-dates.js";
 export {
   handleWorkstreamMention,

@@ -76,6 +76,24 @@ export function overdueDaysPhrase(daysPastDue: number): string {
   return daysPastDue === 1 ? "1 day overdue" : `${daysPastDue} days overdue`;
 }
 
+const WEEKDAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
+/** "Tuesday 15 September 2026" — today's calendar day, spoken. */
+export function formatDaySpoken(now: Date = new Date()): string {
+  return `${WEEKDAYS[now.getDay()]} ${now.getDate()} ${FULL_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+}
+
+/**
+ * Opening line of every brief: "Today is Tuesday 15 September 2026."
+ * Every relative claim (overdue, due today, stalled for days) is read against
+ * this day, so the day is stated before the claims that depend on it.
+ */
+export function todayLine(now: Date = new Date()): string {
+  return `Today is ${formatDaySpoken(now)}.`;
+}
+
 /** "5 September", with the year appended when it is not the current year. */
 export function formatDueSpoken(isoDate: string, now: Date = new Date()): string {
   const parts = partsOf(isoDate);

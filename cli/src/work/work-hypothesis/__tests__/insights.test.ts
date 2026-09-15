@@ -10,7 +10,8 @@ import {
 } from "../insights.js";
 import type { WorkThread } from "../types.js";
 
-const NOW = new Date("2026-08-12T12:00:00.000Z");
+const NOW = new Date(2026, 7, 12, 12, 0, 0, 0); // Wednesday 12 August 2026, local noon
+const TODAY_PREFIX = "Today is Wednesday 12 August 2026.";
 
 function thread(partial: Partial<WorkThread> & Pick<WorkThread, "name" | "root">): WorkThread {
   return {
@@ -91,9 +92,11 @@ describe("present insights", () => {
     expect(insights.stalledThreads).toContain("Jobs");
     expect(insights.tensions.some((t) => /Attention split|Uncommitted/i.test(t))).toBe(true);
 
-    const text = formatPresentModelText(insights, { preferCoreHome: true });
-    expect(text).toBe("Uncommitted work sitting on Jobs without recent commits. Jobs still hasn't moved.");
-    expect(text).not.toMatch(/Today:|Active:|Watch:|Moved:|Finished:|Insights:/);
+    const text = formatPresentModelText(insights, { preferCoreHome: true, now: NOW });
+    expect(text).toBe(
+      `${TODAY_PREFIX} Uncommitted work sitting on Jobs without recent commits. Jobs still hasn't moved.`,
+    );
+    expect(text).not.toMatch(/Active:|Watch:|Moved:|Finished:|Insights:/);
     expect(text).not.toMatch(/Flyd/);
   });
 
@@ -120,10 +123,10 @@ describe("present insights", () => {
     expect(insights.nextTodo).toBe("Dead Internet Radio (DIR)");
     expect(insights.nextLeverage).toMatch(/dead internet radio/i);
 
-    const text = formatPresentModelText(insights, { preferCoreHome: true });
-    expect(text).toBe("Next: Dead Internet Radio.");
+    const text = formatPresentModelText(insights, { preferCoreHome: true, now: NOW });
+    expect(text).toBe(`${TODAY_PREFIX} Next: Dead Internet Radio.`);
     expect(text).not.toMatch(/\(DIR\)/);
-    expect(text).not.toMatch(/Today:|Active:|Moved:/);
+    expect(text).not.toMatch(/Active:|Moved:/);
   });
 
   it("puts a dated commitment first in the spoken brief", async () => {
@@ -164,5 +167,23 @@ describe("present insights", () => {
     const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
     const text = formatPresentModelText(insights, { now });
     expect(text).toContain("is due today");
+  });
+
+  it("states today's date first, so overdue counts can be checked", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos(["Get visitors to GNM event 2026-09-05"]);
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
+    const text = formatPresentModelText(insights, { now });
+
+    expect(text.startsWith("Today is Tuesday 15 September 2026.")).toBe(true);
+    expect(text).toContain("was due 5 September (10 days overdue)");
+  });
+
+  it("keeps the day line on an empty board", () => {
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now: NOW });
+    const text = formatPresentModelText(insights, { now: NOW });
+    expect(text).toBe(`${TODAY_PREFIX} Nothing urgent on the board.`);
   });
 });

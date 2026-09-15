@@ -5,6 +5,7 @@ import {
   formatDueNote,
   formatDueSpoken,
   overdueDaysPhrase,
+  todayLine,
 } from "./due-dates.js";
 import type { PresentInsights, WorkThread } from "./types.js";
 
@@ -193,7 +194,7 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
-/** Spoken morning brief — risk, then what's stuck, then forward deadline. No recaps. */
+/** Spoken morning brief — the day, then risk, then what's stuck, then forward deadline. No recaps. */
 export function formatPresentModelText(
   insights: PresentInsights,
   _options: { preferCoreHome?: boolean; demotedNames?: string[]; now?: Date } = {},
@@ -218,10 +219,14 @@ export function formatPresentModelText(
     parts.push(`Next: ${today}.`);
   }
 
-  if (parts.length) return parts.join(" ");
-
   const active = uniqueNames(insights.workstreams.map((n) => spokenName(n))).filter(Boolean);
-  if (active.length === 1) return `${active[0]} is in motion.`;
-  if (active.length > 1) return `${joinNames(active)} are in motion.`;
-  return "Nothing urgent on the board.";
+  const body = parts.length
+    ? parts.join(" ")
+    : active.length === 0
+      ? "Nothing urgent on the board."
+      : active.length === 1
+        ? `${active[0]} is in motion.`
+        : `${joinNames(active)} are in motion.`;
+
+  return `${todayLine(now)} ${body}`;
 }
