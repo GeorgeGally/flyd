@@ -13,6 +13,12 @@ import {
 } from "./tty-line-reader.js";
 
 export const DEFAULT_INPUT_HISTORY_SIZE = 100;
+
+const ANSI_RESET = "\u001b[0m";
+
+function colored(text: string, color?: string): string {
+  return color ? `${color}${text}${ANSI_RESET}` : text;
+}
 export const DEFAULT_INPUT_HISTORY_PATH = join(FLYD_DIR, "cli-input-history");
 
 /** Newest-first list, matching Node readline's history order. */
@@ -236,9 +242,9 @@ export class NodeTerminal {
     this.output.write(message);
   }
 
-  async ask(prompt: string): Promise<string> {
+  async ask(prompt: string, echoColor?: string): Promise<string> {
     const answer = this.isTty
-      ? await this.askTty(`${prompt} `)
+      ? await this.askTty(`${prompt} `, echoColor)
       : await this.interface!.question(`${prompt} `);
     this.history = rememberInputLine(this.history, answer, this.historySize);
     this.persistHistory();
@@ -281,7 +287,7 @@ export class NodeTerminal {
    * TTY input that does not submit on pasted newlines.
    * Terminals wrap paste in ESC[200~ … ESC[201~ when bracketed paste is on.
    */
-  private async askTty(prompt: string): Promise<string> {
+  private async askTty(prompt: string, echoColor?: string): Promise<string> {
     const stream = this.input as NodeJS.ReadStream;
     this.output.write(prompt);
     this.enableBracketedPaste();
@@ -317,7 +323,7 @@ export class NodeTerminal {
         const chunk = typeof buf === "string" ? buf : decoder.write(buf);
         const result = feedLineReader(state, chunk, this.history);
         state = result.state;
-        if (result.echo) this.output.write(result.echo);
+        if (result.echo) this.output.write(colored(result.echo, echoColor));
         if (result.pasteEnded) {
           const lines = state.buffer.split("\n").length;
           const preview = state.buffer.split("\n")[0]?.slice(0, 60) ?? "";
@@ -326,11 +332,11 @@ export class NodeTerminal {
             `\n[pasted ${lines} line${lines === 1 ? "" : "s"}, ${state.buffer.length} chars — ${preview}${more}]\n` +
               "(Enter to send, or keep typing)\n",
           );
-          this.output.write(state.buffer);
+          this.output.write(colored(state.buffer, echoColor));
         }
         if (result.redraw !== undefined) {
           // Clear current visual line(s) and rewrite buffer.
-          this.output.write(`\r\x1b[2K${prompt}${result.redraw}`);
+          this.output.write(`\r\x1b[2K${prompt}${colored(result.redraw, echoColor)}`);
         }
         if (result.interrupt) {
           cleanup();

@@ -10,8 +10,8 @@ import {
 import { isCurrentWorkQuestion } from "./conversation-responder.js";
 import { stdout } from "process";
 
-const DIM = "\u001b[2m";
 const GREEN = "\u001b[32m";
+const CYAN = "\u001b[36m";
 const WHITE = "\u001b[97m";
 const RESET = "\u001b[0m";
 
@@ -19,8 +19,8 @@ function useColor(): boolean {
   return Boolean(stdout.isTTY) && !process.env.NO_COLOR;
 }
 
-function promptLabel(label: string): string {
-  return useColor() ? `${DIM}${label}${RESET}` : label;
+function paint(text: string, color: string): string {
+  return useColor() ? `${color}${text}${RESET}` : text;
 }
 
 export interface AgentSituation {
@@ -43,7 +43,7 @@ export interface ConversationTurn {
 
 interface AgentTerminal {
   write(message: string): void;
-  ask(prompt: string): Promise<string>;
+  ask(prompt: string, echoColor?: string): Promise<string>;
   confirm(prompt: string): Promise<boolean>;
   close(): Promise<void>;
 }
@@ -236,15 +236,19 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         presentHypothesis,
         askUser: (prompt) => deps.terminal.confirm(prompt),
         onToken: (token) => {
-          if (!streamed) stopSpinner();
+          if (!streamed) {
+            stopSpinner();
+            if (useColor()) deps.terminal.write(GREEN);
+          }
           streamed = true;
           deps.terminal.write(token);
         },
       });
-      if (!streamed && answer) deps.terminal.write(formatChatReply(answer));
+      if (!streamed && answer) deps.terminal.write(paint(formatChatReply(answer), GREEN));
       return answer;
     } finally {
       stopSpinner();
+      if (streamed && useColor()) deps.terminal.write(RESET);
     }
   }
 
@@ -259,7 +263,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     while (true) {
       let text: string;
       try {
-        text = (await deps.terminal.ask(`\n${promptLabel("You >")}`)).trim();
+        text = (await deps.terminal.ask(`\n${paint("You >", CYAN)}`, CYAN)).trim();
       } catch (error) {
         // Ctrl+C during the prompt (TTY raw reader) — leave cleanly.
         if (error instanceof Error && error.message === "Interrupted") {
@@ -363,7 +367,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         if (outcome) return { kind: "coding", outcome: outcome.outcome };
       }
 
-      deps.terminal.write(`\n${promptLabel("Flyd >")}\n`);
+      deps.terminal.write(`\n${paint("Flyd >", GREEN)}\n`);
       try {
         // The turn runs through the session kernel; the handler does memory,
         // situation and model streaming. The local history array stays in
