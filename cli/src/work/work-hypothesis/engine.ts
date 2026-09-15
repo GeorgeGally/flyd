@@ -47,11 +47,11 @@ async function loadLiveRepos(foregroundRoot?: string, now = new Date()): Promise
     // discovery is best-effort
   }
 
+  const nowIso = now.toISOString();
+  const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const repos = listRepositories().filter(
     (r) => r.enabled && existsSync(r.root) && !isEphemeralRepoRoot(r.root, r.name),
   );
-  const nowIso = now.toISOString();
-  const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
   // ponytail: per-call stall ownership; the sweep latch belongs to this call's

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { execSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { closeDb, resetWorkIndexPath, useWorkIndexPath } from "../work/database.js";
@@ -13,6 +13,7 @@ import {
   type GitRead,
 } from "../work/git-observer.js";
 import * as gitObserver from "../work/git-observer.js";
+import * as repositoryIntelligence from "../work/repository-intelligence.js";
 import { addRepository, buildGlobalPresentModel, listRepositories } from "../work/repository-registry.js";
 import { answerQuestion } from "../work/recall-router.js";
 import { buildPresentModelBelief, readPresentModel } from "../work/work-hypothesis/index.js";
@@ -172,70 +173,96 @@ describe("bounded repository reads on the observation sweep", () => {
     expect(attempted.id).toBe(before?.id);
   });
 
-  it("a slow-but-healthy repository does not freeze the belief: clean reads still update it while stalled and skipped repos keep their previous observation", async () => {
-    observeAllRepos();
-    expect(repositoryReadsAreStalled()).toBe(false);
+  it("production path: clean reads still update the belief when a sweep stalls, while stalled and skipped repositories keep their previous observation", async () => {
+    const coreCwd = "/Users/george/Documents/core";
+    const groundedAt = new Date(Date.now() - 60_000);
 
-    const t0 = "2026-09-14T00:00:00.000Z";
-    const groundedAt = new Date("2026-09-14T12:00:00.000Z");
-    const later = new Date("2026-09-15T12:00:00.000Z");
-    const otherCwd = "/Users/george/Documents/other";
+    // Repos under tmpdir() are ephemeral and purged by loadLiveRepos, so the
+    // production path needs repos inside the worktree. Discovery is pointed at
+    // an empty dir so no machine repos leak into the test DB.
+    const workRoot = join(process.cwd(), `.flyd-test-repos-${Date.now()}`);
+    const emptyDiscovery = join(workRoot, "empty-discovery");
+    const previousRoots = process.env.FLYD_WORK_ROOTS;
+    process.env.FLYD_WORK_ROOTS = emptyDiscovery;
 
-    const grounded: CandidateRepoInput[] = [
-      { id: "alpha", name: "alpha", root: "/Users/george/Documents/alpha", lastCommitAt: t0, latestSubject: "Alpha grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
-      { id: "beta", name: "beta", root: "/Users/george/Documents/beta", lastCommitAt: t0, latestSubject: "Beta grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
-      { id: "gamma", name: "gamma", root: "/Users/george/Documents/gamma", lastCommitAt: t0, latestSubject: "Gamma grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
-    ];
-    await buildPresentModelBelief({ repos: grounded, now: groundedAt, coreCwd: otherCwd });
-    const before = readPresentModel();
-    expect(before?.revisedAt).toBe(groundedAt.toISOString());
+    try {
+      const reposRoot = join(workRoot, "workspace");
+      mkdirSync(reposRoot, { recursive: true });
+      const names = ["alpha", "beta", "gamma"];
+      for (const name of names) {
+        const root = join(reposRoot, name);
+        mkdirSync(root, { recursive: true });
+        initRepo(root);
+        addRepository(root, name);
+      }
 
-    // A sweep stalls on the slow-but-healthy repository: alpha read cleanly,
-    // beta stalled, gamma was skipped.
-    const [stalledRepo] = listRepositories();
-    const read: GitRead = (args, cwd) => {
-      if (cwd === stalledRepo.root) throw new RepositoryReadStalledError(args, cwd);
-      return defaultGitRead(args, cwd);
-    };
-    observeAllRepos(read);
-    expect(repositoryReadsAreStalled()).toBe(true);
+      const grounded = await buildPresentModelBelief({ now: groundedAt, coreCwd });
+      expect(grounded.revisedAt).toBe(groundedAt.toISOString());
+      const before = readPresentModel();
+      expect(before).not.toBeNull();
+      expect([...before!.primaryThreads, ...before!.secondaryThreads]).toHaveLength(3);
 
-    const swept: CandidateRepoInput[] = [
-      { ...grounded[0], lastCommitAt: "2026-09-15T08:00:00.000Z", latestSubject: "Alpha new work", observedAt: later.toISOString() },
-      { ...grounded[1], latestSubject: undefined },
-      { ...grounded[2], latestSubject: undefined },
-    ];
+      // The sweep iterates listRepositories(), which orders by last activity
+      // then name. Stalling the second repo leaves the first observed cleanly
+      // and the third skipped, so the first repo is where the new evidence
+      // must land for the rebuilt belief to be observably different.
+      const [clean, stalled, skipped] = listRepositories().map((r) => ({ root: r.root, id: r.id, name: r.name }));
 
-    const updated = await buildPresentModelBelief({ repos: swept, now: later, coreCwd: otherCwd });
-    const after = readPresentModel();
+      writeFileSync(join(clean.root, "second.txt"), "second\n");
+      execSync("git add second.txt", { cwd: clean.root });
+      execSync('git commit -m "Second commit"', { cwd: clean.root });
 
-    // The belief is not frozen: it was rewritten from the clean read.
-    expect(after?.id).toBe(before?.id);
-    expect(after?.revisedAt).toBe(later.toISOString());
-    expect(updated.revisedAt).toBe(later.toISOString());
+      const read: GitRead = (args, cwd) => {
+        if (cwd === stalled.root) throw new RepositoryReadStalledError(args, cwd);
+        return defaultGitRead(args, cwd);
+      };
+      const sweepSpy = vi
+        .spyOn(repositoryIntelligence, "observeKnownRepositories")
+        .mockImplementation(() => observeAllRepos(read));
 
-    const threads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])];
-    const alpha = threads.find((t) => t.repositoryId === "alpha");
-    const beta = threads.find((t) => t.repositoryId === "beta");
-    const gamma = threads.find((t) => t.repositoryId === "gamma");
+      const later = new Date();
+      const updated = await buildPresentModelBelief({ now: later, coreCwd });
+      sweepSpy.mockRestore();
 
-    expect(alpha?.lastCommitAt).toBe("2026-09-15T08:00:00.000Z");
-    expect(alpha?.latestSubject).toBe("Alpha new work");
-    expect(alpha?.observedAt).toBe(later.toISOString());
+      expect(repositoryReadsAreStalled()).toBe(true);
+      const after = readPresentModel();
 
-    // Slow and skipped repositories keep their previous fully-grounded values
-    // and their previous per-observation revision time.
-    expect(beta?.lastCommitAt).toBe(t0);
-    expect(beta?.latestSubject).toBe("Beta grounded");
-    expect(beta?.observedAt).toBe(t0);
-    expect(gamma?.lastCommitAt).toBe(t0);
-    expect(gamma?.latestSubject).toBe("Gamma grounded");
-    expect(gamma?.observedAt).toBe(t0);
+      // The belief was rewritten from the clean read, not frozen by the stall.
+      expect(updated.revisedAt).toBe(later.toISOString());
+      expect(after?.revisedAt).toBe(later.toISOString());
 
-    // The skipped repository stays labelled possibly out of date through the
-    // existing staleness-note channel.
-    const note = answerQuestion(`status of ${stalledRepo.name}`);
-    expect(note.answer).toContain("possibly stale");
+      const threads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])];
+      const priorThreads = [...(before?.primaryThreads ?? []), ...(before?.secondaryThreads ?? [])];
+      const cleanThread = threads.find((t) => t.repositoryId === clean.id);
+      const stalledThread = threads.find((t) => t.repositoryId === stalled.id);
+      const skippedThread = threads.find((t) => t.repositoryId === skipped.id);
+      const priorClean = priorThreads.find((t) => t.repositoryId === clean.id);
+      const priorStalled = priorThreads.find((t) => t.repositoryId === stalled.id);
+      const priorSkipped = priorThreads.find((t) => t.repositoryId === skipped.id);
+
+      // The cleanly-read repository carries this sweep's observation time and
+      // the new commit evidence.
+      expect(cleanThread?.observedAt).toBe(later.toISOString());
+      expect(cleanThread?.lastCommitAt).not.toBe(priorClean?.lastCommitAt);
+
+      // Slow and skipped repositories keep their previous fully-grounded values
+      // and their previous per-observation revision time.
+      expect(stalledThread?.observedAt).toBe(groundedAt.toISOString());
+      expect(stalledThread?.lastCommitAt).toBe(priorStalled?.lastCommitAt);
+      expect(stalledThread?.latestSubject).toBe(priorStalled?.latestSubject);
+      expect(skippedThread?.observedAt).toBe(groundedAt.toISOString());
+      expect(skippedThread?.lastCommitAt).toBe(priorSkipped?.lastCommitAt);
+
+      // The skipped repository stays labelled possibly out of date through the
+      // existing staleness-note channel, while the cleanly-read one does not.
+      const note = answerQuestion(`status of ${skipped.name}`);
+      expect(note.answer).toContain("possibly stale");
+      expect(note.answer).not.toContain(clean.name);
+    } finally {
+      if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
+      else process.env.FLYD_WORK_ROOTS = previousRoots;
+      rmSync(workRoot, { recursive: true, force: true });
+    }
   });
 
   it("a stalled first sweep does not flag never-observed repositories as possibly stale", () => {
