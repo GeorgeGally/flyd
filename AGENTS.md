@@ -248,13 +248,12 @@ Do not add a separate invocation deadline task. A prior 10-second deadline later
 
 ### AugmentPanel
 
-- Interactive `choice`/`control` cards accept mouse events; non-interactive explanation/annotation cards click through.
-- Non-interactive cards omit the close button because `ignoresMouseEvents=true` makes the whole window event-transparent.
+- All cards accept mouse events so the answer text can be selected and copied; interactive `choice`/`control` cards additionally have draggable backgrounds and option buttons.
+- Every card shows the ✕ close button; Escape also dismisses. There is no click-to-dismiss or auto-dismiss timer — a card stays until the captain dismisses it or chooses an option.
 - Interactive cards may be dragged by their background.
 - Clamp card layout to `screen.visibleFrame`.
 - Multiple augmentations require separate `AugmentPanel` instances; reusing one silently drops previous cards because `.show()` begins with `dismiss()`.
-- Escape and click-outside dismiss cards.
-- Auto-dismiss prevents orphaned cards.
+- A card stays on screen until dismissed by ✕, Escape, or an option choice — it never auto-dismisses and no click outside destroys it, so the captain can read and copy the answer at leisure.
 
 ### Resolution routing
 
@@ -280,3 +279,10 @@ Do not run `xcodebuild` directly from Terminal for normal testing; it can invali
 - Launching the raw adapter binary directly from Terminal can make macOS attribute TCC checks to the wrong responsible process; test with `make run`.
 - The TypeScript baseline currently has unrelated pre-existing type errors in older memory/graph tests/files. Do not attribute those to new evidence code unless an error points into `cli/src/evidence/`.
 - Rails CI/schema failures are legacy noise and must not drive active Flyd architecture decisions.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

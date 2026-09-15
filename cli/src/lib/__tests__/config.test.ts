@@ -72,4 +72,64 @@ describe("Flyd directory configuration", () => {
       providerIdentity: "models.example.test/gpt-4.6",
     });
   });
+
+  it("routes a bare model with FLYD_PROVIDER=opencode-go to the Go endpoint and the OpenCode key", async () => {
+    vi.stubEnv("FLYD_MODEL", "deepseek-v4-flash");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
+    vi.stubEnv("FLYD_PROVIDER", "opencode-go");
+    vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
+    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(config.resolveModelConnection()).toEqual({
+      model: "deepseek-v4-flash",
+      apiKey: "opencode-key",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      providerIdentity: "opencode.ai/deepseek-v4-flash",
+    });
+  });
+
+  it("routes a model carrying the opencode-go/ prefix the same way", async () => {
+    vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4-flash");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
+    vi.stubEnv("FLYD_PROVIDER", "opencode-go");
+    vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
+    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(config.resolveModelConnection()).toEqual({
+      model: "opencode-go/deepseek-v4-flash",
+      apiKey: "opencode-key",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      providerIdentity: "opencode.ai/deepseek-v4-flash",
+    });
+  });
+
+  it("names the missing key when the configured provider has none", async () => {
+    vi.stubEnv("FLYD_MODEL", "deepseek-v4-flash");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
+    vi.stubEnv("FLYD_PROVIDER", "opencode-go");
+    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(() => config.resolveModelConnection()).toThrow(/OPENCODE_API_KEY/);
+  });
+
+  it("fails loudly for an unsupported provider instead of reaching for Anthropic", async () => {
+    vi.stubEnv("FLYD_MODEL", "some-model");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
+    vi.stubEnv("FLYD_PROVIDER", "google");
+    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(() => config.resolveModelConnection()).toThrow(/not supported/);
+  });
 });

@@ -132,21 +132,37 @@ export function defaultChatModel(): string {
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
-  const opencode = opencodeProviderFor(model);
+  const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
+  const opencode = opencodeProviderFor(model, provider);
+  const useOpenAI = provider === "openai" || isOpenAIModel(model);
+  const useAnthropic = !opencode && !useOpenAI && (provider === "anthropic" || !provider);
+  if (!opencode && !useOpenAI && !useAnthropic) {
+    throw new Error(
+      `Flyd provider "${provider}" is not supported for chat model ${model}. Supported providers: openai, anthropic, opencode, opencode-go`,
+    );
+  }
+
   const apiKey = canonicalKey || (opencode
     ? getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim()
-    : isOpenAIModel(model)
+    : useOpenAI
       ? getKey("OPENAI_API_KEY")?.trim()
       : getKey("ANTHROPIC_API_KEY")?.trim());
   if (!apiKey) {
-    throw new Error(`No API key is configured for Flyd model ${model}`);
+    const keyName = opencode
+      ? "OPENCODE_API_KEY"
+      : useOpenAI
+        ? "OPENAI_API_KEY"
+        : "ANTHROPIC_API_KEY";
+    throw new Error(
+      `No API key is configured for Flyd model ${model} (provider ${opencode ?? (useOpenAI ? "openai" : "anthropic")}): set FLYD_MODEL_API_KEY or ${keyName}`,
+    );
   }
 
   const baseURL = canonicalBaseURL || (opencode ? opencodeEndpoint(opencode) : undefined);
   const providerHost = baseURL
     ? new URL(baseURL).host
     : opencode ? "opencode.ai"
-      : isOpenAIModel(model) ? "api.openai.com" : "api.anthropic.com";
+      : useOpenAI ? "api.openai.com" : "api.anthropic.com";
   return {
     model,
     apiKey,
@@ -162,16 +178,19 @@ export function zodiacSign(): string | null {
 export function hasApiKey(model?: string): boolean {
   const m = model ?? defaultModel();
   if (getKey("FLYD_MODEL_API_KEY")) return true;
-  if (opencodeProviderFor(m)) {
+  const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
+  if (opencodeProviderFor(m, provider)) {
     return Boolean(getKey("OPENCODE_API_KEY") || getKey("OPENCODE_API"));
   }
-  if (isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
-  return !!getKey("ANTHROPIC_API_KEY");
+  if (provider === "openai" || isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
+  if (provider === "anthropic" || !provider) return !!getKey("ANTHROPIC_API_KEY");
+  return false;
 }
 
 /** True when the model is served over an OpenAI-compatible chat API. */
 export function usesOpenAITransport(model: string): boolean {
-  return isOpenAIModel(model) || opencodeProviderFor(model) !== null;
+  const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
+  return isOpenAIModel(model) || opencodeProviderFor(model, provider) !== null || provider === "openai";
 }
 
 export function isOpenAIModel(model: string): boolean {
