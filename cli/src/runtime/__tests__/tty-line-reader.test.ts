@@ -232,4 +232,82 @@ describe("feedLineReader / bracketed paste", () => {
     expect(result.state.cursor).toBe(11);
     expect(result.echo).toBe("\x1b[5C");
   });
+
+  it("deletes the word before the cursor with Option+Backspace", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "one two three");
+    state = result.state;
+
+    result = feedLineReader(state, "\x1b\x7f");
+    expect(result.state.buffer).toBe("one two ");
+    expect(result.state.cursor).toBe(8);
+    expect(result.echo).toBe("\x1b[5D\x1b[0K");
+
+    state = result.state;
+    result = feedLineReader(state, "four");
+    expect(result.state.buffer).toBe("one two four");
+    expect(result.state.cursor).toBe(12);
+  });
+
+  it("deletes the word before the cursor with Ctrl+W", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "alpha beta");
+    state = result.state;
+    result = feedLineReader(state, "\x17");
+    expect(result.state.buffer).toBe("alpha ");
+    expect(result.state.cursor).toBe(6);
+  });
+
+  it("deletes the word after the cursor with Option+Forward Delete", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "alpha beta");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[H");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[3;3~");
+    expect(result.state.buffer).toBe("beta");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("\x1b[0Kbeta\x1b[4D");
+  });
+
+  it("moves to the start and end of the line with Ctrl+A and Ctrl+E", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "abc");
+    state = result.state;
+
+    result = feedLineReader(state, "\x01");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("\x1b[3D");
+
+    state = result.state;
+    result = feedLineReader(state, "\x05");
+    expect(result.state.cursor).toBe(3);
+    expect(result.echo).toBe("\x1b[3C");
+  });
+
+  it("clears from the start of the line to the cursor with Ctrl+U", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "abc");
+    state = result.state;
+    result = feedLineReader(state, "\x1b[D");
+    state = result.state;
+    result = feedLineReader(state, "\x15");
+    expect(result.state.buffer).toBe("c");
+    expect(result.state.cursor).toBe(0);
+    expect(result.echo).toBe("\x1b[2D\x1b[0Kc\x1b[1D");
+  });
+
+  it("lands a mid-sentence insert where the caret is after a word delete", () => {
+    let state = createLineReaderState();
+    let result = feedLineReader(state, "one two three");
+    state = result.state;
+    result = feedLineReader(state, "\x1b\x7f\x1b\x7f");
+    state = result.state;
+    expect(state.buffer).toBe("one ");
+    expect(state.cursor).toBe(4);
+
+    result = feedLineReader(state, "X");
+    expect(result.state.buffer).toBe("one X");
+    expect(result.state.cursor).toBe(5);
+  });
 });

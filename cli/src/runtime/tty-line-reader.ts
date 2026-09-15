@@ -140,6 +140,33 @@ export function feedLineReader(
       i += 1;
       continue;
     }
+    // Ctrl+A / Ctrl+E move to the start / end of the line.
+    if (ch === "\x01" || ch === "\x05") {
+      const target = ch === "\x01" ? 0 : buffer.length;
+      if (target < cursor) echo += `\x1b[${cursor - target}D`;
+      if (target > cursor) echo += `\x1b[${target - cursor}C`;
+      cursor = target;
+      i += 1;
+      continue;
+    }
+    // Ctrl+U deletes from the start of the line to the cursor.
+    if (ch === "\x15") {
+      const edit = eraseBefore(buffer, cursor, 0);
+      buffer = edit.buffer;
+      cursor = edit.cursor;
+      echo += edit.echo;
+      i += 1;
+      continue;
+    }
+    // Ctrl+W deletes the word before the cursor, like Option+Backspace.
+    if (ch === "\x17") {
+      const edit = eraseBefore(buffer, cursor, wordLeft(buffer, cursor));
+      buffer = edit.buffer;
+      cursor = edit.cursor;
+      echo += edit.echo;
+      i += 1;
+      continue;
+    }
     if (ch === "\x1b") {
       const rest = input.slice(i);
       if (rest === "\x1b" || rest === "\x1b[") {
@@ -188,11 +215,9 @@ export function feedLineReader(
       }
       // Forward Delete removes the char at the cursor.
       if (rest.startsWith("\x1b[3~")) {
-        if (cursor < buffer.length) {
-          buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
-          const tail = buffer.slice(cursor);
-          echo += tail ? `\x1b[0K${tail}\x1b[${tail.length}D` : "\x1b[0K";
-        }
+        const edit = eraseAfter(buffer, cursor, cursor + 1);
+        buffer = edit.buffer;
+        echo += edit.echo;
         i += 4;
         continue;
       }
@@ -228,6 +253,24 @@ export function feedLineReader(
         cursor = target;
         echo += `\x1b[${k}C`;
         i += 2;
+        continue;
+      }
+      // Option+Backspace arrives as ESC DEL: delete the word before the cursor.
+      if (rest.startsWith("\x1b\x7f") || rest.startsWith("\x1b\x08")) {
+        const edit = eraseBefore(buffer, cursor, wordLeft(buffer, cursor));
+        buffer = edit.buffer;
+        cursor = edit.cursor;
+        echo += edit.echo;
+        i += 2;
+        continue;
+      }
+      // Option+Forward Delete deletes the word after the cursor.
+      if (rest.startsWith("\x1b[3;3~")) {
+        const edit = eraseAfter(buffer, cursor, wordRight(buffer, cursor));
+        buffer = edit.buffer;
+        cursor = edit.cursor;
+        echo += edit.echo;
+        i += 6;
         continue;
       }
       // Home / End jump to the start / end of the line.
@@ -276,6 +319,30 @@ export function feedLineReader(
 
 function insertAt(str: string, index: number, ins: string): string {
   return str.slice(0, index) + ins + str.slice(index);
+}
+
+/**
+ * Delete `buffer[start..cursor)` and return the echo that repaints the line:
+ * walk left, erase to end of line, rewrite the surviving tail, step back over it.
+ */
+function eraseBefore(buffer: string, cursor: number, target: number): { buffer: string; cursor: number; echo: string } {
+  if (target >= cursor) return { buffer, cursor, echo: "" };
+  const next = buffer.slice(0, target) + buffer.slice(cursor);
+  const tail = next.slice(target);
+  return {
+    buffer: next,
+    cursor: target,
+    echo: `\x1b[${cursor - target}D\x1b[0K${tail}${tail ? `\x1b[${tail.length}D` : ""}`,
+  };
+}
+
+/** Delete `buffer[cursor..target)` and repaint from the cursor. */
+function eraseAfter(buffer: string, cursor: number, target: number): { buffer: string; cursor: number; echo: string } {
+  const end = Math.min(target, buffer.length);
+  if (end <= cursor) return { buffer, cursor, echo: "" };
+  const next = buffer.slice(0, cursor) + buffer.slice(end);
+  const tail = next.slice(cursor);
+  return { buffer: next, cursor, echo: `\x1b[0K${tail}${tail ? `\x1b[${tail.length}D` : ""}` };
 }
 
 function wordLeft(buffer: string, cursor: number): number {
