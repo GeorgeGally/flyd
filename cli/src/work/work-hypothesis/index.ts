@@ -28,6 +28,7 @@ export {
 export { derivePresentInsights, formatPresentModelText, isConcreteMove } from "./insights.js";
 export {
   dueStatus,
+  isExpired,
   isOverdue,
   formatDaySpoken,
   formatDueLabel,

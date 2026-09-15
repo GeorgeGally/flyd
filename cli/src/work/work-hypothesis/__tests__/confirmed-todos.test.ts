@@ -299,13 +299,16 @@ describe("confirmed todos", () => {
     expect(parseDueDate("by 2 January", new Date(2026, 11, 30, 12, 0, 0, 0))).toBe("2027-01-02");
   });
 
-  it("marks an overdue item in the spoken list", () => {
-    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-05");
+  it("marks an overdue item in the spoken list, and an expired one separately", () => {
+    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-13");
+    handleConfirmedTodoUtterance("- Chase the printer 2026-09-05");
     handleConfirmedTodoUtterance("- Add DIR to portfolio");
 
     const list = formatTodoList(listOpenConfirmedTodos(), new Date(2026, 8, 15, 12, 0, 0, 0));
-    expect(list).toContain("Get visitors to GNM event (due 5 Sep, 10 days overdue)");
-    expect(list).toContain("2. Add DIR to portfolio");
+    expect(list).toContain("Get visitors to GNM event (due 13 Sep, 2 days overdue)");
+    expect(list).toContain("Chase the printer (expired — was due 5 Sep)");
+    expect(list).not.toMatch(/Chase the printer \(due 5 Sep, /);
+    expect(list).toContain("Add DIR to portfolio");
     expect(list).not.toContain("Add DIR to portfolio (");
   });
 });

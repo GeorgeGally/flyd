@@ -50,6 +50,7 @@ const COMPLETION_STOPWORDS = new Set([
 const COMPLETE_PATTERNS = [
   /^(?:i\s+(?:already\s+)?(?:said|told\s+you)(?:\s+that)?\s+)?(.+?)\s+(?:is|are)\s+(?:complete|done|finished)\.?$/i,
   /^(?:mark\s+)?(.+?)\s+as\s+(?:complete|done|finished)\.?$/i,
+  /^(?:close|drop|cancel|clear)\s+(?:off\s+)?(?:the\s+)?(.+)$/i,
   /^completed?\s+(.+)$/i,
 ];
 
@@ -283,10 +284,13 @@ export function formatTodoList(todos: ConfirmedTodo[], now: Date = new Date()): 
   return `Confirmed to-dos:\n${lines.join("\n")}`;
 }
 
-/** "(due 20 Sep)", "(due today)" or "(due 5 Sep, 10 days overdue)". */
+/** "(due 20 Sep)", "(due today)" or "(expired — was due 5 Sep)". */
 function dueSuffix(dueAt: string | undefined, now: Date = new Date()): string {
   if (!dueAt) return "";
   const status = dueStatus(dueAt, now);
+  if (status?.state === "expired") {
+    return ` (expired — was due ${formatDueLabel(dueAt, now)})`;
+  }
   if (status?.state === "overdue") {
     return ` (due ${formatDueLabel(dueAt, now)}, ${overdueDaysPhrase(status.daysPastDue)})`;
   }

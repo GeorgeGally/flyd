@@ -4,6 +4,7 @@ import {
   dueStatus,
   formatDueNote,
   formatDueSpoken,
+  isExpired,
   overdueDaysPhrase,
   todayLine,
 } from "./due-dates.js";
@@ -155,7 +156,9 @@ export function derivePresentInsights(
   ]).filter((n) => !workstreams.some((w) => w.toLowerCase() === n.toLowerCase()));
 
   const todoRows = openTodoRows();
-  const nextRow = todoRows[0];
+  // Expired dates never lead: the window they belonged to has closed, so the
+  // earliest open item that is still live is the one worth naming.
+  const nextRow = todoRows.find((r) => !isExpired(r.dueAt, now));
   const nextTodo = nextRow ? displayNameForStream(nextRow.description) : undefined;
   let nextLeverage: string | undefined;
   if (nextTodo && nextRow?.dueAt) {
@@ -213,7 +216,7 @@ export function formatPresentModelText(
   if (stalled.length === 1) parts.push(`${stalled[0]} still hasn't moved.`);
   else if (stalled.length > 1) parts.push(`${joinNames(stalled)} still haven't moved.`);
 
-  if (today && insights.nextDueAt) {
+  if (today && insights.nextDueAt && !isExpired(insights.nextDueAt, now)) {
     parts.push(formatCommitmentLine(today, insights.nextDueAt, now));
   } else if (today) {
     parts.push(`Next: ${today}.`);

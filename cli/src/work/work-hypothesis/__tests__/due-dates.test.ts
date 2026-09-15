@@ -4,6 +4,7 @@ import {
   formatDueLabel,
   formatDueNote,
   formatDueSpoken,
+  isExpired,
   isOverdue,
   overdueDaysPhrase,
   resolveDueYear,
@@ -15,13 +16,21 @@ function localNoon(year: number, monthIndex: number, day: number): Date {
 }
 
 describe("due dates", () => {
-  it("reads a passed date as overdue with the day count", () => {
+  it("chases a just-missed date as overdue with the day count", () => {
     const now = localNoon(2026, 8, 15);
-    expect(dueStatus("2026-09-05", now)).toEqual({ state: "overdue", daysPastDue: 10 });
-    expect(isOverdue("2026-09-05", now)).toBe(true);
+    expect(dueStatus("2026-09-13", now)).toEqual({ state: "overdue", daysPastDue: 2 });
+    expect(isOverdue("2026-09-13", now)).toBe(true);
     expect(overdueDaysPhrase(10)).toBe("10 days overdue");
     expect(overdueDaysPhrase(1)).toBe("1 day overdue");
-    expect(formatDueNote("2026-09-05", now)).toBe("was due 5 September, 10 days overdue");
+    expect(formatDueNote("2026-09-13", now)).toBe("was due 13 September, 2 days overdue");
+  });
+
+  it("expires a date that passed long ago instead of counting it overdue forever", () => {
+    const now = localNoon(2026, 8, 15);
+    expect(dueStatus("2026-09-05", now)).toEqual({ state: "expired", daysPastDue: 10 });
+    expect(isExpired("2026-09-05", now)).toBe(true);
+    expect(isOverdue("2026-09-05", now)).toBe(false);
+    expect(formatDueNote("2026-09-05", now)).toBe("was due 5 September, and that date has passed");
   });
 
   it("separates today from upcoming", () => {

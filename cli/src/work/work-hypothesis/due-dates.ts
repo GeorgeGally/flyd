@@ -7,7 +7,7 @@
  * deadline as if it were still ahead.
  */
 
-export type DueState = "upcoming" | "today" | "overdue";
+export type DueState = "upcoming" | "today" | "overdue" | "expired";
 
 export interface DueStatus {
   state: DueState;
@@ -19,6 +19,16 @@ const DAY_MS = 1000 * 60 * 60 * 24;
 
 /** Days of grace before a passed date counts as overdue. */
 const OVERDUE_GRACE_DAYS = 0;
+
+/**
+ * Days a missed deadline is still chased, after which it expires.
+ *
+ * A date that passed long ago is usually not work any more — an event that ran,
+ * a window that closed. Reporting it as "N days overdue" forever treats a closed
+ * window as an open commitment, so past this point the item is expired: it stops
+ * leading the brief and stops carrying an overdue count.
+ */
+const OVERDUE_CHASE_DAYS = 3;
 
 /** Roll a passed date into next year only when the next occurrence is this near. */
 const YEAR_ROLL_WINDOW_DAYS = 62;
@@ -63,6 +73,7 @@ export function dueStatus(
   if (!parts) return undefined;
   const due = Date.UTC(parts.year, parts.month - 1, parts.day);
   const daysPastDue = Math.round((localDayStart(now) - due) / DAY_MS);
+  if (daysPastDue > OVERDUE_CHASE_DAYS) return { state: "expired", daysPastDue };
   if (daysPastDue > OVERDUE_GRACE_DAYS) return { state: "overdue", daysPastDue };
   if (daysPastDue === 0) return { state: "today", daysPastDue: 0 };
   return { state: "upcoming", daysPastDue };
@@ -70,6 +81,11 @@ export function dueStatus(
 
 export function isOverdue(isoDate: string | undefined, now: Date = new Date()): boolean {
   return dueStatus(isoDate, now)?.state === "overdue";
+}
+
+/** A date that passed too long ago to still be a live commitment. */
+export function isExpired(isoDate: string | undefined, now: Date = new Date()): boolean {
+  return dueStatus(isoDate, now)?.state === "expired";
 }
 
 export function overdueDaysPhrase(daysPastDue: number): string {
@@ -119,6 +135,9 @@ export function formatDueNote(isoDate: string, now: Date = new Date()): string {
   if (!status) return `due ${isoDate}`;
   if (status.state === "overdue") {
     return `was due ${formatDueSpoken(isoDate, now)}, ${overdueDaysPhrase(status.daysPastDue)}`;
+  }
+  if (status.state === "expired") {
+    return `was due ${formatDueSpoken(isoDate, now)}, and that date has passed`;
   }
   if (status.state === "today") return "due today";
   return `due ${formatDueSpoken(isoDate, now)}`;
