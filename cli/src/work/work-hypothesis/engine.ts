@@ -29,6 +29,10 @@ import type { CandidateRepoInput, WorkHypothesis, WorkThread } from "./types.js"
 
 const MAX_PRIMARY = 3;
 
+// ponytail: mirrors the git-observer latch for the per-repo commit reads here;
+// a stalled sweep must never persist a degraded rebuild as a fresh belief
+let liveRepoReadsStalled = false;
+
 export interface BuildPresentModelOptions {
   foregroundRoot?: string;
   coreCwd?: string;
@@ -54,6 +58,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
   let readsStalled = repositoryReadsAreStalled();
+  liveRepoReadsStalled = readsStalled;
 
   for (const repo of repos) {
     let lastCommitAt: string | undefined = repo.lastActivityAt;
@@ -67,7 +72,10 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
         latestSubject = commits[0]?.subject;
       } catch (error) {
         lastCommitAt = repo.lastActivityAt;
-        if (isGitReadTimeout(error)) readsStalled = true;
+        if (isGitReadTimeout(error)) {
+          readsStalled = true;
+          liveRepoReadsStalled = true;
+        }
       }
       if (!readsStalled) {
         gitCommonDir = repositoryCommonDir(repo.root);
@@ -325,6 +333,12 @@ export async function buildPresentModelBelief(
     generatedAt: now.toISOString(),
     fromCache: false,
   };
+
+  if (repositoryReadsAreStalled() || liveRepoReadsStalled) {
+    // ponytail: stalled sweep — never persist a degraded rebuild as a fresh
+    // belief; the last fully-grounded belief (original revisedAt) stays authoritative
+    return prior ?? belief;
+  }
 
   return writePresentModel(belief);
 }

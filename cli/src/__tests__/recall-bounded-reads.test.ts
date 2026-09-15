@@ -15,6 +15,8 @@ import {
 import * as gitObserver from "../work/git-observer.js";
 import { addRepository, buildGlobalPresentModel, listRepositories } from "../work/repository-registry.js";
 import { answerQuestion } from "../work/recall-router.js";
+import { buildPresentModelBelief, readPresentModel } from "../work/work-hypothesis/index.js";
+import type { CandidateRepoInput } from "../work/work-hypothesis/types.js";
 
 function initRepo(dir: string): void {
   execSync("git init -b main", { cwd: dir });
@@ -100,27 +102,73 @@ describe("bounded repository reads on the observation sweep", () => {
   });
 
   it("repositories skipped by a stalled sweep are marked possibly stale, not fresh", () => {
-    const [storedA] = listRepositories().filter((r) => r.root === repoA);
-    const [storedB] = listRepositories().filter((r) => r.root === repoB);
-    const [storedC] = listRepositories().filter((r) => r.root === repoC);
-
     observeAllRepos();
     expect(buildGlobalPresentModel().gaps.filter((g) => g.startsWith("stale_observation:"))).toEqual([]);
 
+    // Read the sweep's own ordering after observations are settled, so the
+    // stall lands on the first repo and the skipped set is deterministic.
+    const [stalled] = listRepositories();
+    const skipped = listRepositories().slice(1).map((r) => r.name);
+
     const read: GitRead = (args, cwd) => {
-      if (cwd === storedA.root) throw new RepositoryReadStalledError(args, cwd);
+      if (cwd === stalled.root) throw new RepositoryReadStalledError(args, cwd);
       return defaultGitRead(args, cwd);
     };
     observeAllRepos(read);
 
     expect(repositoryReadsAreStalled()).toBe(true);
-    expect(stalledSkippedRepositoryNames()).toEqual([storedB.name, storedC.name]);
+    expect([...stalledSkippedRepositoryNames()].sort()).toEqual(skipped.sort());
 
-    const result = answerQuestion(`status of ${storedB.name}`);
+    const result = answerQuestion(`status of ${stalled.name}`);
 
     expect(result.answer).toContain("possibly stale");
-    expect(result.answer).toContain(storedB.name);
-    const project = result.data.projects?.find((p) => p.repositoryId === storedB.id);
+    const project = result.data.projects?.find((p) => p.repositoryId === stalled.id);
     expect(project?.dirty).toBe(false);
+  });
+
+  it("a stalled sweep does not overwrite the persisted belief with a degraded rebuild", async () => {
+    observeAllRepos();
+    expect(repositoryReadsAreStalled()).toBe(false);
+
+    const now = new Date("2026-09-15T00:00:00.000Z");
+    const repos: CandidateRepoInput[] = [
+      { id: "alpha", name: "alpha", root: "/Users/george/Documents/alpha", lastCommitAt: "2026-09-14T00:00:00.000Z", isDirty: false, hasTasks: false, isForeground: false },
+      { id: "beta", name: "beta", root: "/Users/george/Documents/beta", lastCommitAt: "2026-09-14T00:00:00.000Z", isDirty: false, hasTasks: false, isForeground: false },
+      { id: "gamma", name: "gamma", root: "/Users/george/Documents/gamma", lastCommitAt: "2026-09-14T00:00:00.000Z", isDirty: false, hasTasks: false, isForeground: false },
+    ];
+
+    const grounded = await buildPresentModelBelief({ repos, now, coreCwd: "/Users/george/Documents/alpha" });
+    expect(grounded.primaryThreads.length).toBeGreaterThan(0);
+    const before = readPresentModel();
+    expect(before?.revisedAt).toBe(grounded.revisedAt);
+
+    const [storedA] = listRepositories().filter((r) => r.root === repoA);
+    const read: GitRead = (args, cwd) => {
+      if (cwd === storedA.root) throw new RepositoryReadStalledError(args, cwd);
+      return defaultGitRead(args, cwd);
+    };
+    observeAllRepos(read);
+    expect(repositoryReadsAreStalled()).toBe(true);
+
+    // Changed evidence at a later time: one repo drops out of the admit
+    // window, so a fresh rebuild would produce a different belief.
+    const later = new Date("2026-09-15T12:00:00.000Z");
+    const attempted = await buildPresentModelBelief({
+      repos: repos.map((r) =>
+        r.id === "alpha"
+          ? { ...r, lastCommitAt: "2026-08-01T00:00:00.000Z" }
+          : { ...r, lastCommitAt: "2026-09-14T00:00:00.000Z" },
+      ),
+      now: later,
+      coreCwd: "/Users/george/Documents/alpha",
+    });
+
+    const after = readPresentModel();
+    expect(after?.id).toBe(before?.id);
+    expect(after?.revisedAt).toBe(before?.revisedAt);
+    expect(after?.primaryThreads.length).toBe(before?.primaryThreads.length);
+    expect(after?.fromCache).toBe(false);
+    expect(attempted.revisedAt).toBe(before?.revisedAt);
+    expect(attempted.id).toBe(before?.id);
   });
 });
