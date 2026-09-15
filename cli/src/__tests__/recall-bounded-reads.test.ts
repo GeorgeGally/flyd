@@ -172,6 +172,72 @@ describe("bounded repository reads on the observation sweep", () => {
     expect(attempted.id).toBe(before?.id);
   });
 
+  it("a slow-but-healthy repository does not freeze the belief: clean reads still update it while stalled and skipped repos keep their previous observation", async () => {
+    observeAllRepos();
+    expect(repositoryReadsAreStalled()).toBe(false);
+
+    const t0 = "2026-09-14T00:00:00.000Z";
+    const groundedAt = new Date("2026-09-14T12:00:00.000Z");
+    const later = new Date("2026-09-15T12:00:00.000Z");
+    const otherCwd = "/Users/george/Documents/other";
+
+    const grounded: CandidateRepoInput[] = [
+      { id: "alpha", name: "alpha", root: "/Users/george/Documents/alpha", lastCommitAt: t0, latestSubject: "Alpha grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
+      { id: "beta", name: "beta", root: "/Users/george/Documents/beta", lastCommitAt: t0, latestSubject: "Beta grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
+      { id: "gamma", name: "gamma", root: "/Users/george/Documents/gamma", lastCommitAt: t0, latestSubject: "Gamma grounded", observedAt: t0, isDirty: false, hasTasks: false, isForeground: false },
+    ];
+    await buildPresentModelBelief({ repos: grounded, now: groundedAt, coreCwd: otherCwd });
+    const before = readPresentModel();
+    expect(before?.revisedAt).toBe(groundedAt.toISOString());
+
+    // A sweep stalls on the slow-but-healthy repository: alpha read cleanly,
+    // beta stalled, gamma was skipped.
+    const [stalledRepo] = listRepositories();
+    const read: GitRead = (args, cwd) => {
+      if (cwd === stalledRepo.root) throw new RepositoryReadStalledError(args, cwd);
+      return defaultGitRead(args, cwd);
+    };
+    observeAllRepos(read);
+    expect(repositoryReadsAreStalled()).toBe(true);
+
+    const swept: CandidateRepoInput[] = [
+      { ...grounded[0], lastCommitAt: "2026-09-15T08:00:00.000Z", latestSubject: "Alpha new work", observedAt: later.toISOString() },
+      { ...grounded[1], latestSubject: undefined },
+      { ...grounded[2], latestSubject: undefined },
+    ];
+
+    const updated = await buildPresentModelBelief({ repos: swept, now: later, coreCwd: otherCwd });
+    const after = readPresentModel();
+
+    // The belief is not frozen: it was rewritten from the clean read.
+    expect(after?.id).toBe(before?.id);
+    expect(after?.revisedAt).toBe(later.toISOString());
+    expect(updated.revisedAt).toBe(later.toISOString());
+
+    const threads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])];
+    const alpha = threads.find((t) => t.repositoryId === "alpha");
+    const beta = threads.find((t) => t.repositoryId === "beta");
+    const gamma = threads.find((t) => t.repositoryId === "gamma");
+
+    expect(alpha?.lastCommitAt).toBe("2026-09-15T08:00:00.000Z");
+    expect(alpha?.latestSubject).toBe("Alpha new work");
+    expect(alpha?.observedAt).toBe(later.toISOString());
+
+    // Slow and skipped repositories keep their previous fully-grounded values
+    // and their previous per-observation revision time.
+    expect(beta?.lastCommitAt).toBe(t0);
+    expect(beta?.latestSubject).toBe("Beta grounded");
+    expect(beta?.observedAt).toBe(t0);
+    expect(gamma?.lastCommitAt).toBe(t0);
+    expect(gamma?.latestSubject).toBe("Gamma grounded");
+    expect(gamma?.observedAt).toBe(t0);
+
+    // The skipped repository stays labelled possibly out of date through the
+    // existing staleness-note channel.
+    const note = answerQuestion(`status of ${stalledRepo.name}`);
+    expect(note.answer).toContain("possibly stale");
+  });
+
   it("a stalled first sweep does not flag never-observed repositories as possibly stale", () => {
     expect(buildGlobalPresentModel().gaps).toEqual([]);
 

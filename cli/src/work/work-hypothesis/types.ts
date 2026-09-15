@@ -21,6 +21,8 @@ export interface WorkThread {
   repositoryId?: string;
   lastCommitAt?: string;
   latestSubject?: string;
+  /** When this thread's repository observation was last confirmed fresh. */
+  observedAt?: string;
   isDirty: boolean;
   hasTasks: boolean;
   isForeground: boolean;
@@ -109,6 +111,8 @@ export interface CandidateRepoInput {
   isForeground: boolean;
   /** Common git dir for worktree dedupe. */
   gitCommonDir?: string;
+  /** When this repo's git state was last read fresh (this call for clean reads). */
+  observedAt?: string;
 }
 
 /** Days: dirty support only when last commit is within this window. */

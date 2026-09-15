@@ -95,6 +95,7 @@ export function assembleCandidates(options: AssembleCandidatesOptions): WorkThre
       repositoryId: repo.id,
       lastCommitAt: repo.lastCommitAt,
       latestSubject: repo.latestSubject,
+      observedAt: repo.observedAt,
       isDirty: repo.isDirty,
       hasTasks: repo.hasTasks,
       isForeground: repo.isForeground,

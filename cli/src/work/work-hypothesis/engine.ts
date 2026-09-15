@@ -39,7 +39,7 @@ export interface BuildPresentModelOptions {
   skipDiscovery?: boolean;
 }
 
-async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: CandidateRepoInput[]; readsStalled: boolean }> {
+async function loadLiveRepos(foregroundRoot?: string, now = new Date()): Promise<{ repos: CandidateRepoInput[]; readsStalled: boolean }> {
   purgeEphemeralRepositories(isEphemeralRepoRoot);
   try {
     registerDiscoveredRepos();
@@ -50,6 +50,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: Candidat
   const repos = listRepositories().filter(
     (r) => r.enabled && existsSync(r.root) && !isEphemeralRepoRoot(r.root, r.name),
   );
+  const nowIso = now.toISOString();
   const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
@@ -61,12 +62,14 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: Candidat
     let lastCommitAt: string | undefined = repo.lastActivityAt;
     let latestSubject: string | undefined;
     let gitCommonDir: string | undefined;
+    let readFresh = false;
 
     if (!readsStalled) {
       try {
         const commits = await recentRepositoryCommits(repo.root, 1);
         lastCommitAt = commits[0]?.committedAt;
         latestSubject = commits[0]?.subject;
+        readFresh = true;
       } catch (error) {
         lastCommitAt = repo.lastActivityAt;
         if (isGitReadTimeout(error)) {
@@ -78,6 +81,10 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: Candidat
       }
     }
 
+    // ponytail: a repo the sweep observed this call is fresh even when the
+    // per-repo commit read was skipped; stalled or skipped repos keep their
+    // last clean observation time so the belief never claims fresh data
+    const sweepFresh = repo.observedAt !== undefined && repo.observedAt >= nowIso;
     const repositorySnapshot = snapshotsById.get(repo.id);
     const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
 
@@ -92,6 +99,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: Candidat
       hasTasks: tasks.length > 0,
       isForeground: foreground ? resolve(repo.root) === foreground : false,
       gitCommonDir,
+      observedAt: readFresh || sweepFresh ? nowIso : repo.observedAt,
     });
   }
 
@@ -227,6 +235,28 @@ function confidenceFor(primary: WorkThread[]): "high" | "medium" | "low" {
   return "low";
 }
 
+function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | null, nowIso: string): CandidateRepoInput[] {
+  if (!prior) return repos;
+  const priorById = new Map<string, WorkThread>();
+  for (const t of [...prior.primaryThreads, ...prior.secondaryThreads]) {
+    const key = t.repositoryId ?? t.root;
+    if (!priorById.has(key)) priorById.set(key, t);
+  }
+  return repos.map((r) => {
+    if (r.observedAt === nowIso) return r;
+    const p = priorById.get(r.id) ?? priorById.get(r.root);
+    if (!p) return r;
+    // ponytail: stalled/skipped observations reuse the last fully-grounded
+    // values and keep their previous revision time; never claim fresh data
+    return {
+      ...r,
+      lastCommitAt: p.lastCommitAt ?? r.lastCommitAt,
+      latestSubject: p.latestSubject ?? r.latestSubject,
+      observedAt: p.observedAt ?? r.observedAt,
+    };
+  });
+}
+
 /**
  * Build and persist the Present Model (WorkHypothesis).
  * Integrity-only path is the spine; model narrative is optional enrichment.
@@ -235,6 +265,7 @@ export async function buildPresentModelBelief(
   options: BuildPresentModelOptions = {},
 ): Promise<WorkHypothesis> {
   const now = options.now ?? new Date();
+  const nowIso = now.toISOString();
   const demotions = activeDemotions();
   const promotions = activePromotions();
   const preferCoreHome =
@@ -245,10 +276,18 @@ export async function buildPresentModelBelief(
   // to the last sweep latch, which is the only signal available to them
   const loaded = options.repos
     ? { repos: options.repos, readsStalled: repositoryReadsAreStalled() }
-    : await loadLiveRepos(options.foregroundRoot);
+    : await loadLiveRepos(options.foregroundRoot, now);
   const repos = loaded.repos;
+  const prior = readPresentModel();
+  const anyFresh = repos.some((r) => r.observedAt === nowIso);
+
+  // ponytail: a stalled sweep only keeps the whole record when nothing read
+  // cleanly; otherwise clean reads land while stalled/skipped observations
+  // keep their previous fully-grounded values
+  if (loaded.readsStalled && prior && !anyFresh) return prior;
+  const inputs = loaded.readsStalled ? mergeStaleRepos(repos, prior, nowIso) : repos;
   const candidates = assembleCandidates({
-    repos,
+    repos: inputs,
     now,
     coreCwd: options.coreCwd ?? process.cwd(),
     demotions,
@@ -259,10 +298,9 @@ export async function buildPresentModelBelief(
     preferCoreHome,
     now,
     extraWorkstreams,
-    finishedProjects: finishedProjectNames(repos, [...primary, ...secondary], now),
+    finishedProjects: finishedProjectNames(inputs, [...primary, ...secondary], now),
   });
 
-  const prior = readPresentModel();
   const fp = evidenceFingerprint(candidates, demotions, promotions);
   const priorFp = prior
     ? evidenceFingerprint(
@@ -284,7 +322,7 @@ export async function buildPresentModelBelief(
       insights,
       fromCache: true,
       revisedAt: prior.revisedAt,
-      generatedAt: now.toISOString(),
+      generatedAt: nowIso,
     });
   }
 
@@ -328,16 +366,10 @@ export async function buildPresentModelBelief(
     evidenceRefs: primary.flatMap((t) => t.signals),
     demotions,
     insights,
-    revisedAt: now.toISOString(),
-    generatedAt: now.toISOString(),
+    revisedAt: nowIso,
+    generatedAt: nowIso,
     fromCache: false,
   };
-
-  if (loaded.readsStalled) {
-    // ponytail: stalled sweep — never persist a degraded rebuild as a fresh
-    // belief; the last fully-grounded belief (original revisedAt) stays authoritative
-    return prior ?? belief;
-  }
 
   return writePresentModel(belief);
 }
