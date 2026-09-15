@@ -10,9 +10,7 @@ final class AugmentPanel {
     private var contentLabel: NSTextField?
     private var optionButtons: [NSButton] = []
     private var feedbackButtons: [NSButton] = []
-    private var autoDismissTimer: Timer?
     private var localEventMonitor: Any?
-    private var clickMonitor: Any?
     private var feedbackStack: NSStackView?
     private var correctField: NSTextField?
     private var followUpField: NSTextField?
@@ -120,7 +118,7 @@ final class AugmentPanel {
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.isMovableByWindowBackground = isInteractive
-        panel.ignoresMouseEvents = !isInteractive
+        panel.ignoresMouseEvents = false
         panel.alphaValue = 0
 
         let contentView = panel.contentView!
@@ -197,23 +195,21 @@ final class AugmentPanel {
         eyebrow.frame = NSRect(x: contentInset, y: headerY, width: 100, height: 14)
         clipView.addSubview(eyebrow)
 
-        if isInteractive {
-            let closeButton = NSButton(frame: NSRect(x: panelWidth - 28, y: headerY, width: 14, height: 14))
-            closeButton.title = ""
-            closeButton.bezelStyle = .circular
-            closeButton.isBordered = false
-            closeButton.wantsLayer = true
-            closeButton.layer?.cornerRadius = 7
-            closeButton.layer?.backgroundColor = FlydPalette.paper.withAlphaComponent(0.10).cgColor
-            let closeAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 9, weight: .bold),
-                .foregroundColor: FlydPalette.paper.withAlphaComponent(0.6)
-            ]
-            closeButton.attributedTitle = NSAttributedString(string: "✕", attributes: closeAttr)
-            closeButton.target = self
-            closeButton.action = #selector(closeClicked)
-            clipView.addSubview(closeButton)
-        }
+        let closeButton = NSButton(frame: NSRect(x: panelWidth - 28, y: headerY, width: 14, height: 14))
+        closeButton.title = ""
+        closeButton.bezelStyle = .circular
+        closeButton.isBordered = false
+        closeButton.wantsLayer = true
+        closeButton.layer?.cornerRadius = 7
+        closeButton.layer?.backgroundColor = FlydPalette.paper.withAlphaComponent(0.10).cgColor
+        let closeAttr: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .bold),
+            .foregroundColor: FlydPalette.paper.withAlphaComponent(0.6)
+        ]
+        closeButton.attributedTitle = NSAttributedString(string: "✕", attributes: closeAttr)
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        clipView.addSubview(closeButton)
 
         let label = NSTextField(wrappingLabelWithString: "")
         let paragraphStyle = NSMutableParagraphStyle()
@@ -228,6 +224,8 @@ final class AugmentPanel {
         )
         label.backgroundColor = .clear
         label.isBordered = false
+        label.isSelectable = true
+        label.focusRingType = .none
         label.frame = NSRect(x: 0, y: 0, width: textWidth, height: contentLayout.naturalHeight)
         if contentLayout.isScrollable {
             let scrollView = NSScrollView(
@@ -275,14 +273,6 @@ final class AugmentPanel {
                 return nil
             }
             return event
-        }
-
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-            self?.dismiss()
-        }
-
-        autoDismissTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
-            self?.dismiss()
         }
 
         panel.orderFront(nil)
@@ -333,15 +323,9 @@ final class AugmentPanel {
     }
 
     func dismiss() {
-        autoDismissTimer?.invalidate()
-        autoDismissTimer = nil
         if let monitor = localEventMonitor {
             NSEvent.removeMonitor(monitor)
             localEventMonitor = nil
-        }
-        if clickMonitor != nil {
-            NSEvent.removeMonitor(clickMonitor! as Any)
-            clickMonitor = nil
         }
         panel?.orderOut(nil)
         panel = nil

@@ -248,13 +248,12 @@ Do not add a separate invocation deadline task. A prior 10-second deadline later
 
 ### AugmentPanel
 
-- Interactive `choice`/`control` cards accept mouse events; non-interactive explanation/annotation cards click through.
-- Non-interactive cards omit the close button because `ignoresMouseEvents=true` makes the whole window event-transparent.
+- All cards accept mouse events so the answer text can be selected and copied; interactive `choice`/`control` cards additionally have draggable backgrounds and option buttons.
+- Every card shows the ✕ close button; Escape also dismisses. There is no click-to-dismiss or auto-dismiss timer — a card stays until the captain dismisses it or chooses an option.
 - Interactive cards may be dragged by their background.
 - Clamp card layout to `screen.visibleFrame`.
 - Multiple augmentations require separate `AugmentPanel` instances; reusing one silently drops previous cards because `.show()` begins with `dismiss()`.
-- Escape and click-outside dismiss cards.
-- Auto-dismiss prevents orphaned cards.
+- A card stays on screen until dismissed by ✕, Escape, or an option choice — it never auto-dismisses and no click outside destroys it, so the captain can read and copy the answer at leisure.
 
 ### Resolution routing
 
