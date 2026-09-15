@@ -279,3 +279,10 @@ Do not run `xcodebuild` directly from Terminal for normal testing; it can invali
 - Launching the raw adapter binary directly from Terminal can make macOS attribute TCC checks to the wrong responsible process; test with `make run`.
 - The TypeScript baseline currently has unrelated pre-existing type errors in older memory/graph tests/files. Do not attribute those to new evidence code unless an error points into `cli/src/evidence/`.
 - Rails CI/schema failures are legacy noise and must not drive active Flyd architecture decisions.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
