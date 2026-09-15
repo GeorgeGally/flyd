@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "crypto";
 import { isAbsolute, relative, resolve } from "path";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { withTransaction } from "./database.js";
+import {
+  DEFAULT_DELIVERY_CONTRACT,
+  authorizesRuntimeIntegration,
+  parseDeliveryContract,
+  type DeliveryContract,
+} from "./delivery-contract.js";
 import { fiveWorkingDayWindowStart } from "./metrics.js";
 import type {
   ReleaseAcceptanceEvidence,
@@ -727,6 +733,10 @@ export class PostgresTaskStore {
       const task = await this.lockTask(client, taskKey);
       const plannedAssignmentKeys = Array.isArray(task.plan?.assignment_keys) ? task.plan.assignment_keys : [];
       if (input.result.status === "integrated") {
+        const delivery = parseDeliveryContract(task.context_snapshot?.delivery);
+        if (!authorizesRuntimeIntegration(delivery)) {
+          throw new Error("Task integration requires a delivery contract that authorizes runtime integration; refusing to guess how this task ships");
+        }
         const unverified = plannedAssignmentKeys.length > 0
           ? await client.query(`SELECT 1 FROM task_assignments
               WHERE agent_task_id = $1 AND assignment_key = ANY($2::varchar[])
@@ -853,7 +863,7 @@ export class PostgresTaskStore {
     });
   }
 
-  async createTask(input: { projectName: string; projectRoot: string; intendedOutcome: string; repository: RepositorySnapshot; idempotencyKey: string }): Promise<AgentTask> {
+  async createTask(input: { projectName: string; projectRoot: string; intendedOutcome: string; repository: RepositorySnapshot; idempotencyKey: string; delivery?: DeliveryContract }): Promise<AgentTask> {
     return withTransaction(this.pool, async (client) => {
       await this.lockIdempotency(client, input.idempotencyKey);
       const existing = await this.taskForIdempotency(client, input.idempotencyKey);
@@ -868,16 +878,16 @@ export class PostgresTaskStore {
           VALUES ($1, $2, NOW(), NOW()) RETURNING id`, [input.projectName, input.projectRoot]);
       const taskKey = randomUUID();
       const taskResult = await client.query(`INSERT INTO agent_tasks
-        (project_id, task_key, intended_outcome, repository_snapshot, started_at, created_at, updated_at)
-        VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW(), NOW()) RETURNING *`, [project.rows[0].id, taskKey, input.intendedOutcome, JSON.stringify({ head: input.repository.head, status_digest: input.repository.statusDigest })]);
-      await this.insertEvent(client, taskResult.rows[0].id, 0, "task.created", input.idempotencyKey, { intended_outcome: input.intendedOutcome });
+        (project_id, task_key, intended_outcome, repository_snapshot, context_snapshot, started_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NOW(), NOW(), NOW()) RETURNING *`, [project.rows[0].id, taskKey, input.intendedOutcome, JSON.stringify({ head: input.repository.head, status_digest: input.repository.statusDigest }), JSON.stringify({ delivery: input.delivery ?? DEFAULT_DELIVERY_CONTRACT })]);
+      await this.insertEvent(client, taskResult.rows[0].id, 0, "task.created", input.idempotencyKey, { intended_outcome: input.intendedOutcome, delivery: input.delivery ?? DEFAULT_DELIVERY_CONTRACT });
       return this.loadTask(client, taskKey);
     });
   }
 
   async recordOrientation(taskKey: string, expectedRevision: number, input: { contextSnapshot: Record<string, unknown>; repositorySnapshot: Record<string, unknown>; recommendedNextAction: string; idempotencyKey: string }): Promise<AgentTask> {
     return this.mutateTask(taskKey, expectedRevision, input.idempotencyKey, "task.oriented", async (client, row, revision) => {
-      await client.query(`UPDATE agent_tasks SET context_snapshot = $1::jsonb, repository_snapshot = $2::jsonb,
+      await client.query(`UPDATE agent_tasks SET context_snapshot = COALESCE(context_snapshot, '{}'::jsonb) || $1::jsonb, repository_snapshot = $2::jsonb,
         recommended_next_action = $3, revision = $4, updated_at = NOW() WHERE id = $5`,
       [JSON.stringify(input.contextSnapshot), JSON.stringify(input.repositorySnapshot), input.recommendedNextAction, revision, row.id]);
       return { recommended_next_action: input.recommendedNextAction };

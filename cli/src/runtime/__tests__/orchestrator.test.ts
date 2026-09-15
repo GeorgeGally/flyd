@@ -152,7 +152,7 @@ describe("orchestrateAssignments", () => {
     const task: AgentTask = {
       id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),
@@ -187,6 +187,134 @@ describe("orchestrateAssignments", () => {
     );
     expect(store.createWorker).not.toHaveBeenCalled();
     expect(neverRun.run).not.toHaveBeenCalled();
+  });
+
+  it("refuses to integrate a task with no delivery contract instead of guessing how it ships", async () => {
+    const repo = await repository();
+    const snapshot = await inspectRepository(repo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
+    roots.push(managedRoot);
+    const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
+    const store = {
+      updateAssignmentWorkspace: vi.fn(),
+      createWorker: vi.fn(),
+      transitionWorker: vi.fn(),
+      recordAssignmentVerification: vi.fn(async () => undefined),
+      queueWorkerCommand: vi.fn(),
+      completeWorkerCommand: vi.fn(),
+      recordTaskIntegration: vi.fn(),
+    };
+    const task: AgentTask = {
+      id: "1", taskKey: "task-no-delivery", projectId: "1", projectName: "test", projectRoot: repo.root,
+      status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
+      verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
+      completedAt: null, updatedAt: new Date().toISOString(),
+    };
+    const grant: TaskGrant = {
+      id: "2", grantKey: "grant-no-delivery", agentTaskId: "1", status: "approved", scopeDigest: "digest",
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
+      providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
+    };
+    const neverRun: WorkerAdapter = {
+      name: "codex", capabilities: ["implementation"],
+      detect: async () => ({ name: "codex", executable: "/bin/codex", version: "1", healthy: true, capabilities: ["implementation"] }),
+      buildArgs: () => [], parseEvent: () => null,
+      run: vi.fn(),
+    };
+
+    const result = await orchestrateAssignments({
+      task, grant, assignments, repository: snapshot, contextPath: "/tmp/context.md",
+      adapters: [neverRun], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
+    });
+
+    expect(result).toMatchObject({ status: "blocked", summary: expect.stringMatching(/no delivery contract/i) });
+    expect(store.createWorker).not.toHaveBeenCalled();
+    expect(neverRun.run).not.toHaveBeenCalled();
+    expect(store.recordTaskIntegration).not.toHaveBeenCalled();
+  });
+
+  it("tells the worker the exact verification commands the integrator will run", async () => {
+    const repo = await repository();
+    const snapshot = await inspectRepository(repo.root);
+    const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
+    roots.push(managedRoot);
+    const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
+    let handedAssignment = "";
+    const workers: WorkerSession[] = [];
+    const store = {
+      updateAssignmentWorkspace: vi.fn(async () => undefined),
+      createWorker: vi.fn(async (input: Record<string, unknown>) => {
+        const worker: WorkerSession = {
+          id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
+          status: "queued", adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
+          externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
+          output: null, exitStatus: null, startedAt: null, endedAt: null,
+          lastObservedAt: null, stopReason: null,
+        };
+        workers.push(worker);
+        return worker;
+      }),
+      transitionWorker: vi.fn(async (_key: string, update: Record<string, unknown>) => {
+        const worker = workers[0];
+        Object.assign(worker, { status: update.status });
+        return worker;
+      }),
+      recordAssignmentVerification: vi.fn(async () => undefined),
+      queueWorkerCommand: vi.fn(),
+      completeWorkerCommand: vi.fn(),
+      recordTaskIntegration: vi.fn(async () => undefined),
+    };
+    const capturing: WorkerAdapter = {
+      name: "codex",
+      capabilities: ["implementation"],
+      detect: async () => ({
+        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        capabilities: ["implementation"],
+      }),
+      buildArgs: (input) => {
+        handedAssignment = input.assignment;
+        return [];
+      },
+      parseEvent: () => null,
+      run: async (input) => {
+        await input.onStart?.(140);
+        await writeFile(join(input.cwd, "one.txt"), "instructed worker changed\n");
+        return { exitStatus: 0, externalSessionId: null, output: "done", error: "" };
+      },
+    };
+    const task: AgentTask = {
+      id: "1", taskKey: "task-instruction", projectId: "1", projectName: "test", projectRoot: repo.root,
+      status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
+      verificationCriteria: ["git diff --check"], plan: {},
+      contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
+      repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
+      verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
+      completedAt: null, updatedAt: new Date().toISOString(),
+    };
+    const grant: TaskGrant = {
+      id: "2", grantKey: "grant-instruction", agentTaskId: "1", status: "approved", scopeDigest: "digest",
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
+      renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
+      providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      decisionReason: null, decidedAt: new Date().toISOString(),
+    };
+
+    const result = await orchestrateAssignments({
+      task, grant, assignments, repository: snapshot, contextPath: "/tmp/context.md",
+      adapters: [capturing], deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
+    });
+
+    expect(result.status, JSON.stringify(result)).toBe("integrated");
+    expect(handedAssignment).toContain("verified by running exactly these commands");
+    expect(handedAssignment).toContain("- git diff --check");
+    expect(handedAssignment).toContain("Change one.txt");
   });
 
   it("runs assignments concurrently and integrates each approved repository", async () => {
@@ -260,7 +388,7 @@ describe("orchestrateAssignments", () => {
     const task: AgentTask = {
       id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change both files", successCriteria: ["Both changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),
@@ -391,7 +519,7 @@ describe("orchestrateAssignments", () => {
     const task: AgentTask = {
       id: "1", taskKey: "task-retry", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {}, repositorySnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } }, repositorySnapshot: {},
       recommendedNextAction: null, outcomeSummary: null, verificationResult: {}, revision: 1,
       startedAt: new Date().toISOString(), completedAt: null, updatedAt: new Date().toISOString(),
     };
@@ -488,7 +616,7 @@ describe("orchestrateAssignments", () => {
     const task: AgentTask = {
       id: "1", taskKey: "task-blocked", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {}, repositorySnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } }, repositorySnapshot: {},
       recommendedNextAction: null, outcomeSummary: null, verificationResult: {}, revision: 1,
       startedAt: new Date().toISOString(), completedAt: null, updatedAt: new Date().toISOString(),
     };
@@ -605,7 +733,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const task: AgentTask = {
       id: "1", taskKey: "task-process-smoke", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change both files", successCriteria: ["Both changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),
@@ -695,7 +823,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const task: AgentTask = {
       id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),
@@ -776,7 +904,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const task: AgentTask = {
       id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),
@@ -855,7 +983,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const task: AgentTask = {
       id: "1", taskKey: "task-1", projectId: "1", projectName: "test", projectRoot: repo.root,
       status: "ready", intendedOutcome: "Change one file", successCriteria: ["Changed"],
-      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: {},
+      verificationCriteria: ["git diff --check"], plan: {}, contextSnapshot: { delivery: { mode: "integrate", mergeAuthority: "runtime" } },
       repositorySnapshot: {}, recommendedNextAction: null, outcomeSummary: null,
       verificationResult: {}, revision: 1, startedAt: new Date().toISOString(),
       completedAt: null, updatedAt: new Date().toISOString(),

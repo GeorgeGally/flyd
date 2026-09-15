@@ -30,6 +30,7 @@ describe("materializeRuntimeTaskRequest", () => {
     expect(materialized.createTask.repository).toEqual(repository);
     expect(materialized.createTask.intendedOutcome).toBe("Fix the scheduler");
     expect(materialized.createTask.idempotencyKey).toBe(`runtime-task-request:${request.requestId}:create`);
+    expect(materialized.createTask.delivery).toEqual({ mode: "integrate", mergeAuthority: "runtime" });
     expect(materialized.orientation.contextSnapshot.runtime_task_request).toMatchObject({
       request_id: request.requestId,
       invocation_id: "inv-1",
@@ -54,6 +55,7 @@ describe("materializeRuntimeTaskRequest", () => {
 
     const materialized = materializeRuntimeTaskRequest(request, repository);
     expect(materialized.orientation.recommendedNextAction).toMatch(/without modifying/i);
+    expect(materialized.createTask.delivery).toEqual({ mode: "review", mergeAuthority: "user" });
   });
 
   it("rejects disagreement between a resolved request root and observed reality", () => {

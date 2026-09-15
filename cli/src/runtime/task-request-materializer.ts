@@ -1,5 +1,6 @@
 import type { RepositorySnapshot } from "./types.js";
 import type { RuntimeTaskRequest } from "./delegation-request.js";
+import { deliveryContractForTaskIntent, type DeliveryContract } from "./delivery-contract.js";
 
 export interface CanonicalTaskMaterialization {
   createTask: {
@@ -8,6 +9,7 @@ export interface CanonicalTaskMaterialization {
     intendedOutcome: string;
     repository: RepositorySnapshot;
     idempotencyKey: string;
+    delivery: DeliveryContract;
   };
   orientation: {
     contextSnapshot: Record<string, unknown>;
@@ -65,6 +67,7 @@ export function materializeRuntimeTaskRequest(
       intendedOutcome: request.intendedOutcome,
       repository,
       idempotencyKey: `runtime-task-request:${request.requestId}:create`,
+      delivery: deliveryContractForTaskIntent(request.taskIntent),
     },
     orientation: {
       contextSnapshot,

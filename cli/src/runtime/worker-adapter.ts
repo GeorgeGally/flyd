@@ -87,8 +87,11 @@ const PASSTHROUGH_ENVIRONMENT = new Set([
   "PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL", "XDG_CONFIG_HOME", "CODEX_HOME",
 ]);
 
-export function nonInteractiveAssignment(assignment: string): string {
-  return `${assignment.trim()}
+export function nonInteractiveAssignment(assignment: string, verificationCommands: string[] = []): string {
+  const verification = verificationCommands.length > 0
+    ? `\n\nYour work is verified by running exactly these commands from the worktree root:\n${verificationCommands.map((command) => `- ${command}`).join("\n")}`
+    : "";
+  return `${assignment.trim()}${verification}
 
 Work non-interactively. Do not ask the user questions or stop for confirmation. Use repository evidence and the supplied task context to make conservative, reasonable assumptions. Implement and verify the requested outcome. If material ambiguity prevents safe work, exit non-zero with a concise blocker instead of claiming completion.`;
 }

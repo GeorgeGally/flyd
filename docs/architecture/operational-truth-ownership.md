@@ -19,7 +19,7 @@ Flyd may have multiple stores and projections, but every semantic fact has exact
 | Worker controls | Execution Runtime | `WorkerCommand` | supervisor / adapters | canonical |
 | Artifacts | Execution Runtime | `TaskArtifact` | verifier, UI, intelligence outcomes | canonical metadata authority |
 | Verification | Execution Runtime | result verifier + assignment state | Present, intelligence outcome bridge | canonical; independent of worker claims |
-| Integration / landed state | Execution Runtime reconciled with Git | integrator + repository evidence | Present, intelligence outcomes | canonical after repository verification |
+| Integration / landed state | Execution Runtime reconciled with Git | integrator + repository evidence, gated by the task's delivery contract | Present, intelligence outcomes | canonical after repository verification |
 | Open operational decision | Execution Runtime | `OperationalDecisionStore` + deterministic runtime-event fold | Present, supervisor, UI | canonical; only explicit decision events close it |
 | Repository existence / identity | Repository Intelligence | work-index repository registry | Present, runtime | canonical registry |
 | Current repository observation | Repository Intelligence | repository observer/facade + cached observation fingerprint | Present, work hypothesis, current-work | canonical high-level Git observation |
@@ -101,9 +101,11 @@ RuntimeTaskRequest
 
 Authority comes from `TaskGrant`, never from an intent/delegation request.
 
+Runtime integration additionally requires the task's delivery contract, recorded at creation as `context_snapshot.delivery` (`mode` + `mergeAuthority`), to authorize it; a missing or ambiguous contract fails closed and is never guessed.
+
 ### 7. Restart is reconciliation
 
-Continuous supervision compares durable worker/task state with process/worktree reality. Surviving workers are preserved when identity is proven. Detached successful work can be re-verified and integrated after restart. Multi-repository recovery is allowed only when every source repository remains clean on `main` at its recorded assignment base HEAD.
+Continuous supervision compares durable worker/task state with process/worktree reality. Surviving workers are preserved when identity is proven. Detached successful work can be re-verified and, when its delivery contract authorizes runtime integration, integrated after restart; otherwise recovery records the integration as blocked. Multi-repository recovery is allowed only when every source repository remains clean on `main` at its recorded assignment base HEAD.
 
 ### 8. Project knowledge promotion is bounded
 
