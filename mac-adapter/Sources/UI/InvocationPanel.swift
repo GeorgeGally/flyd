@@ -301,11 +301,31 @@ final class InvocationPanel {
     }
 
     var currentIntent: String {
-        textField?.stringValue ?? ""
+        if let editor = activeFieldEditor() {
+            return editor.string
+        }
+        return textField?.stringValue ?? ""
     }
 
     func fillIntent(_ text: String) {
-        textField?.stringValue = text
+        guard let textField else { return }
+        guard let editor = activeFieldEditor() else {
+            textField.stringValue = text
+            return
+        }
+
+        let selection = editor.selectedRange()
+        textField.stringValue = text
+        editor.string = text
+        let textLength = editor.string.utf16.count
+        let location = selection.location == NSNotFound ? textLength : min(selection.location, textLength)
+        let length = min(selection.length, textLength - location)
+        editor.setSelectedRange(NSRange(location: location, length: length))
+    }
+
+    private func activeFieldEditor() -> NSTextView? {
+        guard let panel, let textField else { return nil }
+        return panel.firstResponder as? NSTextView ?? panel.fieldEditor(false, for: textField) as? NSTextView
     }
 
     private func buildContent(in view: NSView, panel: NSPanel) {
