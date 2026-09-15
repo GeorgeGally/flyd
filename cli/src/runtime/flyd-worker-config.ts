@@ -13,6 +13,28 @@ const MODEL_ALIASES: Record<string, string> = {
   "deepseek-v4": "deepseek-v4-pro",
 };
 
+const OPENCODE_ENDPOINTS: Record<string, string> = {
+  opencode: "https://opencode.ai/zen/v1",
+  "opencode-go": "https://opencode.ai/zen/go/v1",
+};
+
+const OPENCODE_MODEL_PREFIX = /^(opencode-go|opencode)\//;
+
+export function opencodeProviderFor(model?: string, provider?: string): string | null {
+  const named = (provider ?? "").trim().toLowerCase();
+  if (named in OPENCODE_ENDPOINTS) return named;
+  const match = (model ?? "").trim().match(OPENCODE_MODEL_PREFIX);
+  return match ? match[1] : null;
+}
+
+export function opencodeEndpoint(provider: string): string {
+  return OPENCODE_ENDPOINTS[provider] ?? OPENCODE_ENDPOINTS.opencode;
+}
+
+export function apiModelId(model: string): string {
+  return model.replace(OPENCODE_MODEL_PREFIX, "");
+}
+
 export function parseEnvFile(content: string): NodeJS.ProcessEnv {
   const values: NodeJS.ProcessEnv = {};
   for (const rawLine of content.split(/\r?\n/)) {
@@ -64,11 +86,16 @@ export function loadFlydWorkerConfigs(input: {
   const values = { ...fileEnvironment, ...environment };
   const canonicalModel = values.FLYD_MODEL?.trim();
   const provider = (values.FLYD_PROVIDER ?? "").trim().toLowerCase();
+  const opencode = opencodeProviderFor(canonicalModel, provider);
   const useOpenAI = provider === "openai" || Boolean(canonicalModel?.startsWith("gpt-"));
   const canonicalKey = values.FLYD_MODEL_API_KEY?.trim()
-    || (useOpenAI ? values.OPENAI_API_KEY?.trim() : values.OPENROUTER_API_KEY?.trim());
+    || (opencode
+      ? values.OPENCODE_API_KEY?.trim() || values.OPENCODE_API?.trim()
+      : useOpenAI ? values.OPENAI_API_KEY?.trim() : values.OPENROUTER_API_KEY?.trim());
   const canonicalBaseURL = values.FLYD_MODEL_BASE_URL?.trim()
-    || (useOpenAI ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1");
+    || (opencode
+      ? opencodeEndpoint(opencode)
+      : useOpenAI ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1");
   const compatibilityKey = values.OPENCODE_API?.trim() || values.OPENCODE_API_KEY?.trim();
   const compatibilityModel = values.OPENCODE_MODEL?.trim() || values.OPENOCE_MODEL?.trim();
   const openRouterKey = values.OPENROUTER_API_KEY?.trim();
@@ -98,7 +125,8 @@ export function loadFlydWorkerConfigs(input: {
   }
 
   const mapped = candidates.map((candidate) => {
-    const model = MODEL_ALIASES[candidate.model.toLowerCase()] ?? candidate.model;
+    const raw = apiModelId(candidate.model);
+    const model = MODEL_ALIASES[raw.toLowerCase()] ?? raw;
     const baseURL = normalizedBaseURL(candidate.baseURL);
     return {
       apiKey: candidate.apiKey,

@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { isOpenAIModel, defaultModel, resolveModelConnection } from "./config.js";
+import { usesOpenAITransport, apiModelId, defaultModel, resolveModelConnection } from "./config.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -69,6 +70,23 @@ export function openAIAgentTransport(model: string): "responses" | "chat_complet
   return /^gpt-5(?:\.|-|$)/i.test(model) ? "responses" : "chat_completions";
 }
 
+// The OpenCode Go endpoint requires a client user agent and a stable session id
+// so it can route and cache prompts. ponytail: one id per process is enough;
+// thread the real conversation id through if per-conversation caching matters.
+const OPENCODE_HOST = /opencode\.ai/;
+const OPENCODE_HEADERS = {
+  "User-Agent": "flyd-coding-agent/1.0",
+  "x-opencode-session": randomUUID(),
+};
+
+function openAIClientOptions(apiKey: string, baseURL?: string) {
+  return {
+    apiKey,
+    baseURL: baseURL || undefined,
+    ...(baseURL && OPENCODE_HOST.test(baseURL) ? { defaultHeaders: OPENCODE_HEADERS } : {}),
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function openAIUserContent(prompt: string, images?: string[]): any {
   if (!images?.length) return prompt;
@@ -107,7 +125,7 @@ export async function query(
   if (apiKey) {
     response = await queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
   } else {
-    response = isOpenAIModel(m)
+    response = usesOpenAITransport(m)
       ? await queryOpenAI(resolvedPrompt, m, system, options)
       : await queryAnthropic(resolvedPrompt, m, system, options);
   }
@@ -122,7 +140,7 @@ export async function streamQuery(
   system?: string,
 ): Promise<string> {
   const m = model ?? defaultModel();
-  return isOpenAIModel(m)
+  return usesOpenAITransport(m)
     ? streamOpenAI(prompt, onToken, m, system)
     : streamAnthropic(prompt, onToken, m, system);
 }
@@ -135,7 +153,7 @@ export async function agentLoop(
   model: string,
   maxIterations = 8,
 ): Promise<string> {
-  return isOpenAIModel(model)
+  return usesOpenAITransport(model)
     ? openAIAgentTransport(model) === "responses"
       ? agentLoopOpenAIResponses(system, userMessage, tools, onToolCall, model, maxIterations)
       : agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations)
@@ -151,13 +169,13 @@ async function queryOpenAIWithConfig(
   options: QueryOptions = {}
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey, baseURL: baseURL || undefined });
+  const client = new OpenAI(openAIClientOptions(apiKey, baseURL));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const res = await client.chat.completions.create({
-    model,
+    model: apiModelId(model),
     ...openAICompletionLimit(options.json ? 4096 : 2048),
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
@@ -176,7 +194,7 @@ async function queryAnthropic(prompt: string, model: string, system?: string, op
   const connection = resolveModelConnection(model);
   const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
   const res = await client.messages.create({
-    model,
+    model: apiModelId(model),
     max_tokens: options.json ? 4096 : 2048,
     temperature: 0.2,
     system,
@@ -194,13 +212,13 @@ async function streamOpenAI(
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
   const connection = resolveModelConnection(model);
-  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new OpenAI(openAIClientOptions(connection.apiKey, connection.baseURL));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: prompt });
   const stream = await client.chat.completions.create({
-    model,
+    model: apiModelId(model),
     ...openAICompletionLimit(2048),
     messages,
     stream: true,
@@ -227,7 +245,7 @@ async function streamAnthropic(
   let full = "";
   const stream = client.messages
     .stream({
-      model,
+      model: apiModelId(model),
       max_tokens: 2048,
       temperature: 0.2,
       system,
@@ -241,20 +259,14 @@ async function streamAnthropic(
   return full;
 }
 
-// ponytail: a plain conversation turn budgets 8 iterations, but a self-repair
-// turn that starts editing files must be able to finish the edit; a successful
-// write extends the ceiling to WRITE_TOOL_CEILING, per-account ceilings if needed.
-const WRITE_TOOL_CEILING = 40;
-const WRITE_TOOLS = new Set(["edit_file", "write_file"]);
-const WRITE_FAILURE_PREFIX = /^(?:Error |Access denied|File not found)/;
-
-function isWriteTool(name: string): boolean {
-  return WRITE_TOOLS.has(name);
-}
-
-function isFailedWrite(content: string): boolean {
-  return WRITE_FAILURE_PREFIX.test(content);
-}
+// ponytail: every turn gets the full tool ceiling. The old per-turn 8-round
+// pre-write budget stranded inspection-heavy tasks before their first write,
+// then asked the model to report an unfinished task - which it paraphrased as
+// a bogus external "tool session ended". Raise this (or make it per-account)
+// if a task genuinely needs more rounds.
+const TOOL_CALL_CEILING = 40;
+const TOOL_CEILING_NOTE =
+  "\n\nFlyd's tool-call limit for this turn is reached. Answer now from the evidence already gathered. If work is unfinished, say so and name Flyd's tool-call limit as the reason - never an external tool, session, or budget failure.";
 
 async function agentLoopAnthropic(
   system: string,
@@ -271,18 +283,16 @@ async function agentLoopAnthropic(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [{ role: "user", content: userMessage }];
 
-  let editing = false;
-  for (let i = 0; i < (editing ? WRITE_TOOL_CEILING : maxIterations); i++) {
+  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  for (let i = 0; i < ceiling; i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
-    const lastCall = i === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
+    const lastCall = i === ceiling - 1;
     const res = await client.messages.create({
-      model,
+      model: apiModelId(model),
       max_tokens: 2048,
       temperature: 0.2,
-      system: lastCall
-        ? `${system}\n\nTool budget is exhausted. Answer now from the evidence gathered so far; state plainly what you could not finish.`
-        : system,
+      system: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
       ...(lastCall ? {} : {
         tools: tools.map((t) => ({
           name: t.name,
@@ -309,7 +319,6 @@ async function agentLoopAnthropic(
       for (const b of blocks) {
         if (b.type !== "tool_use") continue;
         const content = await onToolCall(b.name as string, b.input as Record<string, unknown>);
-        if (isWriteTool(b.name) && !isFailedWrite(content)) editing = true;
         results.push({
           type: "tool_result" as const,
           tool_use_id: b.id as string,
@@ -338,7 +347,7 @@ async function agentLoopOpenAI(
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
   const connection = resolveModelConnection(model);
-  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new OpenAI(openAIClientOptions(connection.apiKey, connection.baseURL));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [
@@ -351,11 +360,11 @@ async function agentLoopOpenAI(
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
 
-  let editing = false;
-  for (let i = 0; i < (editing ? WRITE_TOOL_CEILING : maxIterations); i++) {
-    const lastCall = i === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
+  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  for (let i = 0; i < ceiling; i++) {
+    const lastCall = i === ceiling - 1;
     const res = await client.chat.completions.create({
-      model,
+      model: apiModelId(model),
       ...openAICompletionLimit(2048),
       ...(lastCall ? {} : { tools: oaiTools }),
       messages,
@@ -370,7 +379,6 @@ async function agentLoopOpenAI(
       for (const tc of choice.message.tool_calls) {
         const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
         const content = await onToolCall(tc.function.name, input);
-        if (isWriteTool(tc.function.name) && !isFailedWrite(content)) editing = true;
         messages.push({ role: "tool", tool_call_id: tc.id, content });
       }
       continue;
@@ -392,7 +400,7 @@ async function agentLoopOpenAIResponses(
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
   const connection = resolveModelConnection(model);
-  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new OpenAI(openAIClientOptions(connection.apiKey, connection.baseURL));
   // Response output items are valid subsequent input items. Keeping them in the
   // local loop preserves reasoning and tool-call context without server-side session state.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -405,14 +413,12 @@ async function agentLoopOpenAIResponses(
     strict: false,
   }));
 
-  let editing = false;
-  for (let iteration = 0; iteration < (editing ? WRITE_TOOL_CEILING : maxIterations); iteration += 1) {
-    const lastCall = iteration === (editing ? WRITE_TOOL_CEILING : maxIterations) - 1;
+  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  for (let iteration = 0; iteration < ceiling; iteration += 1) {
+    const lastCall = iteration === ceiling - 1;
     const response = await client.responses.create({
-      model,
-      instructions: lastCall
-        ? `${system}\n\nTool budget is exhausted. Answer now from the evidence gathered so far; state plainly what you could not finish.`
-        : system,
+      model: apiModelId(model),
+      instructions: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
       input,
       ...(lastCall ? {} : { tools: responseTools }),
       max_output_tokens: 2048,
@@ -430,7 +436,6 @@ async function agentLoopOpenAIResponses(
         throw new Error(`Invalid tool arguments for ${call.name}`);
       }
       const output = await onToolCall(call.name, parameters);
-      if (isWriteTool(call.name) && !isFailedWrite(output)) editing = true;
       input.push({
         type: "function_call_output",
         call_id: call.call_id,

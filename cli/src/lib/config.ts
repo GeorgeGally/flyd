@@ -4,6 +4,8 @@ import { join, basename, resolve } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { parseEnvFile } from "../runtime/flyd-worker-config.js";
+import { apiModelId, opencodeEndpoint, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
+export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
 
 export const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -71,7 +73,10 @@ export const SKILLS_DIR = join(process.cwd(), ".opencode", "skills");
 interface FlydConfig {
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  OPENCODE_API_KEY?: string;
+  OPENCODE_API?: string;
   GITHUB_TOKEN?: string;
+  FLYD_PROVIDER?: string;
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
   FLYD_MODEL_API_KEY?: string;
@@ -127,22 +132,26 @@ export function defaultChatModel(): string {
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
-  const apiKey = canonicalKey || (isOpenAIModel(model)
-    ? getKey("OPENAI_API_KEY")?.trim()
-    : getKey("ANTHROPIC_API_KEY")?.trim());
+  const opencode = opencodeProviderFor(model);
+  const apiKey = canonicalKey || (opencode
+    ? getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim()
+    : isOpenAIModel(model)
+      ? getKey("OPENAI_API_KEY")?.trim()
+      : getKey("ANTHROPIC_API_KEY")?.trim());
   if (!apiKey) {
     throw new Error(`No API key is configured for Flyd model ${model}`);
   }
 
-  const baseURL = canonicalBaseURL || undefined;
+  const baseURL = canonicalBaseURL || (opencode ? opencodeEndpoint(opencode) : undefined);
   const providerHost = baseURL
     ? new URL(baseURL).host
-    : isOpenAIModel(model) ? "api.openai.com" : "api.anthropic.com";
+    : opencode ? "opencode.ai"
+      : isOpenAIModel(model) ? "api.openai.com" : "api.anthropic.com";
   return {
     model,
     apiKey,
     ...(baseURL ? { baseURL } : {}),
-    providerIdentity: `${providerHost}/${model}`,
+    providerIdentity: `${providerHost}/${apiModelId(model)}`,
   };
 }
 
@@ -153,8 +162,16 @@ export function zodiacSign(): string | null {
 export function hasApiKey(model?: string): boolean {
   const m = model ?? defaultModel();
   if (getKey("FLYD_MODEL_API_KEY")) return true;
+  if (opencodeProviderFor(m)) {
+    return Boolean(getKey("OPENCODE_API_KEY") || getKey("OPENCODE_API"));
+  }
   if (isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
   return !!getKey("ANTHROPIC_API_KEY");
+}
+
+/** True when the model is served over an OpenAI-compatible chat API. */
+export function usesOpenAITransport(model: string): boolean {
+  return isOpenAIModel(model) || opencodeProviderFor(model) !== null;
 }
 
 export function isOpenAIModel(model: string): boolean {

@@ -39,6 +39,25 @@ describe("Flyd worker configuration", () => {
     });
   });
 
+  it("routes FLYD_PROVIDER=opencode-go through the Go endpoint and strips the provider prefix", () => {
+    const config = loadFlydWorkerConfig({
+      environment: {
+        FLYD_PROVIDER: "opencode-go",
+        FLYD_MODEL: "opencode-go/deepseek-v4.1-flash",
+        OPENCODE_API_KEY: "opencode-key",
+        OPENROUTER_API_KEY: "router-key",
+        OPENROUTER_MODEL: "openrouter/free",
+      },
+    });
+
+    expect(config).toEqual({
+      apiKey: "opencode-key",
+      model: "deepseek-v4.1-flash",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      providerIdentity: "opencode.ai/deepseek-v4.1-flash",
+    });
+  });
+
   it("uses the configured OpenCode model and drops OpenRouter /free when a paid model exists", () => {
     const configs = loadFlydWorkerConfigs({
       environment: {

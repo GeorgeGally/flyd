@@ -1,19 +1,25 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const calls: Array<Record<string, unknown>> = [];
+const state = vi.hoisted(() => ({
+  calls: [] as Array<Record<string, unknown>>,
+  script: [] as Array<string | null>,
+  cursor: 0,
+}));
 
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class {
     messages = {
       create: (params: Record<string, unknown>) => {
-        calls.push(params);
-        if (params.tools) {
+        state.calls.push(params);
+        const toolName = state.script[state.cursor] ?? null;
+        state.cursor += 1;
+        if (params.tools && toolName) {
           return {
             stop_reason: "tool_use",
-            content: [{ type: "tool_use", id: "t1", name: "grep", input: { pattern: "x" } }],
+            content: [{ type: "tool_use", id: `t${state.cursor}`, name: toolName, input: { pattern: "x" } }],
           };
         }
-        return { stop_reason: "end_turn", content: [{ type: "text", text: "best available answer" }] };
+        return { stop_reason: "end_turn", content: [{ type: "text", text: "final answer" }] };
       },
     };
   },
@@ -24,7 +30,7 @@ vi.mock("openai", () => ({
     chat = {
       completions: {
         create: (params: Record<string, unknown>) => {
-          calls.push(params);
+          state.calls.push(params);
           return { choices: [{ finish_reason: "stop", message: { content: "answer" } }] };
         },
       },
@@ -34,36 +40,60 @@ vi.mock("openai", () => ({
 
 import { agentLoop } from "../llm.js";
 
-describe("agentLoop budget exhaustion", () => {
-  beforeAll(() => {
+const readTool = {
+  name: "grep",
+  description: "search",
+  input_schema: { type: "object" as const, properties: {}, required: [] },
+};
+
+describe("agentLoop tool budget", () => {
+  afterEach(() => {
+    state.calls.length = 0;
+    state.script.length = 0;
+    state.cursor = 0;
     process.env.FLYD_MODEL_API_KEY = "test-key";
   });
 
-  it("forces a no-tools final answer instead of throwing when budget is exhausted", async () => {
-    const tool = {
-      name: "grep",
-      description: "search",
-      input_schema: { type: "object" as const, properties: {}, required: [] },
-    };
+  it("reaches a write after more than eight read rounds", async () => {
+    process.env.FLYD_MODEL_API_KEY = "test-key";
+    const readRounds = 12;
+    state.script = [...Array(readRounds).fill("grep"), "edit_file", null];
+    const tools = [readTool, { ...readTool, name: "edit_file" }];
+    const called: string[] = [];
+
     const answer = await agentLoop(
       "system",
-      "do the thing",
-      [tool],
-      () => "no matches",
+      "fix the thing",
+      tools,
+      (name) => {
+        called.push(name);
+        return "ok";
+      },
       "claude-test",
-      2,
     );
 
-    expect(answer).toBe("best available answer");
-    expect(calls.length).toBe(2);
-    expect(calls[0].tools).toBeTruthy();
-    expect(calls[1].tools).toBeUndefined();
-    expect(String(calls[1].system)).toContain("Tool budget is exhausted");
+    expect(answer).toBe("final answer");
+    expect(called.filter((name) => name === "grep")).toHaveLength(readRounds);
+    expect(called).toContain("edit_file");
+  });
+
+  it("names Flyd's own tool limit instead of faking an external failure", async () => {
+    process.env.FLYD_MODEL_API_KEY = "test-key";
+    state.script = Array.from({ length: 64 }, () => "grep");
+
+    const answer = await agentLoop("system", "endless", [readTool], () => "ok", "claude-test");
+
+    const last = state.calls.at(-1) as Record<string, unknown>;
+    expect(last.tools).toBeUndefined();
+    expect(String(last.system)).toContain("Flyd's tool-call limit");
+    expect(String(last.system)).not.toContain("Tool budget is exhausted");
+    expect(answer).toBe("final answer");
   });
 
   it("omits temperature from OpenAI-compatible chat requests", async () => {
+    process.env.FLYD_MODEL_API_KEY = "test-key";
     await agentLoop("system", "answer", [], () => "", "gpt-4o-mini", 1);
 
-    expect(calls.at(-1)).not.toHaveProperty("temperature");
+    expect(state.calls.at(-1)).not.toHaveProperty("temperature");
   });
 });

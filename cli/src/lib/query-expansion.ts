@@ -1,4 +1,4 @@
-import { isOpenAIModel, defaultModel, getKey } from "./config.js";
+import { usesOpenAITransport, defaultModel, getKey } from "./config.js";
 
 export interface ExpandedQuery {
   type: "lex" | "vec" | "hyde";
@@ -48,7 +48,7 @@ export async function expandQuery(
   try {
     const prompt = EXPANSION_PROMPT.replace("{query}", query);
     const m = model ?? defaultModel();
-    const result = isOpenAIModel(m)
+    const result = usesOpenAITransport(m)
       ? await queryOpenAI(prompt, m)
       : await queryOpenAI(prompt, "gpt-4o-mini");
 
