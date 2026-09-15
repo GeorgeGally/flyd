@@ -171,4 +171,45 @@ describe("bounded repository reads on the observation sweep", () => {
     expect(attempted.revisedAt).toBe(before?.revisedAt);
     expect(attempted.id).toBe(before?.id);
   });
+
+  it("a stalled first sweep does not flag never-observed repositories as possibly stale", () => {
+    expect(buildGlobalPresentModel().gaps).toEqual([]);
+
+    const [stalled] = listRepositories();
+    const read: GitRead = (args, cwd) => {
+      if (cwd === stalled.root) throw new RepositoryReadStalledError(args, cwd);
+      return defaultGitRead(args, cwd);
+    };
+    observeAllRepos(read);
+
+    expect(repositoryReadsAreStalled()).toBe(true);
+    expect(stalledSkippedRepositoryNames()).toEqual([]);
+
+    const result = answerQuestion(`status of ${stalled.name}`);
+    expect(result.answer).toContain("a repository read stalled");
+    expect(result.answer).not.toContain("possibly stale");
+  });
+
+  it("task-store recall answers never carry a repository staleness note", () => {
+    observeAllRepos();
+    expect(repositoryReadsAreStalled()).toBe(false);
+
+    const [stalled] = listRepositories();
+    const skipped = listRepositories().slice(1).map((r) => r.name);
+    const read: GitRead = (args, cwd) => {
+      if (cwd === stalled.root) throw new RepositoryReadStalledError(args, cwd);
+      return defaultGitRead(args, cwd);
+    };
+    observeAllRepos(read);
+
+    expect(repositoryReadsAreStalled()).toBe(true);
+    expect([...stalledSkippedRepositoryNames()].sort()).toEqual(skipped.sort());
+
+    const status = answerQuestion(`status of ${stalled.name}`);
+    expect(status.answer).toContain("may be stale");
+
+    const tasks = answerQuestion("open tasks");
+    expect(tasks.answer).toContain("No open tasks.");
+    expect(tasks.answer).not.toContain("may be stale");
+  });
 });

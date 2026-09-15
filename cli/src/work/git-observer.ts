@@ -298,7 +298,7 @@ export function observeAllRepos(read: GitRead = defaultGitRead): ProjectSnapshot
       if (error instanceof RepositoryReadStalledError) {
         // ponytail: latch is per-sweep, so a still-wedged repo re-pays one bound next sweep; persist it if that ever matters
         repositoryReadsStalled = true;
-        stalledSkippedRepoNames = repos.slice(index + 1).filter((r) => r.enabled).map((r) => r.name);
+        stalledSkippedRepoNames = repos.slice(index + 1).filter((r) => r.enabled && r.observedAt).map((r) => r.name);
         break;
       }
       // repo inaccessible, skip

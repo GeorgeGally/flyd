@@ -53,22 +53,22 @@ export function classifyIntent(query: string): RecallIntent {
   return "general";
 }
 
+// ponytail: only repo-derived answers carry repository-staleness context; task/activity answers must stay clean
+const REPO_DERIVED_INTENTS = new Set<RecallIntent>(["active_projects", "project_status"]);
+
 export function recall(intent: RecallIntent, foregroundRoot?: string, projectFilter?: string): RecallResult {
   const model = buildGlobalPresentModel(foregroundRoot);
   const result = recallWithModel(intent, model, projectFilter);
-  const note = stalenessNote(model);
+  if (!REPO_DERIVED_INTENTS.has(intent)) return result;
+  const note = stalenessNote();
   return note ? { ...result, answer: `${result.answer}\n\n${note}` } : result;
 }
 
-function stalenessNote(model: GlobalPresentModel): string | null {
-  const unobserved = model.gaps
-    .filter((gap) => gap.startsWith("stale_observation:"))
-    .map((gap) => gap.slice("stale_observation:".length));
+function stalenessNote(): string | null {
   const skipped = stalledSkippedRepositoryNames();
-  if (!repositoryReadsAreStalled() && unobserved.length === 0 && skipped.length === 0) return null;
+  if (!repositoryReadsAreStalled() && skipped.length === 0) return null;
   const reasons: string[] = [];
   if (repositoryReadsAreStalled()) reasons.push("a repository read stalled");
-  if (unobserved.length > 0) reasons.push(`no observation for ${unobserved.join(", ")}`);
   if (skipped.length > 0) reasons.push(`possibly stale: ${skipped.join(", ")}`);
   return `Note: repository state may be stale (${reasons.join("; ")}).`;
 }
