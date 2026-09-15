@@ -29,10 +29,6 @@ import type { CandidateRepoInput, WorkHypothesis, WorkThread } from "./types.js"
 
 const MAX_PRIMARY = 3;
 
-// ponytail: mirrors the git-observer latch for the per-repo commit reads here;
-// a stalled sweep must never persist a degraded rebuild as a fresh belief
-let liveRepoReadsStalled = false;
-
 export interface BuildPresentModelOptions {
   foregroundRoot?: string;
   coreCwd?: string;
@@ -43,7 +39,7 @@ export interface BuildPresentModelOptions {
   skipDiscovery?: boolean;
 }
 
-async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInput[]> {
+async function loadLiveRepos(foregroundRoot?: string): Promise<{ repos: CandidateRepoInput[]; readsStalled: boolean }> {
   purgeEphemeralRepositories(isEphemeralRepoRoot);
   try {
     registerDiscoveredRepos();
@@ -57,8 +53,9 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
   const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
+  // ponytail: per-call stall ownership; the sweep latch belongs to this call's
+  // synchronous observation, so a concurrent sweep cannot clear it under us
   let readsStalled = repositoryReadsAreStalled();
-  liveRepoReadsStalled = readsStalled;
 
   for (const repo of repos) {
     let lastCommitAt: string | undefined = repo.lastActivityAt;
@@ -74,7 +71,6 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
         lastCommitAt = repo.lastActivityAt;
         if (isGitReadTimeout(error)) {
           readsStalled = true;
-          liveRepoReadsStalled = true;
         }
       }
       if (!readsStalled) {
@@ -99,7 +95,7 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
     });
   }
 
-  return results;
+  return { repos: results, readsStalled };
 }
 
 function isCoreHomeThread(thread: WorkThread, coreCwd?: string): boolean {
@@ -245,9 +241,12 @@ export async function buildPresentModelBelief(
     isProjectPromoted("flyd") ||
     isProjectPromoted("Flyd") ||
     promotions.some((p) => /flyd/i.test(p));
-  const repos =
-    options.repos ??
-    (await loadLiveRepos(options.foregroundRoot));
+  // ponytail: live reads own their stall flag; injected repos (tests) fall back
+  // to the last sweep latch, which is the only signal available to them
+  const loaded = options.repos
+    ? { repos: options.repos, readsStalled: repositoryReadsAreStalled() }
+    : await loadLiveRepos(options.foregroundRoot);
+  const repos = loaded.repos;
   const candidates = assembleCandidates({
     repos,
     now,
@@ -334,7 +333,7 @@ export async function buildPresentModelBelief(
     fromCache: false,
   };
 
-  if (repositoryReadsAreStalled() || liveRepoReadsStalled) {
+  if (loaded.readsStalled) {
     // ponytail: stalled sweep — never persist a degraded rebuild as a fresh
     // belief; the last fully-grounded belief (original revisedAt) stays authoritative
     return prior ?? belief;
