@@ -31,9 +31,11 @@ This plan prioritizes cognition over new UI, new evidence adapters, and addition
 
 Flyd already has strong ingredients: brain retrieval, epistemic metadata, Present Model, WorkHypothesis, task state, git inspection, transitions, receipts, evidence adapters, behavioural directives, conversation history, and execution machinery.
 
-The problem is orchestration.
+The problem is orchestration and representation.
 
 Important context is assembled through multiple independent paths and often too late. Current state may be inferred only for certain intents. Memory retrieval often begins from the literal user utterance. Conversation referents are not a durable structured state. Temporal validity is mostly treated as freshness rather than as a first-class question of whether a fact is still actionable.
+
+More importantly, too much of Flyd's memory architecture still treats maintained documents and summaries as the knowledge itself. That creates a compression-drift risk: an agent rewrites prior material without fully preserving the reasons, dependencies, contradictions, and downstream implications that made the original fact meaningful. The canonical layer must therefore move below Markdown into immutable events, claims, and typed relationships.
 
 That allows once-correct memories to remain semantically relevant after they stop being current. GNM3 sponsorship is the canonical regression: “secure sponsors for GNM3” was once valid, but should never appear as current advice after the 5 September event unless explicitly carried forward into a future edition.
 
@@ -63,6 +65,18 @@ PROFILE, NOW, direct project records, aliases, lexical lookup, and entity IDs sh
 
 A current recommendation cannot rely on an event-bound or deadline-bound fact whose validity has ended.
 
+### State is derived, not edited
+
+Flyd should not maintain truth by repeatedly editing summaries. It should store provenance-bearing events and claims, connect them with typed relationships, and derive current state from that graph.
+
+### Relationships explain why
+
+Support, contradiction, dependency, requirement, supersession, causation, containment, and resolution relationships are operational data. They must affect state derivation, not merely retrieval ranking.
+
+### Markdown is a projection
+
+PROFILE.md, NOW.md, project files, and other human-readable records are rebuildable views over the logical world model. Losing or rewriting a projection must never destroy canonical knowledge.
+
 # Target architecture
 
 Sources:
@@ -74,21 +88,35 @@ Sources:
 - explicit memories
 - consented external context
 
-These emit provenance-bearing observations/events.
+These emit immutable provenance-bearing observations/events.
 
-A background curator then:
-- reconciles,
-- deduplicates,
-- generalizes,
-- links,
-- expires,
-- supersedes,
-- completes,
-- cancels,
-- carries forward,
-- updates summaries.
+Events produce or revise claims. Claims and entities are connected through typed relationships. The logical world model is the canonical knowledge layer.
 
-The curator maintains personal knowledge projections:
+Core flow:
+
+events / observations
+-> claims
+-> typed relationships
+-> derived world state
+-> projections
+-> Context Compiler
+-> model
+
+A background curator proposes and validates graph mutations:
+- ADD claim
+- SUPPORT claim
+- CONTRADICT claim
+- CORRECT claim
+- SUPERSEDE claim
+- EXPIRE claim
+- COMPLETE entity/task/event
+- CANCEL entity/task/event
+- CARRY_FORWARD into a new claim
+- GENERALIZE
+- LINK
+- PRUNE projection
+
+The curator maintains derived personal knowledge projections:
 - PROFILE
 - NOW
 - projects
@@ -113,6 +141,103 @@ Every model turn goes through a Context Compiler that combines:
 - available capabilities
 
 The model then reasons and acts with tools.
+
+# Canonical logical world model
+
+The canonical knowledge layer is not Markdown and not a summary cache.
+
+It is composed of:
+
+1. Immutable Events — what was observed, stated, changed, verified, corrected, or completed.
+2. Claims — atomic propositions derived from events.
+3. Entities — projects, people, organizations, tasks, events, features, requirements, files, products, etc.
+4. Relations — typed, weighted edges that explain why claims/entities are connected.
+5. Derived State — the currently valid world model computed from claims + relations + lifecycle + time.
+
+Internal principle:
+
+> Events are history. Claims are knowledge. Relationships explain why. State is derived. Markdown is a view.
+
+## Claim
+
+Suggested shape:
+
+- id
+- subject
+- predicate
+- object
+- epistemicStatus
+- epistemicConfidence
+- observedAt
+- validFrom
+- validUntil
+- sourceEventIds
+- status
+
+Claims should be atomic enough that one claim can be superseded or contradicted without rewriting unrelated knowledge.
+
+Examples:
+
+- event:gnm3 --occurred_on--> 2026-09-05
+- task:gnm3:sponsorship --required_for--> event:gnm3
+- task:gnm3:sponsorship --status--> open
+- event:gnm3 --status--> completed
+
+## Relation
+
+Start with a deliberately small operational vocabulary:
+
+- supports
+- contradicts
+- supersedes
+- requires
+- depends_on
+- caused_by
+- part_of
+- instance_of
+- resolved_by
+- valid_for
+
+Each relation carries:
+- source refs
+- confidence
+- createdAt
+- optional validity window
+- optional relation metadata
+
+Do not start with an open-ended ontology. New relation types require a demonstrated derivation or retrieval use case.
+
+## Derived-state rules
+
+Initial deterministic rules:
+
+1. A claim superseded by a valid newer claim is not current.
+2. An event-bound task whose parent event completes becomes expired/completed unless explicitly carried forward.
+3. A current parent remains unresolved when a required child is unresolved.
+4. Contradicting claims reduce certainty and surface a conflict instead of silently overwriting one another.
+5. When an upstream dependency changes, downstream derived state is marked potentially stale until revalidated.
+
+These rules are more important than broad graph traversal.
+
+## Logical chains
+
+The graph must support causal/product/project chains such as:
+
+customer
+-> has_problem
+-> problem
+-> motivates
+-> feature
+-> requires
+-> requirement
+-> implemented_by
+-> commit
+-> verified_by
+-> test
+
+If a requirement changes, Flyd should be able to identify the affected feature, implementation, and verification evidence without depending on an agent remembering to edit every summary that mentioned the old requirement.
+
+This is the core difference between archive retrieval and a world model.
 
 # Canonical CompiledContext
 
@@ -241,7 +366,7 @@ Deterministic lifecycle propagation should be used whenever parent/child relatio
 
 # Knowledge projections
 
-Use human-readable, git-friendly Markdown as inspection and portability projections. They are not independent authority; they are derived from canonical events/claims and can be rebuilt.
+Use human-readable, git-friendly Markdown as inspection and portability projections. They are disposable views over the canonical event/claim/relation graph and can always be rebuilt. The curator never treats a projection edit as canonical truth.
 
 Suggested local structure:
 
@@ -311,6 +436,8 @@ Examples:
 
 Create cli/src/cognition/curator.
 
+The curator operates on canonical events, claims, entities, and relations. It does not perform free-form edits to prior knowledge files. Projection files are regenerated from validated graph state.
+
 Inputs:
 - completed conversation turns
 - explicit corrections
@@ -321,9 +448,11 @@ Inputs:
 - explicit memory captures
 - existing claims
 
-Supported write operations:
-- ADD
+Supported canonical operations:
+- ADD_CLAIM
+- ADD_RELATION
 - SUPPORT
+- CONTRADICT
 - CORRECT
 - SUPERSEDE
 - EXPIRE
@@ -465,10 +594,11 @@ Consumers should ask one API for memory with:
 - limit
 
 Implementation details hidden behind it:
+- canonical claim/entity/relation store
 - QMD
 - raw archive
 - wiki
-- graph
+- graph indexes
 - aliases
 - history/version lookup
 
@@ -615,27 +745,33 @@ Deliver:
 - intelligence-benchmark.json
 - docs/evals/cognitive-core-baseline-2026-09-22.md
 
-## Phase 1: Temporal claims
+## Phase 1: Canonical claims, relations, and temporal derivation
 
 Primary files:
-- cli/src/lib/brain-retrieval.ts
-- cli/src/lib/staleness.ts
-- cli/src/resolve.ts
 - cli/src/cognition/types.ts
+- cli/src/cognition/world-model.ts
+- cli/src/cognition/relations.ts
 - cli/src/cognition/temporal.ts
+- cli/src/lib/brain-retrieval.ts
+- cli/src/resolve.ts
 
 Implement:
-- TemporalClaim
-- temporal status evaluation
-- date propagation from frontmatter
-- parent lifecycle hooks
+- Entity / Claim / Relation contracts
+- immutable source-event references
+- typed relation vocabulary
+- TemporalClaim fields
+- deterministic derived-state rules
+- parent lifecycle propagation through relations
 - current vs historical filtering
 - GNM regression
 
 Acceptance:
-A stale action cannot appear as current merely because semantic relevance is high.
+- GNM3 completion invalidates the GNM3 sponsor task through the valid_for/requires graph relationship, not by an LLM editing NOW.md.
+- A superseded claim cannot remain current.
+- A contradiction is preserved as a conflict rather than destructively resolved.
+- A stale action cannot appear as current merely because semantic relevance is high.
 
-## Phase 2: PROFILE / NOW / project projections
+## Phase 2: Rebuildable PROFILE / NOW / project projections
 
 Add:
 - cli/src/cognition/projections/profile.ts
@@ -654,7 +790,7 @@ Implement:
 Acceptance:
 Core can rebuild readable projections from existing durable inputs and survive restart.
 
-## Phase 3: Background curator
+## Phase 3: Background graph curator
 
 Add:
 - cli/src/cognition/curator/curator.ts
@@ -664,12 +800,14 @@ Add:
 - queue.ts
 
 Implement:
-- conversation closeout
-- corrections
-- task outcomes
-- git digest ingestion
+- conversation closeout to immutable events
+- corrections as new claims + supersession edges
+- task outcomes as lifecycle events
+- git digest ingestion as observations
 - claim reconciliation
-- projection updates
+- relation creation
+- conflict preservation
+- graph-derived projection updates
 - provenance preservation
 
 Acceptance:
@@ -765,13 +903,14 @@ Review for deletion/demotion:
 # Migration rules
 
 1. No big-bang rewrite.
-2. Existing raw/wiki/QMD data remains readable.
-3. Projections are rebuildable.
-4. Existing epistemic metadata is preserved.
-5. Missing temporal validity defaults to unknown, never silently current.
-6. Legacy records are progressively enriched by curator passes.
-7. Rails remains excluded from active intelligence.
-8. TypeScript Core remains the only new active intelligence runtime.
+2. Existing raw/wiki/QMD data remains readable as source material during migration.
+3. Canonical new knowledge is represented as events/claims/relations, not maintained summaries.
+4. Projections are rebuildable and non-authoritative.
+5. Existing epistemic metadata is preserved.
+6. Missing temporal validity defaults to unknown, never silently current.
+7. Legacy records are progressively converted/enriched by curator passes.
+8. Rails remains excluded from active intelligence.
+9. TypeScript Core remains the only new active intelligence runtime.
 
 # Observability
 
@@ -827,18 +966,19 @@ This release does not:
 
 The first PR should be narrow and visibly improve intelligence:
 
-1. Add cli/src/cognition/types.ts.
-2. Add cli/src/cognition/temporal.ts.
-3. Propagate temporal metadata into MemoryPack.
-4. Add NOW projection reader/writer.
-5. Seed NOW from Present/WorkHypothesis and active task state.
-6. Add parent-event lifecycle support for event-bound tasks.
-7. Add GNM3 sponsorship regression fixture.
-8. Inject NOW into the active resolution prompt.
-9. Add debug trace fields for expired/suppressed claims.
-10. Run existing Core tests plus the temporal benchmark subset.
+1. Add cli/src/cognition/types.ts with Entity, Claim, Relation, and TemporalClaim.
+2. Add cli/src/cognition/world-model.ts with a minimal local canonical store/projection interface.
+3. Add cli/src/cognition/relations.ts with the initial typed relation vocabulary.
+4. Add cli/src/cognition/temporal.ts with deterministic derived-state rules.
+5. Represent GNM3, its event date/status, and sponsor task as claims/entities/relations in fixtures.
+6. Prove GNM3 completion invalidates sponsor-task actionability through graph derivation.
+7. Add supersession and contradiction regression fixtures.
+8. Add NOW projection reader/writer generated from derived state.
+9. Inject generated NOW into the active resolution prompt.
+10. Add debug trace fields for derivation path, expired/suppressed claims, and conflicts.
+11. Run existing Core tests plus the logical/temporal benchmark subset.
 
-Do not start the full curator/compiler rewrite until this slice produces a measurable improvement.
+Do not start the full curator/compiler rewrite until this slice proves that derived state beats document mutation for a real stale-memory failure.
 
 # Release gate
 
@@ -854,9 +994,13 @@ Cognitive Core is ready when:
 8. Git changes update project/NOW state before a user asks.
 9. All active model paths use CompiledContext.
 10. The 30+ prompt benchmark materially improves without regression in safety, provenance, or temporal correctness.
+11. PROFILE/NOW/project Markdown can be deleted and rebuilt from canonical events/claims/relations without loss of knowledge.
+12. At least one dependency chain can be invalidated/revalidated through relation traversal without editing a summary by hand.
 
 # Success criterion
 
 Flyd should stop feeling like an agent searching for context.
 
-It should feel like a system that was already aware of George's world, understood what changed, knew what had ended, and used tools only to deepen or act on that understanding.
+It should feel like a system that was already aware of George's world, understood what changed, knew what had ended, understood why facts and tasks were connected, and used tools only to deepen or act on that understanding.
+
+The canonical test is not whether Flyd can maintain good notes. It is whether Flyd can recompute correct current state from history, claims, and relationships after the world changes.
