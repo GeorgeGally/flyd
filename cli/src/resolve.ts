@@ -124,7 +124,6 @@ export interface MemoryPack {
   sources: string[];
 }
 
-const MEMORY_RETRIEVAL_TIMEOUT_MS = 1500;
 const MEMORY_EXCERPT_MAX_CHARS = 400;
 const MAX_MEMORIES = 5;
 
@@ -183,21 +182,6 @@ export async function fetchBehaviouralDirectives(load: DirectivesLoader = defaul
     return [];
   }
 }
-function memoryKind(body: string, metadata: Record<string, unknown>): RetrievedClaim["kind"] {
-  const type = String(metadata.type ?? "");
-  if (type === "preference" || type === "constraint") return type;
-  if (type === "decision" || type === "goal") return "decision";
-  if (type === "project") return "state";
-  return "observation";
-}
-
-function memoryScope(metadata: Record<string, unknown>): RetrievedClaim["scope"] {
-  const scope = String(metadata.scope ?? "");
-  if (scope === "project" || scope === "task" || scope === "session") return scope;
-  if (metadata.type === "project" || metadata.type === "goal") return "project";
-  return "global";
-}
-
 export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture, projectRoot?: string): Promise<MemoryPack> {
   const recall = classifyRecallIntent(intent);
   const temporalFrame = recall.kind === "historical_recall" ? "past"
@@ -266,7 +250,7 @@ function compiledMemoryToPack(memory: UnifiedMemoryResult): MemoryPack {
   };
 }
 
-// Modeled on MEMORY_OVERVIEW_QUESTION// Modeled on MEMORY_OVERVIEW_QUESTION in runtime/shared-memory-retrieval.ts,
+// Modeled on MEMORY_OVERVIEW_QUESTION in runtime/shared-memory-retrieval.ts,
 // but scoped to the overlay path: questions about the user themselves get the
 // compiled context bundles injected on top of normal retrieval.
 const IDENTITY_INTENT =
@@ -385,7 +369,11 @@ export function buildResolutionPrompt(
     return `- [${label}] ${c.content}`;
   });
 
-  const recallIntentKind = classifyRecallIntent(intent).kind;
+  const recallIntentKind = compiledContext?.interpretation.intentKind === "task_resume"
+    ? "task_resume"
+    : compiledContext?.interpretation.intentKind === "current_state"
+      ? "current_state"
+      : classifyRecallIntent(intent).kind;
   const BACKGROUND_OBSERVATION_EXCERPT_CHARS = 160;
   // flyd's own memory must never be suppressed — git is a corroborating
   // signal that augments it, not a replacement. But raw/unpromoted content
@@ -895,7 +883,12 @@ export async function resolve(
   const route = modality === "voice" && regexRoute.kind === "ask_answer"
     ? regexRoute
     : classified?.route ?? regexRoute;
-  const consequence = classified?.consequence ?? heuristicConsequence;
+  // Deterministic consequence detection is safety-authoritative. A semantic
+  // classifier may escalate a benign heuristic, but may never downgrade a
+  // deterministically consequential request.
+  const consequence = heuristicConsequence.class === "consequential"
+    ? heuristicConsequence
+    : classified?.consequence ?? heuristicConsequence;
   // One judgment feeds both the bundle-fetch gate and the voice show-gate —
   // this used to be two independently drifting regexes.
   const needsPersonalContext = classified?.needsPersonalContext ?? shouldInjectPersonalContext(intent, route);
