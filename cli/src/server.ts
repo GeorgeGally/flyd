@@ -81,6 +81,7 @@ import { recordAction, recordNextState, isTransitionCaptureDisabled } from "./tr
 import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
 import { materializePresentFromWork } from "./cognition/present-materializer.js";
 import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
+import { runCuratorSweep } from "./cognition/curator/reconcile.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -1748,9 +1749,10 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       }
 
       try {
+        await runCuratorSweep();
         materializePresentFromWork();
         rebuildKnowledgeProjections();
-        console.log("[Flyd Core] Cognitive Present and knowledge projections refreshed");
+        console.log("[Flyd Core] Cognitive curator, Present, and knowledge projections refreshed");
       } catch (error) {
         console.warn("[Flyd Core] Cognitive projection refresh failed:", (error as Error).message);
       }
