@@ -79,6 +79,8 @@ import {
 import { syncInstalledOpenCodePlugin } from "./runtime/opencode-plugin-sync.js";
 import { recordAction, recordNextState, isTransitionCaptureDisabled } from "./transitions/writer.js";
 import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
+import { materializePresentFromWork } from "./cognition/present-materializer.js";
+import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -1743,6 +1745,14 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
         }
       } catch (error) {
         console.warn("[Flyd Core] OpenCode capture integration sync failed:", (error as Error).message);
+      }
+
+      try {
+        materializePresentFromWork();
+        rebuildKnowledgeProjections();
+        console.log("[Flyd Core] Cognitive Present and knowledge projections refreshed");
+      } catch (error) {
+        console.warn("[Flyd Core] Cognitive projection refresh failed:", (error as Error).message);
       }
 
       const loaded = loadLearnings();
