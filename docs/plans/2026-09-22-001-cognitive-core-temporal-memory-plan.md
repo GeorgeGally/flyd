@@ -77,6 +77,12 @@ Support, contradiction, dependency, requirement, supersession, causation, contai
 
 PROFILE.md, NOW.md, project files, and other human-readable records are rebuildable views over the logical world model. Losing or rewriting a projection must never destroy canonical knowledge.
 
+### Jev evaluates predicates; code changes state
+
+Use Jev as a fast probabilistic predicate engine over small, bounded evidence projections. Jev may judge whether evidence supports a proposition, whether a new statement contradicts or supersedes an existing claim, whether a trace contains reusable learning, whether context is relevant, or whether ambiguity warrants escalation.
+
+Jev does not directly mutate the graph, compute dates, enforce permissions, or perform multi-hop state derivation. Deterministic code interprets Jev probabilities using explicit per-predicate thresholds and then applies validated graph operations.
+
 # Target architecture
 
 Sources:
@@ -90,14 +96,16 @@ Sources:
 
 These emit immutable provenance-bearing observations/events.
 
-Events produce or revise claims. Claims and entities are connected through typed relationships. The logical world model is the canonical knowledge layer.
+Events produce candidate claims and relationships. Before ambiguous semantic mutations enter the graph, Flyd may evaluate bounded propositions with Jev. Claims and entities are connected through typed relationships. The logical world model is the canonical knowledge layer.
 
 Core flow:
 
 events / observations
--> claims
+-> bounded evidence projection
+-> Jev semantic predicates where needed
+-> validated candidate claims / relations
 -> typed relationships
--> derived world state
+-> deterministic derived world state
 -> projections
 -> Context Compiler
 -> model
@@ -238,6 +246,182 @@ customer
 If a requirement changes, Flyd should be able to identify the affected feature, implementation, and verification evidence without depending on an agent remembering to edit every summary that mentioned the old requirement.
 
 This is the core difference between archive retrieval and a world model.
+
+# System-1 predicate layer (Jev)
+
+Jev is not Flyd's reasoning model and not the canonical world model. It is a fast semantic judgment layer used for bounded questions whose answer space is known in advance.
+
+The implementation pattern is adapted from Agent Beacon's Jev usage: first construct a small deterministic projection of evidence, then ask several typed yes/no or choice questions in one call, persist the probabilities and evaluator metadata, and let deterministic code decide what follows.
+
+## Bounded projection
+
+Never send the whole user history or world model to Jev.
+
+Each evaluation builds a purpose-specific projection such as:
+- incoming event or statement
+- nearby candidate claims
+- relevant entities and relations
+- source evidence
+- parent project/event state
+- current temporal frame
+- exact deterministic facts already known
+
+Projection limits should be explicit by evaluator type: maximum events, maximum claims, maximum text per field, and allowed source classes.
+
+## Predicate families
+
+Initial predicates:
+
+### Ingestion / curation
+- is_correction
+- changes_current_state
+- same_entity
+- supports_existing_claim
+- contradicts_existing_claim
+- supersedes_existing_claim
+- creates_new_claim
+- should_create_task
+- evidence_supported
+
+### Retrieval / context
+- relevant_to_request
+- useful_as_current_context
+- useful_as_historical_context
+- requires_current_verification
+- same_project_or_workstream
+
+### Conversation
+- refers_to_previous_action
+- resolves_to_known_entity
+- user_is_correcting_flyd
+- user_is_confirming_decision
+
+### Learning
+- task_succeeded
+- contains_reusable_correction
+- contains_reusable_workflow
+- learning_supported_by_trace
+
+### Escalation
+- ambiguity_is_material
+- needs_reasoning_model
+- needs_more_evidence
+
+Do not use Jev for:
+- date arithmetic
+- lifecycle propagation
+- graph traversal
+- permission enforcement
+- irreversible-action authorization
+- numeric accounting
+- deterministic repository facts
+- open-ended planning
+- prose generation
+
+## Evaluation contract
+
+Suggested internal result:
+- evaluator
+- evaluatorModel
+- rubricVersion
+- rubricHash
+- projectionHash
+- sourceEventIds
+- predicates: id, probability, confidence
+- evaluatedAt
+- latencyMs
+- cost
+
+Predicate results are evidence, not truth. They remain inspectable and provenance-linked.
+
+## Per-predicate gates
+
+Do not flatten all predicate outputs into one average score for graph mutation.
+
+Example policy:
+- same_entity >= 0.90 may allow entity coalescing only when deterministic identifiers do not conflict.
+- evidence_supported >= 0.85 is required before automatic promotion of an inferred durable claim.
+- supersedes_existing_claim >= 0.90 may propose a supersession edge.
+- contradicts_existing_claim >= 0.90 may create a contradiction edge; it must not delete either claim.
+- relevant_to_request >= 0.70 may include a retrieved candidate in context.
+- confidence below the evaluator-specific floor preserves the item as uncertain or escalates to the reasoning model.
+
+Thresholds are versioned policy, benchmarked, and adjustable. They are not embedded casually throughout call sites.
+
+## Separation of soft and hard reasoning
+
+Soft semantic judgment:
+- Is George correcting a previous assumption?
+- Are these two statements about the same project?
+- Does this trace support the proposed learning?
+- Is this memory relevant to the current intent?
+
+Use Jev where benchmarked useful.
+
+Hard deterministic logic:
+- validUntil < now
+- parent event is completed
+- relation A supersedes B exists
+- test exited 0
+- commit SHA exists
+- action grant permits exact target
+
+Use code.
+
+This separation is a central Cognitive Core invariant.
+
+## Example: GNM3 correction
+
+Input: GNM3 is done; we don't need sponsors anymore.
+
+Bounded projection includes:
+- event:gnm3 status/date claims
+- task:gnm3:sponsorship
+- existing sponsor requirement relation
+- incoming user statement
+
+Jev may return:
+- is_correction: 0.98
+- changes_current_state: 0.99
+- same_entity: 0.99
+- supersedes_existing_claim: 0.95
+- should_create_task: 0.02
+
+Validated operations:
+- add user-stated completion/correction event if not already present
+- add or confirm supersession relation where appropriate
+
+Then deterministic lifecycle rules derive:
+- GNM3 completed
+- GNM3-bound sponsorship task expired
+
+Jev does not directly set the task to expired.
+
+## Example: learning from an agent trace
+
+Bounded trace projection:
+- task goal
+- selected tool/file/test events
+- corrections
+- outcome
+
+Questions in one Jev call:
+- task_succeeded?
+- contains_reusable_correction?
+- learning_supported_by_trace?
+
+Only if the relevant predicate gates pass does Flyd create a candidate learning. The candidate remains provenance-linked and may require review depending on authority and impact.
+
+## Fail-safe behaviour
+
+If Jev is unavailable, slow, malformed, or low-confidence:
+- preserve the source event
+- do not perform the optional semantic graph mutation
+- fall back to deterministic rules where possible
+- escalate to the reasoning model only when the user-facing task requires it
+- never block basic Present/context operation solely on Jev availability
+
+The world model must remain usable without the hosted evaluator.
 
 # Canonical CompiledContext
 
@@ -527,6 +711,8 @@ Conversation state is ephemeral by default. The curator promotes durable decisio
 
 Add cli/src/cognition/interpret.ts.
 
+Use Jev as the default fast semantic classifier for bounded interpretation predicates when benchmarked above the deterministic baseline, with a reasoning-model fallback for materially ambiguous cases.
+
 Replace critical-path regex meaning detection with one structured semantic interpretation step.
 
 Suggested result:
@@ -745,13 +931,16 @@ Deliver:
 - intelligence-benchmark.json
 - docs/evals/cognitive-core-baseline-2026-09-22.md
 
-## Phase 1: Canonical claims, relations, and temporal derivation
+## Phase 1: Canonical claims, relations, temporal derivation, and Jev predicate interface
 
 Primary files:
 - cli/src/cognition/types.ts
 - cli/src/cognition/world-model.ts
 - cli/src/cognition/relations.ts
 - cli/src/cognition/temporal.ts
+- cli/src/cognition/system-one/types.ts
+- cli/src/cognition/system-one/jev.ts
+- cli/src/cognition/system-one/policy.ts
 - cli/src/lib/brain-retrieval.ts
 - cli/src/resolve.ts
 
@@ -762,13 +951,20 @@ Implement:
 - TemporalClaim fields
 - deterministic derived-state rules
 - parent lifecycle propagation through relations
+- Jev request/response adapter
+- bounded projection contract
+- versioned predicate-policy thresholds
+- provenance for Jev evaluations
+- fail-safe behaviour when Jev is unavailable
 - current vs historical filtering
 - GNM regression
 
 Acceptance:
 - GNM3 completion invalidates the GNM3 sponsor task through the valid_for/requires graph relationship, not by an LLM editing NOW.md.
+- Jev may classify correction/supersession/support predicates, but deterministic lifecycle logic performs the invalidation.
 - A superseded claim cannot remain current.
 - A contradiction is preserved as a conflict rather than destructively resolved.
+- Low-confidence or failed Jev evaluations never silently mutate canonical state.
 - A stale action cannot appear as current merely because semantic relevance is high.
 
 ## Phase 2: Rebuildable PROFILE / NOW / project projections
@@ -790,7 +986,7 @@ Implement:
 Acceptance:
 Core can rebuild readable projections from existing durable inputs and survive restart.
 
-## Phase 3: Background graph curator
+## Phase 3: Background graph curator + semantic predicate evaluation
 
 Add:
 - cli/src/cognition/curator/curator.ts
@@ -801,9 +997,12 @@ Add:
 
 Implement:
 - conversation closeout to immutable events
+- bounded curator projections
+- Jev predicate batches for ambiguous semantic judgments
 - corrections as new claims + supersession edges
 - task outcomes as lifecycle events
 - git digest ingestion as observations
+- evidence-support evaluation for inferred learnings
 - claim reconciliation
 - relation creation
 - conflict preservation
@@ -827,7 +1026,7 @@ Refactor:
 Acceptance:
 “What am I working on?” answers from materialized current state without archive search.
 
-## Phase 5: Conversation state + semantic interpretation
+## Phase 5: Conversation state + Jev-backed semantic interpretation
 
 Add:
 - cli/src/cognition/conversation-state.ts
@@ -839,7 +1038,7 @@ Refactor:
 - cli/src/router.ts
 
 Acceptance:
-Short follow-ups such as “do that”, “the backend”, and “take another look” resolve correctly.
+Short follow-ups such as “do that”, “the backend”, and “take another look” resolve correctly. Fast bounded interpretation uses Jev when confident and escalates when material ambiguity remains.
 
 ## Phase 6: Context Compiler
 
@@ -858,12 +1057,14 @@ Migrate active model call sites:
 Acceptance:
 Every active product model call uses CompiledContext or explicitly documents why it cannot.
 
-## Phase 7: Unified memory read API
+## Phase 7: Unified memory read API + Jev reranking
 
 Add:
 - cli/src/cognition/memory.ts
 
 Move QMD/raw/wiki/graph/history behind it.
+
+Add optional Jev reranking over a small candidate set using bounded predicates such as relevant_to_request, useful_as_current_context, and requires_current_verification. Keep direct deterministic entity/project matches ahead of semantic reranking.
 
 Deprecate:
 - direct fast brain retrieval consumers
@@ -926,6 +1127,11 @@ Every model turn should emit a compact debug trace with:
 - expired claims suppressed
 - knowledge gaps
 - compile latency
+- Jev evaluator/model when used
+- predicate IDs + probabilities/confidence
+- predicate policy version
+- Jev latency/cost
+- fallback/escalation reason
 
 This trace should make “Why did Flyd think that?” answerable without exposing internal chain-of-thought.
 
@@ -939,6 +1145,9 @@ Baseline orientation should feel effectively free:
 - common context compilation under 100ms local before model time
 - deeper retrieval budgeted separately
 - no unconditional LLM call merely to retrieve current state
+- no unconditional Jev call for deterministic state derivation
+- batch independent Jev predicates over the same bounded state into one request
+- Jev failure must not make Present/NOW unavailable
 
 # Privacy and safety
 
@@ -970,13 +1179,15 @@ The first PR should be narrow and visibly improve intelligence:
 2. Add cli/src/cognition/world-model.ts with a minimal local canonical store/projection interface.
 3. Add cli/src/cognition/relations.ts with the initial typed relation vocabulary.
 4. Add cli/src/cognition/temporal.ts with deterministic derived-state rules.
-5. Represent GNM3, its event date/status, and sponsor task as claims/entities/relations in fixtures.
-6. Prove GNM3 completion invalidates sponsor-task actionability through graph derivation.
-7. Add supersession and contradiction regression fixtures.
-8. Add NOW projection reader/writer generated from derived state.
-9. Inject generated NOW into the active resolution prompt.
-10. Add debug trace fields for derivation path, expired/suppressed claims, and conflicts.
-11. Run existing Core tests plus the logical/temporal benchmark subset.
+5. Add cli/src/cognition/system-one with Jev adapter, bounded projection contract, evaluation provenance, and versioned per-predicate policy.
+6. Represent GNM3, its event date/status, and sponsor task as claims/entities/relations in fixtures.
+7. Feed an ambiguous user correction fixture through Jev-compatible predicate evaluation and prove deterministic graph code owns the resulting lifecycle mutation.
+8. Prove GNM3 completion invalidates sponsor-task actionability through graph derivation.
+9. Add supersession, contradiction, low-confidence, and Jev-unavailable regression fixtures.
+10. Add NOW projection reader/writer generated from derived state.
+11. Inject generated NOW into the active resolution prompt.
+12. Add debug trace fields for derivation path, Jev predicates, expired/suppressed claims, and conflicts.
+13. Run existing Core tests plus the logical/temporal/System-1 benchmark subset.
 
 Do not start the full curator/compiler rewrite until this slice proves that derived state beats document mutation for a real stale-memory failure.
 
@@ -996,6 +1207,9 @@ Cognitive Core is ready when:
 10. The 30+ prompt benchmark materially improves without regression in safety, provenance, or temporal correctness.
 11. PROFILE/NOW/project Markdown can be deleted and rebuilt from canonical events/claims/relations without loss of knowledge.
 12. At least one dependency chain can be invalidated/revalidated through relation traversal without editing a summary by hand.
+13. Jev is used only for bounded semantic predicates; deterministic code remains authoritative for lifecycle, permissions, dates, and graph-derived current state.
+14. Jev outage/low confidence cannot corrupt canonical state or prevent basic Flyd cognition.
+15. Benchmarks demonstrate at least one measurable win from Jev in intent classification, evidence support, claim/relation classification, or memory reranking before making it a required dependency.
 
 # Success criterion
 
