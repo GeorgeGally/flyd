@@ -167,7 +167,7 @@ function parentEntitiesForClaim(state: WorldModelState, claim: WorldClaim, now: 
   for (const rel of state.relations) {
     if (!relationActive(rel, now)) continue;
     if (rel.fromId !== claim.entityId) continue;
-    if (rel.type === "valid_for" || rel.type === "requires" || rel.type === "part_of") out.add(rel.toId);
+    if (rel.type === "valid_for" || rel.type === "part_of") out.add(rel.toId);
   }
   return [...out];
 }
@@ -325,6 +325,33 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
       });
       historical.push(...sorted.slice(1).map((c) => ({ ...c, disputed: true, temporalStatus: "historical" as const, derivation: [...c.derivation, "conflicting_non_winner"] })));
     }
+  }
+
+  const explicitConflictKeys = new Set(conflicts.map((conflict) => `${conflict.entityId}::${conflict.attribute}::${conflict.active.claimId}`));
+  for (const rel of state.relations) {
+    if (!relationActive(rel, now) || rel.type !== "contradicts") continue;
+    const a = state.claims.find((claim) => claim.claimId === rel.fromId);
+    const b = state.claims.find((claim) => claim.claimId === rel.toId);
+    if (!a || !b) continue;
+    const sorted = [a, b].sort((left, right) => {
+      const rank = AUTHORITY_RANK[right.authority] - AUTHORITY_RANK[left.authority];
+      if (rank !== 0) return rank;
+      return Date.parse(right.capturedAt) - Date.parse(left.capturedAt);
+    });
+    const active = sorted[0];
+    const other = sorted[1];
+    const key = `${active.entityId}::${active.attribute}::${active.claimId}`;
+    if (!explicitConflictKeys.has(key)) {
+      conflicts.push({
+        entityId: active.entityId,
+        attribute: active.attribute,
+        active,
+        conflicting: [{ claim: other, authority: other.authority }],
+      });
+      explicitConflictKeys.add(key);
+    }
+    const currentClaim = current.find((claim) => claim.claimId === active.claimId);
+    if (currentClaim) currentClaim.disputed = true;
   }
 
   const stale = new Set<string>();
