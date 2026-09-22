@@ -66,13 +66,26 @@ export class CognitiveCurator {
     });
   }
 
-  recordConversationTurn(input: { sessionId: string; user: string; assistant: string; turnNumber?: number }): number {
+  recordConversationTurn(input: {
+    sessionId: string;
+    user: string;
+    assistant: string;
+    turnNumber?: number;
+    projectIds?: string[];
+    intentKind?: string;
+    temporalFrame?: string;
+    referents?: Record<string, string>;
+  }): number {
     return this.recordObservation({
       conversation: {
         sessionId: input.sessionId,
         turnNumber: input.turnNumber,
         user: input.user,
         assistant: input.assistant,
+        projectIds: input.projectIds ?? [],
+        intentKind: input.intentKind,
+        temporalFrame: input.temporalFrame,
+        referents: input.referents ?? {},
       },
     }, "chat.cognition", { correlationId: input.sessionId });
   }
