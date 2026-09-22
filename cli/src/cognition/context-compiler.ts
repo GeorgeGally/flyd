@@ -75,6 +75,19 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   const profileCombined = [profile, projectProjection].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
+  const jevTrace = interpretation.systemOne || memory.systemOne
+    ? {
+        model: interpretation.systemOne?.model ?? memory.systemOne?.model,
+        predicates: {
+          ...(interpretation.systemOne?.predicates ?? {}),
+          ...(memory.systemOne?.predicates ?? {}),
+        },
+        latencyMs: (interpretation.systemOne?.latencyMs ?? 0) + (memory.systemOne?.latencyMs ?? 0),
+        ...(interpretation.systemOne?.error || memory.systemOne?.error
+          ? { error: [interpretation.systemOne?.error, memory.systemOne?.error].filter(Boolean).join("; ") }
+          : {}),
+      }
+    : undefined;
   return {
     generatedAt: new Date().toISOString(),
     interpretation,
@@ -89,6 +102,6 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
       ...(input.projectRoot ? { repository: { root: input.projectRoot, dirty: present.dirtyRepos.some((r) => r.root === input.projectRoot) } } : {}),
     },
     capabilities: input.capabilities ?? [],
-    trace: { sources, timings, omissions },
+    trace: { sources, timings, omissions, ...(jevTrace ? { jev: jevTrace } : {}) },
   };
 }
