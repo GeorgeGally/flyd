@@ -3,6 +3,7 @@ import { interpretIntent } from "./interpret.js";
 import { materializeGitDigest } from "./git-distiller.js";
 import { queryMemory } from "./memory.js";
 import { readPresentState } from "./present-store.js";
+import { materializePresentFromWork } from "./present-materializer.js";
 import { readProjection, readProjectProjection } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
@@ -43,6 +44,9 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     catch { omissions.push("git_distillation_failed"); }
     timings.git=Date.now()-tGit;
   }
+
+  try { materializePresentFromWork(); sources.push("work-hypothesis"); }
+  catch { omissions.push("present_materialization_failed"); }
 
   const tProjection = Date.now();
   const profile = readProjection("profile");
