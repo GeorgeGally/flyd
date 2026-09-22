@@ -1,5 +1,6 @@
 import { query } from "./lib/llm.js";
 import type { IntentRoute, IntentRouteKind, IntentPlacement, IntentScene } from "./resolve.js";
+import { evaluatePredicates } from "./cognition/system-one/jev.js";
 import type {
   ConsequenceAssessment,
   ConsequentialVerb,
@@ -89,6 +90,98 @@ Respond with ONLY this JSON:
 {"kind":"...","placement":"...","scene":"...","consequential":false,"verbs":[],"target":"text_in_focus","reason":"<short>"}`;
 }
 
+async function classifyRouteWithJev(
+  intent: string,
+  env: { appName: string; elementRole: string },
+  modality: "text" | "voice",
+): Promise<ClassifiedRoute | null> {
+  const evaluation = await evaluatePredicates(
+    { intent, app_name: env.appName, element_role: env.elementRole, modality },
+    [
+      {
+        id: "route_kind",
+        type: "choice",
+        instructions: "Choose the overlay route kind that best matches the user's intent.",
+        criteria: {
+          ask_answer: "The user wants an answer or explanation shown to them.",
+          draft_insert: "The user wants composed or rewritten text inserted into the focused field.",
+          dictate_insert: "The user is dictating text to insert nearly verbatim.",
+        },
+      },
+      {
+        id: "placement",
+        type: "choice",
+        instructions: "Choose where the result belongs.",
+        criteria: {
+          answer_panel: "Show the result to the user as an answer.",
+          insert_at_cursor: "Insert the result into the focused text field.",
+        },
+      },
+      {
+        id: "scene",
+        type: "choice",
+        instructions: "Choose the best writing scene.",
+        criteria: {
+          clean_dictation: "Lightly cleaned dictation.",
+          email_reply: "Email or chat reply.",
+          support_reply: "Support response.",
+          code_review_comment: "Engineering review comment.",
+          meeting_note: "Meeting notes.",
+          concise_answer: "Direct answer or explanation.",
+        },
+      },
+      { id: "consequential", instructions: "Would fulfilling this intent itself send, submit, publish, purchase, delete, deploy, or otherwise act outside the focused text field?" },
+      {
+        id: "target",
+        type: "choice",
+        instructions: "Choose the primary target of the requested result.",
+        criteria: {
+          text_in_focus: "Only the currently focused text field.",
+          external_system: "A remote or external system.",
+          file_system: "The local file system or repository.",
+          unknown: "The target cannot be determined.",
+        },
+      },
+      { id: "verb_create", instructions: "Does the consequential action create an external or durable object?" },
+      { id: "verb_modify", instructions: "Does the consequential action modify an external or durable object?" },
+      { id: "verb_send", instructions: "Does the consequential action send or submit something?" },
+      { id: "verb_purchase", instructions: "Does the consequential action purchase something?" },
+      { id: "verb_delete", instructions: "Does the consequential action delete something?" },
+      { id: "verb_publish", instructions: "Does the consequential action publish or deploy something?" },
+    ],
+  );
+  if (!evaluation.ok) return null;
+  const kind = evaluation.answers.route_kind?.choice ?? "";
+  const placement = evaluation.answers.placement?.choice ?? "";
+  const scene = evaluation.answers.scene?.choice ?? "";
+  const target = evaluation.answers.target?.choice ?? "unknown";
+  if (!VALID_KINDS.has(kind) || !VALID_PLACEMENTS.has(placement) || !VALID_SCENES.has(scene) || !VALID_TARGETS.has(target)) {
+    return null;
+  }
+  const consequential = (evaluation.answers.consequential?.probability ?? 0) >= 0.65;
+  const verbs = ([
+    ["create", "verb_create"],
+    ["modify", "verb_modify"],
+    ["send", "verb_send"],
+    ["purchase", "verb_purchase"],
+    ["delete", "verb_delete"],
+    ["publish", "verb_publish"],
+  ] as const)
+    .filter(([, id]) => (evaluation.answers[id]?.probability ?? 0) >= 0.65)
+    .map(([verb]) => verb as ConsequentialVerb);
+
+  return {
+    route: { kind: kind as IntentRouteKind, placement: placement as IntentPlacement, scene: scene as IntentScene },
+    consequence: {
+      class: consequential ? "consequential" : "benign",
+      verbs: consequential ? verbs : [],
+      target: target as ConsequenceAssessment["target"],
+      reason: "Jev System-1 bounded route classification",
+      source: "classifier",
+    },
+  };
+}
+
 type QueryFn = typeof query;
 
 export async function classifyRoute(
@@ -99,6 +192,8 @@ export async function classifyRoute(
   queryFn: QueryFn = query,
   timeoutMs = ROUTER_TIMEOUT_MS
 ): Promise<ClassifiedRoute | null> {
+  const jev = await classifyRouteWithJev(intent, env, modality);
+  if (jev) return jev;
   if (!config) return null;
 
   const prompt = buildClassifierPrompt(intent, env.appName, env.elementRole, modality);
