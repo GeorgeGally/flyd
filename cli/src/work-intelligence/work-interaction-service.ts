@@ -23,6 +23,8 @@ import {
 import { readLatestCloseoutForProject } from './work-session-closeout-store.js';
 import { recordJournalEntry } from './outcome-journal.js';
 import { selectWorkIntelligenceAction } from './planner.js';
+import { compileContext } from '../cognition/context-compiler.js';
+import { formatCompiledContext } from '../cognition/context-format.js';
 
 // server.ts imports this service during Core boot. Start deterministic operational
 // supervision with the Core module lifecycle, while keeping test imports inert.
@@ -145,7 +147,18 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     ? conversationTurns.slice(-6).map(t => `User: ${t.user}\nFlyd: ${t.assistant}`).join('\n')
     : undefined;
 
-  const memoryContext = await retrieveMemoryContext(params.intent, repoInfo.root);
+  const compiledContext = await compileContext({
+    intent: params.intent,
+    projectRoot: repoInfo.root,
+    projectHint: currentWork.project.value ? `project:${currentWork.project.value.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : undefined,
+    environment: { app: params.environment.application.name, documentPath: params.environment.document_path },
+    conversation: conversationTurns.flatMap((turn) => [
+      { role: "user" as const, content: turn.user },
+      { role: "assistant" as const, content: turn.assistant },
+    ]),
+    capabilities: ["work-intelligence", "memory", "git", "planning", "execution"],
+  });
+  const memoryContext = formatCompiledContext(compiledContext);
 
   const prompt = buildWorkIntelligencePrompt({
     currentWork,
@@ -257,25 +270,4 @@ export function bindProposedAction(
       statusDigest: evidence.statusDigest,
     },
   };
-}
-
-const MEMORY_TIMEOUT_MS = 2000;
-const MAX_MEMORY_EXCERPTS = 8;
-
-async function retrieveMemoryContext(intent: string, projectRoot?: string): Promise<string | undefined> {
-  try {
-    const { retrieveResilientLexicalBrainEvidence } = await import('../lib/brain-retrieval.js');
-    const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_TIMEOUT_MS).unref?.());
-    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(intent, projectRoot), timeout]);
-    if (!result || result.matches.length === 0) return undefined;
-
-    const lines = result.matches.slice(0, MAX_MEMORY_EXCERPTS).map(m => {
-      const marker = m.content.isCurrent ? '[CURRENT]' : '[BACKGROUND]';
-      return `  ${marker} ${m.content.excerpt.slice(0, 400)}`;
-    });
-
-    return lines.join('\n');
-  } catch {
-    return undefined;
-  }
 }
