@@ -32,6 +32,7 @@ export interface DerivedWorldState {
   conflicts: ConflictView[];
   relations: WorldRelation[];
   staleEntityIds: string[];
+  unresolvedEntityIds: string[];
 }
 
 export function resolveEntityId(namespace: string, key: string): string {
@@ -355,10 +356,30 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
   }
 
   const stale = new Set<string>();
+  const unresolved = new Set<string>();
+  const latestForEntity = (entityId: string): WorldClaim | undefined =>
+    state.claims
+      .filter((claim) => claim.entityId === entityId)
+      .sort((a, b) => Date.parse(b.effectiveAt ?? b.observedAt ?? b.capturedAt) - Date.parse(a.effectiveAt ?? a.observedAt ?? a.capturedAt))[0];
+
   for (const rel of state.relations) {
-    if (!relationActive(rel, now) || rel.type !== "depends_on") continue;
-    const upstream = current.find((c) => c.entityId === rel.toId);
-    if (upstream && upstream.freshness < 0.25) stale.add(rel.fromId);
+    if (!relationActive(rel, now)) continue;
+    if (rel.type === "depends_on") {
+      const upstream = latestForEntity(rel.toId);
+      const downstream = latestForEntity(rel.fromId);
+      const upstreamAt = upstream ? Date.parse(upstream.effectiveAt ?? upstream.observedAt ?? upstream.capturedAt) : Number.NaN;
+      const downstreamAt = downstream ? Date.parse(downstream.effectiveAt ?? downstream.observedAt ?? downstream.capturedAt) : Number.NaN;
+      if (
+        (Number.isFinite(upstreamAt) && (!Number.isFinite(downstreamAt) || upstreamAt > downstreamAt)) ||
+        current.some((claim) => claim.entityId === rel.toId && claim.freshness < 0.25)
+      ) {
+        stale.add(rel.fromId);
+      }
+    }
+    if (rel.type === "requires") {
+      const status = claimStatusValue(state, rel.toId, now);
+      if (!status || !["completed", "done", "resolved", "verified"].includes(status)) unresolved.add(rel.fromId);
+    }
   }
 
   return {
@@ -368,6 +389,7 @@ export function deriveWorldState(state: WorldModelState, now = new Date(), halfL
     conflicts,
     relations: state.relations.filter((r) => relationActive(r, now)),
     staleEntityIds: [...stale],
+    unresolvedEntityIds: [...unresolved],
   };
 }
 
