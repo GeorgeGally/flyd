@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
 import { updatePresentState } from "./present-store.js";
+import { CognitiveCurator } from "./curator/curator.js";
 
 export interface GitProjectDigest {
   projectId: string;
@@ -46,5 +47,24 @@ export function materializeGitDigest(root: string): GitProjectDigest {
     recentRepoMovement: digest.recentCommits.slice(0,5).map((c) => ({ project: digest.projectId, subject: c.subject, at: c.at })),
     sourceRefs: digest.recentCommits.map((c) => `git:commit:${c.sha}`),
   });
+  const curator = new CognitiveCurator();
+  try {
+    curator.addClaim({ entityId: digest.projectId, attribute: "branch", value: digest.branch, authority: "observed", timeShape: "state", evidenceRefs: digest.recentCommits.map((c) => `git:commit:${c.sha}`) }, "work.git");
+    curator.addClaim({ entityId: digest.projectId, attribute: "dirty", value: String(digest.dirty), authority: "observed", timeShape: "state", evidenceRefs: digest.changedAreas.map((p) => `git:path:${p}`) }, "work.git");
+    if (digest.recentCommits[0]) {
+      curator.addClaim({
+        entityId: digest.projectId,
+        attribute: "latest_commit",
+        value: digest.recentCommits[0].subject,
+        authority: "observed",
+        effectiveAt: digest.recentCommits[0].at,
+        timeShape: "state",
+        evidenceRefs: [`git:commit:${digest.recentCommits[0].sha}`],
+      }, "work.git");
+    }
+    curator.rebuild();
+  } finally {
+    curator.close();
+  }
   return digest;
 }
