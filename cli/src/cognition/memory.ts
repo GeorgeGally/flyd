@@ -50,7 +50,8 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
     relevance: m.confidence,
     epistemicStatus: m.epistemicStatus,
     freshness: m.confidenceProfile.freshness,
-    temporalStatus: m.content.isCurrent ? "current" : "historical",
+    // Legacy archive retrieval is background evidence only. Canonical derived world state owns present-tense authority.
+    temporalStatus: "background",
   }));
 
   if (input.useJev !== false && relevant.length > 1) {
@@ -83,7 +84,7 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
       entityId: c.entityId, attribute: c.attribute,
       claims: [c.active.value, ...c.conflicting.map((x) => x.claim.value)],
     })),
-    gaps: [],
+    gaps: derived.unresolvedEntityIds.map((id) => `unresolved_dependency:${id}`),
     relations: derived.relations,
     ...(memorySystemOne ? { systemOne: memorySystemOne } : {}),
   };
