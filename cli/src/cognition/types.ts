@@ -22,6 +22,7 @@ export interface IntentInterpretation {
   requestedAction?: string;
   source: "jev" | "deterministic";
   confidence: number;
+  systemOne?: { model?: string; predicates: Record<string, number>; latencyMs: number; error?: string };
 }
 
 export interface ConversationState {
@@ -67,6 +68,7 @@ export interface UnifiedMemoryResult {
   conflicts: Array<{ entityId: string; attribute: string; claims: string[] }>;
   gaps: string[];
   relations: WorldRelation[];
+  systemOne?: { model?: string; predicates: Record<string, number>; latencyMs: number; error?: string };
 }
 
 export interface CompiledContext {
@@ -91,6 +93,6 @@ export interface CompiledContext {
     sources: string[];
     timings: Record<string, number>;
     omissions: string[];
-    jev?: { model?: string; predicates: Record<string, number>; latencyMs?: number };
+    jev?: { model?: string; predicates: Record<string, number>; latencyMs?: number; error?: string };
   };
 }
