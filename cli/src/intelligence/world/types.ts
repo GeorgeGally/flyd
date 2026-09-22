@@ -15,6 +15,53 @@ export const AUTHORITY_RANK: Record<ClaimAuthority, number> = {
   user_confirmed: 2,
 };
 
+export type TemporalStatus =
+  | "future"
+  | "current"
+  | "expired"
+  | "completed"
+  | "cancelled"
+  | "superseded"
+  | "historical"
+  | "unknown";
+
+export type TimeShape =
+  | "durable"
+  | "temporary"
+  | "deadline_bound"
+  | "event_bound"
+  | "state"
+  | "historical";
+
+export type WorldRelationType =
+  | "supports"
+  | "contradicts"
+  | "supersedes"
+  | "requires"
+  | "depends_on"
+  | "caused_by"
+  | "part_of"
+  | "instance_of"
+  | "resolved_by"
+  | "valid_for"
+  | "implemented_by"
+  | "verified_by"
+  | "motivates"
+  | "has_problem";
+
+export interface WorldRelation {
+  relationId: string;
+  fromId: string;
+  type: WorldRelationType;
+  toId: string;
+  confidence: number;
+  evidenceRefs: number[];
+  createdAt: string;
+  validFrom?: string;
+  validUntil?: string;
+  supersededBy?: string;
+}
+
 export interface WorldClaim {
   /** Stable id: sequence-scoped, never reused. */
   claimId: string;
@@ -27,15 +74,35 @@ export interface WorldClaim {
   /** Event-sequence provenance — survives supersession. */
   evidenceRefs: number[];
   capturedAt: string;
+  observedAt?: string;
+  validFrom?: string;
   validUntil?: string;
-  /** Set when a later claim (e.g. a user correction) supersedes this one. */
+  effectiveAt?: string;
+  timeShape?: TimeShape;
+  temporalStatus?: TemporalStatus;
+  parentEntityId?: string;
+  /** Set when a later claim supersedes this one. */
   supersededBy?: string;
 }
 
 export interface WorldEntity {
   id: string;
-  kind: "project" | "artifact" | "person" | "topic" | "goal" | "generic";
+  kind:
+    | "project"
+    | "artifact"
+    | "person"
+    | "organization"
+    | "topic"
+    | "goal"
+    | "task"
+    | "event"
+    | "feature"
+    | "requirement"
+    | "file"
+    | "product"
+    | "generic";
   label: string;
+  aliases?: string[];
 }
 
 export interface ConflictView {
