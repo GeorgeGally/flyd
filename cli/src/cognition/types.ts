@@ -37,6 +37,7 @@ export interface ConversationState {
 
 export interface PresentState {
   generatedAt: string;
+  projection?: string;
   foregroundProject?: string;
   activeProjects: string[];
   dirtyRepos: Array<{ root: string; branch?: string; changed: string[] }>;
