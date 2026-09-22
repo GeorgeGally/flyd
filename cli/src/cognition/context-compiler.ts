@@ -7,6 +7,7 @@ import { materializePresentFromWork } from "./present-materializer.js";
 import { readProjection, readProjectProjection } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
+import { readContextBundles } from "../lib/context-bundles.js";
 
 export interface CompileContextInput {
   intent: string;
@@ -71,8 +72,23 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   timings.memory=Date.now()-tMemory;
   sources.push("world-model","memory");
 
-  const projectProjection = interpretation.projectIds.map(readProjectProjection).filter(Boolean).join("\n\n");
-  const profileCombined = [profile, projectProjection].filter(Boolean).join("\n\n").slice(0,24000);
+  const legacyBundles = readContextBundles();
+  const legacyProfile = legacyBundles
+    .filter((bundle) => bundle.name === "current_identity" || bundle.name === "current_constraints")
+    .map((bundle) => `## Legacy ${bundle.name}\n${bundle.body}`)
+    .join("\n\n");
+  if (legacyProfile) sources.push("legacy-context-bundles");
+  const projects = interpretation.projectIds
+    .map((id) => ({ id, projection: readProjectProjection(id) }))
+    .filter((item) => Boolean(item.projection));
+  const legacyActiveProjects = legacyBundles
+    .filter((bundle) => bundle.name === "active_projects" || bundle.name === "recent_history")
+    .map((bundle) => `## Legacy ${bundle.name}\n${bundle.body}`)
+    .join("\n\n");
+  if (legacyActiveProjects && projects.length === 0) {
+    projects.push({ id: "legacy:active-work", projection: legacyActiveProjects });
+  }
+  const profileCombined = [profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne
@@ -93,6 +109,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     interpretation,
     user: { profile: profileCombined, autonomy: [], communication: [] },
     present,
+    projects,
     conversation,
     memory,
     environment: {
