@@ -1,5 +1,6 @@
 import { readPresentModel } from "../work/work-hypothesis/index.js";
 import type { WorkHypothesis } from "../work/work-hypothesis/types.js";
+import type { RuntimeAwarePresent } from "../work/runtime-present-types.js";
 import { readPresentState, writePresentState } from "./present-store.js";
 import type { PresentState } from "./types.js";
 
@@ -7,7 +8,7 @@ function unique(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((v) => v?.trim()).filter((v): v is string => Boolean(v)))];
 }
 
-export function presentFromWorkHypothesis(work: WorkHypothesis | null, prior = readPresentState()): PresentState {
+export function presentFromWorkHypothesis(work: WorkHypothesis | RuntimeAwarePresent | null, prior = readPresentState()): PresentState {
   if (!work) return prior;
   const threads = [...work.primaryThreads, ...work.secondaryThreads].filter((thread) => !thread.demoted);
   const activeProjects = unique([
