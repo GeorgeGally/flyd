@@ -35,7 +35,7 @@ import {
   retrieveRecentActionableOutcome,
   retrieveRecentConversationEvidence,
 } from "../runtime/conversation-memory.js";
-import { retrieveFastBrainEvidence } from "../runtime/fast-brain-retrieval.js";
+import { queryMemory } from "../cognition/memory.js";
 import { isHoroscopeQuestion, verifiedHoroscopeEvidence } from "../runtime/personal-context-memory.js";
 import { actionableTaskNextAction } from "../runtime/orientation.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
@@ -47,7 +47,33 @@ const execFileAsync = promisify(execFile);
 const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 export async function retrieveRuntimeMemory(query: string): Promise<MemoryEvidence> {
-  return retrieveFastBrainEvidence(query);
+  const memory = await queryMemory({ text: query, temporalFrame: "mixed", includeHistorical: true, projectRoot: process.cwd(), limit: 6 });
+  const current = memory.current.map((claim) => ({
+    id: claim.claimId,
+    path: claim.evidenceRefs.map((ref) => `event:${ref}`).join(",") || claim.entityId,
+    excerpt: `${claim.entityId} · ${claim.attribute}: ${claim.value}`,
+    stale: false,
+    kind: "archive" as const,
+    authority: claim.authority === "user_confirmed" ? "user_confirmed" as const : claim.authority === "inferred" ? "durable_memory" as const : "current_signal" as const,
+    outcome: "unknown" as const,
+    updatedAt: claim.observedAt ?? claim.capturedAt,
+  }));
+  const recalled = memory.relevant.map((item) => ({
+    id: item.id,
+    path: item.source,
+    excerpt: item.content,
+    stale: item.temporalStatus !== "current",
+    kind: "archive" as const,
+    authority: item.epistemicStatus === "user_confirmed" || item.epistemicStatus === "verified"
+      ? "user_confirmed" as const
+      : "durable_memory" as const,
+    outcome: "unknown" as const,
+  }));
+  const matches = [...current, ...recalled].slice(0, 6);
+  return {
+    verdict: memory.conflicts.length > 0 ? "conflicting" : matches.length >= 3 ? "sufficient" : matches.length > 0 ? "partial" : "insufficient",
+    matches,
+  };
 }
 
 export async function retrieveAgentMemory(
@@ -55,11 +81,11 @@ export async function retrieveAgentMemory(
   options: {
     excludeConversationSessionId?: string;
     retrieveConversation?: typeof retrieveRecentConversationEvidence;
-    retrieveArchive?: typeof retrieveFastBrainEvidence;
+    retrieveArchive?: (query: string) => Promise<MemoryEvidence>;
   } = {},
 ): Promise<MemoryEvidence> {
   const retrieveConversation = options.retrieveConversation ?? retrieveRecentConversationEvidence;
-  const retrieveArchive = options.retrieveArchive ?? retrieveFastBrainEvidence;
+  const retrieveArchive = options.retrieveArchive ?? retrieveRuntimeMemory;
   const [conversation, archive] = await Promise.all([
     retrieveConversation(query, {
       excludeSessionId: options.excludeConversationSessionId,
