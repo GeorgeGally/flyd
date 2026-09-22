@@ -95,7 +95,7 @@ export function parityCheck(fixtureName: string, grounding: GroundingContext): P
   const legacy = constructCurrentWork(grounding);
 
   // Frozen fixture → synthetic spine events → projection
-  const state: WorldModelState = { claims: [] };
+  let state: WorldModelState = worldModelProjector.initialState();
   const capturedAt = new Date().toISOString();
   const payloads = groundingToEventPayload(grounding, 1, capturedAt);
   let sequence = 1;
@@ -118,7 +118,7 @@ export function parityCheck(fixtureName: string, grounding: GroundingContext): P
       redacted: false,
       erased: false,
     };
-    state.claims = worldModelProjector.apply(state, event).claims;
+    state = worldModelProjector.apply(state, event);
   }
 
   const projected = projectedCurrentWork(state);
