@@ -9,6 +9,7 @@ export function formatCompiledContext(context: CompiledContext): string {
     "<flyd_context>",
     "<profile>", context.user.profile || "(no profile projection)", "</profile>",
     "<now>",
+    context.present.projection || "",
     `Active projects: ${context.present.activeProjects.join(", ") || "none"}`,
     ...context.memory.current.slice(0,20).map(claimLine),
     "</now>",
