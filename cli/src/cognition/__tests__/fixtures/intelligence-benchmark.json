@@ -1,0 +1,289 @@
+{
+  "version": 1,
+  "date": "2026-09-22",
+  "cases": [
+    {
+      "id": "current-01",
+      "category": "current_state",
+      "prompt": "What am I working on?",
+      "expect": [
+        "uses_present",
+        "no_stale_action"
+      ]
+    },
+    {
+      "id": "current-02",
+      "category": "current_state",
+      "prompt": "What's active?",
+      "expect": [
+        "uses_present"
+      ]
+    },
+    {
+      "id": "current-03",
+      "category": "current_state",
+      "prompt": "What should I worry about today?",
+      "expect": [
+        "current_only"
+      ]
+    },
+    {
+      "id": "current-04",
+      "category": "current_state",
+      "prompt": "Where are we with Bloom?",
+      "expect": [
+        "project_grounding"
+      ]
+    },
+    {
+      "id": "current-05",
+      "category": "current_state",
+      "prompt": "What changed recently in Flyd?",
+      "expect": [
+        "git_current"
+      ]
+    },
+    {
+      "id": "resume-01",
+      "category": "continuity",
+      "prompt": "Where were we?",
+      "expect": [
+        "conversation_referent"
+      ]
+    },
+    {
+      "id": "resume-02",
+      "category": "continuity",
+      "prompt": "Continue what I was doing yesterday.",
+      "expect": [
+        "resume_state"
+      ]
+    },
+    {
+      "id": "resume-03",
+      "category": "continuity",
+      "prompt": "Take another look.",
+      "expect": [
+        "conversation_referent"
+      ]
+    },
+    {
+      "id": "resume-04",
+      "category": "continuity",
+      "prompt": "Yeah, do that.",
+      "expect": [
+        "previous_action_referent"
+      ]
+    },
+    {
+      "id": "resume-05",
+      "category": "continuity",
+      "prompt": "What about the backend?",
+      "expect": [
+        "flyd_backend_referent"
+      ]
+    },
+    {
+      "id": "temporal-01",
+      "category": "temporal",
+      "prompt": "Do I still need sponsors for GNM3?",
+      "expect": [
+        "gnm3_sponsorship_not_current"
+      ]
+    },
+    {
+      "id": "temporal-02",
+      "category": "temporal",
+      "prompt": "What were we worried about before GNM3?",
+      "expect": [
+        "historical_allowed"
+      ]
+    },
+    {
+      "id": "temporal-03",
+      "category": "temporal",
+      "prompt": "What should I carry from GNM3 into GNM4?",
+      "expect": [
+        "no_silent_task_inheritance"
+      ]
+    },
+    {
+      "id": "temporal-04",
+      "category": "temporal",
+      "prompt": "Which deadlines are still live?",
+      "expect": [
+        "validity_filter"
+      ]
+    },
+    {
+      "id": "temporal-05",
+      "category": "temporal",
+      "prompt": "What did I still need before GNM3?",
+      "expect": [
+        "historical_sponsorship_allowed"
+      ]
+    },
+    {
+      "id": "temporal-06",
+      "category": "temporal",
+      "prompt": "What should I focus on for GNM?",
+      "expect": [
+        "gnm3_sponsorship_not_current"
+      ]
+    },
+    {
+      "id": "recall-01",
+      "category": "recall",
+      "prompt": "Why did we decide against that?",
+      "expect": [
+        "decision_chain"
+      ]
+    },
+    {
+      "id": "recall-02",
+      "category": "recall",
+      "prompt": "Wasn't there another project like this?",
+      "expect": [
+        "cross_project_recall"
+      ]
+    },
+    {
+      "id": "recall-03",
+      "category": "recall",
+      "prompt": "What did I tell you about the Christmas market?",
+      "expect": [
+        "historical_recall"
+      ]
+    },
+    {
+      "id": "recall-04",
+      "category": "recall",
+      "prompt": "What changed my mind about the Flyd memory architecture?",
+      "expect": [
+        "causal_chain"
+      ]
+    },
+    {
+      "id": "recall-05",
+      "category": "recall",
+      "prompt": "Why are Markdown summaries not canonical anymore?",
+      "expect": [
+        "relation_reasoning"
+      ]
+    },
+    {
+      "id": "ground-01",
+      "category": "project_grounding",
+      "prompt": "What's wrong with Flyd?",
+      "expect": [
+        "current_project"
+      ]
+    },
+    {
+      "id": "ground-02",
+      "category": "project_grounding",
+      "prompt": "What changed recently in Bloom?",
+      "expect": [
+        "git_current"
+      ]
+    },
+    {
+      "id": "ground-03",
+      "category": "project_grounding",
+      "prompt": "Is this still blocked?",
+      "expect": [
+        "referent",
+        "current_state"
+      ]
+    },
+    {
+      "id": "ground-04",
+      "category": "project_grounding",
+      "prompt": "Did that implementation actually pass tests?",
+      "expect": [
+        "verification_evidence"
+      ]
+    },
+    {
+      "id": "ground-05",
+      "category": "project_grounding",
+      "prompt": "Which requirement does this commit implement?",
+      "expect": [
+        "logical_chain"
+      ]
+    },
+    {
+      "id": "personal-01",
+      "category": "personalization",
+      "prompt": "Recommend a tool for this.",
+      "expect": [
+        "profile_used_when_relevant"
+      ]
+    },
+    {
+      "id": "personal-02",
+      "category": "personalization",
+      "prompt": "How should I approach this client?",
+      "expect": [
+        "profile_used_when_relevant"
+      ]
+    },
+    {
+      "id": "personal-03",
+      "category": "personalization",
+      "prompt": "What kind of solution would suit me?",
+      "expect": [
+        "profile_used_when_relevant"
+      ]
+    },
+    {
+      "id": "personal-04",
+      "category": "personalization",
+      "prompt": "Should Flyd ask me before doing this?",
+      "expect": [
+        "autonomy_context"
+      ]
+    },
+    {
+      "id": "conflict-01",
+      "category": "epistemic",
+      "prompt": "Which of these two conflicting facts is true?",
+      "expect": [
+        "conflict_visible",
+        "no_silent_overwrite"
+      ]
+    },
+    {
+      "id": "conflict-02",
+      "category": "epistemic",
+      "prompt": "Are we sure this is current?",
+      "expect": [
+        "uncertainty_visible"
+      ]
+    },
+    {
+      "id": "jev-01",
+      "category": "system_one",
+      "prompt": "Actually, that's not happening anymore.",
+      "expect": [
+        "correction_predicate"
+      ]
+    },
+    {
+      "id": "jev-02",
+      "category": "system_one",
+      "prompt": "This is the same project as the one we discussed yesterday.",
+      "expect": [
+        "same_entity_predicate"
+      ]
+    },
+    {
+      "id": "jev-03",
+      "category": "system_one",
+      "prompt": "Does this trace contain something reusable?",
+      "expect": [
+        "learning_predicates"
+      ]
+    }
+  ]
+}
