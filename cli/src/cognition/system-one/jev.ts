@@ -9,6 +9,37 @@ function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+const MAX_STRING = 1200;
+const MAX_ARRAY = 80;
+const MAX_KEYS = 64;
+const MAX_DEPTH = 6;
+
+function redactString(value: string): string {
+  return value
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[REDACTED_SECRET]")
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "[REDACTED_EMAIL]")
+    .slice(0, MAX_STRING);
+}
+
+function boundValue(value: unknown, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return "[TRUNCATED_DEPTH]";
+  if (typeof value === "string") return redactString(value);
+  if (typeof value === "number" || typeof value === "boolean" || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY).map((item) => boundValue(item, depth + 1));
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, MAX_KEYS)
+        .map(([key, child]) => [key, boundValue(child, depth + 1)]),
+    );
+  }
+  return String(value).slice(0, MAX_STRING);
+}
+
+function boundedState(state: Record<string, unknown>): Record<string, unknown> {
+  return boundValue(state) as Record<string, unknown>;
+}
+
 function envOptions(options: JevOptions): Required<Pick<JevOptions, "endpoint" | "model" | "timeoutMs" | "rubricVersion">> & JevOptions {
   return {
     endpoint: options.endpoint ?? process.env.FLYD_JEV_ENDPOINT ?? process.env.BEACON_JEV_ENDPOINT ?? DEFAULT_ENDPOINT,
@@ -27,12 +58,14 @@ export async function evaluatePredicates(
 ): Promise<PredicateEvaluation> {
   const opts = envOptions(options);
   const started = Date.now();
-  const projectionHash = hash(state);
-  if (!opts.apiKey || questions.length === 0) {
+  const projection = boundedState(state);
+  const projectionHash = hash(projection);
+  const explicitlyEnabled = options.apiKey !== undefined || process.env.FLYD_JEV_ENABLED === "true";
+  if (!explicitlyEnabled || !opts.apiKey || questions.length === 0) {
     return {
       ok: false, evaluator: "none", model: opts.model, rubricVersion: opts.rubricVersion,
       projectionHash, answers: {}, evaluatedAt: new Date().toISOString(), latencyMs: Date.now() - started,
-      error: !opts.apiKey ? "jev_not_configured" : "no_questions",
+      error: !explicitlyEnabled ? "jev_not_enabled" : !opts.apiKey ? "jev_not_configured" : "no_questions",
     };
   }
 
@@ -47,7 +80,7 @@ export async function evaluatePredicates(
     const response = await opts.fetchFn!(opts.endpoint, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${opts.apiKey}` },
-      body: JSON.stringify({ model: opts.model, state: { ...state, rubric_version: opts.rubricVersion }, questions: questionMap }),
+      body: JSON.stringify({ model: opts.model, state: { ...projection, rubric_version: opts.rubricVersion }, questions: questionMap }),
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`jev_http_${response.status}`);
