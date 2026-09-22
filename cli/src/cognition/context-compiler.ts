@@ -50,7 +50,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   sources.push("PROFILE","NOW");
   timings.projections=Date.now()-tProjection;
 
-  const present = readPresentState();
+  const present = { ...readPresentState(), projection: nowProjection };
   sources.push("present");
 
   const tMemory=Date.now();
