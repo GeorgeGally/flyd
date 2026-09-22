@@ -38,6 +38,7 @@ import { compileContext } from "../cognition/context-compiler.js";
 import { formatCompiledContext } from "../cognition/context-format.js";
 import type { CompiledContext } from "../cognition/types.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
+import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -709,6 +710,9 @@ export async function respondToConversation(
         } finally {
           curator.close();
         }
+        void runCuratorSweep().catch((error) => {
+          console.warn("[cognition] curator sweep failed:", error instanceof Error ? error.message : error);
+        });
       } catch (error) {
         console.warn("[cognition] conversation capture failed:", error instanceof Error ? error.message : error);
       }
