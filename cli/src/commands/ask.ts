@@ -32,6 +32,8 @@ import {
   type SufficiencyAssessment,
 } from "../lib/librarian.js";
 import { verifyEvidence, type VerifierEntry } from "../lib/librarian-verifier.js";
+import { compileContext } from "../cognition/context-compiler.js";
+import { formatCompiledContext } from "../cognition/context-format.js";
 
 export interface RetrievedEntry extends BaseEntry {
   fullPath: string;
@@ -234,118 +236,51 @@ export async function runAsk(
   opts?: { deep?: boolean; librarian?: boolean },
 ): Promise<void> {
   const m = model ?? defaultModel();
-  const keywords = extractKeywords(question);
-  const retrieval = opts?.deep
-    ? await retrieveRankedBrainEvidence(question)
-    : await retrieveRankedLexicalBrainEvidence(question);
-  const entries = retrieval.entries.map((entry) => ({
-    ...entry,
-    fullPath: join(entry.source === "wiki" ? WIKI_DIR : RAW_DIR, entry.path),
-  })) as RetrievedEntry[];
+  const compiled = await compileContext({
+    intent: question,
+    projectRoot: process.cwd(),
+    capabilities: ["ask", "memory", "git", "current-state"],
+  });
+  const formatted = formatCompiledContext(compiled);
 
-  // If nothing found, use LLM to find relevant wiki pages by title/summary
-  if (!entries.length && opts?.deep && hasApiKey(m)) {
-    const wikiFiles = walkWikiFiles();
-    if (wikiFiles.length > 0) {
-      const pageList = wikiFiles
-        .map((f) => f.replace(WIKI_DIR + "/", ""))
-        .map((p) => {
-          const name = p.replace(/\.md$/, "").split("/").join(" → ");
-          return `- ${name}`;
-        })
-        .join("\n");
-
-      const fallbackPrompt = `You have this wiki. Which pages are relevant to: "${question}"?
-
-${pageList}
-
-Return ONLY a JSON array of wiki page paths. Example: ["projects/radarboy/graffiti-machine.md"]
-If no page is relevant, return [].`;
-      try {
-        const response = await query(fallbackPrompt, m);
-        const match = response.match(/\[[\s\S]*\]/);
-        if (match) {
-          const paths: string[] = JSON.parse(match[0]);
-          for (const p of paths) {
-            const wikiPath = p.endsWith(".md") ? p : p + ".md";
-            const fullPath = join(WIKI_DIR, wikiPath);
-            if (existsSync(fullPath)) {
-              const content = readFileSync(fullPath, "utf8");
-              const parsed = parse(content);
-              entries.push({
-                path: wikiPath,
-                body: parsed.body,
-                score: 85,
-                metadata: parsed.metadata,
-                source: "wiki",
-                fullPath,
-                staleness: getStaleness(fullPath, parsed.metadata),
-              } as RetrievedEntry);
-            }
-          }
-        }
-      } catch {}
-    }
-  }
-
-  if (!entries.length) {
-    console.log("no captures found");
-    return;
-  }
-
-  // Run librarian evaluation if requested
-  let scored: ScoredEvidence[] | undefined;
-  let librarianSufficiency: SufficiencyAssessment | undefined;
-  if (opts?.librarian) {
-    const evidenceEntries: EvidenceEntry[] = entries.map((e) => ({
-      path: e.path,
-      body: e.body,
-      source: e.source,
-      score: e.score,
-      metadata: e.metadata,
-      staleness: e.staleness,
-    }));
-    const evaluation = await evaluateLibrarianEvidence(evidenceEntries, keywords, question);
-    scored = evaluation.scored;
-    librarianSufficiency = evaluation.sufficiency;
-    // buildPrompt aligns score notes positionally (scored[i]) — keep both
-    // arrays in the same (blended-score) order. Index tracking keeps
-    // same-path entries from collapsing into duplicates.
-    const reordered: RetrievedEntry[] = [];
-    const used = new Set<number>();
-    for (const s of scored) {
-      const idx = entries.findIndex((e, i) => !used.has(i) && e.path === s.path);
-      if (idx >= 0) {
-        used.add(idx);
-        reordered.push(entries[idx]);
-      }
-    }
-    if (reordered.length === entries.length) {
-      entries.length = 0;
-      entries.push(...reordered);
-    }
-  }
-
-  const evidenceSummary = formatEvidence(entries, scored);
+  const evidenceLines = [
+    ...compiled.memory.current.slice(0, 8).map((claim) =>
+      `[current] ${claim.entityId} · ${claim.attribute}: ${claim.value} [${claim.authority}]`
+    ),
+    ...compiled.memory.relevant.slice(0, 8).map((item) =>
+      `[memory] ${item.source} relevance=${item.relevance.toFixed(2)} :: ${item.content}`
+    ),
+    ...(opts?.deep
+      ? compiled.memory.historical.slice(0, 8).map((claim) =>
+          `[historical:${claim.temporalStatus}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`
+        )
+      : []),
+    ...compiled.memory.conflicts.map((conflict) =>
+      `[conflict] ${conflict.entityId} · ${conflict.attribute}: ${conflict.claims.join(" ↔ ")}`
+    ),
+  ];
+  const evidenceSummary = evidenceLines.length ? evidenceLines.join("\n") : "No relevant cognitive evidence.";
 
   if (!hasApiKey(m)) {
-    console.log(`evidence:\n${evidenceSummary}`);
+    console.log(`context:\n${formatted}\n\nevidence:\n${evidenceSummary}`);
     return;
   }
 
-  const sufficiencyForSummary = librarianSufficiency ?? (scored ? estimateSufficiency(scored, question) : undefined);
-  const librarianSummary = scored && sufficiencyForSummary ? formatLibrarianSummary(scored, sufficiencyForSummary) : "";
-  const answer = await query(
-    buildPrompt(question, entries, scored, retrieval.intent, retrieval.presentModel, librarianSufficiency),
-    m,
-    buildSystemPrompt(question),
-  );
+  const system = `You are Flyd's personal intelligence. Answer from the supplied Flyd cognitive context.
+Treat CURRENT/NOW state as authoritative for present-tense questions. Historical or expired claims may explain the past but must not become current advice.
+When claims conflict, expose the uncertainty. Never claim a historical task is still active unless current state explicitly carries it forward.
+Answer directly and naturally.`;
 
+  const prompt = `${formatted}
+
+QUESTION:
+${question}
+
+${opts?.librarian ? "The caller requested librarian diagnostics; be especially explicit about conflicts, freshness, and temporal validity." : ""}`;
+
+  const answer = await query(prompt, m, system);
   console.log(answer);
   console.log(`\n---\nevidence:\n${evidenceSummary}`);
-  if (librarianSummary) {
-    console.log(`\n${librarianSummary}`);
-  }
 }
 
 // Re-export shared functions for backward compatibility (index.ts librarian command)
