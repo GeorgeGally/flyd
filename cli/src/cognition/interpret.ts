@@ -52,7 +52,13 @@ export async function interpretIntent(text: string, options: { jev?: JevOptions;
     ],
     options.jev,
   );
-  if (!evaluation.ok) return fallback;
+  const systemOne = {
+    model: evaluation.model,
+    predicates: Object.fromEntries(Object.entries(evaluation.answers).map(([id, answer]) => [id, answer.probability])),
+    latencyMs: evaluation.latencyMs,
+    ...(evaluation.error ? { error: evaluation.error } : {}),
+  };
+  if (!evaluation.ok) return { ...fallback, systemOne };
   const ranked = (["correction","action","task_resume","current_state","historical_recall"] as const)
     .map((id) => ({ id, p: evaluation.answers[id]?.probability ?? 0 }))
     .sort((a,b) => b.p-a.p)[0];
@@ -65,5 +71,6 @@ export async function interpretIntent(text: string, options: { jev?: JevOptions;
     needsDeepMemory: (evaluation.answers.needs_deep_memory?.probability ?? 0) >= 0.6,
     source: "jev",
     confidence: ranked.p,
+    systemOne,
   };
 }
