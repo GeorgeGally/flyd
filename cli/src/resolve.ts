@@ -20,6 +20,10 @@ import { workSessionStore } from "./work-intelligence/work-session-store.js";
 import { constructCurrentWork, resolveRepositoryFromPath, type GroundingContext } from "./work-intelligence/current-work.js";
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
 import { defaultModel, getKey } from "./lib/config.js";
+import { compileContext } from "./cognition/context-compiler.js";
+import { formatCompiledContext } from "./cognition/context-format.js";
+import { queryMemory } from "./cognition/memory.js";
+import type { CompiledContext, UnifiedMemoryResult } from "./cognition/types.js";
 
 interface EnvironmentCapture {
   application: {
@@ -195,93 +199,74 @@ function memoryScope(metadata: Record<string, unknown>): RetrievedClaim["scope"]
 }
 
 export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture, projectRoot?: string): Promise<MemoryPack> {
-  const query = intent.trim();
-  const empty: MemoryPack = { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
-  if (!query) return empty;
-
+  const recall = classifyRecallIntent(intent);
+  const temporalFrame = recall.kind === "historical_recall" ? "past"
+    : recall.kind === "current_state" || recall.kind === "task_resume" ? "present"
+    : "mixed";
   try {
-    const { retrieveResilientLexicalBrainEvidence } = await import("./lib/brain-retrieval.js");
-    const timeout = new Promise<null>((res) => setTimeout(() => res(null), MEMORY_RETRIEVAL_TIMEOUT_MS).unref?.());
-    const result = await Promise.race([retrieveResilientLexicalBrainEvidence(query, projectRoot), timeout]);
-    if (!result) return empty;
-
-    const conflictingPaths = new Set<string>();
-    const current: RetrievedClaim[] = [];
-    const relevant: RetrievedClaim[] = [];
-    const sources = new Set<string>();
-
-    for (const match of result.matches.slice(0, MAX_MEMORIES)) {
-      const p = match.confidenceProfile;
-      const claim: RetrievedClaim = {
-        claimId: match.id,
-        content: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
-        kind: memoryKind(match.content.excerpt, {}),
-        scope: "global",
-        epistemicStatus: match.epistemicStatus,
-        epistemicConfidence: p.epistemicConfidence,
-        freshness: p.freshness,
-        sourceRefs: [match.content.path],
-        relevance: match.confidence,
-      };
-      if (match.content.isCurrent) {
-        current.push(claim);
-      } else {
-        relevant.push(claim);
-      }
-      sources.add(match.content.path);
-
-      if (match.epistemicStatus === "contradictory") {
-        conflictingPaths.add(match.content.path);
-      }
-    }
-
-    const gaps: KnowledgeGap[] = [];
-    if (classifyRecallIntent(query).kind === "current_state" && current.length === 0) {
-      gaps.push({
-        question: "What is currently active?",
-        importance: "high",
-        status: "open",
-      });
-    }
-
-    const conflicts: ConflictPair[] = [];
-    const contradictory = result.matches.filter(m => m.epistemicStatus === "contradictory");
-    for (let i = 0; i < contradictory.length - 1; i++) {
-      for (let j = i + 1; j < contradictory.length; j++) {
-        conflicts.push({
-          claimA: {
-            claimId: contradictory[i].id,
-            content: contradictory[i].content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
-            kind: "observation",
-            scope: "global",
-            epistemicStatus: contradictory[i].epistemicStatus,
-            epistemicConfidence: contradictory[i].confidenceProfile.epistemicConfidence,
-            freshness: contradictory[i].confidenceProfile.freshness,
-            sourceRefs: [contradictory[i].content.path],
-            relevance: contradictory[i].confidence,
-          },
-          claimB: {
-            claimId: contradictory[j].id,
-            content: contradictory[j].content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
-            kind: "observation",
-            scope: "global",
-            epistemicStatus: contradictory[j].epistemicStatus,
-            epistemicConfidence: contradictory[j].confidenceProfile.epistemicConfidence,
-            freshness: contradictory[j].confidenceProfile.freshness,
-            sourceRefs: [contradictory[j].content.path],
-            relevance: contradictory[j].confidence,
-          },
-        });
-      }
-    }
-
-    return { current, relevant, conflicts, gaps, sources: [...sources] };
+    const memory = await queryMemory({
+      text: intent,
+      temporalFrame,
+      includeHistorical: recall.kind === "historical_recall" || recall.kind === "task_resume",
+      projectRoot,
+      limit: MAX_MEMORIES,
+    });
+    return compiledMemoryToPack(memory);
   } catch {
-    return empty;
+    return { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
   }
 }
 
-// Modeled on MEMORY_OVERVIEW_QUESTION in runtime/shared-memory-retrieval.ts,
+function compiledMemoryToPack(memory: UnifiedMemoryResult): MemoryPack {
+  const authorityStatus = (authority: string): string =>
+    authority === "user_confirmed" ? "user_confirmed" : authority === "inferred" ? "working_assumption" : "observation";
+  const current: RetrievedClaim[] = memory.current.map((claim) => ({
+    claimId: claim.claimId,
+    content: `${claim.entityId} · ${claim.attribute}: ${claim.value}`,
+    kind: claim.attribute === "status" ? "state" : "observation",
+    scope: claim.entityId.startsWith("project:") || claim.entityId.startsWith("event:") ? "project" : "global",
+    epistemicStatus: authorityStatus(claim.authority),
+    epistemicConfidence: claim.authority === "user_confirmed" ? 1 : claim.authority === "inferred" ? 0.75 : 0.65,
+    freshness: claim.freshness,
+    sourceRefs: claim.evidenceRefs.map((ref) => `event:${ref}`),
+    relevance: 1,
+  }));
+  const relevant: RetrievedClaim[] = memory.relevant.map((item) => ({
+    claimId: item.id,
+    content: item.content.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+    kind: "observation",
+    scope: "global",
+    epistemicStatus: item.epistemicStatus,
+    epistemicConfidence: item.epistemicStatus === "user_confirmed" || item.epistemicStatus === "verified" ? 0.95 : 0.65,
+    freshness: item.freshness,
+    sourceRefs: [item.source],
+    relevance: item.relevance,
+  }));
+  const conflicts: ConflictPair[] = memory.conflicts.flatMap((conflict) => {
+    if (conflict.claims.length < 2) return [];
+    const make = (value: string, suffix: string): RetrievedClaim => ({
+      claimId: `conflict:${conflict.entityId}:${conflict.attribute}:${suffix}`,
+      content: value,
+      kind: "observation",
+      scope: conflict.entityId.startsWith("project:") ? "project" : "global",
+      epistemicStatus: "contradictory",
+      epistemicConfidence: 0.5,
+      freshness: 1,
+      sourceRefs: [],
+      relevance: 1,
+    });
+    return [{ claimA: make(conflict.claims[0], "a"), claimB: make(conflict.claims[1], "b") }];
+  });
+  return {
+    current,
+    relevant,
+    conflicts,
+    gaps: memory.gaps.map((question) => ({ question, importance: "medium", status: "open" as const })),
+    sources: [...new Set([...relevant.flatMap((c) => c.sourceRefs), ...current.flatMap((c) => c.sourceRefs)])],
+  };
+}
+
+// Modeled on MEMORY_OVERVIEW_QUESTION// Modeled on MEMORY_OVERVIEW_QUESTION in runtime/shared-memory-retrieval.ts,
 // but scoped to the overlay path: questions about the user themselves get the
 // compiled context bundles injected on top of normal retrieval.
 const IDENTITY_INTENT =
@@ -328,7 +313,8 @@ export function buildResolutionPrompt(
   conversationTurns: ConversationTurn[] = [],
   isVoiceConversation = false,
   needsPersonalContext = true,
-  behaviouralDirectives: BehaviouralDirectiveInput[] | null = null
+  behaviouralDirectives: BehaviouralDirectiveInput[] | null = null,
+  compiledContext?: CompiledContext
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -480,10 +466,11 @@ export function buildResolutionPrompt(
     : "";
 
   const directivesBlock = formatBehaviouralDirectives(behaviouralDirectives ?? []);
+  const cognitiveContextBlock = compiledContext ? `\n${formatCompiledContext(compiledContext)}` : "";
 
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
-The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}
+The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}${cognitiveContextBlock}
 
 ROUTE DECISION:
 - Kind: ${route.kind}
@@ -882,9 +869,18 @@ export async function resolve(
 
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
-  const [worldState, memoryPack, classified, behaviouralDirectives] = await Promise.all([
+  const [worldState, compiledContext, classified, behaviouralDirectives] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
-    buildMemoryPack(intent, environment, projectRoot),
+    compileContext({
+      intent,
+      projectRoot,
+      environment: { app: environment.application.name, documentPath: environment.document_path },
+      conversation: conversationTurns.flatMap((turn) => [
+        { role: "user" as const, content: turn.user },
+        { role: "assistant" as const, content: turn.assistant },
+      ]),
+      capabilities: ["overlay", "memory", "git", "execution"],
+    }),
     classifyRoute(
       intent,
       { appName: environment.application.name, elementRole: environment.focused_element.role },
@@ -893,6 +889,7 @@ export async function resolve(
     ),
     fetchBehaviouralDirectives(),
   ]);
+  const memoryPack = compiledMemoryToPack(compiledContext.memory);
 
   const regexRoute = routeIntent(intent, environment, modality);
   const route = modality === "voice" && regexRoute.kind === "ask_answer"
@@ -937,7 +934,8 @@ export async function resolve(
     conversationTurns,
     modality === "voice",
     needsPersonalContext,
-    behaviouralDirectives
+    behaviouralDirectives,
+    compiledContext
   );
   const systemPrompt =
     "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
