@@ -80,6 +80,7 @@ export interface CompiledContext {
     communication: string[];
   };
   present: PresentState;
+  projects: Array<{ id: string; projection: string }>;
   conversation: ConversationState;
   memory: UnifiedMemoryResult;
   environment: {
