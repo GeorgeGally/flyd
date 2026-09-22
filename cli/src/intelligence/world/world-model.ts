@@ -97,7 +97,7 @@ function claimFromEvent(event: StoredEvent): WorldClaim | null {
     ?? resolveEntityId(payload.entity?.namespace ?? event.sourceId, payload.entity?.key ?? event.sourceId);
   if (!payload.attribute || payload.value === undefined) return null;
   return {
-    claimId: `claim:${event.sequence}`,
+    claimId: `${event.sequence}`,
     entityId,
     attribute: payload.attribute,
     value: String(payload.value),
@@ -154,7 +154,10 @@ function claimStatusValue(state: WorldModelState, entityId: string, now: Date): 
   const claims = state.claims.filter((c) =>
     c.entityId === entityId && c.attribute === "status" && !c.supersededBy && !relationSupersedesClaim(state, c, now)
   );
-  const visible = claims.filter((c) => temporalStatusOf(c, state, now, false).status === "current");
+  const visible = claims.filter((c) => {
+    const status = temporalStatusOf(c, state, now, false).status;
+    return status === "current" || status === "completed" || status === "cancelled";
+  });
   return visible.sort((a,b) => AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority] || Date.parse(b.capturedAt)-Date.parse(a.capturedAt))[0]?.value.toLowerCase();
 }
 
