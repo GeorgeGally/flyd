@@ -701,6 +701,10 @@ export async function respondToConversation(
             user: input.message,
             assistant: answer,
             turnNumber: input.turnNumber,
+            projectIds: compiledContext.interpretation.projectIds,
+            intentKind: compiledContext.interpretation.intentKind,
+            temporalFrame: compiledContext.interpretation.temporalFrame,
+            referents: compiledContext.conversation.referents,
           });
         } finally {
           curator.close();
