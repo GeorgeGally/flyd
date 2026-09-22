@@ -46,6 +46,37 @@ export class CognitiveCurator {
 
   close(): void { this.store.close(); }
 
+  recordObservation(
+    payload: Record<string, unknown>,
+    sourceId = "cognition.observation",
+    options: { correlationId?: string; evidenceRefs?: string[]; retentionClass?: "ephemeral" | "local_default" | "extended" } = {},
+  ): number {
+    return appendValidated(this.store, {
+      pathKind: "interface",
+      kind: "observation",
+      sourceId,
+      consent: { grantedAt: new Date().toISOString(), scopes: [sourceId] },
+      retentionClass: options.retentionClass ?? "local_default",
+      payloadClassification: "personal",
+      provenance: "cognitive-curator:observation",
+      idempotencyKey: stable(["observation", sourceId, payload, options.correlationId ?? ""]),
+      correlationId: options.correlationId,
+      evidenceRefs: options.evidenceRefs,
+      payload,
+    });
+  }
+
+  recordConversationTurn(input: { sessionId: string; user: string; assistant: string; turnNumber?: number }): number {
+    return this.recordObservation({
+      conversation: {
+        sessionId: input.sessionId,
+        turnNumber: input.turnNumber,
+        user: input.user,
+        assistant: input.assistant,
+      },
+    }, "chat.cognition", { correlationId: input.sessionId });
+  }
+
   addClaim(input: ClaimMutation, sourceId = "cognition.curator"): number {
     const kind: EpistemicKind = input.authority === "user_confirmed"
       ? "user_confirmed_intention"
