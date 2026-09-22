@@ -34,6 +34,9 @@ import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-i
 import { interpretAgentInput } from "./input-interpreter.js";
 import { specialistsForMessage } from "./capability-resolver.js";
 import { recordAction, recordNextState } from "../transitions/writer.js";
+import { compileContext } from "../cognition/context-compiler.js";
+import { formatCompiledContext } from "../cognition/context-format.js";
+import type { CompiledContext } from "../cognition/types.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -122,7 +125,7 @@ export async function specialistHandoff(
   });
 }
 
-export function buildConversationPrompt(input: ConversationInput): { system: string; prompt: string } {
+export function buildConversationPrompt(input: ConversationInput, compiledContext?: CompiledContext): { system: string; prompt: string } {
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
   const includeSituation = input.situation !== null && !currentWorkQuestion;
@@ -158,6 +161,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
+  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext)}\n` : "";
 
   return {
     system: [
@@ -181,7 +185,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
-    prompt: `${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${cognitiveContext}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 
@@ -843,9 +847,17 @@ export async function respondToConversation(
     return answer;
   }
 
-  const request = buildConversationPrompt(input);
   const defaultRoot = input.situation?.projectRoot ?? process.cwd();
   const projectRoot = mentioned?.repo.root ?? defaultRoot;
+  const compiledContext = await compileContext({
+    intent: input.message,
+    projectRoot,
+    projectHint: input.situation?.project ? `project:${input.situation.project.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : undefined,
+    environment: { app: "cli_chat" },
+    conversation: input.history.map((turn) => ({ role: turn.role, content: turn.content })),
+    capabilities: ["conversation", "memory", "git", "files", "shell", "web"],
+  });
+  const request = buildConversationPrompt(input, compiledContext);
   const connection = (dependencies.resolveConnection ?? resolveModelConnection)();
   const model = connection.model;
   const system = `${injectProjectContext(request.system, projectRoot)}\n\nRuntime: model=${model} | repo=${projectRoot} | os=${process.platform}`;
