@@ -8,7 +8,9 @@ function unique(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((v) => v?.trim()).filter((v): v is string => Boolean(v)))];
 }
 
-export function presentFromWorkHypothesis(work: WorkHypothesis | RuntimeAwarePresent | null, prior = readPresentState()): PresentState {
+type MaterializableWork = WorkHypothesis & Pick<Partial<RuntimeAwarePresent>, "activeRuntimeTasks">;
+
+export function presentFromWorkHypothesis(work: MaterializableWork | null, prior = readPresentState()): PresentState {
   if (!work) return prior;
   const threads = [...work.primaryThreads, ...work.secondaryThreads].filter((thread) => !thread.demoted);
   const activeProjects = unique([
@@ -17,7 +19,7 @@ export function presentFromWorkHypothesis(work: WorkHypothesis | RuntimeAwarePre
   ]);
   const dirtyRepos = threads
     .filter((thread) => thread.isDirty)
-    .map((thread) => ({ root: thread.root, changed: [], ...(thread.name ? { branch: undefined } : {}) }));
+    .map((thread) => ({ root: thread.root, changed: [] }));
   const recentRepoMovement = [
     ...(work.insights?.latestMoves ?? []).map((move) => ({
       project: `project:${move.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
