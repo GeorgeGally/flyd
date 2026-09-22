@@ -42,6 +42,7 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
 
   let legacy: Awaited<ReturnType<typeof retrieveResilientLexicalBrainEvidence>> | null = null;
   try { legacy = await retrieveResilientLexicalBrainEvidence(input.text, input.projectRoot); } catch {}
+  let memorySystemOne: UnifiedMemoryResult["systemOne"] | undefined;
   let relevant = (legacy?.matches ?? []).slice(0, Math.max(input.limit ?? 8, 1)).map((m) => ({
     id: m.id,
     content: m.content.excerpt,
@@ -62,6 +63,12 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
       temporal_frame: input.temporalFrame ?? "present",
       candidates: relevant.map((r, i) => ({ index: i, content: r.content, status: r.temporalStatus })),
     }, questions, input.jev);
+    memorySystemOne = {
+      model: evaluation.model,
+      predicates: Object.fromEntries(Object.entries(evaluation.answers).map(([id, answer]) => [id, answer.probability])),
+      latencyMs: evaluation.latencyMs,
+      ...(evaluation.error ? { error: evaluation.error } : {}),
+    };
     if (evaluation.ok) {
       relevant = relevant.map((r,i) => ({ ...r, relevance: evaluation.answers[`candidate_${i}_relevant`]?.probability ?? r.relevance }))
         .sort((a,b) => b.relevance-a.relevance);
@@ -78,5 +85,6 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
     })),
     gaps: [],
     relations: derived.relations,
+    ...(memorySystemOne ? { systemOne: memorySystemOne } : {}),
   };
 }
