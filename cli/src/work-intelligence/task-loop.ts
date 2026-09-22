@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '../lib/llm.js';
+import { compileContext } from '../cognition/context-compiler.js';
+import { formatCompiledContext } from '../cognition/context-format.js';
 import type { FileReadResult, FileGrepResult, FileWriteResult } from './file-operations.js';
 import type { ShellExecutionResult } from './types.js';
 
@@ -134,11 +136,17 @@ export async function planTask(params: {
   context?: string;
   modelConfig: { model: string; apiKey: string; baseURL: string };
 }): Promise<TaskPlan | null> {
+  const compiledContext = await compileContext({
+    intent: params.intent,
+    projectRoot: params.projectRoot,
+    projectHint: params.currentWork,
+    capabilities: ["task-planning", "memory", "git", "files", "shell"],
+  });
   const prompt = buildTaskPlanPrompt({
     intent: params.intent,
     projectRoot: params.projectRoot,
     currentWork: params.currentWork,
-    context: params.context,
+    context: [params.context, formatCompiledContext(compiledContext)].filter(Boolean).join("\n\n"),
   });
 
   const raw = await query(
