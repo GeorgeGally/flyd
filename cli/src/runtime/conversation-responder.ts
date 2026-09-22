@@ -37,6 +37,7 @@ import { recordAction, recordNextState } from "../transitions/writer.js";
 import { compileContext } from "../cognition/context-compiler.js";
 import { formatCompiledContext } from "../cognition/context-format.js";
 import type { CompiledContext } from "../cognition/types.js";
+import { CognitiveCurator } from "../cognition/curator/curator.js";
 
 interface ConversationInput {
   sessionId?: string;
@@ -691,6 +692,23 @@ export async function respondToConversation(
       recordAction({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", intent: input.message.trim().slice(0, 200), resolutionMode: connection.providerIdentity, model: connection.model });
       recordNextState({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", origin: failed ? "tool" : "user", signal: failed ? "error" : "succeeded" });
     });
+    if (status === "succeeded" && answer.trim()) {
+      try {
+        const curator = new CognitiveCurator();
+        try {
+          curator.recordConversationTurn({
+            sessionId: input.sessionId ?? txSession,
+            user: input.message,
+            assistant: answer,
+            turnNumber: input.turnNumber,
+          });
+        } finally {
+          curator.close();
+        }
+      } catch (error) {
+        console.warn("[cognition] conversation capture failed:", error instanceof Error ? error.message : error);
+      }
+    }
     if (!input.sessionId || input.turnNumber === undefined) return;
     await persist({
       sessionId: input.sessionId,
