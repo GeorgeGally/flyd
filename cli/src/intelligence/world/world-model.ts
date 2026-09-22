@@ -6,25 +6,32 @@ import {
   type ClaimAuthority as Authority,
   type ConflictView,
   type FreshnessConfig,
+  type TemporalStatus,
+  type TimeShape,
   type WorldClaim,
+  type WorldRelation,
+  type WorldRelationType,
 } from "./types.js";
-
-/**
- * Claim/belief lifecycle projection over the canonical event spine
- * (flyd-personal-intelligence-prd.md §2.2, plan U3).
- *
- * Lifecycle rules:
- * - event kind → claim authority: observation→observed, inferred_belief→inferred,
- *   user_confirmed_intention→user_confirmed.
- * - a user-confirmed claim supersedes any lesser-authority claim on the same
- *   (entityId, attribute) — the superseded claim is retained with its evidence
- *   (supersededBy pointer); nothing is destroyed.
- * - conflicting claims of equal-or-unranked authority remain visible with
- *   authority labels; the active claim wins by rank, then recency.
- */
 
 export interface WorldModelState {
   claims: WorldClaim[];
+  relations: WorldRelation[];
+}
+
+export interface DerivedClaim extends WorldClaim {
+  freshness: number;
+  disputed: boolean;
+  temporalStatus: TemporalStatus;
+  derivation: string[];
+}
+
+export interface DerivedWorldState {
+  now: string;
+  current: DerivedClaim[];
+  historical: DerivedClaim[];
+  conflicts: ConflictView[];
+  relations: WorldRelation[];
+  staleEntityIds: string[];
 }
 
 export function resolveEntityId(namespace: string, key: string): string {
@@ -38,14 +45,10 @@ export function resolveEntityId(namespace: string, key: string): string {
 
 function authorityForKind(kind: string): ClaimAuthority | null {
   switch (kind) {
-    case "observation":
-      return "observed";
-    case "inferred_belief":
-      return "inferred";
-    case "user_confirmed_intention":
-      return "user_confirmed";
-    default:
-      return null;
+    case "observation": return "observed";
+    case "inferred_belief": return "inferred";
+    case "user_confirmed_intention": return "user_confirmed";
+    default: return null;
   }
 }
 
@@ -53,125 +56,216 @@ interface ClaimPayload {
   entity?: { namespace?: string; key?: string; id?: string };
   attribute?: string;
   value?: string;
+  validFrom?: string;
   validUntil?: string;
+  effectiveAt?: string;
+  timeShape?: TimeShape;
+  parentEntityId?: string;
 }
 
-function claimsFromEvent(event: StoredEvent): WorldClaim[] {
-  if (event.erased || !event.payload) return [];
+interface RelationPayload {
+  relation?: {
+    id?: string;
+    from?: string;
+    fromEntity?: { namespace?: string; key?: string; id?: string };
+    type?: WorldRelationType;
+    to?: string;
+    toEntity?: { namespace?: string; key?: string; id?: string };
+    confidence?: number;
+    validFrom?: string;
+    validUntil?: string;
+  };
+}
+
+function entityFromRef(
+  explicit: string | undefined,
+  entity: { namespace?: string; key?: string; id?: string } | undefined,
+  fallbackNamespace: string,
+): string | null {
+  if (explicit?.trim()) return explicit.trim();
+  if (entity?.id?.trim()) return entity.id.trim();
+  if (entity?.key?.trim()) return resolveEntityId(entity.namespace ?? fallbackNamespace, entity.key);
+  return null;
+}
+
+function claimFromEvent(event: StoredEvent): WorldClaim | null {
+  if (event.erased || !event.payload) return null;
   const authority = authorityForKind(event.kind);
-  if (!authority) return [];
+  if (!authority) return null;
   const payload = event.payload as ClaimPayload;
-  const entityId = payload.entity?.id ?? resolveEntityId(payload.entity?.namespace ?? event.sourceId, payload.entity?.key ?? event.sourceId);
-  if (!payload.attribute || payload.value === undefined) return [];
-  return [
-    {
-      claimId: `${event.sequence}`,
-      entityId,
-      attribute: payload.attribute,
-      value: String(payload.value),
-      authority,
-      evidenceRefs: [event.sequence, ...event.causationIds.map(Number).filter(Number.isFinite)],
-      capturedAt: event.capturedAt,
-      ...(payload.validUntil ? { validUntil: payload.validUntil } : {}),
-    },
-  ];
+  const entityId = payload.entity?.id
+    ?? resolveEntityId(payload.entity?.namespace ?? event.sourceId, payload.entity?.key ?? event.sourceId);
+  if (!payload.attribute || payload.value === undefined) return null;
+  return {
+    claimId: `claim:${event.sequence}`,
+    entityId,
+    attribute: payload.attribute,
+    value: String(payload.value),
+    authority,
+    evidenceRefs: [event.sequence, ...event.causationIds.map(Number).filter(Number.isFinite)],
+    capturedAt: event.capturedAt,
+    observedAt: event.capturedAt,
+    ...(payload.validFrom ? { validFrom: payload.validFrom } : {}),
+    ...(payload.validUntil ? { validUntil: payload.validUntil } : {}),
+    ...(payload.effectiveAt ? { effectiveAt: payload.effectiveAt } : {}),
+    ...(payload.timeShape ? { timeShape: payload.timeShape } : {}),
+    ...(payload.parentEntityId ? { parentEntityId: payload.parentEntityId } : {}),
+  };
+}
+
+function relationFromEvent(event: StoredEvent): WorldRelation | null {
+  if (event.erased || !event.payload) return null;
+  const payload = event.payload as RelationPayload;
+  const rel = payload.relation;
+  if (!rel?.type) return null;
+  const fromId = entityFromRef(rel.from, rel.fromEntity, event.sourceId);
+  const toId = entityFromRef(rel.to, rel.toEntity, event.sourceId);
+  if (!fromId || !toId) return null;
+  return {
+    relationId: rel.id?.trim() || `relation:${event.sequence}`,
+    fromId,
+    type: rel.type,
+    toId,
+    confidence: Math.max(0, Math.min(1, Number(rel.confidence ?? 1))),
+    evidenceRefs: [event.sequence, ...event.causationIds.map(Number).filter(Number.isFinite)],
+    createdAt: event.capturedAt,
+    ...(rel.validFrom ? { validFrom: rel.validFrom } : {}),
+    ...(rel.validUntil ? { validUntil: rel.validUntil } : {}),
+  };
+}
+
+function relationActive(relation: WorldRelation, now: Date): boolean {
+  if (relation.supersededBy) return false;
+  const from = relation.validFrom ? Date.parse(relation.validFrom) : Number.NaN;
+  if (Number.isFinite(from) && from > now.getTime()) return false;
+  const until = relation.validUntil ? Date.parse(relation.validUntil) : Number.NaN;
+  if (Number.isFinite(until) && until <= now.getTime()) return false;
+  return true;
+}
+
+function relationSupersedesClaim(state: WorldModelState, claim: WorldClaim, now: Date): string | undefined {
+  const rel = state.relations.find((r) =>
+    r.type === "supersedes" && r.toId === claim.claimId && relationActive(r, now)
+  );
+  return rel?.fromId;
+}
+
+function claimStatusValue(state: WorldModelState, entityId: string, now: Date): string | undefined {
+  const claims = state.claims.filter((c) =>
+    c.entityId === entityId && c.attribute === "status" && !c.supersededBy && !relationSupersedesClaim(state, c, now)
+  );
+  const visible = claims.filter((c) => temporalStatusOf(c, state, now, false).status === "current");
+  return visible.sort((a,b) => AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority] || Date.parse(b.capturedAt)-Date.parse(a.capturedAt))[0]?.value.toLowerCase();
+}
+
+function parentEntitiesForClaim(state: WorldModelState, claim: WorldClaim, now: Date): string[] {
+  const out = new Set<string>();
+  if (claim.parentEntityId) out.add(claim.parentEntityId);
+  for (const rel of state.relations) {
+    if (!relationActive(rel, now)) continue;
+    if (rel.fromId !== claim.entityId) continue;
+    if (rel.type === "valid_for" || rel.type === "requires" || rel.type === "part_of") out.add(rel.toId);
+  }
+  return [...out];
+}
+
+function temporalStatusOf(
+  claim: WorldClaim,
+  state: WorldModelState,
+  now: Date,
+  checkParent = true,
+): { status: TemporalStatus; derivation: string[] } {
+  const derivation: string[] = [];
+  const supersededBy = claim.supersededBy ?? relationSupersedesClaim(state, claim, now);
+  if (supersededBy) return { status: "superseded", derivation: [`superseded_by:${supersededBy}`] };
+
+  const validFrom = claim.validFrom ? Date.parse(claim.validFrom) : Number.NaN;
+  if (Number.isFinite(validFrom) && validFrom > now.getTime()) {
+    return { status: "future", derivation: [`valid_from:${claim.validFrom}`] };
+  }
+  const validUntil = claim.validUntil ? Date.parse(claim.validUntil) : Number.NaN;
+  if (Number.isFinite(validUntil) && validUntil <= now.getTime()) {
+    return { status: "expired", derivation: [`valid_until:${claim.validUntil}`] };
+  }
+
+  if (claim.attribute === "status") {
+    const value = claim.value.toLowerCase();
+    if (value === "completed" || value === "done") return { status: "completed", derivation: ["status_claim:completed"] };
+    if (value === "cancelled" || value === "canceled") return { status: "cancelled", derivation: ["status_claim:cancelled"] };
+  }
+
+  if (checkParent) {
+    for (const parent of parentEntitiesForClaim(state, claim, now)) {
+      const parentStatus = claimStatusValue(state, parent, now);
+      if (parentStatus === "completed" || parentStatus === "done") {
+        return { status: "expired", derivation: [`parent_completed:${parent}`] };
+      }
+      if (parentStatus === "cancelled" || parentStatus === "canceled") {
+        return { status: "cancelled", derivation: [`parent_cancelled:${parent}`] };
+      }
+    }
+  }
+
+  if (claim.timeShape === "historical") return { status: "historical", derivation: ["time_shape:historical"] };
+  return { status: "current", derivation };
+}
+
+function supersedeLesserClaims(claims: WorldClaim[], incoming: WorldClaim): void {
+  if (incoming.authority !== "user_confirmed") return;
+  for (const existing of claims) {
+    if (
+      !existing.supersededBy &&
+      existing.entityId === incoming.entityId &&
+      existing.attribute === incoming.attribute &&
+      AUTHORITY_RANK[existing.authority] < AUTHORITY_RANK[incoming.authority]
+    ) {
+      existing.supersededBy = incoming.claimId;
+    }
+  }
 }
 
 export const worldModelProjector: Projector<WorldModelState> = {
-  name: "world-model",
-  initialState: () => ({ claims: [] }),
+  name: "world-model-v2",
+  initialState: () => ({ claims: [], relations: [] }),
   apply(state, event) {
-    const incoming = claimsFromEvent(event);
-    if (incoming.length === 0) return state;
     const claims = state.claims.slice();
-    for (const claim of incoming) {
-      // Supersession is reserved for user corrections/confirmations: a
-      // confirmed claim retires lesser claims on the same key. Inferred vs
-      // observed claims coexist as a visible conflict instead.
-      if (claim.authority === "user_confirmed") {
-        for (const existing of claims) {
-          if (
-            !existing.supersededBy &&
-            existing.entityId === claim.entityId &&
-            existing.attribute === claim.attribute &&
-            AUTHORITY_RANK[existing.authority] < AUTHORITY_RANK[claim.authority]
-          ) {
-            existing.supersededBy = claim.claimId;
-          }
-        }
-      }
+    const relations = state.relations.slice();
+    const claim = claimFromEvent(event);
+    if (claim) {
+      supersedeLesserClaims(claims, claim);
       claims.push(claim);
     }
-    return { claims };
+    const relation = relationFromEvent(event);
+    if (relation) relations.push(relation);
+    return { claims, relations };
   },
 };
 
-// ---------------------------------------------------------------------------
-// Read model: active claims, conflict visibility, freshness
-// ---------------------------------------------------------------------------
-
-export interface ActiveClaim extends WorldClaim {
-  /** Temporal, read-time only. Never mixed into authority. */
-  freshness: number;
-  /** True when another visible claim disputes this one. */
-  disputed: boolean;
-}
-
-function isExpired(claim: WorldClaim, now: Date): boolean {
-  if (!claim.validUntil) return false;
-  const t = Date.parse(claim.validUntil);
-  return Number.isFinite(t) && t <= now.getTime();
-}
-
 export function freshnessOf(claim: WorldClaim, config: FreshnessConfig): number {
-  const captured = Date.parse(claim.capturedAt);
+  const captured = Date.parse(claim.observedAt ?? claim.capturedAt);
   if (!Number.isFinite(captured)) return 0;
   const ageDays = Math.max(0, (config.now.getTime() - captured) / 86_400_000);
   return Math.max(0, 1 - ageDays / config.halfLifeDays);
 }
 
-/** Active (non-superseded, non-expired) claims with freshness and dispute labels. */
-export function activeClaims(state: WorldModelState, now = new Date(), halfLifeDays = 14): ActiveClaim[] {
-  const visible = state.claims.filter((c) => !c.supersededBy && !isExpired(c, now));
-  const byKey = new Map<string, WorldClaim[]>();
-  for (const claim of visible) {
-    const key = `${claim.entityId}::${claim.attribute}`;
-    const group = byKey.get(key) ?? [];
-    group.push(claim);
-    byKey.set(key, group);
-  }
-
-  const active: ActiveClaim[] = [];
-  for (const group of byKey.values()) {
-    const sorted = group.slice().sort((a, b) => {
-      const rank = AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority];
-      if (rank !== 0) return rank;
-      return Date.parse(b.capturedAt) - Date.parse(a.capturedAt);
-    });
-    const winner = sorted[0];
-    active.push({
-      ...winner,
-      freshness: freshnessOf(winner, { halfLifeDays, now }),
-      disputed: sorted.length > 1,
-    });
-  }
-  return active.sort((a, b) => a.entityId.localeCompare(b.entityId) || a.attribute.localeCompare(b.attribute));
+function visibleClaimsForKey(state: WorldModelState, entityId: string, attribute: string, now: Date): WorldClaim[] {
+  return state.claims.filter((c) => {
+    if (c.entityId !== entityId || c.attribute !== attribute) return false;
+    return temporalStatusOf(c, state, now).status === "current";
+  });
 }
 
-/**
- * Conflict view (plan U3 test 2): conflicting current and durable claims stay
- * visible with authority labels — the active claim never silently erases the
- * challenger.
- */
+export function activeClaims(state: WorldModelState, now = new Date(), halfLifeDays = 14): DerivedClaim[] {
+  return deriveWorldState(state, now, halfLifeDays).current;
+}
+
 export function conflictsFor(
   state: WorldModelState,
   entityId: string,
   attribute: string,
   now = new Date(),
 ): ConflictView | null {
-  const visible = state.claims.filter(
-    (c) => !c.supersededBy && !isExpired(c, now) && c.entityId === entityId && c.attribute === attribute,
-  );
+  const visible = visibleClaimsForKey(state, entityId, attribute, now);
   if (visible.length < 2) return null;
   const sorted = visible.slice().sort((a, b) => {
     const rank = AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority];
@@ -186,10 +280,67 @@ export function conflictsFor(
   };
 }
 
-/**
- * Epistemic lookup: authority of a claim is a function of its evidence only.
- * Freshness never alters it — old evidence stays as credible as it ever was.
- */
+export function deriveWorldState(state: WorldModelState, now = new Date(), halfLifeDays = 14): DerivedWorldState {
+  const current: DerivedClaim[] = [];
+  const historical: DerivedClaim[] = [];
+  const byKey = new Map<string, DerivedClaim[]>();
+
+  for (const claim of state.claims) {
+    const temporal = temporalStatusOf(claim, state, now);
+    const derived: DerivedClaim = {
+      ...claim,
+      temporalStatus: temporal.status,
+      derivation: temporal.derivation,
+      freshness: freshnessOf(claim, { now, halfLifeDays }),
+      disputed: false,
+    };
+    if (temporal.status === "current") {
+      const key = `${claim.entityId}::${claim.attribute}`;
+      const group = byKey.get(key) ?? [];
+      group.push(derived);
+      byKey.set(key, group);
+    } else {
+      historical.push(derived);
+    }
+  }
+
+  const conflicts: ConflictView[] = [];
+  for (const group of byKey.values()) {
+    const sorted = group.slice().sort((a,b) => {
+      const rank = AUTHORITY_RANK[b.authority]-AUTHORITY_RANK[a.authority];
+      if (rank !== 0) return rank;
+      return Date.parse(b.capturedAt)-Date.parse(a.capturedAt);
+    });
+    const winner = { ...sorted[0], disputed: sorted.length > 1 };
+    current.push(winner);
+    if (sorted.length > 1) {
+      conflicts.push({
+        entityId: winner.entityId,
+        attribute: winner.attribute,
+        active: winner,
+        conflicting: sorted.slice(1).map((claim) => ({ claim, authority: claim.authority })),
+      });
+      historical.push(...sorted.slice(1).map((c) => ({ ...c, disputed: true, temporalStatus: "historical" as const, derivation: [...c.derivation, "conflicting_non_winner"] })));
+    }
+  }
+
+  const stale = new Set<string>();
+  for (const rel of state.relations) {
+    if (!relationActive(rel, now) || rel.type !== "depends_on") continue;
+    const upstream = current.find((c) => c.entityId === rel.toId);
+    if (upstream && upstream.freshness < 0.25) stale.add(rel.fromId);
+  }
+
+  return {
+    now: now.toISOString(),
+    current: current.sort((a,b) => a.entityId.localeCompare(b.entityId) || a.attribute.localeCompare(b.attribute)),
+    historical: historical.sort((a,b) => Date.parse(b.capturedAt)-Date.parse(a.capturedAt)),
+    conflicts,
+    relations: state.relations.filter((r) => relationActive(r, now)),
+    staleEntityIds: [...stale],
+  };
+}
+
 export function epistemicConfidence(claim: WorldClaim): Authority {
   return claim.authority;
 }
