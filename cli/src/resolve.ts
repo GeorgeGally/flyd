@@ -9,6 +9,7 @@ import { assessConsequence } from "./consequence.js";
 import { classifyRoute, isDeterministicDictation, type RouterConfig } from "./router.js";
 import type { ConsequenceAssessment } from "./verification-types.js";
 import { classifyRecallIntent } from "./lib/recall-intent.js";
+import { retrieveResilientLexicalBrainEvidence } from "./lib/brain-retrieval.js";
 import {
   recordDeterministicResolution,
   recordLlmResolution,
@@ -183,19 +184,42 @@ export async function fetchBehaviouralDirectives(load: DirectivesLoader = defaul
   }
 }
 export async function buildMemoryPack(intent: string, _environment: EnvironmentCapture, projectRoot?: string): Promise<MemoryPack> {
-  const recall = classifyRecallIntent(intent);
-  const temporalFrame = recall.kind === "historical_recall" ? "past"
-    : recall.kind === "current_state" || recall.kind === "task_resume" ? "present"
-    : "mixed";
+  const query = intent.trim();
+  if (!query) return { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
+
+  const recall = classifyRecallIntent(query);
   try {
-    const memory = await queryMemory({
-      text: intent,
-      temporalFrame,
-      includeHistorical: recall.kind === "historical_recall" || recall.kind === "task_resume",
-      projectRoot,
-      limit: MAX_MEMORIES,
+    const retrieval = await retrieveResilientLexicalBrainEvidence(query, projectRoot);
+    const toClaim = (match: Awaited<ReturnType<typeof retrieveResilientLexicalBrainEvidence>>["matches"][number]): RetrievedClaim => ({
+      claimId: match.id,
+      content: match.content.excerpt.slice(0, MEMORY_EXCERPT_MAX_CHARS),
+      kind: "observation",
+      scope: match.content.path.includes("/projects/") || match.content.path.includes("project") ? "project" : "global",
+      epistemicStatus: match.epistemicStatus,
+      epistemicConfidence: match.confidenceProfile.epistemicConfidence,
+      freshness: match.confidenceProfile.freshness,
+      sourceRefs: [match.content.path],
+      relevance: match.confidence,
     });
-    return compiledMemoryToPack(memory);
+
+    const current = retrieval.matches.filter((m) => m.content.isCurrent === true).map(toClaim);
+    const relevant = retrieval.matches.filter((m) => m.content.isCurrent !== true).map(toClaim);
+    const contradictory = relevant.filter((claim) => claim.epistemicStatus === "contradictory");
+    const conflicts: ConflictPair[] = [];
+    for (let i = 0; i + 1 < contradictory.length; i += 2) {
+      conflicts.push({ claimA: contradictory[i], claimB: contradictory[i + 1] });
+    }
+    const gaps = (recall.kind === "current_state" || recall.kind === "task_resume") && current.length === 0
+      ? [{ question: "Current work could not be corroborated from live signals.", importance: "high" as const, status: "open" as const }]
+      : [];
+
+    return {
+      current,
+      relevant,
+      conflicts,
+      gaps,
+      sources: [...new Set(retrieval.matches.map((m) => m.content.path))],
+    };
   } catch {
     return { current: [], relevant: [], conflicts: [], gaps: [], sources: [] };
   }
