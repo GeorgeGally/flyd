@@ -1,8 +1,9 @@
 ---
 title: Cognitive Core & Temporal Memory
 type: feat
-status: planned
+status: completed
 date: 2026-09-22
+completed: 2026-09-23
 owner: George Galanakis
 builds_on:
   - docs/plans/2026-07-28-003-feat-unified-memory-architecture-plan.md
@@ -1218,3 +1219,25 @@ Flyd should stop feeling like an agent searching for context.
 It should feel like a system that was already aware of George's world, understood what changed, knew what had ended, understood why facts and tasks were connected, and used tools only to deepen or act on that understanding.
 
 The canonical test is not whether Flyd can maintain good notes. It is whether Flyd can recompute correct current state from history, claims, and relationships after the world changes.
+
+
+## Implementation completion
+
+Completed on main.
+
+Landed:
+- canonical event/claim/relation world model with temporal validity, lifecycle derivation, conflicts, supersession, dependencies, and unresolved requirements
+- rebuildable PROFILE/NOW/project Markdown projections over the canonical model
+- materialized Present state from WorkHypothesis, tasks, workers, decisions, and git activity
+- git distillation feeding both Present and canonical world claims
+- structured conversation state and referent tracking
+- unified memory query facade; legacy archive retrieval is background-only for current-tense reasoning
+- Context Compiler used by overlay resolution, Work Intelligence, CLI conversation, task planning, coding memory, `flyd ask`, and LIVE voice
+- checkpointed background curator over immutable conversation events
+- bounded Jev System-1 predicate client, versioned thresholds, trace metadata, timeout/failure fallback, and explicit hosted-egress opt-in
+- deterministic safety and lifecycle logic remains authoritative over probabilistic classifiers
+- GNM3 temporal regression tests, Jev/curator tests, and a 35-case intelligence benchmark fixture
+- compatibility adapter retained for the legacy exported `buildMemoryPack()` test/API surface without restoring it to production cognition
+- erasure-safe projection rebuild cleanup
+
+Release invariants are documented in `docs/evals/cognitive-core-baseline-2026-09-22.md`.
