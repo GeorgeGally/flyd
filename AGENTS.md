@@ -62,7 +62,9 @@ TypeScript Core (intelligence, memory, evidence, resolution)
     ├── HTTP server :4815 — manifest, learnings, health
     ├── Transcription WS :4816 — gpt-realtime-whisper relay
     ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
-    ├── Memory: unified archive/retrieval/currentness pipeline
+    ├── Cognitive Core: event/claim/relation world model → Present/projections → Context Compiler
+    ├── System-1: bounded Jev predicates when explicitly enabled; deterministic safety/lifecycle remains authoritative
+    ├── Memory: unified cognitive facade; legacy archive retrieval is background evidence
     ├── Evidence Engine: health → multi-lens planning → retrieval → fusion → clusters/conflicts
     ├── Compose: loopback-only, short-lived generated evidence dossiers
     ├── Live task intake: `task_plan` utterance → canonical `AgentTask` + plan (`requires_task`)
@@ -147,6 +149,7 @@ flyd/
     src/resolve.ts             manifest → resolution
     src/transcription.ts       invoked voice transcription relay
     src/realtime-session.ts    LIVE realtime relay
+    src/cognition/             canonical context compiler, Present materialization, curator, projections, Jev System-1
     src/evidence/              external evidence, deep research and compose layer
     src/lib/                   memory, retrieval, currentness and shared intelligence logic
     src/runtime/               harness: execution, tools, orchestration, coding-agent capabilities (flyd CLI)
