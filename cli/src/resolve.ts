@@ -146,7 +146,7 @@ export interface BehaviouralDirectiveInput {
 // utility-dominance, and corroboration are never merged into persisted data.
 function directiveRank(directive: BehaviouralDirectiveInput, nowMs: number): number {
   const seenMs = directive.lastSeenAt ? Date.parse(directive.lastSeenAt) : Number.NaN;
-  const ageDays = Number.isFinite(seenMs) ? Math.max(0, (nowMs - seenMs) / 86_400_000) : 0;
+  const ageDays = Number.isFinite(seenMs) ? Math.max(0, Math.floor((nowMs - seenMs) / 86_400_000)) : 0;
   const freshness = Math.max(0, 1 - ageDays / DIRECTIVE_FRESHNESS_HALF_LIFE_DAYS);
   const utility = Math.max(0, directive.utility ?? 0);
   const negatives = Math.max(0, directive.negatives ?? 0);
