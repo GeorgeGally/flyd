@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
@@ -90,9 +90,19 @@ export function rebuildKnowledgeProjections(store?: IntelligenceEventStore): Der
     write(paths.profile, renderProfile(state));
     write(paths.now, renderNow(state));
     mkdirSync(paths.projects, { recursive: true, mode: 0o700 });
+    const desired = new Set<string>();
     for (const id of projectIds(state)) {
       const slug = id.replace(/[^a-z0-9._-]+/gi, "-");
-      write(join(paths.projects, `${slug}.md`), renderProject(id, state));
+      const filename = `${slug}.md`;
+      desired.add(filename);
+      write(join(paths.projects, filename), renderProject(id, state));
+    }
+    // Project files are projections, not authority. Rebuild removes stale
+    // projections whose canonical events were erased or no longer resolve.
+    for (const filename of readdirSync(paths.projects)) {
+      if (filename.endsWith(".md") && !desired.has(filename)) {
+        rmSync(join(paths.projects, filename), { force: true });
+      }
     }
     return state;
   } finally {
