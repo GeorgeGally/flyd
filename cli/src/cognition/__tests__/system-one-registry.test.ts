@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyRoute } from "../../router.js";
 import { interpretIntent } from "../interpret.js";
+import { stateProjectionHash } from "../system-one/jev.js";
 import { PREDICATE_THRESHOLDS, systemOnePolicyFingerprint } from "../system-one/policy.js";
 import {
   familyEgress,
@@ -11,7 +12,7 @@ import {
   questionFingerprint,
   questionFor,
 } from "../system-one/registry.js";
-import { decide, replayPredicates, type ReplayCase } from "../system-one/replay.js";
+import { decide, projectInputs, replayPredicates, type ReplayCase } from "../system-one/replay.js";
 import type { JudgmentTrace } from "../system-one/types.js";
 
 interface Captured { state: Record<string, unknown>; questions: Record<string, unknown>; model: string }
@@ -147,11 +148,17 @@ describe("System-1 replay harness", () => {
     { id: "a", suite: "unit", synthetic: true, inputs: { utterance: "hi", conversation_recap: "" }, labels: { current_state: false } },
     { id: "b", suite: "unit", synthetic: true, inputs: { utterance: "what am I doing", conversation_recap: "" }, labels: { current_state: true } },
   ];
-  const trace = (caseId: string, noul: number, fingerprint = questionFingerprint("current_state")): JudgmentTrace => ({
-    caseId, predicateId: "current_state", evaluatorVersion: predicateDefinition("current_state").evaluatorVersion,
-    questionFingerprint: fingerprint, projectionHash: "x", model: "jev-1.13.0",
-    answer: { type: "noul", noul }, latencyMs: 300, recordedAt: "2026-09-25T00:00:00.000Z",
-  });
+  const trace = (caseId: string, noul: number, extra: Partial<JudgmentTrace> = {}): JudgmentTrace => {
+    const definition = predicateDefinition("current_state");
+    const caseInputs = cases.find((c) => c.id === caseId)!.inputs;
+    return {
+      caseId, predicateId: definition.id, evaluatorVersion: definition.evaluatorVersion,
+      questionFingerprint: questionFingerprint("current_state"), model: "jev-1.13.0",
+      projectionHash: stateProjectionHash(projectInputs(definition, caseInputs, caseId)),
+      answer: { type: "noul", noul }, latencyMs: 300, recordedAt: "2026-09-25T00:00:00.000Z",
+      ...extra,
+    };
+  };
 
   it("decides with an abstain band around the threshold", () => {
     const noul = predicateDefinition("current_state");
@@ -165,7 +172,7 @@ describe("System-1 replay harness", () => {
   it("scores recorded judgments against labels and the current behaviour, and flags stale recordings", async () => {
     const report = await replayPredicates(cases, {
       mode: "recorded",
-      recordings: [trace("a", 0.1), trace("b", 0.9, "0000000000000000")],
+      recordings: [trace("a", 0.1), trace("b", 0.9, { questionFingerprint: "0000000000000000" })],
       baselines: { current_state: () => false },
     });
     const [p] = report.predicates;
@@ -177,5 +184,15 @@ describe("System-1 replay harness", () => {
 
   it("refuses a case that lacks a field its predicate projects", async () => {
     await expect(replayPredicates([{ ...cases[0], inputs: { utterance: "hi" } }], { mode: "recorded" })).rejects.toThrow(/lacks field "conversation_recap"/);
+  });
+
+  it("flags a recording stale when the projected state hash differs from the current projection", async () => {
+    const report = await replayPredicates([cases[0]], {
+      mode: "recorded",
+      recordings: [trace("a", 0.1, { projectionHash: "0".repeat(64) })],
+    });
+    expect(report.predicates[0].unreplayable.stale).toEqual(["a"]);
+    expect(report.predicates[0].jev).toMatchObject({ correct: 0, abstained: 1 });
+    expect(report.predicates[0].rows[0].jev).toBe("abstain");
   });
 });

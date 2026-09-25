@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { evaluatePredicates } from "./jev.js";
+import { evaluatePredicates, stateProjectionHash } from "./jev.js";
 import { systemOnePolicyFingerprint } from "./policy.js";
 import { predicateDefinition, questionFor, questionFingerprint, type PredicateDefinition } from "./registry.js";
 import type { JevOptions, JudgmentTrace, PredicateAnswer, RawJevAnswer } from "./types.js";
@@ -211,7 +211,7 @@ export async function replayPredicates(cases: readonly ReplayCase[], options: Re
       if (options.mode === "recorded") {
         const trace = recordings.get(`${c.id}::${predicateId}`);
         if (!trace) unreplayable.missing.push(c.id);
-        else if (trace.questionFingerprint !== fingerprint || trace.evaluatorVersion !== definition.evaluatorVersion) unreplayable.stale.push(c.id);
+        else if (trace.questionFingerprint !== fingerprint || trace.evaluatorVersion !== definition.evaluatorVersion || trace.projectionHash !== stateProjectionHash(state)) unreplayable.stale.push(c.id);
         else {
           const evaluation = await evaluatePredicates(state, [question], { apiKey: "replay", fetchFn: recordedFetch(trace) }, egress);
           if (!evaluation.ok) unreplayable.errors.push(`${c.id}: ${evaluation.error}`);

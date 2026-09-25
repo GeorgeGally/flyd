@@ -64,6 +64,11 @@ function boundedState(state: Record<string, unknown>): Record<string, unknown> {
   return boundValue(state) as Record<string, unknown>;
 }
 
+/** SHA-256 of the bounded, redacted state exactly as it would leave the machine. */
+export function stateProjectionHash(state: Record<string, unknown>): string {
+  return hash(boundedState(state));
+}
+
 function envOptions(options: JevOptions): Required<Pick<JevOptions, "endpoint" | "model" | "timeoutMs" | "rubricVersion">> & JevOptions {
   return {
     ...options,
@@ -153,7 +158,7 @@ export async function evaluatePredicates(
   const opts = envOptions(options);
   const started = Date.now();
   const projection = boundedState(state);
-  const projectionHash = hash(projection);
+  const projectionHash = stateProjectionHash(state);
   const explicitlyEnabled = options.apiKey !== undefined || process.env.FLYD_JEV_ENABLED === "true";
   if (!explicitlyEnabled || !opts.apiKey || questions.length === 0) {
     return {
