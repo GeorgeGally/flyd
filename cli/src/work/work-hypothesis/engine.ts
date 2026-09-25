@@ -64,6 +64,11 @@ async function loadLiveRepos(foregroundRoot?: string, now = new Date()): Promise
     let gitCommonDir: string | undefined;
     let readFresh = false;
 
+    // ponytail: a repo the sweep observed this call is fresh even when the
+    // per-repo commit read was skipped; stalled or skipped repos keep their
+    // last clean observation time so the belief never claims fresh data
+    const sweepFresh = repo.observedAt !== undefined && repo.observedAt >= nowIso;
+
     if (!readsStalled) {
       try {
         const commits = await recentRepositoryCommits(repo.root, 1);
@@ -76,15 +81,11 @@ async function loadLiveRepos(foregroundRoot?: string, now = new Date()): Promise
           readsStalled = true;
         }
       }
-      if (!readsStalled) {
-        gitCommonDir = repositoryCommonDir(repo.root);
-      }
     }
 
-    // ponytail: a repo the sweep observed this call is fresh even when the
-    // per-repo commit read was skipped; stalled or skipped repos keep their
-    // last clean observation time so the belief never claims fresh data
-    const sweepFresh = repo.observedAt !== undefined && repo.observedAt >= nowIso;
+    if (readFresh || sweepFresh) {
+      gitCommonDir = repositoryCommonDir(repo.root);
+    }
     const repositorySnapshot = snapshotsById.get(repo.id);
     const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
 

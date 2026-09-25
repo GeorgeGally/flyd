@@ -19,13 +19,20 @@ import { answerQuestion } from "../work/recall-router.js";
 import { buildPresentModelBelief, readPresentModel } from "../work/work-hypothesis/index.js";
 import type { CandidateRepoInput } from "../work/work-hypothesis/types.js";
 
-function initRepo(dir: string): void {
+function initRepo(dir: string, commitDate?: string): void {
   execSync("git init -b main", { cwd: dir });
   execSync('git config user.email "test@example.com"', { cwd: dir });
   execSync('git config user.name "Test"', { cwd: dir });
   writeFileSync(join(dir, "README.md"), "hello\n");
   execSync("git add README.md", { cwd: dir });
-  execSync('git commit -m "Initial commit"', { cwd: dir });
+  if (commitDate) {
+    execSync('git commit -m "Initial commit"', {
+      cwd: dir,
+      env: { ...process.env, GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate },
+    });
+  } else {
+    execSync('git commit -m "Initial commit"', { cwd: dir });
+  }
 }
 
 describe("bounded repository reads on the observation sweep", () => {
@@ -262,6 +269,82 @@ describe("bounded repository reads on the observation sweep", () => {
       const note = answerQuestion(`status of ${skipped.name}`);
       expect(note.answer).toContain("possibly stale");
       expect(note.answer).not.toContain(clean.name);
+    } finally {
+      if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
+      else process.env.FLYD_WORK_ROOTS = previousRoots;
+      rmSync(workRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("production path: worktrees of one repository dedupe and keep prior subjects when a sweep stalls", async () => {
+    const coreCwd = "/Users/george/Documents/core";
+    const groundedAt = new Date(Date.now() - 60_000);
+
+    const workRoot = join(process.cwd(), `.flyd-test-repos-${Date.now()}`);
+    const emptyDiscovery = join(workRoot, "empty-discovery");
+    const previousRoots = process.env.FLYD_WORK_ROOTS;
+    process.env.FLYD_WORK_ROOTS = emptyDiscovery;
+
+    try {
+      const reposRoot = join(workRoot, "workspace");
+      mkdirSync(reposRoot, { recursive: true });
+
+      const wedgedRoot = join(reposRoot, "wedged");
+      mkdirSync(wedgedRoot, { recursive: true });
+      initRepo(wedgedRoot, "2020-01-01T00:00:00Z");
+      addRepository(wedgedRoot, "wedged");
+
+      const xMain = join(reposRoot, "x");
+      mkdirSync(xMain, { recursive: true });
+      initRepo(xMain);
+      addRepository(xMain, "x");
+      const xWorktree = join(reposRoot, "x-wt");
+      execSync(`git worktree add ${xWorktree}`, { cwd: xMain });
+      addRepository(xWorktree, "x");
+
+      const grounded = await buildPresentModelBelief({ now: groundedAt, coreCwd });
+      expect(grounded.revisedAt).toBe(groundedAt.toISOString());
+      const before = readPresentModel();
+      expect(before).not.toBeNull();
+      expect([...before!.primaryThreads, ...before!.secondaryThreads]).toHaveLength(1);
+
+      const ordered = listRepositories();
+      expect(ordered).toHaveLength(3);
+      expect(ordered[2].root).toBe(wedgedRoot);
+      const worktreeRoots = new Set([xMain, xWorktree]);
+      expect(worktreeRoots.has(ordered[0].root)).toBe(true);
+      expect(worktreeRoots.has(ordered[1].root)).toBe(true);
+      const cleanWorktree = ordered[0];
+
+      writeFileSync(join(cleanWorktree.root, "second.txt"), "second\n");
+      execSync("git add second.txt", { cwd: cleanWorktree.root });
+      execSync('git commit -m "Second commit"', { cwd: cleanWorktree.root });
+
+      const read: GitRead = (args, cwd) => {
+        if (cwd === wedgedRoot) throw new RepositoryReadStalledError(args, cwd);
+        return defaultGitRead(args, cwd);
+      };
+      const sweepSpy = vi
+        .spyOn(repositoryIntelligence, "observeKnownRepositories")
+        .mockImplementation(() => observeAllRepos(read));
+
+      const later = new Date();
+      const updated = await buildPresentModelBelief({ now: later, coreCwd });
+      sweepSpy.mockRestore();
+
+      expect(repositoryReadsAreStalled()).toBe(true);
+      const after = readPresentModel();
+      expect(updated.revisedAt).toBe(later.toISOString());
+      expect(after?.revisedAt).toBe(later.toISOString());
+
+      const threads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])];
+      const priorX = [...(before?.primaryThreads ?? []), ...(before?.secondaryThreads ?? [])].find(
+        (t) => t.name === "X",
+      );
+
+      expect(threads).toHaveLength(1);
+      expect(threads[0].name).toBe("X");
+      expect(threads[0].latestSubject).toBe(priorX?.latestSubject);
     } finally {
       if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
       else process.env.FLYD_WORK_ROOTS = previousRoots;
