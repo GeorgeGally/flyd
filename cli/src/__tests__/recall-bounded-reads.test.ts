@@ -352,6 +352,92 @@ describe("bounded repository reads on the observation sweep", () => {
     }
   });
 
+  it("production path: worktrees after a mid-order stalled sweep stay one project with prior subjects", async () => {
+    const coreCwd = "/Users/george/Documents/core";
+    const groundedAt = new Date(Date.now() - 60_000);
+
+    const workRoot = join(process.cwd(), `.flyd-test-repos-${Date.now()}`);
+    const emptyDiscovery = join(workRoot, "empty-discovery");
+    const previousRoots = process.env.FLYD_WORK_ROOTS;
+    process.env.FLYD_WORK_ROOTS = emptyDiscovery;
+
+    try {
+      const reposRoot = join(workRoot, "workspace");
+      mkdirSync(reposRoot, { recursive: true });
+
+      // listRepositories() orders by last_activity_at DESC, which comes from
+      // commit author dates here, so the wedged repo lands BETWEEN a
+      // cleanly-observed lead repo and both worktrees of X.
+      const leadRoot = join(reposRoot, "lead");
+      mkdirSync(leadRoot, { recursive: true });
+      initRepo(leadRoot, new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString());
+      addRepository(leadRoot, "lead");
+
+      const wedgedRoot = join(reposRoot, "wedged");
+      mkdirSync(wedgedRoot, { recursive: true });
+      initRepo(wedgedRoot, new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString());
+      addRepository(wedgedRoot, "wedged");
+
+      const xMain = join(reposRoot, "x");
+      mkdirSync(xMain, { recursive: true });
+      initRepo(xMain, new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString());
+      addRepository(xMain, "x");
+      const xWorktree = join(reposRoot, "x-wt");
+      execSync(`git worktree add ${xWorktree}`, { cwd: xMain });
+      addRepository(xWorktree, "x");
+
+      const grounded = await buildPresentModelBelief({ now: groundedAt, coreCwd });
+      expect(grounded.revisedAt).toBe(groundedAt.toISOString());
+      const before = readPresentModel();
+      expect(before).not.toBeNull();
+      const priorX = [...(before?.primaryThreads ?? []), ...(before?.secondaryThreads ?? [])].find(
+        (t) => t.name === "X",
+      );
+      expect(priorX?.latestSubject).toBe("Initial commit");
+      expect([...(before?.primaryThreads ?? []), ...(before?.secondaryThreads ?? [])]).toHaveLength(3);
+
+      const ordered = listRepositories();
+      expect(ordered).toHaveLength(4);
+      expect(ordered[0].root).toBe(leadRoot);
+      expect(ordered[1].root).toBe(wedgedRoot);
+      const worktreeRoots = new Set([xMain, xWorktree]);
+      expect(worktreeRoots.has(ordered[2].root)).toBe(true);
+      expect(worktreeRoots.has(ordered[3].root)).toBe(true);
+
+      writeFileSync(join(leadRoot, "second.txt"), "second\n");
+      execSync("git add second.txt", { cwd: leadRoot });
+      execSync('git commit -m "Second commit"', { cwd: leadRoot });
+
+      const read: GitRead = (args, cwd) => {
+        if (cwd === wedgedRoot) throw new RepositoryReadStalledError(args, cwd);
+        return defaultGitRead(args, cwd);
+      };
+      const sweepSpy = vi
+        .spyOn(repositoryIntelligence, "observeKnownRepositories")
+        .mockImplementation(() => observeAllRepos(read));
+
+      const later = new Date();
+      const updated = await buildPresentModelBelief({ now: later, coreCwd });
+      sweepSpy.mockRestore();
+
+      expect(repositoryReadsAreStalled()).toBe(true);
+      const after = readPresentModel();
+      expect(updated.revisedAt).toBe(later.toISOString());
+      expect(after?.revisedAt).toBe(later.toISOString());
+
+      const xThreads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])].filter(
+        (t) => t.name === "X",
+      );
+      expect(xThreads).toHaveLength(1);
+      expect(xThreads[0].latestSubject).toBe(priorX?.latestSubject);
+      expect(after?.primaryThreads.filter((t) => t.name === "X")).toHaveLength(1);
+    } finally {
+      if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
+      else process.env.FLYD_WORK_ROOTS = previousRoots;
+      rmSync(workRoot, { recursive: true, force: true });
+    }
+  });
+
   it("a stalled first sweep does not flag never-observed repositories as possibly stale", () => {
     expect(buildGlobalPresentModel().gaps).toEqual([]);
 

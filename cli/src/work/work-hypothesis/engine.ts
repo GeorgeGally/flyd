@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
-import { resolve } from "path";
+import { existsSync, readFileSync } from "fs";
+import { join, resolve, sep } from "path";
 import {
   listRepositories,
   registerDiscoveredRepos,
@@ -236,12 +236,30 @@ function confidenceFor(primary: WorkThread[]): "high" | "medium" | "low" {
   return "low";
 }
 
+function linkedWorktreeCommonDir(root: string): string | undefined {
+  try {
+    const gitFile = readFileSync(join(root, ".git"), "utf8");
+    const match = /^gitdir:\s*(.+)$/m.exec(gitFile);
+    if (!match) return undefined;
+    const gitDir = resolve(root, match[1].trim());
+    const marker = `${sep}worktrees${sep}`;
+    const markerIndex = gitDir.lastIndexOf(marker);
+    return markerIndex >= 0 ? gitDir.slice(0, markerIndex) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | null, nowIso: string): CandidateRepoInput[] {
   if (!prior) return repos;
   const priorById = new Map<string, WorkThread>();
+  const priorByCommonDir = new Map<string, WorkThread>();
   for (const t of [...prior.primaryThreads, ...prior.secondaryThreads]) {
     const key = t.repositoryId ?? t.root;
     if (!priorById.has(key)) priorById.set(key, t);
+    if (t.gitCommonDir && !priorByCommonDir.has(t.gitCommonDir)) {
+      priorByCommonDir.set(t.gitCommonDir, t);
+    }
   }
   return repos.map((r) => {
     if (r.observedAt === nowIso) {
@@ -250,7 +268,11 @@ function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | nu
       if (!p) return r;
       return { ...r, latestSubject: p.latestSubject ?? r.latestSubject };
     }
-    const p = priorById.get(r.id) ?? priorById.get(r.root);
+    let p = priorById.get(r.id) ?? priorById.get(r.root);
+    if (!p) {
+      const commonDir = linkedWorktreeCommonDir(r.root);
+      if (commonDir) p = priorByCommonDir.get(commonDir);
+    }
     if (!p) return r;
     // ponytail: stalled/skipped observations reuse the last fully-grounded
     // values and keep their previous revision time; never claim fresh data
@@ -259,6 +281,7 @@ function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | nu
       lastCommitAt: p.lastCommitAt ?? r.lastCommitAt,
       latestSubject: p.latestSubject ?? r.latestSubject,
       observedAt: p.observedAt ?? r.observedAt,
+      gitCommonDir: p.gitCommonDir ?? r.gitCommonDir,
     };
   });
 }

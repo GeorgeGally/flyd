@@ -23,6 +23,7 @@ export interface WorkThread {
   latestSubject?: string;
   /** When this thread's repository observation was last confirmed fresh. */
   observedAt?: string;
+  gitCommonDir?: string;
   isDirty: boolean;
   hasTasks: boolean;
   isForeground: boolean;
