@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
-import { resolve } from "path";
+import { existsSync, readFileSync, statSync } from "fs";
+import { join, resolve, sep } from "path";
 import {
   listRepositories,
   registerDiscoveredRepos,
@@ -10,7 +10,9 @@ import {
   observeKnownRepositories,
   recentRepositoryCommits,
   repositoryCommonDir,
+  repositoryReadsAreStalled,
 } from "../repository-intelligence.js";
+import { isGitReadTimeout } from "../git-observer.js";
 import { listOpenTasks } from "../task-store.js";
 import { assembleCandidates, displayName } from "./candidates.js";
 import { isEphemeralRepoRoot } from "./ephemeral.js";
@@ -37,7 +39,7 @@ export interface BuildPresentModelOptions {
   skipDiscovery?: boolean;
 }
 
-async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInput[]> {
+async function loadLiveRepos(foregroundRoot?: string, now = new Date()): Promise<{ repos: CandidateRepoInput[]; readsStalled: boolean }> {
   purgeEphemeralRepositories(isEphemeralRepoRoot);
   try {
     registerDiscoveredRepos();
@@ -45,27 +47,47 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
     // discovery is best-effort
   }
 
+  const nowIso = now.toISOString();
+  const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const repos = listRepositories().filter(
     (r) => r.enabled && existsSync(r.root) && !isEphemeralRepoRoot(r.root, r.name),
   );
-  const snapshotsById = new Map(observeKnownRepositories().map((snapshot) => [snapshot.repositoryId, snapshot]));
   const foreground = foregroundRoot ? resolve(foregroundRoot) : undefined;
   const results: CandidateRepoInput[] = [];
+  // ponytail: per-call stall ownership; the sweep latch belongs to this call's
+  // synchronous observation, so a concurrent sweep cannot clear it under us
+  let readsStalled = repositoryReadsAreStalled();
 
   for (const repo of repos) {
-    let lastCommitAt: string | undefined;
+    let lastCommitAt: string | undefined = repo.lastActivityAt;
     let latestSubject: string | undefined;
-    try {
-      const commits = await recentRepositoryCommits(repo.root, 1);
-      lastCommitAt = commits[0]?.committedAt;
-      latestSubject = commits[0]?.subject;
-    } catch {
-      lastCommitAt = repo.lastActivityAt;
+    let gitCommonDir: string | undefined;
+    let readFresh = false;
+
+    // ponytail: a repo the sweep observed this call is fresh even when the
+    // per-repo commit read was skipped; stalled or skipped repos keep their
+    // last clean observation time so the belief never claims fresh data
+    const sweepFresh = repo.observedAt !== undefined && repo.observedAt >= nowIso;
+
+    if (!readsStalled) {
+      try {
+        const commits = await recentRepositoryCommits(repo.root, 1);
+        lastCommitAt = commits[0]?.committedAt;
+        latestSubject = commits[0]?.subject;
+        readFresh = true;
+      } catch (error) {
+        lastCommitAt = repo.lastActivityAt;
+        if (isGitReadTimeout(error)) {
+          readsStalled = true;
+        }
+      }
     }
 
+    if (readFresh || sweepFresh) {
+      gitCommonDir = repositoryCommonDir(repo.root);
+    }
     const repositorySnapshot = snapshotsById.get(repo.id);
     const isDirty = repositorySnapshot?.dirty ?? repo.observedDirty ?? false;
-    const gitCommonDir = repositoryCommonDir(repo.root);
 
     const tasks = listOpenTasks(repo.id);
     results.push({
@@ -78,10 +100,11 @@ async function loadLiveRepos(foregroundRoot?: string): Promise<CandidateRepoInpu
       hasTasks: tasks.length > 0,
       isForeground: foreground ? resolve(repo.root) === foreground : false,
       gitCommonDir,
+      observedAt: readFresh || sweepFresh ? nowIso : repo.observedAt,
     });
   }
 
-  return results;
+  return { repos: results, readsStalled };
 }
 
 function isCoreHomeThread(thread: WorkThread, coreCwd?: string): boolean {
@@ -213,6 +236,61 @@ function confidenceFor(primary: WorkThread[]): "high" | "medium" | "low" {
   return "low";
 }
 
+function linkedWorktreeCommonDir(root: string): string | undefined {
+  const gitPath = join(root, ".git");
+  try {
+    if (statSync(gitPath).isDirectory()) return resolve(root, ".git");
+  } catch {
+    void 0;
+  }
+  try {
+    const gitFile = readFileSync(gitPath, "utf8");
+    const match = /^gitdir:\s*(.+)$/m.exec(gitFile);
+    if (!match) return undefined;
+    const gitDir = resolve(root, match[1].trim());
+    const marker = `${sep}worktrees${sep}`;
+    const markerIndex = gitDir.lastIndexOf(marker);
+    return markerIndex >= 0 ? gitDir.slice(0, markerIndex) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | null, nowIso: string): CandidateRepoInput[] {
+  if (!prior) return repos;
+  const priorById = new Map<string, WorkThread>();
+  const priorByCommonDir = new Map<string, WorkThread>();
+  for (const t of [...prior.primaryThreads, ...prior.secondaryThreads]) {
+    const key = t.repositoryId ?? t.root;
+    if (!priorById.has(key)) priorById.set(key, t);
+    if (t.gitCommonDir && !priorByCommonDir.has(t.gitCommonDir)) {
+      priorByCommonDir.set(t.gitCommonDir, t);
+    }
+  }
+  return repos.map((r) => {
+    if (r.observedAt === nowIso) {
+      if (r.latestSubject) return r;
+      const p = priorById.get(r.id) ?? priorById.get(r.root);
+      if (!p) return r;
+      return { ...r, latestSubject: p.latestSubject ?? r.latestSubject };
+    }
+    let p = priorById.get(r.id) ?? priorById.get(r.root);
+    let commonDir = p?.gitCommonDir;
+    if (!commonDir) commonDir = linkedWorktreeCommonDir(r.root);
+    if (!p && commonDir) p = priorByCommonDir.get(commonDir);
+    if (!p) return commonDir ? { ...r, gitCommonDir: commonDir } : r;
+    // ponytail: stalled/skipped observations reuse the last fully-grounded
+    // values and keep their previous revision time; never claim fresh data
+    return {
+      ...r,
+      lastCommitAt: p.lastCommitAt ?? r.lastCommitAt,
+      latestSubject: p.latestSubject ?? r.latestSubject,
+      observedAt: p.observedAt ?? r.observedAt,
+      gitCommonDir: commonDir ?? r.gitCommonDir,
+    };
+  });
+}
+
 /**
  * Build and persist the Present Model (WorkHypothesis).
  * Integrity-only path is the spine; model narrative is optional enrichment.
@@ -221,17 +299,29 @@ export async function buildPresentModelBelief(
   options: BuildPresentModelOptions = {},
 ): Promise<WorkHypothesis> {
   const now = options.now ?? new Date();
+  const nowIso = now.toISOString();
   const demotions = activeDemotions();
   const promotions = activePromotions();
   const preferCoreHome =
     isProjectPromoted("flyd") ||
     isProjectPromoted("Flyd") ||
     promotions.some((p) => /flyd/i.test(p));
-  const repos =
-    options.repos ??
-    (await loadLiveRepos(options.foregroundRoot));
+  // ponytail: live reads own their stall flag; injected repos (tests) fall back
+  // to the last sweep latch, which is the only signal available to them
+  const loaded = options.repos
+    ? { repos: options.repos, readsStalled: repositoryReadsAreStalled() }
+    : await loadLiveRepos(options.foregroundRoot, now);
+  const repos = loaded.repos;
+  const prior = readPresentModel();
+  const anyFresh = repos.some((r) => r.observedAt === nowIso);
+
+  // ponytail: a stalled sweep only keeps the whole record when nothing read
+  // cleanly; otherwise clean reads land while stalled/skipped observations
+  // keep their previous fully-grounded values
+  if (loaded.readsStalled && prior && !anyFresh) return prior;
+  const inputs = loaded.readsStalled ? mergeStaleRepos(repos, prior, nowIso) : repos;
   const candidates = assembleCandidates({
-    repos,
+    repos: inputs,
     now,
     coreCwd: options.coreCwd ?? process.cwd(),
     demotions,
@@ -242,10 +332,9 @@ export async function buildPresentModelBelief(
     preferCoreHome,
     now,
     extraWorkstreams,
-    finishedProjects: finishedProjectNames(repos, [...primary, ...secondary], now),
+    finishedProjects: finishedProjectNames(inputs, [...primary, ...secondary], now),
   });
 
-  const prior = readPresentModel();
   const fp = evidenceFingerprint(candidates, demotions, promotions);
   const priorFp = prior
     ? evidenceFingerprint(
@@ -267,7 +356,7 @@ export async function buildPresentModelBelief(
       insights,
       fromCache: true,
       revisedAt: prior.revisedAt,
-      generatedAt: now.toISOString(),
+      generatedAt: nowIso,
     });
   }
 
@@ -311,8 +400,8 @@ export async function buildPresentModelBelief(
     evidenceRefs: primary.flatMap((t) => t.signals),
     demotions,
     insights,
-    revisedAt: now.toISOString(),
-    generatedAt: now.toISOString(),
+    revisedAt: nowIso,
+    generatedAt: nowIso,
     fromCache: false,
   };
 

@@ -1,4 +1,5 @@
 import { buildGlobalPresentModel, listRepositories, listActivities } from "./repository-registry.js";
+import { repositoryReadsAreStalled, stalledSkippedRepositoryNames } from "./git-observer.js";
 import type { GlobalPresentModel, ProjectSnapshot, WorkActivity } from "./repository-registry.js";
 import { listOpenTasks, listTasks } from "./task-store.js";
 import type { Task } from "./task-store.js";
@@ -52,9 +53,27 @@ export function classifyIntent(query: string): RecallIntent {
   return "general";
 }
 
+// ponytail: only repo-derived answers carry repository-staleness context; task/activity answers must stay clean
+const REPO_DERIVED_INTENTS = new Set<RecallIntent>(["active_projects", "project_status"]);
+
 export function recall(intent: RecallIntent, foregroundRoot?: string, projectFilter?: string): RecallResult {
   const model = buildGlobalPresentModel(foregroundRoot);
+  const result = recallWithModel(intent, model, projectFilter);
+  if (!REPO_DERIVED_INTENTS.has(intent)) return result;
+  const note = stalenessNote();
+  return note ? { ...result, answer: `${result.answer}\n\n${note}` } : result;
+}
 
+function stalenessNote(): string | null {
+  const skipped = stalledSkippedRepositoryNames();
+  if (!repositoryReadsAreStalled() && skipped.length === 0) return null;
+  const reasons: string[] = [];
+  if (repositoryReadsAreStalled()) reasons.push("a repository read stalled");
+  if (skipped.length > 0) reasons.push(`possibly stale: ${skipped.join(", ")}`);
+  return `Note: repository state may be stale (${reasons.join("; ")}).`;
+}
+
+function recallWithModel(intent: RecallIntent, model: GlobalPresentModel, projectFilter?: string): RecallResult {
   switch (intent) {
     case "active_projects": {
       const present = readPresentModel();
