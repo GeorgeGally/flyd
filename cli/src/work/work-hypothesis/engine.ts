@@ -275,11 +275,10 @@ function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | nu
       return { ...r, latestSubject: p.latestSubject ?? r.latestSubject };
     }
     let p = priorById.get(r.id) ?? priorById.get(r.root);
-    if (!p) {
-      const commonDir = linkedWorktreeCommonDir(r.root);
-      if (commonDir) p = priorByCommonDir.get(commonDir);
-    }
-    if (!p) return r;
+    let commonDir = p?.gitCommonDir;
+    if (!commonDir) commonDir = linkedWorktreeCommonDir(r.root);
+    if (!p && commonDir) p = priorByCommonDir.get(commonDir);
+    if (!p) return commonDir ? { ...r, gitCommonDir: commonDir } : r;
     // ponytail: stalled/skipped observations reuse the last fully-grounded
     // values and keep their previous revision time; never claim fresh data
     return {
@@ -287,7 +286,7 @@ function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | nu
       lastCommitAt: p.lastCommitAt ?? r.lastCommitAt,
       latestSubject: p.latestSubject ?? r.latestSubject,
       observedAt: p.observedAt ?? r.observedAt,
-      gitCommonDir: p.gitCommonDir ?? r.gitCommonDir,
+      gitCommonDir: commonDir ?? r.gitCommonDir,
     };
   });
 }

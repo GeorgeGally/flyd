@@ -16,7 +16,7 @@ import * as gitObserver from "../work/git-observer.js";
 import * as repositoryIntelligence from "../work/repository-intelligence.js";
 import { addRepository, buildGlobalPresentModel, listRepositories } from "../work/repository-registry.js";
 import { answerQuestion } from "../work/recall-router.js";
-import { buildPresentModelBelief, readPresentModel } from "../work/work-hypothesis/index.js";
+import { buildPresentModelBelief, readPresentModel, writePresentModel } from "../work/work-hypothesis/index.js";
 import type { CandidateRepoInput } from "../work/work-hypothesis/types.js";
 
 function initRepo(dir: string, commitDate?: string): void {
@@ -430,6 +430,192 @@ describe("bounded repository reads on the observation sweep", () => {
       );
       expect(xThreads).toHaveLength(1);
       expect(xThreads[0].latestSubject).toBe(priorX?.latestSubject);
+      expect(after?.primaryThreads.filter((t) => t.name === "X")).toHaveLength(1);
+    } finally {
+      if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
+      else process.env.FLYD_WORK_ROOTS = previousRoots;
+      rmSync(workRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("production path: a belief written before gitCommonDir existed still dedupes a worktree family when the wedged repo sorts first", async () => {
+    const coreCwd = "/Users/george/Documents/core";
+    const groundedAt = new Date(Date.now() - 60_000);
+
+    const workRoot = join(process.cwd(), `.flyd-test-repos-${Date.now()}`);
+    const emptyDiscovery = join(workRoot, "empty-discovery");
+    const previousRoots = process.env.FLYD_WORK_ROOTS;
+    process.env.FLYD_WORK_ROOTS = emptyDiscovery;
+
+    try {
+      const reposRoot = join(workRoot, "workspace");
+      mkdirSync(reposRoot, { recursive: true });
+
+      const now = Date.now();
+      const leadRoot = join(reposRoot, "lead");
+      mkdirSync(leadRoot, { recursive: true });
+      initRepo(leadRoot, new Date(now - 60 * 60 * 1000).toISOString());
+      addRepository(leadRoot, "lead");
+
+      const wedgedRoot = join(reposRoot, "wedged");
+      mkdirSync(wedgedRoot, { recursive: true });
+      initRepo(wedgedRoot, new Date(now - 2 * 60 * 60 * 1000).toISOString());
+      addRepository(wedgedRoot, "wedged");
+
+      const xMain = join(reposRoot, "x");
+      mkdirSync(xMain, { recursive: true });
+      initRepo(xMain, new Date(now - 4 * 60 * 60 * 1000).toISOString());
+      addRepository(xMain, "x");
+      const xWorktree = join(reposRoot, "x-wt");
+      execSync(`git worktree add ${xWorktree}`, { cwd: xMain });
+      addRepository(xWorktree, "x");
+
+      const wtCommitAt = new Date(now - 3 * 60 * 60 * 1000).toISOString();
+      writeFileSync(join(xWorktree, "wt.txt"), "wt\n");
+      execSync("git add wt.txt", { cwd: xWorktree });
+      execSync('git commit -m "Second commit"', {
+        cwd: xWorktree,
+        env: { ...process.env, GIT_AUTHOR_DATE: wtCommitAt, GIT_COMMITTER_DATE: wtCommitAt },
+      });
+
+      const grounded = await buildPresentModelBelief({ now: groundedAt, coreCwd });
+      expect(grounded.revisedAt).toBe(groundedAt.toISOString());
+      const prior = readPresentModel();
+      expect(prior).not.toBeNull();
+      const priorX = [...(prior!.primaryThreads), ...(prior!.secondaryThreads)].find((t) => t.name === "X");
+      expect(priorX?.latestSubject).toBe("Second commit");
+
+      writePresentModel({
+        ...prior!,
+        primaryThreads: prior!.primaryThreads.map(({ gitCommonDir: _g, ...t }) => t),
+        secondaryThreads: prior!.secondaryThreads.map(({ gitCommonDir: _g, ...t }) => t),
+      });
+
+      const ordered = listRepositories();
+      expect(ordered[0].root).toBe(leadRoot);
+      expect(ordered[1].root).toBe(wedgedRoot);
+
+      const thirdAt = new Date(now - 30 * 60 * 1000).toISOString();
+      writeFileSync(join(leadRoot, "third.txt"), "third\n");
+      execSync("git add third.txt", { cwd: leadRoot });
+      execSync('git commit -m "Third commit"', {
+        cwd: leadRoot,
+        env: { ...process.env, GIT_AUTHOR_DATE: thirdAt, GIT_COMMITTER_DATE: thirdAt },
+      });
+
+      const read: GitRead = (args, cwd) => {
+        if (cwd === wedgedRoot) throw new RepositoryReadStalledError(args, cwd);
+        return defaultGitRead(args, cwd);
+      };
+      const sweepSpy = vi
+        .spyOn(repositoryIntelligence, "observeKnownRepositories")
+        .mockImplementation(() => observeAllRepos(read));
+
+      const later = new Date();
+      const updated = await buildPresentModelBelief({ now: later, coreCwd });
+      sweepSpy.mockRestore();
+
+      expect(repositoryReadsAreStalled()).toBe(true);
+      const after = readPresentModel();
+      expect(updated.revisedAt).toBe(later.toISOString());
+      expect(after?.revisedAt).toBe(later.toISOString());
+
+      const xThreads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])].filter(
+        (t) => t.name === "X",
+      );
+      expect(xThreads).toHaveLength(1);
+      expect(xThreads[0].latestSubject).toBe("Second commit");
+      expect(after?.primaryThreads.filter((t) => t.name === "X")).toHaveLength(1);
+    } finally {
+      if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
+      else process.env.FLYD_WORK_ROOTS = previousRoots;
+      rmSync(workRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("production path: a belief written before gitCommonDir existed still dedupes a worktree family when the wedged repo sorts between the members", async () => {
+    const coreCwd = "/Users/george/Documents/core";
+    const groundedAt = new Date(Date.now() - 60_000);
+
+    const workRoot = join(process.cwd(), `.flyd-test-repos-${Date.now()}`);
+    const emptyDiscovery = join(workRoot, "empty-discovery");
+    const previousRoots = process.env.FLYD_WORK_ROOTS;
+    process.env.FLYD_WORK_ROOTS = emptyDiscovery;
+
+    try {
+      const reposRoot = join(workRoot, "workspace");
+      mkdirSync(reposRoot, { recursive: true });
+
+      const now = Date.now();
+      const xMain = join(reposRoot, "x");
+      mkdirSync(xMain, { recursive: true });
+      initRepo(xMain, new Date(now - 3 * 60 * 60 * 1000).toISOString());
+      addRepository(xMain, "x");
+      const xWorktree = join(reposRoot, "x-wt");
+      execSync(`git worktree add ${xWorktree}`, { cwd: xMain });
+      addRepository(xWorktree, "x");
+
+      const wtCommitAt = new Date(now - 60 * 60 * 1000).toISOString();
+      writeFileSync(join(xWorktree, "wt.txt"), "wt\n");
+      execSync("git add wt.txt", { cwd: xWorktree });
+      execSync('git commit -m "Second commit"', {
+        cwd: xWorktree,
+        env: { ...process.env, GIT_AUTHOR_DATE: wtCommitAt, GIT_COMMITTER_DATE: wtCommitAt },
+      });
+
+      const wedgedRoot = join(reposRoot, "wedged");
+      mkdirSync(wedgedRoot, { recursive: true });
+      initRepo(wedgedRoot, new Date(now - 2 * 60 * 60 * 1000).toISOString());
+      addRepository(wedgedRoot, "wedged");
+
+      const grounded = await buildPresentModelBelief({ now: groundedAt, coreCwd });
+      expect(grounded.revisedAt).toBe(groundedAt.toISOString());
+      const prior = readPresentModel();
+      expect(prior).not.toBeNull();
+      const priorX = [...(prior!.primaryThreads), ...(prior!.secondaryThreads)].find((t) => t.name === "X");
+      expect(priorX?.latestSubject).toBe("Second commit");
+
+      writePresentModel({
+        ...prior!,
+        primaryThreads: prior!.primaryThreads.map(({ gitCommonDir: _g, ...t }) => t),
+        secondaryThreads: prior!.secondaryThreads.map(({ gitCommonDir: _g, ...t }) => t),
+      });
+
+      const ordered = listRepositories();
+      expect(ordered[0].root).toBe(xWorktree);
+      expect(ordered[1].root).toBe(wedgedRoot);
+      expect(ordered[2].root).toBe(xMain);
+
+      const thirdAt = new Date(now - 30 * 60 * 1000).toISOString();
+      writeFileSync(join(xWorktree, "third.txt"), "third\n");
+      execSync("git add third.txt", { cwd: xWorktree });
+      execSync('git commit -m "Third commit"', {
+        cwd: xWorktree,
+        env: { ...process.env, GIT_AUTHOR_DATE: thirdAt, GIT_COMMITTER_DATE: thirdAt },
+      });
+
+      const read: GitRead = (args, cwd) => {
+        if (cwd === wedgedRoot) throw new RepositoryReadStalledError(args, cwd);
+        return defaultGitRead(args, cwd);
+      };
+      const sweepSpy = vi
+        .spyOn(repositoryIntelligence, "observeKnownRepositories")
+        .mockImplementation(() => observeAllRepos(read));
+
+      const later = new Date();
+      const updated = await buildPresentModelBelief({ now: later, coreCwd });
+      sweepSpy.mockRestore();
+
+      expect(repositoryReadsAreStalled()).toBe(true);
+      const after = readPresentModel();
+      expect(updated.revisedAt).toBe(later.toISOString());
+      expect(after?.revisedAt).toBe(later.toISOString());
+
+      const xThreads = [...(after?.primaryThreads ?? []), ...(after?.secondaryThreads ?? [])].filter(
+        (t) => t.name === "X",
+      );
+      expect(xThreads).toHaveLength(1);
+      expect(xThreads[0].latestSubject).toBe("Second commit");
       expect(after?.primaryThreads.filter((t) => t.name === "X")).toHaveLength(1);
     } finally {
       if (previousRoots === undefined) delete process.env.FLYD_WORK_ROOTS;
