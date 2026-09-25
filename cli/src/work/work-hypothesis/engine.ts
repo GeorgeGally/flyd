@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { join, resolve, sep } from "path";
 import {
   listRepositories,
@@ -237,8 +237,14 @@ function confidenceFor(primary: WorkThread[]): "high" | "medium" | "low" {
 }
 
 function linkedWorktreeCommonDir(root: string): string | undefined {
+  const gitPath = join(root, ".git");
   try {
-    const gitFile = readFileSync(join(root, ".git"), "utf8");
+    if (statSync(gitPath).isDirectory()) return resolve(root, ".git");
+  } catch {
+    void 0;
+  }
+  try {
+    const gitFile = readFileSync(gitPath, "utf8");
     const match = /^gitdir:\s*(.+)$/m.exec(gitFile);
     if (!match) return undefined;
     const gitDir = resolve(root, match[1].trim());
