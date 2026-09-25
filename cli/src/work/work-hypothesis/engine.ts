@@ -243,7 +243,12 @@ function mergeStaleRepos(repos: CandidateRepoInput[], prior: WorkHypothesis | nu
     if (!priorById.has(key)) priorById.set(key, t);
   }
   return repos.map((r) => {
-    if (r.observedAt === nowIso) return r;
+    if (r.observedAt === nowIso) {
+      if (r.latestSubject) return r;
+      const p = priorById.get(r.id) ?? priorById.get(r.root);
+      if (!p) return r;
+      return { ...r, latestSubject: p.latestSubject ?? r.latestSubject };
+    }
     const p = priorById.get(r.id) ?? priorById.get(r.root);
     if (!p) return r;
     // ponytail: stalled/skipped observations reuse the last fully-grounded

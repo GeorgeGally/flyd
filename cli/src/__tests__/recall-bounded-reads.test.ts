@@ -245,6 +245,10 @@ describe("bounded repository reads on the observation sweep", () => {
       expect(cleanThread?.observedAt).toBe(later.toISOString());
       expect(cleanThread?.lastCommitAt).not.toBe(priorClean?.lastCommitAt);
 
+      // The stalled commit read never produced the new subject, so the
+      // cleanly-read repository keeps the commit subject it already held.
+      expect(cleanThread?.latestSubject).toBe(priorClean?.latestSubject);
+
       // Slow and skipped repositories keep their previous fully-grounded values
       // and their previous per-observation revision time.
       expect(stalledThread?.observedAt).toBe(groundedAt.toISOString());
