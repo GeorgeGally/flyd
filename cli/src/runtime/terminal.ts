@@ -11,14 +11,30 @@ import {
   createLineReaderState,
   feedLineReader,
 } from "./tty-line-reader.js";
+import { wrapDisplayText } from "./text-wrap.js";
+import { renderScreen, screenLayout, transcriptWidth, type ScreenView } from "./screen.js";
+
+export { CHAT_WRAP_WIDTH, displayWidth, wrapDisplayText, formatChatReply } from "./text-wrap.js";
 
 export const DEFAULT_INPUT_HISTORY_SIZE = 100;
 
 const ANSI_RESET = "\u001b[0m";
-
-function colored(text: string, color?: string): string {
-  return color ? `${color}${text}${ANSI_RESET}` : text;
-}
+const ALT_SCREEN_ON = "\u001b[?1049h";
+const ALT_SCREEN_OFF = "\u001b[?1049l";
+const CURSOR_HIDE = "\u001b[?25l";
+const CURSOR_SHOW = "\u001b[?25h";
+const USER_BG = "\u001b[43m";
+const USER_FG = "\u001b[30m";
+const DIM = "\u001b[2m";
+const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const PGUP = "\x1b[5~";
+const PGDN = "\x1b[6~";
+/** Trackpad/wheel scroll only reaches the app when mouse reporting is on. */
+const MOUSE_ON = "\u001b[?1000h\u001b[?1006h";
+const MOUSE_OFF = "\u001b[?1000l\u001b[?1006l";
+const MOUSE_EVENT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
+const WHEEL_LINES = 3;
+const HALF_PAGE = 0.5;
 export const DEFAULT_INPUT_HISTORY_PATH = join(FLYD_DIR, "cli-input-history");
 
 /** Newest-first list, matching Node readline's history order. */
@@ -54,133 +70,13 @@ export function rememberInputLine(history: string[], line: string, maxEntries = 
   return [line, ...history.filter((entry) => entry !== line)].slice(0, Math.max(1, maxEntries));
 }
 
-const ART_LINE = /[█╔╚║═┌┐└┘│─]|\u001b\[/;
-const LIST_ITEM = /^(\s*)([-*·]|\d+\.)\s+/;
-/** Comfortable reading measure — full terminal width is a wall of text. */
-export const CHAT_WRAP_WIDTH = 72;
-
-export function displayWidth(preferred = CHAT_WRAP_WIDTH): number {
-  const cols = stdout.columns ?? preferred;
-  return Math.max(40, Math.min(preferred, cols > 2 ? cols - 2 : preferred));
-}
-
-/** Word-wrap prose so the terminal does not split tokens mid-word. */
-export function wrapDisplayText(text: string, width = displayWidth()): string {
-  return text.split("\n").map((line) => wrapOneLine(line, width)).join("\n");
-}
-
-/**
- * Format a chat reply for the terminal: short measure, paragraph breaks,
- * hanging list indents. Prefer this over raw wrap for Flyd answers.
- */
-export function formatChatReply(text: string, width = displayWidth()): string {
-  const normalized = text
-    .replace(/\r\n/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-  if (!normalized) return "";
-
-  const blocks = splitReplyBlocks(normalized, width);
-  const rendered = blocks.map((block) => formatBlock(block, width)).filter(Boolean);
-  return rendered.join("\n\n");
-}
-
-function splitReplyBlocks(text: string, width: number): string[] {
-  const rough = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const out: string[] = [];
-  const budget = Math.max(120, width * 2);
-  for (const chunk of rough) {
-    if (isListBlock(chunk) || chunk.includes("\n")) {
-      out.push(chunk);
-      continue;
-    }
-    // Break long single-paragraph walls into sentence groups (~2 sentences).
-    if (chunk.length <= budget) {
-      out.push(chunk);
-      continue;
-    }
-    const sentences = chunk.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) ?? [chunk];
-    let group = "";
-    for (const raw of sentences) {
-      const sentence = raw.trim();
-      if (!sentence) continue;
-      const next = group ? `${group} ${sentence}` : sentence;
-      if (group && next.length > budget) {
-        out.push(group);
-        group = sentence;
-      } else {
-        group = next;
-      }
-    }
-    if (group) out.push(group);
-  }
-  return out;
-}
-
-function isListBlock(chunk: string): boolean {
-  const lines = chunk.split("\n").filter((l) => l.trim());
-  if (lines.length < 2) return LIST_ITEM.test(lines[0] ?? "");
-  return lines.filter((l) => LIST_ITEM.test(l)).length >= Math.ceil(lines.length / 2);
-}
-
-function formatBlock(block: string, width: number): string {
-  const lines = block.split("\n");
-  if (isListBlock(block)) {
-    return lines.map((line) => wrapListLine(line, width)).join("\n");
-  }
-  // Collapse soft newlines inside a prose paragraph, then wrap with body indent.
-  const prose = lines.map((l) => l.trim()).filter(Boolean).join(" ");
-  return wrapOneLine(`  ${prose}`, width);
-}
-
-function wrapListLine(line: string, width: number): string {
-  const match = line.match(LIST_ITEM);
-  if (!match) return wrapOneLine(`  ${line.trim()}`, width);
-  const marker = match[2];
-  const body = line.slice(match[0].length).trim();
-  const prefix = `  ${marker} `;
-  const hang = " ".repeat(prefix.length);
-  return wrapWithHang(`${prefix}${body}`, prefix, hang, width);
-}
-
-function wrapOneLine(line: string, width: number): string {
-  if (line.length <= width || ART_LINE.test(line)) return line;
-  const indentMatch = line.match(/^(\s*)/);
-  const indent = indentMatch?.[1] ?? "";
-  const rest = line.slice(indent.length);
-  const list = rest.match(/^([-*·]|\d+\.)\s+/);
-  const bullet = list ? list[0] : "";
-  const prefix = indent + bullet;
-  const hang = indent + (bullet ? " ".repeat(bullet.length) : "");
-  return wrapWithHang(line, prefix, hang, width);
-}
-
-function wrapWithHang(line: string, prefix: string, hang: string, width: number): string {
-  if (ART_LINE.test(line)) return line;
-  const body = line.startsWith(prefix) ? line.slice(prefix.length) : line.trimStart();
-  const max = Math.max(24, width - prefix.length);
-  const words = body.split(/\s+/).filter(Boolean);
-  if (!words.length) return prefix.trimEnd();
-  const rows: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length > max && current) {
-      rows.push(current);
-      current = word;
-    } else {
-      current = next;
-    }
-  }
-  if (current) rows.push(current);
-  return rows.map((row, i) => `${i === 0 ? prefix : hang}${row}`).join("\n");
-}
-
 export type NodeTerminalOptions = {
   historyPath?: string | null;
   historySize?: number;
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
+  /** Full-screen mode: pinned input, scrolling viewport. Only on a TTY. */
+  tui?: boolean;
 };
 
 let signalCleanupRegistered = false;
@@ -193,7 +89,32 @@ export class NodeTerminal {
   private readonly input: NodeJS.ReadableStream;
   private readonly output: NodeJS.WritableStream;
   private readonly isTty: boolean;
+  private readonly tuiMode: boolean;
   private pasteEnabled = false;
+
+  /** Full-screen pinned-input mode — agent-session adapts its framing to it. */
+  get tui(): boolean {
+    return this.tuiMode;
+  }
+
+  // TUI state — the input reader stays live the whole session, so messages
+  // can be typed while a turn is streaming and queue behind it.
+  private transcript: string[] = [];
+  private live = "";
+  private inputState = createLineReaderState();
+  private prompt = "";
+  private echoColor = "";
+  private status = "";
+  private pending: string[] = [];
+  private scroll = 0;
+  private busy = false;
+  private spinTimer: ReturnType<typeof setInterval> | undefined;
+  private spinIdx = 0;
+  private turnStartedAt = 0;
+  private askResolve: ((text: string) => void) | undefined;
+  private submitted: string[] = [];
+  private readonly decoder = new StringDecoder("utf8");
+  private readonly resizeHandler: (() => void) | null = null;
 
   constructor(options: NodeTerminalOptions = {}) {
     this.historySize = options.historySize ?? DEFAULT_INPUT_HISTORY_SIZE;
@@ -206,6 +127,7 @@ export class NodeTerminal {
       ? loadInputHistory(this.historyPath, this.historySize)
       : [];
     this.isTty = Boolean((this.input as NodeJS.ReadStream).isTTY);
+    this.tuiMode = Boolean(options.tui && this.isTty);
 
     // Non-TTY (pipes/tests) still use readline.question.
     this.interface = this.isTty
@@ -222,6 +144,7 @@ export class NodeTerminal {
     if (this.isTty && !signalCleanupRegistered) {
       signalCleanupRegistered = true;
       const onSignal = (signal: NodeJS.Signals) => {
+        if (this.tuiMode) this.output.write(CURSOR_SHOW + ALT_SCREEN_OFF + MOUSE_OFF);
         this.disableBracketedPaste();
         try {
           const stream = this.input as NodeJS.ReadStream;
@@ -236,13 +159,87 @@ export class NodeTerminal {
       process.on("SIGINT", onSignal);
       process.on("SIGTERM", onSignal);
     }
+
+    if (this.tuiMode) {
+      this.output.write(ALT_SCREEN_ON + CURSOR_HIDE + MOUSE_ON);
+      this.enableBracketedPaste();
+      const stream = this.input as NodeJS.ReadStream;
+      if (typeof stream.setRawMode === "function") stream.setRawMode(true);
+      stream.resume();
+      stream.on("data", this.onInputData);
+      if (this.output === stdout) {
+        this.resizeHandler = () => this.render();
+        stdout.on("resize", this.resizeHandler);
+      }
+      this.render();
+    }
   }
 
   write(message: string): void {
-    this.output.write(message);
+    if (!this.tuiMode) {
+      this.output.write(message);
+      return;
+    }
+    if (this.live) this.commitLive();
+    const width = transcriptWidth(this.size().cols);
+    const before = this.transcript.length;
+    for (const raw of message.replace(/\r\n/g, "\n").split("\n")) {
+      // Callers that pre-color (art, wrapped replies) have pre-wrapped.
+      if (raw.includes("\x1b")) {
+        this.transcript.push(raw);
+        continue;
+      }
+      for (const line of wrapDisplayText(raw, width).split("\n")) this.transcript.push(line);
+    }
+    // Keep the reader's place: only follow the tail when already at the bottom.
+    if (this.scroll > 0) this.scroll += this.transcript.length - before;
+    this.render();
+  }
+
+  /** Live assistant streaming; buffered as a block and colored green. */
+  stream(token: string): void {
+    if (!this.tuiMode) {
+      this.output.write(token);
+      return;
+    }
+    const before = this.wrappedLines(this.live);
+    this.live += token;
+    if (this.scroll > 0) this.scroll += this.wrappedLines(this.live) - before;
+    this.render();
+  }
+
+  private wrappedLines(text: string): number {
+    if (!text) return 0;
+    return wrapDisplayText(text, transcriptWidth(this.size().cols)).split("\n").length;
+  }
+
+  /** Thinking indicator; TUI renders it in the status line, never in the stream. */
+  setBusy(busy: boolean): void {
+    if (!this.tuiMode || this.busy === busy) return;
+    this.busy = busy;
+    if (busy) {
+      this.turnStartedAt = Date.now();
+      this.spinIdx = 0;
+      this.spinTimer = setInterval(() => {
+        this.spinIdx = (this.spinIdx + 1) % SPIN.length;
+        this.render();
+      }, 120);
+    } else if (this.spinTimer) {
+      clearInterval(this.spinTimer);
+      this.spinTimer = undefined;
+    }
+    this.render();
+  }
+
+  /** Messages waiting behind the running turn, shown above the input. */
+  setPending(messages: string[]): void {
+    if (!this.tuiMode) return;
+    this.pending = messages;
+    this.render();
   }
 
   async ask(prompt: string, echoColor?: string): Promise<string> {
+    if (this.tuiMode) return this.askTui(prompt, echoColor);
     const answer = this.isTty
       ? await this.askTty(`${prompt} `, echoColor)
       : await this.interface!.question(`${prompt} `);
@@ -257,6 +254,21 @@ export class NodeTerminal {
   }
 
   async close(): Promise<void> {
+    if (this.tuiMode) {
+      if (this.spinTimer) clearInterval(this.spinTimer);
+      this.output.write(CURSOR_SHOW + ALT_SCREEN_OFF + MOUSE_OFF);
+      this.disableBracketedPaste();
+      const stream = this.input as NodeJS.ReadStream;
+      stream.off("data", this.onInputData);
+      if (this.resizeHandler && stdout === this.output) stdout.off("resize", this.resizeHandler);
+      try {
+        if (typeof stream.setRawMode === "function") stream.setRawMode(false);
+      } catch {
+        // ignore
+      }
+      if (this.input === stdin) stdin.pause();
+      return;
+    }
     this.persistHistory();
     this.disableBracketedPaste();
     this.interface?.close();
@@ -283,8 +295,162 @@ export class NodeTerminal {
     this.pasteEnabled = false;
   }
 
+  private onInputData = (buf: Buffer | string): void => {
+    let chunk = typeof buf === "string" ? buf : this.decoder.write(buf);
+    // Viewport scrolling — strip scroll keys and mouse reports before the
+    // line reader sees them.
+    if (chunk.includes(PGUP)) {
+      this.scrollBy(this.halfPage());
+      chunk = chunk.split(PGUP).join("");
+    }
+    if (chunk.includes(PGDN)) {
+      this.scrollBy(-this.halfPage());
+      chunk = chunk.split(PGDN).join("");
+    }
+    const wheel = this.takeWheelLines(chunk);
+    chunk = wheel.rest;
+    if (wheel.lines !== 0) this.scrollBy(wheel.lines);
+    if (!chunk) {
+      this.render();
+      return;
+    }
+
+    const result = feedLineReader(this.inputState, chunk, this.history);
+    this.inputState = result.state;
+
+    if (result.interrupt) {
+      this.close();
+      process.exit(130);
+    }
+
+    if (result.submit !== undefined) {
+      this.history = rememberInputLine(this.history, result.submit, this.historySize);
+      this.persistHistory();
+      this.commitUserMessage(result.submit);
+      this.prompt = "";
+      this.inputState = createLineReaderState();
+      if (this.askResolve) {
+        const resolve = this.askResolve;
+        this.askResolve = undefined;
+        resolve(result.submit);
+      } else {
+        this.submitted.push(result.submit);
+      }
+    }
+    this.render();
+  };
+
+  private async askTui(prompt: string, echoColor?: string): Promise<string> {
+    if (this.live) this.commitLive();
+    this.prompt = prompt;
+    this.echoColor = echoColor ?? "";
+    this.inputState = createLineReaderState();
+    this.scroll = 0;
+    if (this.submitted.length) {
+      const text = this.submitted.shift()!;
+      this.prompt = "";
+      this.render();
+      return text;
+    }
+    this.render();
+    return new Promise<string>((resolve) => {
+      this.askResolve = resolve;
+    });
+  }
+
+  private commitUserMessage(text: string): void {
+    const width = transcriptWidth(this.size().cols);
+    for (const line of wrapDisplayText(text, width).split("\n")) {
+      const body = ` ${line}`;
+      const padded = body + " ".repeat(Math.max(0, width - body.length));
+      this.transcript.push(`${USER_BG}${USER_FG}${padded}${ANSI_RESET}`);
+    }
+  }
+
+  private commitLive(): void {
+    const width = transcriptWidth(this.size().cols);
+    for (const line of wrapDisplayText(this.live, width).split("\n")) {
+      this.transcript.push(line);
+    }
+    this.live = "";
+  }
+
+  private halfPage(): number {
+    const { viewport } = screenLayout(this.view(), this.size());
+    return Math.max(1, Math.floor(viewport * HALF_PAGE));
+  }
+
+  /** Positive lines scroll up into history; negative returns to the tail. */
+  private scrollBy(lines: number): void {
+    const { maxScroll } = screenLayout(this.view(), this.size());
+    this.scroll = Math.min(maxScroll, Math.max(0, this.scroll + lines));
+  }
+
+  /** Pull wheel reports out of the chunk; SGR button 64/65 is wheel up/down. */
+  private takeWheelLines(chunk: string): { rest: string; lines: number } {
+    let lines = 0;
+    const rest = chunk.replace(MOUSE_EVENT, (_match: string, code: string) => {
+      const button = Number(code);
+      if ((button & 64) === 0) return "";
+      lines += (button & 1) === 0 ? WHEEL_LINES : -WHEEL_LINES;
+      return "";
+    });
+    return { rest, lines };
+  }
+
+  private view(): ScreenView {
+    return {
+      lines: this.transcript,
+      live: this.live,
+      liveColor: "\u001b[32m",
+      input: this.inputState.buffer,
+      cursor: this.inputState.cursor,
+      prompt: this.prompt,
+      inputColor: this.echoColor,
+      status: this.statusLine(),
+      pending: this.pendingLines(),
+      separator: `${DIM}${"\u2500".repeat(Math.max(1, this.size().cols))}${ANSI_RESET}`,
+      scroll: this.scroll,
+    };
+  }
+
+  private statusLine(): string {
+    if (!this.busy) return "";
+    const seconds = Math.round((Date.now() - this.turnStartedAt) / 1000);
+    const elapsed = seconds > 0 ? ` (${seconds}s)` : "";
+    return `\u001b[36m${SPIN[this.spinIdx]} Thinking${elapsed}…${ANSI_RESET}`;
+  }
+
+  private pendingLines(): string[] {
+    const width = Math.max(10, this.size().cols - 14);
+    return this.pending.map((text) => {
+      const first = text.split("\n")[0] ?? "";
+      const clipped = first.length > width ? `${first.slice(0, width - 1)}…` : first;
+      return `${DIM}  ⏳ ${clipped}${ANSI_RESET}`;
+    });
+  }
+
+  private size(): { rows: number; cols: number } {
+    const stream = this.output as NodeJS.WriteStream & { rows?: number; columns?: number };
+    return { rows: stream.rows ?? 24, cols: stream.columns ?? 80 };
+  }
+
+  private render(): void {
+    if (!this.tuiMode) return;
+    this.output.write(renderScreen(this.view(), this.size()).text);
+  }
+
+  private persistHistory(): void {
+    if (!this.historyPath) return;
+    try {
+      saveInputHistory(this.historyPath, this.history, this.historySize);
+    } catch {
+      // History is best-effort; never break the prompt loop.
+    }
+  }
+
   /**
-   * TTY input that does not submit on pasted newlines.
+   * TTY input that does not submit on pasted newlines (legacy scrollback mode).
    * Terminals wrap paste in ESC[200~ … ESC[201~ when bracketed paste is on.
    */
   private async askTty(prompt: string, echoColor?: string): Promise<string> {
@@ -355,13 +521,8 @@ export class NodeTerminal {
       stream.on("error", onError);
     });
   }
+}
 
-  private persistHistory(): void {
-    if (!this.historyPath) return;
-    try {
-      saveInputHistory(this.historyPath, this.history, this.historySize);
-    } catch {
-      // History is best-effort; never break the prompt loop.
-    }
-  }
+function colored(text: string, color?: string): string {
+  return color ? `${color}${text}${ANSI_RESET}` : text;
 }

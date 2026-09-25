@@ -15,7 +15,7 @@ function jsonResponse(value: unknown, status = 200, headers: Record<string, stri
 describe("Jina web adapters", () => {
   it("reads a web page into normalized evidence", async () => {
     const fetchFn: FetchLike = async (_input, init) => {
-      if (init?.method === "HEAD") return new Response(null, { status: 200 });
+      expect(init?.method).toBe("POST");
       return jsonResponse({
         data: {
           title: "Example",

@@ -162,7 +162,7 @@ describe("runJudgeSweep", () => {
     expect(storedEvents().filter((e) => e.sourceId === "transition.judge")).toHaveLength(1);
   });
 
-  it("edge case: malformed item is skipped, batch continues, retried at most twice", async () => {
+  it("edge case: malformed item is skipped, batch continues, and its retry budget survives restart", async () => {
     const seqA = seedAmbiguousTransition("inv-a");
     const seqB = seedAmbiguousTransition("inv-b");
 
@@ -177,8 +177,13 @@ describe("runJudgeSweep", () => {
     const first = await runJudgeSweep({ modelCall }, { graceMs: 0 });
     expect(first.judged).toBe(1);
     expect(first.candidates).toBe(2);
-    expect(storedEvents().some((e) => (e.payload as Record<string, unknown>)?.transitionSeq === seqB)).toBe(false);
+    expect(storedEvents().some((e) => {
+      const payload = e.payload as Record<string, unknown> | undefined;
+      return payload?.transitionSeq === seqB && payload.parseFailure === true && payload.attempt === 1;
+    })).toBe(true);
 
+    // Simulate a new Core process: persistent failure records must retain the budget.
+    resetJudgeAttemptsForTests();
     const second = await runJudgeSweep({ modelCall }, { graceMs: 0 });
     expect(second.judged).toBe(0);
     expect(second.candidates).toBe(1);
@@ -187,7 +192,10 @@ describe("runJudgeSweep", () => {
     expect(third.candidates).toBe(0);
     expect(third.judged).toBe(0);
     expect(call).toBe(2);
-    expect(storedEvents().some((e) => (e.payload as Record<string, unknown>)?.transitionSeq === seqB)).toBe(false);
+    expect(storedEvents().some((e) => {
+      const payload = e.payload as Record<string, unknown> | undefined;
+      return payload?.transitionSeq === seqB && payload.parseFailure === true && payload.attempt === 2;
+    })).toBe(true);
   });
 
   it("error path: model call throwing resolves quietly and rows stay eligible", async () => {

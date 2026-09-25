@@ -198,7 +198,7 @@ function fallbackResult(reason: string): WorkIntelligenceResult {
       primaryIssue: {
         category: 'quality',
         severity: 'improvement',
-        finding: 'Unable to produce a reliable diagnosis from the current context.',
+        finding: 'I need a clearer view of the work before I can make a useful recommendation.',
         causalExplanation: reason,
         domain: 'strategy',
         evidenceRefs: [],
@@ -206,7 +206,7 @@ function fallbackResult(reason: string): WorkIntelligenceResult {
     },
     intervention: {
       kind: 'insight',
-      content: `I couldn't produce a structured response. ${reason}. Please try again with a more specific question or different context.`,
+      content: "I couldn't prepare a useful plan from this moment. Try again from the work you want me to help with.",
     },
     candidateActions: [],
   };

@@ -59,7 +59,6 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  timer.unref?.();
 
   try {
     return await fetchFn(input, { ...init, signal: controller.signal });

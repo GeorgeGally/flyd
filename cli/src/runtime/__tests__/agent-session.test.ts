@@ -12,6 +12,7 @@ function terminal(answers: string[]) {
     ask: vi.fn(async () => answers.shift() ?? "/exit"),
     confirm: vi.fn(async () => false),
     close: vi.fn(async () => undefined),
+    setBusy: vi.fn(),
   };
 }
 
@@ -134,7 +135,7 @@ describe("runAgentSession", () => {
     expect(ui.close).toHaveBeenCalledOnce();
   });
 
-  it("keeps a space before the thinking spinner and hides the terminal cursor", async () => {
+  it("reports thinking through the terminal busy signal, not raw escape codes", async () => {
     const ui = terminal(["hello", "/exit"]);
 
     await runAgentSession({
@@ -143,17 +144,34 @@ describe("runAgentSession", () => {
       recoverActionRequest: vi.fn(async () => null),
       recordTurn: vi.fn(async () => undefined),
       respond: vi.fn(async ({ onToken }: { onToken: (token: string) => void }) => {
-        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => setTimeout(resolve, 30));
         onToken("Hello back.");
         return "Hello back.";
       }),
       loadSituation: vi.fn(async () => null),
     });
 
-    const output = ui.write.mock.calls.map(([value]) => value).join("");
-    expect(output).toContain("\nFlyd >\n\u001b[?25l\x1b[13D⠋ Thinking...");
-    expect(output).toContain("\u001b[?25hHello back.");
+    expect(ui.setBusy.mock.calls[0]).toEqual([true]);
+    expect(ui.setBusy.mock.calls.at(-1)).toEqual([false]);
+    expect(ui.write).toHaveBeenCalledWith("Hello back.");
   });
+
+  it("releases the session when a model turn exceeds its response deadline", async () => {
+    const ui = terminal(["hello", "/exit"]);
+
+    await runAgentSession({
+      terminal: ui,
+      responseTimeoutMs: 1,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(() => new Promise<string>(() => undefined)),
+      loadSituation: vi.fn(async () => null),
+    });
+
+    expect(ui.setBusy.mock.calls.at(-1)).toEqual([false]);
+    expect(ui.write).toHaveBeenCalledWith(expect.stringContaining("timed out"));
+  }, 100);
 
   it("keeps conversation history inside the active session", async () => {
     const ui = terminal(["Hello", "What did I just say?", "/exit"]);

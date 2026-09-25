@@ -38,7 +38,30 @@ export function isDeterministicDictation(input: DictationCheckInput): boolean {
 export interface ClassifiedRoute {
   route: IntentRoute;
   consequence: ConsequenceAssessment;
+  purpose: RequestPurpose;
   needsPersonalContext?: boolean;
+}
+
+export type RequestPurpose = "type_text" | "answer" | "recall_personal" | "research_web" | "work_help" | "control_flyd";
+
+const RESEARCH_REQUEST = /\b(?:search|browse|look up|look for|investigate|research|latest|current news)\b/i;
+const RECALL_REQUEST = /\b(?:remember|recall|where were we|what(?:'s| is) left|my\s+(?:plan|project|notes|tasks?))\b/i;
+const WORK_REQUEST = /\b(?:implement|build|continue|refactor|debug|test|ship|deploy)\b|\bfix\b.*\b(?:null|bug|function|code|test|build|deploy)\b/i;
+const CONTROL_REQUEST = /\b(?:start|stop|open|close|mute|unmute)\s+(?:flyd|live)\b/i;
+
+/**
+ * A conservative local purpose gate. It is intentionally independent of
+ * hosted Jev so an unavailable classifier never turns an answer into a work
+ * intervention. The route owns typing; explicit lexical intent separates
+ * personal recall, live research, and work help among answer-panel requests.
+ */
+export function requestPurposeFromRoute(intent: string, route: IntentRoute): RequestPurpose {
+  if (RESEARCH_REQUEST.test(intent)) return "research_web";
+  if (RECALL_REQUEST.test(intent)) return "recall_personal";
+  if (CONTROL_REQUEST.test(intent)) return "control_flyd";
+  if (WORK_REQUEST.test(intent)) return "work_help";
+  if (route.placement === "insert_at_cursor") return "type_text";
+  return "answer";
 }
 
 const ROUTER_TIMEOUT_MS = 800;
@@ -67,6 +90,9 @@ const VALID_TARGETS: ReadonlySet<string> = new Set([
   "file_system",
   "unknown",
 ]);
+const VALID_PURPOSES: ReadonlySet<string> = new Set([
+  "type_text", "answer", "recall_personal", "research_web", "work_help", "control_flyd",
+]);
 
 function buildClassifierPrompt(
   intent: string,
@@ -82,12 +108,13 @@ Decide:
 - kind: "ask_answer" (user wants an answer/explanation shown to them), "draft_insert" (user wants text written into the focused field), or "dictate_insert" (voice dictation to insert nearly verbatim)
 - placement: "answer_panel" for answers, "insert_at_cursor" for text going into the field
 - scene: one of "clean_dictation", "email_reply", "support_reply", "code_review_comment", "meeting_note", "concise_answer"
+- purpose: "type_text", "answer", "recall_personal", "research_web", "work_help", or "control_flyd"
 - consequential: true only if fulfilling the intent would send, submit, publish, purchase, delete, deploy, or otherwise act on something OUTSIDE the focused text field. Drafting text, rewriting, answering questions, and editing the focused text are NOT consequential.
 - verbs: subset of ["create","modify","send","purchase","delete","publish"] that apply (empty if not consequential)
 - target: "text_in_focus", "external_system", "file_system", or "unknown"
 
 Respond with ONLY this JSON:
-{"kind":"...","placement":"...","scene":"...","consequential":false,"verbs":[],"target":"text_in_focus","reason":"<short>"}`;
+{"kind":"...","placement":"...","scene":"...","purpose":"...","consequential":false,"verbs":[],"target":"text_in_focus","reason":"<short>"}`;
 }
 
 async function classifyRouteWithJev(
@@ -130,6 +157,19 @@ async function classifyRouteWithJev(
           concise_answer: "Direct answer or explanation.",
         },
       },
+      {
+        id: "purpose",
+        type: "choice",
+        instructions: "Choose the primary purpose of the request. Prefer the narrowest applicable purpose.",
+        criteria: {
+          type_text: "The user wants text composed or inserted in the focused field.",
+          answer: "The user wants a direct explanation or answer.",
+          recall_personal: "The user asks about their prior work, plans, decisions, or personal context.",
+          research_web: "The user asks for current external facts, browsing, searching, or investigation.",
+          work_help: "The user asks Flyd to diagnose, plan, or advance implementation work.",
+          control_flyd: "The user asks to control Flyd itself or its live state.",
+        },
+      },
       { id: "consequential", instructions: "Would fulfilling this intent itself send, submit, publish, purchase, delete, deploy, or otherwise act outside the focused text field?" },
       {
         id: "target",
@@ -154,6 +194,7 @@ async function classifyRouteWithJev(
   const kind = evaluation.answers.route_kind?.choice ?? "";
   const placement = evaluation.answers.placement?.choice ?? "";
   const scene = evaluation.answers.scene?.choice ?? "";
+  const rawPurpose = evaluation.answers.purpose?.choice ?? "";
   const target = evaluation.answers.target?.choice ?? "unknown";
   if (!VALID_KINDS.has(kind) || !VALID_PLACEMENTS.has(placement) || !VALID_SCENES.has(scene) || !VALID_TARGETS.has(target)) {
     return null;
@@ -170,8 +211,10 @@ async function classifyRouteWithJev(
     .filter(([, id]) => (evaluation.answers[id]?.probability ?? 0) >= 0.65)
     .map(([verb]) => verb as ConsequentialVerb);
 
+  const route = { kind: kind as IntentRouteKind, placement: placement as IntentPlacement, scene: scene as IntentScene };
   return {
-    route: { kind: kind as IntentRouteKind, placement: placement as IntentPlacement, scene: scene as IntentScene },
+    route,
+    purpose: VALID_PURPOSES.has(rawPurpose) ? rawPurpose as RequestPurpose : requestPurposeFromRoute(intent, route),
     consequence: {
       class: consequential ? "consequential" : "benign",
       verbs: consequential ? verbs : [],
@@ -240,13 +283,16 @@ export function parseClassifierResponse(raw: string): ClassifiedRoute | null {
     : [];
   const rawTarget = String(parsed.target || "unknown");
   const target = VALID_TARGETS.has(rawTarget) ? rawTarget : "unknown";
+  const route = {
+    kind: kind as IntentRouteKind,
+    placement: placement as IntentPlacement,
+    scene: scene as IntentScene,
+  };
+  const rawPurpose = String(parsed.purpose || "");
 
   return {
-    route: {
-      kind: kind as IntentRouteKind,
-      placement: placement as IntentPlacement,
-      scene: scene as IntentScene,
-    },
+    route,
+    purpose: VALID_PURPOSES.has(rawPurpose) ? rawPurpose as RequestPurpose : requestPurposeFromRoute("", route),
     consequence: {
       class: consequential ? "consequential" : "benign",
       verbs: consequential ? verbs : [],

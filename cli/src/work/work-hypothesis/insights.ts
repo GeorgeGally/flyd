@@ -14,6 +14,8 @@ export type { PresentInsights };
 
 const STALL_DAYS = 7;
 const MOVE_DAYS = 3;
+// Undated tasks need a recent human confirmation before they can steer a brief.
+const UNDATED_TODO_FRESH_DAYS = 21;
 
 function uniqueNames(names: string[]): string[] {
   const seen = new Set<string>();
@@ -40,25 +42,26 @@ function daysAgo(iso: string | undefined, now: Date): number {
   return (now.getTime() - t) / (1000 * 60 * 60 * 24);
 }
 
-function openTodoRows(): Array<{ description: string; dueAt?: string }> {
+function openTodoRows(): Array<{ description: string; dueAt?: string; updatedAt?: string }> {
   try {
     const rows = getDb()
       .prepare(
-        `SELECT description, due_at FROM confirmed_todos WHERE status = 'open'
+        `SELECT description, due_at, updated_at FROM confirmed_todos WHERE status = 'open'
          ORDER BY CASE WHEN due_at IS NULL OR due_at = '' THEN 1 ELSE 0 END ASC,
                   due_at ASC, sort_order ASC, created_at ASC LIMIT 8`,
       )
-      .all() as Array<{ description: string; due_at?: string }>;
+      .all() as Array<{ description: string; due_at?: string; updated_at?: string }>;
     return rows
-      .map((r) => ({ description: r.description, dueAt: r.due_at || undefined }))
+      .map((r) => ({ description: r.description, dueAt: r.due_at || undefined, updatedAt: r.updated_at || undefined }))
       .filter((r) => r.description);
   } catch {
     return [];
   }
 }
 
-function openTodoDescriptions(): string[] {
-  return openTodoRows().map((r) => r.description);
+function isCurrentTodo(row: { dueAt?: string; updatedAt?: string }, now: Date): boolean {
+  if (row.dueAt) return !isExpired(row.dueAt, now);
+  return daysAgo(row.updatedAt, now) <= UNDATED_TODO_FRESH_DAYS;
 }
 
 /**
@@ -106,7 +109,9 @@ export function derivePresentInsights(
 
   const fromMemory = [
     ...(options.extraWorkstreams ?? []),
-    ...openTodoDescriptions()
+    ...openTodoRows()
+      .filter((row) => isCurrentTodo(row, now))
+      .map((row) => row.description)
       .filter((d) => hasDisplayAlias(d))
       .map((d) => displayNameForStream(d)),
   ];
@@ -158,7 +163,7 @@ export function derivePresentInsights(
   const todoRows = openTodoRows();
   // Expired dates never lead: the window they belonged to has closed, so the
   // earliest open item that is still live is the one worth naming.
-  const nextRow = todoRows.find((r) => !isExpired(r.dueAt, now));
+  const nextRow = todoRows.find((r) => isCurrentTodo(r, now));
   const nextTodo = nextRow ? displayNameForStream(nextRow.description) : undefined;
   let nextLeverage: string | undefined;
   if (nextTodo && nextRow?.dueAt) {

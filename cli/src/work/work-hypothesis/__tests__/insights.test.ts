@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { useWorkIndexPath, resetWorkIndexPath, closeDb } from "../../database.js";
+import { useWorkIndexPath, resetWorkIndexPath, closeDb, getDb } from "../../database.js";
 import {
   derivePresentInsights,
   formatPresentModelText,
@@ -127,6 +127,18 @@ describe("present insights", () => {
     expect(text).toBe(`${TODAY_PREFIX} Next: Dead Internet Radio.`);
     expect(text).not.toMatch(/\(DIR\)/);
     expect(text).not.toMatch(/Active:|Moved:/);
+  });
+
+  it("does not let an old undated to-do become the opening brief's next action", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos(["Apply for jobs and fix resume", "Add DIR to portfolio"]);
+    getDb().prepare("UPDATE confirmed_todos SET updated_at = ? WHERE status = 'open'").run("2026-06-01T12:00:00.000Z");
+
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now: NOW });
+
+    expect(insights.workstreams).toEqual([]);
+    expect(insights.nextTodo).toBeUndefined();
+    expect(formatPresentModelText(insights, { now: NOW })).toBe(`${TODAY_PREFIX} Nothing urgent on the board.`);
   });
 
   it("puts a dated commitment first in the spoken brief", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyRoute, parseClassifierResponse, isDeterministicDictation } from "../router.js";
+import { classifyRoute, parseClassifierResponse, isDeterministicDictation, requestPurposeFromRoute } from "../router.js";
 
 const env = { appName: "Mail", elementRole: "AXTextArea" };
 const config = { model: "flash-test", apiKey: "key", baseURL: "https://example.test/v1" };
@@ -11,6 +11,7 @@ const validResponse = JSON.stringify({
   consequential: false,
   verbs: [],
   target: "text_in_focus",
+  purpose: "answer",
   reason: "General question",
 });
 
@@ -25,6 +26,7 @@ describe("parseClassifierResponse", () => {
     });
     expect(result?.consequence.class).toBe("benign");
     expect(result?.consequence.source).toBe("classifier");
+    expect(result?.purpose).toBe("answer");
   });
 
   it("extracts JSON embedded in prose", () => {
@@ -171,5 +173,17 @@ describe("isDeterministicDictation", () => {
       modality: "text",
       elementRole: "AXTextArea",
     })).toBe(false);
+  });
+});
+
+describe("requestPurposeFromRoute", () => {
+  const answerRoute = { kind: "ask_answer" as const, placement: "answer_panel" as const, scene: "concise_answer" as const };
+  const draftRoute = { kind: "draft_insert" as const, placement: "insert_at_cursor" as const, scene: "email_reply" as const };
+
+  it("keeps typing, recall, research, and work help distinct before work diagnosis", () => {
+    expect(requestPurposeFromRoute("reply saying I'll be there", draftRoute)).toBe("type_text");
+    expect(requestPurposeFromRoute("what's left to be done on Flyd?", answerRoute)).toBe("recall_personal");
+    expect(requestPurposeFromRoute("search for the latest Flyd release", answerRoute)).toBe("research_web");
+    expect(requestPurposeFromRoute("fix the null check in this function", answerRoute)).toBe("work_help");
   });
 });

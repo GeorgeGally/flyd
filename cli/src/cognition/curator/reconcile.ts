@@ -7,8 +7,19 @@ import type { JevOptions } from "../system-one/types.js";
 import { CognitiveCurator } from "./curator.js";
 
 const CHECKPOINT = "cognitive-curator-v1";
-const COMPLETED = /\b(?:is|it's|it is|we are|we're|was)?\s*(?:done|finished|completed|over|ended|already happened)\b/i;
+// A lifecycle mutation needs an affirmative statement, not merely a terminal
+// word. "What's left to be done?" and "go over the plan" must remain
+// questions about active work rather than silently close it.
+const COMPLETED = [
+  /\b(?:i|we)\s+(?:have\s+)?(?:finished|completed)\s+(?:the\s+)?(?:project\s+)?[\w.-]+\b/i,
+  /\b(?:we(?:'re|\s+are)|i(?:'m|\s+am))\s+done\s+with\s+(?:the\s+)?(?:project\s+)?[\w.-]+\b/i,
+  /\b(?:the\s+)?(?:project\s+)?[\w.-]+\s+(?:is|was|has\s+been|is\s+now)\s+(?:done|finished|completed|over|ended)\b/i,
+];
 const CANCELLED = /\b(?:cancelled|canceled|scrapped|not happening|called off)\b/i;
+
+function explicitlyStatesCompletion(text: string): boolean {
+  return COMPLETED.some((pattern) => pattern.test(text));
+}
 
 interface ConversationPayload {
   sessionId?: string;
@@ -95,7 +106,7 @@ async function reconcileConversation(
 
   // Explicit terminal language is hard evidence. Jev can corroborate ambiguous
   // semantics, but it is never required to make deterministic date/lifecycle facts true.
-  const explicitCompleted = COMPLETED.test(text);
+  const explicitCompleted = explicitlyStatesCompletion(text);
   const explicitCancelled = CANCELLED.test(text);
   const supported = !evaluation.ok || predicatePasses(evaluation, "evidence_supported", 0.80);
   const changesState = !evaluation.ok || predicatePasses(evaluation, "changes_current_state", 0.80);

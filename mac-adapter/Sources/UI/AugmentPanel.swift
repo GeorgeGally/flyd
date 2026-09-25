@@ -27,7 +27,7 @@ final class AugmentPanel {
     static let panelWidth: CGFloat = 400
     static let panelCornerRadius: CGFloat = 16
     static let borderInset: CGFloat = 1.5
-    static let maximumVisibleContentHeight: CGFloat = 300
+    static let maximumVisibleContentHeight: CGFloat = 220
     private static let contentInset: CGFloat = 24
     private static let topPadding: CGFloat = 36
     private static let bottomPadding: CGFloat = 20
@@ -128,7 +128,7 @@ final class AugmentPanel {
         contentView.layer?.backgroundColor = NSColor.clear.cgColor
         contentView.layer?.masksToBounds = false
 
-        contentView.layer?.shadowColor = FlydPalette.brassGlow.withAlphaComponent(0.18).cgColor
+        contentView.layer?.shadowColor = NSColor.black.withAlphaComponent(0.42).cgColor
         contentView.layer?.shadowOpacity = 1
         contentView.layer?.shadowRadius = 32
         contentView.layer?.shadowOffset = NSSize(width: 0, height: 0)
@@ -152,8 +152,8 @@ final class AugmentPanel {
         let gradient = CAGradientLayer()
         gradient.frame = clipView.bounds
         gradient.colors = [
-            FlydPalette.inkDeep.withAlphaComponent(0.82).cgColor,
-            FlydPalette.ink.withAlphaComponent(0.78).cgColor,
+            FlydPalette.inkDeep.withAlphaComponent(0.985).cgColor,
+            FlydPalette.ink.withAlphaComponent(0.98).cgColor,
         ]
         gradient.locations = [0, 1]
         gradient.cornerRadius = Self.panelCornerRadius
@@ -186,11 +186,12 @@ final class AugmentPanel {
         let headerY = panelHeight - 26
 
         let eyebrow = NSTextField(labelWithString: "")
-        eyebrow.attributedStringValue = FlydPalette.tracked(
-            "FLYD",
-            font: FlydPalette.monospace(10),
-            color: FlydPalette.brass,
-            tracking: 1.6
+        eyebrow.attributedStringValue = NSAttributedString(
+            string: "Flyd",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                .foregroundColor: FlydPalette.brass,
+            ]
         )
         eyebrow.frame = NSRect(x: contentInset, y: headerY, width: 100, height: 14)
         clipView.addSubview(eyebrow)
@@ -213,12 +214,12 @@ final class AugmentPanel {
 
         let label = NSTextField(wrappingLabelWithString: "")
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
+        paragraphStyle.lineSpacing = 3
         label.attributedStringValue = NSAttributedString(
             string: content,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 14),
-                .foregroundColor: FlydPalette.paper.withAlphaComponent(0.88),
+                .font: NSFont.systemFont(ofSize: 15, weight: .regular),
+                .foregroundColor: FlydPalette.paper.withAlphaComponent(0.94),
                 .paragraphStyle: paragraphStyle,
             ]
         )

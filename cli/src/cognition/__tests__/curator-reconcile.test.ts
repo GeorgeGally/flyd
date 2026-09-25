@@ -61,4 +61,36 @@ describe("background graph curator", () => {
       if (previous === undefined) delete process.env.FLYD_DIR; else process.env.FLYD_DIR = previous;
     }
   });
+
+  it.each([
+    "What's left to be done on Flyd?",
+    "Let's go over the Flyd plan.",
+  ])("does not treat a status question as a completion confirmation: %s", async (user) => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-curator-"));
+    dirs.push(dir);
+    const previous = process.env.FLYD_DIR;
+    process.env.FLYD_DIR = dir;
+    const store = new IntelligenceEventStore({ path: join(dir, `intelligence-${randomUUID()}.sqlite`) });
+    const curator = new CognitiveCurator(store);
+    try {
+      curator.addClaim({ entityId: "project:flyd", attribute: "status", value: "active", authority: "observed" });
+      curator.recordConversationTurn({
+        sessionId: "s1",
+        user,
+        assistant: "Here is the current work.",
+        projectIds: ["project:flyd"],
+        intentKind: "current_state",
+        temporalFrame: "present",
+      });
+
+      await runCuratorSweep({ store, jev: { apiKey: "test", fetchFn: fakeJev() } });
+
+      const state = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+      expect(state.current.some((claim) => claim.entityId === "project:flyd" && claim.value === "active")).toBe(true);
+      expect(state.current.some((claim) => claim.entityId === "project:flyd" && claim.value === "completed")).toBe(false);
+    } finally {
+      curator.close();
+      if (previous === undefined) delete process.env.FLYD_DIR; else process.env.FLYD_DIR = previous;
+    }
+  });
 });

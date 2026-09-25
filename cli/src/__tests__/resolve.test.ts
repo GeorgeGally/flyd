@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResolutionPrompt, enforceRoutePlacement, fetchBehaviouralDirectives, formatBehaviouralDirectives, isIdentityIntent, parseResolutionResponse, routeIntent, shouldInjectPersonalContext, skipsWorkIntelligence, type BehaviouralDirectiveInput } from "../resolve.js";
+import { buildResolutionPrompt, currentWorkSnapshotResolution, enforceRoutePlacement, fetchBehaviouralDirectives, formatBehaviouralDirectives, isIdentityIntent, parseResolutionResponse, RESOLUTION_SYSTEM_PROMPT, routeIntent, shouldInjectPersonalContext, shouldRunWorkIntelligence, skipsWorkIntelligence, type BehaviouralDirectiveInput } from "../resolve.js";
 import { resolveRepositoryFromPath } from "../work-intelligence/current-work.js";
 import { isDeterministicDictation } from "../router.js";
 
@@ -89,6 +89,46 @@ describe("skipsWorkIntelligence", () => {
 
   it("leaves voice behavior untouched", () => {
     expect(skipsWorkIntelligence("rewrite this to be shorter", "voice")).toBe(false);
+  });
+});
+
+describe("shouldRunWorkIntelligence", () => {
+  it("allows only explicit work help through the work-diagnosis path", () => {
+    expect(shouldRunWorkIntelligence("what's left to be done on Flyd?", "text", "recall_personal")).toBe(false);
+    expect(shouldRunWorkIntelligence("search for the latest Flyd release", "voice", "research_web")).toBe(false);
+    expect(shouldRunWorkIntelligence("fix the null check", "text", "work_help")).toBe(true);
+  });
+});
+
+describe("current-work snapshot resolution", () => {
+  it("answers the exact current-work question from captured git state without a model", () => {
+    const resolution = currentWorkSnapshotResolution(
+      "What am I working on right now, and what is the one most useful next step?",
+      {
+        resolvedProjectRoot: "/Users/george/Documents/flyd",
+        gitBranch: "main",
+        gitIsDirty: true,
+        gitChangedFiles: ["cli/src/resolve.ts", "cli/src/__tests__/resolve.test.ts"],
+        gitRecentCommits: ["abc123 fix(core): preserve current context"],
+      },
+      "inv-current-work",
+      1,
+    );
+
+    expect(resolution?.mode).toBe("requires_augment");
+    expect(resolution?.augmentations?.[0].content).toContain("flyd on main with 2 uncommitted changes");
+    expect(resolution?.augmentations?.[0].content).toContain("review and verify the current changes");
+  });
+
+  it("does not intercept broader questions", () => {
+    expect(currentWorkSnapshotResolution("What is Flyd currently doing?", {}, "inv-1", 1)).toBeNull();
+  });
+});
+
+describe("resolution architecture grounding", () => {
+  it("does not let the resolver retire a subsystem without current evidence", () => {
+    expect(RESOLUTION_SYSTEM_PROMPT).toContain("Do not describe a Flyd subsystem as retired");
+    expect(RESOLUTION_SYSTEM_PROMPT).toContain("attention, memory, and executive systems must not be called retired");
   });
 });
 
@@ -213,6 +253,15 @@ describe("buildResolutionPrompt", () => {
   };
 
   const route = { kind: "ask_answer", placement: "answer_panel", scene: "concise_answer" } as const;
+
+  it("builds a resolution prompt when no focused element is available", () => {
+    expect(() => buildResolutionPrompt(
+      emptyWorldState,
+      { ...env, focused_element: undefined } as never,
+      "What does Flyd currently do?",
+      route,
+    )).not.toThrow();
+  });
 
   it("injects retrieved memories as a MEMORIES block", () => {
     const prompt = buildResolutionPrompt(emptyWorldState, env, "what am I working on", route, {

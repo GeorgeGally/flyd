@@ -257,3 +257,42 @@ export function recordJudgment(input: JudgmentInput): TransitionWriteResult {
   };
   return appendTransition(envelope);
 }
+
+/**
+ * Records a bounded parser failure without pretending the transition received
+ * a judgment. This lets the sweep retain its retry budget across Core
+ * restarts while keeping malformed model output out of learning signals.
+ */
+export function recordJudgmentParseFailure(input: { transitionSeq: number; attempt: number }): TransitionWriteResult {
+  if (isTransitionCaptureDisabled()) return { ok: true, skipped: true };
+  if (!Number.isInteger(input.transitionSeq) || input.transitionSeq <= 0) {
+    return { ok: false, rejection: "invalid", detail: `invalid transitionSeq ${String(input.transitionSeq)}` };
+  }
+  if (!Number.isInteger(input.attempt) || input.attempt <= 0) {
+    return { ok: false, rejection: "invalid", detail: `invalid parse attempt ${String(input.attempt)}` };
+  }
+
+  const target = getStore().getBySequence(input.transitionSeq);
+  if (!target || !target.sourceId.startsWith("transition.")) {
+    return { ok: false, rejection: "invalid", detail: `no transition at sequence ${input.transitionSeq}` };
+  }
+
+  const envelope: ContextEnvelope = {
+    pathKind: "executive",
+    kind: "observation",
+    sourceId: "transition.judge",
+    consent: consentSnapshot("transition.judge"),
+    retentionClass: "local_default",
+    payloadClassification: "operational" as PayloadClassification,
+    provenance: "transitions:judge",
+    idempotencyKey: `judgment-parse-failure:${input.transitionSeq}:${input.attempt}`,
+    correlationId: target.correlationId ?? String(target.sequence),
+    causationIds: [target.id],
+    payload: {
+      transitionSeq: input.transitionSeq,
+      parseFailure: true,
+      attempt: input.attempt,
+    },
+  };
+  return appendTransition(envelope);
+}

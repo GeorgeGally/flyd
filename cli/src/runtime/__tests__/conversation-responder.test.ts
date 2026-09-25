@@ -93,6 +93,8 @@ describe("buildConversationPrompt", () => {
     expect(prompt.prompt).toContain("Repair the daily-driver loop");
     expect(prompt.prompt).toContain("fix(runtime): settle local reviews and timestamps");
     expect(prompt.system).toContain("Current repository and task evidence outranks older memory");
+    expect(prompt.system).toContain("only inspect further when it cannot establish the answer");
+    expect(prompt.system).toContain("Do not turn missing evidence into a claim that an action did not happen");
     expect(prompt.system).toContain("memory authority labels");
     expect(prompt.prompt).toContain("<personal-memory>");
     expect(prompt.prompt).toContain("What should I work on next?");
@@ -442,10 +444,52 @@ describe("buildConversationPrompt", () => {
     await respondToConversation({ message: "Implement dark mode for the CLI", ...baseInput }, deps);
     await respondToConversation({ message: "do it", ...baseInput }, deps);
     await respondToConversation({ message: "what should I work on next?", ...baseInput }, deps);
+    await respondToConversation({ message: "What am I working on right now, and what is the one most useful next step?", ...baseInput }, deps);
 
     expect(budgets[0]).toBe(8);
     expect(budgets[1]).toBe(40);
     expect(budgets[2]).toBe(8);
+    expect(budgets[3]).toBe(6);
+  });
+
+  it("answers an exact current-work question from the fresh situation without a model round trip", async () => {
+    const answer = await respondToConversation({
+      message: "What am I working on right now, and what is the one most useful next step?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "Flyd", branch: "main", head: "aceaf32", dirty: true,
+        changedFiles: 12, latestCommit: "fix(work): expire a date that passed instead of calling it overdue forever",
+        outcome: null, status: null, nextAction: null,
+        projectRoot: "/Users/radarboy3000/Documents/flyd",
+      },
+      onToken: () => undefined,
+    }, {
+      runAgentLoop: async () => {
+        throw new Error("current-work snapshot must not call the model");
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(answer).toContain("Flyd");
+    expect(answer).toContain("12 uncommitted changes");
+    expect(answer).toContain("review and verify those current changes");
+  });
+
+  it("rejects provider tool protocol markup instead of displaying it as an answer", async () => {
+    const streamed: string[] = [];
+    await expect(respondToConversation({
+      message: "Explain how this works",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      onToken: (token) => streamed.push(token),
+    }, {
+      runAgentLoop: async () => "<｜｜DSML｜｜calls><｜｜DSML｜｜invoke name=\"bash\">pwd</｜｜DSML｜｜invoke>",
+      persistReceipt: async (input) => input as never,
+    })).rejects.toThrow("returned tool protocol markup instead of a user-facing answer");
+
+    expect(streamed).toEqual([]);
   });
 
   it("routes a current-work plate question through the agent when a project is inspectable", async () => {

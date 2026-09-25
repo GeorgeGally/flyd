@@ -210,7 +210,7 @@ describe("trackLiveTaskAndPlan", () => {
     expect(outcome.augmentations.some((a) => a.kind === "task_plan")).toBe(true);
   });
 
-  it("reports a distinct utterance plainly when an unfinished task already blocks a new one", async () => {
+  it("keeps an existing-task conflict out of the user-facing plan", async () => {
     const existing = fakeTask({ status: "awaiting_grant", intendedOutcome: "Deploy the landing page" });
     const { deps } = fakeDeps({
       resumable: existing,
@@ -228,13 +228,11 @@ describe("trackLiveTaskAndPlan", () => {
 
     expect(outcome.trackingFailed).toBe(true);
     expect(outcome.planned).toBe(true);
-    const contents = outcome.augmentations.map((a) => String(a.content));
-    expect(contents.some((c) => c.startsWith("Continuing existing task"))).toBe(false);
-    expect(contents.some((c) => c.includes("An unfinished task already exists"))).toBe(true);
-    expect(contents.join(" ")).not.toContain("index_agent_tasks_one_unfinished_per_project");
+    expect(outcome.augmentations).toHaveLength(1);
+    expect(outcome.augmentations[0]).toMatchObject({ kind: "task_plan", content: "the work" });
   });
 
-  it("renders the plan for the utterance when tracking fails, without a raw database error", async () => {
+  it("renders only the usable plan when task tracking is unavailable", async () => {
     const { deps } = fakeDeps({ resumableError: new Error("connect ECONNREFUSED 127.0.0.1:5432") });
 
     const outcome = await trackLiveTaskAndPlan({
@@ -251,9 +249,8 @@ describe("trackLiveTaskAndPlan", () => {
     expect(outcome.delegatedTask).toBeNull();
     expect(outcome.augmentations.some((a) => a.kind === "task_plan")).toBe(true);
 
-    const failure = outcome.augmentations.map((a) => String(a.content)).join(" ");
-    expect(failure).toContain("not tracked as a task");
-    expect(failure).not.toContain("ECONNREFUSED");
+    expect(outcome.augmentations).toHaveLength(1);
+    expect(outcome.augmentations[0]).toMatchObject({ kind: "task_plan", content: "the work" });
   });
 
   it("reports a plain failure when the plan cannot be produced", async () => {
@@ -309,7 +306,7 @@ describe("buildTaskPlanResponse", () => {
     });
 
     expect(response.taskPlan).toEqual({ planId: "plan-1", intent: "Fix the Instagram pull issue" });
-    expect(response.mode).toBe("requires_augment");
+    expect(response.mode).toBe("requires_task");
     expect(response.delegatedTask).toBeNull();
   });
 

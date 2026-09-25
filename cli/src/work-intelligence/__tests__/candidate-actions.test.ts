@@ -34,6 +34,14 @@ function currentWork(): CurrentWork {
 }
 
 describe("bounded Work Intelligence action candidates", () => {
+  it("keeps malformed model output out of the user-facing intervention", () => {
+    const result = parseWorkIntelligenceResponse("<not-json>");
+
+    expect(result.intervention.content).toBe("I couldn't prepare a useful plan from this moment. Try again from the work you want me to help with.");
+    expect(result.intervention.content).not.toContain("JSON");
+    expect(result.intervention.content).not.toContain("structured response");
+  });
+
   it("asks the model for a bounded candidate set", () => {
     const prompt = buildWorkIntelligencePrompt({
       currentWork: currentWork(),

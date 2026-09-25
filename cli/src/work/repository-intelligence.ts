@@ -41,8 +41,16 @@ export function inspectRepositoryFromPath(path?: string): RepositoryPathSnapshot
   if (!path) return undefined;
 
   const cwd = startingDirectory(path);
-  const root = runGit(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!root) return undefined;
+  const gitRoot = runGit(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!gitRoot) return undefined;
+
+  // Git canonicalizes macOS' /var symlink to /private/var. Keep the caller's
+  // logical path instead, otherwise the same checkout acquires two identities
+  // depending on which entry point observed it.
+  const prefix = runGit(cwd, ["rev-parse", "--show-prefix"]);
+  const root = prefix
+    ? resolve(cwd, ...prefix.split("/").filter(Boolean).map(() => ".."))
+    : resolve(cwd);
 
   const branch = runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]) || undefined;
   const headDigest = runGit(root, ["rev-parse", "HEAD"]) || undefined;

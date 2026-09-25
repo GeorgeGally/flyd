@@ -7,6 +7,7 @@ import type {
 } from "../types.js";
 import {
   fetchJson,
+  fetchWithTimeout,
   makeEvidenceItem,
   probeHttp,
   type FetchLike,
@@ -67,14 +68,33 @@ export class JinaReaderAdapter implements CapabilityAdapter {
   }
 
   async probe(): Promise<CapabilityProbe> {
-    const result = await probeHttp(this.fetchFn, READER_ENDPOINT, authHeaders(this.apiKey));
-    if (result.status === "auth_required" && !this.apiKey) {
-      // Reader supports unauthenticated basic usage. Some edge nodes answer the
-      // root probe with 401/403, so distinguish endpoint reachability from a
-      // real read credential requirement.
-      return { status: "degraded", reason: "reader endpoint reachable; anonymous root probe rejected" };
+    // Jina Reader serves reads as POST requests. Its root HEAD endpoint can be
+    // rejected by an edge node even when the actual reader is healthy, so probe
+    // the same operation Flyd uses rather than reporting a false outage.
+    try {
+      const response = await fetchWithTimeout(this.fetchFn, READER_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...authHeaders(this.apiKey),
+        },
+        body: JSON.stringify({ url: "https://example.com" }),
+      }, 4_000);
+      if (response.status === 401 || response.status === 403) {
+        return this.apiKey
+          ? { status: "auth_required", reason: `HTTP ${response.status}` }
+          : { status: "degraded", reason: "reader endpoint reachable; anonymous read rejected" };
+      }
+      if (response.status === 429) return { status: "degraded", reason: "remote rate limit reached" };
+      if (response.status >= 500) return { status: "unavailable", reason: `remote service returned HTTP ${response.status}` };
+      return { status: "ready" };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        reason: error instanceof Error ? error.message : "remote health probe failed",
+      };
     }
-    return result;
   }
 
   async read(request: EvidenceReadRequest): Promise<EvidenceItem[]> {

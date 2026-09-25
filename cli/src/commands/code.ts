@@ -172,7 +172,7 @@ export async function runAgent(): Promise<void> {
   try {
     result = await runAgentSession({
       sessionId: conversation.id,
-      terminal: new NodeTerminal(),
+      terminal: new NodeTerminal({ tui: true }),
       retrieveMemory: (query) => retrieveAgentMemory(query, {
         excludeConversationSessionId: conversation.id,
       }),
@@ -226,7 +226,7 @@ export async function runCode(outcome?: string): Promise<void> {
   const [ workerConfig, ...fallbackWorkerConfigs ] = workerConfigs;
   const generatePlan = createFlydTextGenerator(workerConfigs);
   const pool = createRuntimePool();
-  const terminal = new NodeTerminal();
+  const terminal = new NodeTerminal({ tui: true });
   const store = new PostgresTaskStore(pool);
   const manager = new GitWorktreeManager();
   const sessionRoot = join(FLYD_DIR, "runtime", "worker-sessions");

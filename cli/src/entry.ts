@@ -104,8 +104,14 @@ async function main(): Promise<void> {
   await import("./index.js");
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`flyd: ${message}`);
-  process.exitCode = 1;
-});
+// Some provider clients use unref'd sockets/timers. Keep the CLI alive until
+// its own command promise settles, otherwise a short-lived command such as
+// `flyd doctor` can exit successfully before it writes its async result.
+const commandLiveness = setInterval(() => {}, 1_000);
+main()
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`flyd: ${message}`);
+    process.exitCode = 1;
+  })
+  .finally(() => clearInterval(commandLiveness));

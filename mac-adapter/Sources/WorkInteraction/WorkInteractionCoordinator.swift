@@ -406,11 +406,15 @@ final class WorkInteractionCoordinator {
         sessionId = workSession.sessionId
         sessionRevision = workSession.revision
 
-        var taskContent = "\(resolution.rationale)\n\n"
-        taskContent += "Task: \(taskPlan.intent)\n\n"
-        taskContent += "Steps:\n"
-        for step in taskPlan.steps {
-            taskContent += "  [\(step.kind)] \(step.description)\n"
+        var taskContent = "Ready to work on this.\n\n\(taskPlan.intent)"
+        if !taskPlan.steps.isEmpty {
+            taskContent += "\n\nFirst moves"
+            for (index, step) in taskPlan.steps.prefix(3).enumerated() {
+                taskContent += "\n\(index + 1). \(step.description)"
+            }
+            if taskPlan.steps.count > 3 {
+                taskContent += "\n+ \(taskPlan.steps.count - 3) more in the plan"
+            }
         }
 
         dismissActivePanels()
@@ -420,7 +424,7 @@ final class WorkInteractionCoordinator {
         let cursorPoint = NSEvent.mouseLocation
         let anchor = NSRect(x: cursorPoint.x, y: cursorPoint.y - 24, width: 1, height: 24)
 
-        let options: [String] = ["Execute Plan", "Reject"]
+        let options: [String] = ["Start", "Not now"]
 
         let panel = AugmentPanel()
         let frame = AugmentPanel.stackedFrames(
@@ -430,7 +434,7 @@ final class WorkInteractionCoordinator {
         ).first ?? NSRect(x: 0, y: 0, width: AugmentPanel.panelWidth, height: 400)
 
         panel.onOptionSelected = { [weak self] index, label in
-            if label == "Execute Plan" {
+            if label == "Start" {
                 self?.executeTaskPlanSteps(taskPlan: taskPlan)
             } else {
                 self?.dismissActivePanels()

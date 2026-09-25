@@ -11,7 +11,8 @@ import { randomUUID } from "node:crypto";
 import { memoryGate, gateLearningCandidate } from "./memory-gate.js";
 import { provisionalLearn, createMemoryReceipt, createLearningReceipt, acknowledgeLearning, getPendingLearnings, synthesizeLearnings, loadLearnings } from "./memory-receipt.js";
 import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memory-persistence.js";
-import { resolve, ManifestRequest } from "./resolve.js";
+import { resolve, routeIntent, shouldRunWorkIntelligence, ManifestRequest } from "./resolve.js";
+import { requestPurposeFromRoute } from "./router.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
 import { buildTaskPlanResponse, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
 import { buildIntelligenceState } from "./export-state.js";
@@ -299,6 +300,9 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     const config = loadFlydWorkerConfig();
     const isDictation = /^(type|write|dictate|insert)\s/i.test(parsed.intent);
     const hasEditableTarget = parsed.environment?.focused_element?.role?.includes("Text") ?? false;
+    const modality = parsed.modality || "text";
+    const fallbackRoute = routeIntent(parsed.intent, parsed.environment, modality);
+    const requestPurpose = requestPurposeFromRoute(parsed.intent, fallbackRoute);
 
     if (!isDictation && isCompoundNlUtterance(parsed.intent)) {
       const selection =
@@ -339,11 +343,14 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       }
     }
 
-    if (!isDictation) {
+    // The fast manifest path is only for explicit work help. All answers,
+    // recall, research, control, and writing requests continue to resolve(),
+    // where routing and live-evidence enrichment are available.
+    if (!isDictation && shouldRunWorkIntelligence(parsed.intent, modality, requestPurpose)) {
       const wiResult = await runWorkIntelligence({
         invocationId: parsed.invocation_id,
         intent: parsed.intent,
-        modality: parsed.modality || "text",
+        modality,
         environment: parsed.environment,
         conversationId: parsed.work_session_id ?? parsed.conversation_id,
         screenshotBase64: typeof parsed.screenshot === "string" && parsed.screenshot.length > 0 ? parsed.screenshot : undefined,
@@ -392,7 +399,10 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
         const response = await buildTaskPlanResponse({
           decision: taskDecision,
-          projectRoot: repoInfo.root,
+          // Terminal and browser captures do not always expose a document
+          // path. We already chose Core's repository as the safe fallback for
+          // planning; task intake must receive that same root.
+          projectRoot,
           intakeOptions: {
             invocationId: parsed.invocation_id,
             observationRefs: [],

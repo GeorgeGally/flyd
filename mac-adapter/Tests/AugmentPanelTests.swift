@@ -74,6 +74,10 @@ final class AugmentPanelTests: XCTestCase {
         XCTAssertEqual(layout.visibleHeight, AugmentPanel.maximumVisibleContentHeight)
     }
 
+    func testLongAnswersStayWithinACompactOverlayHeight() {
+        XCTAssertEqual(AugmentPanel.maximumVisibleContentHeight, 220)
+    }
+
     func testWorkInterventionCardIncludesFeedbackOptions() {
         let panel = AugmentPanel()
         let acceptCalled = expectation(description: "accept called")

@@ -113,6 +113,9 @@ describe("Flyd directory configuration", () => {
     vi.stubEnv("FLYD_MODEL", "deepseek-v4-flash");
     vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "opencode-go");
+    vi.stubEnv("FLYD_MODEL_API_KEY", "");
+    vi.stubEnv("OPENCODE_API_KEY", "");
+    vi.stubEnv("OPENCODE_API", "");
     vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
     vi.resetModules();
 

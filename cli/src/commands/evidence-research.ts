@@ -7,6 +7,20 @@ export interface EvidenceResearchCommandOptions {
   json?: boolean;
 }
 
+/** Explicit URLs are references to read, not words to send into broad search. */
+export function explicitLocators(query: string): string[] {
+  const candidates = (query.match(/https?:\/\/[^\s<>"'`\])}]+/gi) ?? [])
+    .map((candidate) => candidate.replace(/[.,;:!?]+$/, ""));
+  return [...new Set(candidates.filter((candidate) => {
+    try {
+      new URL(candidate);
+      return true;
+    } catch {
+      return false;
+    }
+  }))].slice(0, 3);
+}
+
 function formatBundle(bundle: EvidenceBundle): string {
   const lines: string[] = [
     `Flyd evidence research — ${bundle.query}`,
@@ -42,7 +56,10 @@ export async function runEvidenceResearch(query: string, options: EvidenceResear
   const trimmed = query.trim();
   if (!trimmed) throw new Error("Evidence research query cannot be empty");
   const engine = new EvidenceEngine(createDefaultEvidenceRegistry());
-  const bundle = await engine.research(trimmed, options.depth ?? "default");
+  const locators = explicitLocators(trimmed);
+  const bundle = await engine.research(trimmed, options.depth ?? "default", {
+    ...(locators.length ? { locators, includeSearch: false } : {}),
+  });
   console.log(options.json ? JSON.stringify(bundle, null, 2) : formatBundle(bundle));
   return bundle;
 }

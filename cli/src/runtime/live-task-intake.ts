@@ -201,11 +201,10 @@ export async function trackLiveTaskAndPlan(options: LiveTaskPlanOptions): Promis
     };
   } catch (error) {
     trackingFailed = true;
-    augmentations.push({
-      kind: "explanation",
-      content: describeTrackingFailure(error),
-      placement: "cursor",
-    });
+    // Task tracking is a capability, not the user's result. When planning can
+    // still proceed, keep this operational detail out of the overlay so the
+    // captain sees one useful response instead of a failure card plus a plan.
+    console.warn(`[live-task] tracking unavailable: ${describeTrackingFailure(error)}`);
   }
 
   const planIntent = tracked?.task.intendedOutcome ?? options.decision.intendedOutcome;
@@ -245,6 +244,9 @@ export async function buildTaskPlanResponse(options: LiveTaskPlanOptions): Promi
     augmentations: outcome.augmentations,
     delegatedTask: outcome.delegatedTask,
     taskPlan: outcome.plan,
-    mode: !outcome.planned || outcome.trackingFailed ? "requires_augment" : "requires_task",
+    // A usable plan remains actionable even if durable task tracking is down.
+    // Routing it as an augment loses the plan controls and creates a second,
+    // diagnostic card; the task surface is the useful result.
+    mode: outcome.planned ? "requires_task" : "requires_augment",
   };
 }

@@ -6,7 +6,7 @@ import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
 import type { Resolution, NativeOperation, ResolutionMode, AugmentOperation } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
 import { assessConsequence } from "./consequence.js";
-import { classifyRoute, isDeterministicDictation, type RouterConfig } from "./router.js";
+import { classifyRoute, isDeterministicDictation, requestPurposeFromRoute, type RequestPurpose, type RouterConfig } from "./router.js";
 import type { ConsequenceAssessment } from "./verification-types.js";
 import { classifyRecallIntent } from "./lib/recall-intent.js";
 import { retrieveResilientLexicalBrainEvidence } from "./lib/brain-retrieval.js";
@@ -309,6 +309,59 @@ export function skipsWorkIntelligence(
   return QUESTION_STARTS.test(text) || ANSWER_PREFIXES.test(text) || SECOND_PERSON_ADDRESS.test(text);
 }
 
+/** Work diagnosis is reserved for explicit work help after the early gate. */
+export function shouldRunWorkIntelligence(
+  intent: string,
+  modality: ManifestRequest["modality"],
+  purpose: RequestPurpose,
+): boolean {
+  return !isDeterministicDictation({ intent, modality, elementRole: "unknown" }) && purpose === "work_help";
+}
+
+const CURRENT_WORK_SNAPSHOT =
+  /^what am i working on right now(?:[,;.]?\s+and\s+what is the one most useful next step)?[?!\.]*$/i;
+
+/** A captured repository state can answer this exact status question locally. */
+export function currentWorkSnapshotResolution(
+  intent: string,
+  grounding: Pick<GroundingContext, "resolvedProjectRoot" | "gitBranch" | "gitIsDirty" | "gitChangedFiles" | "gitRecentCommits">,
+  invocationId: string,
+  environmentRevision: number,
+): Resolution | null {
+  if (!CURRENT_WORK_SNAPSHOT.test(intent.trim())) return null;
+
+  const project = grounding.resolvedProjectRoot?.split("/").filter(Boolean).at(-1) ?? "this workspace";
+  const branch = grounding.gitBranch ?? "the current branch";
+  const changed = grounding.gitChangedFiles?.length ?? 0;
+  const tree = grounding.gitIsDirty
+    ? `${changed} uncommitted ${changed === 1 ? "change" : "changes"}`
+    : "a clean working tree";
+  const latest = grounding.gitRecentCommits?.[0];
+  const next = grounding.gitIsDirty
+    ? "review and verify the current changes before starting another thread"
+    : "choose one bounded outcome and start it";
+  const content = [
+    `You’re in ${project} on ${branch} with ${tree}.`,
+    latest ? `Latest commit: ${latest}.` : "",
+    `The one most useful next step is to ${next}.`,
+  ].filter(Boolean).join(" ");
+
+  return {
+    resolutionId: randomUUID(),
+    invocationId,
+    environmentRevision,
+    mode: "requires_augment",
+    rationale: "Fresh repository status answers this current-work question without a model round trip.",
+    operations: [],
+    augmentations: [{ kind: "explanation", content, placement: "cursor" }],
+  };
+}
+
+export const RESOLUTION_SYSTEM_PROMPT =
+  "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON. " +
+  "Do not describe a Flyd subsystem as retired, removed, or inactive unless the supplied current evidence explicitly says so. " +
+  "Rails is legacy for active Flyd work; attention, memory, and executive systems must not be called retired without evidence.";
+
 export function buildResolutionPrompt(
   worldState: IntelligenceState,
   environment: EnvironmentCapture,
@@ -326,10 +379,10 @@ export function buildResolutionPrompt(
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
-  const elementRole = environment.focused_element.role;
-  const elementDesc = environment.focused_element.description;
-  const elementValue = environment.focused_element.value;
-  const selection = environment.focused_element.selected_text || environment.selection;
+  const elementRole = environment.focused_element?.role ?? "unknown";
+  const elementDesc = environment.focused_element?.description ?? "";
+  const elementValue = environment.focused_element?.value ?? "";
+  const selection = environment.focused_element?.selected_text || environment.selection;
   const neighbourhood = environment.semantic_neighbourhood;
 
   let contextBlock = "";
@@ -828,6 +881,32 @@ export async function resolve(
     }
   }
 
+  const currentWorkSnapshot = currentWorkSnapshotResolution(
+    intent,
+    groundingCtx,
+    invocation_id,
+    environment_revision,
+  );
+  if (currentWorkSnapshot) {
+    recordDeterministicResolution();
+    return currentWorkSnapshot;
+  }
+
+  // Decide the request's purpose before work-intelligence. This is the only
+  // request-time route classification; later context compilation must not
+  // re-run it or turn ordinary recall/research into a work intervention.
+  const regexRoute = routeIntent(intent, environment, modality);
+  const classified = await classifyRoute(
+    intent,
+    { appName: environment.application.name, elementRole: environment.focused_element?.role ?? "unknown" },
+    modality,
+    router ?? null,
+  );
+  const route = modality === "voice" && regexRoute.kind === "ask_answer"
+    ? regexRoute
+    : classified?.route ?? regexRoute;
+  const purpose = classified?.purpose ?? requestPurposeFromRoute(intent, route);
+
   // U3: Work-intelligence gate — substantial invocations route through
   // Ground → Diagnose → Intervene instead of general scene selection.
   // Assistant-directed intents (questions, second-person address) are
@@ -835,10 +914,10 @@ export async function resolve(
   const isDictation = isDeterministicDictation({
     intent,
     modality,
-    elementRole: environment.focused_element.role,
+    elementRole: environment.focused_element?.role ?? "unknown",
   });
 
-  if (!isDictation && !skipsWorkIntelligence(intent, modality) && model && apiKey) {
+  if (!isDictation && shouldRunWorkIntelligence(intent, modality, purpose) && model && apiKey) {
     try {
       const wiOutput = await runWorkIntelligence({
         invocationId: invocation_id,
@@ -881,7 +960,7 @@ export async function resolve(
 
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
-  const [worldState, compiledContext, classified, behaviouralDirectives] = await Promise.all([
+  const [worldState, compiledContext, behaviouralDirectives] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
     compileContext({
       intent,
@@ -892,21 +971,15 @@ export async function resolve(
         { role: "assistant" as const, content: turn.assistant },
       ]),
       capabilities: ["overlay", "memory", "git", "execution"],
+      // The early router is the one request-time hosted System-1 judgment.
+      // Context compilation remains local so it cannot add two sequential
+      // Jev calls after the route has already been decided.
+      jev: { apiKey: "" },
     }),
-    classifyRoute(
-      intent,
-      { appName: environment.application.name, elementRole: environment.focused_element.role },
-      modality,
-      router ?? null
-    ),
     fetchBehaviouralDirectives(),
   ]);
   const memoryPack = compiledMemoryToPack(compiledContext.memory);
 
-  const regexRoute = routeIntent(intent, environment, modality);
-  const route = modality === "voice" && regexRoute.kind === "ask_answer"
-    ? regexRoute
-    : classified?.route ?? regexRoute;
   // Deterministic consequence detection is safety-authoritative. A semantic
   // classifier may escalate a benign heuristic, but may never downgrade a
   // deterministically consequential request.
@@ -954,8 +1027,7 @@ export async function resolve(
     behaviouralDirectives,
     compiledContext
   );
-  const systemPrompt =
-    "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON.";
+  const systemPrompt = RESOLUTION_SYSTEM_PROMPT;
 
   try {
     const response = await query(prompt, model, systemPrompt, apiKey, baseURL, {

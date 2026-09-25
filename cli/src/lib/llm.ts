@@ -56,6 +56,12 @@ export interface AgentTool {
 
 export type ToolHandler = (name: string, input: Record<string, unknown>) => string | Promise<string>;
 
+// Coding turns may need extended inspection before their first write, while
+// conversational callers can request a smaller, latency-conscious ceiling.
+const TOOL_CALL_CEILING = 40;
+const TOOL_CEILING_NOTE =
+  "\n\nFlyd's tool-call limit for this turn is reached. Answer now from the evidence already gathered. If work is unfinished, say so and name Flyd's tool-call limit as the reason - never an external tool, session, or budget failure.";
+
 export interface QueryOptions {
   json?: boolean;
   /** Base64-encoded JPEG images (no data: prefix) attached to the user message. */
@@ -86,6 +92,14 @@ function openAIClientOptions(apiKey: string, baseURL?: string) {
     ...(baseURL && OPENCODE_HOST.test(baseURL) ? { defaultHeaders: OPENCODE_HEADERS } : {}),
   };
 }
+
+/** Some OpenAI-compatible backends occasionally serialize a function call into text. */
+function isSerializedToolProtocol(text: string | null | undefined): boolean {
+  return /<(?:\|\||｜｜)DSML(?:\|\||｜｜)\s*(?:calls|invoke)\b/i.test(text ?? "");
+}
+
+const SERIALIZED_TOOL_PROTOCOL_RETRY =
+  "The previous response was internal tool protocol markup, not user-facing text. Do not render or repeat it. Use the function-call API for a tool, or answer the user directly from the evidence already available.";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function openAIUserContent(prompt: string, images?: string[]): any {
@@ -151,7 +165,7 @@ export async function agentLoop(
   tools: AgentTool[],
   onToolCall: ToolHandler,
   model: string,
-  maxIterations = 8,
+  maxIterations = TOOL_CALL_CEILING,
 ): Promise<string> {
   return usesOpenAITransport(model)
     ? openAIAgentTransport(model) === "responses"
@@ -259,15 +273,6 @@ async function streamAnthropic(
   return full;
 }
 
-// ponytail: every turn gets the full tool ceiling. The old per-turn 8-round
-// pre-write budget stranded inspection-heavy tasks before their first write,
-// then asked the model to report an unfinished task - which it paraphrased as
-// a bogus external "tool session ended". Raise this (or make it per-account)
-// if a task genuinely needs more rounds.
-const TOOL_CALL_CEILING = 40;
-const TOOL_CEILING_NOTE =
-  "\n\nFlyd's tool-call limit for this turn is reached. Answer now from the evidence already gathered. If work is unfinished, say so and name Flyd's tool-call limit as the reason - never an external tool, session, or budget failure.";
-
 async function agentLoopAnthropic(
   system: string,
   userMessage: string,
@@ -283,7 +288,7 @@ async function agentLoopAnthropic(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [{ role: "user", content: userMessage }];
 
-  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let i = 0; i < ceiling; i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
@@ -360,7 +365,7 @@ async function agentLoopOpenAI(
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
 
-  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let i = 0; i < ceiling; i++) {
     const lastCall = i === ceiling - 1;
     const res = await client.chat.completions.create({
@@ -373,7 +378,13 @@ async function agentLoopOpenAI(
     const choice = res.choices[0];
     messages.push(choice.message);
 
-    if (choice.finish_reason === "stop") return choice.message.content ?? "";
+    if (choice.finish_reason === "stop") {
+      if (isSerializedToolProtocol(choice.message.content)) {
+        messages.push({ role: "user", content: SERIALIZED_TOOL_PROTOCOL_RETRY });
+        continue;
+      }
+      return choice.message.content ?? "";
+    }
 
     if (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
@@ -413,7 +424,7 @@ async function agentLoopOpenAIResponses(
     strict: false,
   }));
 
-  const ceiling = Math.max(maxIterations, TOOL_CALL_CEILING);
+  const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let iteration = 0; iteration < ceiling; iteration += 1) {
     const lastCall = iteration === ceiling - 1;
     const response = await client.responses.create({

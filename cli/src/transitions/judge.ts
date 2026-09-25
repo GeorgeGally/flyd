@@ -10,6 +10,7 @@ import type { JudgmentInput } from "./types.js";
 import {
   isTransitionCaptureDisabled,
   recordJudgment,
+  recordJudgmentParseFailure,
 } from "./writer.js";
 
 /**
@@ -200,11 +201,12 @@ interface TransitionCandidate {
   hasCorrection: boolean;
 }
 
-const parseAttempts = new Map<number, number>();
-
-/** Test seam: clears the bounded per-process malformed-response attempt map. */
+/**
+ * Compatibility test seam. Parse attempts are persisted as operational judge
+ * events now, so a Core restart cannot reset the retry budget.
+ */
 export function resetJudgeAttemptsForTests(): void {
-  parseAttempts.clear();
+  // Intentionally empty.
 }
 
 // ponytail: brace-scan salvage for one malformed item inside a JSON array —
@@ -327,16 +329,38 @@ function readEvents(): StoredEvent[] {
   }
 }
 
+function readParseFailureAttempt(transitionSeq: number): number {
+  let attempts = 0;
+  for (const event of readEvents()) {
+    const payload = event.payload;
+    if (
+      event.sourceId === JUDGE_SOURCE
+      && payload?.transitionSeq === transitionSeq
+      && payload.parseFailure === true
+      && Number.isInteger(payload.attempt)
+    ) {
+      attempts = Math.max(attempts, payload.attempt as number);
+    }
+  }
+  return attempts;
+}
+
 function selectCandidates(config: JudgeSweepConfig): TransitionCandidate[] {
   const events = readEvents();
   const judgedSeqs = new Set<number>();
+  const parseAttempts = new Map<number, number>();
   const actionsByCorrelation = new Map<string, StoredEvent>();
   const latestOutcomeByCorrelation = new Map<string, StoredEvent>();
 
   for (const event of events) {
     if (event.sourceId === JUDGE_SOURCE) {
       const seq = event.payload?.transitionSeq;
-      if (typeof seq === "number") judgedSeqs.add(seq);
+      if (typeof seq !== "number") continue;
+      if (typeof event.payload?.verdict === "number") {
+        judgedSeqs.add(seq);
+      } else if (event.payload?.parseFailure === true && Number.isInteger(event.payload.attempt)) {
+        parseAttempts.set(seq, Math.max(parseAttempts.get(seq) ?? 0, event.payload.attempt as number));
+      }
       continue;
     }
     if (!event.sourceId.startsWith("transition.")) continue;
@@ -436,8 +460,14 @@ export async function runJudgeSweep(
     for (const candidate of candidates) {
       const parsed = parseJudgmentResponse(raw, candidate.seq);
       if (!parsed) {
-        parseAttempts.set(candidate.seq, (parseAttempts.get(candidate.seq) ?? 0) + 1);
-        console.warn(`[transitions/judge] unparseable judgment for seq ${candidate.seq}, attempt ${parseAttempts.get(candidate.seq)}`);
+        const priorAttempts = readParseFailureAttempt(candidate.seq);
+        const attempt = priorAttempts + 1;
+        const written = recordJudgmentParseFailure({ transitionSeq: candidate.seq, attempt });
+        if (!written.ok) {
+          console.warn(`[transitions/judge] parse failure could not be recorded for seq ${candidate.seq}: ${written.rejection}`);
+        } else {
+          console.warn(`[transitions/judge] unparseable judgment for seq ${candidate.seq}, attempt ${attempt}`);
+        }
         continue;
       }
       const written = recordJudgment(parsed);

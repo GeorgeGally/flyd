@@ -46,11 +46,21 @@ interface AgentTerminal {
   ask(prompt: string, echoColor?: string): Promise<string>;
   confirm(prompt: string): Promise<boolean>;
   close(): Promise<void>;
+  /** Live assistant streaming; TUI hosts buffer it instead of writing raw. */
+  stream?(token: string): void;
+  /** Thinking indicator; TUI hosts render it in a status line. */
+  setBusy?(busy: boolean): void;
+  /** Messages queued behind the running turn. */
+  setPending?(messages: string[]): void;
+  /** Full-screen pinned-input mode. */
+  tui?: boolean;
 }
 
 interface AgentSessionDependencies {
   sessionId?: string;
   now?: () => Date;
+  /** Bound a stalled provider so the interactive session remains usable. */
+  responseTimeoutMs?: number;
   terminal: AgentTerminal;
   retrieveMemory(message: string): Promise<MemoryEvidence>;
   recoverActionRequest(): Promise<ActionableOutcome | null>;
@@ -85,6 +95,7 @@ export type AgentSessionResult =
 
 const MAX_HISTORY_TURNS = 12;
 const CROSS_REPO_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_RESPONSE_TIMEOUT_MS = 45_000;
 
 const ART = [
   `${GREEN}███████╗██╗  ██╗   ██╗██████╗ ${RESET}`,
@@ -171,6 +182,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let repos: BriefRepo[] = [];
   let presentHypothesis: string | null = null;
   let lastContextRefresh = 0;
+  const responseTimeoutMs = deps.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS;
 
   /**
    * One conversation turn, kernel-handler style: refresh state, retrieve
@@ -201,31 +213,12 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       repos = (await deps.loadCrossRepo(situation?.projectRoot).catch(() => repos)) ?? repos;
       lastContextRefresh = Date.now();
     }
-    const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    const THINKING_LABEL = " Thinking...";
-    const THINKING_LABEL_LEN = THINKING_LABEL.length + 1;
-    let spinnerIdx = 0;
-    let spinnerActive = true;
-    let spinnerStarted = false;
-    let spinInterval: ReturnType<typeof setInterval> | undefined;
-    const stopSpinner = () => {
-      if (!spinnerActive) return;
-      spinnerActive = false;
-      if (spinInterval) clearInterval(spinInterval);
-      if (spinnerStarted) deps.terminal.write("\b \b".repeat(THINKING_LABEL_LEN));
-      deps.terminal.write("\u001b[?25h");
-    };
-    deps.terminal.write("\u001b[?25l");
-    spinInterval = setInterval(() => {
-      if (!spinnerActive) return;
-      deps.terminal.write(`\x1b[${THINKING_LABEL_LEN}D${spinner[spinnerIdx]}${THINKING_LABEL}`);
-      spinnerStarted = true;
-      spinnerIdx = (spinnerIdx + 1) % spinner.length;
-    }, 100);
 
+    deps.terminal.setBusy?.(true);
     let streamed = false;
+    let streamColored = false;
     try {
-      const answer = await deps.respond({
+      const answer = await withResponseDeadline(deps.respond({
         sessionId: deps.sessionId,
         turnNumber: history.length / 2 + 1,
         message,
@@ -236,20 +229,72 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         presentHypothesis,
         askUser: (prompt) => deps.terminal.confirm(prompt),
         onToken: (token) => {
-          if (!streamed) {
-            stopSpinner();
-            if (useColor()) deps.terminal.write(GREEN);
-          }
           streamed = true;
-          deps.terminal.write(token);
+          if (deps.terminal.stream) {
+            deps.terminal.stream(token);
+          } else {
+            if (!streamColored && useColor()) deps.terminal.write(GREEN);
+            streamColored = true;
+            deps.terminal.write(token);
+          }
         },
-      });
+      }), responseTimeoutMs);
       if (!streamed && answer) deps.terminal.write(paint(formatChatReply(answer), GREEN));
       return answer;
     } finally {
-      stopSpinner();
-      if (streamed && useColor()) deps.terminal.write(RESET);
+      deps.terminal.setBusy?.(false);
+      if (streamed && !deps.terminal.stream && useColor()) deps.terminal.write(RESET);
     }
+  }
+
+  const promptText = deps.terminal.tui ? "You > " : `\n${paint("You >", CYAN)}`;
+
+  // The input reader stays live between asks, so a message can be submitted
+  // while a turn is still streaming. The session kernel serializes turns;
+  // this chain tracks completion so control commands cannot overtake a turn.
+  const queued: string[] = [];
+  let tail: Promise<void> = Promise.resolve();
+
+  function submitTurn(message: string): void {
+    queued.push(message);
+    deps.terminal.setPending?.([...queued]);
+    const turn = tail.then(async () => {
+      queued.shift();
+      deps.terminal.setPending?.([...queued]);
+      if (!deps.terminal.tui) deps.terminal.write(`\n${paint("Flyd >", GREEN)}\n`);
+      const session = await ensureChat();
+      const outputs = await session.kernel.submit(session.sessionKey, {
+        type: "user_message",
+        text: message,
+      });
+      const answer = replyText(outputs);
+      if (!answer) {
+        const failed = outputs.find((o) => o.type === "failed");
+        throw new Error(failed && failed.type === "failed" ? failed.error : "Turn produced no reply");
+      }
+      deps.terminal.write("\n");
+      history.push(
+        { role: "user", content: message },
+        { role: "assistant", content: answer },
+      );
+      try {
+        await deps.recordTurn({
+          user: message,
+          assistant: answer,
+        });
+      } catch (error) {
+        const err = error instanceof Error ? error.message : String(error);
+        deps.terminal.write(`Flyd could not save this turn: ${err}\n`);
+      }
+    }).catch((error) => {
+      const err = error instanceof Error ? error.message : String(error);
+      deps.terminal.write(`I could not answer that turn: ${err}\n`);
+    });
+    tail = turn;
+  }
+
+  async function waitForTurns(): Promise<void> {
+    await tail;
   }
 
   try {
@@ -263,10 +308,11 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     while (true) {
       let text: string;
       try {
-        text = (await deps.terminal.ask(`\n${paint("You >", CYAN)}`, CYAN)).trim();
+        text = (await deps.terminal.ask(promptText, CYAN)).trim();
       } catch (error) {
         // Ctrl+C during the prompt (TTY raw reader) — leave cleanly.
         if (error instanceof Error && error.message === "Interrupted") {
+          await waitForTurns();
           return { kind: "exit" };
         }
         throw error;
@@ -275,6 +321,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
 
       const repairMatch = text.match(/^\/flyd-fix(?:\s+([\s\S]+))?$/i);
       if (repairMatch) {
+        await waitForTurns();
         if (!deps.repairLastTurn) {
           deps.terminal.write("Flyd repair is not available in this session.\n");
           continue;
@@ -292,6 +339,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }
 
       if (/^\/brief\b/i.test(text.trim())) {
+        await waitForTurns();
         const { readLatestBrief, composeDailyBrief } = await import("./daily-brief.js");
         const { getKey } = await import("../lib/config.js");
         // Prefer a fresh cron-produced brief (from the background scheduler);
@@ -317,9 +365,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }
 
       let input = interpretAgentInput(text);
-      if (input.kind === "exit") return { kind: "exit" };
-      if (input.kind === "resume") return { kind: "resume" };
+      if (input.kind === "exit") {
+        await waitForTurns();
+        return { kind: "exit" };
+      }
+      if (input.kind === "resume") {
+        await waitForTurns();
+        return { kind: "resume" };
+      }
       if (input.kind === "coding") {
+        await waitForTurns();
         const handoff: ActionableOutcome = {
           outcome: input.outcome,
           sourceSessionId: deps.sessionId ?? "current-session",
@@ -340,6 +395,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         }
       }
       if (input.kind === "contextual_action") {
+        await waitForTurns();
         const handoff = await deps.recoverActionRequest();
         if (handoff) {
           try {
@@ -356,52 +412,46 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         }
         input = { kind: "conversation", message: input.message };
       }
-      if (input.kind === "continue" && history.length === 0) {
-        try {
-          situation = await deps.loadSituation();
-        } catch {
-          // Continue from persisted conversation when live task state is unavailable.
+      if (input.kind === "continue") {
+        // A "continue" is only a resume when no conversation has happened yet;
+        // wait for any in-flight turn so its history lands first.
+        await waitForTurns();
+        if (history.length === 0) {
+          try {
+            situation = await deps.loadSituation();
+          } catch {
+            // Continue from persisted conversation when live task state is unavailable.
+          }
+          if (hasUnfinishedTask(situation)) return { kind: "resume" };
+          const outcome = await deps.recoverActionRequest();
+          if (outcome) return { kind: "coding", outcome: outcome.outcome };
         }
-        if (hasUnfinishedTask(situation)) return { kind: "resume" };
-        const outcome = await deps.recoverActionRequest();
-        if (outcome) return { kind: "coding", outcome: outcome.outcome };
       }
 
-      deps.terminal.write(`\n${paint("Flyd >", GREEN)}\n`);
-      try {
-        // The turn runs through the session kernel; the handler does memory,
-        // situation and model streaming. The local history array stays in
-        // lockstep — every push corresponds to a completed submit.
-        const session = await ensureChat();
-        const outputs = await session.kernel.submit(session.sessionKey, {
-          type: "user_message",
-          text: input.message,
-        });
-        const answer = replyText(outputs);
-        if (!answer) {
-          const failed = outputs.find((o) => o.type === "failed");
-          throw new Error(failed && failed.type === "failed" ? failed.error : "Turn produced no reply");
-        }
-        deps.terminal.write("\n");
-        history.push(
-          { role: "user", content: input.message },
-          { role: "assistant", content: answer },
-        );
-        try {
-          await deps.recordTurn({
-            user: input.message,
-            assistant: answer,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          deps.terminal.write(`Flyd could not save this turn: ${message}\n`);
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        deps.terminal.write(`I could not answer that turn: ${message}\n`);
-      }
+      submitTurn(input.message);
     }
   } finally {
+    await tail.catch(() => undefined);
     await deps.terminal.close();
   }
+}
+
+function withResponseDeadline<T>(response: Promise<T>, timeoutMs: number): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return response;
+
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Flyd response timed out after ${Math.ceil(timeoutMs / 1000)} seconds`));
+    }, timeoutMs);
+    response.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
