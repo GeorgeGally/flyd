@@ -1,6 +1,7 @@
 import { query } from "./lib/llm.js";
 import type { IntentRoute, IntentRouteKind, IntentPlacement, IntentScene } from "./resolve.js";
 import { evaluatePredicates } from "./cognition/system-one/jev.js";
+import { familyEgress, familyQuestions, predicateThreshold } from "./cognition/system-one/registry.js";
 import type {
   ConsequenceAssessment,
   ConsequentialVerb,
@@ -124,71 +125,9 @@ async function classifyRouteWithJev(
 ): Promise<ClassifiedRoute | null> {
   const evaluation = await evaluatePredicates(
     { intent, app_name: env.appName, element_role: env.elementRole, modality },
-    [
-      {
-        id: "route_kind",
-        type: "choice",
-        instructions: "Choose the overlay route kind that best matches the user's intent.",
-        criteria: {
-          ask_answer: "The user wants an answer or explanation shown to them.",
-          draft_insert: "The user wants composed or rewritten text inserted into the focused field.",
-          dictate_insert: "The user is dictating text to insert nearly verbatim.",
-        },
-      },
-      {
-        id: "placement",
-        type: "choice",
-        instructions: "Choose where the result belongs.",
-        criteria: {
-          answer_panel: "Show the result to the user as an answer.",
-          insert_at_cursor: "Insert the result into the focused text field.",
-        },
-      },
-      {
-        id: "scene",
-        type: "choice",
-        instructions: "Choose the best writing scene.",
-        criteria: {
-          clean_dictation: "Lightly cleaned dictation.",
-          email_reply: "Email or chat reply.",
-          support_reply: "Support response.",
-          code_review_comment: "Engineering review comment.",
-          meeting_note: "Meeting notes.",
-          concise_answer: "Direct answer or explanation.",
-        },
-      },
-      {
-        id: "purpose",
-        type: "choice",
-        instructions: "Choose the primary purpose of the request. Prefer the narrowest applicable purpose.",
-        criteria: {
-          type_text: "The user wants text composed or inserted in the focused field.",
-          answer: "The user wants a direct explanation or answer.",
-          recall_personal: "The user asks about their prior work, plans, decisions, or personal context.",
-          research_web: "The user asks for current external facts, browsing, searching, or investigation.",
-          work_help: "The user asks Flyd to diagnose, plan, or advance implementation work.",
-          control_flyd: "The user asks to control Flyd itself or its live state.",
-        },
-      },
-      { id: "consequential", instructions: "Would fulfilling this intent itself send, submit, publish, purchase, delete, deploy, or otherwise act outside the focused text field?" },
-      {
-        id: "target",
-        type: "choice",
-        instructions: "Choose the primary target of the requested result.",
-        criteria: {
-          text_in_focus: "Only the currently focused text field.",
-          external_system: "A remote or external system.",
-          file_system: "The local file system or repository.",
-          unknown: "The target cannot be determined.",
-        },
-      },
-      { id: "verb_create", instructions: "Does the consequential action create an external or durable object?" },
-      { id: "verb_modify", instructions: "Does the consequential action modify an external or durable object?" },
-      { id: "verb_send", instructions: "Does the consequential action send or submit something?" },
-      { id: "verb_purchase", instructions: "Does the consequential action purchase something?" },
-      { id: "verb_delete", instructions: "Does the consequential action delete something?" },
-      { id: "verb_publish", instructions: "Does the consequential action publish or deploy something?" },
-    ],
+    familyQuestions("router"),
+    {},
+    familyEgress("router"),
   );
   if (!evaluation.ok) return null;
   const kind = evaluation.answers.route_kind?.choice ?? "";
@@ -199,7 +138,7 @@ async function classifyRouteWithJev(
   if (!VALID_KINDS.has(kind) || !VALID_PLACEMENTS.has(placement) || !VALID_SCENES.has(scene) || !VALID_TARGETS.has(target)) {
     return null;
   }
-  const consequential = (evaluation.answers.consequential?.probability ?? 0) >= 0.65;
+  const consequential = (evaluation.answers.consequential?.probability ?? 0) >= predicateThreshold("consequential");
   const verbs = ([
     ["create", "verb_create"],
     ["modify", "verb_modify"],
@@ -208,7 +147,7 @@ async function classifyRouteWithJev(
     ["delete", "verb_delete"],
     ["publish", "verb_publish"],
   ] as const)
-    .filter(([, id]) => (evaluation.answers[id]?.probability ?? 0) >= 0.65)
+    .filter(([, id]) => (evaluation.answers[id]?.probability ?? 0) >= predicateThreshold(id))
     .map(([verb]) => verb as ConsequentialVerb);
 
   const route = { kind: kind as IntentRouteKind, placement: placement as IntentPlacement, scene: scene as IntentScene };

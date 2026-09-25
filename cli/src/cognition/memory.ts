@@ -3,6 +3,7 @@ import { ProjectionEngine } from "../intelligence/projections.js";
 import { deriveWorldState, worldModelProjector } from "../intelligence/world/world-model.js";
 import { retrieveResilientLexicalBrainEvidence } from "../lib/brain-retrieval.js";
 import { evaluatePredicates } from "./system-one/jev.js";
+import { familyEgress, questionFor } from "./system-one/registry.js";
 import type { JevOptions, PredicateQuestion } from "./system-one/types.js";
 import type { UnifiedMemoryResult } from "./types.js";
 
@@ -55,15 +56,12 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
   }));
 
   if (input.useJev !== false && relevant.length > 1) {
-    const questions: PredicateQuestion[] = relevant.map((_, i) => ({
-      id: `candidate_${i}_relevant`,
-      instructions: `Is candidate ${i} materially useful for answering the user's request now?`,
-    }));
+    const questions: PredicateQuestion[] = relevant.map((_, i) => questionFor("candidate_relevant", { index: i }, `candidate_${i}_relevant`));
     const evaluation = await evaluatePredicates({
       request: input.text,
       temporal_frame: input.temporalFrame ?? "present",
       candidates: relevant.map((r, i) => ({ index: i, content: r.content, status: r.temporalStatus })),
-    }, questions, input.jev);
+    }, questions, input.jev, familyEgress("memory_rerank"));
     memorySystemOne = {
       model: evaluation.model,
       predicates: Object.fromEntries(Object.entries(evaluation.answers).map(([id, answer]) => [id, answer.probability])),

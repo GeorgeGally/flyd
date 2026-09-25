@@ -3,7 +3,7 @@ import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { validateEnvelope, type ContextEnvelope, type EpistemicKind } from "../../intelligence/context-envelope.js";
 import type { TimeShape, WorldRelationType } from "../../intelligence/world/types.js";
 import { evaluatePredicates } from "../system-one/jev.js";
-import type { JevOptions, PredicateEvaluation, PredicateQuestion } from "../system-one/types.js";
+import type { JevOptions, PredicateEgress, PredicateEvaluation, PredicateQuestion } from "../system-one/types.js";
 import { rebuildKnowledgeProjections } from "../projections/store.js";
 
 function stable(parts: unknown[]): string {
@@ -153,7 +153,8 @@ export class CognitiveCurator {
     state: Record<string, unknown>,
     questions: PredicateQuestion[],
     jev?: JevOptions,
+    egress?: PredicateEgress,
   ): Promise<PredicateEvaluation> {
-    return evaluatePredicates(state, questions, jev);
+    return evaluatePredicates(state, questions, jev, egress);
   }
 }
