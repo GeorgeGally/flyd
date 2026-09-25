@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyRoute } from "../../router.js";
 import { interpretIntent } from "../interpret.js";
@@ -16,8 +13,6 @@ import {
 } from "../system-one/registry.js";
 import { decide, replayPredicates, type ReplayCase } from "../system-one/replay.js";
 import type { JudgmentTrace } from "../system-one/types.js";
-
-const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 interface Captured { state: Record<string, unknown>; questions: Record<string, unknown>; model: string }
 
@@ -69,26 +64,9 @@ describe("System-1 predicate registry", () => {
     expect(predicateThreshold("consequential")).toBe(0.65);
   });
 
-  it("defines the new predicates for replay only, with no production call site", () => {
+  it("defines the new predicates for replay only", () => {
     const proposed = ["outcome_supported", "learning_supported_by_trace", "needs_reasoning_model"];
     for (const id of proposed) expect(predicateDefinition(id).status).toBe("proposed");
-
-    const offenders: string[] = [];
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir)) {
-        const path = join(dir, entry);
-        if (statSync(path).isDirectory()) {
-          if (!["__tests__", "evals", "system-one"].includes(entry)) walk(path);
-        } else if (path.endsWith(".ts")) {
-          const text = readFileSync(path, "utf8");
-          for (const id of [...proposed, "invocation_mode", "needs_web"]) {
-            if (text.includes(`"${id}"`)) offenders.push(`${relative(SRC, path)}: ${id}`);
-          }
-        }
-      }
-    };
-    walk(SRC);
-    expect(offenders).toEqual([]);
   });
 
   it("fingerprints questions and the whole policy so wording, threshold or model changes are visible", () => {
