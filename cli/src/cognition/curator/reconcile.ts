@@ -3,6 +3,7 @@ import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/eve
 import { ProjectionEngine } from "../../intelligence/projections.js";
 import { deriveWorldState, worldModelProjector } from "../../intelligence/world/world-model.js";
 import { predicatePasses, SYSTEM_ONE_POLICY_VERSION } from "../system-one/policy.js";
+import { familyEgress, familyQuestions, predicateThreshold } from "../system-one/registry.js";
 import type { JevOptions } from "../system-one/types.js";
 import { CognitiveCurator } from "./curator.js";
 
@@ -19,6 +20,13 @@ const CANCELLED = /\b(?:cancelled|canceled|scrapped|not happening|called off)\b/
 
 function explicitlyStatesCompletion(text: string): boolean {
   return COMPLETED.some((pattern) => pattern.test(text));
+}
+
+/** Deterministic lifecycle reading of a statement, before any Jev corroboration. */
+export function explicitLifecycleStatus(text: string): "completed" | "cancelled" | null {
+  if (explicitlyStatesCompletion(text)) return "completed";
+  if (CANCELLED.test(text)) return "cancelled";
+  return null;
 }
 
 interface ConversationPayload {
@@ -78,14 +86,9 @@ async function reconcileConversation(
       referents: conversation.referents ?? {},
       source_event: event.sequence,
     },
-    [
-      { id: "is_correction", instructions: "Is the user correcting a prior fact, assumption, task, or current state?" },
-      { id: "changes_current_state", instructions: "Does the statement materially change what is currently true or actionable?" },
-      { id: "marks_completed", instructions: "Does the user explicitly state that the referenced project/event/task is completed, over, finished, or already happened?" },
-      { id: "marks_cancelled", instructions: "Does the user explicitly state that the referenced project/event/task is cancelled or no longer happening?" },
-      { id: "evidence_supported", instructions: "Is the proposed state change directly supported by the user's statement itself?" },
-    ],
+    familyQuestions("curator"),
     jev,
+    familyEgress("curator"),
   );
 
   curator.recordObservation({
@@ -106,12 +109,11 @@ async function reconcileConversation(
 
   // Explicit terminal language is hard evidence. Jev can corroborate ambiguous
   // semantics, but it is never required to make deterministic date/lifecycle facts true.
-  const explicitCompleted = explicitlyStatesCompletion(text);
-  const explicitCancelled = CANCELLED.test(text);
-  const supported = !evaluation.ok || predicatePasses(evaluation, "evidence_supported", 0.80);
-  const changesState = !evaluation.ok || predicatePasses(evaluation, "changes_current_state", 0.80);
+  const lifecycle = explicitLifecycleStatus(text);
+  const supported = !evaluation.ok || predicatePasses(evaluation, "evidence_supported", predicateThreshold("evidence_supported", "lifecycle"));
+  const changesState = !evaluation.ok || predicatePasses(evaluation, "changes_current_state", predicateThreshold("changes_current_state", "lifecycle"));
 
-  if (explicitCompleted && supported && changesState) {
+  if (lifecycle === "completed" && supported && changesState) {
     curator.addClaim({
       entityId: target,
       attribute: "status",
@@ -121,7 +123,7 @@ async function reconcileConversation(
       timeShape: "state",
       evidenceRefs: [`event:${event.sequence}`],
     }, "cognition.lifecycle");
-  } else if (explicitCancelled && supported && changesState) {
+  } else if (lifecycle === "cancelled" && supported && changesState) {
     curator.addClaim({
       entityId: target,
       attribute: "status",

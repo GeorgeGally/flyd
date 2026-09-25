@@ -63,7 +63,8 @@ TypeScript Core (intelligence, memory, evidence, resolution)
     ├── Transcription WS :4816 — gpt-realtime-whisper relay
     ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
     ├── Cognitive Core: event/claim/relation world model → Present/projections → Context Compiler
-    ├── System-1: bounded Jev predicates when explicitly enabled; deterministic safety/lifecycle remains authoritative
+    ├── System-1: bounded Jev predicates when explicitly enabled; deterministic safety/lifecycle remains authoritative;
+    │   every predicate is declared in cognition/system-one/registry.ts and scored by the replay bench before any call site uses it
     ├── Memory: unified cognitive facade; legacy archive retrieval is background evidence
     ├── Evidence Engine: health → multi-lens planning → retrieval → fusion → clusters/conflicts
     ├── Compose: loopback-only, short-lived generated evidence dossiers
@@ -181,6 +182,8 @@ flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
 FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)
+FLYD_JEV_MODEL=jev-1.13.0             # pin an exact Jev release (default jev-latest); thresholds were tuned against the pinned one
+FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze output as src/evals/fixtures/system-one/recordings.jsonl
 ```
 
 > **CLI uses compiled `dist/`, not source.** The `flyd` terminal CLI is the global

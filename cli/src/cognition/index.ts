@@ -9,3 +9,4 @@ export * from "./interpret.js";
 export * from "./system-one/types.js";
 export * from "./system-one/jev.js";
 export * from "./system-one/policy.js";
+export * from "./system-one/registry.js";
