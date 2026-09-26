@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { usesOpenAITransport, apiModelId, defaultModel, resolveModelConnection } from "./config.js";
+import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, resolveModelConnection } from "./config.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -73,7 +73,7 @@ export function openAICompletionLimit(maxCompletionTokens: number): { max_comple
 }
 
 export function openAIAgentTransport(model: string): "responses" | "chat_completions" {
-  return /^gpt-5(?:\.|-|$)/i.test(model) ? "responses" : "chat_completions";
+  return /^gpt-5(?:\.|-|$)/i.test(apiModelId(model)) ? "responses" : "chat_completions";
 }
 
 // The OpenCode Go endpoint requires a client user agent and a stable session id
@@ -135,13 +135,18 @@ export async function query(
   const m = model ?? defaultModel();
   const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
   const resolvedPrompt = enriched.prompt;
+  const once = (candidate: string) => usesOpenAITransport(candidate)
+    ? queryOpenAI(resolvedPrompt, candidate, system, options)
+    : queryAnthropic(resolvedPrompt, candidate, system, options);
   let response: string;
   if (apiKey) {
     response = await queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
+  } else if (model && model !== defaultModel()) {
+    // A caller that picked a specific non-default model gets exactly that model.
+    response = await once(m);
   } else {
-    response = usesOpenAITransport(m)
-      ? await queryOpenAI(resolvedPrompt, m, system, options)
-      : await queryAnthropic(resolvedPrompt, m, system, options);
+    // Default-model callers get the same provider failover as chat.
+    response = (await runWithModelFailover([m, ...fallbackModelChain()], once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
   return response;
@@ -166,12 +171,202 @@ export async function agentLoop(
   onToolCall: ToolHandler,
   model: string,
   maxIterations = TOOL_CALL_CEILING,
+  options: AgentLoopOptions = {},
 ): Promise<string> {
   return usesOpenAITransport(model)
     ? openAIAgentTransport(model) === "responses"
-      ? agentLoopOpenAIResponses(system, userMessage, tools, onToolCall, model, maxIterations)
-      : agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations)
-    : agentLoopAnthropic(system, userMessage, tools, onToolCall, model, maxIterations);
+      ? agentLoopOpenAIResponses(system, userMessage, tools, onToolCall, model, maxIterations, options)
+      : agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations, options)
+    : agentLoopAnthropic(system, userMessage, tools, onToolCall, model, maxIterations, options);
+}
+
+export interface AgentLoopOptions {
+  /** Aborts in-flight provider requests; tool calls stop at the next boundary. */
+  signal?: AbortSignal;
+  /** Calls that may run concurrently with their siblings (read-only lookups). */
+  parallelSafe?(name: string, input: Record<string, unknown>): boolean;
+}
+
+interface PendingToolCall {
+  name: string;
+  input: Record<string, unknown> | null;
+  /** Set when the provider sent arguments that are not valid JSON. */
+  parseError?: string;
+}
+
+function parseToolArguments(name: string, raw: string): PendingToolCall {
+  try {
+    return { name, input: JSON.parse(raw || "{}") as Record<string, unknown> };
+  } catch {
+    return { name, input: null, parseError: `Error: invalid JSON arguments for ${name}; resend the call with valid JSON` };
+  }
+}
+
+/**
+ * Run one model turn's tool calls. Independent lookups (several searches, a
+ * few file reads) run concurrently; anything that changes state runs in order.
+ */
+async function runToolBatch(
+  calls: PendingToolCall[],
+  onToolCall: ToolHandler,
+  options: AgentLoopOptions,
+): Promise<string[]> {
+  const call = abortableToolCall(onToolCall, options.signal);
+  const one = (pending: PendingToolCall) =>
+    pending.input ? Promise.resolve(call(pending.name, pending.input)) : Promise.resolve(pending.parseError ?? "Error");
+  const parallel = calls.length > 1 && options.parallelSafe
+    && calls.every((pending) => pending.input && options.parallelSafe!(pending.name, pending.input));
+  if (parallel) return Promise.all(calls.map(one));
+  const outputs: string[] = [];
+  for (const pending of calls) outputs.push(await one(pending));
+  return outputs;
+}
+
+export interface FailoverOptions extends AgentLoopOptions {
+  /** False once the failed attempt did something that must not be repeated. */
+  canFailOver?(): boolean;
+  onFailover?(event: { from: string; to: string; error: string }): void;
+}
+
+/** A timed-out or cancelled turn must not keep acting after the user was told it stopped. */
+function abortableToolCall(onToolCall: ToolHandler, signal?: AbortSignal): ToolHandler {
+  return async (name, input) => {
+    if (signal?.aborted) {
+      const error = new Error("Flyd turn was cancelled");
+      error.name = "AbortError";
+      throw error;
+    }
+    return onToolCall(name, input);
+  };
+}
+
+const PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
+const providerCooldowns = new Map<string, number>();
+
+/** Test-only: forget provider cooldowns. */
+export function resetProviderCooldowns(): void {
+  providerCooldowns.clear();
+}
+
+function providerStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === "number" ? status : undefined;
+}
+
+function isAbort(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  const name = (error as { name?: unknown })?.name;
+  return name === "AbortError" || name === "APIUserAbortError";
+}
+
+/** Quota, auth, and server faults mean "this provider, not this request". */
+function shouldCoolDown(error: unknown): boolean {
+  const status = providerStatus(error);
+  if (status !== undefined) return status === 429 || status === 401 || status === 403 || status >= 500;
+  return /usage limit|rate limit|quota|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up|No API key/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+/**
+ * Try each model in order, starting with ones not cooling down. A provider that
+ * hit a quota/auth/server wall is skipped for a while so later calls do not pay
+ * the failed round trip again.
+ */
+export async function runWithModelFailover<T>(
+  models: string[],
+  attempt: (model: string) => Promise<T>,
+  options: FailoverOptions = {},
+): Promise<{ result: T; model: string }> {
+  if (models.length === 0) throw new Error("No Flyd model is configured");
+  const now = Date.now();
+  const healthy = models.filter((model) => (providerCooldowns.get(model) ?? 0) <= now);
+  const order = healthy.length > 0 ? [...healthy, ...models.filter((m) => !healthy.includes(m))] : models;
+  let lastError: unknown;
+  for (let index = 0; index < order.length; index += 1) {
+    const model = order[index];
+    try {
+      const result = await attempt(model);
+      providerCooldowns.delete(model);
+      return { result, model };
+    } catch (error) {
+      lastError = error;
+      if (isAbort(error, options.signal)) throw error;
+      if (shouldCoolDown(error)) providerCooldowns.set(model, Date.now() + PROVIDER_COOLDOWN_MS);
+      const next = order[index + 1];
+      if (!next || options.canFailOver?.() === false) throw error;
+      options.onFailover?.({
+        from: model,
+        to: next,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  throw lastError;
+}
+
+/** The agent loop on the first healthy model, failing over while nothing unrepeatable happened. */
+export async function agentLoopWithFailover(
+  models: string[],
+  system: string,
+  userMessage: string,
+  tools: AgentTool[],
+  onToolCall: ToolHandler,
+  maxIterations = TOOL_CALL_CEILING,
+  options: FailoverOptions = {},
+  runLoop: typeof agentLoop = agentLoop,
+): Promise<{ answer: string; model: string }> {
+  const { result, model } = await runWithModelFailover(
+    models,
+    (candidate) => runLoop(system, userMessage, tools, onToolCall, candidate, maxIterations, options),
+    options,
+  );
+  return { answer: result, model };
+}
+
+export interface ModelProbe {
+  model: string;
+  provider: string;
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
+/** Cheapest possible live request, so doctor can show which providers answer right now. */
+export async function probeChatModel(model: string, timeoutMs = 15_000): Promise<ModelProbe> {
+  const started = Date.now();
+  let provider = "unconfigured";
+  try {
+    const connection = resolveModelConnection(model);
+    provider = connection.providerIdentity;
+    const signal = AbortSignal.timeout(timeoutMs);
+    if (usesOpenAITransport(model)) {
+      const { default: OpenAI } = await import("openai");
+      const client = new OpenAI(openAIClientOptions(connection.apiKey, connection.baseURL));
+      await client.chat.completions.create({
+        model: apiModelId(model),
+        ...openAICompletionLimit(16),
+        messages: [{ role: "user", content: "Reply with: ok" }],
+      }, { signal });
+    } else {
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+      await client.messages.create({
+        model: apiModelId(model),
+        max_tokens: 16,
+        messages: [{ role: "user", content: "Reply with: ok" }],
+      }, { signal });
+    }
+    return { model, provider, ok: true, latencyMs: Date.now() - started };
+  } catch (error) {
+    return {
+      model,
+      provider,
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: (error instanceof Error ? error.message : String(error)).split("\n")[0].slice(0, 160),
+    };
+  }
 }
 
 async function queryOpenAIWithConfig(
@@ -280,6 +475,7 @@ async function agentLoopAnthropic(
   onToolCall: ToolHandler,
   model: string,
   maxIterations: number,
+  options: AgentLoopOptions = {},
 ): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const connection = resolveModelConnection(model);
@@ -306,7 +502,7 @@ async function agentLoopAnthropic(
         })),
       }),
       messages,
-    });
+    }, { signal: options.signal });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resContent = res.content as any[];
@@ -320,16 +516,20 @@ async function agentLoopAnthropic(
     if (res.stop_reason === "tool_use") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blocks = res.content as any[];
-      const results = [];
-      for (const b of blocks) {
-        if (b.type !== "tool_use") continue;
-        const content = await onToolCall(b.name as string, b.input as Record<string, unknown>);
+      const results: Array<{ type: "tool_result"; tool_use_id: string; content: string }> = [];
+      const uses = blocks.filter((b) => b.type === "tool_use");
+      const outputs = await runToolBatch(
+        uses.map((b) => ({ name: b.name as string, input: (b.input ?? {}) as Record<string, unknown> })),
+        onToolCall,
+        options,
+      );
+      uses.forEach((b, index) => {
         results.push({
           type: "tool_result" as const,
           tool_use_id: b.id as string,
-          content,
+          content: outputs[index],
         });
-      }
+      });
       messages.push({ role: "user", content: results });
       continue;
     }
@@ -349,6 +549,7 @@ async function agentLoopOpenAI(
   onToolCall: ToolHandler,
   model: string,
   maxIterations: number,
+  options: AgentLoopOptions = {},
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
   const connection = resolveModelConnection(model);
@@ -368,12 +569,16 @@ async function agentLoopOpenAI(
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let i = 0; i < ceiling; i++) {
     const lastCall = i === ceiling - 1;
+    // History holds tool calls, so the final request keeps the tool list (some
+    // backends reject tool history without it) but forbids further calls.
+    if (lastCall) messages.push({ role: "user", content: TOOL_CEILING_NOTE.trim() });
     const res = await client.chat.completions.create({
       model: apiModelId(model),
       ...openAICompletionLimit(2048),
-      ...(lastCall ? {} : { tools: oaiTools }),
+      tools: oaiTools,
+      ...(lastCall ? { tool_choice: "none" as const } : {}),
       messages,
-    });
+    }, { signal: options.signal });
 
     const choice = res.choices[0];
     messages.push(choice.message);
@@ -386,12 +591,22 @@ async function agentLoopOpenAI(
       return choice.message.content ?? "";
     }
 
+    if (lastCall) {
+      // tool_choice "none" is advisory on some backends; never discard the turn.
+      return choice.message.content?.trim()
+        || "I reached Flyd's tool-call limit before I could finish this answer. Ask me to continue and I'll pick up from here.";
+    }
+
     if (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
-      for (const tc of choice.message.tool_calls) {
-        const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-        const content = await onToolCall(tc.function.name, input);
-        messages.push({ role: "tool", tool_call_id: tc.id, content });
-      }
+      const toolCalls = choice.message.tool_calls;
+      const outputs = await runToolBatch(
+        toolCalls.map((tc) => parseToolArguments(tc.function.name, tc.function.arguments)),
+        onToolCall,
+        options,
+      );
+      toolCalls.forEach((tc, index) => {
+        messages.push({ role: "tool", tool_call_id: tc.id, content: outputs[index] });
+      });
       continue;
     }
 
@@ -408,6 +623,7 @@ async function agentLoopOpenAIResponses(
   onToolCall: ToolHandler,
   model: string,
   maxIterations: number,
+  options: AgentLoopOptions = {},
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
   const connection = resolveModelConnection(model);
@@ -433,26 +649,24 @@ async function agentLoopOpenAIResponses(
       input,
       ...(lastCall ? {} : { tools: responseTools }),
       max_output_tokens: 2048,
-    });
+    }, { signal: options.signal });
     if (response.error) throw new Error(`OpenAI Responses API: ${response.error.message}`);
     input.push(...response.output);
     const calls = response.output.filter((item) => item.type === "function_call");
     if (calls.length === 0) return response.output_text ?? "";
 
-    for (const call of calls) {
-      let parameters: Record<string, unknown> = {};
-      try {
-        parameters = JSON.parse(call.arguments) as Record<string, unknown>;
-      } catch {
-        throw new Error(`Invalid tool arguments for ${call.name}`);
-      }
-      const output = await onToolCall(call.name, parameters);
+    const outputs = await runToolBatch(
+      calls.map((call) => parseToolArguments(call.name, call.arguments)),
+      onToolCall,
+      options,
+    );
+    calls.forEach((call, index) => {
       input.push({
         type: "function_call_output",
         call_id: call.call_id,
-        output,
+        output: outputs[index],
       });
-    }
+    });
   }
 
   throw new Error("agentLoop: exceeded max iterations");

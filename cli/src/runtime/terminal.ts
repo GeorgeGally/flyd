@@ -231,6 +231,16 @@ export class NodeTerminal {
     this.render();
   }
 
+  /** Tool progress; TUI shows it in the status line, plain TTY prints a dim line. */
+  setActivity(activity: string | null): void {
+    if (!this.tuiMode) {
+      if (activity) this.output.write(`${DIM}  · ${activity}${ANSI_RESET}\n`);
+      return;
+    }
+    this.status = activity ?? "";
+    this.render();
+  }
+
   /** Messages waiting behind the running turn, shown above the input. */
   setPending(messages: string[]): void {
     if (!this.tuiMode) return;
@@ -418,7 +428,8 @@ export class NodeTerminal {
     if (!this.busy) return "";
     const seconds = Math.round((Date.now() - this.turnStartedAt) / 1000);
     const elapsed = seconds > 0 ? ` (${seconds}s)` : "";
-    return `\u001b[36m${SPIN[this.spinIdx]} Thinking${elapsed}…${ANSI_RESET}`;
+    const label = this.status ? truncateStatus(this.status, this.size().cols - 12) : "Thinking";
+    return `\u001b[36m${SPIN[this.spinIdx]} ${label}${elapsed}…${ANSI_RESET}`;
   }
 
   private pendingLines(): string[] {
@@ -525,4 +536,9 @@ export class NodeTerminal {
 
 function colored(text: string, color?: string): string {
   return color ? `${color}${text}${ANSI_RESET}` : text;
+}
+
+function truncateStatus(text: string, width: number): string {
+  const max = Math.max(10, width);
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

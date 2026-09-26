@@ -153,3 +153,24 @@ describe("interpretAgentInput", () => {
     });
   });
 });
+
+describe("interpretAgentInput questions and look-arounds", () => {
+  it.each([
+    "what's the status of the project",
+    "how far along is the flyd project?",
+    "look at the cleanx project and tell me what's left before launch",
+    "how does the evidence engine work in this codebase?",
+    "test my knowledge of spanish",
+    "check the weather in london",
+    "is the test suite green?",
+  ])("answers %j in chat instead of the coding runtime", (text) => {
+    expect(interpretAgentInput(text)).toEqual({ kind: "conversation", message: text });
+  });
+
+  it("still hands explicit change requests to the coding runtime", () => {
+    expect(interpretAgentInput("test the login flow in the app")).toEqual({
+      kind: "coding",
+      outcome: "test the login flow in the app",
+    });
+  });
+});

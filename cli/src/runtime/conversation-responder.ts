@@ -2,10 +2,11 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, realpa
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
-import { resolveModelConnection, type ModelConnection } from "../lib/config.js";
+import { apiModelId, chatModelChain, resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
-import { agentLoop, type AgentTool, type ToolHandler } from "../lib/llm.js";
+import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
+import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import { isHoroscopeQuestion } from "./personal-context-memory.js";
@@ -51,6 +52,11 @@ interface ConversationInput {
   presentHypothesis?: string | null;
   weather?: string;
   askUser?: (prompt: string) => Promise<boolean>;
+  now?: () => Date;
+  /** Short present-tense description of what Flyd is doing right now. */
+  onActivity?: (activity: string) => void;
+  /** Cancels provider requests and stops further tool calls. */
+  signal?: AbortSignal;
 }
 
 interface ConversationResponderDependencies {
@@ -63,7 +69,7 @@ interface ConversationResponderDependencies {
 const CHAT_OPENING = /^(?:let(?:'s|s| us) (?:just )?chat|i (?:just )?want to chat)[.!]?$/i;
 const CHAT_OPENING_REPLY = "What are you thinking about that does not belong in a task yet?";
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
-const CONVERSATION_MAX_ITERATIONS = 8;
+const CONVERSATION_MAX_ITERATIONS = 12;
 const CODING_MAX_ITERATIONS = 40;
 
 export function immediateConversationReply(
@@ -157,6 +163,19 @@ export async function specialistHandoff(
   });
 }
 
+/** Local wall-clock time; UTC stamps alone made "today"/"tomorrow" wrong near midnight. */
+export function localClock(now: Date): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const hours = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, "0");
+  const minutes = String(Math.abs(offsetMinutes) % 60).padStart(2, "0");
+  const stamp = now.toLocaleString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  return `Local time: ${stamp} (${zone}, UTC${sign}${hours}:${minutes})`;
+}
+
 export function buildConversationPrompt(input: ConversationInput, compiledContext?: CompiledContext): { system: string; prompt: string } {
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
@@ -197,8 +216,12 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
 
   return {
     system: [
-      "You are Flyd, George's personal coding agent. You work in his repositories, recall his memory, and act on evidence.",
-      "## Tools\n- read_file(path, repo?): read a file\n- grep(pattern, include?, repo?): search code with ripgrep\n- list_files(path?, repo?): list directory\n- git_log(count?, repo?): recent commits\n- edit_file(path, old_string, new_string, repo?): edit a file by replacing text\n- write_file(path, content, repo?): write a file\n- bash(command, repo?): run a shell command in the repo\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+      "You are Flyd, George's personal agent: a sharp, trusted assistant for his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
+      "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+      "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
+      "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
+      "Batch independent lookups: issue several searches or reads in the same step rather than one per step. Stop searching once the answer is established.",
+      "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. Project questions require project evidence. Start with the supplied PROJECT EVIDENCE and project context; only inspect further when it cannot establish the answer. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
       "Do not turn missing evidence into a claim that an action did not happen. For example, absent test output means the test status is unknown unless a test receipt, CI result, or tool call proves otherwise.",
@@ -218,7 +241,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
-    prompt: `${cognitiveContext}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 
@@ -437,6 +460,7 @@ function createToolHandler(
   };
 
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
+    if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn });
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
     switch (name) {
@@ -634,6 +658,34 @@ function createToolHandler(
         return `Unknown tool: ${name}`;
     }
   };
+}
+
+function clip(value: unknown, max = 60): string {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** One-line, human-readable status for the tool Flyd is running. */
+export function describeToolActivity(name: string, input: Record<string, unknown>): string {
+  const where = input.repo ? ` in ${basename(String(input.repo))}` : "";
+  switch (name) {
+    case "web_search": return `Searching the web: ${clip(input.query)}`;
+    case "read_url": {
+      try { return `Reading ${new URL(String(input.url)).host}`; } catch { return "Reading a web page"; }
+    }
+    case "read_file": return `Reading ${clip(input.path)}${where}`;
+    case "grep": return `Searching code for ${clip(input.pattern, 40)}${where}`;
+    case "list_files": return `Listing ${clip(input.path || ".")}${where}`;
+    case "git_log": return `Checking recent commits${where}`;
+    case "edit_file": return `Editing ${clip(input.path)}${where}`;
+    case "write_file": return `Writing ${clip(input.path)}${where}`;
+    case "bash": return `Running ${clip(input.command, 50)}${where}`;
+    case "remember": return "Saving to memory";
+    case "recall": return `Searching memory: ${clip(input.query)}`;
+    case "reminders": return input.action === "create" ? `Creating reminder: ${clip(input.title)}` : "Checking reminders";
+    case "calendar_events": return "Checking your calendar";
+    default: return `Using ${name}`;
+  }
 }
 
 function injectProjectContext(system: string, projectRoot: string): string {
@@ -922,8 +974,13 @@ export async function respondToConversation(
     capabilities: ["conversation", "memory", "git", "files", "shell", "web"],
   });
   const request = buildConversationPrompt(input, compiledContext);
-  const connection = (dependencies.resolveConnection ?? resolveModelConnection)();
-  const model = connection.model;
+  const injectedConnection = dependencies.resolveConnection?.();
+  const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
+  const model = models[0];
+  const connectionFor = (name: string): Pick<ModelConnection, "model" | "providerIdentity"> => {
+    if (injectedConnection) return injectedConnection;
+    try { return resolveModelConnection(name); } catch { return { model: name, providerIdentity: `unconfigured/${name}` }; }
+  };
   const system = `${injectProjectContext(request.system, projectRoot)}\n\nRuntime: model=${model} | repo=${projectRoot} | os=${process.platform}`;
   const facts = gatherProjectFacts(projectRoot);
   const evidence = gatherProjectEvidence(projectRoot);
@@ -931,7 +988,11 @@ export async function respondToConversation(
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn);
+  // A failed attempt may only be replayed on another provider if it changed nothing.
+  let attemptMutated = false;
   const observedHandler: ToolHandler = async (name, toolInput) => {
+    input.onActivity?.(describeToolActivity(name, toolInput));
+    if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);
       const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool)/.test(result);
@@ -950,14 +1011,25 @@ export async function respondToConversation(
       ? CODING_MAX_ITERATIONS
       : CONVERSATION_MAX_ITERATIONS;
   try {
-    const answer = await (dependencies.runAgentLoop ?? agentLoop)(
+    const { answer, model: usedModel } = await agentLoopWithFailover(
+      models,
       system,
       prompt,
-      conversationTools,
+      [...conversationTools, ...personalTools],
       observedHandler,
-      model,
       maxIterations,
+      {
+        signal: input.signal,
+        parallelSafe: (name, toolInput) => !isMutatingToolCall(name, toolInput),
+        canFailOver: () => !attemptMutated,
+        onFailover: ({ to }) => {
+          attemptMutated = false;
+          input.onActivity?.(`Switching to ${apiModelId(to)} (primary model unavailable)`);
+        },
+      },
+      dependencies.runAgentLoop ?? agentLoop,
     );
+    const connection = connectionFor(usedModel);
     const inspectionRequired = PROJECT_EVIDENCE_QUESTION.test(input.message)
       || isCurrentWorkQuestion(input.message)
       || mentioned !== null;
@@ -984,7 +1056,7 @@ export async function respondToConversation(
     return final;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await record(connection, toolCalls, "", "failed", message);
+    await record(connectionFor(model), toolCalls, "", "failed", message);
     throw error;
   }
 }

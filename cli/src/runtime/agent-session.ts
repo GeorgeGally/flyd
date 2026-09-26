@@ -50,6 +50,8 @@ interface AgentTerminal {
   stream?(token: string): void;
   /** Thinking indicator; TUI hosts render it in a status line. */
   setBusy?(busy: boolean): void;
+  /** What Flyd is doing right now (tool progress); null clears it. */
+  setActivity?(activity: string | null): void;
   /** Messages queued behind the running turn. */
   setPending?(messages: string[]): void;
   /** Full-screen pinned-input mode. */
@@ -84,6 +86,8 @@ interface AgentSessionDependencies {
     presentHypothesis?: string | null;
     weather?: string;
     askUser?(prompt: string): Promise<boolean>;
+    onActivity?(activity: string): void;
+    signal?: AbortSignal;
     onToken(token: string): void;
   }): Promise<string>;
 }
@@ -95,7 +99,10 @@ export type AgentSessionResult =
 
 const MAX_HISTORY_TURNS = 12;
 const CROSS_REPO_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_RESPONSE_TIMEOUT_MS = 45_000;
+/** Silence budget: the turn fails only when nothing has happened for this long. */
+const DEFAULT_RESPONSE_TIMEOUT_MS = 90_000;
+/** Absolute ceiling so a busy tool loop cannot hold the session forever. */
+const MAX_TURN_MS = 10 * 60 * 1000;
 
 const ART = [
   `${GREEN}███████╗██╗  ██╗   ██╗██████╗ ${RESET}`,
@@ -217,8 +224,9 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     deps.terminal.setBusy?.(true);
     let streamed = false;
     let streamColored = false;
+    const deadline = createTurnDeadline(responseTimeoutMs, MAX_TURN_MS);
     try {
-      const answer = await withResponseDeadline(deps.respond({
+      const answer = await deadline.run(deps.respond({
         sessionId: deps.sessionId,
         turnNumber: history.length / 2 + 1,
         message,
@@ -227,8 +235,22 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         situation,
         crossRepo: repos,
         presentHypothesis,
-        askUser: (prompt) => deps.terminal.confirm(prompt),
+        askUser: async (prompt) => {
+          deadline.pause();
+          try {
+            return await deps.terminal.confirm(prompt);
+          } finally {
+            deadline.resume();
+          }
+        },
+        signal: deadline.signal,
+        onActivity: (activity) => {
+          deadline.touch();
+          if (deps.terminal.setActivity) deps.terminal.setActivity(activity);
+          else if (!deps.terminal.tui) deps.terminal.write(`${paint(`  · ${activity}`, CYAN)}\n`);
+        },
         onToken: (token) => {
+          deadline.touch();
           streamed = true;
           if (deps.terminal.stream) {
             deps.terminal.stream(token);
@@ -238,10 +260,12 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
             deps.terminal.write(token);
           }
         },
-      }), responseTimeoutMs);
+      }));
       if (!streamed && answer) deps.terminal.write(paint(formatChatReply(answer), GREEN));
       return answer;
     } finally {
+      deadline.dispose();
+      deps.terminal.setActivity?.(null);
       deps.terminal.setBusy?.(false);
       if (streamed && !deps.terminal.stream && useColor()) deps.terminal.write(RESET);
     }
@@ -436,22 +460,54 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   }
 }
 
-function withResponseDeadline<T>(response: Promise<T>, timeoutMs: number): Promise<T> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return response;
-
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`Flyd response timed out after ${Math.ceil(timeoutMs / 1000)} seconds`));
-    }, timeoutMs);
-    response.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
+/**
+ * Idle deadline for one turn. Progress (tool activity, streamed tokens) resets
+ * the silence timer; expiry aborts the provider request and blocks further tool
+ * calls, so a turn reported as timed out cannot keep acting in the background.
+ */
+export function createTurnDeadline(idleMs: number, maxMs: number) {
+  const controller = new AbortController();
+  const enabled = Number.isFinite(idleMs) && idleMs > 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let rejectTurn: ((error: Error) => void) | undefined;
+  let paused = false;
+  const expire = (message: string) => {
+    if (controller.signal.aborted) return;
+    controller.abort();
+    rejectTurn?.(new Error(message));
+  };
+  const arm = () => {
+    if (!enabled || paused) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(
+      () => expire(`Flyd response timed out after ${Math.ceil(idleMs / 1000)} seconds without progress`),
+      idleMs,
     );
-  });
+  };
+  const hardTimer = enabled
+    ? setTimeout(() => expire(`Flyd stopped this turn after ${Math.round(maxMs / 60000)} minutes`), maxMs)
+    : undefined;
+  return {
+    signal: controller.signal,
+    touch: arm,
+    pause() {
+      paused = true;
+      if (idleTimer) clearTimeout(idleTimer);
+    },
+    resume() {
+      paused = false;
+      arm();
+    },
+    run<T>(response: Promise<T>): Promise<T> {
+      arm();
+      return new Promise<T>((resolve, reject) => {
+        rejectTurn = reject;
+        response.then(resolve, reject);
+      });
+    },
+    dispose() {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (hardTimer) clearTimeout(hardTimer);
+    },
+  };
 }

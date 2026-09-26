@@ -309,7 +309,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "calendar_events"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -446,9 +446,9 @@ describe("buildConversationPrompt", () => {
     await respondToConversation({ message: "what should I work on next?", ...baseInput }, deps);
     await respondToConversation({ message: "What am I working on right now, and what is the one most useful next step?", ...baseInput }, deps);
 
-    expect(budgets[0]).toBe(8);
+    expect(budgets[0]).toBe(12);
     expect(budgets[1]).toBe(40);
-    expect(budgets[2]).toBe(8);
+    expect(budgets[2]).toBe(12);
     expect(budgets[3]).toBe(6);
   });
 

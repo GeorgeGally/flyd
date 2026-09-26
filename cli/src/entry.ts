@@ -5,6 +5,9 @@ import { runDoctorRepos } from "./commands/repos.js";
 import { runPlanningEval } from "./commands/planning-eval.js";
 import { runDecisions, runFuture, runTrajectory } from "./commands/planning-inspect.js";
 
+// Tells index.ts it is being loaded as entry.ts's fallback, not as the binary.
+(globalThis as { __flydEntry?: boolean }).__flydEntry = true;
+
 function optionValue(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   if (index === -1) return undefined;

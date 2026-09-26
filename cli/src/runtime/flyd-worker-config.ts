@@ -31,8 +31,32 @@ export function opencodeEndpoint(provider: string): string {
   return OPENCODE_ENDPOINTS[provider] ?? OPENCODE_ENDPOINTS.opencode;
 }
 
+/**
+ * A provider-qualified model ("commandcode:deepseek/deepseek-v4-flash",
+ * "openai:gpt-5.6-luna") names its provider explicitly, so fallback chains can
+ * mix providers regardless of the global FLYD_PROVIDER.
+ */
+const QUALIFIED_MODEL = /^(openai|anthropic|commandcode|opencode|opencode-go):(.+)$/i;
+
+export function qualifiedModelProvider(model: string): string | null {
+  return model.trim().match(QUALIFIED_MODEL)?.[1].toLowerCase() ?? null;
+}
+
 export function apiModelId(model: string): string {
-  return model.replace(OPENCODE_MODEL_PREFIX, "");
+  const qualified = model.trim().match(QUALIFIED_MODEL);
+  const bare = qualified ? qualified[2] : model;
+  return bare.replace(OPENCODE_MODEL_PREFIX, "");
+}
+
+export const COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1";
+export const COMMANDCODE_DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+
+/** CommandCode names open models "vendor/model"; accept OpenCode-style ids too. */
+export function commandCodeModelId(model?: string): string {
+  const bare = apiModelId(model?.trim() || COMMANDCODE_DEFAULT_MODEL);
+  if (bare.includes("/")) return bare;
+  if (/^deepseek-/i.test(bare)) return `deepseek/${bare}`;
+  return bare;
 }
 
 export function parseEnvFile(content: string): NodeJS.ProcessEnv {
@@ -100,6 +124,7 @@ export function loadFlydWorkerConfigs(input: {
   const compatibilityModel = values.OPENCODE_MODEL?.trim() || values.OPENOCE_MODEL?.trim();
   const openRouterKey = values.OPENROUTER_API_KEY?.trim();
   const openRouterModel = values.OPENROUTER_MODEL?.trim();
+  const commandCodeKey = values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim();
   const candidates = [
     canonicalKey && canonicalModel ? {
       apiKey: canonicalKey,
@@ -115,6 +140,11 @@ export function loadFlydWorkerConfigs(input: {
       apiKey: openRouterKey,
       model: openRouterModel,
       baseURL: values.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1",
+    } : null,
+    commandCodeKey ? {
+      apiKey: commandCodeKey,
+      model: commandCodeModelId(values.COMMANDCODE_MODEL || values.COMMANDCODE_API_KEY_MODEL),
+      baseURL: values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL,
     } : null,
   ].filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate));
 

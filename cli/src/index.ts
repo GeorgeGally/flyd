@@ -690,7 +690,15 @@ tasks
   .description("Sync tasks from PROJECT.md files")
   .action(() => runTasksSync());
 
-program.parseAsync()
+// Some installs link the `flyd` binary straight at dist/index.js, bypassing
+// entry.ts. Without this hand-off, `flyd doctor` and friends fell through to
+// the bare-text capture and were silently saved as memory notes.
+const ENTRY_COMMANDS = new Set(["doctor", "evidence", "eval", "future", "trajectory", "decisions"]);
+const viaEntry = (globalThis as { __flydEntry?: boolean }).__flydEntry === true;
+
+(!viaEntry && ENTRY_COMMANDS.has(process.argv[2] ?? "")
+  ? import("./entry.js").then(() => undefined)
+  : program.parseAsync())
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`flyd: ${message}`);

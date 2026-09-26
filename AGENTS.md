@@ -175,12 +175,13 @@ cd cli && npm test                   # CLI/Core tests
 cd cli && npm run lint               # TypeScript typecheck
 cd cli && npm run build
 cd cli && npm run dev -- doctor      # evidence capability diagnostics during development
-flyd doctor                          # installed CLI diagnostics
+flyd doctor                          # installed CLI diagnostics, incl. live chat-model failover chain probe
 flyd doctor --json                   # structured diagnostics
 flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
+FLYD_CHAT_FALLBACK_MODELS=openai:gpt-5.6-luna  # chat/ask failover after FLYD_CHAT_MODEL (provider-qualified: openai:|anthropic:|commandcode:|opencode-go:); COMMANDCODE_API_KEY appends commandcode:<COMMANDCODE_MODEL> automatically
 FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)
 FLYD_JEV_MODEL=jev-1.13.0             # pin an exact Jev release (default jev-latest); thresholds were tuned against the pinned one
 FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze output as src/evals/fixtures/system-one/recordings.jsonl

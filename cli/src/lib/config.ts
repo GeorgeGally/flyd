@@ -4,7 +4,14 @@ import { join, basename, resolve } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { parseEnvFile } from "../runtime/flyd-worker-config.js";
-import { apiModelId, opencodeEndpoint, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
+import {
+  apiModelId,
+  COMMANDCODE_BASE_URL,
+  commandCodeModelId,
+  opencodeEndpoint,
+  opencodeProviderFor,
+  qualifiedModelProvider,
+} from "../runtime/flyd-worker-config.js";
 export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
 
 export const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -79,7 +86,13 @@ interface FlydConfig {
   FLYD_PROVIDER?: string;
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
+  FLYD_CHAT_FALLBACK_MODELS?: string;
   FLYD_MODEL_API_KEY?: string;
+  COMMANDCODE_API_KEY?: string;
+  CMD_API_KEY?: string;
+  COMMANDCODE_MODEL?: string;
+  COMMANDCODE_API_KEY_MODEL?: string;
+  COMMANDCODE_BASE_URL?: string;
   FLYD_MODEL_BASE_URL?: string;
   FLYD_ZODIAC_SIGN?: string;
   LAST30DAYS_SCRIPT?: string;
@@ -129,7 +142,68 @@ export function defaultChatModel(): string {
   return model;
 }
 
+/**
+ * Ordered chat models: the configured chat model, then FLYD_CHAT_FALLBACK_MODELS
+ * (comma-separated, provider-qualified like "openai:gpt-5.6-luna"), then
+ * CommandCode whenever its key is present. A provider outage or quota wall on
+ * one entry must not leave the personal agent mute.
+ */
+export function chatModelChain(): string[] {
+  return [...new Set([defaultChatModel(), ...fallbackModelChain()])];
+}
+
+/** Fallback models only, in order; shared by chat and one-shot queries. */
+export function fallbackModelChain(): string[] {
+  const chain: string[] = [];
+  for (const entry of (getKey("FLYD_CHAT_FALLBACK_MODELS") ?? "").split(",")) {
+    if (entry.trim()) chain.push(entry.trim());
+  }
+  if (getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim()) {
+    const configured = getKey("COMMANDCODE_MODEL")?.trim() || getKey("COMMANDCODE_API_KEY_MODEL")?.trim();
+    chain.push(`commandcode:${commandCodeModelId(configured)}`);
+  }
+  return [...new Set(chain)];
+}
+
+function qualifiedConnection(provider: string, model: string): ModelConnection {
+  const id = apiModelId(model);
+  const setting = (() => {
+    switch (provider) {
+      case "commandcode":
+        return {
+          apiKey: getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim(),
+          keyName: "COMMANDCODE_API_KEY",
+          baseURL: getKey("COMMANDCODE_BASE_URL")?.trim().replace(/\/+$/, "") || COMMANDCODE_BASE_URL,
+        };
+      case "openai":
+        return { apiKey: getKey("OPENAI_API_KEY")?.trim(), keyName: "OPENAI_API_KEY", baseURL: undefined };
+      case "anthropic":
+        return { apiKey: getKey("ANTHROPIC_API_KEY")?.trim(), keyName: "ANTHROPIC_API_KEY", baseURL: undefined };
+      default:
+        return {
+          apiKey: getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim(),
+          keyName: "OPENCODE_API_KEY",
+          baseURL: opencodeEndpoint(provider),
+        };
+    }
+  })();
+  if (!setting.apiKey) {
+    throw new Error(`No API key is configured for Flyd model ${model}: set ${setting.keyName}`);
+  }
+  const host = setting.baseURL
+    ? new URL(setting.baseURL).host
+    : provider === "openai" ? "api.openai.com" : "api.anthropic.com";
+  return {
+    model,
+    apiKey: setting.apiKey,
+    ...(setting.baseURL ? { baseURL: setting.baseURL } : {}),
+    providerIdentity: `${host}/${id}`,
+  };
+}
+
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
+  const qualified = qualifiedModelProvider(model);
+  if (qualified) return qualifiedConnection(qualified, model);
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
@@ -189,6 +263,8 @@ export function hasApiKey(model?: string): boolean {
 
 /** True when the model is served over an OpenAI-compatible chat API. */
 export function usesOpenAITransport(model: string): boolean {
+  const qualified = qualifiedModelProvider(model);
+  if (qualified) return qualified !== "anthropic";
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
   return isOpenAIModel(model) || opencodeProviderFor(model, provider) !== null || provider === "openai";
 }
