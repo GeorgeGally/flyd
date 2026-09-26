@@ -112,6 +112,9 @@ export class NodeTerminal {
   private spinIdx = 0;
   private turnStartedAt = 0;
   private askResolve: ((text: string) => void) | undefined;
+  /** A y/N question raised mid-turn; it owns the next submitted line. */
+  private confirmResolve: ((text: string) => void) | undefined;
+  private confirmPrompt = "";
   private submitted: string[] = [];
   private readonly decoder = new StringDecoder("utf8");
   private readonly resizeHandler: (() => void) | null = null;
@@ -259,8 +262,21 @@ export class NodeTerminal {
   }
 
   async confirm(prompt: string): Promise<boolean> {
-    const answer = (await this.ask(`${prompt} [y/N]`)).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
+    const question = `${prompt} [y/N]`;
+    // In TUI mode the session loop already has an ask() pending while a turn
+    // runs. Routing the confirmation through ask() would steal that resolver
+    // (freezing input afterwards) or consume a queued message as the answer.
+    const answer = this.tuiMode
+      ? await new Promise<string>((resolve) => {
+        if (this.live) this.commitLive();
+        this.confirmResolve = resolve;
+        this.confirmPrompt = `${question} `;
+        this.inputState = createLineReaderState();
+        this.render();
+      })
+      : await this.ask(question);
+    const normalized = answer.trim().toLowerCase();
+    return normalized === "y" || normalized === "yes";
   }
 
   async close(): Promise<void> {
@@ -331,6 +347,17 @@ export class NodeTerminal {
     if (result.interrupt) {
       this.close();
       process.exit(130);
+    }
+
+    if (result.submit !== undefined && this.confirmResolve) {
+      const resolve = this.confirmResolve;
+      this.confirmResolve = undefined;
+      this.transcript.push(`${DIM}${this.confirmPrompt}${result.submit.trim() || "N"}${ANSI_RESET}`);
+      this.confirmPrompt = "";
+      this.inputState = createLineReaderState();
+      resolve(result.submit);
+      this.render();
+      return;
     }
 
     if (result.submit !== undefined) {
@@ -415,8 +442,8 @@ export class NodeTerminal {
       liveColor: "\u001b[32m",
       input: this.inputState.buffer,
       cursor: this.inputState.cursor,
-      prompt: this.prompt,
-      inputColor: this.echoColor,
+      prompt: this.confirmPrompt || this.prompt,
+      inputColor: this.confirmPrompt ? "" : this.echoColor,
       status: this.statusLine(),
       pending: this.pendingLines(),
       separator: `${DIM}${"\u2500".repeat(Math.max(1, this.size().cols))}${ANSI_RESET}`,

@@ -183,6 +183,11 @@ export async function agentLoop(
 export interface AgentLoopOptions {
   /** Aborts in-flight provider requests; tool calls stop at the next boundary. */
   signal?: AbortSignal;
+  /**
+   * Epoch ms after which the next model call must answer from the evidence
+   * gathered so far. Keeps conversational turns from exploring for minutes.
+   */
+  answerBy?: number;
   /** Calls that may run concurrently with their siblings (read-only lookups). */
   parallelSafe?(name: string, input: Record<string, unknown>): boolean;
 }
@@ -226,6 +231,10 @@ export interface FailoverOptions extends AgentLoopOptions {
   /** False once the failed attempt did something that must not be repeated. */
   canFailOver?(): boolean;
   onFailover?(event: { from: string; to: string; error: string }): void;
+}
+
+function pastAnswerBy(options: AgentLoopOptions): boolean {
+  return options.answerBy !== undefined && Date.now() >= options.answerBy;
 }
 
 /** A timed-out or cancelled turn must not keep acting after the user was told it stopped. */
@@ -488,7 +497,7 @@ async function agentLoopAnthropic(
   for (let i = 0; i < ceiling; i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
-    const lastCall = i === ceiling - 1;
+    const lastCall = i === ceiling - 1 || pastAnswerBy(options);
     const res = await client.messages.create({
       model: apiModelId(model),
       max_tokens: 2048,
@@ -568,7 +577,7 @@ async function agentLoopOpenAI(
 
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let i = 0; i < ceiling; i++) {
-    const lastCall = i === ceiling - 1;
+    const lastCall = i === ceiling - 1 || pastAnswerBy(options);
     // History holds tool calls, so the final request keeps the tool list (some
     // backends reject tool history without it) but forbids further calls.
     if (lastCall) messages.push({ role: "user", content: TOOL_CEILING_NOTE.trim() });
@@ -642,7 +651,7 @@ async function agentLoopOpenAIResponses(
 
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   for (let iteration = 0; iteration < ceiling; iteration += 1) {
-    const lastCall = iteration === ceiling - 1;
+    const lastCall = iteration === ceiling - 1 || pastAnswerBy(options);
     const response = await client.responses.create({
       model: apiModelId(model),
       instructions: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,

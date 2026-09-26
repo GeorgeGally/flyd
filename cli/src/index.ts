@@ -90,6 +90,15 @@ program
   });
 
 program
+  .command("profile")
+  .description("Show George's editable profile (USER.md); `flyd profile edit` opens it")
+  .argument("[action]", "edit")
+  .action(async (action?: string) => {
+    const { runProfile } = await import("./commands/profile.js");
+    await runProfile(action);
+  });
+
+program
   .command("code")
   .description("Start or resume the continuity coding harness")
   .argument("[outcome]", "intended coding outcome")

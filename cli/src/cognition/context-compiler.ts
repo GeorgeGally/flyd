@@ -8,6 +8,7 @@ import { readProjection, readProjectProjection } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
 import { readContextBundles } from "../lib/context-bundles.js";
+import { readUserProfile } from "../lib/user-profile.js";
 
 export interface CompileContextInput {
   intent: string;
@@ -88,7 +89,13 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   if (legacyActiveProjects && projects.length === 0) {
     projects.push({ id: "legacy:active-work", projection: legacyActiveProjects });
   }
-  const profileCombined = [profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
+  let ownProfile: string | null = null;
+  try { ownProfile = readUserProfile(); } catch { omissions.push("user_profile_unreadable"); }
+  if (ownProfile) sources.push("USER.md");
+  const ownProfileBlock = ownProfile
+    ? `## George's own profile (USER.md — written or confirmed by George; outranks everything below)\n${ownProfile}`
+    : "";
+  const profileCombined = [ownProfileBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne

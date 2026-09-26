@@ -134,6 +134,7 @@ Guardrails:
 - Do not treat engagement or popularity as truth.
 - Do not persist raw external evidence into personal memory without a separate governed decision.
 - Deep research must remain bounded; no recursive browsing loop without a hard cap.
+- Chat tools run on the host, so `cli/src/runtime/tool-policy.ts` gates them: read-only commands and tests run freely, other state changes ask George, and after web content enters a turn every state change asks. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). Loosen these only with a test proving the new case is read-only.
 
 ## Structure
 
@@ -180,6 +181,8 @@ flyd doctor --json                   # structured diagnostics
 flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
+flyd profile [edit]                   # George's USER.md — highest-authority personal context, fed to every compiled context
+cd cli && npm run evals:chat          # live chat evals (read-only; --only id,id --model provider:model); results + regressions in ~/.flyd/evals/chat/
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
 FLYD_CHAT_FALLBACK_MODELS=openai:gpt-5.6-luna  # chat/ask failover after FLYD_CHAT_MODEL (provider-qualified: openai:|anthropic:|commandcode:|opencode-go:); COMMANDCODE_API_KEY appends commandcode:<COMMANDCODE_MODEL> automatically
 FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)

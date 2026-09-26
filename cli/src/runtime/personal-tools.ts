@@ -25,11 +25,12 @@ export const personalTools: AgentTool[] = [
   },
   {
     name: "remember",
-    description: "Save a fact, preference, decision, or note to George's long-term Flyd memory. Use when he says remember/note/save this, or states a durable personal fact.",
+    description: "Save a fact, preference, decision, or note to George's long-term Flyd memory. Use when he says remember/note/save this, or states a durable personal fact. Set about_george for lasting facts about George himself (preferences, people, identity, constraints) — those also go into his editable profile (USER.md).",
     input_schema: {
       type: "object",
       properties: {
         text: { type: "string", description: "Self-contained note, written so it makes sense on its own later" },
+        about_george: { type: "boolean", description: "True for a durable fact about George himself" },
       },
       required: ["text"],
     },
@@ -87,6 +88,7 @@ export interface PersonalToolDependencies {
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
   capture?: (text: string) => Promise<string>;
+  appendProfileFact?: (text: string) => boolean;
   recall?: (query: string) => Promise<string>;
 }
 
@@ -345,6 +347,11 @@ export async function runPersonalTool(
       if (!text) return "Error: remember needs text";
       try {
         await (deps.capture ?? defaultCapture)(text);
+        if (input.about_george === true) {
+          const append = deps.appendProfileFact ?? (await import("../lib/user-profile.js")).appendUserProfileFact;
+          const added = append(text);
+          return `Saved to Flyd memory${added ? " and George's profile (USER.md)" : " (already in his profile)"}: ${text.slice(0, 120)}`;
+        }
         return `Saved to Flyd memory: ${text.slice(0, 120)}`;
       } catch (error) {
         return `Error saving memory: ${error instanceof Error ? error.message : String(error)}`;

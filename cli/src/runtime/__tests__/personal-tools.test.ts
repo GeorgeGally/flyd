@@ -50,6 +50,17 @@ describe("personal tools", () => {
       .toBe("hit for seats");
   });
 
+  it("also writes durable facts about George into his profile", async () => {
+    const capture = vi.fn(async () => "/raw/x.md");
+    const appendProfileFact = vi.fn(() => true);
+    expect(await runPersonalTool("remember", { text: "George is vegetarian", about_george: true }, { capture, appendProfileFact }))
+      .toBe("Saved to Flyd memory and George's profile (USER.md): George is vegetarian");
+    expect(appendProfileFact).toHaveBeenCalledWith("George is vegetarian");
+    expect(await runPersonalTool("remember", { text: "Project kickoff went well" }, { capture, appendProfileFact }))
+      .toBe("Saved to Flyd memory: Project kickoff went well");
+    expect(appendProfileFact).toHaveBeenCalledTimes(1);
+  });
+
   it("classifies which calls may not be replayed or parallelized", () => {
     expect(isMutatingToolCall("reminders", { action: "create" })).toBe(true);
     expect(isMutatingToolCall("reminders", { action: "list" })).toBe(false);

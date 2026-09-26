@@ -21,6 +21,30 @@ function drain(stream: PassThrough): string {
 }
 
 describe("NodeTerminal TUI mode", () => {
+  it("answers a mid-turn confirmation without stealing the pending chat prompt", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    let chatLine: string | null = null;
+    const pending = terminal.ask("You > ", "\u001b[36m").then((line) => { chatLine = line; });
+    const approval = terminal.confirm("Flyd wants to run: git commit -m wip. Allow?");
+    input.write("y\r");
+    await expect(approval).resolves.toBe(true);
+    expect(chatLine).toBeNull();
+    input.write("next question\r");
+    await pending;
+    expect(chatLine).toBe("next question");
+    expect(drain(output)).toContain("Allow? [y/N] y");
+    await terminal.close();
+  });
+
+  it("treats anything but y as a refusal", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    const approval = terminal.confirm("Allow?");
+    input.write("\r");
+    await expect(approval).resolves.toBe(false);
+    await terminal.close();
+    drain(output);
+  });
+
   it("enters the alternate screen and keeps the reader live while output streams", async () => {
     const { terminal, input, output } = tuiTerminal();
     const askPromise = terminal.ask("You > ", "\u001b[36m");

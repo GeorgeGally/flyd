@@ -1,4 +1,5 @@
 import { execFile as nodeExecFile } from "child_process";
+import { withSecurityAudit } from "./code-audit.js";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "path";
@@ -518,7 +519,7 @@ export function createFlydWorkerTools(input: {
           } finally {
             await reader.cancel().catch(() => undefined);
           }
-          return boundedToolResult(body);
+          return boundedToolResult(withSecurityAudit(body, url.toString()));
         } catch (error) {
           if (controller.signal.aborted) throw new Error("Fetch timed out");
           throw error;

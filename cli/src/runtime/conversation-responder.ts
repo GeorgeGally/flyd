@@ -7,6 +7,9 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
+import { fetchPublicUrl } from "./url-guard.js";
+import { withSecurityAudit } from "./code-audit.js";
+import { decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import { isHoroscopeQuestion } from "./personal-context-memory.js";
@@ -64,6 +67,8 @@ interface ConversationResponderDependencies {
   resolveConnection?: () => ModelConnection;
   persistReceipt?: typeof persistTurnReceipt;
   fetchFn?: FetchLike;
+  /** Evaluation runs: state-changing tools are recorded as attempted but never execute. */
+  readOnly?: boolean;
 }
 
 const CHAT_OPENING = /^(?:let(?:'s|s| us) (?:just )?chat|i (?:just )?want to chat)[.!]?$/i;
@@ -71,6 +76,9 @@ const CHAT_OPENING_REPLY = "What are you thinking about that does not belong in 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
 const CONVERSATION_MAX_ITERATIONS = 12;
 const CODING_MAX_ITERATIONS = 40;
+/** Conversational turns answer from what they have after this long. */
+const CONVERSATION_ANSWER_BUDGET_MS = 45_000;
+const CODING_ANSWER_BUDGET_MS = 5 * 60_000;
 
 export function immediateConversationReply(
   message: string,
@@ -220,6 +228,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
+      "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
+      "For status or overview questions, answer from the supplied PROJECT EVIDENCE and context plus a few targeted reads (plans, TODOs, recent commits). Do not audit the whole repository.",
       "Batch independent lookups: issue several searches or reads in the same step rather than one per step. Stop searching once the answer is established.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
@@ -237,7 +247,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
-      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). Never run destructive commands (push, rm -rf, reset --hard, sudo) — refuse and tell George.",
+      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). Read-only commands and tests run freely. Anything that changes state beyond a repo file edit (commits, installs, network writes, destructive commands) — and any action after you have read web content this turn — goes to George for approval automatically. If an action comes back 'Not approved', do not retry or work around it.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
@@ -349,7 +359,6 @@ const conversationTools: AgentTool[] = [
   },
 ];
 
-const BLOCKED_COMMAND = /\brm\s+-[a-z]*r|\bgit\s+(?:push\s+(?:--force(?:-with-lease)?|-f)\b|reset\s+--hard|clean\s+-f[dx]*)|\bsudo\b|curl.*\|\s*(?:ba)?sh\b|git\s+(?:checkout|restore)\s+--\s*\./i;
 
 export function isInstagramLoginWall(url: string, text: string): boolean {
   return /instagram\.com/i.test(url)
@@ -391,9 +400,8 @@ function htmlToText(html: string): string {
 }
 
 async function readUrlHtml(fetchFn: FetchLike, url: string, signal: AbortSignal): Promise<string> {
-  const response = await fetchFn(url, {
+  const response = await fetchPublicUrl(fetchFn as (input: string, init?: RequestInit) => Promise<Response>, url, {
     signal,
-    redirect: "follow",
     headers: { "User-Agent": "Mozilla/5.0 (compatible; Flyd)" },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
@@ -429,6 +437,7 @@ function createToolHandler(
   onToken: (token: string) => void,
   askUser?: (prompt: string) => Promise<boolean>,
   fetchFn: FetchLike = fetch,
+  readOnly = false,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -459,7 +468,8 @@ function createToolHandler(
     return full.startsWith(`${root}${sep}`) || full === root ? full : null;
   };
 
-  return async (name: string, input: Record<string, unknown>): Promise<string> => {
+  const policy: ToolPolicyState = { tainted: false };
+  const execute = async (name: string, input: Record<string, unknown>): Promise<string> => {
     if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn });
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
@@ -585,16 +595,6 @@ function createToolHandler(
       case "bash": {
         const command = String(input.command ?? "").trim();
         if (!command) return "Error: empty command";
-        if (BLOCKED_COMMAND.test(command)) {
-          if (askUser) {
-            const approved = await askUser(`Run destructive command? "${command}"\nType y to approve, anything else to refuse: `);
-            if (!approved) {
-              return `Blocked: ${command} — destructive command; run it yourself if intended`;
-            }
-          } else {
-            return `Blocked: ${command} — destructive command; run it yourself if intended`;
-          }
-        }
         try {
           const stdout = execFileSync("/bin/bash", ["-c", command], {
             cwd: repoRoot, encoding: "utf8", timeout: 60000, maxBuffer: 4 * 1024 * 1024,
@@ -646,7 +646,8 @@ function createToolHandler(
           }
           if (!text && metaBlock.length === 0) return `No readable text on ${url}`;
           const body = [...metaBlock, text].filter((value) => Boolean(value)).join("\n\n");
-          return truncateText(body, 8000);
+          // Scan the raw page: hidden comments and scripts are where injected instructions live.
+          return withSecurityAudit(truncateText(body, 8000), url, html);
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           return `Error fetching ${url}: ${message}`;
@@ -657,6 +658,23 @@ function createToolHandler(
       default:
         return `Unknown tool: ${name}`;
     }
+  };
+
+  return async (name: string, input: Record<string, unknown>): Promise<string> => {
+    const decision = decideToolCall(name, input, policy);
+    if (decision.kind === "confirm") {
+      const approved = askUser ? await askUser(`Flyd wants to ${decision.reason}. Allow?`) : false;
+      if (!approved) {
+        return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
+      }
+    }
+    // Evaluation runs pass the approval policy first, then record rather than act.
+    if (readOnly && (name === "bash" ? !isReadOnlyCommand(String(input.command ?? "")) : isMutatingToolCall(name, input))) {
+      return "Not approved: this is a read-only evaluation run, so actions are recorded but not executed. Tell George what you would have done.";
+    }
+    const result = await execute(name, input);
+    if (marksTurnUntrusted(name)) policy.tainted = true;
+    return result;
   };
 }
 
@@ -987,7 +1005,7 @@ export async function respondToConversation(
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
-  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn);
+  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const observedHandler: ToolHandler = async (name, toolInput) => {
@@ -995,7 +1013,7 @@ export async function respondToConversation(
     if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);
-      const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool)/.test(result);
+      const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool|Not approved)/.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
       return result;
     } catch (error) {
@@ -1020,6 +1038,7 @@ export async function respondToConversation(
       maxIterations,
       {
         signal: input.signal,
+        answerBy: Date.now() + (codingIntent === "contextual_action" ? CODING_ANSWER_BUDGET_MS : CONVERSATION_ANSWER_BUDGET_MS),
         parallelSafe: (name, toolInput) => !isMutatingToolCall(name, toolInput),
         canFailOver: () => !attemptMutated,
         onFailover: ({ to }) => {
