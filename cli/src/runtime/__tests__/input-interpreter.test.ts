@@ -2,175 +2,26 @@ import { describe, expect, it } from "vitest";
 import { interpretAgentInput } from "../input-interpreter.js";
 
 describe("interpretAgentInput", () => {
-  it("keeps ordinary conversation out of the coding runtime", () => {
-    expect(interpretAgentInput("let's just chat")).toEqual({
-      kind: "conversation",
-      message: "let's just chat",
-    });
-    expect(interpretAgentInput("What was I last working on?")).toEqual({
-      kind: "conversation",
-      message: "What was I last working on?",
-    });
-  });
-
-  it("routes concrete repository changes to the coding runtime", () => {
-    expect(interpretAgentInput("implement dark mode")).toEqual({
-      kind: "coding",
-      outcome: "implement dark mode",
-    });
-    expect(interpretAgentInput("Fix chat so cmd+enter submits")).toEqual({
-      kind: "coding",
-      outcome: "Fix chat so cmd+enter submits",
-    });
-    expect(interpretAgentInput("Can you implement the next PRD slice?")).toEqual({
-      kind: "coding",
-      outcome: "Can you implement the next PRD slice?",
-    });
-    expect(interpretAgentInput("Could you fix the failing test?")).toEqual({
-      kind: "coding",
-      outcome: "Could you fix the failing test?",
-    });
-    expect(interpretAgentInput("Would you update the chat prompt?")).toEqual({
-      kind: "coding",
-      outcome: "Would you update the chat prompt?",
-    });
-    expect(interpretAgentInput("I need you to fix chat now")).toEqual({
-      kind: "coding",
-      outcome: "I need you to fix chat now",
-    });
-    expect(interpretAgentInput("Investigate the failing test")).toEqual({
-      kind: "coding",
-      outcome: "Investigate the failing test",
-    });
-    expect(interpretAgentInput("Review this PR")).toEqual({
-      kind: "coding",
-      outcome: "Review this PR",
-    });
-  });
-
-  it("routes inspect-then-implement requests to the coding runtime", () => {
-    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
-
-    expect(interpretAgentInput(outcome)).toEqual({
-      kind: "coding",
-      outcome,
-    });
-    expect(interpretAgentInput("Check out this GitHub repo and integrate it: https://github.com/example/tool")).toEqual({
-      kind: "coding",
-      outcome: "Check out this GitHub repo and integrate it: https://github.com/example/tool",
-    });
-    expect(interpretAgentInput("Look at this plugin, then add it to Flyd")).toEqual({
-      kind: "coding",
-      outcome: "Look at this plugin, then add it to Flyd",
-    });
-  });
-
-  it("keeps ordinary personal actions in conversation", () => {
-    expect(interpretAgentInput("Build me a travel itinerary")).toEqual({
-      kind: "conversation",
-      message: "Build me a travel itinerary",
-    });
-    expect(interpretAgentInput("Add milk to my shopping list")).toEqual({
-      kind: "conversation",
-      message: "Add milk to my shopping list",
-    });
-    expect(interpretAgentInput("Remove this reminder")).toEqual({
-      kind: "conversation",
-      message: "Remove this reminder",
-    });
-  });
-
-  it("supports explicit session controls without treating them as conversation", () => {
-    expect(interpretAgentInput("/code improve startup speed")).toEqual({
-      kind: "coding",
-      outcome: "improve startup speed",
-    });
-    expect(interpretAgentInput("/resume")).toEqual({ kind: "resume" });
+  it("interprets only explicit session controls", () => {
     expect(interpretAgentInput("/exit")).toEqual({ kind: "exit" });
+    expect(interpretAgentInput("quit")).toEqual({ kind: "exit" });
+    expect(interpretAgentInput("/resume")).toEqual({ kind: "resume" });
+    expect(interpretAgentInput("/code improve startup speed")).toEqual({ kind: "coding", outcome: "improve startup speed" });
   });
 
-  it("recognizes natural continuation requests, including the observed typo", () => {
-    expect(interpretAgentInput("continue.")).toEqual({
-      kind: "continue",
-      message: "continue.",
-    });
-    expect(interpretAgentInput("conrtinue.")).toEqual({
-      kind: "continue",
-      message: "conrtinue.",
-    });
-    expect(interpretAgentInput("keep going")).toEqual({
-      kind: "continue",
-      message: "keep going",
-    });
-  });
-
-  it("keeps deictic execution commands unresolved until the session can prove their referent", () => {
-    expect(interpretAgentInput("ok implement then")).toEqual({
-      kind: "contextual_action",
-      message: "ok implement then",
-    });
-    expect(interpretAgentInput("no you implement!")).toEqual({
-      kind: "contextual_action",
-      message: "no you implement!",
-    });
-    expect(interpretAgentInput("do it")).toEqual({
-      kind: "contextual_action",
-      message: "do it",
-    });
-  });
-
-  it("does not mistake questions about coding for permission to edit", () => {
-    expect(interpretAgentInput("Why is the chat so slow?")).toEqual({
-      kind: "conversation",
-      message: "Why is the chat so slow?",
-    });
-    expect(interpretAgentInput("How should we fix the memory system?")).toEqual({
-      kind: "conversation",
-      message: "How should we fix the memory system?",
-    });
-    expect(interpretAgentInput("so how do we fix this?")).toEqual({
-      kind: "conversation",
-      message: "so how do we fix this?",
-    });
-    expect(interpretAgentInput("Take a look at this skill")).toEqual({
-      kind: "conversation",
-      message: "Take a look at this skill",
-    });
-  });
-
-  it("keeps long pastes in conversation instead of auto-routing to coding", () => {
-    const longPaste = `implement the project architecture for this repository worker codebase.\n${"x".repeat(4_100)}`;
-    expect(longPaste.length).toBeGreaterThan(4_000);
-    const interpreted = interpretAgentInput(longPaste);
-    expect(interpreted.kind).toBe("conversation");
-    if (interpreted.kind === "conversation") {
-      expect(interpreted.message.length).toBeGreaterThan(4_000);
-    }
-    // Without the length guard this would be coding.
-    expect(interpretAgentInput("implement the project architecture for this repository")).toEqual({
-      kind: "coding",
-      outcome: "implement the project architecture for this repository",
-    });
-  });
-});
-
-describe("interpretAgentInput questions and look-arounds", () => {
   it.each([
+    "implement dark mode",
+    "Fix chat so cmd+enter submits",
+    "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd",
     "what's the status of the project",
-    "how far along is the flyd project?",
-    "look at the cleanx project and tell me what's left before launch",
-    "how does the evidence engine work in this codebase?",
+    "do it",
+    "ok implement then",
+    "continue.",
+    "let's just chat",
+    "bring in the coach",
+    "add milk to my shopping list",
     "test my knowledge of spanish",
-    "check the weather in london",
-    "is the test suite green?",
-  ])("answers %j in chat instead of the coding runtime", (text) => {
+  ])("leaves %j to the model", (text) => {
     expect(interpretAgentInput(text)).toEqual({ kind: "conversation", message: text });
-  });
-
-  it("still hands explicit change requests to the coding runtime", () => {
-    expect(interpretAgentInput("test the login flow in the app")).toEqual({
-      kind: "coding",
-      outcome: "test the login flow in the app",
-    });
   });
 });

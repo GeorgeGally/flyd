@@ -72,6 +72,5 @@ describe("turnBudget", () => {
     expect(turnBudget("what's the weather in Bali?", "conversation")).toEqual({ iterations: 12, answerMs: 45_000 });
     expect(turnBudget("clean up my Downloads folder and summarize what was there", "conversation")).toEqual({ iterations: 25, answerMs: 180_000 });
     expect(turnBudget("anything new?", "conversation", "agenda-abc")).toEqual({ iterations: 25, answerMs: 180_000 });
-    expect(turnBudget("do it", "contextual_action")).toEqual({ iterations: 40, answerMs: 300_000 });
   });
 });

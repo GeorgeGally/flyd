@@ -68,7 +68,8 @@ const READ_ONLY_GIT = new Set([
 const VERIFY = /^(?:npm\s+(?:test|run\s+(?:test|lint|build|typecheck|check)\b)|npx\s+(?:vitest|tsc\s+--noEmit|eslint)\b|yarn\s+(?:test|lint)\b|pnpm\s+(?:test|lint)\b|bundle\s+exec\s+(?:rspec|rails\s+test)\b|(?:bin\/)?rails\s+test\b|pytest\b|go\s+(?:test|vet)\b|cargo\s+(?:test|check)\b|swift\s+build\b|make\s+(?:test|check|lint)\b|node\s+(?:-v|--version)\b|npm\s+(?:-v|--version|ls|list|view)\b|tsc\s+--noEmit\b)/;
 
 function segmentIsReadOnly(segment: string): boolean {
-  let text = segment.trim();
+  // Subshell grouping "( … )" does not change what the command does.
+  let text = segment.trim().replace(/^[({]\s*/, "").replace(/\s*[)}]$/, "").trim();
   if (!text) return true;
   // Leading VAR=value assignments (e.g. TZ=America/New_York date) do not change the head.
   while (/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/.test(text)) text = text.replace(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/, "");
@@ -180,6 +181,12 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "remember":
       return "local";
     case "schedule": return input.action === "list" ? "read" : "local";
+    case "todos": return input.action === "list" ? "read" : "local";
+    case "work_model":
+    case "speaking_style":
+    case "start_coding_task":
+      return "local";
+    case "flyd": return input.action === "run_briefing" || input.action === "skillify" ? "local" : "read";
     case "reminders": return input.action === "create" ? "local" : "read";
     case "mac":
       if (input.action === "applescript") return classifyAppleScript(String(input.script ?? ""));

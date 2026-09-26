@@ -17,7 +17,6 @@ import {
   formatTodoList,
 } from "../confirmed-todos.js";
 import { writePresentModel } from "../store.js";
-import { presentModelReply } from "../../../runtime/conversation-responder.js";
 import { recallMemoryForTodoItems } from "../../../runtime/todo-memory-recall.js";
 
 describe("confirmed todos", () => {
@@ -156,13 +155,6 @@ describe("confirmed todos", () => {
 
   it("does not hard-refuse unknown completions", () => {
     expect(handleConfirmedTodoUtterance("widgets are done")).toBeNull();
-  });
-
-  it("does not treat Present Model questions as to-do list questions", () => {
-    expect(isTodoListQuestion("what am I working on?")).toBe(false);
-    expect(
-      presentModelReply("whats my to do list?", "  CleanX looks active"),
-    ).toBeNull();
   });
 
   it("parses messy correction lists", () => {

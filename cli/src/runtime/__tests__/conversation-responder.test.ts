@@ -4,58 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildConversationPrompt,
-  immediateConversationReply,
   isInstagramLoginWall,
-  missingPersonalFactReply,
   respondToConversation,
 } from "../conversation-responder.js";
 
 describe("buildConversationPrompt", () => {
-  it("handles an explicit chat opener without a generic model round trip", () => {
-    expect(immediateConversationReply("let's just chat", [])).toBe(
-      "What are you thinking about that does not belong in a task yet?",
-    );
-    expect(immediateConversationReply("let's just chat", [
-      { role: "user", content: "Earlier" },
-      { role: "assistant", content: "Response" },
-    ])).toBeNull();
-  });
-
-  it("refuses to invent a horoscope when no personal evidence exists", () => {
-    expect(missingPersonalFactReply("What is my current horoscope?", {
-      verdict: "insufficient",
-      matches: [],
-    })).toBe("I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.");
-    expect(missingPersonalFactReply("What is my current horoscope?", {
-      verdict: "partial",
-      matches: [{
-        id: "horoscope",
-        path: "personal/horoscope.md",
-        excerpt: "Your current horoscope.",
-        stale: false,
-        kind: "horoscope",
-      }],
-    })).toBeNull();
-    expect(missingPersonalFactReply("What is my zodiac sign?", {
-      verdict: "partial",
-      matches: [{
-        id: "unrelated",
-        path: "posttraction/profile.md",
-        excerpt: "A generic note that happens to mention zodiac signs.",
-        stale: false,
-        kind: "archive",
-      }],
-    })).toBe("I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.");
-    expect(missingPersonalFactReply("What star sign am I?", {
-      verdict: "insufficient",
-      matches: [],
-    })).toBe("I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.");
-    expect(missingPersonalFactReply("Am I a Taurus?", {
-      verdict: "insufficient",
-      matches: [],
-    })).toBe("I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.");
-  });
-
   it("treats memory as personal evidence rather than a refusal boundary", () => {
     const prompt = buildConversationPrompt({
       message: "What should I work on next?",
@@ -309,7 +262,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -426,7 +379,7 @@ describe("buildConversationPrompt", () => {
     }
   });
 
-  it("gives coding turns a large tool budget but keeps conversation turns tight", async () => {
+  it("gives tasks room to finish but keeps questions tight", async () => {
     const budgets: number[] = [];
     const loop = async (_system: string, _prompt: string, _tools: unknown[], _onToolCall: unknown, _model: string, iterations?: number) => {
       budgets.push(iterations ?? 0);
@@ -447,33 +400,39 @@ describe("buildConversationPrompt", () => {
     await respondToConversation({ message: "What am I working on right now, and what is the one most useful next step?", ...baseInput }, deps);
 
     expect(budgets[0]).toBe(25);
-    expect(budgets[1]).toBe(40);
+    expect(budgets[1]).toBe(25);
     expect(budgets[2]).toBe(12);
     expect(budgets[3]).toBe(6);
   });
 
-  it("answers an exact current-work question from the fresh situation without a model round trip", async () => {
+  it.each([
+    "let's just chat",
+    "bring in the coach",
+    "coach, how did my week go?",
+    "what skills do you have?",
+    "I'm not working on Bridgestone anymore",
+    "add milk to my to-do list",
+    "what's my horoscope today?",
+    "remember this: I prefer aisle seats",
+    "what needs to be done on cleanx?",
+  ])("sends %j to the model with the capability tools instead of a canned reply", async (message) => {
+    let ranLoop = false;
+    let toolNames: string[] = [];
     const answer = await respondToConversation({
-      message: "What am I working on right now, and what is the one most useful next step?",
-      history: [],
-      memory: { verdict: "insufficient", matches: [] },
-      situation: {
-        project: "Flyd", branch: "main", head: "aceaf32", dirty: true,
-        changedFiles: 12, latestCommit: "fix(work): expire a date that passed instead of calling it overdue forever",
-        outcome: null, status: null, nextAction: null,
-        projectRoot: "/Users/radarboy3000/Documents/flyd",
-      },
-      onToken: () => undefined,
+      message, history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => undefined,
     }, {
-      runAgentLoop: async () => {
-        throw new Error("current-work snapshot must not call the model");
+      runAgentLoop: async (_system, _prompt, tools) => {
+        ranLoop = true;
+        toolNames = tools.map((tool) => tool.name);
+        return "<final>model answer</final>";
       },
       persistReceipt: async (input) => input as never,
     });
-
-    expect(answer).toContain("Flyd");
-    expect(answer).toContain("12 uncommitted changes");
-    expect(answer).toContain("review and verify those current changes");
+    expect(ranLoop).toBe(true);
+    expect(answer).toBe("model answer");
+    for (const tool of ["todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "remember"]) {
+      expect(toolNames).toContain(tool);
+    }
   });
 
   it("rejects provider tool protocol markup instead of displaying it as an answer", async () => {
@@ -754,52 +713,6 @@ describe("buildConversationPrompt", () => {
     expect(laterEvidence).toContain("refused an ungrounded project answer");
   });
 
-  it("answers a named-project needs question from Documents/git, not the to-do list", async () => {
-    const streamed: string[] = [];
-    let ranLoop = false;
-    const answer = await respondToConversation({
-      message: "what needs to be done on DIR?",
-      history: [],
-      memory: { verdict: "insufficient", matches: [] },
-      situation: {
-        project: "flyd",
-        branch: "main",
-        head: "abc123",
-        dirty: true,
-        changedFiles: 2,
-        latestCommit: "wip",
-        outcome: null,
-        status: null,
-        nextAction: null,
-        projectRoot: "/Users/radarboy3000/Documents/flyd",
-      },
-      crossRepo: [
-        {
-          root: "/Users/radarboy3000/Documents/dead-internet-radio",
-          name: "dead-internet-radio",
-          branch: "main",
-          dirty: true,
-          lastCommitRelative: "5 weeks ago",
-          isForeground: false,
-        },
-      ],
-      presentHypothesis: "  Dead Internet Radio is first today.",
-      onToken: (token) => streamed.push(token),
-    }, {
-      runAgentLoop: async () => {
-        ranLoop = true;
-        return "<final>should not run</final>";
-      },
-      persistReceipt: async (input) => input as never,
-    });
-
-    expect(ranLoop).toBe(false);
-    expect(answer).toMatch(/Dead Internet Radio last moved/i);
-    expect(answer).toMatch(/uncommitted work/i);
-    expect(answer).not.toMatch(/no concrete next task|only has the project-level to-do/i);
-    expect(streamed.join("")).toContain("Dead Internet Radio");
-  });
-
   it("denies file and directory symlinks that escape the current repository", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-project-"));
     const outsideRoot = mkdtempSync(join(tmpdir(), "flyd-conversation-outside-"));
@@ -876,70 +789,6 @@ describe("buildConversationPrompt", () => {
     }
   });
 
-  it("indexes memory locally instead of entering the agent loop", async () => {
-    const runAgentLoop = async () => {
-      throw new Error("should not call LLM for index now");
-    };
-    const answer = await respondToConversation(
-      {
-        message: "index now",
-        history: [],
-        memory: { verdict: "insufficient", matches: [] },
-        situation: null,
-        onToken: () => undefined,
-      },
-      { persistReceipt: async () => undefined as never, runAgentLoop },
-    );
-    expect(answer).toMatch(/Memory index updated/);
-  });
-
-  it('answers skill inventory via compound-nl without an LLM round trip', async () => {
-    const answer = await respondToConversation(
-      {
-        message: 'what skills do i have',
-        history: [],
-        memory: { verdict: 'insufficient', matches: [] },
-        situation: null,
-        onToken: () => undefined,
-      },
-      {
-        persistReceipt: async () => undefined as never,
-        runAgentLoop: async () => {
-          throw new Error('should not call LLM for compound-nl');
-        },
-      },
-    );
-    expect(answer).toMatch(/Domain standards|Identity skills|Pending Skillify/i);
-  });
-
-  it('routes a message addressed to a registered specialist to its dispatcher', async () => {
-    const { registerSpecialist } = await import("../specialist-registry.js");
-    registerSpecialist({
-      name: "coach",
-      domain: "coaching",
-      addresses: [/(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i],
-      dispatch: async () => "Coach here, grounded.",
-    });
-
-    const answer = await respondToConversation(
-      {
-        message: "hey coach, what should I focus on?",
-        history: [],
-        memory: { verdict: "insufficient", matches: [] },
-        situation: null,
-        onToken: () => undefined,
-      },
-      {
-        persistReceipt: async () => undefined as never,
-        runAgentLoop: async () => {
-          throw new Error("should not call the general LLM for a specialist turn");
-        },
-      },
-    );
-
-    expect(answer).toBe("Coach here, grounded.");
-  });
-
   it('does not route a non-specialist message and falls through to the general path', async () => {
     const answer = await respondToConversation(
       {
@@ -977,33 +826,6 @@ describe("buildConversationPrompt", () => {
     }
   });
 
-  it('routes a clear "bring in the coach" directive to the coach specialist', async () => {
-    const { registerSpecialist } = await import("../specialist-registry.js");
-    registerSpecialist({
-      name: "coach",
-      domain: "coaching",
-      addresses: [/(?:^|\s)(?:hey|yo|ok|okay|bring in|bring|talk to|ask|use|get|call)(?:\s+the)?\s+coach\b|\bcoach\s*[,:!?]|\blife coach\b/i],
-      dispatch: async () => "Coach here.",
-    });
-
-    const answer = await respondToConversation(
-      {
-        message: "bring in the coach, I need life coaching",
-        history: [],
-        memory: { verdict: "insufficient", matches: [] },
-        situation: null,
-        onToken: () => undefined,
-      },
-      {
-        persistReceipt: async () => undefined as never,
-        runAgentLoop: async () => {
-          throw new Error("should not reach general path for a coach directive");
-        },
-      },
-    );
-
-    expect(answer).toBe("Coach here.");
-  });
 });
 
 describe("conversation action tools", () => {

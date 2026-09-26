@@ -29,6 +29,7 @@ describe("isReadOnlyCommand", () => {
     "grep -n '\"outDir\"\\|\"build\"' cli/package.json 2>/dev/null",
     "echo \"a > b; c | d\"",
     "git -C cli check-ignore -v dist",
+    "(test -d dist && echo yes && du -sh dist) || echo missing",
   ])("allows %j", (command) => {
     expect(isReadOnlyCommand(command)).toBe(true);
   });
@@ -50,6 +51,7 @@ describe("isReadOnlyCommand", () => {
     "ls; rm notes.txt",
     "find . -name '*.tmp' | xargs rm",
     "npm version patch",
+    "(cd dist && rm -f x)",
     "gh pr merge 53",
     "gh issue comment 4 --body hi",
     "pmset sleepnow",

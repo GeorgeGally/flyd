@@ -105,6 +105,8 @@ async function main(): Promise<void> {
           crossRepo,
           onToken: () => {},
           askUser: async () => { approvalsAsked += 1; return false; },
+          // A stalled provider must fail the case, not hang the run.
+          signal: AbortSignal.timeout(Math.max(60, (testCase.expect.maxSeconds ?? 60) * 3) * 1000),
         }, {
           readOnly: true,
           persistReceipt: async (receipt) => {

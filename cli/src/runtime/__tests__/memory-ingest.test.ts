@@ -23,7 +23,6 @@ import {
   isMemoryIngestUtterance,
   splitMemoryEntries,
 } from "../memory-ingest.js";
-import { presentModelReply } from "../conversation-responder.js";
 
 describe("memory ingest", () => {
   beforeEach(() => {
@@ -106,13 +105,4 @@ describe("memory ingest", () => {
     expect(reply).toMatch(/Interests:/);
   });
 
-  it("does not treat long pastes containing 'active projects' as Present Model questions", () => {
-    const paste = `add these to memories.\n[2025-09-01] - treated Koko and Museq1 as active projects.\n${"x".repeat(400)}`;
-    expect(
-      presentModelReply(
-        paste,
-        "Get GNM sponsor outreach moving is first — due 5 September.",
-      ),
-    ).toBeNull();
-  });
 });

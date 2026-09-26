@@ -110,7 +110,9 @@ export const PERSONAL_TOOL_NAMES = new Set(personalTools.map((tool) => tool.name
 /** Tools whose effect lands outside the conversation; a retry would repeat it. */
 export function isMutatingToolCall(name: string, input: Record<string, unknown>): boolean {
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
-  if (name === "schedule") return input.action !== "list";
+  if (name === "schedule" || name === "todos") return input.action !== "list";
+  if (name === "work_model" || name === "speaking_style" || name === "start_coding_task") return true;
+  if (name === "flyd") return input.action === "run_briefing" || input.action === "skillify";
   if (name === "mac") return input.action !== "clipboard_read";
   return name === "reminders" && input.action === "create";
 }

@@ -92,6 +92,7 @@ interface AgentSessionDependencies {
     askUser?(prompt: string): Promise<boolean | "always">;
     onActivity?(activity: string): void;
     signal?: AbortSignal;
+    onCodingHandoff?(outcome: string): void;
     onToken(token: string): void;
   }): Promise<string>;
 }
@@ -172,13 +173,6 @@ function introLine(
   return wrapDisplayText(line + "\n\n");
 }
 
-function hasUnfinishedTask(situation: AgentSituation | null): boolean {
-  if (!situation?.outcome) return false;
-  if (![ "awaiting_grant", "ready", "running", "blocked" ].includes(situation.status ?? "")) {
-    return false;
-  }
-  return !QUESTION_OUTCOME.test(situation.outcome.trim());
-}
 
 export async function runAgentSession(deps: AgentSessionDependencies): Promise<AgentSessionResult> {
   // Conversation turns flow through the session kernel (durable trail when
@@ -216,16 +210,6 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     } catch {
       // Keep the last known situation when live state cannot be refreshed.
     }
-    if (deps.applyPresentCorrection) {
-      const { isConfirmedTodoUtterance } = await import("../work/work-hypothesis/confirmed-todos.js");
-      // Confirmed to-do utterances are not Present Model corrections.
-      if (!isConfirmedTodoUtterance(message)) {
-        await deps.applyPresentCorrection(message, situation?.projectRoot).catch(() => {});
-        presentHypothesis =
-          (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ??
-          presentHypothesis;
-      }
-    }
     const memoryQuery = currentWorkQuestion
       ? [message, presentHypothesis ?? "", (repos.map((r) => r.name).join(" ") || "")].filter(Boolean).join(" ")
       : message;
@@ -260,6 +244,9 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           }
         },
         signal: deadline.signal,
+        onCodingHandoff: (outcome) => {
+          pendingHandoff = outcome;
+        },
         onActivity: (activity) => {
           deadline.touch();
           if (deps.terminal.setActivity) deps.terminal.setActivity(activity);
@@ -294,6 +281,11 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   // this chain tracks completion so control commands cannot overtake a turn.
   const queued: string[] = [];
   let tail: Promise<void> = Promise.resolve();
+  // The model hands coding work to the supervised runtime via start_coding_task;
+  // the handoff fires once its turn has been answered and recorded.
+  let pendingHandoff: string | null = null;
+  let signalHandoff: (outcome: string) => void = () => {};
+  const handoffRequested = new Promise<string>((resolve) => { signalHandoff = resolve; });
 
   function submitTurn(message: string): void {
     queued.push(message);
@@ -321,11 +313,20 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         await deps.recordTurn({
           user: message,
           assistant: answer,
+          ...(pendingHandoff ? {
+            handoff: {
+              outcome: pendingHandoff,
+              sourceSessionId: deps.sessionId ?? "current-session",
+              sourceTurn: history.length / 2,
+              recordedAt: (deps.now?.() ?? new Date()).toISOString(),
+            },
+          } : {}),
         });
       } catch (error) {
         const err = error instanceof Error ? error.message : String(error);
         deps.terminal.write(`Flyd could not save this turn: ${err}\n`);
       }
+      if (pendingHandoff) signalHandoff(pendingHandoff);
     }).catch((error) => {
       const err = error instanceof Error ? error.message : String(error);
       deps.terminal.write(`I could not answer that turn: ${err}\n`);
@@ -351,7 +352,15 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     while (true) {
       let text: string;
       try {
-        text = (await deps.terminal.ask(promptText, CYAN)).trim();
+        const next = await Promise.race([
+          deps.terminal.ask(promptText, CYAN).then((line) => ({ kind: "line" as const, line })),
+          handoffRequested.then((outcome) => ({ kind: "handoff" as const, outcome })),
+        ]);
+        if (next.kind === "handoff") {
+          await waitForTurns();
+          return { kind: "coding", outcome: next.outcome };
+        }
+        text = next.line.trim();
       } catch (error) {
         // Ctrl+C during the prompt (TTY raw reader) — leave cleanly.
         if (error instanceof Error && error.message === "Interrupted") {
@@ -412,7 +421,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         continue;
       }
 
-      let input = interpretAgentInput(text);
+      const input = interpretAgentInput(text);
       if (input.kind === "exit") {
         await waitForTurns();
         return { kind: "exit" };
@@ -442,40 +451,6 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           continue;
         }
       }
-      if (input.kind === "contextual_action") {
-        await waitForTurns();
-        const handoff = await deps.recoverActionRequest();
-        if (handoff) {
-          try {
-            await deps.recordTurn({
-              user: input.message,
-              assistant: "Handed to the supervised coding runtime.",
-              handoff,
-            });
-            return { kind: "coding", outcome: handoff.outcome };
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            deps.terminal.write(`Flyd could not preserve that handoff: ${message}\n`);
-          }
-        }
-        input = { kind: "conversation", message: input.message };
-      }
-      if (input.kind === "continue") {
-        // A "continue" is only a resume when no conversation has happened yet;
-        // wait for any in-flight turn so its history lands first.
-        await waitForTurns();
-        if (history.length === 0) {
-          try {
-            situation = await deps.loadSituation();
-          } catch {
-            // Continue from persisted conversation when live task state is unavailable.
-          }
-          if (hasUnfinishedTask(situation)) return { kind: "resume" };
-          const outcome = await deps.recoverActionRequest();
-          if (outcome) return { kind: "coding", outcome: outcome.outcome };
-        }
-      }
-
       submitTurn(input.message);
     }
   } finally {

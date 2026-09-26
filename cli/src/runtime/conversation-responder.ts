@@ -7,6 +7,7 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
+import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
@@ -14,31 +15,13 @@ import { learnInBackground } from "./profile-learning.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
-import { isHoroscopeQuestion } from "./personal-context-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import { persistTurnReceipt, type TurnReceipt, type TurnToolCall } from "./turn-receipt.js";
 import { crossRepoContext, type BriefRepo } from "./repo-registry.js";
-import { handleConfirmedTodoUtterance, isTodoListQuestion } from "../work/work-hypothesis/confirmed-todos.js";
-import {
-  formatHypothesisCorrectionReply,
-  parseHypothesisCorrection,
-} from "../work/work-hypothesis/corrections.js";
-import { handleWorkstreamMention } from "../work/work-hypothesis/workstream-mentions.js";
-import { recallMemoryForTodoItems } from "./todo-memory-recall.js";
-import { handleCompoundNl, isCompoundNlUtterance } from "../work-intelligence/compound-nl.js";
 import { formatChatReply } from "./terminal.js";
-import {
-  formatProjectNeedsReply,
-  isProjectNeedsQuestion,
-  resolveMentionedProject,
-} from "./project-mention.js";
-import {
-  handleSpeakingPreferenceUtterance,
-  speakingStyleSystemRule,
-} from "./speaking-preference.js";
-import { handleIndexNowUtterance, handleMemoryIngestUtterance } from "./memory-ingest.js";
+import { resolveMentionedProject } from "./project-mention.js";
+import { speakingStyleSystemRule } from "./speaking-preference.js";
 import { interpretAgentInput } from "./input-interpreter.js";
-import { specialistsForMessage } from "./capability-resolver.js";
 import { recordAction, recordNextState } from "../transitions/writer.js";
 import { compileContext } from "../cognition/context-compiler.js";
 import { formatCompiledContext } from "../cognition/context-format.js";
@@ -63,6 +46,8 @@ interface ConversationInput {
   onActivity?: (activity: string) => void;
   /** Cancels provider requests and stops further tool calls. */
   signal?: AbortSignal;
+  /** The model handed a coding job to the supervised runtime (start_coding_task). */
+  onCodingHandoff?: (outcome: string) => void;
 }
 
 interface ConversationResponderDependencies {
@@ -74,8 +59,6 @@ interface ConversationResponderDependencies {
   readOnly?: boolean;
 }
 
-const CHAT_OPENING = /^(?:let(?:'s|s| us) (?:just )?chat|i (?:just )?want to chat)[.!]?$/i;
-const CHAT_OPENING_REPLY = "What are you thinking about that does not belong in a task yet?";
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
 const CONVERSATION_MAX_ITERATIONS = 12;
 const CODING_MAX_ITERATIONS = 40;
@@ -92,7 +75,6 @@ export function turnBudget(
   intent: string,
   sessionId?: string,
 ): { iterations: number; answerMs: number } {
-  if (intent === "contextual_action") return { iterations: CODING_MAX_ITERATIONS, answerMs: CODING_ANSWER_BUDGET_MS };
   if (isCurrentWorkQuestion(message)) return { iterations: 6, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
   const scheduled = sessionId?.startsWith("agenda-") ?? false;
   if (scheduled || !QUESTION_LIKE_TEXT.test(message.trim())) {
@@ -101,18 +83,9 @@ export function turnBudget(
   return { iterations: CONVERSATION_MAX_ITERATIONS, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
 }
 
-export function immediateConversationReply(
-  message: string,
-  history: ConversationTurn[],
-): string | null {
-  if (history.length > 0 || !CHAT_OPENING.test(message.trim())) return null;
-  return CHAT_OPENING_REPLY;
-}
 
 const CURRENT_WORK_QUESTION =
   /^(?:what (?:am i|are you) (?:working on|doing)|what(?:'s|s| is) on my plate|(?:what(?:'s|s| are)?(?:\s+my)?\s+)?(?:active|current) projects|resume (?:work|where i was))\b/i;
-const CURRENT_WORK_SNAPSHOT_QUESTION =
-  /^what am i working on right now(?:[,;.]?\s+and\s+what is the one most useful next step)?[?!\.]*$/i;
 
 /** Long pastes often contain phrases like "active projects" — ignore those. */
 const CURRENT_WORK_MAX_CHARS = 280;
@@ -123,74 +96,9 @@ export function isCurrentWorkQuestion(message: string): boolean {
   return trimmed.length <= CURRENT_WORK_MAX_CHARS && CURRENT_WORK_QUESTION.test(trimmed);
 }
 
-/** Deterministic Present Model answer — do not let the LLM invent a Flyd status catalog. */
-export function presentModelReply(
-  message: string,
-  presentHypothesis?: string | null,
-): string | null {
-  if (!presentHypothesis?.trim()) return null;
-  if (isTodoListQuestion(message)) return null;
-  if (isCompoundNlUtterance(message)) return null;
-  const trimmed = message.trim();
-  if (trimmed.length > CURRENT_WORK_MAX_CHARS) return null;
-  if (!CURRENT_WORK_QUESTION.test(trimmed)) return null;
-  return presentHypothesis.trim().replace(/^\s+/, "");
-}
 
-/** Fresh invocation state is enough for a narrow current-work check. */
-function currentWorkSnapshotReply(input: ConversationInput): string | null {
-  if (!CURRENT_WORK_SNAPSHOT_QUESTION.test(input.message.trim()) || !input.situation) return null;
 
-  const situation = input.situation;
-  const workingTree = situation.dirty
-    ? `${situation.changedFiles} uncommitted ${situation.changedFiles === 1 ? "change" : "changes"}`
-    : "a clean working tree";
-  const lines = [
-    `You’re in ${situation.project} on ${situation.branch} with ${workingTree}.`,
-    situation.latestCommit ? `Latest commit: ${situation.latestCommit}.` : "",
-    situation.outcome && !QUESTION_LIKE_TEXT.test(situation.outcome)
-      ? `Active task: ${situation.outcome}.`
-      : "",
-  ].filter(Boolean);
 
-  if (/\b(?:next|should|most useful)\b/i.test(input.message)) {
-    const next = situation.nextAction && !QUESTION_LIKE_TEXT.test(situation.nextAction)
-      ? situation.nextAction
-      : situation.dirty
-        ? "review and verify those current changes before starting another thread"
-        : "choose one bounded outcome and start it";
-    lines.push(`The one most useful next step is to ${next}.`);
-  }
-  return lines.join("\n");
-}
-
-export function missingPersonalFactReply(
-  message: string,
-  memory: MemoryEvidence,
-): string | null {
-  const asksForHoroscope = isHoroscopeQuestion(message);
-  const verifiedHoroscope = memory.matches.some((match) => match.kind === "horoscope" && !match.stale);
-  if (!asksForHoroscope || verifiedHoroscope) return null;
-  return "I do not have your zodiac sign or a current horoscope in Flyd yet, so I will not invent one.";
-}
-
-// Specialist routing composes per turn: each registered specialist carries
-// its own address patterns (see capability-resolver.ts). The first match
-// wins, so registration order decides precedence.
-export async function specialistHandoff(
-  message: string,
-  input: ConversationInput,
-): Promise<string | null> {
-  const [resolved] = specialistsForMessage(message);
-  if (!resolved) return null;
-  return resolved.specialist.dispatch({
-    message,
-    presentHypothesis: input.presentHypothesis,
-    situation: input.situation
-      ? { project: input.situation.project, projectRoot: input.situation.projectRoot }
-      : null,
-  });
-}
 
 /** Local wall-clock time; UTC stamps alone made "today"/"tomorrow" wrong near midnight. */
 export function localClock(now: Date): string {
@@ -256,14 +164,17 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   return {
     system: [
       "You are Flyd, George's personal agent: a sharp, trusted assistant for his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
-      "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+      "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- todos(action, …): George's confirmed to-do list\n- work_model(statement): correct Flyd's picture of what George is working on\n- speaking_style(style): change how Flyd writes\n- flyd(action): Flyd's skills, Skillify, background jobs, briefing\n- consult_specialist(name, question): e.g. the coach\n- start_coding_task(outcome): hand substantial coding work to the supervised coding runtime\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
       "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
       "For status or overview questions, answer from the supplied PROJECT EVIDENCE and context plus a few targeted reads (plans, TODOs, recent commits). Do not audit the whole repository.",
       "Batch independent lookups: issue several searches or reads in the same step rather than one per step. Stop searching once the answer is established.",
-      "Be proactive, like a great PA. When George mentions a deadline, a commitment, something pending, or something he wants to know later, schedule a follow-up with the schedule tool and say so in one line. When you notice a loose end (something overdue, uncommitted, unanswered), mention it briefly. Offer the next useful step only when it is concrete.",
+      "Be proactive, like a great PA. When George mentions a deadline, a commitment, something pending, or something he wants to know later, schedule a follow-up with the schedule tool and say so in one line. When a loose end is already visible in your context (something overdue, uncommitted, unanswered), mention it in one line — do not go searching for loose ends. Offer the next useful step only when it is concrete.",
       "Work like a brilliant chief of staff: (1) Drafts are ready to send — compute real dates from today, use the real amounts and names you know, include a specific ask, a deadline, and the next step; leave a placeholder only for what you truly cannot know. (2) When a request is ambiguous and the conversation does not resolve it, ask one short question (offer the likely options) before exploring. (3) When asked to choose, choose — one pick, the reason tied to George's actual situation, and what to do with the rest. (4) Reason from George's profile, goals, and constraints, not generic advice.",
+      "Stop when the job is done. A statement or small request is finished once the right tool succeeds — reply in a line or two. Explore only when the answer depends on facts you do not have yet; never browse Flyd's own source unless George asks about Flyd's code.",
+      "Never say you did, saved, noted, or changed something unless a tool call in this turn actually did it. If George tells you something that changes his to-dos, work picture, profile, or schedule, call the matching tool.",
+      "For substantial coding work (new features, multi-file changes, refactors), call start_coding_task early with a crisp outcome — the coding runtime explores and plans on its own; do not spend the turn exploring first.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. Project questions require project evidence. Start with the supplied PROJECT EVIDENCE and project context; only inspect further when it cannot establish the answer. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
@@ -471,6 +382,7 @@ function createToolHandler(
   askUser?: (prompt: string) => Promise<boolean | "always">,
   fetchFn: FetchLike = fetch,
   readOnly = false,
+  assistantContext: AssistantToolContext = {},
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -504,6 +416,7 @@ function createToolHandler(
   const policy: ToolPolicyState = { tainted: false };
   const execute = async (name: string, input: Record<string, unknown>): Promise<string> => {
     if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn });
+    if (ASSISTANT_TOOL_NAMES.has(name)) return runAssistantTool(name, input, assistantContext);
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
     switch (name) {
@@ -703,6 +616,11 @@ function createToolHandler(
       }
     }
     // Evaluation runs pass the approval policy first, then record rather than act.
+    // Bookkeeping tools answer as if they succeeded so the model behaves as it
+    // would for real (a "skipped" handoff made it redo the whole job itself).
+    if (readOnly && EVAL_SIMULATED_TOOLS.has(name) && isMutatingToolCall(name, input)) {
+      return `OK (evaluation run: recorded, not applied) — ${name} ${JSON.stringify(input).slice(0, 160)}`;
+    }
     if (readOnly && (name === "bash" ? !isReadOnlyCommand(String(input.command ?? "")) : isMutatingToolCall(name, input))) {
       return "Skipped (evaluation run): state-changing commands are recorded, not executed. Carry on with the task as George asked; any command that needs his approval will still ask.";
     }
@@ -739,6 +657,8 @@ export function describeToolActivity(name: string, input: Record<string, unknown
     default: return `Using ${name}`;
   }
 }
+
+const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_coding_task", "remember", "reminders", "speaking_style"]);
 
 /** Voice files apply to every turn; repo docs only when the turn is about code or projects. */
 const ALWAYS_CONTEXT_FILES = new Set(["SOUL.md"]);
@@ -892,148 +812,9 @@ export async function respondToConversation(
     input.onToken(formatChatReply(text));
     return text;
   };
-  const immediate = immediateConversationReply(input.message, input.history);
-  if (immediate) {
-    emit(immediate);
-    await record({ model: "local", providerIdentity: "flyd/local" }, [], immediate, "succeeded");
-    return immediate;
-  }
-  const fromMemoryIngest = await handleMemoryIngestUtterance(input.message);
-  if (fromMemoryIngest) {
-    emit(fromMemoryIngest);
-    await record(
-      { model: "local", providerIdentity: "flyd/memory-ingest" },
-      [],
-      fromMemoryIngest,
-      "succeeded",
-    );
-    return fromMemoryIngest;
-  }
-  const fromIndexNow = await handleIndexNowUtterance(input.message);
-  if (fromIndexNow) {
-    emit(fromIndexNow);
-    await record(
-      { model: "local", providerIdentity: "flyd/memory-index" },
-      [],
-      fromIndexNow,
-      "succeeded",
-    );
-    return fromIndexNow;
-  }
-  const compound = handleCompoundNl(input.message, {
-    presentHypothesis: input.presentHypothesis,
-    projectHint: input.situation?.project,
-  });
-  if (compound) {
-    emit(compound.reply);
-    await record(
-      { model: "local", providerIdentity: `flyd/compound-nl/${compound.kind}` },
-      [],
-      compound.reply,
-      "succeeded",
-    );
-    return compound.reply;
-  }
-  const fromTodos = handleConfirmedTodoUtterance(
-    input.message,
-    input.history.map((turn) => ({
-      role: turn.role === "user" ? "user" : "assistant",
-      content: turn.content,
-    })),
-  );
-  if (fromTodos) {
-    let answer = fromTodos.reply;
-    if (fromTodos.recallFor?.length) {
-      try {
-        answer += await recallMemoryForTodoItems(fromTodos.recallFor);
-      } catch {
-        // Recall is best-effort; persistence already succeeded.
-      }
-    }
-    emit(answer);
-    await record({ model: "local", providerIdentity: "flyd/confirmed-todos" }, [], answer, "succeeded");
-    return answer;
-  }
-  const fromWorkstream = await handleWorkstreamMention(input.message, {
-    foregroundRoot: input.situation?.projectRoot,
-    coreCwd: process.cwd(),
-  });
-  if (fromWorkstream) {
-    emit(fromWorkstream);
-    await record(
-      { model: "local", providerIdentity: "flyd/workstream-mention" },
-      [],
-      fromWorkstream,
-      "succeeded",
-    );
-    return fromWorkstream;
-  }
-  const speakingPref = handleSpeakingPreferenceUtterance(input.message);
-  if (speakingPref) {
-    emit(speakingPref);
-    await record({ model: "local", providerIdentity: "flyd/speaking-preference" }, [], speakingPref, "succeeded");
-    return speakingPref;
-  }
-  const hypothesisCorrection = parseHypothesisCorrection(input.message);
-  if (hypothesisCorrection) {
-    // Agent session already applied + refreshed presentHypothesis before respond.
-    const answer = formatHypothesisCorrectionReply(
-      hypothesisCorrection,
-      input.presentHypothesis,
-    );
-    emit(answer);
-    await record(
-      { model: "local", providerIdentity: "flyd/present-correction" },
-      [],
-      answer,
-      "succeeded",
-    );
-    return answer;
-  }
-  const hasInspectableProject = Boolean(input.situation?.projectRoot || (input.crossRepo?.length ?? 0) > 0);
-  const fromPresent = hasInspectableProject ? null : presentModelReply(input.message, input.presentHypothesis);
-  if (fromPresent) {
-    emit(fromPresent);
-    await record({ model: "local", providerIdentity: "flyd/present-model" }, [], fromPresent, "succeeded");
-    return fromPresent;
-  }
-  const currentWork = currentWorkSnapshotReply(input);
-  if (currentWork) {
-    emit(currentWork);
-    await record({ model: "local", providerIdentity: "flyd/current-work-snapshot" }, [], currentWork, "succeeded");
-    return currentWork;
-  }
-  const missingFact = missingPersonalFactReply(input.message, input.memory);
-  if (missingFact) {
-    emit(missingFact);
-    await record({ model: "local", providerIdentity: "flyd/local" }, [], missingFact, "succeeded");
-    return missingFact;
-  }
-
-  const specialistReply = await specialistHandoff(input.message, input);
-  if (specialistReply) {
-    emit(specialistReply);
-    await record(
-      { model: "local", providerIdentity: "flyd/specialist" },
-      [],
-      specialistReply,
-      "succeeded",
-    );
-    return specialistReply;
-  }
-
+  // Every turn goes to the model. Former regex intercepts (to-dos, work-model
+  // corrections, speaking style, skills/jobs, specialists) are tools it calls.
   const mentioned = resolveMentionedProject(input.message, input.crossRepo ?? []);
-  if (mentioned && isProjectNeedsQuestion(input.message)) {
-    const answer = formatProjectNeedsReply(mentioned);
-    emit(answer);
-    await record(
-      { model: "local", providerIdentity: "flyd/project-inspect" },
-      [],
-      answer,
-      "succeeded",
-    );
-    return answer;
-  }
 
   const defaultRoot = input.situation?.projectRoot ?? process.cwd();
   const projectRoot = mentioned?.repo.root ?? defaultRoot;
@@ -1062,7 +843,11 @@ export async function respondToConversation(
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
-  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly);
+  const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
+    presentHypothesis: input.presentHypothesis,
+    situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
+    onCodingHandoff: input.onCodingHandoff,
+  });
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const observedHandler: ToolHandler = async (name, toolInput) => {
@@ -1070,7 +855,7 @@ export async function respondToConversation(
     if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);
-      const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool|Not approved)/.test(result);
+      const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool|Not approved|Skipped)/.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
       return result;
     } catch (error) {
@@ -1087,7 +872,7 @@ export async function respondToConversation(
       models,
       system,
       prompt,
-      [...conversationTools, ...personalTools],
+      [...conversationTools, ...personalTools, ...assistantTools],
       observedHandler,
       maxIterations,
       {

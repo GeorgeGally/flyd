@@ -147,40 +147,6 @@ describe("conversation memory", () => {
     expect(evidence.matches[0]?.excerpt).not.toContain("enhanced contextual understanding");
   });
 
-  it("recovers the latest actionable request across a continuation-only session", async () => {
-    const flydDir = await temporaryFlydDirectory();
-    const outcome = "take a look at this skill and implement it: https://github.com/ayghri/i-have-adhd";
-    const workSession = createConversationMemorySession({
-      flydDir,
-      id: "unfinished-work",
-      now: () => new Date("2026-07-21T01:55:00.000Z"),
-    });
-    await workSession.recordTurn({
-      user: outcome,
-      assistant: "Please hold on for a moment.",
-    });
-    const continuationSession = createConversationMemorySession({
-      flydDir,
-      id: "failed-continuation",
-      now: () => new Date("2026-07-21T02:14:00.000Z"),
-    });
-    await continuationSession.recordTurn({
-      user: "conrtinue.",
-      assistant: "What topic or project are you looking to continue with?",
-    });
-
-    await expect(retrieveRecentActionableOutcome({
-      flydDir,
-      excludeSessionId: "current-session",
-      now: () => new Date("2026-07-21T02:15:00.000Z"),
-    })).resolves.toEqual({
-      outcome,
-      sourceSessionId: "unfinished-work",
-      sourceTurn: 0,
-      recordedAt: "2026-07-21T01:55:00.000Z",
-    });
-  });
-
   it("uses the actionable turn timestamp instead of a later session update", async () => {
     const flydDir = await temporaryFlydDirectory();
     let current = new Date("2026-07-19T01:00:00.000Z");
