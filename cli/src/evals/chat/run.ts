@@ -21,6 +21,8 @@ interface CaseResult {
   toolCalls: number;
   approvalsAsked: number;
   answer: string;
+  /** What Flyd tried, for diagnosing failures. */
+  calls: string[];
 }
 
 function argValue(name: string): string | undefined {
@@ -122,6 +124,7 @@ async function main(): Promise<void> {
       toolCalls: observed.toolCalls.length,
       approvalsAsked,
       answer: observed.answer.slice(0, 600),
+      calls: observed.toolCalls.map((call) => `${call.succeeded ? "" : "✗ "}${call.name} ${JSON.stringify(call.input).slice(0, 160)}`),
     };
     results.push(result);
     process.stdout.write(`${result.passed ? "PASS" : "FAIL"}  ${testCase.id.padEnd(24)} ${String(result.seconds).padStart(6)}s  tools=${result.toolCalls}${result.passed ? "" : `\n      ${result.failures.join("\n      ")}`}\n`);

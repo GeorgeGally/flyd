@@ -10,7 +10,7 @@ import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
-import { decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
+import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import { isHoroscopeQuestion } from "./personal-context-memory.js";
@@ -55,7 +55,8 @@ interface ConversationInput {
   crossRepo?: BriefRepo[];
   presentHypothesis?: string | null;
   weather?: string;
-  askUser?: (prompt: string) => Promise<boolean>;
+  /** "always" approves this kind of action for the rest of the session. */
+  askUser?: (prompt: string) => Promise<boolean | "always">;
   now?: () => Date;
   /** Short present-tense description of what Flyd is doing right now. */
   onActivity?: (activity: string) => void;
@@ -269,7 +270,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
-      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). Read-only commands and tests run freely. Anything that changes state beyond a repo file edit (commits, installs, network writes, destructive commands) — and any action after you have read web content this turn — goes to George for approval automatically. If an action comes back 'Not approved', do not retry or work around it.",
+      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Only actions that leave this machine or can't be undone (push, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
@@ -457,7 +458,7 @@ function createToolHandler(
   projectRoot: string,
   knownRepos: string[],
   onToken: (token: string) => void,
-  askUser?: (prompt: string) => Promise<boolean>,
+  askUser?: (prompt: string) => Promise<boolean | "always">,
   fetchFn: FetchLike = fetch,
   readOnly = false,
 ): ToolHandler {
@@ -686,13 +687,14 @@ function createToolHandler(
     const decision = decideToolCall(name, input, policy);
     if (decision.kind === "confirm") {
       const approved = askUser ? await askUser(`Flyd wants to ${decision.reason}. Allow?`) : false;
+      if (approved === "always") allowForSession(decision.category);
       if (!approved) {
         return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
       }
     }
     // Evaluation runs pass the approval policy first, then record rather than act.
     if (readOnly && (name === "bash" ? !isReadOnlyCommand(String(input.command ?? "")) : isMutatingToolCall(name, input))) {
-      return "Not approved: this is a read-only evaluation run, so actions are recorded but not executed. Tell George what you would have done.";
+      return "Skipped (evaluation run): state-changing commands are recorded, not executed. Carry on with the task as George asked; any command that needs his approval will still ask.";
     }
     const result = await execute(name, input);
     if (marksTurnUntrusted(name)) policy.tainted = true;

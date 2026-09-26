@@ -45,6 +45,8 @@ interface AgentTerminal {
   write(message: string): void;
   ask(prompt: string, echoColor?: string): Promise<string>;
   confirm(prompt: string): Promise<boolean>;
+  /** y / n / a (always this session); hosts without it fall back to confirm. */
+  approve?(prompt: string): Promise<boolean | "always">;
   close(): Promise<void>;
   /** Live assistant streaming; TUI hosts buffer it instead of writing raw. */
   stream?(token: string): void;
@@ -87,7 +89,7 @@ interface AgentSessionDependencies {
     crossRepo: BriefRepo[];
     presentHypothesis?: string | null;
     weather?: string;
-    askUser?(prompt: string): Promise<boolean>;
+    askUser?(prompt: string): Promise<boolean | "always">;
     onActivity?(activity: string): void;
     signal?: AbortSignal;
     onToken(token: string): void;
@@ -242,7 +244,9 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         askUser: async (prompt) => {
           deadline.pause();
           try {
-            return await deps.terminal.confirm(prompt);
+            return deps.terminal.approve
+              ? await deps.terminal.approve(prompt)
+              : await deps.terminal.confirm(prompt);
           } finally {
             deadline.resume();
           }

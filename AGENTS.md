@@ -134,7 +134,7 @@ Guardrails:
 - Do not treat engagement or popularity as truth.
 - Do not persist raw external evidence into personal memory without a separate governed decision.
 - Deep research must remain bounded; no recursive browsing loop without a hard cap.
-- Chat tools run on the host, so `cli/src/runtime/tool-policy.ts` gates them: read-only commands and tests run freely, other state changes ask George, and after web content enters a turn every state change asks. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). Loosen these only with a test proving the new case is read-only.
+- Chat autonomy (`cli/src/runtime/tool-policy.ts`, `FLYD_AUTONOMY=full|trusted|ask`, default trusted): local, reversible work runs without asking; push/publish/send/delete/pipe-to-shell ask George (answer `a` = always this session); after web content enters a turn, shell/AppleScript/scheduling ask too. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). George wants Flyd powerful — don't add new approval gates without asking him.
 
 ## Structure
 

@@ -36,6 +36,18 @@ describe("NodeTerminal TUI mode", () => {
     await terminal.close();
   });
 
+  it("offers 'always' on approvals but not on plain confirms", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    const approval = terminal.approve("Flyd wants to run: git push. Allow?");
+    input.write("a\r");
+    await expect(approval).resolves.toBe("always");
+    const plain = terminal.confirm("Answer anyway?");
+    input.write("a\r");
+    await expect(plain).resolves.toBe(false);
+    expect(drain(output)).toContain("[y/a(lways)/N]");
+    await terminal.close();
+  });
+
   it("treats anything but y as a refusal", async () => {
     const { terminal, input, output } = tuiTerminal();
     const approval = terminal.confirm("Allow?");

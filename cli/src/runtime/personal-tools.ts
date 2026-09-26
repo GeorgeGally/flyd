@@ -78,7 +78,7 @@ export const personalTools: AgentTool[] = [
   },
   {
     name: "mac",
-    description: "Control George's Mac. action=open opens a URL, file, or app (target); notify shows a notification (text); clipboard_read / clipboard_write (text) use the clipboard; applescript runs an AppleScript (script) to drive any app — Notes, Mail drafts, Music, Finder, Safari tabs.",
+    description: "Control George's Mac. action=open opens a URL, file, or app (target); notify shows a notification (text); clipboard_read / clipboard_write (text) use the clipboard — write only when George asks to copy something, never unprompted, since it replaces what he has copied; applescript runs an AppleScript (script) to drive any app — Notes, Mail drafts, Music, Finder, Safari tabs.",
     input_schema: {
       type: "object",
       properties: {

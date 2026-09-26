@@ -262,7 +262,12 @@ export class NodeTerminal {
   }
 
   async confirm(prompt: string): Promise<boolean> {
-    const question = `${prompt} [y/N]`;
+    return (await this.approve(prompt, false)) === true;
+  }
+
+  /** y = once, a = always this session (when offered), anything else = no. */
+  async approve(prompt: string, offerAlways = true): Promise<boolean | "always"> {
+    const question = offerAlways ? `${prompt} [y/a(lways)/N]` : `${prompt} [y/N]`;
     // In TUI mode the session loop already has an ask() pending while a turn
     // runs. Routing the confirmation through ask() would steal that resolver
     // (freezing input afterwards) or consume a queued message as the answer.
@@ -276,6 +281,7 @@ export class NodeTerminal {
       })
       : await this.ask(question);
     const normalized = answer.trim().toLowerCase();
+    if (offerAlways && (normalized === "a" || normalized === "always")) return "always";
     return normalized === "y" || normalized === "yes";
   }
 
