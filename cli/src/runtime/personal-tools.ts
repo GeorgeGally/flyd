@@ -192,7 +192,11 @@ async function defaultRecall(query: string): Promise<string> {
     const text = `${claim.entityId} ${claim.attribute} ${claim.value}`.toLowerCase();
     return terms.some((term) => text.includes(term));
   });
+  const { readMemoryEntries, searchDailyNotes } = await import("../council/memory-store.js");
+  const curated = readMemoryEntries().filter((entry) => terms.some((term) => entry.text.toLowerCase().includes(term)));
   const lines = [
+    ...curated.slice(0, 8).map((entry) => `- [curated ${entry.section.toLowerCase()}, confirmed ${entry.date}] ${entry.text}`),
+    ...searchDailyNotes(query).slice(0, 6).map((note) => `- [daily note] ${note}`),
     ...current.slice(0, 6).map((claim) => `- [current] ${claim.entityId} · ${claim.attribute}: ${claim.value}`),
     ...memory.relevant.slice(0, 8).map((item) =>
       `- [${item.temporalStatus === "current" ? "memory" : "older"}] ${item.content.replace(/\s+/g, " ").slice(0, 400)} (${item.source})`),

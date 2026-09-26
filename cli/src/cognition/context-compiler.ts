@@ -9,6 +9,7 @@ import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
 import { readContextBundles } from "../lib/context-bundles.js";
 import { readUserProfile } from "../lib/user-profile.js";
+import { memoryPromptText } from "../council/memory-store.js";
 
 export interface CompileContextInput {
   intent: string;
@@ -95,7 +96,11 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   const ownProfileBlock = ownProfile
     ? `## George's own profile (USER.md — written or confirmed by George; outranks everything below)\n${ownProfile}`
     : "";
-  const profileCombined = [ownProfileBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
+  let curated: string | null = null;
+  try { curated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
+  if (curated) sources.push("MEMORY.md");
+  const curatedBlock = curated ? `## Flyd memory (curated by the Librarian: standing facts, decisions, commitments)\n${curated}` : "";
+  const profileCombined = [ownProfileBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne

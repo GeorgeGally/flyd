@@ -90,6 +90,16 @@ program
   });
 
 program
+  .command("council")
+  .description("Flyd's council — Librarian (curator), Critic, Strategist, Muse: status | run [--all] | advisories")
+  .argument("[action]", "status, run, advisories")
+  .option("--all", "run: work through the whole backlog")
+  .action(async (action: string | undefined, opts: { all?: boolean }) => {
+    const { runCouncilCommand } = await import("./commands/council.js");
+    await runCouncilCommand(action, opts);
+  });
+
+program
   .command("agenda")
   .description("Flyd's proactive agenda: list | add | cancel <id> | inbox | run-due | install | uninstall")
   .argument("[action]", "list, add, cancel, inbox, run-due, install, uninstall")

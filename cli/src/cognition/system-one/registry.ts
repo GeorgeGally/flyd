@@ -20,7 +20,8 @@ export type PredicateFamily =
   | "policy"
   | "front_door"
   | "learning"
-  | "model_routing";
+  | "model_routing"
+  | "council";
 
 /**
  * - `production`: asked by a production call site when Jev is enabled.
@@ -277,6 +278,15 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.85, use: "gate", failureMode: "fallback_heuristic",
     projection: ["proposed_learning", "trace"], evaluatorVersion: "learning_supported_by_trace.v1", status: "proposed",
     consumer: "none yet: candidate corroboration for the memory write gate (memory-gate.ts memoryGate, regex today)",
+  },
+
+  // ── proposed: council (replay only until benched) ─────────────────────
+  {
+    id: "muse_should_speak", family: "council", type: "noul",
+    instructions: "Would telling George `candidate` right now materially help with what he just said in `message`, given what Flyd already answered in `answer`? A note that repeats the answer, is only loosely related, or is merely interesting does not count; a relevant commitment, deadline, person, prior decision, risk, or opportunity does.",
+    threshold: 0.70, use: "gate", failureMode: "fallback_llm_classifier",
+    projection: ["message", "answer", "candidate"], evaluatorVersion: "muse_should_speak.v1", status: "proposed",
+    consumer: "council/muse.ts consultMuse: gate before the Muse's model call once promoted; today the Muse model's own NONE decides",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

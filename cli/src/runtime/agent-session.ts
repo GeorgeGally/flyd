@@ -14,6 +14,8 @@ const GREEN = "\u001b[32m";
 const CYAN = "\u001b[36m";
 const WHITE = "\u001b[97m";
 const RESET = "\u001b[0m";
+const MAGENTA = "\u001b[35m";
+const DIM = "\u001b[2m";
 
 function useColor(): boolean {
   return Boolean(stdout.isTTY) && !process.env.NO_COLOR;
@@ -73,6 +75,10 @@ interface AgentSessionDependencies {
   loadSituation(): Promise<AgentSituation | null>;
   /** Optional: known repos for tool inspection — not shown as a catalog dump. */
   loadCrossRepo?(foregroundPath?: string): Promise<BriefRepo[]>;
+  /** After a turn is answered: journal it and let the council react (never blocks the chat). */
+  afterTurn?(turn: { user: string; assistant: string }): Promise<{ museNote?: string; advisoryId?: string } | null>;
+  /** George's verdict on the last Muse note that raised an advisory. */
+  rateAdvisory?(advisoryId: string, verdict: "useful" | "dismissed"): Promise<void>;
   /** Proactive briefing lines for the intro (inbox, due reminders, agenda). */
   loadBriefing?(): Promise<string[]>;
   /** Shared Present Model hypothesis line for intro. */
@@ -284,6 +290,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   // The model hands coding work to the supervised runtime via start_coding_task;
   // the handoff fires once its turn has been answered and recorded.
   let pendingHandoff: string | null = null;
+  let lastMuseAdvisory: string | null = null;
   let signalHandoff: (outcome: string) => void = () => {};
   const handoffRequested = new Promise<string>((resolve) => { signalHandoff = resolve; });
 
@@ -327,6 +334,14 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         deps.terminal.write(`Flyd could not save this turn: ${err}\n`);
       }
       if (pendingHandoff) signalHandoff(pendingHandoff);
+      if (deps.afterTurn) {
+        // The Muse speaks after the answer, on its own time, and never delays the next message.
+        void deps.afterTurn({ user: message, assistant: answer }).then((reaction) => {
+          if (!reaction?.museNote) return;
+          lastMuseAdvisory = reaction.advisoryId ?? null;
+          deps.terminal.write(`\n${paint(`  ✦ Muse: ${reaction.museNote}`, MAGENTA)}${reaction.advisoryId ? paint("  (/useful or /dismiss)", DIM) : ""}\n`);
+        }).catch(() => undefined);
+      }
     }).catch((error) => {
       const err = error instanceof Error ? error.message : String(error);
       deps.terminal.write(`I could not answer that turn: ${err}\n`);
@@ -386,6 +401,18 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           deps.terminal.write(`Flyd could not repair that turn: ${message}\n`);
+        }
+        continue;
+      }
+
+      const verdict = text.trim().toLowerCase().match(/^\/(useful|dismiss)$/);
+      if (verdict) {
+        if (lastMuseAdvisory && deps.rateAdvisory) {
+          await deps.rateAdvisory(lastMuseAdvisory, verdict[1] === "useful" ? "useful" : "dismissed").catch(() => undefined);
+          deps.terminal.write(verdict[1] === "useful" ? "Noted — the council will lean that way.\n" : "Dismissed — it won't come up again.\n");
+          lastMuseAdvisory = null;
+        } else {
+          deps.terminal.write("Nothing from the Muse to rate yet.\n");
         }
         continue;
       }

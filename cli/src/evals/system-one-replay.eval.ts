@@ -1,3 +1,4 @@
+import { museCandidates } from "../council/muse.js";
 import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +30,7 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl"];
+const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
 
@@ -68,6 +69,11 @@ const BASELINES: Record<string, BaselineFn> = {
       topicCount: 0,
     }).shouldRemember;
   },
+  // Muse today: any local candidate with enough term overlap reaches the Muse model.
+  muse_should_speak: (inputs) => museCandidates(text(inputs, "message"), text(inputs, "answer"), {
+    advisories: [], notes: [],
+    memory: [{ id: "c", section: "Facts", text: text(inputs, "candidate"), tier: "aging", date: "2026-09-27" }],
+  }).length > 0,
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.

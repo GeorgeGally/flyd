@@ -122,6 +122,17 @@ export async function runAgendaCommand(
       const result = await runDueAgenda({ runTask: runAgendaTask });
       if (result.skipped) process.stdout.write("Another agenda run is in progress.\n");
       for (const ran of result.ran) process.stdout.write(`${new Date().toISOString()} ${ran.status} ${ran.id} ${ran.task}\n`);
+      // The council curates and advises on the same tick when there is something new.
+      const { runCouncilPass } = await import("../council/council.js");
+      const { query } = await import("../lib/llm.js");
+      const { notifyMac } = await import("../runtime/agenda.js");
+      const council = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch((error: unknown) => {
+        process.stderr.write(`council pass failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        return null;
+      });
+      if (council && !council.skipped) {
+        process.stdout.write(`${new Date().toISOString()} council: ${council.librarian?.turns ?? 0} turns, ${council.librarian?.captures ?? 0} captures, ${council.advisories.length} advisories\n`);
+      }
       return;
     }
     case "inbox": {

@@ -182,6 +182,7 @@ flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
 flyd agenda [list|add|cancel|inbox|run-due|install]  # Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Core every 5 min + optional launchd), results → inbox + macOS notification + next session's opening briefing
+flyd council [status|run [--all]|advisories]  # the council (cli/src/council/): Librarian curates journal + captures into tiered MEMORY.md/USER.md; Critic (measured) and Strategist advise it; the Muse speaks after chat turns when it can help (/useful, /dismiss). Runs on the agenda/Core tick; FLYD_COUNCIL=0 / FLYD_MUSE=0 disable
 flyd profile [edit|bootstrap]         # George's USER.md — highest-authority personal context, fed to every compiled context; bootstrap drafts it from raw captures; chat `/onboard` interviews George; durable facts he states are learned in the background (FLYD_PROFILE_AUTOLEARN=0 to disable)
 cd cli && npm run evals:chat          # live chat evals (read-only; --only id,id --model provider:model); intelligence cases are LLM-judged (FLYD_EVAL_JUDGE_MODEL); results + regressions in ~/.flyd/evals/chat/. Pick chat models with this, not by reputation.
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>

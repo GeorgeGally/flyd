@@ -71,6 +71,17 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   const paths = deps.paths ?? agendaPaths();
   const lines: string[] = [];
 
+  try {
+    const { openAdvisories, updateAdvisoryStatus } = await import("../council/advisors.js");
+    const worth = openAdvisories(now).filter((advisory) => advisory.urgency !== "low").slice(0, 2);
+    for (const advisory of worth) {
+      lines.push(`${advisory.advisor === "critic" ? "Critic" : "Strategist"}: ${firstLine(advisory.text, 160)}`);
+      if (!deps.paths) updateAdvisoryStatus(advisory.id, "shown", now);
+    }
+  } catch {
+    // The council is advisory; a missing store never blocks the briefing.
+  }
+
   const inbox = unreadInbox(paths);
   if (inbox.length) {
     lines.push(`While you were away (${inbox.length} update${inbox.length === 1 ? "" : "s"}):`);

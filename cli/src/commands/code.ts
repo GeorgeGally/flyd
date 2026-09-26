@@ -167,6 +167,7 @@ export async function runAgent(): Promise<void> {
   }
 
   const conversation = createConversationMemorySession();
+  const museSaid = new Set<string>();
   const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
   let result;
   try {
@@ -183,6 +184,23 @@ export async function runAgent(): Promise<void> {
       loadSituation: () => loadAgentSituation({ pool }),
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
       loadBriefing: async () => (await import("../runtime/session-briefing.js")).composeSessionBriefing(),
+      afterTurn: async ({ user, assistant }) => {
+        const [{ appendJournalTurn }, { runCouncilInBackground }, { consultMuse }, { query }] = await Promise.all([
+          import("../council/journal.js"),
+          import("../council/council.js"),
+          import("../council/muse.js"),
+          import("../lib/llm.js"),
+        ]);
+        appendJournalTurn({ user, assistant, surface: "cli_chat" });
+        runCouncilInBackground();
+        if (process.env.FLYD_MUSE === "0") return null;
+        const note = await consultMuse(user, assistant, { complete: (prompt) => query(prompt), alreadySaid: museSaid });
+        return note ? { museNote: note.note, ...(note.advisory ? { advisoryId: note.advisory.id } : {}) } : null;
+      },
+      rateAdvisory: async (advisoryId, verdict) => {
+        const { updateAdvisoryStatus } = await import("../council/advisors.js");
+        updateAdvisoryStatus(advisoryId, verdict);
+      },
       loadPresentHypothesis: async (foregroundPath) => {
         try {
           const belief = await buildPresentModelBelief({

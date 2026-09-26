@@ -35,6 +35,12 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
   const tick = () => {
     void import("./agenda.js")
       .then(({ runDueAgenda }) => runDueAgenda({ runTask: runAgendaTask }))
+      .then(async () => {
+        const [{ runCouncilPass }, { query }, { notifyMac }] = await Promise.all([
+          import("../council/council.js"), import("../lib/llm.js"), import("./agenda.js"),
+        ]);
+        await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
+      })
       .catch((error) => options.onError?.(error));
   };
   agendaTimer = setInterval(tick, options.intervalMs ?? 5 * 60 * 1000);

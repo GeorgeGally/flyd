@@ -394,14 +394,26 @@ async function queryOpenAIWithConfig(
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
-  const res = await client.chat.completions.create({
+  const limit = options.json ? 8192 : 4096;
+  const ask = (maxTokens: number) => client.chat.completions.create({
     model: apiModelId(model),
-    ...openAICompletionLimit(options.json ? 8192 : 4096),
+    ...openAICompletionLimit(maxTokens),
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
   });
+  let res = await ask(limit);
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");
-  return res.choices[0].message.content ?? "";
+  // Reasoning models can spend the whole budget thinking and return no text;
+  // one retry with more room beats silently returning "".
+  if (!res.choices[0].message.content?.trim() && res.choices[0].finish_reason === "length") {
+    res = await ask(limit * 3);
+    if (!res.choices.length) throw new Error("OpenAI returned empty choices");
+  }
+  const content = res.choices[0].message.content ?? "";
+  if (!content.trim() && res.choices[0].finish_reason === "length") {
+    throw new Error(`${model} used its whole output budget without answering`);
+  }
+  return content;
 }
 
 async function queryOpenAI(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {

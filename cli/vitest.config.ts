@@ -9,6 +9,7 @@ export default defineConfig({
     // can deadlock an unrelated transaction.
     fileParallelism: false,
     exclude: [ "dist/**", "node_modules/**" ],
+    setupFiles: [ "./vitest.setup.ts" ],
     env: {
       FLYD_MODEL: "gpt-4o-mini",
       OPENAI_API_KEY: "test-key",
