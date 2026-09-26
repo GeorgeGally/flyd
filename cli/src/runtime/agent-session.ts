@@ -96,6 +96,14 @@ interface AgentSessionDependencies {
   }): Promise<string>;
 }
 
+/** A short interview that fills George's profile; the turns that follow carry it. */
+export const ONBOARD_REQUEST = [
+  "Interview me so you know me properly. Look at my profile and ask about the biggest gaps first:",
+  "the people in my life (names and relationships), where I live and my timezone, my daily routines, my current goals, and constraints you should respect.",
+  "Ask ONE short question at a time. After each answer, save each durable fact with remember (about_george true, with the right section), then ask the next question.",
+  "Stop after about 8 questions or when I say stop, then summarise what you learned in a few lines.",
+].join(" ");
+
 export type AgentSessionResult =
   | { kind: "exit" }
   | { kind: "coding"; outcome: string }
@@ -370,6 +378,11 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           const message = error instanceof Error ? error.message : String(error);
           deps.terminal.write(`Flyd could not repair that turn: ${message}\n`);
         }
+        continue;
+      }
+
+      if (/^\/onboard\b/i.test(text.trim())) {
+        submitTurn(ONBOARD_REQUEST);
         continue;
       }
 

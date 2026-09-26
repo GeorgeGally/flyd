@@ -10,6 +10,7 @@ import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
+import { learnInBackground } from "./profile-learning.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -204,10 +205,15 @@ export function localClock(now: Date): string {
   return `Local time: ${stamp} (${zone}, UTC${sign}${hours}:${minutes})`;
 }
 
-export function buildConversationPrompt(input: ConversationInput, compiledContext?: CompiledContext): { system: string; prompt: string } {
+export function buildConversationPrompt(
+  input: ConversationInput,
+  compiledContext?: CompiledContext,
+  options: { projectTurn?: boolean } = {},
+): { system: string; prompt: string } {
+  const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
-  const includeSituation = input.situation !== null && !currentWorkQuestion;
+  const includeSituation = input.situation !== null && !currentWorkQuestion && projectTurn;
   const situation = includeSituation && input.situation
     ? `\nCurrent repository and task evidence:
 - Project: ${input.situation.project}
@@ -218,8 +224,11 @@ export function buildConversationPrompt(input: ConversationInput, compiledContex
 ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` : ''}${input.situation.nextAction ? `\n- Next move: ${input.situation.nextAction}` : ''}
 `
     : "";
+  // Repo state rides in memory as "current signals"; it is noise on a personal turn.
+  const repoSignal = /^project:[^ ]+ · (?:branch|dirty|latest_commit|head|changed_files):/;
   const usableMemory = input.memory.matches.filter((item) =>
     item.authority !== "assistant_output" && item.outcome !== "rejected"
+    && (projectTurn || !repoSignal.test(item.excerpt))
   );
   const memory = !repositoryQuestion && usableMemory.length
     ? `\n<personal-memory>\n${usableMemory.map((item) =>
@@ -236,11 +245,11 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   // For every other turn, keep Documents/git visibility — otherwise named projects
   // like DIR disappear even when they are registered under ~/Documents.
   const crossRepo =
-    input.crossRepo?.length
+    input.crossRepo?.length && projectTurn
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
-  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext)}\n` : "";
+  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn })}\n` : "";
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
 
@@ -254,6 +263,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "For status or overview questions, answer from the supplied PROJECT EVIDENCE and context plus a few targeted reads (plans, TODOs, recent commits). Do not audit the whole repository.",
       "Batch independent lookups: issue several searches or reads in the same step rather than one per step. Stop searching once the answer is established.",
       "Be proactive, like a great PA. When George mentions a deadline, a commitment, something pending, or something he wants to know later, schedule a follow-up with the schedule tool and say so in one line. When you notice a loose end (something overdue, uncommitted, unanswered), mention it briefly. Offer the next useful step only when it is concrete.",
+      "Work like a brilliant chief of staff: (1) Drafts are ready to send — compute real dates from today, use the real amounts and names you know, include a specific ask, a deadline, and the next step; leave a placeholder only for what you truly cannot know. (2) When a request is ambiguous and the conversation does not resolve it, ask one short question (offer the likely options) before exploring. (3) When asked to choose, choose — one pick, the reason tied to George's actual situation, and what to do with the rest. (4) Reason from George's profile, goals, and constraints, not generic advice.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. Project questions require project evidence. Start with the supplied PROJECT EVIDENCE and project context; only inspect further when it cannot establish the answer. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
@@ -730,8 +740,28 @@ export function describeToolActivity(name: string, input: Record<string, unknown
   }
 }
 
-function injectProjectContext(system: string, projectRoot: string): string {
-  const blocks = collectProjectContext(projectRoot);
+/** Voice files apply to every turn; repo docs only when the turn is about code or projects. */
+const ALWAYS_CONTEXT_FILES = new Set(["SOUL.md"]);
+
+const PROJECT_TOPIC = /\b(?:flyd|repo|repository|project|codebase|code|source|runtime|branch|commit|pr|pull request|test|tests|build|deploy|bug|error|stack trace|refactor|implement|function|module|package|dependency|cli|api|server|database|schema|migration|typescript|ruby|rails|swift|javascript|css|html|readme|agents\.md|lint|ci|release|merge|diff|file|folder|directory|status|working on|on my plate|ship|launch)\b/i;
+
+/**
+ * Whether this turn needs repository context. Personal questions ("should I
+ * go for a run?") answered better without 20KB of AGENTS.md and git logs in
+ * the way; follow-ups inherit the previous turn's need.
+ */
+export function needsProjectContext(message: string, history: ConversationTurn[], repoNames: string[] = []): boolean {
+  const recentUser = [...history].reverse().find((turn) => turn.role === "user")?.content ?? "";
+  const names = repoNames.map((name) => name.toLowerCase()).filter((name) => name.length > 2);
+  const mentionsRepo = (text: string) => names.some((name) => text.toLowerCase().includes(name));
+  if (PROJECT_TOPIC.test(message) || mentionsRepo(message)) return true;
+  // Short follow-ups ("and when did that change?") ride on the previous turn.
+  return message.trim().split(/\s+/).length <= 12 && (PROJECT_TOPIC.test(recentUser) || mentionsRepo(recentUser));
+}
+
+function injectProjectContext(system: string, projectRoot: string, includeRepoDocs = true): string {
+  const blocks = collectProjectContext(projectRoot)
+    .filter((block) => includeRepoDocs || ALWAYS_CONTEXT_FILES.has(block.file));
   if (blocks.length === 0) return system;
   return `${system}\n\n# Project Context\n\n${blocks.map((block) => `# ${block.file}\n${block.content}`).join("\n\n")}`;
 }
@@ -1015,7 +1045,10 @@ export async function respondToConversation(
     conversation: input.history.map((turn) => ({ role: turn.role, content: turn.content })),
     capabilities: ["conversation", "memory", "git", "files", "shell", "web"],
   });
-  const request = buildConversationPrompt(input, compiledContext);
+  const projectTurn = mentioned !== null
+    || isCurrentWorkQuestion(input.message)
+    || needsProjectContext(input.message, input.history, (input.crossRepo ?? []).map((repo) => repo.name));
+  const request = buildConversationPrompt(input, compiledContext, { projectTurn });
   const injectedConnection = dependencies.resolveConnection?.();
   const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
   const model = models[0];
@@ -1023,9 +1056,9 @@ export async function respondToConversation(
     if (injectedConnection) return injectedConnection;
     try { return resolveModelConnection(name); } catch { return { model: name, providerIdentity: `unconfigured/${name}` }; }
   };
-  const system = `${injectProjectContext(request.system, projectRoot)}\n\nRuntime: model=${model} | repo=${projectRoot} | os=${process.platform}`;
-  const facts = gatherProjectFacts(projectRoot);
-  const evidence = gatherProjectEvidence(projectRoot);
+  const system = `${injectProjectContext(request.system, projectRoot, projectTurn)}\n\nRuntime: model=${model} | repo=${projectRoot} | os=${process.platform}`;
+  const facts = projectTurn ? gatherProjectFacts(projectRoot) : "";
+  const evidence = projectTurn ? gatherProjectEvidence(projectRoot) : "";
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
@@ -1093,6 +1126,8 @@ export async function respondToConversation(
     }
     emit(final);
     await record(connection, toolCalls, final, "succeeded");
+    // Live chat only: evals and unattended agenda runs never write George's profile.
+    if (!dependencies.readOnly && !input.sessionId?.startsWith("agenda-")) learnInBackground(input.message);
     return final;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -31,6 +31,7 @@ export const personalTools: AgentTool[] = [
       properties: {
         text: { type: "string", description: "Self-contained note, written so it makes sense on its own later" },
         about_george: { type: "boolean", description: "True for a durable fact about George himself" },
+        section: { type: "string", enum: ["About me", "Work", "People", "Preferences", "Routines", "Goals", "Constraints"], description: "Profile section for an about_george fact" },
       },
       required: ["text"],
     },
@@ -119,7 +120,7 @@ export interface PersonalToolDependencies {
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
   capture?: (text: string) => Promise<string>;
-  appendProfileFact?: (text: string) => boolean;
+  appendProfileFact?: (text: string, section?: string) => boolean;
   recall?: (query: string) => Promise<string>;
 }
 
@@ -427,8 +428,11 @@ export async function runPersonalTool(
       try {
         await (deps.capture ?? defaultCapture)(text);
         if (input.about_george === true) {
-          const append = deps.appendProfileFact ?? (await import("../lib/user-profile.js")).appendUserProfileFact;
-          const added = append(text);
+          const profile = await import("../lib/user-profile.js");
+          const section = profile.PROFILE_SECTIONS.find((name) => name.toLowerCase() === String(input.section ?? "").toLowerCase());
+          const append = deps.appendProfileFact
+            ?? ((fact: string, target?: string) => profile.addUserProfileFact(fact, { section: target as never }));
+          const added = append(text, section);
           return `Saved to Flyd memory${added ? " and George's profile (USER.md)" : " (already in his profile)"}: ${text.slice(0, 120)}`;
         }
         return `Saved to Flyd memory: ${text.slice(0, 120)}`;

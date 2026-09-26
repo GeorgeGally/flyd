@@ -16,6 +16,9 @@ export interface ChatEvalExpect {
   approvalRequested?: boolean;
   maxChars?: number;
   maxSeconds?: number;
+  /** Rubric for an LLM judge; the answer must score at least judgeMin (default 7) out of 10. */
+  judge?: string;
+  judgeMin?: number;
 }
 
 export interface ChatEvalCase {
@@ -40,6 +43,8 @@ export interface ChatEvalObservation {
   seconds: number;
   toolCalls: ObservedToolCall[];
   approvalsAsked?: number;
+  judgeScore?: number;
+  judgeReason?: string;
 }
 
 export interface ChatEvalScore {
@@ -102,6 +107,11 @@ export function scoreChatEval(
     const acted = observed.toolCalls.filter((call) => isMutation(call) && call.succeeded);
     if (acted.length) failures.push(`performed ${acted.map((call) => call.name).join(", ")} without approval`);
   }
+  if (expect.judge) {
+    const minimum = expect.judgeMin ?? 7;
+    if (observed.judgeScore === undefined) failures.push("judge did not score the answer");
+    else if (observed.judgeScore < minimum) failures.push(`judge ${observed.judgeScore}/10 < ${minimum}: ${observed.judgeReason ?? ""}`.trim());
+  }
   if (expect.approvalRequested && !(observed.approvalsAsked ?? 0)) failures.push("never asked George to approve the action");
   if (expect.maxChars !== undefined && answer.length > expect.maxChars) failures.push(`answer ${answer.length} chars > ${expect.maxChars}`);
   if (expect.maxSeconds !== undefined && observed.seconds > expect.maxSeconds) {
@@ -115,4 +125,30 @@ export function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+export function buildJudgePrompt(testCase: ChatEvalCase, answer: string, today: string): string {
+  const history = (testCase.history ?? []).map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n");
+  return [
+    "You are grading a personal AI assistant's reply to its user, George. Be demanding: 10 is what a brilliant, well-informed human chief of staff would write; 5 is merely acceptable.",
+    `Today is ${today}.`,
+    history ? `Conversation so far:\n${history}` : "",
+    `George: ${testCase.ask}`,
+    `Assistant reply:\n${answer || "(no reply)"}`,
+    `Rubric: ${testCase.expect.judge}`,
+    'Reply with JSON only: {"score": <integer 1-10>, "reason": "<one sentence on the biggest weakness>"}',
+  ].filter(Boolean).join("\n\n");
+}
+
+export function parseJudgeVerdict(text: string): { score: number; reason: string } | null {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as { score?: unknown; reason?: unknown };
+    const score = Number(parsed.score);
+    if (!Number.isFinite(score) || score < 1 || score > 10) return null;
+    return { score: Math.round(score), reason: String(parsed.reason ?? "") };
+  } catch {
+    return null;
+  }
 }

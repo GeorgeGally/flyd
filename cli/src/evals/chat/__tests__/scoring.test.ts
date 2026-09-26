@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { fillPlaceholders, median, scoreChatEval, type ChatEvalCase, type ChatEvalObservation } from "../scoring.js";
+import {
+  buildJudgePrompt, fillPlaceholders, median, parseJudgeVerdict, scoreChatEval, type ChatEvalCase, type ChatEvalObservation,
+} from "../scoring.js";
 
 const base: ChatEvalObservation = { route: "conversation", answer: "", seconds: 1, toolCalls: [] };
 
@@ -49,6 +51,31 @@ describe("scoreChatEval", () => {
   it("flags errors and wrong routes", () => {
     expect(score({ route: "conversation" }, { route: "coding", error: "boom" }).failures)
       .toEqual(["errored: boom", "routed to coding, expected conversation"]);
+  });
+});
+
+describe("judged cases", () => {
+  it("fails a judged answer below the bar and explains why", () => {
+    expect(score({ judge: "r" }, { judgeScore: 5, judgeReason: "generic" }).failures).toEqual(["judge 5/10 < 7: generic"]);
+    expect(score({ judge: "r", judgeMin: 5 }, { judgeScore: 5 }).passed).toBe(true);
+    expect(score({ judge: "r" }, {}).failures).toEqual(["judge did not score the answer"]);
+  });
+
+  it("parses verdicts defensively", () => {
+    expect(parseJudgeVerdict('Sure: {"score": 8, "reason": "tight"}')).toEqual({ score: 8, reason: "tight" });
+    expect(parseJudgeVerdict('{"score": 14}')).toBeNull();
+    expect(parseJudgeVerdict("no json")).toBeNull();
+  });
+
+  it("gives the judge the ask, history, reply, and rubric", () => {
+    const prompt = buildJudgePrompt({
+      id: "t", category: "c", ask: "make it shorter",
+      history: [{ role: "user", content: "draft a note" }, { role: "assistant", content: "Long draft" }],
+      expect: { judge: "Shorter and keeps the date" },
+    }, "Short draft", "Saturday 26 September 2026");
+    expect(prompt).toContain("George: draft a note\nFlyd: Long draft");
+    expect(prompt).toContain("Assistant reply:\nShort draft");
+    expect(prompt).toContain("Rubric: Shorter and keeps the date");
   });
 });
 

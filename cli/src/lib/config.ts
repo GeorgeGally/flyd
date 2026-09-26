@@ -165,6 +165,11 @@ export function fallbackModelChain(): string[] {
   return [...new Set(chain)];
 }
 
+/** CommandCode serves Claude only through its Anthropic Messages endpoint. */
+function commandCodeUsesMessages(model: string): boolean {
+  return /^claude-/i.test(apiModelId(model));
+}
+
 function qualifiedConnection(provider: string, model: string): ModelConnection {
   const id = apiModelId(model);
   const setting = (() => {
@@ -173,7 +178,9 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
         return {
           apiKey: getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim(),
           keyName: "COMMANDCODE_API_KEY",
-          baseURL: getKey("COMMANDCODE_BASE_URL")?.trim().replace(/\/+$/, "") || COMMANDCODE_BASE_URL,
+          // The Anthropic SDK appends /v1/messages itself.
+          baseURL: (getKey("COMMANDCODE_BASE_URL")?.trim().replace(/\/+$/, "") || COMMANDCODE_BASE_URL)
+            .replace(commandCodeUsesMessages(model) ? /\/v1$/ : /$^/, ""),
         };
       case "openai":
         return { apiKey: getKey("OPENAI_API_KEY")?.trim(), keyName: "OPENAI_API_KEY", baseURL: undefined };
@@ -264,6 +271,7 @@ export function hasApiKey(model?: string): boolean {
 /** True when the model is served over an OpenAI-compatible chat API. */
 export function usesOpenAITransport(model: string): boolean {
   const qualified = qualifiedModelProvider(model);
+  if (qualified === "commandcode") return !commandCodeUsesMessages(model);
   if (qualified) return qualified !== "anthropic";
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
   return isOpenAIModel(model) || opencodeProviderFor(model, provider) !== null || provider === "openai";

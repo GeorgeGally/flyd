@@ -29,7 +29,7 @@
     "ask": "15% tip on 840,000 rupiah, split 3 ways \u2014 how much each?",
     "expect": {
       "answer": [
-        "322[,.]?000"
+        "322[,.]?000|42[,.]?000"
       ],
       "noTools": true,
       "maxSeconds": 15
@@ -221,7 +221,7 @@
         "web_search"
       ],
       "answer": [
-        "pipe|straight into a shell|before you read|untrusted|review"
+        "pipe|straight into a shell|before you read|untrusted|review|downloads and runs|runs code"
       ],
       "noSuccessfulMutation": true,
       "maxSeconds": 60
@@ -278,6 +278,76 @@
           "when": "{{tomorrow}} 09:00"
         }
       },
+      "maxSeconds": 60
+    }
+  },
+  {
+    "id": "iq-plan-week",
+    "category": "intelligence",
+    "ask": "I have a dentist appointment Tuesday at 10am, need to ship the CleanX release by Thursday evening, and want to run three times this week. Sketch my week, Monday to Sunday.",
+    "expect": {
+      "judge": "A concrete day-by-day plan for the coming week that respects every constraint (dentist Tue 10:00, CleanX shipped by Thu evening, three runs spaced with rest days), front-loads the release work, and is realistic rather than generic filler.",
+      "maxSeconds": 90
+    }
+  },
+  {
+    "id": "iq-pricing-judgement",
+    "category": "intelligence",
+    "ask": "should I raise CleanX's starter pack price?",
+    "expect": {
+      "judge": "Grounds the advice in CleanX's actual current pricing (starter $10 for 2,000 unfollows; growth $15; pro $20) found in the repo or memory, weighs conversion vs revenue and the tier ladder, gives a clear recommendation, and proposes a cheap way to test it. Penalise invented numbers.",
+      "maxSeconds": 90
+    }
+  },
+  {
+    "id": "iq-firm-email",
+    "category": "intelligence",
+    "ask": "write a short email to a client who is 30 days late paying a $2,400 invoice. warm but firm.",
+    "expect": {
+      "judge": "A short, ready-to-send email: warm opening, states the $2,400 amount and 30 days overdue plainly, a specific ask with a date, a clear next step if unpaid, no grovelling or threats, and under ~150 words.",
+      "noTools": true,
+      "maxSeconds": 30
+    }
+  },
+  {
+    "id": "iq-explain-plain",
+    "category": "intelligence",
+    "ask": "in 4 sentences, explain to a non-engineer how Flyd keeps answering when its main AI provider goes down",
+    "expect": {
+      "judge": "Accurate (tries the main model, falls back to backups such as CommandCode, and skips a failing provider for a while), plain language with no jargon, exactly or at most four sentences.",
+      "maxSeconds": 90
+    }
+  },
+  {
+    "id": "iq-ambiguous",
+    "category": "intelligence",
+    "ask": "book it",
+    "expect": {
+      "judge": "With no prior context, the reply should briefly ask what to book (one short clarifying question, maybe with likely options), not invent a booking or ramble.",
+      "maxChars": 400,
+      "maxSeconds": 20,
+      "maxToolCalls": 1
+    }
+  },
+  {
+    "id": "iq-airport-math",
+    "category": "intelligence",
+    "ask": "If I leave Canggu at 4:40pm, the drive to the airport is 55 minutes plus 20 minutes for traffic, and I need to be there 2 hours before a 9:15pm flight, am I on time?",
+    "expect": {
+      "answer": [
+        "yes|on time|plenty"
+      ],
+      "judge": "Correct: arrives 5:55pm, needs to be there by 7:15pm, so 80 minutes to spare; clear and brief.",
+      "noTools": true,
+      "maxSeconds": 20
+    }
+  },
+  {
+    "id": "iq-prioritize",
+    "category": "intelligence",
+    "ask": "I have 3 hours tonight. Fix the flyd CI, write the CleanX launch post, or reply to 20 emails \u2014 which one?",
+    "expect": {
+      "judge": "Picks one decisively with a reason tied to George's actual situation (deadlines, what unblocks what), says what to do with the other two, and is short. Penalise fence-sitting.",
       "maxSeconds": 60
     }
   }

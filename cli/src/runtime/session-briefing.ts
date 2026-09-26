@@ -48,10 +48,21 @@ function firstLine(text: string, max = 110): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** Profile sections a PA most needs; empty ones prompt an /onboard nudge. */
+export function profileGaps(profile: string | null): string[] {
+  if (!profile) return ["everything"];
+  const wanted = ["About me", "People", "Routines", "Goals"];
+  return wanted.filter((section) => {
+    const match = profile.match(new RegExp(`^## ${section}\\n((?:(?!^## ).*\\n?)*)`, "m"));
+    return !match || !/^\s*-\s+\S/m.test(match[1]);
+  });
+}
+
 export interface SessionBriefingDependencies {
   now?: () => Date;
   paths?: AgendaPaths;
   loadReminders?: () => Promise<DueReminder[]>;
+  readProfile?: () => string | null;
 }
 
 /** Lines for the session intro, or [] when there is nothing worth saying. */
@@ -86,6 +97,19 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   const coming = upcomingAgenda(paths).filter((item) => new Date(item.nextRunAt).getTime() <= horizon);
   if (coming.length) {
     lines.push(`Flyd will: ${coming.slice(0, 3).map((item) => `${clock(new Date(item.nextRunAt))} ${firstLine(item.task, 60)}`).join("; ")}`);
+  }
+  try {
+    const { readUserProfile } = await import("../lib/user-profile.js");
+    const gaps = profileGaps((deps.readProfile ?? readUserProfile)());
+    if (gaps.length) {
+      const phrase: Record<string, string> = {
+        everything: "much about you", "About me": "where you live", People: "the people in your life",
+        Routines: "your routines", Goals: "your goals",
+      };
+      lines.push(`I don't know ${gaps.map((gap) => phrase[gap] ?? gap).join(", ")} yet — type /onboard and I'll ask a few questions.`);
+    }
+  } catch {
+    // A missing or unreadable profile never blocks the briefing.
   }
   return lines;
 }

@@ -103,8 +103,8 @@ program
 
 program
   .command("profile")
-  .description("Show George's editable profile (USER.md); `flyd profile edit` opens it")
-  .argument("[action]", "edit")
+  .description("Show George's editable profile (USER.md); `flyd profile edit` opens it, `flyd profile bootstrap` drafts it from memory")
+  .argument("[action]", "edit or bootstrap")
   .action(async (action?: string) => {
     const { runProfile } = await import("./commands/profile.js");
     await runProfile(action);

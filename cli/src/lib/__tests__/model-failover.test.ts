@@ -21,7 +21,10 @@ describe("provider-qualified models", () => {
     expect(connection.apiKey).toBe("cc-key");
     expect(connection.baseURL).toBe("https://api.commandcode.ai/provider/v1");
     expect(connection.providerIdentity).toBe("api.commandcode.ai/deepseek/deepseek-v4-flash");
-    expect(usesOpenAITransport("commandcode:claude-sonnet-5")).toBe(true);
+    expect(usesOpenAITransport("commandcode:deepseek/deepseek-v4-flash")).toBe(true);
+    // Claude on CommandCode only speaks the Anthropic Messages shape.
+    expect(usesOpenAITransport("commandcode:claude-sonnet-5")).toBe(false);
+    expect(resolveModelConnection("commandcode:claude-sonnet-5").baseURL).toBe("https://api.commandcode.ai/provider");
   });
 
   it("routes openai: models to OpenAI with the Responses transport", () => {

@@ -59,6 +59,8 @@ export type ToolHandler = (name: string, input: Record<string, unknown>) => stri
 // Coding turns may need extended inspection before their first write, while
 // conversational callers can request a smaller, latency-conscious ceiling.
 const TOOL_CALL_CEILING = 40;
+/** Room for a full plan, draft, or explanation; 2048 truncated long answers mid-thought. */
+const AGENT_OUTPUT_TOKENS = 8192;
 const TOOL_CEILING_NOTE =
   "\n\nFlyd's tool-call limit for this turn is reached. Answer now from the evidence already gathered. If work is unfinished, say so and name Flyd's tool-call limit as the reason - never an external tool, session, or budget failure.";
 
@@ -394,7 +396,7 @@ async function queryOpenAIWithConfig(
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const res = await client.chat.completions.create({
     model: apiModelId(model),
-    ...openAICompletionLimit(options.json ? 4096 : 2048),
+    ...openAICompletionLimit(options.json ? 8192 : 4096),
     messages,
     ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
   });
@@ -413,7 +415,7 @@ async function queryAnthropic(prompt: string, model: string, system?: string, op
   const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
   const res = await client.messages.create({
     model: apiModelId(model),
-    max_tokens: options.json ? 4096 : 2048,
+    max_tokens: options.json ? 8192 : 4096,
     temperature: 0.2,
     system,
     messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],
@@ -437,7 +439,7 @@ async function streamOpenAI(
   messages.push({ role: "user", content: prompt });
   const stream = await client.chat.completions.create({
     model: apiModelId(model),
-    ...openAICompletionLimit(2048),
+    ...openAICompletionLimit(4096),
     messages,
     stream: true,
   });
@@ -464,7 +466,7 @@ async function streamAnthropic(
   const stream = client.messages
     .stream({
       model: apiModelId(model),
-      max_tokens: 2048,
+      max_tokens: 4096,
       temperature: 0.2,
       system,
       messages: [{ role: "user", content: prompt }],
@@ -500,7 +502,7 @@ async function agentLoopAnthropic(
     const lastCall = i === ceiling - 1 || pastAnswerBy(options);
     const res = await client.messages.create({
       model: apiModelId(model),
-      max_tokens: 2048,
+      max_tokens: AGENT_OUTPUT_TOKENS,
       temperature: 0.2,
       system: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
       ...(lastCall ? {} : {
@@ -583,7 +585,7 @@ async function agentLoopOpenAI(
     if (lastCall) messages.push({ role: "user", content: TOOL_CEILING_NOTE.trim() });
     const res = await client.chat.completions.create({
       model: apiModelId(model),
-      ...openAICompletionLimit(2048),
+      ...openAICompletionLimit(AGENT_OUTPUT_TOKENS),
       tools: oaiTools,
       ...(lastCall ? { tool_choice: "none" as const } : {}),
       messages,
@@ -657,7 +659,7 @@ async function agentLoopOpenAIResponses(
       instructions: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
       input,
       ...(lastCall ? {} : { tools: responseTools }),
-      max_output_tokens: 2048,
+      max_output_tokens: AGENT_OUTPUT_TOKENS,
     }, { signal: options.signal });
     if (response.error) throw new Error(`OpenAI Responses API: ${response.error.message}`);
     input.push(...response.output);

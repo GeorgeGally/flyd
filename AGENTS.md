@@ -182,8 +182,8 @@ flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
 flyd agenda [list|add|cancel|inbox|run-due|install]  # Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Core every 5 min + optional launchd), results → inbox + macOS notification + next session's opening briefing
-flyd profile [edit]                   # George's USER.md — highest-authority personal context, fed to every compiled context
-cd cli && npm run evals:chat          # live chat evals (read-only; --only id,id --model provider:model); results + regressions in ~/.flyd/evals/chat/
+flyd profile [edit|bootstrap]         # George's USER.md — highest-authority personal context, fed to every compiled context; bootstrap drafts it from raw captures; chat `/onboard` interviews George; durable facts he states are learned in the background (FLYD_PROFILE_AUTOLEARN=0 to disable)
+cd cli && npm run evals:chat          # live chat evals (read-only; --only id,id --model provider:model); intelligence cases are LLM-judged (FLYD_EVAL_JUDGE_MODEL); results + regressions in ~/.flyd/evals/chat/. Pick chat models with this, not by reputation.
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
 FLYD_CHAT_FALLBACK_MODELS=openai:gpt-5.6-luna  # chat/ask failover after FLYD_CHAT_MODEL (provider-qualified: openai:|anthropic:|commandcode:|opencode-go:); COMMANDCODE_API_KEY appends commandcode:<COMMANDCODE_MODEL> automatically
 FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)

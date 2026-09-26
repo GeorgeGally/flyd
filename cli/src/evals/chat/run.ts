@@ -10,7 +10,10 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FLYD_DIR } from "../../lib/config.js";
-import { median, scoreChatEval, type ChatEvalCase, type ChatEvalObservation, type Placeholders } from "./scoring.js";
+import {
+  buildJudgePrompt, median, parseJudgeVerdict, scoreChatEval,
+  type ChatEvalCase, type ChatEvalObservation, type Placeholders,
+} from "./scoring.js";
 
 interface CaseResult {
   id: string;
@@ -20,6 +23,7 @@ interface CaseResult {
   seconds: number;
   toolCalls: number;
   approvalsAsked: number;
+  judgeScore?: number;
   answer: string;
   /** What Flyd tried, for diagnosing failures. */
   calls: string[];
@@ -64,6 +68,8 @@ function previousRun(directory: string): Map<string, CaseResult> | null {
 async function main(): Promise<void> {
   const model = argValue("--model");
   if (model) process.env.FLYD_CHAT_MODEL = model;
+  // The judge stays fixed across runs so model comparisons are apples to apples.
+  const judgeModel = process.env.FLYD_EVAL_JUDGE_MODEL?.trim() || "openai:gpt-5.6-sol";
   const only = argValue("--only")?.split(",").map((id) => id.trim()).filter(Boolean);
 
   const { respondToConversation } = await import("../../runtime/conversation-responder.js");
@@ -114,6 +120,19 @@ async function main(): Promise<void> {
     }
     observed.seconds = (Date.now() - started) / 1000;
     observed.approvalsAsked = approvalsAsked;
+    if (testCase.expect.judge && observed.answer) {
+      try {
+        const { query } = await import("../../lib/llm.js");
+        const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+        const verdict = parseJudgeVerdict(await query(buildJudgePrompt(testCase, observed.answer, today), judgeModel));
+        if (verdict) {
+          observed.judgeScore = verdict.score;
+          observed.judgeReason = verdict.reason;
+        }
+      } catch (error) {
+        observed.judgeReason = `judge failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
     const score = scoreChatEval(testCase, observed, values);
     const result: CaseResult = {
       id: testCase.id,
@@ -123,11 +142,12 @@ async function main(): Promise<void> {
       seconds: Number(observed.seconds.toFixed(1)),
       toolCalls: observed.toolCalls.length,
       approvalsAsked,
+      ...(observed.judgeScore !== undefined ? { judgeScore: observed.judgeScore } : {}),
       answer: observed.answer.slice(0, 600),
       calls: observed.toolCalls.map((call) => `${call.succeeded ? "" : "✗ "}${call.name} ${JSON.stringify(call.input).slice(0, 160)}`),
     };
     results.push(result);
-    process.stdout.write(`${result.passed ? "PASS" : "FAIL"}  ${testCase.id.padEnd(24)} ${String(result.seconds).padStart(6)}s  tools=${result.toolCalls}${result.passed ? "" : `\n      ${result.failures.join("\n      ")}`}\n`);
+    process.stdout.write(`${result.passed ? "PASS" : "FAIL"}  ${testCase.id.padEnd(24)} ${String(result.seconds).padStart(6)}s  tools=${result.toolCalls}${result.judgeScore !== undefined ? `  judge=${result.judgeScore}/10` : ""}${result.passed ? "" : `\n      ${result.failures.join("\n      ")}`}\n`);
   }
 
   const directory = join(FLYD_DIR, "evals", "chat");
@@ -137,9 +157,12 @@ async function main(): Promise<void> {
   writeFileSync(join(directory, `${stamp}.jsonl`), `${results.map((row) => JSON.stringify(row)).join("\n")}\n`);
 
   const passed = results.filter((row) => row.passed).length;
+  const judged = results.filter((row) => row.judgeScore !== undefined);
+  const judgedMean = judged.length ? judged.reduce((sum, row) => sum + (row.judgeScore ?? 0), 0) / judged.length : null;
   const medianSeconds = median(results.map((row) => row.seconds));
   const lines = [
     "",
+    `Model: ${process.env.FLYD_CHAT_MODEL ?? "(configured)"} · judge: ${judgeModel}${judgedMean !== null ? ` · judged quality ${judgedMean.toFixed(1)}/10 over ${judged.length}` : ""}`,
     `Chat evals: ${passed}/${results.length} passed (${Math.round((passed / results.length) * 100)}%) · median ${medianSeconds.toFixed(1)}s · ${results.reduce((sum, row) => sum + row.toolCalls, 0)} tool calls`,
   ];
   const byCategory = new Map<string, CaseResult[]>();

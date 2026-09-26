@@ -55,7 +55,7 @@ describe("personal tools", () => {
     const appendProfileFact = vi.fn(() => true);
     expect(await runPersonalTool("remember", { text: "George is vegetarian", about_george: true }, { capture, appendProfileFact }))
       .toBe("Saved to Flyd memory and George's profile (USER.md): George is vegetarian");
-    expect(appendProfileFact).toHaveBeenCalledWith("George is vegetarian");
+    expect(appendProfileFact).toHaveBeenCalledWith("George is vegetarian", undefined);
     expect(await runPersonalTool("remember", { text: "Project kickoff went well" }, { capture, appendProfileFact }))
       .toBe("Saved to Flyd memory: Project kickoff went well");
     expect(appendProfileFact).toHaveBeenCalledTimes(1);

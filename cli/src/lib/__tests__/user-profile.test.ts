@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendUserProfileFact, ensureUserProfile, readUserProfile, USER_PROFILE_TEMPLATE } from "../user-profile.js";
+import { addUserProfileFact, appendUserProfileFact, ensureUserProfile, readUserProfile, USER_PROFILE_TEMPLATE } from "../user-profile.js";
 
 describe("user profile (USER.md)", () => {
   let dir: string;
@@ -39,5 +39,16 @@ describe("user profile (USER.md)", () => {
     writeFileSync(path, "# George\n- Vegetarian\n");
     appendUserProfileFact("Allergic to shellfish", new Date(2026, 0, 2), path);
     expect(readFileSync(path, "utf8")).toBe("# George\n- Vegetarian\n\n## Learned in conversation\n- Allergic to shellfish (2026-01-02)\n");
+  });
+
+  it("files facts under their section, replacing the empty placeholder", () => {
+    ensureUserProfile(path);
+    addUserProfileFact("Partner: Maya", { section: "People", path, dated: false });
+    addUserProfileFact("Brother: Leo", { section: "People", path, dated: false });
+    addUserProfileFact("Runs at 6am", { section: "Routines", path, dated: false });
+    const text = readFileSync(path, "utf8");
+    expect(text).toContain("## People\n- Partner: Maya\n- Brother: Leo\n\n## Preferences");
+    expect(text).toContain("## Routines\n- Runs at 6am\n\n## Goals");
+    expect(readUserProfile(path)).toContain("## People\n- Partner: Maya\n- Brother: Leo");
   });
 });
