@@ -65,3 +65,13 @@ describe("chat presentation helpers", () => {
     expect(line).toMatch(/^Local time: Saturday, 26 September 2026 at 23:45 \(.+, UTC[+-]\d{2}:\d{2}\)$/);
   });
 });
+
+describe("turnBudget", () => {
+  it("keeps questions quick and gives tasks room to finish", async () => {
+    const { turnBudget } = await import("../conversation-responder.js");
+    expect(turnBudget("what's the weather in Bali?", "conversation")).toEqual({ iterations: 12, answerMs: 45_000 });
+    expect(turnBudget("clean up my Downloads folder and summarize what was there", "conversation")).toEqual({ iterations: 25, answerMs: 180_000 });
+    expect(turnBudget("anything new?", "conversation", "agenda-abc")).toEqual({ iterations: 25, answerMs: 180_000 });
+    expect(turnBudget("do it", "contextual_action")).toEqual({ iterations: 40, answerMs: 300_000 });
+  });
+});

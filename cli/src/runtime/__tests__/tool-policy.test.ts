@@ -19,6 +19,8 @@ describe("isReadOnlyCommand", () => {
     "git add -A --dry-run",
     "rustc --version",
     "which cargo && cargo -V",
+    "gh pr view 53 --repo GeorgeGally/flyd --json state,mergedAt",
+    "gh run list --limit 5",
   ])("allows %j", (command) => {
     expect(isReadOnlyCommand(command)).toBe(true);
   });
@@ -38,6 +40,8 @@ describe("isReadOnlyCommand", () => {
     "ls; rm notes.txt",
     "find . -name '*.tmp' | xargs rm",
     "npm version patch",
+    "gh pr merge 53",
+    "gh issue comment 4 --body hi",
     "node -e \"require('fs').writeFileSync('x','y')\"",
   ])("requires approval for %j", (command) => {
     expect(isReadOnlyCommand(command)).toBe(false);
@@ -66,6 +70,16 @@ describe("decideToolCall", () => {
     }
     expect(decideToolCall("reminders", { action: "list" }, tainted)).toEqual({ kind: "allow" });
     expect(decideToolCall("bash", { command: "git status" }, tainted)).toEqual({ kind: "allow" });
+  });
+
+  it("gates the Mac and agenda tools like shell and edits", () => {
+    expect(decideToolCall("mac", { action: "clipboard_read" }, tainted)).toEqual({ kind: "allow" });
+    expect(decideToolCall("mac", { action: "open", target: "https://x.com" }, clean)).toEqual({ kind: "allow" });
+    expect(decideToolCall("mac", { action: "open", target: "https://x.com" }, tainted).kind).toBe("confirm");
+    expect(decideToolCall("mac", { action: "applescript", script: "tell app \"Notes\" to make new note" }, clean).kind).toBe("confirm");
+    expect(decideToolCall("schedule", { action: "list" }, tainted)).toEqual({ kind: "allow" });
+    expect(decideToolCall("schedule", { action: "create", task: "x" }, clean)).toEqual({ kind: "allow" });
+    expect(decideToolCall("schedule", { action: "create", task: "x" }, tainted).kind).toBe("confirm");
   });
 
   it("flags destructive commands distinctly", () => {

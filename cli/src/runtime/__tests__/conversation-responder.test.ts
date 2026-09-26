@@ -309,7 +309,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "calendar_events"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -446,7 +446,7 @@ describe("buildConversationPrompt", () => {
     await respondToConversation({ message: "what should I work on next?", ...baseInput }, deps);
     await respondToConversation({ message: "What am I working on right now, and what is the one most useful next step?", ...baseInput }, deps);
 
-    expect(budgets[0]).toBe(12);
+    expect(budgets[0]).toBe(25);
     expect(budgets[1]).toBe(40);
     expect(budgets[2]).toBe(12);
     expect(budgets[3]).toBe(6);
@@ -714,6 +714,9 @@ describe("buildConversationPrompt", () => {
 
   it("lets the model page through long source files instead of losing later evidence", async () => {
     let laterEvidence = "";
+    // The phrase lives well past the first 20k-char page; follow it as the file grows.
+    const source = readFileSync(join(process.cwd(), "src/runtime/conversation-responder.ts"), "utf8");
+    const pageOffset = Math.max(20_000, source.indexOf("refused an ungrounded project answer") - 10_000);
     await respondToConversation({
       message: "inspect the Flyd runtime",
       history: [],
@@ -740,7 +743,7 @@ describe("buildConversationPrompt", () => {
       runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
         laterEvidence = await onToolCall("read_file", {
           path: "src/runtime/conversation-responder.ts",
-          offset: 30_000,
+          offset: pageOffset,
           limit: 20_000,
         });
         return "<final>Inspected the complete runtime.</final>";

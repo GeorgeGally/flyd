@@ -90,6 +90,18 @@ program
   });
 
 program
+  .command("agenda")
+  .description("Flyd's proactive agenda: list | add | cancel <id> | inbox | run-due | install | uninstall")
+  .argument("[action]", "list, add, cancel, inbox, run-due, install, uninstall")
+  .argument("[args...]", "task text (add) or id (cancel)")
+  .option("--at <when>", "local YYYY-MM-DD HH:MM (add)")
+  .option("--repeat <repeat>", "none, hourly, daily, weekdays, weekly (add)")
+  .action(async (action: string | undefined, args: string[] = [], opts: { at?: string; repeat?: string }) => {
+    const { runAgendaCommand } = await import("./commands/agenda.js");
+    await runAgendaCommand(action, args, opts);
+  });
+
+program
   .command("profile")
   .description("Show George's editable profile (USER.md); `flyd profile edit` opens it")
   .argument("[action]", "edit")

@@ -70,6 +70,13 @@ function segmentIsReadOnly(segment: string): boolean {
     if (gitSub === "worktree" && !/\bworktree\s+list\b/.test(text)) return false;
     return true;
   }
+  if (head === "gh") {
+    // GitHub CLI reads: viewing PRs, issues, runs, and repos changes nothing.
+    if (/^gh\s+(?:pr|issue)\s+(?:view|list|status|checks|diff)\b/.test(text)) return true;
+    if (/^gh\s+(?:run|workflow|release)\s+(?:list|view)\b/.test(text)) return true;
+    if (/^gh\s+repo\s+view\b/.test(text)) return true;
+    return false;
+  }
   if (head === "sed") return !/\s-[a-zA-Z]*i/.test(text);
   if (head === "find") return !/-(?:delete|exec|execdir|ok|fprint)\b/.test(text);
   if (head === "awk") return !/\bsystem\s*\(|>\s*"/.test(text);
@@ -116,6 +123,18 @@ export function decideToolCall(
       return state.tainted
         ? { kind: "confirm", reason: `save to memory: "${clip(String(input.text ?? ""), 80)}" (${taintNote})` }
         : { kind: "allow" };
+    case "schedule":
+      return input.action !== "list" && state.tainted
+        ? { kind: "confirm", reason: `${String(input.action)} scheduled task "${clip(String(input.task ?? input.id ?? ""), 80)}" (${taintNote})` }
+        : { kind: "allow" };
+    case "mac": {
+      if (input.action === "clipboard_read") return { kind: "allow" };
+      // Arbitrary AppleScript can do anything a shell can, so it is treated like a non-read-only command.
+      if (input.action === "applescript") return { kind: "confirm", reason: `run AppleScript: ${clip(String(input.script ?? ""))}` };
+      return state.tainted
+        ? { kind: "confirm", reason: `${String(input.action)} ${clip(String(input.target ?? input.text ?? ""), 80)} (${taintNote})` }
+        : { kind: "allow" };
+    }
     default:
       return { kind: "allow" };
   }

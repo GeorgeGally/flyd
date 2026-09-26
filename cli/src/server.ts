@@ -62,6 +62,7 @@ import { pauseJobs, resumeJobs, killJobs, clearKillJobs, isJobsGloballyPaused } 
 import { runMorningBriefing, runJobById, runDueJobs } from "./work-intelligence/jobs/runner.js";
 import type { JobType } from "./work-intelligence/jobs/types.js";
 import { startBriefScheduler, stopBriefScheduler, runAndPersistBrief } from "./runtime/brief-scheduler.js";
+import { startAgendaScheduler, stopAgendaScheduler } from "./runtime/agenda-runner.js";
 import { startTransitionJudge, stopTransitionJudge } from "./transitions/judge.js";
 import { getKey } from "./lib/config.js";
 import { handleCompoundNl, isCompoundNlUtterance } from "./work-intelligence/compound-nl.js";
@@ -1803,6 +1804,14 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       });
       console.log(`[Flyd Core] Daily brief scheduler started`);
 
+      // Tests start Core too; they must never execute George's real agenda.
+      if (!process.env.VITEST) {
+        startAgendaScheduler({
+          onError: (error) => console.warn("[Flyd Core] agenda run failed:", error instanceof Error ? error.message : error),
+        });
+        console.log(`[Flyd Core] Agenda scheduler started`);
+      }
+
       startTransitionJudge();
       console.log(`[Flyd Core] Transition judge sweep started`);
 
@@ -1827,6 +1836,7 @@ export function stopServer(): Promise<void> {
         console.log("[Flyd Core] Server stopped");
         const fallback = setTimeout(resolvePromise, 5000);
         stopBriefScheduler();
+        stopAgendaScheduler();
         stopTransitionJudge();
         stopTranscriptionServer().then(() => stopRealtimeServer()).then(() => stopContinuousSupervision()).then(() => {
           clearTimeout(fallback);

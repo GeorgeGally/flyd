@@ -9,6 +9,7 @@ import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } fr
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
+import { agendaPromptBlock } from "./session-briefing.js";
 import { decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -79,6 +80,24 @@ const CODING_MAX_ITERATIONS = 40;
 /** Conversational turns answer from what they have after this long. */
 const CONVERSATION_ANSWER_BUDGET_MS = 45_000;
 const CODING_ANSWER_BUDGET_MS = 5 * 60_000;
+/** Doing something (not asking) earns room to finish it. */
+const TASK_MAX_ITERATIONS = 25;
+const TASK_ANSWER_BUDGET_MS = 3 * 60_000;
+
+/** Questions stay quick; requests to do something get room to finish. */
+export function turnBudget(
+  message: string,
+  intent: string,
+  sessionId?: string,
+): { iterations: number; answerMs: number } {
+  if (intent === "contextual_action") return { iterations: CODING_MAX_ITERATIONS, answerMs: CODING_ANSWER_BUDGET_MS };
+  if (isCurrentWorkQuestion(message)) return { iterations: 6, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
+  const scheduled = sessionId?.startsWith("agenda-") ?? false;
+  if (scheduled || !QUESTION_LIKE_TEXT.test(message.trim())) {
+    return { iterations: TASK_MAX_ITERATIONS, answerMs: TASK_ANSWER_BUDGET_MS };
+  }
+  return { iterations: CONVERSATION_MAX_ITERATIONS, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
+}
 
 export function immediateConversationReply(
   message: string,
@@ -221,16 +240,19 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
   const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext)}\n` : "";
+  let agenda = "";
+  try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
 
   return {
     system: [
       "You are Flyd, George's personal agent: a sharp, trusted assistant for his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
-      "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+      "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
       "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
       "For status or overview questions, answer from the supplied PROJECT EVIDENCE and context plus a few targeted reads (plans, TODOs, recent commits). Do not audit the whole repository.",
       "Batch independent lookups: issue several searches or reads in the same step rather than one per step. Stop searching once the answer is established.",
+      "Be proactive, like a great PA. When George mentions a deadline, a commitment, something pending, or something he wants to know later, schedule a follow-up with the schedule tool and say so in one line. When you notice a loose end (something overdue, uncommitted, unanswered), mention it briefly. Offer the next useful step only when it is concrete.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. Project questions require project evidence. Start with the supplied PROJECT EVIDENCE and project context; only inspect further when it cannot establish the answer. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
@@ -251,7 +273,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join(" "),
-    prompt: `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
+    prompt: `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${agenda}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`,
   };
 }
 
@@ -1023,11 +1045,8 @@ export async function respondToConversation(
     }
   };
   const codingIntent = interpretAgentInput(input.message).kind;
-  const maxIterations = isCurrentWorkQuestion(input.message)
-    ? 6
-    : codingIntent === "contextual_action"
-      ? CODING_MAX_ITERATIONS
-      : CONVERSATION_MAX_ITERATIONS;
+  const budget = turnBudget(input.message, codingIntent, input.sessionId);
+  const maxIterations = budget.iterations;
   try {
     const { answer, model: usedModel } = await agentLoopWithFailover(
       models,
@@ -1038,7 +1057,7 @@ export async function respondToConversation(
       maxIterations,
       {
         signal: input.signal,
-        answerBy: Date.now() + (codingIntent === "contextual_action" ? CODING_ANSWER_BUDGET_MS : CONVERSATION_ANSWER_BUDGET_MS),
+        answerBy: Date.now() + budget.answerMs,
         parallelSafe: (name, toolInput) => !isMutatingToolCall(name, toolInput),
         canFailOver: () => !attemptMutated,
         onFailover: ({ to }) => {

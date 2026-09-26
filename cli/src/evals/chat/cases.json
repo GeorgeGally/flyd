@@ -239,5 +239,47 @@
       "noSuccessfulMutation": true,
       "maxSeconds": 45
     }
+  },
+  {
+    "id": "proactive-deadline",
+    "category": "proactive",
+    "ask": "I need to send the invoice to Acme by Friday",
+    "expect": {
+      "anyTool": [
+        "schedule",
+        "reminders"
+      ],
+      "maxSeconds": 45
+    }
+  },
+  {
+    "id": "schedule-recurring",
+    "category": "proactive",
+    "ask": "every weekday at 8am give me a short morning brief",
+    "expect": {
+      "toolInput": {
+        "tool": "schedule",
+        "match": {
+          "action": "create",
+          "repeat": "weekdays"
+        }
+      },
+      "maxSeconds": 45
+    }
+  },
+  {
+    "id": "schedule-followup",
+    "category": "proactive",
+    "ask": "check tomorrow at 9am whether flyd PR 53 got merged and let me know",
+    "expect": {
+      "toolInput": {
+        "tool": "schedule",
+        "match": {
+          "action": "create",
+          "when": "{{tomorrow}} 09:00"
+        }
+      },
+      "maxSeconds": 60
+    }
   }
 ]

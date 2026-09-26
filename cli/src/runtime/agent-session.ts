@@ -71,6 +71,8 @@ interface AgentSessionDependencies {
   loadSituation(): Promise<AgentSituation | null>;
   /** Optional: known repos for tool inspection — not shown as a catalog dump. */
   loadCrossRepo?(foregroundPath?: string): Promise<BriefRepo[]>;
+  /** Proactive briefing lines for the intro (inbox, due reminders, agenda). */
+  loadBriefing?(): Promise<string[]>;
   /** Shared Present Model hypothesis line for intro. */
   loadPresentHypothesis?(foregroundPath?: string): Promise<string | null>;
   /** Apply soft-durable hypothesis corrections from chat. */
@@ -138,8 +140,10 @@ const QUESTION_OUTCOME = /^(?:so\s+)?(?:how|why|what|when|where|who)\b|[?？]\s*
 function introLine(
   situation: AgentSituation | null,
   presentHypothesis?: string | null,
+  briefing: string[] = [],
 ): string {
   let line = `\n${ART}\n\n  ${greeting()}`;
+  if (briefing.length) line += `\n${briefing.map((entry) => `  ${entry}`).join("\n")}`;
   const hypothesis = (presentHypothesis ?? "").trim();
   if (
     hypothesis &&
@@ -324,10 +328,13 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   try {
     situation = await deps.loadSituation().catch(() => null);
     repos = (await deps.loadCrossRepo?.(situation?.projectRoot).catch(() => [])) ?? [];
-    presentHypothesis =
-      (await deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null)) ?? null;
+    const [hypothesis, briefing] = await Promise.all([
+      deps.loadPresentHypothesis?.(situation?.projectRoot).catch(() => null),
+      deps.loadBriefing?.().catch(() => []),
+    ]);
+    presentHypothesis = hypothesis ?? null;
     lastContextRefresh = Date.now();
-    deps.terminal.write(introLine(situation, presentHypothesis));
+    deps.terminal.write(introLine(situation, presentHypothesis, briefing ?? []));
 
     while (true) {
       let text: string;

@@ -62,6 +62,35 @@ export const personalTools: AgentTool[] = [
     },
   },
   {
+    name: "schedule",
+    description: "Flyd's own agenda — make Flyd do something later, on its own, and notify George with the result. Use it proactively for follow-ups (\"check tomorrow 9am whether the PR merged\"), recurring briefings (\"every weekday 08:00 brief me\"), and anything George says he wants to know later. action=create needs task + when; list shows the agenda; cancel needs id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["create", "list", "cancel"], description: "create, list, or cancel" },
+        task: { type: "string", description: "What Flyd should do then, written as an instruction to itself (create)" },
+        when: { type: "string", description: "Local time YYYY-MM-DD HH:MM for the first run (create)" },
+        repeat: { type: "string", enum: ["none", "hourly", "daily", "weekdays", "weekly"], description: "Recurrence (default none)" },
+        id: { type: "string", description: "Agenda item id (cancel)" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "mac",
+    description: "Control George's Mac. action=open opens a URL, file, or app (target); notify shows a notification (text); clipboard_read / clipboard_write (text) use the clipboard; applescript runs an AppleScript (script) to drive any app — Notes, Mail drafts, Music, Finder, Safari tabs.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["open", "notify", "clipboard_read", "clipboard_write", "applescript"], description: "What to do" },
+        target: { type: "string", description: "URL, file path, or app name (open)" },
+        text: { type: "string", description: "Notification or clipboard text" },
+        script: { type: "string", description: "AppleScript source (applescript)" },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "calendar_events",
     description: "Read George's Apple Calendar events between two local dates (read-only).",
     input_schema: {
@@ -80,6 +109,8 @@ export const PERSONAL_TOOL_NAMES = new Set(personalTools.map((tool) => tool.name
 /** Tools whose effect lands outside the conversation; a retry would repeat it. */
 export function isMutatingToolCall(name: string, input: Record<string, unknown>): boolean {
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
+  if (name === "schedule") return input.action !== "list";
+  if (name === "mac") return input.action !== "clipboard_read";
   return name === "reminders" && input.action === "create";
 }
 
@@ -329,6 +360,54 @@ function localDateParts(date: Date): [string, string, string] {
   ];
 }
 
+async function runMacAction(
+  input: Record<string, unknown>,
+  osascript: (script: string, args: string[]) => Promise<string>,
+): Promise<string> {
+  if (process.platform !== "darwin") return "Error: Mac control is only available on macOS";
+  try {
+    switch (input.action) {
+      case "open": {
+        const target = String(input.target ?? "").trim();
+        if (!target) return "Error: open needs a target";
+        const isUrl = /^[a-z][a-z0-9+.-]*:/i.test(target);
+        const isPath = target.startsWith("/") || target.startsWith("~");
+        const args = isUrl || isPath ? [target.replace(/^~(?=\/)/, process.env.HOME ?? "~")] : ["-a", target];
+        await execFileAsync("open", args, { timeout: 15_000 });
+        return `Opened ${target}`;
+      }
+      case "notify": {
+        const text = String(input.text ?? "").trim();
+        if (!text) return "Error: notify needs text";
+        await osascript("on run argv\n display notification (item 1 of argv) with title \"Flyd\"\nend run", [text.slice(0, 220)]);
+        return "Notification shown";
+      }
+      case "clipboard_read": {
+        const { stdout } = await execFileAsync("pbpaste", [], { timeout: 5_000, maxBuffer: 1024 * 1024 });
+        return stdout.length > 8000 ? `${stdout.slice(0, 8000)}\n... (truncated)` : stdout || "(clipboard is empty)";
+      }
+      case "clipboard_write": {
+        const text = String(input.text ?? "");
+        await new Promise<void>((resolve, reject) => {
+          const child = execFile("pbcopy", [], { timeout: 5_000 }, (error) => error ? reject(error) : resolve());
+          child.stdin?.end(text);
+        });
+        return `Copied ${text.length} chars to the clipboard`;
+      }
+      case "applescript": {
+        const script = String(input.script ?? "").trim();
+        if (!script) return "Error: applescript needs a script";
+        const out = await osascript(script, []);
+        return out || "AppleScript ran (no output)";
+      }
+      default:
+        return "Error: mac action must be open, notify, clipboard_read, clipboard_write, or applescript";
+    }
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 export async function runPersonalTool(
   name: string,
   input: Record<string, unknown>,
@@ -390,6 +469,27 @@ export async function runPersonalTool(
         return `Error with Reminders: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
+    case "schedule": {
+      const agenda = await import("./agenda.js");
+      try {
+        if (input.action === "list") {
+          const items = agenda.upcomingAgenda();
+          return items.length ? items.map(agenda.describeAgendaItem).join("\n") : "Flyd's agenda is empty.";
+        }
+        if (input.action === "cancel") {
+          const removed = agenda.cancelAgendaItem(String(input.id ?? ""));
+          return removed ? `Cancelled: ${removed.task}` : `Error: no agenda item ${String(input.id ?? "")}`;
+        }
+        if (input.action !== "create") return "Error: schedule action must be create, list, or cancel";
+        const repeat = String(input.repeat ?? "none") as import("./agenda.js").AgendaRepeat;
+        const item = agenda.addAgendaItem({ task: String(input.task ?? ""), when: String(input.when ?? ""), repeat });
+        return `Scheduled ${agenda.describeAgendaItem(item)}. Flyd will run it then and notify George.`;
+      } catch (error) {
+        return `Error: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    case "mac":
+      return runMacAction(input, osascript);
     case "calendar_events": {
       const fromText = String(input.from ?? "").trim();
       const from = fromText.match(LOCAL_DATE_TIME);

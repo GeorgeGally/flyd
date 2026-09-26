@@ -182,6 +182,7 @@ export async function runAgent(): Promise<void> {
       respond: respondToConversation,
       loadSituation: () => loadAgentSituation({ pool }),
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
+      loadBriefing: async () => (await import("../runtime/session-briefing.js")).composeSessionBriefing(),
       loadPresentHypothesis: async (foregroundPath) => {
         try {
           const belief = await buildPresentModelBelief({
