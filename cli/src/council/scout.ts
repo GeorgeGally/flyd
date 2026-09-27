@@ -192,7 +192,9 @@ function feedbackDigest(feedback: ScoutFeedback[]): string {
 
 // A bot marker in the user agent gets a 403 block page from Reddit.
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
-const REDDIT_SPACING_MS = 2_500;
+const REDDIT_SPACING_MS = 10_000;
+/** One patient retry after a 429 before giving up on Reddit for this run. */
+const REDDIT_RETRY_AFTER_MS = 45_000;
 
 class RateLimited extends Error {}
 
@@ -276,8 +278,17 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
       .slice(0, options.redditLimit ?? Infinity);
     for (const [index, source] of subs.entries()) {
       if (index > 0 && (options.redditSpacingMs ?? REDDIT_SPACING_MS) > 0) await new Promise((resolve) => setTimeout(resolve, options.redditSpacingMs ?? REDDIT_SPACING_MS));
+      const url = `https://www.reddit.com/r/${source.target}/.rss`;
       try {
-        candidates.push(...await fetchFeed(`https://www.reddit.com/r/${source.target}/.rss`, source, fetchFn, options.now));
+        let items: ScoutCandidate[];
+        try {
+          items = await fetchFeed(url, source, fetchFn, options.now);
+        } catch (error) {
+          if (!(error instanceof RateLimited) || (options.redditSpacingMs ?? REDDIT_SPACING_MS) === 0) throw error;
+          await new Promise((resolve) => setTimeout(resolve, REDDIT_RETRY_AFTER_MS));
+          items = await fetchFeed(url, source, fetchFn, options.now);
+        }
+        candidates.push(...items);
         source.lastFetchedAt = options.now.toISOString();
       } catch (error) {
         if (error instanceof RateLimited) break;
