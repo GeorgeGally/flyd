@@ -253,7 +253,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
     seen: [...state.seen, ...improvement.evidence],
     attempts: [...state.attempts, { at: now.toISOString(), title: improvement.title, taskId: task.id, evidence: improvement.evidence }],
   }, dir);
-  await deps.notify?.("Flyd is improving itself", `${improvement.title} — a crewmate is building it on ${task.branch}. Nothing lands without /land ${task.id}.`).catch(() => undefined);
+  await deps.notify?.("Flyd", `I'm teaching myself to ${improvement.title.charAt(0).toLowerCase()}${improvement.title.slice(1)}. I'll show you before anything changes.`).catch(() => undefined);
   return { status: "dispatched", improvement, task, evidence: fresh.length };
 }
 

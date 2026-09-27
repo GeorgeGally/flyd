@@ -285,9 +285,9 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
   }
   for (const task of changed.filter((item) => !item.notified && deps.notify)) {
     const message = task.status === "ready"
-      ? `${task.outcome.slice(0, 80)} — ready to land (${task.diffStat || `${task.commits} commits`}, checks pass). /land ${task.id}`
-      : `${task.outcome.slice(0, 80)} — ${task.failure}`;
-    await deps.notify!(`Flyd crew ${task.status === "ready" ? "✓" : "✗"}`, message).catch(() => undefined);
+      ? `${plainOutcome(task)} is done and tested. Say /land to merge it in.`
+      : `I couldn't finish ${plainOutcome(task)} (${task.failure}).`;
+    await deps.notify!("Flyd", message).catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
   return changed;
@@ -328,6 +328,13 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
   const discarded = { ...task, status: "discarded" as const };
   saveTask(discarded, dir);
   return discarded;
+}
+
+/** The work in George's terms: its first sentence, without the self-improvement preamble. */
+export function plainOutcome(task: CrewTask): string {
+  const text = task.outcome.replace(/^Self-improvement for Flyd:\s*/i, "");
+  const first = text.split(/(?<=[.!?])\s/)[0].replace(/[.!?]$/, "");
+  return first.length > 90 ? `${first.slice(0, 89)}…` : first;
 }
 
 export function describeTask(task: CrewTask): string {

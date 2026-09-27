@@ -102,7 +102,7 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
     const state = readNotifyState(today);
     for (const advisory of advisories.filter((item) => item.urgency === "high")) {
       if (state.count >= URGENT_NOTIFICATIONS_PER_DAY || !deps.notify) break;
-      await deps.notify(`Flyd ${advisory.advisor === "critic" ? "Critic" : "Strategist"}`, advisory.text).catch(() => undefined);
+      await deps.notify("Flyd", advisory.text).catch(() => undefined);
       state.count += 1;
       notified.push(advisory);
     }

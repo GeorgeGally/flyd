@@ -482,7 +482,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const flashes = readJsonl<EditionItem & { date: string }>(join(dir, "flash.jsonl"));
   const notifiedToday = flashes.filter((flash) => flash.date === today && (flash as { notified?: boolean }).notified).length;
   const rows = musts.map((item, index) => ({ ...item, date: today, notified: Boolean(deps.notify) && notifiedToday + index < WATCH_NOTIFICATIONS_PER_DAY }));
-  for (const row of rows.filter((item) => item.notified)) await deps.notify!(`Flyd Scout — ${row.source}`, `${row.title}: ${row.why}`).catch(() => undefined);
+  for (const row of rows.filter((item) => item.notified)) await deps.notify!("Flyd", `${row.title} — ${row.why}`).catch(() => undefined);
   appendJsonl(join(dir, "flash.jsonl"), rows);
   appendJsonl(join(dir, "seen.jsonl"), rows.map((item) => ({ url: item.url, date: today })));
   return musts;

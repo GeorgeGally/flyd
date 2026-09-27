@@ -1,3 +1,4 @@
+import { readSoul } from "../lib/soul.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
@@ -72,20 +73,22 @@ export function museCandidates(
 
 export function musePrompt(message: string, answer: string, candidates: MuseCandidate[], today: string): string {
   return [
-    "You are the Muse: George's friend and personal aide, sitting quietly beside his conversation with Flyd.",
-    "You speak up only when you can genuinely help him right now — a relevant thing he told Flyd before, a commitment or deadline this touches, a risk or an opportunity his advisors spotted.",
+    readSoul(),
+    "",
+    "You have just answered George. Decide whether to add one short aside, the way a friend adds \"oh — and…\" after answering.",
+    "Add it only when it genuinely helps him right now — something he told you before, a commitment or deadline this touches, a risk or an opportunity you noticed.",
     `Today is ${today}.`,
     "",
     `George just said: """${message.slice(0, 1_500)}"""`,
-    `Flyd answered: """${answer.slice(0, 1_500)}"""`,
+    `You answered: """${answer.slice(0, 1_500)}"""`,
     "",
-    "What the council knows that might bear on this:",
+    "What you know that might bear on this:",
     ...candidates.map((candidate) => `- [${candidate.kind}:${candidate.id}] ${candidate.text}`),
     "",
     "Rules:",
-    "- If none of it clearly helps with THIS moment, or Flyd's answer already covered it, reply exactly NONE.",
+    "- If none of it clearly helps with THIS moment, or your answer already covered it, reply exactly NONE.",
     "- The note must serve George's immediate goal in this message. A cross-project idea or opportunity that pulls his attention elsewhere — however good — is NONE right now.",
-    "- Otherwise reply with one or two short, warm, plain sentences addressed to George — no preamble, no labels, no bullet points.",
+    "- Otherwise reply with one or two short, warm, plain sentences addressed to George, in your own voice — no preamble, no labels, no bullet points; never name a critic, strategist, or other helper.",
     "- Be measured: raise a concern calmly and constructively; never nag, never moralise.",
     "- End with the id you used in square brackets, e.g. [advisory:ab12cd34].",
   ].join("\n");

@@ -60,6 +60,8 @@ interface AgentTerminal {
   setPending?(messages: string[]): void;
   /** Full-screen pinned-input mode. */
   tui?: boolean;
+  /** Toggle wheel capture (on) vs native text selection (off); returns the new state. */
+  toggleMouse?(): boolean;
 }
 
 interface AgentSessionDependencies {
@@ -83,6 +85,10 @@ interface AgentSessionDependencies {
   rateStory?(n: number, verdict: "more" | "less"): Promise<string | null>;
   /** Proactive briefing lines for the intro (inbox, due reminders, agenda). */
   loadBriefing?(): Promise<string[]>;
+  /** The Muse turns the briefing into a few warm sentences; the raw lines move to /brief. */
+  composeGreeting?(input: { briefing: string[]; hypothesis: string | null }): Promise<string>;
+  /** Put text on the system clipboard (/copy). */
+  copyToClipboard?(text: string): Promise<void>;
   /** Shared Present Model hypothesis line for intro. */
   loadPresentHypothesis?(foregroundPath?: string): Promise<string | null>;
   /** Apply soft-durable hypothesis corrections from chat. */
@@ -201,6 +207,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   };
 
   const history: ConversationTurn[] = [];
+  let briefingLines: string[] = [];
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
   let presentHypothesis: string | null = null;
@@ -341,7 +348,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         void deps.afterTurn({ user: message, assistant: answer }).then((reaction) => {
           if (!reaction?.museNote) return;
           lastMuseAdvisory = reaction.advisoryId ?? null;
-          deps.terminal.write(`\n${paint(`  ✦ Muse: ${reaction.museNote}`, MAGENTA)}${reaction.advisoryId ? paint("  (/useful or /dismiss)", DIM) : ""}\n`);
+          deps.terminal.write(`\n${wrapDisplayText(`  ${reaction.museNote}`).split("\n").map((line) => paint(line, MAGENTA)).join("\n")}\n`);
         }).catch(() => undefined);
       }
     }).catch((error) => {
@@ -364,7 +371,17 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     ]);
     presentHypothesis = hypothesis ?? null;
     lastContextRefresh = Date.now();
-    deps.terminal.write(introLine(situation, presentHypothesis, briefing ?? []));
+    briefingLines = briefing ?? [];
+    if (deps.composeGreeting) {
+      deps.terminal.write(wrapDisplayText(`\n${ART}\n\n  ${greeting()}\n`));
+      const note = deps.composeGreeting({ briefing: briefingLines, hypothesis: presentHypothesis })
+        .then((text) => deps.terminal.write(`${wrapDisplayText(`  ${text}`).split("\n").map((line) => paint(line, MAGENTA)).join("\n")}\n\n`))
+        .catch(() => deps.terminal.write("\n"));
+      // A full-screen host keeps taking input while the Muse writes; a plain terminal waits so lines don't interleave.
+      if (!deps.terminal.tui) await note;
+    } else {
+      deps.terminal.write(introLine(situation, presentHypothesis, briefingLines));
+    }
 
     while (true) {
       let text: string;
@@ -407,12 +424,19 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         continue;
       }
 
-      const crewCommand = text.trim().match(/^\/(land|discard)\s+(\S+)$/i);
+      const crewCommand = text.trim().match(/^\/(land|discard)(?:\s+(\S+))?$/i);
       if (crewCommand) {
         try {
           const crew = await import("../crew/crew.js");
-          const task = crewCommand[1].toLowerCase() === "land" ? await crew.landCrewTask(crewCommand[2]) : await crew.discardCrewTask(crewCommand[2]);
-          deps.terminal.write(`${crew.describeTask(task)}\n`);
+          const land = crewCommand[1].toLowerCase() === "land";
+          // Bare /land or /discard means the one piece of work waiting on George.
+          const id = crewCommand[2] ?? (() => {
+            const waiting = crew.listTasks().filter((item) => item.status === "ready" || (!land && item.status === "failed"));
+            if (waiting.length === 1) return waiting[0].id;
+            throw new Error(waiting.length ? `A few things are waiting: ${waiting.map((item) => `/${crewCommand[1].toLowerCase()} ${item.id} (${crew.plainOutcome(item)})`).join(", ")}` : "Nothing is waiting for you.");
+          })();
+          const task = land ? await crew.landCrewTask(id) : await crew.discardCrewTask(id);
+          deps.terminal.write(`  ${land ? "Merged in" : "Dropped"}: ${crew.plainOutcome(task)}.\n`);
         } catch (error) {
           deps.terminal.write(`${error instanceof Error ? error.message : String(error)}\n`);
         }
@@ -423,7 +447,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       if (story) {
         const title = deps.rateStory ? await deps.rateStory(Number(story[2]), story[1] === "more" ? "more" : "less").catch(() => null) : null;
         deps.terminal.write(title
-          ? `${story[1] === "more" ? "More like" : "Less like"} "${title}" — the Scout will adjust.\n`
+          ? `${story[1] === "more" ? "Got it, more like" : "Got it, less like"} "${title}".\n`
           : `No item ${story[2]} in the latest edition.\n`);
         continue;
       }
@@ -432,10 +456,10 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       if (verdict) {
         if (lastMuseAdvisory && deps.rateAdvisory) {
           await deps.rateAdvisory(lastMuseAdvisory, verdict[1] === "useful" ? "useful" : "dismissed").catch(() => undefined);
-          deps.terminal.write(verdict[1] === "useful" ? "Noted — the council will lean that way.\n" : "Dismissed — it won't come up again.\n");
+          deps.terminal.write(verdict[1] === "useful" ? "Noted, glad it helped.\n" : "Fair enough, I'll drop it.\n");
           lastMuseAdvisory = null;
         } else {
-          deps.terminal.write("Nothing from the Muse to rate yet.\n");
+          deps.terminal.write("Nothing to rate yet.\n");
         }
         continue;
       }
@@ -445,8 +469,34 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         continue;
       }
 
+      if (/^\/copy\b/i.test(text.trim())) {
+        await waitForTurns();
+        const last = [...history].reverse().find((turn) => turn.role === "assistant");
+        if (!last || !deps.copyToClipboard) {
+          deps.terminal.write(`  ${last ? "Copy isn't available here." : "Nothing to copy yet."}\n`);
+        } else {
+          await deps.copyToClipboard(last.content).then(
+            () => deps.terminal.write(paint("  Copied Flyd's last reply.\n", DIM)),
+            (error: unknown) => deps.terminal.write(`  Copy failed: ${error instanceof Error ? error.message : String(error)}\n`),
+          );
+        }
+        continue;
+      }
+
+      if (/^\/mouse\b/i.test(text.trim())) {
+        if (!deps.terminal.toggleMouse) {
+          deps.terminal.write("  Mouse mode only applies to the full-screen view.\n");
+        } else {
+          deps.terminal.write(paint(deps.terminal.toggleMouse()
+            ? "  Wheel scrolling on. Text selection is off until /mouse again.\n"
+            : "  Text selection on. Scroll with Shift+↑/↓ or PgUp/PgDn.\n", DIM));
+        }
+        continue;
+      }
+
       if (/^\/brief\b/i.test(text.trim())) {
         await waitForTurns();
+        if (briefingLines.length) deps.terminal.write(wrapDisplayText(`\n${briefingLines.map((line) => `  ${line}`).join("\n")}\n`));
         const { readLatestBrief, composeDailyBrief } = await import("./daily-brief.js");
         const { getKey } = await import("../lib/config.js");
         // Prefer a fresh cron-produced brief (from the background scheduler);

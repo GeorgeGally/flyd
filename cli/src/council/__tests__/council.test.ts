@@ -192,7 +192,7 @@ describe("council pass", () => {
     const result = await runCouncilPass({ complete, notify, force: true, now: () => at("2026-09-27T10:00:00Z") });
     expect(result.librarian?.turns).toBe(1);
     expect(result.advisories.map((advisory) => advisory.advisor)).toEqual(["critic"]);
-    expect(notify).toHaveBeenCalledWith("Flyd Critic", "Submit CleanX for store review today or 3 Oct slips");
+    expect(notify).toHaveBeenCalledWith("Flyd", "Submit CleanX for store review today or 3 Oct slips");
     expect(await runCouncilPass({ complete, notify, now: () => at("2026-09-27T10:05:00Z") })).toMatchObject({ skipped: "not_due" });
   });
 });

@@ -74,6 +74,45 @@ describe("runAgentSession", () => {
     expect(intro).not.toContain("Next: Run the focused tests.");
   });
 
+  it("lets the Muse greet in prose and keeps the raw briefing for /brief", async () => {
+    const ui = terminal(["/brief", "/exit"]);
+    const composeGreeting = vi.fn(async () => "Sam's call is at five; the rest can wait.");
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(),
+      loadSituation: vi.fn(async () => null),
+      loadBriefing: vi.fn(async () => ["On my mind: Pick one spine for positioning."]),
+      composeGreeting,
+    });
+
+    const written = ui.write.mock.calls.map((call) => String(call[0]));
+    expect(composeGreeting).toHaveBeenCalledWith({ briefing: ["On my mind: Pick one spine for positioning."], hypothesis: null });
+    expect(written[0]).not.toContain("Strategist");
+    expect(written[1]).toContain("Sam's call is at five");
+    expect(written.slice(2).join("")).toContain("On my mind: Pick one spine for positioning.");
+  });
+
+  it("copies the last reply with /copy", async () => {
+    const ui = terminal(["hello", "/copy", "/exit"]);
+    const copyToClipboard = vi.fn(async () => undefined);
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond: vi.fn(async () => "Hi George, a reply worth copying."),
+      loadSituation: vi.fn(async () => null),
+      copyToClipboard,
+    });
+
+    expect(copyToClipboard).toHaveBeenCalledWith("Hi George, a reply worth copying.");
+  });
+
   it("renders a value brief on /brief", async () => {
     const ui = terminal(["/brief", "/exit"]);
 

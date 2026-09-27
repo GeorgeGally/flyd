@@ -184,6 +184,20 @@ export async function runAgent(): Promise<void> {
       loadSituation: () => loadAgentSituation({ pool }),
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
       loadBriefing: async () => (await import("../runtime/session-briefing.js")).composeSessionBriefing(),
+      composeGreeting: async ({ briefing, hypothesis }) => {
+        const [{ museGreeting, fallbackGreeting }, { query }] = await Promise.all([import("../council/greeting.js"), import("../lib/llm.js")]);
+        if (process.env.FLYD_MUSE === "0") return fallbackGreeting(briefing);
+        const slow = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("greeting timed out")), 15_000).unref());
+        return museGreeting({ briefing, hypothesis, now: new Date() }, (prompt) => Promise.race([query(prompt), slow]));
+      },
+      copyToClipboard: (text) => new Promise<void>((resolve, reject) => {
+        void import("node:child_process").then(({ spawn }) => {
+          const child = spawn("pbcopy", [], { stdio: ["pipe", "ignore", "ignore"] });
+          child.on("error", reject);
+          child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pbcopy exited ${code}`))));
+          child.stdin.end(text);
+        }, reject);
+      }),
       afterTurn: async ({ user, assistant }) => {
         const [{ appendJournalTurn }, { runCouncilInBackground }, { consultMuse }, { query }] = await Promise.all([
           import("../council/journal.js"),

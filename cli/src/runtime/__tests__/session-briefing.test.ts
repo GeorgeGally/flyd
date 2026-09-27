@@ -39,7 +39,7 @@ describe("composeSessionBriefing", () => {
       "  • Check whether the PR merged → Merged at 07:45 by Sam.",
       "Overdue: Pay rent",
       "Due today: Call mom 17:00",
-      "Flyd will: 08:00 Morning brief",
+      "Later I'll: 08:00 Morning brief",
     ]);
     // Shown once: the inbox is marked read.
     expect(unreadInbox(paths)).toEqual([]);
@@ -48,7 +48,7 @@ describe("composeSessionBriefing", () => {
   it("previews Flyd's next 24 hours and feeds the agenda to the prompt", async () => {
     addAgendaItem({ task: "Morning brief", when: "2026-09-27 08:00", repeat: "weekdays" }, paths, at("2026-09-26 09:00"));
     const lines = await composeSessionBriefing({ paths, now: () => at("2026-09-26 20:00"), loadReminders: async () => [], readProfile: () => FULL_PROFILE });
-    expect(lines).toEqual(["Flyd will: 08:00 Morning brief"]);
+    expect(lines).toEqual(["Later I'll: 08:00 Morning brief"]);
     expect(agendaPromptBlock(paths)).toContain("(weekdays)");
   });
 
@@ -63,5 +63,23 @@ describe("composeSessionBriefing", () => {
     expect(lines).toEqual(["I don't know much about you yet — type /onboard and I'll ask a few questions."]);
     const partial = await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => "## About me\n- x\n## Routines\n- y\n## Goals\n- z" });
     expect(partial).toEqual(["I don't know the people in your life yet — type /onboard and I'll ask a few questions."]);
+  });
+});
+
+describe("one voice", () => {
+  it("never names Flyd's internal helpers in the briefing", async () => {
+    const { composeSessionBriefing } = await import("../session-briefing.js");
+    const { appendFileSync, mkdirSync } = await import("node:fs");
+    const { dirname } = await import("node:path");
+    const path = process.env.FLYD_ADVISORIES_PATH!;
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, `${JSON.stringify({
+      id: "v1", advisor: "critic", text: "Sam's deadline moved to Friday.", whyNow: "", evidence: ["j:1"],
+      confidence: "high", urgency: "normal", topics: ["sam"], createdAt: new Date().toISOString(),
+      expires: "2999-01-01", status: "open",
+    })}\n`);
+    const lines = await composeSessionBriefing({ loadReminders: async () => [], readProfile: () => "## About me\n- x\n## People\n- x\n## Routines\n- x\n## Goals\n- x\n" });
+    expect(lines).toContain("On my mind: Sam's deadline moved to Friday.");
+    expect(lines.join("\n")).not.toMatch(/Critic|Strategist|Muse|Scout|Crew|crewmate/);
   });
 });

@@ -120,7 +120,7 @@ describe("edition, feedback, and watch", () => {
     const now = at("2026-09-27T09:00:00Z");
     const musts = await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now });
     expect(musts.map((item) => item.title)).toEqual(["Ollie raises $7.5M for AI parenting assistant"]);
-    expect(notify).toHaveBeenCalledWith("Flyd Scout — TechCrunch", "Ollie raises $7.5M for AI parenting assistant: A direct Koko competitor just raised.");
+    expect(notify).toHaveBeenCalledWith("Flyd", "Ollie raises $7.5M for AI parenting assistant — A direct Koko competitor just raised.");
     expect(recentFlashes(dir, now)).toHaveLength(1);
     // Already examined: the next watch does not even call the model.
     expect(await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now })).toEqual([]);

@@ -179,7 +179,7 @@ export async function runAssistantTool(
         const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot || process.cwd();
         const { dispatchCrewTask } = await import("../crew/crew.js");
         const task = await dispatchCrewTask({ repo, outcome, source: "chat" });
-        return `Crewmate dispatched: task ${task.id} on branch ${task.branch} (worktree ${task.worktree}). It works in the background; Flyd verifies it and tells George when it is ready to land with /land ${task.id}.`;
+        return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land. Tell him in your own words; don't mention crewmates, branches, or worktrees.`;
       }
       case "crew": {
         const crew = await import("../crew/crew.js");

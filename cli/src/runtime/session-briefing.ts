@@ -75,7 +75,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     const { openAdvisories, updateAdvisoryStatus } = await import("../council/advisors.js");
     const worth = openAdvisories(now).filter((advisory) => advisory.urgency !== "low").slice(0, 2);
     for (const advisory of worth) {
-      lines.push(`${advisory.advisor === "critic" ? "Critic" : "Strategist"}: ${firstLine(advisory.text, 160)}`);
+      lines.push(`On my mind: ${firstLine(advisory.text, 160)}`);
       if (!deps.paths) updateAdvisoryStatus(advisory.id, "shown", now);
     }
   } catch {
@@ -91,7 +91,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     try { briefed = read(markPath, "utf8").trim(); } catch { /* never briefed */ }
     const today = formatLocalDateTime(now).slice(0, 10);
     if (!deps.paths && edition && edition.items.length && briefed !== today && edition.date >= formatLocalDateTime(new Date(now.getTime() - 86_400_000)).slice(0, 10)) {
-      lines.push("Worth knowing (/more N, /less N):");
+      lines.push("Worth your time (/more N, /less N):");
       for (const item of edition.items.slice(0, 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
       mkdir(scout.scoutDir(), { recursive: true });
       write(markPath, today);
@@ -102,7 +102,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   try {
     const { takeEvolutionNotes } = await import("../council/scout.js");
     const notes = deps.paths ? [] : takeEvolutionNotes();
-    if (notes.length) lines.push(`Scout adjusted: ${notes.join("; ")}`);
+    if (notes.length) lines.push(`I tuned your news: ${notes.join("; ")}`);
   } catch {
     // Optional.
   }
@@ -112,8 +112,9 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
       const crew = await import("../crew/crew.js");
       const tasks = crew.listTasks().filter((task) => task.status === "running" || task.status === "ready" || (task.status === "failed" && task.finishedAt && now.getTime() - Date.parse(task.finishedAt) < 2 * 86_400_000));
       if (tasks.length) {
-        lines.push("Crew:");
-        for (const task of tasks.slice(0, 4)) lines.push(`  ${crew.describeTask(task)}${task.status === "ready" ? `  → /land ${task.id}` : ""}`);
+        lines.push("I'm building:");
+        const state = { running: "in progress", verifying: "testing", ready: "done and tested, /land to merge", failed: "didn't work out" } as Record<string, string>;
+        for (const task of tasks.slice(0, 4)) lines.push(`  • ${crew.plainOutcome(task)} (${state[task.status] ?? task.status})`);
       }
     }
   } catch {
@@ -145,7 +146,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   const horizon = now.getTime() + 24 * 60 * 60 * 1000;
   const coming = upcomingAgenda(paths).filter((item) => new Date(item.nextRunAt).getTime() <= horizon);
   if (coming.length) {
-    lines.push(`Flyd will: ${coming.slice(0, 3).map((item) => `${clock(new Date(item.nextRunAt))} ${firstLine(item.task, 60)}`).join("; ")}`);
+    lines.push(`Later I'll: ${coming.slice(0, 3).map((item) => `${clock(new Date(item.nextRunAt))} ${firstLine(item.task, 60)}`).join("; ")}`);
   }
   try {
     const { readUserProfile } = await import("../lib/user-profile.js");

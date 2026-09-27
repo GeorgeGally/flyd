@@ -84,7 +84,7 @@ describe("runSelfImprovement", () => {
     const first = await runSelfImprovement({ complete, dispatch, notify, flydDir: home, repo: "/flyd", now: () => NOW });
     expect(first.status).toBe("dispatched");
     expect(dispatch).toHaveBeenCalledWith("/flyd", expect.stringContaining("what's on today"));
-    expect(notify.mock.calls[0][1]).toContain("/land t1");
+    expect(notify.mock.calls[0]).toEqual(["Flyd", "I'm teaching myself to check the calendar for day questions. I'll show you before anything changes."]);
 
     // A day later the fix is still waiting on George: nothing new is started.
     const later = () => new Date(NOW.getTime() + 25 * 3_600_000);

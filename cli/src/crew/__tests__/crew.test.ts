@@ -57,7 +57,7 @@ describe("crew", () => {
     expect(done).toMatchObject({ status: "ready", commits: 1, summary: "Added feature.txt; README unchanged." });
     expect(done.diffStat).toContain("1 file changed");
     expect(runCommand).toHaveBeenCalledWith("git diff --check", task.worktree);
-    expect(notify).toHaveBeenCalledWith("Flyd crew ✓", expect.stringContaining(`/land ${task.id}`));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/is done and tested\. Say \/land to merge it in\.$/));
     expect(existsSync(join(repo, "feature.txt"))).toBe(false);
 
     const landed = await landCrewTask(task.id);

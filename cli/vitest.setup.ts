@@ -17,6 +17,7 @@ process.env.FLYD_SCOUT_DIR ??= join(sandbox, "scout");
 process.env.FLYD_CREW_DIR ??= join(sandbox, "crew");
 process.env.FLYD_CREW_WORKTREES ??= join(sandbox, "worktrees");
 process.env.FLYD_SELF_IMPROVE_DIR ??= join(sandbox, "self-improve");
+process.env.FLYD_SOUL_PATH ??= join(sandbox, "SOUL.md");
 // Self-improvement dispatches real crew work; tests opt in explicitly.
 process.env.FLYD_SELF_IMPROVE ??= "0";
 // Belt and braces: even an opted-in launch cannot reach the real OpenCode.

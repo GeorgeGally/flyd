@@ -29,7 +29,13 @@ const DIM = "\u001b[2m";
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PGUP = "\x1b[5~";
 const PGDN = "\x1b[6~";
-/** Trackpad/wheel scroll only reaches the app when mouse reporting is on. */
+/**
+ * Trackpad/wheel scroll only reaches the app when mouse reporting is on, but
+ * reporting also swallows click-drag, so George couldn't select and copy.
+ * Selection wins by default; /mouse (or FLYD_TUI_MOUSE=1) trades it for the wheel.
+ */
+const SHIFT_UP = "\x1b[1;2A";
+const SHIFT_DOWN = "\x1b[1;2B";
 const MOUSE_ON = "\u001b[?1000h\u001b[?1006h";
 const MOUSE_OFF = "\u001b[?1000l\u001b[?1006l";
 const MOUSE_EVENT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
@@ -91,6 +97,7 @@ export class NodeTerminal {
   private readonly isTty: boolean;
   private readonly tuiMode: boolean;
   private pasteEnabled = false;
+  private mouse = process.env.FLYD_TUI_MOUSE === "1";
 
   /** Full-screen pinned-input mode — agent-session adapts its framing to it. */
   get tui(): boolean {
@@ -164,7 +171,7 @@ export class NodeTerminal {
     }
 
     if (this.tuiMode) {
-      this.output.write(ALT_SCREEN_ON + CURSOR_HIDE + MOUSE_ON);
+      this.output.write(ALT_SCREEN_ON + CURSOR_HIDE + (this.mouse ? MOUSE_ON : ""));
       this.enableBracketedPaste();
       const stream = this.input as NodeJS.ReadStream;
       if (typeof stream.setRawMode === "function") stream.setRawMode(true);
@@ -339,6 +346,11 @@ export class NodeTerminal {
       this.scrollBy(-this.halfPage());
       chunk = chunk.split(PGDN).join("");
     }
+    for (const [key, lines] of [[SHIFT_UP, WHEEL_LINES], [SHIFT_DOWN, -WHEEL_LINES]] as const) {
+      if (!chunk.includes(key)) continue;
+      this.scrollBy(lines * (chunk.split(key).length - 1));
+      chunk = chunk.split(key).join("");
+    }
     const wheel = this.takeWheelLines(chunk);
     chunk = wheel.rest;
     if (wheel.lines !== 0) this.scrollBy(wheel.lines);
@@ -418,6 +430,14 @@ export class NodeTerminal {
     this.live = "";
   }
 
+  /** Wheel capture on/off; off leaves click-drag to the terminal so text can be selected. */
+  toggleMouse(): boolean {
+    if (!this.tuiMode) return false;
+    this.mouse = !this.mouse;
+    this.output.write(this.mouse ? MOUSE_ON : MOUSE_OFF);
+    return this.mouse;
+  }
+
   private halfPage(): number {
     const { viewport } = screenLayout(this.view(), this.size());
     return Math.max(1, Math.floor(viewport * HALF_PAGE));
@@ -481,7 +501,9 @@ export class NodeTerminal {
 
   private render(): void {
     if (!this.tuiMode) return;
-    this.output.write(renderScreen(this.view(), this.size()).text);
+    // Hide while drawing so the cursor doesn't flicker across the screen, then
+    // show it where renderScreen parked it: in the input line.
+    this.output.write(CURSOR_HIDE + renderScreen(this.view(), this.size()).text + CURSOR_SHOW);
   }
 
   private persistHistory(): void {
