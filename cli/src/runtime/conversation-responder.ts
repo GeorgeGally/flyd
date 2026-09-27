@@ -7,6 +7,8 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
+import { readTheRoom, roomBrief, type RoomInput, type RoomRead } from "./read-the-room.js";
+import { buildRoomContext, privateNotes } from "./room-context.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -58,6 +60,14 @@ interface ConversationResponderDependencies {
   fetchFn?: FetchLike;
   /** Evaluation runs: state-changing tools are recorded as attempted but never execute. */
   readOnly?: boolean;
+  /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
+  readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
+}
+
+async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
+  if (process.env.FLYD_ROOM === "0" || process.env.VITEST) return null;
+  const { query } = await import("../lib/llm.js");
+  return readTheRoom(input, (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
@@ -118,7 +128,7 @@ export function localClock(now: Date): string {
 export function buildConversationPrompt(
   input: ConversationInput,
   compiledContext?: CompiledContext,
-  options: { projectTurn?: boolean } = {},
+  options: { projectTurn?: boolean; room?: { core: string; brief: string } } = {},
 ): { system: string; prompt: string } {
   const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
@@ -173,6 +183,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "- Write natural paragraphs of a few sentences, not a stack of one-line paragraphs. No markdown bold or headings in chat; lists only when he asks for steps or options.",
       "- Don't narrate housekeeping (\"I added X to your list\", \"that's on my agenda\") unless he asked for it or needs to know.",
       "- End when you've said the thing. At most one offer, only when it's the obvious next step — never a \"say go and I'll…\" on every reply.",
+      "- Don't mansplain. Give the insight, not the working: no explaining your process, sources, or reasoning unless he asks, and no commit hashes, byte counts, file sizes, or tool limits unless he asks.",
       "- Sound like his friend who happens to be brilliant at getting things done — not a project manager, not a stand-up report.",
     ].join("\n"),
     "## What you do\nYou help with his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
@@ -185,6 +196,11 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   // is and who he is; the operator rulebook and repo evidence come in only
   // when the turn is about code or the state of his work.
   if (!projectTurn) {
+    // With a room reading, the answer sees who George is plus only the
+    // knowledge selected for this moment — not the whole archive.
+    const lean = options.room
+      ? `${localClock(input.now?.() ?? new Date())}\n${agenda}${weather}${history}\nGeorge: ${input.message}\nFlyd:`
+      : promptBody;
     const repos = input.crossRepo?.length
       ? `His projects (inspect with read_file/grep/git_log using repo=<path> only if he asks for something that needs them): ${input.crossRepo.map((repo) => `${repo.name} ${repo.root}`).join("; ")}.`
       : "";
@@ -199,15 +215,18 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
           "- Local, reversible actions are yours to take; anything that leaves the machine or can't be undone, ask first.",
           repos ? `- ${repos}` : "",
         ].filter(Boolean).join("\n"),
+        options.room ? `## Who he is\n${options.room.core || "(little known yet)"}` : "",
+        options.room?.brief ?? "",
         speakingStyleSystemRule(),
       ].filter(Boolean).join("\n\n"),
-      prompt: promptBody,
+      prompt: lean,
     };
   }
 
   return {
     system: [
       ...voice,
+      options.room?.brief ?? "",
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
       "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
@@ -688,15 +707,16 @@ export function describeToolActivity(name: string, input: Record<string, unknown
     case "read_url": {
       try { return `Reading ${new URL(String(input.url)).host}`; } catch { return "Reading a web page"; }
     }
-    case "read_file": return `Reading ${clip(input.path)}${where}`;
-    case "grep": return `Searching code for ${clip(input.pattern, 40)}${where}`;
-    case "list_files": return `Listing ${clip(input.path || ".")}${where}`;
-    case "git_log": return `Checking recent commits${where}`;
-    case "edit_file": return `Editing ${clip(input.path)}${where}`;
-    case "write_file": return `Writing ${clip(input.path)}${where}`;
-    case "bash": return `Running ${clip(input.command, 50)}${where}`;
-    case "remember": return "Saving to memory";
-    case "recall": return `Searching memory: ${clip(input.query)}`;
+    // Say what Flyd is doing the way a person would, not the command it ran.
+    case "read_file":
+    case "grep":
+    case "list_files":
+    case "git_log": return input.repo ? `Looking through ${basename(String(input.repo))}` : "Looking into it";
+    case "edit_file":
+    case "write_file": return input.repo ? `Working on ${basename(String(input.repo))}` : "Making the change";
+    case "bash": return input.repo ? `Working in ${basename(String(input.repo))}` : "Working on it";
+    case "remember": return "Making a note";
+    case "recall": return "Thinking back";
     case "reminders": return input.action === "create" ? `Creating reminder: ${clip(input.title)}` : "Checking reminders";
     case "calendar_events": return "Checking your calendar";
     default: return `Using ${name}`;
@@ -871,10 +891,28 @@ export async function respondToConversation(
     conversation: input.history.map((turn) => ({ role: turn.role, content: turn.content })),
     capabilities: ["conversation", "memory", "git", "files", "shell", "web"],
   });
+  // Read the room first: what George needs, and the little Flyd knows that
+  // matters here. Without a reading, fall back to the keyword heuristic.
+  const roomNow = input.now?.() ?? new Date();
+  const notes = await privateNotes(roomNow).catch(() => []);
+  const { readUserProfile } = await import("../lib/user-profile.js");
+  const { readMemoryEntries } = await import("../council/memory-store.js");
+  const roomContext = buildRoomContext({
+    profile: (() => { try { return readUserProfile(); } catch { return null; } })(),
+    memory: (() => { try { return readMemoryEntries(); } catch { return []; } })(),
+    retrieved: input.memory.matches.filter((item) => item.authority !== "assistant_output" && item.outcome !== "rejected"),
+  });
+  const room = await (dependencies.readRoom ?? defaultReadRoom)({
+    message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
+  }).catch(() => null);
   // Naming a project ("DIR feels dead") is conversation; asking about its code
   // or state is work. Only work turns get the operator prompt and repo evidence.
-  const projectTurn = isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history);
-  const request = buildConversationPrompt(input, compiledContext, { projectTurn });
+  const projectTurn = room ? room.mode === "operator" : isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history);
+  const request = buildConversationPrompt(input, compiledContext, {
+    projectTurn,
+    ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
+  });
+  const raisedAdvisory = room?.raise ? notes.find((note) => note.id === room.raise)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();
   const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
   const model = models[0];
@@ -961,6 +999,9 @@ export async function respondToConversation(
     await record(connection, toolCalls, final, "succeeded");
     // Live chat only: evals and unattended agenda runs never write George's profile.
     if (!dependencies.readOnly && !input.sessionId?.startsWith("agenda-")) learnInBackground(input.message);
+    if (raisedAdvisory && !dependencies.readOnly) {
+      void import("../council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raisedAdvisory, "shown")).catch(() => undefined);
+    }
     return final;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

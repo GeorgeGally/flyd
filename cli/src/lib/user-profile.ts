@@ -14,7 +14,7 @@ export function userProfilePath(): string {
 }
 
 export const PROFILE_SECTIONS = [
-  "About me", "Work", "People", "Preferences", "Routines", "Goals", "Constraints",
+  "About me", "How to be with me", "Work", "People", "Preferences", "Routines", "Goals", "Constraints",
 ] as const;
 export type ProfileSection = (typeof PROFILE_SECTIONS)[number] | "Learned in conversation";
 

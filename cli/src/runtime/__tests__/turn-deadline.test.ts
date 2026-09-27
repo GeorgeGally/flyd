@@ -56,7 +56,8 @@ describe("chat presentation helpers", () => {
   it("describes tool activity in plain language", () => {
     expect(describeToolActivity("web_search", { query: "F1 results" })).toBe("Searching the web: F1 results");
     expect(describeToolActivity("read_url", { url: "https://www.formula1.com/en/results" })).toBe("Reading www.formula1.com");
-    expect(describeToolActivity("read_file", { path: "README.md", repo: "/Users/g/Documents/cleanx" })).toBe("Reading README.md in cleanx");
+    expect(describeToolActivity("read_file", { path: "README.md", repo: "/Users/g/Documents/cleanx" })).toBe("Looking through cleanx");
+    expect(describeToolActivity("bash", { command: "find ~ -maxdepth 6 -iname '*robots*'" })).toBe("Working on it");
     expect(describeToolActivity("reminders", { action: "create", title: "Call mom" })).toBe("Creating reminder: Call mom");
   });
 

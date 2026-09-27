@@ -119,6 +119,17 @@ export const ONBOARD_REQUEST = [
   "Stop after about 8 questions or when I say stop, then summarise what you learned in a few lines.",
 ].join(" ");
 
+interface TurnHandle {
+  message: string;
+  /** Moved backstage because George kept talking; answers as a whole message when done. */
+  background: boolean;
+  /** The reply is being written to the screen right now. */
+  streaming: boolean;
+  /** History slot holding "still working" until the real answer lands. */
+  placeholder?: number;
+  done?: Promise<void>;
+}
+
 export type AgentSessionResult =
   | { kind: "exit" }
   | { kind: "coding"; outcome: string }
@@ -197,7 +208,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     if (!chat) {
       chat = await openChatSession({
         handleTurn: async (ctx) => {
-          const answer = await runConversationTurn(ctx.message);
+          const answer = await runConversationTurn(ctx.message, kernelHandle ?? undefined);
           ctx.emit({ type: "message", text: answer });
           return { status: "completed", result: {} };
         },
@@ -207,6 +218,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   };
 
   const history: ConversationTurn[] = [];
+  let kernelHandle: TurnHandle | null = null;
+  let busyTurns = 0;
   let briefingLines: string[] = [];
   let situation: AgentSituation | null = null;
   let repos: BriefRepo[] = [];
@@ -218,7 +231,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
    * One conversation turn, kernel-handler style: refresh state, retrieve
    * memory, call the model with streaming, and return the full reply.
    */
-  async function runConversationTurn(message: string): Promise<string> {
+  async function runConversationTurn(message: string, handle: TurnHandle = { message, background: false, streaming: false }): Promise<string> {
     const currentWorkQuestion = isCurrentWorkQuestion(message);
     try {
       situation = await deps.loadSituation();
@@ -234,6 +247,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       lastContextRefresh = Date.now();
     }
 
+    busyTurns += 1;
     deps.terminal.setBusy?.(true);
     let streamed = false;
     let streamColored = false;
@@ -243,7 +257,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         sessionId: deps.sessionId,
         turnNumber: history.length / 2 + 1,
         message,
-        history: history.slice(-MAX_HISTORY_TURNS),
+        // A turn moved to the background never sees its own "still working" placeholder.
+        history: history.filter((_, index) => handle.placeholder === undefined || (index !== handle.placeholder && index !== handle.placeholder - 1)).slice(-MAX_HISTORY_TURNS),
         memory,
         situation,
         crossRepo: repos,
@@ -264,11 +279,15 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         },
         onActivity: (activity) => {
           deadline.touch();
+          if (handle.background) return;
           if (deps.terminal.setActivity) deps.terminal.setActivity(activity);
           else if (!deps.terminal.tui) deps.terminal.write(`${paint(`  · ${activity}`, CYAN)}\n`);
         },
         onToken: (token) => {
           deadline.touch();
+          // Work that moved to the background answers as a whole message when done.
+          if (handle.background) return;
+          handle.streaming = true;
           streamed = true;
           if (deps.terminal.stream) {
             deps.terminal.stream(token);
@@ -279,12 +298,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           }
         },
       }));
-      if (!streamed && answer) deps.terminal.write(paint(formatChatReply(answer), GREEN));
+      if (!streamed && answer) {
+        const about = handle.background ? `${paint(`  ↳ re: ${message.length > 60 ? `${message.slice(0, 59)}…` : message}`, DIM)}\n` : "";
+        deps.terminal.write(`${about}${paint(formatChatReply(answer), GREEN)}`);
+      }
       return answer;
     } finally {
       deadline.dispose();
-      deps.terminal.setActivity?.(null);
-      deps.terminal.setBusy?.(false);
+      busyTurns -= 1;
+      if (!handle.background) deps.terminal.setActivity?.(null);
+      deps.terminal.setBusy?.(busyTurns > 0);
       if (streamed && !deps.terminal.stream && useColor()) deps.terminal.write(RESET);
     }
   }
@@ -295,7 +318,9 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   // while a turn is still streaming. The session kernel serializes turns;
   // this chain tracks completion so control commands cannot overtake a turn.
   const queued: string[] = [];
-  let tail: Promise<void> = Promise.resolve();
+  let active: TurnHandle[] = [];
+  const all = new Set<Promise<void>>();
+  let lastSubmitted: Promise<unknown> = Promise.resolve();
   // The model hands coding work to the supervised runtime via start_coding_task;
   // the handoff fires once its turn has been answered and recorded.
   let pendingHandoff: string | null = null;
@@ -303,28 +328,58 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   let signalHandoff: (outcome: string) => void = () => {};
   const handoffRequested = new Promise<string>((resolve) => { signalHandoff = resolve; });
 
+  /**
+   * Conversation never waits on work. A message sent while Flyd is still
+   * working moves that work to the background — it answers when it finishes —
+   * and the new message is answered now. Only a reply already being written
+   * holds the next message back, for the few seconds it takes to finish.
+   */
   function submitTurn(message: string): void {
-    queued.push(message);
-    deps.terminal.setPending?.([...queued]);
-    const turn = tail.then(async () => {
-      queued.shift();
+    const handle: TurnHandle = { message, background: false, streaming: false };
+    const foreground = active.find((item) => !item.background);
+    let before: Promise<unknown> = lastSubmitted;
+    if (deps.terminal.tui && foreground && !foreground.streaming && queued.length === 0) {
+      before = Promise.resolve();
+      foreground.background = true;
+      deps.terminal.setActivity?.(null);
+      deps.terminal.write(paint("  I'll keep going on that and come back to you.\n", DIM));
+      history.push(
+        { role: "user", content: foreground.message },
+        { role: "assistant", content: "(Still working on this in the background; the answer will follow when it's ready.)" },
+      );
+      foreground.placeholder = history.length - 1;
+    } else if (foreground || all.size) {
+      queued.push(message);
       deps.terminal.setPending?.([...queued]);
+    }
+    const turn = before.then(async () => {
+      if (queued[0] === message) {
+        queued.shift();
+        deps.terminal.setPending?.([...queued]);
+      }
+      active.push(handle);
       if (!deps.terminal.tui) deps.terminal.write(`\n${paint("Flyd >", GREEN)}\n`);
-      const session = await ensureChat();
-      const outputs = await session.kernel.submit(session.sessionKey, {
-        type: "user_message",
-        text: message,
-      });
-      const answer = replyText(outputs);
-      if (!answer) {
-        const failed = outputs.find((o) => o.type === "failed");
-        throw new Error(failed && failed.type === "failed" ? failed.error : "Turn produced no reply");
+      let answer: string;
+      if (kernelHandle === null) {
+        // The session kernel keeps the durable trail for the foreground turn.
+        kernelHandle = handle;
+        try {
+          const session = await ensureChat();
+          const outputs = await session.kernel.submit(session.sessionKey, { type: "user_message", text: message });
+          answer = replyText(outputs) ?? "";
+          if (!answer) {
+            const failed = outputs.find((o) => o.type === "failed");
+            throw new Error(failed && failed.type === "failed" ? failed.error : "Turn produced no reply");
+          }
+        } finally {
+          kernelHandle = null;
+        }
+      } else {
+        answer = await runConversationTurn(message, handle);
       }
       deps.terminal.write("\n");
-      history.push(
-        { role: "user", content: message },
-        { role: "assistant", content: answer },
-      );
+      if (handle.placeholder !== undefined) history[handle.placeholder] = { role: "assistant", content: answer };
+      else history.push({ role: "user", content: message }, { role: "assistant", content: answer });
       try {
         await deps.recordTurn({
           user: message,
@@ -344,7 +399,6 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }
       if (pendingHandoff) signalHandoff(pendingHandoff);
       if (deps.afterTurn) {
-        // The Muse speaks after the answer, on its own time, and never delays the next message.
         void deps.afterTurn({ user: message, assistant: answer }).then((reaction) => {
           if (!reaction?.museNote) return;
           lastMuseAdvisory = reaction.advisoryId ?? null;
@@ -354,12 +408,17 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     }).catch((error) => {
       const err = error instanceof Error ? error.message : String(error);
       deps.terminal.write(`I could not answer that turn: ${err}\n`);
+    }).finally(() => {
+      active = active.filter((item) => item !== handle);
     });
-    tail = turn;
+    handle.done = turn;
+    lastSubmitted = turn;
+    all.add(turn);
+    void turn.finally(() => all.delete(turn));
   }
 
   async function waitForTurns(): Promise<void> {
-    await tail;
+    while (all.size) await Promise.allSettled([...all]);
   }
 
   try {
@@ -554,7 +613,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       submitTurn(input.message);
     }
   } finally {
-    await tail.catch(() => undefined);
+    await waitForTurns().catch(() => undefined);
     await deps.terminal.close();
   }
 }

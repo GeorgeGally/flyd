@@ -42,6 +42,21 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
         const { superviseCrew } = await import("../crew/crew.js");
         await superviseCrew({ notify: notifyMac });
+        const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
+        await investigate({
+          complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+          calendar: (from, days) => runPersonalTool("calendar_events", { from, days }),
+          reminders: () => runPersonalTool("reminders", { action: "list" }),
+          recall: (text) => runPersonalTool("recall", { query: text }),
+          otherAssistants: async () => {
+            const { readFileSync } = await import("node:fs");
+            const { homedir } = await import("node:os");
+            const files = [".hermes/memories/USER.md", ".hermes/memories/MEMORY.md", ".openclaw/workspace/USER.md", ".openclaw/workspace/MEMORY.md"];
+            return files.map((file) => { try { return readFileSync(`${homedir()}/${file}`, "utf8"); } catch { return ""; } }).join("\n\n");
+          },
+        }).catch(() => undefined);
+        const { backfillArchive } = await import("../council/investigator.js");
+        await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
         const { runSelfImprovement } = await import("../crew/self-improve.js");
         await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
         const { scoutTick } = await import("../council/scout.js");

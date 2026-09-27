@@ -96,6 +96,53 @@ describe("runAgentSession", () => {
     expect(written.slice(2).join("")).toContain("On my mind: Pick one spine for positioning.");
   });
 
+  it("keeps talking while earlier work finishes in the background", async () => {
+    let releaseSlow: () => void = () => {};
+    const slowDone = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    const lines = ["find that set and play it", "how are you?", "/exit"];
+    let chatAnswered: () => void = () => {};
+    const chatDone = new Promise<void>((resolve) => { chatAnswered = resolve; });
+    const ui = {
+      ...terminal([]),
+      tui: true,
+      ask: vi.fn(async () => {
+        const next = lines.shift() ?? "/exit";
+        if (next === "/exit") { await chatDone; releaseSlow(); }
+        return next;
+      }),
+    };
+    const seen = new Map<string, Array<{ role: string; content: string }>>();
+    const respond = vi.fn(async (input: { message: string; history: Array<{ role: string; content: string }>; onActivity?: (a: string) => void }) => {
+      seen.set(input.message, [...input.history]);
+      if (input.message.startsWith("find")) {
+        input.onActivity?.("Looking into it");
+        await slowDone;
+        return "Found it — playing now.";
+      }
+      chatAnswered();
+      return "Good, thanks.";
+    });
+
+    await runAgentSession({
+      terminal: ui,
+      retrieveMemory: vi.fn(async () => noMemory),
+      recoverActionRequest: vi.fn(async () => null),
+      recordTurn: vi.fn(async () => undefined),
+      respond,
+      loadSituation: vi.fn(async () => null),
+    });
+
+    const written = ui.write.mock.calls.map((call) => String(call[0])).join("");
+    expect(written.indexOf("Good, thanks.")).toBeLessThan(written.indexOf("Found it"));
+    expect(written).toContain("I'll keep going on that and come back to you.");
+    expect(written).toContain("↳ re: find that set and play it");
+    expect(seen.get("find that set and play it")?.some((turn) => turn.content.startsWith("(Still working"))).toBe(false);
+    expect(seen.get("how are you?")).toEqual([
+      { role: "user", content: "find that set and play it" },
+      { role: "assistant", content: "(Still working on this in the background; the answer will follow when it's ready.)" },
+    ]);
+  });
+
   it("copies the last reply with /copy", async () => {
     const ui = terminal(["hello", "/copy", "/exit"]);
     const copyToClipboard = vi.fn(async () => undefined);

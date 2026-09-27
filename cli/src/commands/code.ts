@@ -167,7 +167,6 @@ export async function runAgent(): Promise<void> {
   }
 
   const conversation = createConversationMemorySession();
-  const museSaid = new Set<string>();
   const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
   let result;
   try {
@@ -199,17 +198,15 @@ export async function runAgent(): Promise<void> {
         }, reject);
       }),
       afterTurn: async ({ user, assistant }) => {
-        const [{ appendJournalTurn }, { runCouncilInBackground }, { consultMuse }, { query }] = await Promise.all([
+        const [{ appendJournalTurn }, { runCouncilInBackground }] = await Promise.all([
           import("../council/journal.js"),
           import("../council/council.js"),
-          import("../council/muse.js"),
-          import("../lib/llm.js"),
         ]);
         appendJournalTurn({ user, assistant, surface: "cli_chat" });
         runCouncilInBackground();
-        if (process.env.FLYD_MUSE === "0") return null;
-        const note = await consultMuse(user, assistant, { complete: (prompt) => query(prompt), alreadySaid: museSaid });
-        return note ? { museNote: note.note, ...(note.advisory ? { advisoryId: note.advisory.id } : {}) } : null;
+        // One voice: backstage findings reach George through Flyd's own answer
+        // (read-the-room private notes), never as a second message after it.
+        return null;
       },
       rateStory: async (n, verdict) => {
         const { recordScoutFeedback } = await import("../council/scout.js");

@@ -16,7 +16,7 @@ import { FLYD_DIR } from "../lib/config.js";
 
 export type Tier = "aging" | "perishable";
 
-export const MEMORY_SECTIONS = ["Commitments", "Decisions", "Projects", "People", "Facts"] as const;
+export const MEMORY_SECTIONS = ["Who he is", "Lately", "Commitments", "Decisions", "Projects", "People", "Facts"] as const;
 export type MemorySection = (typeof MEMORY_SECTIONS)[number];
 
 export interface MemoryEntry {
