@@ -66,13 +66,26 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "start_coding_task",
-    description: "Hand a substantial coding job to Flyd's supervised coding runtime (isolated worktrees, planned assignments, verification). Use for multi-file features, refactors, or anything George wants done as a tracked task; small edits you can make directly. The handoff starts after your reply, so tell George it is starting.",
+    description: "Dispatch an OpenCode crewmate to build something, in the background: it gets its own git worktree and branch, works unattended, and Flyd verifies it with the repo's own tests and tells George when it is ready to land. Use for features, refactors, and multi-file work; small edits you can make directly. Returns immediately with a task id.",
     input_schema: {
       type: "object",
       properties: {
-        outcome: { type: "string", description: "The intended outcome, stated as the finished result" },
+        outcome: { type: "string", description: "The finished result, stated precisely enough to build and verify unattended" },
+        repo: { type: "string", description: "Repository root path (default: the current project)" },
       },
       required: ["outcome"],
+    },
+  },
+  {
+    name: "crew",
+    description: "Flyd's coding crew. action=list shows tasks and their status; show gives one task's summary, diff size, and checks; land merges a verified task into the branch it started from; discard deletes its worktree and branch. land and discard need George's approval.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "show", "land", "discard"], description: "What to do" },
+        id: { type: "string", description: "Task id (show, land, discard)" },
+      },
+      required: ["action"],
     },
   },
 ];
@@ -163,9 +176,31 @@ export async function runAssistantTool(
       case "start_coding_task": {
         const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();
         if (!outcome) return "Error: start_coding_task needs an outcome";
-        if (!context.onCodingHandoff) return "Error: the supervised coding runtime is not available from this surface; do the work directly with your tools.";
-        context.onCodingHandoff(outcome);
-        return `Queued for the supervised coding runtime: ${outcome}. It starts as soon as this reply ends.`;
+        const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot || process.cwd();
+        const { dispatchCrewTask } = await import("../crew/crew.js");
+        const task = await dispatchCrewTask({ repo, outcome, source: "chat" });
+        return `Crewmate dispatched: task ${task.id} on branch ${task.branch} (worktree ${task.worktree}). It works in the background; Flyd verifies it and tells George when it is ready to land with /land ${task.id}.`;
+      }
+      case "crew": {
+        const crew = await import("../crew/crew.js");
+        const id = String(input.id ?? "").trim();
+        if (input.action === "list") {
+          const tasks = crew.listTasks().slice(0, 10);
+          return tasks.length ? tasks.map(crew.describeTask).join("\n") : "No crew tasks yet.";
+        }
+        if (!id) return "Error: crew show/land/discard needs an id";
+        if (input.action === "show") {
+          const task = crew.readTask(id);
+          if (!task) return `Error: no crew task ${id}`;
+          return [
+            crew.describeTask(task),
+            task.summary ? `Crewmate's summary: ${task.summary}` : "",
+            ...(task.verification ?? []).map((step) => `${step.ok ? "✓" : "✗"} ${step.command}${step.ok ? "" : `\n${step.tail}`}`),
+          ].filter(Boolean).join("\n");
+        }
+        if (input.action === "land") return crew.describeTask(await crew.landCrewTask(id));
+        if (input.action === "discard") return crew.describeTask(await crew.discardCrewTask(id));
+        return "Error: crew action must be list, show, land, or discard";
       }
       default:
         return `Unknown tool: ${name}`;

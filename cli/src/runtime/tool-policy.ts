@@ -186,6 +186,8 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "speaking_style":
     case "start_coding_task":
       return "local";
+    // Merging into George's branch or deleting a crew branch is his call, every time.
+    case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
     case "flyd": return input.action === "run_briefing" || input.action === "skillify" ? "local" : "read";
     case "reminders": return input.action === "create" ? "local" : "read";
     case "mac":

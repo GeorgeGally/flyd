@@ -40,6 +40,8 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
           import("../council/council.js"), import("../lib/llm.js"), import("./agenda.js"),
         ]);
         await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
+        const { superviseCrew } = await import("../crew/crew.js");
+        await superviseCrew({ notify: notifyMac });
         const { scoutTick } = await import("../council/scout.js");
         await scoutTick({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
       })

@@ -14,3 +14,5 @@ process.env.FLYD_ADVISORIES_PATH ??= join(sandbox, "council", "advisories.jsonl"
 process.env.FLYD_LIBRARIAN_STATE ??= join(sandbox, "council", "librarian-state.json");
 process.env.FLYD_AGENDA_DIR ??= join(sandbox, "agenda");
 process.env.FLYD_SCOUT_DIR ??= join(sandbox, "scout");
+process.env.FLYD_CREW_DIR ??= join(sandbox, "crew");
+process.env.FLYD_CREW_WORKTREES ??= join(sandbox, "worktrees");

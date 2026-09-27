@@ -407,6 +407,18 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         continue;
       }
 
+      const crewCommand = text.trim().match(/^\/(land|discard)\s+(\S+)$/i);
+      if (crewCommand) {
+        try {
+          const crew = await import("../crew/crew.js");
+          const task = crewCommand[1].toLowerCase() === "land" ? await crew.landCrewTask(crewCommand[2]) : await crew.discardCrewTask(crewCommand[2]);
+          deps.terminal.write(`${crew.describeTask(task)}\n`);
+        } catch (error) {
+          deps.terminal.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        }
+        continue;
+      }
+
       const story = text.trim().toLowerCase().match(/^\/(more|less)\s+(\d+)$/);
       if (story) {
         const title = deps.rateStory ? await deps.rateStory(Number(story[2]), story[1] === "more" ? "more" : "less").catch(() => null) : null;

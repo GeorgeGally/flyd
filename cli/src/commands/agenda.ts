@@ -130,6 +130,10 @@ export async function runAgendaCommand(
         process.stderr.write(`council pass failed: ${error instanceof Error ? error.message : String(error)}\n`);
         return null;
       });
+      const { superviseCrew } = await import("../crew/crew.js");
+      for (const task of await superviseCrew({ notify: notifyMac }).catch(() => [])) {
+        process.stdout.write(`${new Date().toISOString()} crew: ${task.id} ${task.status}\n`);
+      }
       const { scoutTick } = await import("../council/scout.js");
       const scoutLog = await scoutTick({
         complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),

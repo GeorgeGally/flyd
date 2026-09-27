@@ -107,6 +107,19 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     // Optional.
   }
 
+  try {
+    if (!deps.paths) {
+      const crew = await import("../crew/crew.js");
+      const tasks = crew.listTasks().filter((task) => task.status === "running" || task.status === "ready" || (task.status === "failed" && task.finishedAt && now.getTime() - Date.parse(task.finishedAt) < 2 * 86_400_000));
+      if (tasks.length) {
+        lines.push("Crew:");
+        for (const task of tasks.slice(0, 4)) lines.push(`  ${crew.describeTask(task)}${task.status === "ready" ? `  → /land ${task.id}` : ""}`);
+      }
+    }
+  } catch {
+    // Crew state is optional here.
+  }
+
   const inbox = unreadInbox(paths);
   if (inbox.length) {
     lines.push(`While you were away (${inbox.length} update${inbox.length === 1 ? "" : "s"}):`);

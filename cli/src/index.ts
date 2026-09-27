@@ -90,6 +90,16 @@ program
   });
 
 program
+  .command("crew")
+  .description("Flyd's coding crew (OpenCode crewmates in worktrees): list | dispatch <outcome> | show <id> | supervise | land <id> | discard <id>")
+  .argument("[action]", "list, dispatch, show, supervise, land, discard")
+  .argument("[args...]", "outcome text or task id")
+  .action(async (action: string | undefined, args: string[] = []) => {
+    const { runCrewCommand } = await import("./commands/crew.js");
+    await runCrewCommand(action, args);
+  });
+
+program
   .command("scout")
   .description("Flyd's Scout — news for you, pre-emptive and evolving: show | run | watch | evolve | more N | less N | sources | taste")
   .argument("[action]", "show, run, watch, evolve, more, less, sources, taste")
