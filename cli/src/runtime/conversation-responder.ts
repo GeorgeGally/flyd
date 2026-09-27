@@ -61,26 +61,27 @@ interface ConversationResponderDependencies {
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
 const CONVERSATION_MAX_ITERATIONS = 12;
-const CODING_MAX_ITERATIONS = 40;
 /** Conversational turns answer from what they have after this long. */
 const CONVERSATION_ANSWER_BUDGET_MS = 45_000;
-const CODING_ANSWER_BUDGET_MS = 5 * 60_000;
 /** Doing something (not asking) earns room to finish it. */
 const TASK_MAX_ITERATIONS = 25;
 const TASK_ANSWER_BUDGET_MS = 3 * 60_000;
+/** Enough to ground an answer; more is usually exploring for its own sake. */
+const QUESTION_TOOL_CALLS = 12;
+const TASK_TOOL_CALLS = 30;
 
 /** Questions stay quick; requests to do something get room to finish. */
 export function turnBudget(
   message: string,
   intent: string,
   sessionId?: string,
-): { iterations: number; answerMs: number } {
-  if (isCurrentWorkQuestion(message)) return { iterations: 6, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
+): { iterations: number; answerMs: number; toolCalls: number } {
+  if (isCurrentWorkQuestion(message)) return { iterations: 6, answerMs: CONVERSATION_ANSWER_BUDGET_MS, toolCalls: 8 };
   const scheduled = sessionId?.startsWith("agenda-") ?? false;
   if (scheduled || !QUESTION_LIKE_TEXT.test(message.trim())) {
-    return { iterations: TASK_MAX_ITERATIONS, answerMs: TASK_ANSWER_BUDGET_MS };
+    return { iterations: TASK_MAX_ITERATIONS, answerMs: TASK_ANSWER_BUDGET_MS, toolCalls: TASK_TOOL_CALLS };
   }
-  return { iterations: CONVERSATION_MAX_ITERATIONS, answerMs: CONVERSATION_ANSWER_BUDGET_MS };
+  return { iterations: CONVERSATION_MAX_ITERATIONS, answerMs: CONVERSATION_ANSWER_BUDGET_MS, toolCalls: QUESTION_TOOL_CALLS };
 }
 
 
@@ -175,6 +176,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Stop when the job is done. A statement or small request is finished once the right tool succeeds — reply in a line or two. Explore only when the answer depends on facts you do not have yet; never browse Flyd's own source unless George asks about Flyd's code.",
       "Never say you did, saved, noted, or changed something unless a tool call in this turn actually did it. If George tells you something that changes his to-dos, work picture, profile, or schedule, call the matching tool.",
       "For substantial coding work (new features, multi-file changes, refactors), call start_coding_task early with a crisp outcome — the coding runtime explores and plans on its own; do not spend the turn exploring first.",
+      "Length: lead with the decision or answer, then only what George needs to act — aim for under ~250 words. When he asks for a plan, brief, prep, or draft, make it complete but tight. Offer more depth in one line ('want the full breakdown?') rather than including everything you found.",
+      "Research in proportion: gather enough to answer well, then answer. Do not audit everything you could read.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",
       "Your user is George. Project questions require project evidence. Start with the supplied PROJECT EVIDENCE and project context; only inspect further when it cannot establish the answer. General knowledge is not project knowledge. Do not answer from training data about unrelated projects.",
@@ -878,6 +881,7 @@ export async function respondToConversation(
       {
         signal: input.signal,
         answerBy: Date.now() + budget.answerMs,
+        toolCallBudget: budget.toolCalls,
         parallelSafe: (name, toolInput) => !isMutatingToolCall(name, toolInput),
         canFailOver: () => !attemptMutated,
         onFailover: ({ to }) => {

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { openAdvisories, updateAdvisoryStatus, type Advisory } from "./advisors.js";
+import { openAdvisories, readAdvisories, sameIdea, updateAdvisoryStatus, type Advisory } from "./advisors.js";
 import { localDay, memoryPaths, readMemoryEntries, searchDailyNotes, type MemoryEntry } from "./memory-store.js";
 
 // The Muse waits in the wings. After each turn it looks at what George said
@@ -45,7 +45,8 @@ export function museCandidates(
   for (const advisory of sources.advisories) {
     const topicHits = advisory.topics.filter((topic) => [...keyTerms(topic)].some((term) => terms.has(term))).length;
     const score = topicHits * 2 + overlap(terms, advisory.text) + (advisory.urgency === "high" ? 1 : 0);
-    if (score >= 2) candidates.push({ kind: "advisory", id: advisory.id, text: `${advisory.text}${advisory.whyNow ? ` (why now: ${advisory.whyNow})` : ""}`, score, advisory });
+    // An advisory must be about what George is talking about, not merely share words with it.
+    if (topicHits >= 1 && score >= 3) candidates.push({ kind: "advisory", id: advisory.id, text: `${advisory.text}${advisory.whyNow ? ` (why now: ${advisory.whyNow})` : ""}`, score, advisory });
   }
   for (const entry of sources.memory) {
     const score = overlap(terms, entry.text);
@@ -75,6 +76,7 @@ export function musePrompt(message: string, answer: string, candidates: MuseCand
     "",
     "Rules:",
     "- If none of it clearly helps with THIS moment, or Flyd's answer already covered it, reply exactly NONE.",
+    "- The note must serve George's immediate goal in this message. A cross-project idea or opportunity that pulls his attention elsewhere — however good — is NONE right now.",
     "- Otherwise reply with one or two short, warm, plain sentences addressed to George — no preamble, no labels, no bullet points.",
     "- Be measured: raise a concern calmly and constructively; never nag, never moralise.",
     "- End with the id you used in square brackets, e.g. [advisory:ab12cd34].",
@@ -124,8 +126,13 @@ export async function consultMuse(message: string, answer: string, deps: MuseDep
   const state = readMuseState(today);
   const advisoriesAllowed = state.unprompted < UNPROMPTED_ADVISORIES_PER_DAY;
   const said = deps.alreadySaid ?? new Set<string>();
+  // Variety: nothing that repeats a point George saw in the last week or waved away.
+  const weekAgo = now.getTime() - 7 * 86_400_000;
+  const recentlyRaised = readAdvisories().filter((advisory) =>
+    advisory.status === "dismissed" || (advisory.shownAt !== undefined && Date.parse(advisory.shownAt) >= weekAgo));
+  const fresh = openAdvisories(now).filter((advisory) => !recentlyRaised.some((raised) => sameIdea(raised, advisory)));
   const candidates = museCandidates(message, answer, {
-    advisories: advisoriesAllowed ? openAdvisories(now) : [],
+    advisories: advisoriesAllowed ? fresh : [],
     memory: readMemoryEntries(memoryPaths()),
     notes: searchDailyNotes(message),
   }).filter((candidate) => !said.has(`${candidate.kind}:${candidate.id}`));

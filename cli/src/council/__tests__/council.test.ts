@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { advisoriesPath, openAdvisories, parseAdvisories, readAdvisories, runAdvisors, updateAdvisoryStatus } from "../advisors.js";
+import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory } from "../advisors.js";
 import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
@@ -105,6 +105,29 @@ describe("advisors", () => {
   });
 });
 
+describe("advisory pruning", () => {
+  const make = (id: string, advisor: "critic" | "strategist", topics: string[], urgency: Advisory["urgency"] = "normal"): Advisory => ({
+    id, advisor, text: id, whyNow: "", evidence: ["j:1"], confidence: "medium", urgency, topics,
+    createdAt: "2026-09-27T00:00:00Z", expires: "2026-10-27", status: "open",
+  });
+
+  it("keeps one advisory per idea and caps each advisor's open list", () => {
+    expect(sameIdea(make("a", "strategist", ["posttraction", "little organic baby", "tiktok"]), make("b", "strategist", ["little organic baby", "tiktok", "koko"]))).toBe(true);
+    expect(sameIdea(make("a", "critic", ["cleanx", "launch"]), make("b", "critic", ["koko", "investor"]))).toBe(false);
+    const pool = [
+      make("dup-low", "strategist", ["little organic baby", "tiktok"], "low"),
+      make("dup-high", "strategist", ["little organic baby", "tiktok"], "high"),
+      ...["one", "two", "three", "four", "five"].map((word) => make(`c-${word}`, "critic", [word])),
+    ];
+    const { kept, retired } = pruneAdvisories(pool);
+    const open = kept.filter((advisory) => advisory.status === "open").map((advisory) => advisory.id);
+    expect(open).toContain("dup-high");
+    expect(open).not.toContain("dup-low");
+    expect(open.filter((id) => id.startsWith("c-"))).toHaveLength(4);
+    expect(retired).toBe(2);
+  });
+});
+
 describe("muse", () => {
   it("finds candidates locally and stays silent without them", async () => {
     const now = at("2026-09-27T10:00:00Z");
@@ -131,6 +154,19 @@ describe("muse", () => {
     expect(note).toMatchObject({ note: "Heads up: the store review can take a week, so submitting CleanX today keeps 3 Oct safe.", advisory: { id: advisory.id } });
     expect(readAdvisories()[0].status).toBe("shown");
     expect(await consultMuse("cleanx launch again", "ok", { complete, now: () => now, alreadySaid: said })).toBeNull();
+  });
+
+  it("does not raise a point George already saw this week, even reworded", async () => {
+    const now = at("2026-09-27T10:00:00Z");
+    const base = { whyNow: "", evidence: ["j:1"], confidence: "high", urgency: "normal", createdAt: now.toISOString(), expires: "2026-10-20" };
+    mkdirSync(join(home, "council"), { recursive: true });
+    writeFileSync(advisoriesPath(), [
+      { ...base, id: "seen", advisor: "strategist", text: "Share the first-wave gate with Little Organic Baby", topics: ["tiktok", "little organic baby"], status: "shown", shownAt: "2026-09-26T10:00:00Z" },
+      { ...base, id: "reworded", advisor: "strategist", text: "Little Organic Baby TikTok clips could use the PostTraction gate", topics: ["little organic baby", "tiktok", "posttraction"], status: "open" },
+    ].map((row) => JSON.stringify(row)).join("\n") + "\n");
+    const complete = vi.fn(async () => "should not be called");
+    expect(await consultMuse("plan the little organic baby tiktok videos", "Here's a plan.", { complete, now: () => now })).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it("parses replies defensively", () => {

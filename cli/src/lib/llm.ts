@@ -190,6 +190,8 @@ export interface AgentLoopOptions {
    * gathered so far. Keeps conversational turns from exploring for minutes.
    */
   answerBy?: number;
+  /** Tool calls allowed this turn; once spent, the next model call must answer. */
+  toolCallBudget?: number;
   /** Calls that may run concurrently with their siblings (read-only lookups). */
   parallelSafe?(name: string, input: Record<string, unknown>): boolean;
 }
@@ -235,7 +237,8 @@ export interface FailoverOptions extends AgentLoopOptions {
   onFailover?(event: { from: string; to: string; error: string }): void;
 }
 
-function pastAnswerBy(options: AgentLoopOptions): boolean {
+function pastAnswerBy(options: AgentLoopOptions, toolCallsUsed = 0): boolean {
+  if (options.toolCallBudget !== undefined && toolCallsUsed >= options.toolCallBudget) return true;
   return options.answerBy !== undefined && Date.now() >= options.answerBy;
 }
 
@@ -508,10 +511,11 @@ async function agentLoopAnthropic(
   const messages: any[] = [{ role: "user", content: userMessage }];
 
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
+  let toolCallsUsed = 0;
   for (let i = 0; i < ceiling; i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
-    const lastCall = i === ceiling - 1 || pastAnswerBy(options);
+    const lastCall = i === ceiling - 1 || pastAnswerBy(options, toolCallsUsed);
     const res = await client.messages.create({
       model: apiModelId(model),
       max_tokens: AGENT_OUTPUT_TOKENS,
@@ -546,6 +550,7 @@ async function agentLoopAnthropic(
         onToolCall,
         options,
       );
+      toolCallsUsed += outputs.length;
       uses.forEach((b, index) => {
         results.push({
           type: "tool_result" as const,
@@ -590,8 +595,9 @@ async function agentLoopOpenAI(
   }));
 
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
+  let toolCallsUsed = 0;
   for (let i = 0; i < ceiling; i++) {
-    const lastCall = i === ceiling - 1 || pastAnswerBy(options);
+    const lastCall = i === ceiling - 1 || pastAnswerBy(options, toolCallsUsed);
     // History holds tool calls, so the final request keeps the tool list (some
     // backends reject tool history without it) but forbids further calls.
     if (lastCall) messages.push({ role: "user", content: TOOL_CEILING_NOTE.trim() });
@@ -627,6 +633,7 @@ async function agentLoopOpenAI(
         onToolCall,
         options,
       );
+      toolCallsUsed += outputs.length;
       toolCalls.forEach((tc, index) => {
         messages.push({ role: "tool", tool_call_id: tc.id, content: outputs[index] });
       });
@@ -664,8 +671,9 @@ async function agentLoopOpenAIResponses(
   }));
 
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
+  let toolCallsUsed = 0;
   for (let iteration = 0; iteration < ceiling; iteration += 1) {
-    const lastCall = iteration === ceiling - 1 || pastAnswerBy(options);
+    const lastCall = iteration === ceiling - 1 || pastAnswerBy(options, toolCallsUsed);
     const response = await client.responses.create({
       model: apiModelId(model),
       instructions: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
@@ -683,6 +691,7 @@ async function agentLoopOpenAIResponses(
       onToolCall,
       options,
     );
+      toolCallsUsed += outputs.length;
     calls.forEach((call, index) => {
       input.push({
         type: "function_call_output",

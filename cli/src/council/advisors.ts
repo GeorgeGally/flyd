@@ -53,6 +53,60 @@ export function openAdvisories(now = new Date(), path = advisoriesPath()): Advis
   return readAdvisories(path).filter((advisory) => advisory.status === "open" && advisory.expires >= today).reverse();
 }
 
+/** Open advisories kept per advisor: a short, sharp list beats a backlog of worries. */
+export const MAX_OPEN_PER_ADVISOR = 4;
+
+function topicSet(advisory: Advisory): Set<string> {
+  return new Set(advisory.topics.flatMap((topic) => topic.split(/[\s-]+/)).filter((word) => word.length > 2));
+}
+
+/** Two advisories are the same idea when most of their topics overlap. */
+export function sameIdea(a: Advisory, b: Advisory): boolean {
+  const left = topicSet(a);
+  const right = topicSet(b);
+  if (left.size === 0 || right.size === 0) return false;
+  let shared = 0;
+  for (const word of left) if (right.has(word)) shared += 1;
+  return shared / Math.min(left.size, right.size) >= 0.6;
+}
+
+const URGENCY_RANK = { high: 3, normal: 2, low: 1 } as const;
+const CONFIDENCE_RANK = { high: 3, medium: 2, low: 1 } as const;
+
+function worth(advisory: Advisory): number {
+  return URGENCY_RANK[advisory.urgency] * 10 + CONFIDENCE_RANK[advisory.confidence] * 3 + Date.parse(advisory.createdAt) / 1e13;
+}
+
+/**
+ * Keep the open list short and distinct: of advisories making the same point,
+ * only the strongest stays open; beyond the per-advisor cap, the weakest
+ * retire. Retired advisories are marked expired, never deleted.
+ */
+export function pruneAdvisories(advisories: Advisory[]): { kept: Advisory[]; retired: number } {
+  const open = advisories.filter((advisory) => advisory.status === "open").sort((a, b) => worth(b) - worth(a));
+  const keep = new Set<string>();
+  const perAdvisor: Record<string, number> = {};
+  for (const advisory of open) {
+    const duplicate = open.some((other) => keep.has(other.id) && sameIdea(other, advisory));
+    if (duplicate || (perAdvisor[advisory.advisor] ?? 0) >= MAX_OPEN_PER_ADVISOR) continue;
+    keep.add(advisory.id);
+    perAdvisor[advisory.advisor] = (perAdvisor[advisory.advisor] ?? 0) + 1;
+  }
+  let retired = 0;
+  const kept = advisories.map((advisory) => {
+    if (advisory.status !== "open" || keep.has(advisory.id)) return advisory;
+    retired += 1;
+    return { ...advisory, status: "expired" as const };
+  });
+  return { kept, retired };
+}
+
+export function pruneAdvisoryStore(path = advisoriesPath()): number {
+  const { kept, retired } = pruneAdvisories(readAdvisories(path));
+  if (retired) writeAdvisories(kept, path);
+  return retired;
+}
+
 export function updateAdvisoryStatus(id: string, status: AdvisoryStatus, now = new Date(), path = advisoriesPath()): Advisory | null {
   const advisories = readAdvisories(path);
   const index = advisories.findIndex((advisory) => advisory.id === id);
@@ -101,8 +155,9 @@ export function advisorPrompt(advisor: AdvisorName, input: AdvisorInput): string
     `Today is ${input.today}.`,
     "",
     "Rules:",
-    "- Most of the time the right answer is nothing. Only raise what is genuinely worth George's attention.",
-    "- At most 3 advisories. Each must cite evidence ids you were shown ([j:…] turns or memory lines quoted verbatim).",
+    "- Most of the time the right answer is nothing. Only raise what George would thank you for within the week.",
+    "- Never restate an open advisory in new words; if yours makes the same point, say nothing.",
+    "- At most 2 advisories. Each must cite evidence ids you were shown ([j:…] turns or memory lines quoted verbatim).",
     "- Do not repeat an open advisory; do not restate facts he obviously knows.",
     "- 'why_now' says why this matters in the next days, not in general.",
     "- 'expires' is the date after which the advisory is no longer useful (YYYY-MM-DD).",
@@ -130,7 +185,7 @@ export function parseAdvisories(advisor: AdvisorName, text: string, now: Date): 
   }
   const today = localDay(now);
   const maxExpiry = localDay(new Date(now.getTime() + 30 * 86_400_000));
-  return (parsed.advisories ?? []).slice(0, 3).flatMap((raw) => {
+  return (parsed.advisories ?? []).slice(0, 2).flatMap((raw) => {
     const text = String(raw.text ?? "").replace(/\s+/g, " ").trim();
     const evidence = Array.isArray(raw.evidence) ? raw.evidence.map(String).filter(Boolean).slice(0, 6) : [];
     if (!text || evidence.length === 0) return [];
@@ -182,5 +237,7 @@ export async function runAdvisors(input: Omit<AdvisorInput, "open" | "today">, d
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     appendFileSync(path, fresh.map((advisory) => JSON.stringify(advisory)).join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
   }
-  return fresh;
+  pruneAdvisoryStore(path);
+  const stillOpen = new Set(readAdvisories(path).filter((advisory) => advisory.status === "open").map((advisory) => advisory.id));
+  return fresh.filter((advisory) => stillOpen.has(advisory.id));
 }
