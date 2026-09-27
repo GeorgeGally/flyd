@@ -90,6 +90,16 @@ program
   });
 
 program
+  .command("scout")
+  .description("Flyd's Scout — news for you, pre-emptive and evolving: show | run | watch | evolve | more N | less N | sources | taste")
+  .argument("[action]", "show, run, watch, evolve, more, less, sources, taste")
+  .argument("[args...]", "item number for more/less")
+  .action(async (action: string | undefined, args: string[] = []) => {
+    const { runScoutCommand } = await import("./commands/scout.js");
+    await runScoutCommand(action, args);
+  });
+
+program
   .command("council")
   .description("Flyd's council — Librarian (curator), Critic, Strategist, Muse: status | run [--all] | advisories")
   .argument("[action]", "status, run, advisories")

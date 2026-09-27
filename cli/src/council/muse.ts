@@ -3,6 +3,14 @@ import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { openAdvisories, readAdvisories, sameIdea, updateAdvisoryStatus, type Advisory } from "./advisors.js";
 import { localDay, memoryPaths, readMemoryEntries, searchDailyNotes, type MemoryEntry } from "./memory-store.js";
+import { latestEdition, recentFlashes } from "./scout.js";
+
+/** Today's Scout stories and must-know flashes, so the Muse can raise one when a conversation touches it. */
+function storyNotes(): string[] {
+  const edition = latestEdition();
+  const stories = edition ? edition.items.map((item) => `Story (${edition.date}): ${item.title} — ${item.why} ${item.url}`) : [];
+  return [...recentFlashes().map((item) => `Must-know: ${item.title} — ${item.why} ${item.url}`), ...stories];
+}
 
 // The Muse waits in the wings. After each turn it looks at what George said
 // and what Flyd answered, weighs what the council knows — the Librarian's
@@ -134,7 +142,10 @@ export async function consultMuse(message: string, answer: string, deps: MuseDep
   const candidates = museCandidates(message, answer, {
     advisories: advisoriesAllowed ? fresh : [],
     memory: readMemoryEntries(memoryPaths()),
-    notes: searchDailyNotes(message),
+    notes: [
+      ...searchDailyNotes(message),
+      ...storyNotes(),
+    ],
   }).filter((candidate) => !said.has(`${candidate.kind}:${candidate.id}`));
   if (candidates.length === 0) return null;
 

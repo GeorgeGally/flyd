@@ -79,6 +79,8 @@ interface AgentSessionDependencies {
   afterTurn?(turn: { user: string; assistant: string }): Promise<{ museNote?: string; advisoryId?: string } | null>;
   /** George's verdict on the last Muse note that raised an advisory. */
   rateAdvisory?(advisoryId: string, verdict: "useful" | "dismissed"): Promise<void>;
+  /** George's verdict on a Scout edition item. */
+  rateStory?(n: number, verdict: "more" | "less"): Promise<string | null>;
   /** Proactive briefing lines for the intro (inbox, due reminders, agenda). */
   loadBriefing?(): Promise<string[]>;
   /** Shared Present Model hypothesis line for intro. */
@@ -402,6 +404,15 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           const message = error instanceof Error ? error.message : String(error);
           deps.terminal.write(`Flyd could not repair that turn: ${message}\n`);
         }
+        continue;
+      }
+
+      const story = text.trim().toLowerCase().match(/^\/(more|less)\s+(\d+)$/);
+      if (story) {
+        const title = deps.rateStory ? await deps.rateStory(Number(story[2]), story[1] === "more" ? "more" : "less").catch(() => null) : null;
+        deps.terminal.write(title
+          ? `${story[1] === "more" ? "More like" : "Less like"} "${title}" — the Scout will adjust.\n`
+          : `No item ${story[2]} in the latest edition.\n`);
         continue;
       }
 

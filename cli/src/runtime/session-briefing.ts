@@ -82,6 +82,31 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     // The council is advisory; a missing store never blocks the briefing.
   }
 
+  try {
+    const scout = await import("../council/scout.js");
+    const edition = scout.latestEdition();
+    const markPath = `${scout.scoutDir()}/briefed-date`;
+    const { readFileSync: read, writeFileSync: write, mkdirSync: mkdir } = await import("node:fs");
+    let briefed = "";
+    try { briefed = read(markPath, "utf8").trim(); } catch { /* never briefed */ }
+    const today = formatLocalDateTime(now).slice(0, 10);
+    if (!deps.paths && edition && edition.items.length && briefed !== today && edition.date >= formatLocalDateTime(new Date(now.getTime() - 86_400_000)).slice(0, 10)) {
+      lines.push("Worth knowing (/more N, /less N):");
+      for (const item of edition.items.slice(0, 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
+      mkdir(scout.scoutDir(), { recursive: true });
+      write(markPath, today);
+    }
+  } catch {
+    // News is optional; the briefing never fails for it.
+  }
+  try {
+    const { takeEvolutionNotes } = await import("../council/scout.js");
+    const notes = deps.paths ? [] : takeEvolutionNotes();
+    if (notes.length) lines.push(`Scout adjusted: ${notes.join("; ")}`);
+  } catch {
+    // Optional.
+  }
+
   const inbox = unreadInbox(paths);
   if (inbox.length) {
     lines.push(`While you were away (${inbox.length} update${inbox.length === 1 ? "" : "s"}):`);

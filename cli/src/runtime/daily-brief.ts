@@ -111,7 +111,10 @@ export async function composeExternalBrief(deps: DailyBriefDeps): Promise<{
 
 export async function composeDailyBrief(deps: DailyBriefDeps = {}): Promise<DailyBrief> {
   const state = composeStateBrief(deps.situation);
-  const { lines: external, degraded } = await composeExternalBrief(deps);
+  // The Scout's edition is the curated external signal; raw last30days is the fallback.
+  const { latestEdition, formatEdition } = await import("../council/scout.js");
+  const edition = formatEdition(latestEdition());
+  const { lines: external, degraded } = edition.length ? { lines: edition, degraded: false } : await composeExternalBrief(deps);
   const time = deps.now ? deps.now().toLocaleString() : new Date().toLocaleString();
 
   const heading = external.length

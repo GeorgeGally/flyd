@@ -130,6 +130,12 @@ export async function runAgendaCommand(
         process.stderr.write(`council pass failed: ${error instanceof Error ? error.message : String(error)}\n`);
         return null;
       });
+      const { scoutTick } = await import("../council/scout.js");
+      const scoutLog = await scoutTick({
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        notify: notifyMac,
+      }).catch((error: unknown) => [`failed: ${error instanceof Error ? error.message : String(error)}`]);
+      if (scoutLog.length) process.stdout.write(`${new Date().toISOString()} scout: ${scoutLog.join("; ")}\n`);
       if (council && !council.skipped) {
         process.stdout.write(`${new Date().toISOString()} council: ${council.librarian?.turns ?? 0} turns, ${council.librarian?.captures ?? 0} captures, ${council.advisories.length} advisories\n`);
       }

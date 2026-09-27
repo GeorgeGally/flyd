@@ -197,6 +197,10 @@ export async function runAgent(): Promise<void> {
         const note = await consultMuse(user, assistant, { complete: (prompt) => query(prompt), alreadySaid: museSaid });
         return note ? { museNote: note.note, ...(note.advisory ? { advisoryId: note.advisory.id } : {}) } : null;
       },
+      rateStory: async (n, verdict) => {
+        const { recordScoutFeedback } = await import("../council/scout.js");
+        return recordScoutFeedback(n, verdict)?.title ?? null;
+      },
       rateAdvisory: async (advisoryId, verdict) => {
         const { updateAdvisoryStatus } = await import("../council/advisors.js");
         updateAdvisoryStatus(advisoryId, verdict);
