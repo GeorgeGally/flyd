@@ -79,7 +79,13 @@ describe("formatChatReply", () => {
     const lines = reply.split("\n");
     expect(lines.every((line) => line.length <= 48)).toBe(true);
     expect(reply.startsWith("  ")).toBe(true);
-    expect(reply).toMatch(/\n\n/);
+    // A short paragraph stays one paragraph; chopping it into one-liners reads like a bot.
+    expect(reply).not.toMatch(/\n\n/);
+  });
+
+  it("drops markdown emphasis a terminal can't render", () => {
+    expect(formatChatReply("You've got **electronic-robots** sitting *finished* and unplayed.", 80))
+      .toBe("  You've got electronic-robots sitting finished and unplayed.");
   });
 
   it("keeps list hanging indents readable", () => {

@@ -22,6 +22,9 @@ export function wrapDisplayText(text: string, width = displayWidth()): string {
 export function formatChatReply(text: string, width = displayWidth()): string {
   const normalized = text
     .replace(/\r\n/g, "\n")
+    // A terminal can't render emphasis; bare asterisks read as noise.
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s.,;:!?)]|$)/gm, "$1$2")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
   if (!normalized) return "";
@@ -34,7 +37,8 @@ export function formatChatReply(text: string, width = displayWidth()): string {
 function splitReplyBlocks(text: string, width: number): string[] {
   const rough = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   const out: string[] = [];
-  const budget = Math.max(120, width * 2);
+  // Only real walls get broken up; a paragraph the model wrote stays a paragraph.
+  const budget = Math.max(480, width * 8);
   for (const chunk of rough) {
     if (isListBlock(chunk) || chunk.includes("\n")) {
       out.push(chunk);
