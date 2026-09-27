@@ -59,3 +59,22 @@ describe("tiered memory store", () => {
     expect(text).toContain("## Facts\n- Uses a Mac <!--a:2026-09-27-->");
   });
 });
+
+describe("budget eviction", () => {
+  it("forgets project detail before who George is", async () => {
+    const { applyMemoryOps, readMemoryEntries, memoryPaths, MEMORY_BUDGET_CHARS } = await import("../memory-store.js");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const paths = memoryPaths(mkdtempSync(join(tmpdir(), "flyd-budget-")));
+    const now = new Date("2026-09-27T10:00:00Z");
+    applyMemoryOps([{ op: "add", section: "Who he is", text: "Has ADHD and prefers short, scannable replies." }], { now, paths });
+    const filler = Array.from({ length: Math.ceil(MEMORY_BUDGET_CHARS / 90) + 5 }, (_, index) => ({
+      op: "add" as const, section: "Projects", text: `Project detail number ${index} about some service wiring that nobody needs to remember forever.`,
+    }));
+    applyMemoryOps(filler, { now, paths });
+    const entries = readMemoryEntries(paths);
+    expect(entries.some((entry) => entry.text.startsWith("Has ADHD"))).toBe(true);
+    expect(entries.filter((entry) => entry.section === "Projects").length).toBeLessThan(filler.length);
+  });
+});

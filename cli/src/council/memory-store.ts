@@ -47,7 +47,10 @@ export function memoryPaths(dir = process.env.FLYD_MEMORY_DIR?.trim() || FLYD_DI
 export const AGING_DAYS = 30;
 export const PERISHABLE_DAYS = 7;
 /** Hard ceiling so MEMORY.md stays a map, not a journal. */
-export const MEMORY_BUDGET_CHARS = 8_000;
+export const MEMORY_BUDGET_CHARS = 16_000;
+
+/** Under budget pressure, what a friend would forget first: project detail before who George is. */
+const EVICTION_ORDER = ["Projects", "Facts", "Decisions", "Commitments", "Lately", "People", "Who he is"];
 
 export function localDay(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -222,9 +225,10 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
     }
   }
 
-  // Budget: retire the oldest-confirmed aging entries until MEMORY.md fits.
+  // Budget: retire the least essential, oldest-confirmed entries until MEMORY.md fits.
+  const rank = (entry: MemoryEntry) => { const index = EVICTION_ORDER.indexOf(entry.section); return index === -1 ? 0 : index; };
   while (renderMemory(entries).length > MEMORY_BUDGET_CHARS && entries.length > 0) {
-    const oldest = entries.reduce((a, b) => (b.date < a.date ? b : a));
+    const oldest = entries.reduce((a, b) => (rank(b) < rank(a) || (rank(b) === rank(a) && b.date < a.date) ? b : a));
     entries.splice(entries.indexOf(oldest), 1);
     archived.push({ entry: oldest, reason: "over memory budget (oldest confirmation)" });
     receipt.archived += 1;
