@@ -115,6 +115,7 @@ export function crewBrief(outcome: string, verification: string[], branch: strin
     "Rules:",
     `- You are on branch ${branch} in a dedicated git worktree. Work only here. Never push, never touch other branches.`,
     "- Read the repository's AGENTS.md / CLAUDE.md / README first and follow its conventions.",
+    "- This is a fresh worktree: dependencies are not installed. Install them (e.g. npm ci) before running checks.",
     "- Make the smallest complete change that delivers the outcome. Add or update tests for behaviour you change.",
     `- Before finishing, run and pass: ${verification.join(" && ") || "the project's own tests"}.`,
     "- Commit your work on this branch with a clear conventional commit message. Uncommitted work is lost.",

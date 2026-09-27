@@ -134,6 +134,12 @@ export async function runAgendaCommand(
       for (const task of await superviseCrew({ notify: notifyMac }).catch(() => [])) {
         process.stdout.write(`${new Date().toISOString()} crew: ${task.id} ${task.status}\n`);
       }
+      const { runSelfImprovement } = await import("../crew/self-improve.js");
+      const improved = await runSelfImprovement({
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        notify: notifyMac,
+      }).catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}` }));
+      if (improved.status !== "not_due") process.stdout.write(`${new Date().toISOString()} self-improve: ${improved.status}\n`);
       const { scoutTick } = await import("../council/scout.js");
       const scoutLog = await scoutTick({
         complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),

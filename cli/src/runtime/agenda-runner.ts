@@ -42,6 +42,8 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
         const { superviseCrew } = await import("../crew/crew.js");
         await superviseCrew({ notify: notifyMac });
+        const { runSelfImprovement } = await import("../crew/self-improve.js");
+        await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
         const { scoutTick } = await import("../council/scout.js");
         await scoutTick({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
       })

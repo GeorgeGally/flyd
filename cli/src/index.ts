@@ -90,6 +90,15 @@ program
   });
 
 program
+  .command("improve")
+  .description("Flyd improving Flyd, human-gated: status | evidence | run (dispatches one verified fix to the crew; lands only with your word)")
+  .argument("[action]", "status, evidence, run")
+  .action(async (action: string | undefined) => {
+    const { runImproveCommand } = await import("./commands/improve.js");
+    await runImproveCommand(action);
+  });
+
+program
   .command("crew")
   .description("Flyd's coding crew (OpenCode crewmates in worktrees): list | dispatch <outcome> | show <id> | supervise | land <id> | discard <id>")
   .argument("[action]", "list, dispatch, show, supervise, land, discard")
