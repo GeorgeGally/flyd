@@ -20,7 +20,7 @@ export function greetingPrompt(input: GreetingInput): string {
     "",
     "George has just sat down and opened you. You have already said hello.",
     `It is ${day}, ${time}.`,
-    "Write what you would say next, the way a sharp, warm PA talks when someone sits down — not a report.",
+    "Write what you would say next, the way a sharp PA who knows him talks when he sits down — not a report.",
     "",
     "What you know right now (raw notes, most of it can wait):",
     ...input.briefing.map((line) => `- ${line.trim()}`),

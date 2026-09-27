@@ -125,3 +125,15 @@ function wrapWithHang(line: string, prefix: string, hang: string, width: number)
   if (current) rows.push(current);
   return rows.map((row, i) => `${i === 0 ? prefix : hang}${row}`).join("\n");
 }
+const FLYD_GREEN = "\u001b[32m";
+const DETAIL_WHITE = "\u001b[97m";
+
+/**
+ * Flyd's own words in green, with the details that matter — quoted titles,
+ * `code`, times and dates — picked out in white.
+ */
+export function paintFlyd(line: string): string {
+  if (!line.trim()) return line;
+  const body = line.replace(/(`[^`]+`|"[^"\n]+"|“[^”\n]+”|\b\d{1,2}:\d{2}\b|\b\d{4}-\d{2}-\d{2}\b)/g, (match) => `${DETAIL_WHITE}${match}${FLYD_GREEN}`);
+  return `${FLYD_GREEN}${body}\u001b[0m`;
+}

@@ -76,8 +76,40 @@ describe("NodeTerminal TUI mode", () => {
     input.write("fix the chat\r");
     await expect(askPromise).resolves.toBe("fix the chat");
     const out = drain(output);
-    expect(out).toContain("\x1b[43m"); // solid yellow background
+    expect(out).toContain("\x1b[42m"); // solid green background
     expect(out).toContain("fix the chat");
+    await terminal.close();
+  });
+
+  it("scrolls on a wheel burst of arrows but recalls history on a single arrow press", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    for (let index = 0; index < 60; index += 1) terminal.write(`line ${index}`);
+    const first = terminal.ask("You > ");
+    input.write("hello\r");
+    await first;
+    const second = terminal.ask("You > ");
+    drain(output);
+    input.write("\x1bOA\x1bOA\x1bOA");
+    const scrolled = drain(output);
+    expect(scrolled).not.toContain("You > hello");
+    expect(scrolled).toContain("line 5");
+    input.write("\x1b[B\x1b[B\x1b[B");
+    drain(output);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    input.write("\x1b[A");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(drain(output)).toContain("You > hello");
+    input.write("\r");
+    await second;
+    await terminal.close();
+  });
+
+  it("paints user lines on green", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    const line = terminal.ask("You > ");
+    input.write("hi there\r");
+    await line;
+    expect(drain(output)).toContain("\u001b[42m\u001b[30m hi there");
     await terminal.close();
   });
 

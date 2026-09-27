@@ -1,5 +1,5 @@
 import { interpretAgentInput } from "./input-interpreter.js";
-import { formatChatReply, wrapDisplayText } from "./terminal.js";
+import { formatChatReply, paintFlyd, wrapDisplayText } from "./terminal.js";
 import type { ActionableOutcome } from "./conversation-memory.js";
 import type { MemoryEvidence } from "./types.js";
 import type { BriefRepo } from "./repo-registry.js";
@@ -300,7 +300,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }));
       if (!streamed && answer) {
         const about = handle.background ? `${paint(`  ↳ re: ${message.length > 60 ? `${message.slice(0, 59)}…` : message}`, DIM)}\n` : "";
-        deps.terminal.write(`${about}${paint(formatChatReply(answer), GREEN)}`);
+        const reply = formatChatReply(answer);
+        deps.terminal.write(`${about}${useColor() ? reply.split("\n").map(paintFlyd).join("\n") : reply}`);
       }
       return answer;
     } finally {

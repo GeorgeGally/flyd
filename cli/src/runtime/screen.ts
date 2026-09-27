@@ -11,6 +11,8 @@ export interface ScreenView {
   /** Streaming assistant text not yet committed. Wrapped and colored here. */
   live: string;
   liveColor: string;
+  /** Optional painter for Flyd's streaming text; overrides liveColor. */
+  paintLive?: (line: string) => string;
   /** Current input buffer. */
   input: string;
   /** Caret offset within input. */
@@ -60,7 +62,7 @@ export function renderScreen(view: ScreenView, size: ScreenSize): RenderedFrame 
   const layout = screenLayout(view, size);
   const liveLines = view.live
     ? wrapDisplayText(view.live, transcriptWidth(cols)).split("\n")
-        .map((line) => colorize(line, view.liveColor))
+        .map((line) => (view.paintLive ? view.paintLive(line) : colorize(line, view.liveColor)))
     : [];
   const body = [...view.lines, ...liveLines];
   const scroll = Math.min(Math.max(0, view.scroll), layout.maxScroll);

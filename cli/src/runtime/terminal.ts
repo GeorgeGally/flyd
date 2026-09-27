@@ -11,10 +11,10 @@ import {
   createLineReaderState,
   feedLineReader,
 } from "./tty-line-reader.js";
-import { wrapDisplayText } from "./text-wrap.js";
+import { paintFlyd, wrapDisplayText } from "./text-wrap.js";
 import { renderScreen, screenLayout, transcriptWidth, type ScreenView } from "./screen.js";
 
-export { CHAT_WRAP_WIDTH, displayWidth, wrapDisplayText, formatChatReply } from "./text-wrap.js";
+export { CHAT_WRAP_WIDTH, displayWidth, wrapDisplayText, formatChatReply, paintFlyd } from "./text-wrap.js";
 
 export const DEFAULT_INPUT_HISTORY_SIZE = 100;
 
@@ -23,7 +23,7 @@ const ALT_SCREEN_ON = "\u001b[?1049h";
 const ALT_SCREEN_OFF = "\u001b[?1049l";
 const CURSOR_HIDE = "\u001b[?25l";
 const CURSOR_SHOW = "\u001b[?25h";
-const USER_BG = "\u001b[43m";
+const USER_BG = "\u001b[42m";
 const USER_FG = "\u001b[30m";
 const DIM = "\u001b[2m";
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -34,6 +34,8 @@ const PGDN = "\x1b[6~";
  * reporting also swallows click-drag, so George couldn't select and copy.
  * Selection wins by default; /mouse (or FLYD_TUI_MOUSE=1) trades it for the wheel.
  */
+const ARROW_ONLY = /^(?:\x1b[[O][AB])+$/;
+const ARROW_BURST_MS = 40;
 const SHIFT_UP = "\x1b[1;2A";
 const SHIFT_DOWN = "\x1b[1;2B";
 const MOUSE_ON = "\u001b[?1000h\u001b[?1006h";
@@ -98,6 +100,10 @@ export class NodeTerminal {
   private readonly tuiMode: boolean;
   private pasteEnabled = false;
   private mouse = process.env.FLYD_TUI_MOUSE === "1";
+  private pendingArrow = "";
+  private replayingArrow = false;
+  private lastArrowAt = 0;
+  private arrowTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Full-screen pinned-input mode — agent-session adapts its framing to it. */
   get tui(): boolean {
@@ -358,6 +364,33 @@ export class NodeTerminal {
       this.render();
       return;
     }
+    // With mouse capture off, terminals turn the wheel into bursts of arrow
+    // keys. A burst scrolls the transcript; a lone arrow (a real key press)
+    // waits a moment, then recalls input history as usual.
+    if (ARROW_ONLY.test(chunk) && !this.replayingArrow) {
+      const now = Date.now();
+      const arrows = chunk.match(/\x1b[[O][AB]/g) ?? [];
+      const burst = arrows.length > 1 || this.pendingArrow !== "" || now - this.lastArrowAt < ARROW_BURST_MS;
+      this.lastArrowAt = now;
+      if (burst) {
+        const all = [...(this.pendingArrow.match(/\x1b[[O][AB]/g) ?? []), ...arrows];
+        if (this.arrowTimer) clearTimeout(this.arrowTimer);
+        this.pendingArrow = "";
+        this.scrollBy(all.reduce((sum, key) => sum + (key.endsWith("A") ? 1 : -1), 0));
+        this.render();
+        return;
+      }
+      this.pendingArrow = chunk;
+      this.arrowTimer = setTimeout(() => {
+        const key = this.pendingArrow.replace(/\x1bO([AB])/g, "\x1b[$1");
+        this.pendingArrow = "";
+        if (!key) return;
+        this.replayingArrow = true;
+        try { this.onInputData(key); } finally { this.replayingArrow = false; }
+      }, ARROW_BURST_MS);
+      return;
+    }
+    chunk = chunk.replace(/\x1bO([AB])/g, "\x1b[$1");
 
     const result = feedLineReader(this.inputState, chunk, this.history);
     this.inputState = result.state;
@@ -425,7 +458,7 @@ export class NodeTerminal {
   private commitLive(): void {
     const width = transcriptWidth(this.size().cols);
     for (const line of wrapDisplayText(this.live, width).split("\n")) {
-      this.transcript.push(line);
+      this.transcript.push(paintFlyd(line));
     }
     this.live = "";
   }
@@ -466,6 +499,7 @@ export class NodeTerminal {
       lines: this.transcript,
       live: this.live,
       liveColor: "\u001b[32m",
+      paintLive: paintFlyd,
       input: this.inputState.buffer,
       cursor: this.inputState.cursor,
       prompt: this.confirmPrompt || this.prompt,
