@@ -16,3 +16,5 @@ process.env.FLYD_AGENDA_DIR ??= join(sandbox, "agenda");
 process.env.FLYD_SCOUT_DIR ??= join(sandbox, "scout");
 process.env.FLYD_CREW_DIR ??= join(sandbox, "crew");
 process.env.FLYD_CREW_WORKTREES ??= join(sandbox, "worktrees");
+// Belt and braces: even an opted-in launch cannot reach the real OpenCode.
+process.env.FLYD_OPENCODE_PATH = "/usr/bin/false";

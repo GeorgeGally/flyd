@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetWorkIndexPath, useWorkIndexPath } from "../../work/database.js";
 import { runAssistantTool } from "../assistant-tools.js";
 
@@ -27,12 +27,12 @@ describe("assistant tools", () => {
     expect(await runAssistantTool("todos", { action: "done", query: "dentist" })).toMatch(/^Error: no open to-do matches/);
   });
 
-  it("hands coding work to the runtime only when the surface supports it", async () => {
-    const onCodingHandoff = vi.fn();
-    expect(await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified" }, { onCodingHandoff }))
-      .toBe("Queued for the supervised coding runtime: Dark mode, verified. It starts as soon as this reply ends.");
-    expect(onCodingHandoff).toHaveBeenCalledWith("Dark mode, verified");
-    expect(await runAssistantTool("start_coding_task", { outcome: "x" })).toMatch(/not available from this surface/);
+  it("never launches a real crewmate from tests, and needs an outcome", async () => {
+    expect(await runAssistantTool("start_coding_task", { outcome: "" })).toBe("Error: start_coding_task needs an outcome");
+    const result = await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified", repo: "/nonexistent/repo" });
+    expect(result).toMatch(/^Error: /);
+    expect(await runAssistantTool("crew", { action: "list" })).toBe("No crew tasks yet.");
+    expect(await runAssistantTool("crew", { action: "land" })).toBe("Error: crew show/land/discard needs an id");
   });
 
   it("reports unknown specialists and unreadable work corrections instead of guessing", async () => {

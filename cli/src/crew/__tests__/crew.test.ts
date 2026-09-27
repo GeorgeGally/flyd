@@ -96,6 +96,10 @@ describe("crew", () => {
     expect(readTask(task.id)?.status).toBe("failed");
   });
 
+  it("refuses to launch a real crewmate under tests", async () => {
+    await expect(dispatchCrewTask({ repo, outcome: "Would be real" })).rejects.toThrow("refusing to launch a real OpenCode crewmate under tests");
+  });
+
   it("denies publishing and destructive commands to unattended crewmates", () => {
     expect(CREW_OPENCODE_CONFIG.permission.bash["git push*"]).toBe("deny");
     expect(CREW_OPENCODE_CONFIG.permission.bash["rm -rf *"]).toBe("deny");

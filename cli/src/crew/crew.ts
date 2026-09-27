@@ -171,6 +171,10 @@ export function openCodePath(): string {
 
 /** Start `opencode run` detached in the worktree; its JSON events stream to the task log. */
 export function launchOpenCode(task: CrewTask, brief: string): number | undefined {
+  // A test once dispatched a real crewmate against Flyd itself. Never again.
+  if (process.env.VITEST && process.env.FLYD_CREW_ALLOW_LAUNCH !== "1") {
+    throw new Error("refusing to launch a real OpenCode crewmate under tests");
+  }
   const out = openSync(task.log, "a");
   const args = ["run", "--format", "json", "--dir", task.worktree, "--title", `flyd:${task.id}`, "--auto"];
   const model = process.env.FLYD_CREW_MODEL?.trim();
