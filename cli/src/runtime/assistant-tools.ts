@@ -42,11 +42,12 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "flyd",
-    description: "Flyd's own skills and jobs. action=skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status.",
+    description: "Flyd's own skills and jobs. action=skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["skills", "skillify", "jobs_status", "run_briefing", "job_hunt"], description: "What to do" },
+        action: { type: "string", enum: ["skills", "skillify", "jobs_status", "run_briefing", "job_hunt", "improve"], description: "What to do" },
+        feedback: { type: "string", description: "For improve: what George said Flyd should do better, in his words" },
         project: { type: "string", description: "Project for run_briefing (optional)" },
       },
       required: ["action"],
@@ -74,6 +75,17 @@ export const assistantTools: AgentTool[] = [
         repo: { type: "string", description: "Repository root path (default: the current project)" },
       },
       required: ["outcome"],
+    },
+  },
+  {
+    name: "background_task",
+    description: "Take on real work in the background while the conversation carries on: generate, draft, research, build, evaluate. Returns at once; the result comes back to George in the chat when done. Use it to act on something he cares about instead of only commenting — e.g. generate new DIR mixes and judge them. For code changes to a repo, prefer start_coding_task.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "The job, stated fully: what to make or find, where, and how to judge the result" },
+      },
+      required: ["task"],
     },
   },
   {
@@ -159,7 +171,22 @@ export async function runAssistantTool(
           case "jobs_status": return compound.buildJobsStatusReply();
           case "run_briefing": return compound.buildJobsRunBriefingReply(String(input.project ?? "") || context.situation?.project);
           case "job_hunt": return compound.buildJobHuntStatusReply(context.presentHypothesis);
-          default: return "Error: flyd action must be skills, skillify, jobs_status, run_briefing, or job_hunt";
+          case "improve": {
+            const [{ runSelfImprovement }, { query }, { notifyMac }] = await Promise.all([
+              import("../crew/self-improve.js"), import("../lib/llm.js"), import("./agenda.js"),
+            ]);
+            const feedback = String(input.feedback ?? "").trim();
+            const result = await runSelfImprovement({
+              complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+              notify: notifyMac,
+              force: true,
+              extraEvidence: feedback ? [{ id: `chat:${Date.now().toString(36)}`, kind: "pushback", at: new Date().toISOString(), text: `George said directly: "${feedback}"` }] : [],
+            });
+            if (result.status === "dispatched") return `Self-improvement started: ${result.improvement!.title}. It is built and tested on its own branch and lands only when George says /land. Tell him in plain words what you're changing about yourself; no ids.`;
+            if (result.status === "awaiting_george") return "A self-improvement is already built and waiting for George's /land; tell him that one is ready first.";
+            return `No change started (${result.status.replace(/_/g, " ")}). Tell him honestly and say what you'd need to see.`;
+          }
+          default: return "Error: flyd action must be skills, skillify, jobs_status, run_briefing, job_hunt, or improve";
         }
       }
       case "consult_specialist": {
@@ -180,6 +207,13 @@ export async function runAssistantTool(
         const { dispatchCrewTask } = await import("../crew/crew.js");
         const task = await dispatchCrewTask({ repo, outcome, source: "chat" });
         return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land. Tell him in your own words; don't mention crewmates, branches, or worktrees.`;
+      }
+      case "background_task": {
+        const task = String(input.task ?? "").replace(/\s+/g, " ").trim();
+        if (!task) return "Error: background_task needs a task";
+        const jobs = await import("./background-jobs.js");
+        const id = jobs.startBackgroundJob(task, { run: jobs.runJobTurn, deliver: jobs.deliverJob });
+        return `Started in the background (job ${id}). The result will come back to George in the chat when it's done. Tell him in a few words what you're doing; don't mention job ids.`;
       }
       case "crew": {
         const crew = await import("../crew/crew.js");

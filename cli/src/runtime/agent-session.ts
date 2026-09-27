@@ -422,6 +422,17 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     while (all.size) await Promise.allSettled([...all]);
   }
 
+  // Work Flyd took on in the background reports back here the moment it's done.
+  const { jobEvents } = await import("./background-jobs.js");
+  const onJobDone = (job: { id: string; task: string; status: string; result: string }) => {
+    const about = `${paint(`  ↳ ${job.task.length > 70 ? `${job.task.slice(0, 69)}…` : job.task}`, DIM)}\n`;
+    const reply = formatChatReply(job.result);
+    deps.terminal.write(`\n${about}${useColor() ? reply.split("\n").map(paintFlyd).join("\n") : reply}\n\n`);
+    history.push({ role: "assistant", content: `(Background work finished: ${job.task}) ${job.result}` });
+    void import("./agenda.js").then(({ markInboxItemRead }) => markInboxItemRead(`job-${job.id}`)).catch(() => undefined);
+  };
+  jobEvents.on("done", onJobDone);
+
   try {
     situation = await deps.loadSituation().catch(() => null);
     repos = (await deps.loadCrossRepo?.(situation?.projectRoot).catch(() => [])) ?? [];
@@ -615,6 +626,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     }
   } finally {
     await waitForTurns().catch(() => undefined);
+    jobEvents.off("done", onJobDone);
     await deps.terminal.close();
   }
 }

@@ -36,7 +36,7 @@ describe("reading the room", () => {
 
   it("keeps only ids it was shown and defaults to silence on notes", () => {
     const room = parseRoom('{"need":"vent","mode":"companion","stance":"Hear him out.","avoid":"reciting awards","length":"short","use":["u3","u9"],"raise":"zz"}', { knowledge, notes });
-    expect(room).toEqual({ need: "vent", mode: "companion", stance: "Hear him out.", avoid: "reciting awards", length: "short", use: ["u3"], raise: null });
+    expect(room).toEqual({ need: "vent", mode: "companion", stance: "Hear him out.", avoid: "reciting awards", length: "short", use: ["u3"], raise: null, act: null });
   });
 
   it("returns null rather than guessing when the reply is unusable or slow", async () => {

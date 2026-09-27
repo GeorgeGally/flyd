@@ -262,7 +262,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "crew"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "background_task", "crew"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -319,13 +319,13 @@ describe("buildConversationPrompt", () => {
     }
   });
 
-  it("asks the user and answers an ungrounded project question when approved", async () => {
+  it("never asks George to approve an unguided answer in chat", async () => {
     const emptyDir = join(tmpdir(), `flyd-test-empty-${Date.now()}`);
     mkdirSync(emptyDir, { recursive: true });
     let asked = "";
     try {
       const answer = await respondToConversation({
-        sessionId: "ungrounded-approved",
+        sessionId: "ungrounded-chat",
         turnNumber: 1,
         message: "how can flyd improve",
         history: [],
@@ -335,7 +335,7 @@ describe("buildConversationPrompt", () => {
           changedFiles: 0, latestCommit: "current commit", outcome: null, status: null,
           nextAction: null, projectRoot: emptyDir,
         },
-        askUser: async (prompt) => { asked = prompt; return true; },
+        askUser: async (prompt) => { asked = prompt; return false; },
         onToken: () => undefined,
       }, {
         resolveConnection: () => ({
@@ -346,34 +346,7 @@ describe("buildConversationPrompt", () => {
       });
 
       expect(answer).toContain("Improve contextual understanding");
-      expect(asked).toContain("no grounded evidence");
-    } finally {
-      rmSync(emptyDir, { recursive: true, force: true });
-    }
-  });
-
-  it("still refuses an ungrounded project question when the user declines", async () => {
-    const emptyDir = join(tmpdir(), `flyd-test-empty-${Date.now()}`);
-    mkdirSync(emptyDir, { recursive: true });
-    try {
-      await expect(respondToConversation({
-        message: "how can flyd improve",
-        history: [],
-        memory: { verdict: "partial", matches: [] },
-        situation: {
-          project: "GeorgeGally/flyd", branch: "main", head: "abc123", dirty: false,
-          changedFiles: 0, latestCommit: "current commit", outcome: null, status: null,
-          nextAction: null, projectRoot: emptyDir,
-        },
-        askUser: async () => false,
-        onToken: () => undefined,
-      }, {
-        resolveConnection: () => ({
-          model: "gpt-4.6", apiKey: "test-key", providerIdentity: "models.example.test/gpt-4.6",
-        }),
-        runAgentLoop: async () => "<final>Improve contextual understanding and analytics.</final>",
-        persistReceipt: async (input) => input as never,
-      })).rejects.toThrow("refused an ungrounded project answer");
+      expect(asked).toBe("");
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
     }

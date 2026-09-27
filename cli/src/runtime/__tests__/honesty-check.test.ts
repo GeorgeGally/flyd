@@ -31,3 +31,12 @@ describe("style check", () => {
     expect(styleProblems("None of the sets are online yet. Put one on Mixcloud tonight.")).toEqual([]);
   });
 });
+
+describe("contrast framing", () => {
+  it("flags the constructions George dislikes", async () => {
+    const { styleProblems } = await import("../honesty-check.js");
+    expect(styleProblems("Self-improvement isn't a feeling or a promise — it's the part of the loop you run.")[0]).toContain("contrast framing");
+    expect(styleProblems("That's a genuine why-now, not a deck line.")[0]).toContain("contrast framing");
+    expect(styleProblems("The .pptx is your latest deck. Want me to open it?")).toEqual([]);
+  });
+});

@@ -17,6 +17,8 @@ export interface RoomRead {
   length: "short" | "medium" | "long";
   use: string[];
   raise: string | null;
+  /** Something concrete Flyd can start right now, in the background, that would genuinely help. */
+  act: string | null;
 }
 
 export interface RoomItem { id: string; text: string }
@@ -55,12 +57,13 @@ export function roomPrompt(input: RoomInput): string {
     "- need: vent (wants to be heard), think (wants a sparring partner), decide (wants a recommendation), do (wants something done), ask (wants information), chat (small talk).",
     "- mode: operator only when answering needs his code, repos, files, or work state inspected; otherwise companion.",
     "- stance: 1-2 sentences on how a wise friend who knows him would respond right now — the angle, the tone, what he actually needs underneath the words.",
-    "- avoid: what not to say or do here (e.g. reciting his achievements back at him, listing projects, planning at him, lecturing, explaining process).",
+    "- avoid: what not to say or do here (e.g. reciting his achievements back at him, listing projects, to-do lists, lecturing, explaining process).",
     "- length: short (1-3 sentences), medium (a short paragraph or two), long (only for plans, drafts, research).",
     "- use: the 0-4 knowledge ids that genuinely change the answer. Knowing is not a reason to mention; fewer is better.",
     "- raise: one private note id worth weaving in, or null. Default null; only if it serves what he needs right now.",
+    "- act: one concrete piece of work Flyd could start right now in the background that would genuinely move things for him (e.g. generate two new DIR sets with better prompts and judge them; draft the follow-up email; research three venues). Only local, reversible work. Venting is not a reason for null: if real work would lift the thing he's down about, name it. null only when nothing concrete would help.",
     "",
-    'Reply with JSON only: {"need":"...","mode":"...","stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null}',
+    'Reply with JSON only: {"need":"...","mode":"...","stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null,"act":null}',
   ].join("\n");
 }
 
@@ -83,6 +86,7 @@ export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "no
       length: raw.length === "short" || raw.length === "long" ? raw.length : "medium",
       use: Array.isArray(raw.use) ? raw.use.map(String).filter((id) => known.has(id)).slice(0, 4) : [],
       raise: typeof raw.raise === "string" && noteIds.has(raw.raise) ? raw.raise : null,
+      act: typeof raw.act === "string" && raw.act.trim() ? clip(raw.act.trim(), 300) : null,
     };
   } catch {
     return null;
@@ -114,6 +118,7 @@ export function roomBrief(room: RoomRead, knowledge: RoomItem[], notes: RoomItem
     room.avoid ? `Avoid: ${room.avoid}` : "",
     `Length: ${length}.`,
     used.length ? `What you know that matters here (use it; don't announce that you know it):\n${used.map((item) => `- ${item.text}`).join("\n")}` : "",
+    room.act ? `Worth starting now: ${room.act} If it fits what he said, start it with background_task and tell him in a line what you're doing; if you're not sure it's wanted, offer it in one line instead.` : "",
     raised ? `Something from your own background thinking you may weave in, in your own words, if it fits naturally: ${raised.text}` : "",
   ].filter(Boolean).join("\n");
 }

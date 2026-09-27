@@ -196,6 +196,8 @@ export interface SelfImproveDependencies {
   repo?: string;
   force?: boolean;
   notify?: (title: string, message: string) => Promise<void>;
+  /** Evidence George just gave in person ("you need to be smarter at X"). */
+  extraEvidence?: Evidence[];
   /** Test seam; defaults to dispatching a real crewmate. */
   dispatch?: (repo: string, outcome: string) => Promise<CrewTask>;
 }
@@ -230,7 +232,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
   if (pending) return { status: "awaiting_george", task: pending };
 
   const seen = new Set(state.seen);
-  const evidence = gatherEvidence({ flydDir: deps.flydDir, now });
+  const evidence = [...(deps.extraEvidence ?? []), ...gatherEvidence({ flydDir: deps.flydDir, now })];
   const fresh = evidence.filter((item) => !seen.has(item.id));
   if (fresh.length === 0) {
     writeState({ ...state, lastRunAt: now.toISOString() }, dir);

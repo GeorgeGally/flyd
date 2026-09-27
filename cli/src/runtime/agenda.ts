@@ -171,6 +171,18 @@ export function markInboxRead(paths = agendaPaths()): void {
   atomicWrite(paths.inbox, `${kept.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 }
 
+/** Mark one source's inbox entries read (a chat that already showed them). */
+export function markInboxItemRead(itemId: string, paths = agendaPaths()): void {
+  const entries = readInbox(paths);
+  if (!entries.some((entry) => entry.itemId === itemId && !entry.read)) return;
+  atomicWrite(paths.inbox, `${entries.map((entry) => JSON.stringify(entry.itemId === itemId ? { ...entry, read: true } : entry)).join("\n")}\n`);
+}
+
+/** Record a result for George (background jobs use this too). */
+export function recordInbox(entry: Omit<InboxEntry, "id" | "at" | "read">, paths = agendaPaths(), now = new Date()): void {
+  appendInbox({ ...entry, id: randomUUID().slice(0, 8), at: now.toISOString(), read: false }, paths);
+}
+
 function appendInbox(entry: InboxEntry, paths: AgendaPaths): void {
   mkdirSync(dirname(paths.inbox), { recursive: true, mode: 0o700 });
   appendFileSync(paths.inbox, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });

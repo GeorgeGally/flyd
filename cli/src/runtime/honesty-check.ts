@@ -54,5 +54,7 @@ export function styleProblems(answer: string): string[] {
   const phrase = answer.match(SLOP);
   if (phrase) problems.push(`It uses stock phrasing ("${phrase[0]}"). Say the literal, specific thing instead, in plain words.`);
   if ((answer.match(/—/g) ?? []).length >= 2) problems.push("It leans on em dashes. Use full stops or commas.");
+  const contrast = answer.match(/\b(?:isn'?t|is not|wasn'?t|aren'?t)\b[^.!?\n]{1,80}?(?:—|,|;)\s*(?:it'?s|it is|that'?s|they'?re)\b|\b(?:a|an|the)\s[\w-]+(?:\s[\w-]+)?,\s+not\s+(?:a|an|the)\s[\w-]+|—\s*not\s+(?:a|an|the|just)\b/i);
+  if (contrast) problems.push(`It uses "not X, it's Y" contrast framing ("${contrast[0].slice(0, 60)}"). He dislikes it; state the point directly.`);
   return problems;
 }
