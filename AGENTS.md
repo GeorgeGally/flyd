@@ -135,7 +135,7 @@ Guardrails:
 - Do not persist raw external evidence into personal memory without a separate governed decision.
 - Deep research must remain bounded; no recursive browsing loop without a hard cap.
 - Chat autonomy (`cli/src/runtime/tool-policy.ts`, `FLYD_AUTONOMY=full|trusted|ask`, default trusted): local, reversible work runs without asking; push/publish/send/delete/pipe-to-shell ask George (answer `a` = always this session); after web content enters a turn, shell/AppleScript/scheduling ask too. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). George wants Flyd powerful — don't add new approval gates without asking him.
-- One voice: George only ever talks to Flyd. Council, Scout, crew and self-improvement are backstage — never label user-facing text (chat, greeting, notifications) with their names. Voice comes from `~/.flyd/SOUL.md` (default in `cli/src/lib/soul.ts`).
+- One voice: George only ever talks to Flyd. Council, Scout, crew and self-improvement are backstage — never label user-facing text (chat, greeting, notifications) with their names. Voice comes from `~/.flyd/SOUL.md` (default in `cli/src/lib/soul.ts`). Chat has two prompt modes (`buildConversationPrompt`): lean companion mode by default, operator rulebook + repo evidence only for code/work-state turns — naming a project is not a work turn. Keep companion mode short; small models lose EQ under long rule lists.
 
 ## Structure
 
