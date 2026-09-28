@@ -20,7 +20,7 @@ import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
-import { offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
+import { offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
@@ -69,8 +69,14 @@ interface ConversationResponderDependencies {
   readOnly?: boolean;
   /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
+  /** The fast route reading; defaults to Jev outside tests. */
+  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean }) | null>;
   /** Honesty rewrite call; defaults to the turn's model. */
   rewrite?: (prompt: string) => Promise<string>;
+}
+
+async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean }) | null> {
+  return process.env.VITEST ? null : routeWithJev(message, history);
 }
 
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
@@ -142,7 +148,7 @@ export function localClock(now: Date): string {
 export function buildConversationPrompt(
   input: ConversationInput,
   compiledContext?: CompiledContext,
-  options: { projectTurn?: boolean; room?: { core: string; brief: string } } = {},
+  options: { projectTurn?: boolean; room?: { core: string; brief: string }; plan?: string } = {},
 ): { system: string; prompt: string } {
   const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
@@ -246,6 +252,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ].filter(Boolean).join("\n"),
         options.room ? `## Who he is\n${options.room.core || "(little known yet)"}` : "",
         options.room?.brief ?? "",
+        options.plan ?? "",
         speakingStyleSystemRule(),
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
@@ -256,6 +263,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     system: [
       ...voice,
       options.room?.brief ?? "",
+      options.plan ?? "",
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
       "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
@@ -904,7 +912,7 @@ export async function respondToConversation(
       answer,
       status,
       ...(error ? { error } : {}),
-      plan: turnPlan ? { route: turnPlan.route, cover: turnPlan.cover } : { route: "unplanned", cover: [] },
+      plan: turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] },
     });
   };
   const emit = (text: string): string => {
@@ -936,20 +944,22 @@ export async function respondToConversation(
     memory: (() => { try { return readMemoryEntries(); } catch { return []; } })(),
     retrieved: input.memory.matches.filter((item) => item.authority !== "assistant_output" && item.outcome !== "rejected"),
   });
-  const room = await (dependencies.readRoom ?? defaultReadRoom)({
+  // The turn's route decides the tools on the table and the budget. Jev
+  // decides it in ~0.3s when it's sure; only then is the ~10s LLM room
+  // reading skipped. Unattended runs are the work itself and read nothing.
+  const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
+  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history).catch(() => null);
+  const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)({
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   }).catch(() => null);
-  // Naming a project ("DIR feels dead") is conversation; asking about its code
-  // or state is work. Only work turns get the operator prompt and repo evidence.
-  // The reading becomes the turn's contract: its route decides the tools on
-  // the table and the budget; unattended runs are the work itself.
-  const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
-  const plan = room ? planTurn(room.route, room.cover, { unattended }) : null;
+  const reading = room ? { route: room.route, source: "llm" as const } : fast;
+  const plan = planTurn(reading, room?.cover ?? [], { unattended });
   turnPlan = plan;
   const projectTurn = room ? room.mode === "operator" : isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history);
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
-    ...(room ? { room: { core: roomContext.core, brief: [roomBrief(room, roomContext.knowledge, notes), plan ? planBrief(plan) : ""].filter(Boolean).join("\n") } } : {}),
+    ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
+    ...(plan ? { plan: planBrief(plan) } : {}),
   });
   const raisedAdvisory = room?.raise ? notes.find((note) => note.id === room.raise)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();

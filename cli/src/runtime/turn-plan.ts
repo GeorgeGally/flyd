@@ -1,3 +1,5 @@
+import { evaluatePredicates, JEV_PINNED_MODEL } from "../cognition/system-one/jev.js";
+import { familyEgress, predicateThreshold, questionFor } from "../cognition/system-one/registry.js";
 import { classifyToolCall, type ActionCategory } from "./tool-policy.js";
 
 // What kind of turn this is, decided once before the loop and enforced by
@@ -24,8 +26,12 @@ export const TURN_ROUTES: TurnRoute[] = ["answer", "clarify", "act", "delegate"]
 
 export interface TurnBudget { iterations: number; toolCalls: number }
 
+/** How the route was decided: Jev when it's sure (~0.3s), else the LLM room reading (~10s). */
+export interface RouteReading { route: TurnRoute; confidence: number; source: "jev" | "llm" }
+
 export interface TurnPlan {
   route: TurnRoute;
+  source: RouteReading["source"];
   /** What the reply must address: the turn's done_when. */
   cover: string[];
   /** Tools kept out of sight on this route; null keeps only the hand-offs in sight. */
@@ -49,18 +55,19 @@ const HANDOFFS = ["background_task", "start_coding_task"];
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
  * work itself, so they always act.
  */
-export function planTurn(route: TurnRoute | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
-  if (options.unattended || route === null) return null;
+export function planTurn(reading: Pick<RouteReading, "route" | "source"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
+  if (options.unattended || reading === null) return null;
+  const { route, source } = reading;
   switch (route) {
     case "answer":
       return {
-        route, cover, allows: new Set(["read"]), handoffs: new Set(), budget: null,
+        route, source, cover, allows: new Set(["read"]), handoffs: new Set(), budget: null,
         hidden: new Set(CHANGE_ONLY),
         instruction: "This turn is an answer. Look up what you need, then answer him. Don't start work or change anything; if doing something would clearly help, offer it in one line.",
       };
     case "clarify":
       return {
-        route, cover, allows: new Set(["read"]), handoffs: new Set(), budget: { iterations: 3, toolCalls: 2 },
+        route, source, cover, allows: new Set(["read"]), handoffs: new Set(), budget: { iterations: 3, toolCalls: 2 },
         hidden: new Set(CHANGE_ONLY),
         instruction: "What he wants isn't clear enough to act on. Ask one short question about what he means. Offer options only if the conversation points to them; never invent any. Don't research first.",
       };
@@ -69,16 +76,16 @@ export function planTurn(route: TurnRoute | null, cover: string[] = [], options:
       // repo tools, the model explores until its budget runs out and never
       // hands off. So the only tools here are the hand-offs, and one call.
       return {
-        route, cover, allows: new Set(), handoffs: new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
+        route, source, cover, allows: new Set(), handoffs: new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
         instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path), anything else to background_task. Then tell him in a line what you started.",
       };
     case "act":
       return {
         // A few quick steps; past this it should have been handed off.
-        route, cover, allows: new Set(["read", "local", "outward", "destructive"]), handoffs: new Set(HANDOFFS), budget: { iterations: 10, toolCalls: 12 },
+        route, source, cover, allows: new Set(["read", "local", "outward", "destructive"]), handoffs: new Set(HANDOFFS), budget: { iterations: 10, toolCalls: 12 },
         hidden: new Set(),
-        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. Anything bigger than a few quick steps goes to background_task or start_coding_task instead.",
+        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. A change to code in a repo, or anything bigger than a few quick steps, goes to start_coding_task or background_task instead.",
       };
   }
 }
@@ -116,4 +123,23 @@ export function planBrief(plan: TurnPlan): string {
 export function planBudget<B extends TurnBudget>(defaults: B, plan: TurnPlan | null): B {
   if (!plan?.budget) return defaults;
   return { ...defaults, iterations: Math.min(defaults.iterations, plan.budget.iterations), toolCalls: Math.min(defaults.toolCalls, plan.budget.toolCalls) };
+}
+
+/**
+ * The route from Jev (`chat_turn_route`, benched in the System-1 replay suite):
+ * a confident answer decides the turn; below the threshold it only stands in
+ * if the LLM reading fails too. The threshold was benched on the pinned
+ * release, so this asks that release, not jev-latest. Off with
+ * FLYD_JEV_TURN_ROUTE=0 or no key.
+ */
+export async function routeWithJev(message: string, history: Array<{ role: string; content: string }> = []): Promise<RouteReading & { decided: boolean } | null> {
+  const apiKey = process.env.TYPESAFE_API_KEY;
+  if (!apiKey || process.env.FLYD_JEV_TURN_ROUTE === "0") return null;
+  const recap = history.slice(-4).map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content.replace(/\s+/g, " ").slice(0, 240)}`).join("\n");
+  const question = questionFor("chat_turn_route");
+  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const answer = result.answers[question.id];
+  const route = answer?.choice as TurnRoute | undefined;
+  if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
+  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route") };
 }

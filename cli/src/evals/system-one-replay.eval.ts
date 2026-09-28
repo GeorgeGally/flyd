@@ -30,7 +30,7 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl"];
+const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
 
@@ -138,6 +138,15 @@ describe("System-1 replay bench", () => {
     // the user-scoped interpretation no longer reads a world fact as the
     // user's own current state (scout C6: "who runs OpenAI now" was 0.97)...
     expect(predicateReport(report, "current_state").rows.find((r) => r.caseId === "front-door-06")?.jev).toBe(false);
+
+    // chat_turn_route: every turn Jev decides (confidence ≥ 0.6) is routed
+    // right, the clock feature included; the unsure ones (an email to write,
+    // a pick between three jobs) abstain and fall back to the room reading.
+    const route = predicateReport(report, "chat_turn_route").rows;
+    const decided = route.filter((r) => r.jev !== "abstain");
+    expect(decided.length).toBeGreaterThanOrEqual(32);
+    expect(decided.filter((r) => r.jev !== r.label)).toEqual([]);
+    expect(route.find((r) => r.caseId === "chat-turn-01")?.jev).toBe("delegate");
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);

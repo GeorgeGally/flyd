@@ -21,7 +21,8 @@ export type PredicateFamily =
   | "front_door"
   | "learning"
   | "model_routing"
-  | "council";
+  | "council"
+  | "chat";
 
 /**
  * - `production`: asked by a production call site when Jev is enabled.
@@ -287,6 +288,23 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.70, use: "gate", failureMode: "fallback_llm_classifier",
     projection: ["message", "answer", "candidate"], evaluatorVersion: "muse_should_speak.v1", status: "proposed",
     consumer: "council/muse.ts consultMuse: gate before the Muse's model call once promoted; today the Muse model's own NONE decides",
+  },
+
+  // ── chat turn route (runtime/turn-plan.ts) ────────────────────────────
+  {
+    id: "chat_turn_route", family: "chat", type: "choice",
+    instructions: "George just said `utterance` to Flyd, his personal assistant (`conversation_recap` is what came before). What kind of turn is this?",
+    criteria: {
+      answer: "He wants to know something, talk, vent, decide between options, or get a piece of writing he will use himself (an email, a message, a reply, a short plan). Flyd answers in the reply and changes nothing.",
+      clarify: "It points at something neither the message nor the recap names (\"book it\", \"send that\", \"do the thing\"), so there is nothing definite to act on yet.",
+      act: "He wants Flyd to do or record something now, outside any codebase: a reminder, a note or correction about his life or work, a setting, a scheduled check, or something that needs his approval before it runs (installing, deleting files, running a command).",
+      delegate: "He wants work done that takes real effort, or any change at all to code in a repo (a feature, a fix, a typo, a refactor), or research across several sources, a long document, or generating and judging things.",
+    },
+    // Code in a repo is always delegate: "small edit" vs "feature" was a
+    // boundary Jev couldn't hold (0.41-0.65 on the same request), this one it can.
+    threshold: 0.6, use: "choice", failureMode: "fallback_llm_classifier",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "chat_turn_route.v3", status: "production",
+    consumer: "runtime/turn-plan.ts routeWithJev: decides the chat turn's route at ≥ threshold, before and instead of the LLM room reading; below it the room reading decides",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

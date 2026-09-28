@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildConversationPrompt,
   isInstagramLoginWall,
@@ -1075,6 +1075,60 @@ describe("conversation action tools", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("lets a confident Jev route decide the turn without the slow room reading", async () => {
+    const readRoom = vi.fn(async () => null);
+    let offered: string[] = [];
+    let receipt: { plan?: unknown } = {};
+    await respondToConversation({
+      sessionId: "route-fast", turnNumber: 1,
+      message: "add a clock to the flyd TUI header",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "test/project", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      routeTurn: async () => ({ route: "delegate", confidence: 0.93, source: "jev", decided: true }),
+      readRoom,
+      runAgentLoop: async (_system, _prompt, tools) => {
+        offered = tools.map((tool) => tool.name);
+        return "<final>Started: a live clock in the header. I'll tell you when it's ready.</final>";
+      },
+      persistReceipt: async (input) => { receipt = input; return input as never; },
+    });
+    expect(readRoom).not.toHaveBeenCalled();
+    expect(offered.sort()).toEqual(["background_task", "start_coding_task"]);
+    expect(receipt.plan).toEqual({ route: "delegate", source: "jev", cover: [] });
+  });
+
+  it("falls back to the room reading when Jev is unsure, and to Jev's guess when that fails too", async () => {
+    const plans: unknown[] = [];
+    const run = (readRoom: () => Promise<null | Record<string, unknown>>) => respondToConversation({
+      sessionId: "route-fallback", turnNumber: 1,
+      message: "hm", history: [], memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "test/project", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      routeTurn: async () => ({ route: "act", confidence: 0.41, source: "jev", decided: false }),
+      readRoom: readRoom as never,
+      runAgentLoop: async () => "<final>ok</final>",
+      persistReceipt: async (input) => { plans.push(input.plan); return input as never; },
+    });
+    await run(async () => ({ need: "ask", mode: "companion", route: "answer", cover: ["what he meant"], stance: "Ask.", avoid: "", length: "short", use: [], raise: null, act: null }));
+    await run(async () => null);
+    expect(plans).toEqual([
+      { route: "answer", source: "llm", cover: ["what he meant"] },
+      { route: "act", source: "jev", cover: [] },
+    ]);
   });
 
   it("stops a bash call that failed the same way twice, and reruns it after a change", async () => {
