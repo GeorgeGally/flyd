@@ -126,3 +126,15 @@ describe("decideToolCall (trusted autonomy by default)", () => {
     expect(marksTurnUntrusted("read_file")).toBe(false);
   });
 });
+
+describe("a no holds for the turn", () => {
+  it("denies another action of a kind George declined, without asking again", () => {
+    const state = { tainted: false, declined: new Set(["outward" as const]) };
+    expect(decideToolCall("bash", { command: "git push origin feature" }, state, "trusted"))
+      .toEqual({ kind: "deny", category: "outward", reason: "run: git push origin feature (George already said no to this kind of action this turn)" });
+    expect(decideToolCall("bash", { command: "git push --force origin main" }, state, "trusted").kind).toBe("deny");
+    expect(decideToolCall("bash", { command: "rm -rf build" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("deny");
+    expect(decideToolCall("bash", { command: "git push origin feature" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("confirm");
+    expect(decideToolCall("read_file", { path: "a" }, state, "trusted").kind).toBe("allow");
+  });
+});

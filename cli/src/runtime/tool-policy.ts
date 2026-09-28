@@ -14,11 +14,14 @@ export type AutonomyLevel = "full" | "trusted" | "ask";
 
 export type ToolDecision =
   | { kind: "allow" }
-  | { kind: "confirm"; reason: string; category: ActionCategory };
+  | { kind: "confirm"; reason: string; category: ActionCategory }
+  | { kind: "deny"; reason: string; category: ActionCategory };
 
 export interface ToolPolicyState {
   /** True once web or other external content has been read this turn. */
   tainted: boolean;
+  /** Kinds of action George said no to this turn. A no holds for the turn: no rephrased retry, no second ask. */
+  declined?: Set<ActionCategory>;
 }
 
 export function autonomyLevel(value = process.env.FLYD_AUTONOMY): AutonomyLevel {
@@ -227,6 +230,9 @@ export function decideToolCall(
   const category = classifyToolCall(name, input);
   if (category === "read" || level === "full" || sessionAllowed.has(category)) return { kind: "allow" };
   const action = describe(name, input);
+  // A no to sending something out also covers the harder-to-undo version of it (push → force push).
+  const declined = state.declined?.has(category) || (category === "destructive" && state.declined?.has("outward"));
+  if (declined) return { kind: "deny", category, reason: `${action} (George already said no to this kind of action this turn)` };
   if (category === "destructive") return { kind: "confirm", category, reason: `${action} (can't be undone)` };
   if (category === "outward") return { kind: "confirm", category, reason: `${action} (leaves this machine)` };
   // Local, reversible work runs on its own unless George chose "ask".

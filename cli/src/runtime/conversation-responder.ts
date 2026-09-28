@@ -19,6 +19,7 @@ import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
+import { createRepeatGuard } from "./repeat-guard.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -693,10 +694,14 @@ function createToolHandler(
 
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     const decision = decideToolCall(name, input, policy);
+    if (decision.kind === "deny") {
+      return `Not approved: ${decision.reason}. Do not try another way; tell him what you would do and let him run it or approve it.`;
+    }
     if (decision.kind === "confirm") {
       const approved = askUser ? await askUser(`Flyd wants to ${decision.reason}. Allow?`) : false;
       if (approved === "always") allowForSession(decision.category);
       if (!approved) {
+        (policy.declined ??= new Set()).add(decision.category);
         return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
       }
     }
@@ -954,17 +959,26 @@ export async function respondToConversation(
   });
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
+  const repeats = createRepeatGuard();
   const observedHandler: ToolHandler = async (name, toolInput) => {
+    const skip = repeats.blocked(name, toolInput);
+    if (skip) {
+      toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
+      return skip;
+    }
     input.onActivity?.(describeToolActivity(name, toolInput));
     if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);
       const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool|Not approved|Skipped)/.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
+      if (succeeded && isMutatingToolCall(name, toolInput)) repeats.changed();
+      repeats.record(name, toolInput, succeeded ? null : result);
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toolCalls.push({ name, input: toolInput, succeeded: false, error: message });
+      repeats.record(name, toolInput, message);
       throw error;
     }
   };
