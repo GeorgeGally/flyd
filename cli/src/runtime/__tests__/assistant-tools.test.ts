@@ -29,8 +29,12 @@ describe("assistant tools", () => {
 
   it("never launches a real crewmate from tests, and needs an outcome", async () => {
     expect(await runAssistantTool("start_coding_task", { outcome: "" })).toBe("Error: start_coding_task needs an outcome");
-    const result = await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified", repo: "/nonexistent/repo" });
-    expect(result).toMatch(/^Error: /);
+    expect(await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified" }))
+      .toBe("Error: start_coding_task needs done_when: the checkable points that mean it's done");
+    const result = await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified", done_when: ["the settings screen has a dark toggle"], repo: "/nonexistent/repo" });
+    expect(result).toBe("Error: /nonexistent/repo is not a git repository");
+    expect(await runAssistantTool("background_task", { task: "new mixes", done_when: ["three exist"], deliverable: "mixes/new" }))
+      .toBe("Error: background_task deliverable must be an absolute or ~/ path");
     expect(await runAssistantTool("crew", { action: "list" })).toBe("No crew tasks yet.");
     expect(await runAssistantTool("crew", { action: "land" })).toBe("Error: crew show/land/discard needs an id");
   });

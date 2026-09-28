@@ -229,10 +229,23 @@ export function decideToolCall(
 ): ToolDecision {
   const category = classifyToolCall(name, input);
   if (category === "read" || level === "full" || sessionAllowed.has(category)) return { kind: "allow" };
-  const action = describe(name, input);
-  // A no to sending something out also covers the harder-to-undo version of it (push → force push).
+  const decision = confirmOrAllow(name, input, category, state, level);
+  // A no holds for the turn, but only for what would have been asked again:
+  // declining one tainted bash never blocks an edit that needed no approval.
+  // A no to sending something out also covers the harder-to-undo version (push → force push).
+  if (decision.kind !== "confirm") return decision;
   const declined = state.declined?.has(category) || (category === "destructive" && state.declined?.has("outward"));
-  if (declined) return { kind: "deny", category, reason: `${action} (George already said no to this kind of action this turn)` };
+  return declined ? { kind: "deny", category, reason: `${describe(name, input)} (George already said no to this kind of action this turn)` } : decision;
+}
+
+function confirmOrAllow(
+  name: string,
+  input: Record<string, unknown>,
+  category: ActionCategory,
+  state: ToolPolicyState,
+  level: AutonomyLevel,
+): ToolDecision {
+  const action = describe(name, input);
   if (category === "destructive") return { kind: "confirm", category, reason: `${action} (can't be undone)` };
   if (category === "outward") return { kind: "confirm", category, reason: `${action} (leaves this machine)` };
   // Local, reversible work runs on its own unless George chose "ask".

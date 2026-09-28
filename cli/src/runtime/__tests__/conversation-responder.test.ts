@@ -1038,6 +1038,79 @@ describe("conversation action tools", () => {
     }
   });
 
+  it("stops a bash call that failed the same way twice, and reruns it after a change", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-repeat-"));
+    const outputs: string[] = [];
+    try {
+      await respondToConversation({
+        message: "use the tool",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(root),
+        },
+        onToken: () => undefined,
+      }, {
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          const check = { command: "test -f ready.txt" };
+          outputs.push(await onToolCall("bash", check));
+          outputs.push(await onToolCall("bash", { ...check }));
+          outputs.push(await onToolCall("bash", check));
+          outputs.push(await onToolCall("bash", { command: "ls" }));
+          outputs.push(await onToolCall("bash", check));
+          outputs.push(await onToolCall("write_file", { path: "ready.txt", content: "ok\n" }));
+          outputs.push(await onToolCall("bash", check));
+          return "<final>done</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(outputs[0]).toMatch(/^Command failed/);
+      expect(outputs[1]).toMatch(/^Command failed/);
+      expect(outputs[2]).toMatch(/^Skipped: this exact bash call already failed 2 times/);
+      // A read-only command changes nothing, so the stop still holds.
+      expect(outputs[4]).toMatch(/^Skipped:/);
+      expect(outputs[6]).not.toMatch(/^(?:Skipped|Command failed)/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("holds George's no for the turn without blocking work that needed no approval", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-decline-"));
+    const prompts: string[] = [];
+    const outputs: string[] = [];
+    try {
+      await respondToConversation({
+        message: "use the tool",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(root),
+        },
+        onToken: () => undefined,
+        askUser: async (prompt) => { prompts.push(prompt); return false; },
+      }, {
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          outputs.push(await onToolCall("bash", { command: "git push origin feature" }));
+          outputs.push(await onToolCall("bash", { command: "git push --force origin feature" }));
+          outputs.push(await onToolCall("write_file", { path: "notes.txt", content: "draft\n" }));
+          return "<final>done</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(prompts).toHaveLength(1);
+      expect(outputs[0]).toMatch(/^Not approved: run: git push origin feature \(leaves this machine\)/);
+      expect(outputs[1]).toMatch(/already said no to this kind of action this turn/);
+      expect(existsSync(join(root, "notes.txt"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects action tools on a repo outside allowed roots", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-action-root-"));
     const outside = mkdtempSync(join(tmpdir(), "flyd-action-outside-"));

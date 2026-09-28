@@ -54,7 +54,8 @@ export function runningJobs(): string[] {
 }
 
 export function jobsDir(): string {
-  return process.env.FLYD_JOBS_DIR?.trim() || join(FLYD_DIR, "jobs");
+  // Not FLYD_JOBS_DIR: that names George's job-search workspace (jobs-workspace.ts).
+  return process.env.FLYD_BACKGROUND_JOBS_DIR?.trim() || join(FLYD_DIR, "jobs");
 }
 
 function saveJob(job: JobRecord, dir = jobsDir()): void {
@@ -72,7 +73,19 @@ export function listJobs(dir = jobsDir()): JobRecord[] {
     .flatMap((name) => {
       try { return [JSON.parse(readFileSync(join(dir, name), "utf8")) as JobRecord]; } catch { return []; }
     })
+    .filter((job) => typeof job.startedAt === "string" && job.contract?.task !== undefined)
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+/** Recent jobs in plain lines: what George (or Flyd) sees when asking how the work is going. */
+export function describeJobs(jobs: JobRecord[] = listJobs(), limit = 8): string {
+  if (!jobs.length) return "No background work yet.";
+  return jobs.slice(0, limit).map((job) => {
+    const judged = job.checks.filter((check) => !check.unchecked);
+    const checks = judged.length ? ` · ${judged.filter((check) => check.met).length}/${judged.length} points met` : "";
+    const short = job.checks.filter((check) => !check.met).map((check) => `\n    ✗ ${check.criterion}: ${check.note}`).join("");
+    return `[${job.id}] ${job.status}${checks} (started ${job.startedAt.slice(0, 16).replace("T", " ")}) — ${job.contract.task.slice(0, 100)}${short}`;
+  }).join("\n");
 }
 
 function contractLines(contract: JobContract): string[] {
@@ -147,8 +160,9 @@ async function checkJob(contract: JobContract, report: string, id: string, deps:
   if (facts.some((check) => !check.met) || !deps.verify) return { checks: facts, repairable: true };
   try {
     return { checks: [...facts, ...parseVerdicts(contract.doneWhen, await deps.verify(verifyMessage(contract, report), id))], repairable: true };
-  } catch {
-    const unchecked = contract.doneWhen.map((criterion) => ({ criterion, met: false, note: "I couldn't check this one" }));
+  } catch (error) {
+    console.warn("[jobs] independent check failed:", error instanceof Error ? error.message : error);
+    const unchecked = contract.doneWhen.map((criterion) => ({ criterion, met: false, note: "I couldn't check this one", unchecked: true }));
     return { checks: [...facts, ...unchecked], repairable: false };
   }
 }
@@ -176,6 +190,10 @@ export function normalizeContract(input: { task?: unknown; done_when?: unknown; 
   const doneWhen = normalizeCriteria(input.done_when);
   if (!doneWhen.length) return "background_task needs done_when: the checkable points that mean the job is done";
   const deliverable = String(input.deliverable ?? "").trim();
+  // Checked on disk later, from whatever directory Core runs in: only an unambiguous path works.
+  if (deliverable && !deliverable.startsWith("/") && !deliverable.startsWith("~/")) {
+    return "background_task deliverable must be an absolute or ~/ path";
+  }
   return { task, doneWhen, ...(deliverable ? { deliverable } : {}) };
 }
 

@@ -433,7 +433,11 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   };
   jobEvents.on("done", onJobDone);
   // Work a restart cut off is reported, not lost.
-  for (const job of recoverInterruptedJobs({ deliver: deliverJob })) onJobDone(job);
+  try {
+    for (const job of recoverInterruptedJobs({ deliver: deliverJob })) onJobDone(job);
+  } catch (error) {
+    console.warn("[jobs] restart recovery failed:", error instanceof Error ? error.message : error);
+  }
 
   try {
     situation = await deps.loadSituation().catch(() => null);

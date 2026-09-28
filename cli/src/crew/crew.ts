@@ -46,6 +46,8 @@ export interface CrewTask {
   review?: AcceptanceCheck[];
   /** Crewmate runs so far: the first build plus any repair round. */
   attempts?: number;
+  /** When the current crewmate run began; the runtime cap is per run. */
+  attemptStartedAt?: string;
 }
 
 export function crewDir(): string {
@@ -281,11 +283,35 @@ export function crewRepairBrief(task: CrewTask, unmet: AcceptanceCheck[], verifi
 }
 
 const MAX_REVIEW_DIFF = 80_000;
+const REVIEW_TIMEOUT_MS = Number(process.env.FLYD_CREW_REVIEW_TIMEOUT_MS) || 5 * 60_000;
+/** Generated and vendored files say nothing about whether the outcome was delivered. */
+const REVIEW_EXCLUDES = [":(exclude)**/package-lock.json", ":(exclude)**/yarn.lock", ":(exclude)**/pnpm-lock.yaml", ":(exclude)**/dist/**", ":(exclude)**/*.min.js"];
 
 async function defaultReview(prompt: string): Promise<string | null> {
   if (process.env.VITEST || process.env.FLYD_CREW_REVIEW === "0") return null;
   const { query } = await import("../lib/llm.js");
-  return query(prompt);
+  // A hung reviewer must not stall every supervise tick behind it.
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`review timed out after ${REVIEW_TIMEOUT_MS}ms`)), REVIEW_TIMEOUT_MS);
+    timer.unref();
+  });
+  try {
+    return await Promise.race([query(prompt), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The diff the reviewer judges: a stat of everything, then the substantive files, clipped. */
+async function reviewDiff(task: CrewTask): Promise<string> {
+  const range = `${task.baseCommit}..HEAD`;
+  const stat = await git(task.worktree, ["diff", "--stat", range]).catch(() => "");
+  const diff = await git(task.worktree, ["diff", range, "--", ".", ...REVIEW_EXCLUDES]).catch(() => "");
+  const clipped = diff.length > MAX_REVIEW_DIFF
+    ? `${diff.slice(0, MAX_REVIEW_DIFF)}\n… (diff truncated here; files in the stat but not shown above are unseen, so don't judge a point UNMET only because its change isn't visible)`
+    : diff;
+  return `${stat}\n\n${clipped}`;
 }
 
 const MAX_RUNTIME_MS = 2 * 60 * 60 * 1000;
@@ -309,7 +335,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
   const changed: CrewTask[] = [];
   for (const task of listTasks(dir).filter((item) => item.status === "running")) {
     if (alive(task.pid)) {
-      if (now.getTime() - Date.parse(task.createdAt) > MAX_RUNTIME_MS) {
+      if (now.getTime() - Date.parse(task.attemptStartedAt ?? task.createdAt) > MAX_RUNTIME_MS) {
         try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(task.pid!); } catch { /* already gone */ }
         const failed = { ...task, status: "failed" as const, failure: "stopped after 2 hours without finishing", finishedAt: now.toISOString() };
         saveTask(failed, dir);
@@ -340,26 +366,33 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     // crewmate once before George hears about it.
     let review: AcceptanceCheck[] | undefined;
     if (verified) {
-      const diff = await git(task.worktree, ["diff", `${task.baseCommit}..HEAD`]).catch(() => "");
-      const clipped = diff.length > MAX_REVIEW_DIFF ? `${diff.slice(0, MAX_REVIEW_DIFF)}\n… (diff truncated)` : diff;
       const criteria = acceptanceCriteria(task);
       let repairable = true;
       try {
-        const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, clipped));
+        const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)));
         if (reply !== null) review = parseVerdicts(criteria, reply);
-      } catch {
-        review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run" }));
+      } catch (error) {
+        console.warn("[crew] independent review failed:", error instanceof Error ? error.message : error);
+        review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run", unchecked: true }));
         repairable = false;
       }
       const unmet = unmetChecks(review ?? []);
       const attempts = task.attempts ?? 1;
       if (unmet.length && repairable && attempts < MAX_CREW_ATTEMPTS) {
         const commands = verification.map((step) => step.command);
-        const pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmet, commands));
-        const again: CrewTask = { ...task, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, ...(pid ? { pid } : {}) };
-        saveTask(again, dir);
-        changed.push(again);
-        continue;
+        let pid: number | undefined;
+        try {
+          pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmet, commands));
+        } catch (error) {
+          console.warn("[crew] repair relaunch failed:", error instanceof Error ? error.message : error);
+        }
+        if (pid) {
+          // A fresh clock for the repair round; without a live pid there is nothing to wait for.
+          const again: CrewTask = { ...task, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, pid, attemptStartedAt: now.toISOString() };
+          saveTask(again, dir);
+          changed.push(again);
+          continue;
+        }
       }
     }
     const done: CrewTask = {
@@ -378,12 +411,16 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     changed.push(done);
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
-    const short = task.review && unmetChecks(task.review).length ? shortfall(task.review) : "";
+    const judged = (task.review ?? []).filter((check) => !check.unchecked);
+    const short = unmetChecks(judged).length ? shortfall(judged) : "";
+    const unreviewed = judged.length < (task.review ?? []).length;
     const message = task.status !== "ready"
       ? `I couldn't finish ${plainOutcome(task)} (${task.failure}).`
       : short
         ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
-        : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
+        : unreviewed
+          ? `${plainOutcome(task)} passes its tests, but I couldn't check it against what you asked. Have a look before you /land it.`
+          : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
     await deps.notify!("Flyd", message).catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }

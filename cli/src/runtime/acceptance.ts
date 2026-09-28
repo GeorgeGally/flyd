@@ -2,7 +2,13 @@
 // verdict on each point after it. Shared by background jobs and the crew:
 // the worker that built something never grades it.
 
-export interface AcceptanceCheck { criterion: string; met: boolean; note: string }
+export interface AcceptanceCheck {
+  criterion: string;
+  met: boolean;
+  note: string;
+  /** The check itself couldn't run: not evidence that the work fell short. */
+  unchecked?: boolean;
+}
 
 /** done_when from a tool call: a list, or a single string; blanks dropped. */
 export function normalizeCriteria(value: unknown): string[] {
@@ -17,11 +23,19 @@ export const VERDICT_FORMAT = [
   "UNMET <n>: <what is missing or wrong>",
 ];
 
-/** Points the checker didn't answer count as unmet: silence is not evidence. */
+const VERDICT_LINE = /^[*_\s-]*(MET|UNMET)\s*(\d+)[*_]*\s*[:.)-]\s*(.*)$/i;
+
+/**
+ * Points the checker didn't answer count as unmet: silence is not evidence.
+ * A reply with no verdict lines at all is a broken check, not a failed one,
+ * so it throws: the caller mustn't pay for a repair round on no feedback.
+ */
 export function parseVerdicts(criteria: string[], reply: string): AcceptanceCheck[] {
   const verdicts = new Map<number, { met: boolean; note: string }>();
-  for (const line of reply.split("\n")) {
-    const match = line.trim().match(/^[*_\s-]*(MET|UNMET)\s*(\d+)[*_]*\s*[:.)-]\s*(.*)$/i);
+  const lines = reply.split("\n").map((line) => line.trim());
+  if (!lines.some((line) => VERDICT_LINE.test(line))) throw new Error("the check gave no verdicts");
+  for (const line of lines) {
+    const match = line.match(VERDICT_LINE);
     if (!match) continue;
     const index = Number(match[2]) - 1;
     if (!verdicts.has(index)) verdicts.set(index, { met: match[1].toUpperCase() === "MET", note: match[3].trim() });

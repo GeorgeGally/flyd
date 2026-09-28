@@ -78,6 +78,9 @@ async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
+/** Tool results that mean the call failed: handler errors, and bash's execFile "Command failed: …". */
+export const TOOL_FAILURE = /^(?:Access denied|File not found|Error\b|Command failed|Unable |Unknown tool|Not approved|Skipped)/;
+
 const CONVERSATION_MAX_ITERATIONS = 12;
 /** Conversational turns answer from what they have after this long. */
 const CONVERSATION_ANSWER_BUDGET_MS = 45_000;
@@ -701,7 +704,8 @@ function createToolHandler(
       const approved = askUser ? await askUser(`Flyd wants to ${decision.reason}. Allow?`) : false;
       if (approved === "always") allowForSession(decision.category);
       if (!approved) {
-        (policy.declined ??= new Set()).add(decision.category);
+        // Only George's own no holds for the turn; an unattended run has no one to ask.
+        if (askUser) (policy.declined ??= new Set()).add(decision.category);
         return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
       }
     }
@@ -970,9 +974,11 @@ export async function respondToConversation(
     if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);
-      const succeeded = !/^(?:Access denied|File not found|Error |Unable |Unknown tool|Not approved|Skipped)/.test(result);
+      const succeeded = !TOOL_FAILURE.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
-      if (succeeded && isMutatingToolCall(name, toolInput)) repeats.changed();
+      // Only a real change makes an old failure stale; `ls` or `git status` doesn't.
+      const changedWorld = name === "bash" ? !isReadOnlyCommand(String(toolInput.command ?? "")) : isMutatingToolCall(name, toolInput);
+      if (succeeded && changedWorld) repeats.changed();
       repeats.record(name, toolInput, succeeded ? null : result);
       return result;
     } catch (error) {
@@ -1033,7 +1039,8 @@ export async function respondToConversation(
     emit(final);
     await record(connection, toolCalls, final, "succeeded");
     // Live chat only: evals and unattended agenda runs never write George's profile.
-    if (!dependencies.readOnly && !input.sessionId?.startsWith("agenda-")) learnInBackground(input.message);
+    // Unattended runs (agenda, background jobs) speak Flyd's own words, not George's.
+    if (!dependencies.readOnly && !input.sessionId?.startsWith("agenda-") && !input.sessionId?.startsWith("job-")) learnInBackground(input.message);
     if (raisedAdvisory && !dependencies.readOnly) {
       void import("../council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raisedAdvisory, "shown")).catch(() => undefined);
     }

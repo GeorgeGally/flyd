@@ -42,7 +42,7 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "flyd",
-    description: "Flyd's own skills and jobs. action=skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
+    description: "Flyd's own skills and jobs. action=skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background work you took on (status, which done_when points were met) plus scheduled overnight jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
     input_schema: {
       type: "object",
       properties: {
@@ -93,7 +93,7 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "crew",
-    description: "Flyd's coding crew. action=list shows tasks and their status; show gives one task's summary, diff size, and checks; land merges a verified task into the branch it started from; discard deletes its worktree and branch. land and discard need George's approval.",
+    description: "Flyd's coding crew. action=list shows tasks and their status; show gives one task's summary, diff size, checks, and the independent review of each done_when point; land merges a verified task into the branch it started from; discard deletes its worktree and branch. land and discard need George's approval.",
     input_schema: {
       type: "object",
       properties: {
@@ -171,7 +171,10 @@ export async function runAssistantTool(
         switch (input.action) {
           case "skills": return compound.buildSkillsInventoryReply();
           case "skillify": return compound.buildSkillifyProposeReply({});
-          case "jobs_status": return compound.buildJobsStatusReply();
+          case "jobs_status": {
+            const { describeJobs } = await import("./background-jobs.js");
+            return `Background work you took on:\n${describeJobs()}\n\n${compound.buildJobsStatusReply()}`;
+          }
           case "run_briefing": return compound.buildJobsRunBriefingReply(String(input.project ?? "") || context.situation?.project);
           case "job_hunt": return compound.buildJobHuntStatusReply(context.presentHypothesis);
           case "improve": {

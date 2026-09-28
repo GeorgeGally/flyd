@@ -150,6 +150,35 @@ describe("crew review against done_when", () => {
     expect(done.review?.[0].note).toBe("the review couldn't run");
   });
 
+  it("gives the repair round its own clock", async () => {
+    const start = new Date(Date.now() - 3 * 3_600_000);
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate(), now: start });
+    const [again] = await superviseCrew({ alive: () => false, runCommand: passing, review: async () => "MET 1: y\nUNMET 2: no test", launch: () => 616161 });
+    expect(again.attemptStartedAt).toBeDefined();
+    const kill = vi.fn();
+    expect(await superviseCrew({ alive: () => true, kill })).toEqual([]);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("finishes as ready when the repair relaunch fails, instead of hanging", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({
+      alive: () => false, runCommand: passing, notify, review: async () => "MET 1: y\nUNMET 2: no test",
+      launch: () => { throw new Error("opencode missing"); },
+    });
+    expect(done).toMatchObject({ status: "ready", attempts: 1 });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test)"));
+  });
+
+  it("says so when it couldn't review, rather than calling the work short", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, notify, review: async () => "LGTM" });
+    expect(done.review?.every((check) => check.unchecked)).toBe(true);
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("I couldn't check it against what you asked"));
+  });
+
   it("holds a task without done_when to its outcome", async () => {
     await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
     const review = vi.fn(async (_prompt: string) => "MET 1: added");

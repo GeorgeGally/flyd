@@ -1,5 +1,16 @@
 import { describeTask, discardCrewTask, dispatchCrewTask, landCrewTask, listTasks, readTask, reviewLines, superviseCrew } from "../crew/crew.js";
 
+/** flyd crew dispatch <outcome…> [--done "<point>"]… — a trailing bare --done stays in the outcome. */
+export function parseDispatchArgs(args: string[]): { outcome: string; doneWhen: string[] } {
+  const doneWhen: string[] = [];
+  const words: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--done" && args[index + 1] !== undefined) doneWhen.push(args[++index]);
+    else words.push(args[index]);
+  }
+  return { outcome: words.join(" "), doneWhen };
+}
+
 export async function runCrewCommand(action = "list", args: string[] = []): Promise<void> {
   switch (action) {
     case "list": {
@@ -8,14 +19,8 @@ export async function runCrewCommand(action = "list", args: string[] = []): Prom
       return;
     }
     case "dispatch": {
-      // flyd crew dispatch <outcome…> [--done "<point>"]…
-      const doneWhen: string[] = [];
-      const words: string[] = [];
-      for (let index = 0; index < args.length; index += 1) {
-        if (args[index] === "--done" && args[index + 1] !== undefined) doneWhen.push(args[++index]);
-        else words.push(args[index]);
-      }
-      const task = await dispatchCrewTask({ repo: process.cwd(), outcome: words.join(" "), doneWhen, source: "cli" });
+      const { outcome, doneWhen } = parseDispatchArgs(args);
+      const task = await dispatchCrewTask({ repo: process.cwd(), outcome, doneWhen, source: "cli" });
       process.stdout.write(`Dispatched ${describeTask(task)}\nWorktree: ${task.worktree}\n`);
       return;
     }

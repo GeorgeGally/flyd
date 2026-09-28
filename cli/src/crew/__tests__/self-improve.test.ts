@@ -83,7 +83,7 @@ describe("runSelfImprovement", () => {
     const notify = vi.fn(async (_title: string, _message: string) => undefined);
     const first = await runSelfImprovement({ complete, dispatch, notify, flydDir: home, repo: "/flyd", now: () => NOW });
     expect(first.status).toBe("dispatched");
-    expect(dispatch).toHaveBeenCalledWith("/flyd", expect.stringContaining("what's on today"), ["a test fails before the change and passes after it"]);
+    expect(dispatch).toHaveBeenCalledWith("/flyd", expect.stringContaining("what's on today"), ["the diff adds or changes a test that exercises the new behaviour"]);
     expect(notify.mock.calls[0]).toEqual(["Flyd", "I'm teaching myself to check the calendar for day questions. I'll show you before anything changes."]);
 
     // A day later the fix is still waiting on George: nothing new is started.
@@ -118,13 +118,16 @@ describe("harness failures as evidence", () => {
     writeFileSync(join(home, "jobs", "a2.json"), JSON.stringify({ id: "a2", status: "ok", startedAt: "2026-09-26T10:00:00Z", contract: { task: "fine" }, checks: [check(true)] }));
     saveTask(task({ id: "c1", status: "ready", review: [{ criterion: "a test covers it", met: false, note: "no test" }] }));
     saveTask(task({ id: "c2", status: "ready", review: [{ criterion: "ok", met: true, note: "" }] }));
+    saveTask(task({ id: "c3", status: "ready", review: [{ criterion: "x", met: false, note: "the review couldn't run", unchecked: true }] }));
+    writeFileSync(join(home, "jobs", "a3.json"), JSON.stringify({ id: "a3", status: "interrupted", startedAt: "2026-09-26T10:00:00Z", contract: { task: "cut off" }, checks: [] }));
     mkdirSync(join(home, "turn-receipts", "s1"), { recursive: true });
     writeFileSync(join(home, "turn-receipts", "s1", "1.json"), JSON.stringify({
       recordedAt: "2026-09-26T12:00:00Z", message: "build DIR",
       toolCalls: [{ name: "bash", error: "Skipped: this exact bash call already failed 2 times the same way (Error: exit 1)." }],
     }));
     const evidence = gatherEvidence({ flydDir: home, now: NOW });
-    expect(evidence.map((item) => item.id).sort()).toEqual(["crew-review:c1", "job:a1", "loop:s1:1.json"]);
+    expect(evidence.map((item) => item.id).sort()).toEqual(["crew-review:c1", "job:a1", "job:a3", "loop:s1:1.json"]);
+    expect(evidence.find((item) => item.id === "job:a3")!.text).toContain("cut off by a restart");
     expect(evidence.find((item) => item.kind === "job")!.text).toContain("three mixes exist (only one)");
     expect(evidence.find((item) => item.kind === "loop")!.text).toContain("build DIR");
   });
@@ -154,7 +157,7 @@ describe("harness failures as evidence", () => {
       return dispatched;
     });
     await runSelfImprovement({ complete, dispatch, flydDir: home, repo: "/flyd", now: () => NOW });
-    expect(dispatch.mock.calls[0][2]).toEqual(["the loop stops", "a test fails before the change and passes after it"]);
+    expect(dispatch.mock.calls[0][2]).toEqual(["the loop stops", "the diff adds or changes a test that exercises the new behaviour"]);
     expect(dispatch.mock.calls[0][1]).toContain("Failure kind: repeated_loop; fix it at the check layer.");
   });
 });

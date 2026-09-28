@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_RUNNING_JOBS,
+  describeJobs,
   jobEvents,
   jobMessage,
   listJobs,
@@ -75,6 +76,21 @@ describe("background jobs", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("doesn't rebuild when the checker's reply has no verdicts", async () => {
+    const run = vi.fn(async () => "Made both.");
+    const done = nextDone();
+    startBackgroundJob(contract, { run, verify: async () => "Looks good!", dir });
+    expect((await done).result).toContain("I couldn't check this one");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("lists jobs with how many points were met", async () => {
+    const done = nextDone();
+    startBackgroundJob(contract, { run: async () => "ok", verify: async () => "MET 1: a\nUNMET 2: no comparison", dir });
+    await done;
+    expect(describeJobs(listJobs(dir))).toMatch(/short · 1\/2 points met .*\n    ✗ each set is judged against the last one: no comparison/);
+  });
+
   it("caps how many jobs run at once", () => {
     const never = () => new Promise<string>(() => undefined);
     for (let index = 0; index < MAX_RUNNING_JOBS; index += 1) startBackgroundJob({ ...contract, task: `job ${index}` }, { run: never, dir });
@@ -94,6 +110,8 @@ describe("background jobs", () => {
       expect(deliver).toHaveBeenCalledOnce();
       expect(JSON.parse(readFileSync(join(other, readdirSync(other)[0]), "utf8")).status).toBe("interrupted");
       expect(recoverInterruptedJobs({ dir: other, isAlive: () => false })).toEqual([]);
+      writeFileSync(join(other, "torn.json"), JSON.stringify({ id: "torn", status: "running" }));
+      expect(() => recoverInterruptedJobs({ dir: other, isAlive: () => false })).not.toThrow();
     } finally {
       rmSync(other, { recursive: true, force: true });
     }
@@ -106,6 +124,7 @@ describe("job contracts", () => {
     expect(normalizeContract({ task: " new  mixes ", done_when: ["three exist", ""], deliverable: "~/DIR/mixes" }))
       .toEqual({ task: "new mixes", doneWhen: ["three exist"], deliverable: "~/DIR/mixes" });
     expect(normalizeContract({ task: "x", done_when: "one point" })).toEqual({ task: "x", doneWhen: ["one point"] });
+    expect(normalizeContract({ task: "x", done_when: ["p"], deliverable: "out/mixes" })).toMatch(/absolute or ~\/ path/);
   });
 
   it("puts the contract in front of the builder and asks the checker to disprove", () => {

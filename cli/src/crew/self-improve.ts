@@ -148,7 +148,8 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
       evidence.push({ id: `crew:${task.id}`, kind: "crew", at: task.createdAt, text: `A crew task failed (${task.failure ?? "unknown"}): "${task.outcome.slice(0, 200)}"` });
       continue;
     }
-    const short = (task.review ?? []).filter((check) => !check.met);
+    // A review that couldn't run says nothing about the work.
+    const short = (task.review ?? []).filter((check) => !check.met && !check.unchecked);
     if (short.length && task.status !== "running") {
       evidence.push({
         id: `crew-review:${task.id}`, kind: "crew", at: task.createdAt,
@@ -158,9 +159,11 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   }
 
   // Background jobs that ended short of their contract or were cut off.
-  for (const { value: job } of readJsonFiles<{ id: string; status: string; startedAt: string; contract?: { task?: string }; checks?: Array<{ criterion: string; met: boolean; note: string }> }>(join(flydDir, "jobs"))) {
+  for (const { value: job } of readJsonFiles<{ id: string; status: string; startedAt: string; contract?: { task?: string }; checks?: Array<{ criterion: string; met: boolean; note: string; unchecked?: boolean }> }>(join(flydDir, "jobs"))) {
     if (job.startedAt < since || (job.status !== "short" && job.status !== "interrupted")) continue;
-    const short = (job.checks ?? []).filter((check) => !check.met).map((check) => `${check.criterion} (${check.note})`).join("; ");
+    const unmet = (job.checks ?? []).filter((check) => !check.met && !check.unchecked);
+    if (job.status === "short" && !unmet.length) continue;
+    const short = unmet.map((check) => `${check.criterion} (${check.note})`).join("; ");
     evidence.push({
       id: `job:${job.id}`, kind: "job", at: job.startedAt,
       text: job.status === "interrupted"
@@ -174,7 +177,7 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   if (existsSync(receipts)) {
     for (const session of readdirSync(receipts, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
       const sessionDir = join(receipts, session.name);
-      if (statSync(sessionDir).mtime.toISOString() < since) continue;
+      try { if (statSync(sessionDir).mtime.toISOString() < since) continue; } catch { continue; }
       for (const { name, value } of readJsonFiles<{ recordedAt?: string; message?: string; toolCalls?: Array<{ name: string; error?: string }> }>(sessionDir)) {
         if (name === "latest.json" || !value.recordedAt || value.recordedAt < since) continue;
         const stopped = (value.toolCalls ?? []).find((call) => call.error?.startsWith("Skipped: this exact"));
@@ -315,7 +318,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
 
   const repo = deps.repo ?? FLYD_APPLICATION_ROOT;
   const outcome = crewOutcome(improvement, evidence);
-  const doneWhen = [...(improvement.doneWhen ?? []), "a test fails before the change and passes after it"];
+  const doneWhen = [...(improvement.doneWhen ?? []), "the diff adds or changes a test that exercises the new behaviour"];
   const task = await (deps.dispatch ?? ((root, text, points) => dispatchCrewTask({ repo: root, outcome: text, doneWhen: points, source: "self-improvement" })))(repo, outcome, doneWhen);
   writeState({
     lastRunAt: now.toISOString(),

@@ -136,5 +136,9 @@ describe("a no holds for the turn", () => {
     expect(decideToolCall("bash", { command: "rm -rf build" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("deny");
     expect(decideToolCall("bash", { command: "git push origin feature" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("confirm");
     expect(decideToolCall("read_file", { path: "a" }, state, "trusted").kind).toBe("allow");
+    // Declining a tainted bash (local) never blocks an edit that needed no approval.
+    const local = { tainted: true, declined: new Set(["local" as const]) };
+    expect(decideToolCall("edit_file", { path: "a" }, local, "trusted").kind).toBe("allow");
+    expect(decideToolCall("bash", { command: "touch x" }, local, "trusted").kind).toBe("deny");
   });
 });
