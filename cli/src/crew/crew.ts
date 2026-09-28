@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
+import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
@@ -39,6 +40,12 @@ export interface CrewTask {
   failure?: string;
   source?: "chat" | "self-improvement" | "cli";
   notified?: boolean;
+  /** What done means, stated at dispatch. Empty: the outcome itself is the one point. */
+  doneWhen?: string[];
+  /** The independent review of the diff against doneWhen, after the checks pass. */
+  review?: AcceptanceCheck[];
+  /** Crewmate runs so far: the first build plus any repair round. */
+  attempts?: number;
 }
 
 export function crewDir(): string {
@@ -106,12 +113,24 @@ export const CREW_OPENCODE_CONFIG = {
   },
 };
 
-export function crewBrief(outcome: string, verification: string[], branch: string): string {
+/** One repair round after the first review; more is paying to repeat a failure. */
+export const MAX_CREW_ATTEMPTS = 2;
+
+export function acceptanceCriteria(task: Pick<CrewTask, "outcome" | "doneWhen">): string[] {
+  return task.doneWhen?.length ? task.doneWhen : [task.outcome];
+}
+
+export function crewBrief(outcome: string, verification: string[], branch: string, doneWhen: string[] = []): string {
   return [
     "You are a crewmate working for Flyd, George's personal agent. Deliver this outcome, unattended:",
     "",
     outcome,
     "",
+    ...(doneWhen.length ? [
+      "Done when (an independent reviewer will check each point against your diff):",
+      ...doneWhen.map((criterion, index) => `${index + 1}. ${criterion}`),
+      "",
+    ] : []),
     "Rules:",
     `- You are on branch ${branch} in a dedicated git worktree. Work only here. Never push, never touch other branches.`,
     "- Read the repository's AGENTS.md / CLAUDE.md / README first and follow its conventions.",
@@ -127,6 +146,7 @@ export function crewBrief(outcome: string, verification: string[], branch: strin
 export interface DispatchOptions {
   repo: string;
   outcome: string;
+  doneWhen?: string[];
   source?: CrewTask["source"];
   now?: Date;
   dir?: string;
@@ -142,6 +162,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   });
   const outcome = options.outcome.replace(/\s+/g, " ").trim();
   if (!outcome) throw new Error("A crew task needs an outcome");
+  const doneWhen = normalizeCriteria(options.doneWhen ?? []);
   const baseBranch = await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const baseCommit = await git(repo, ["rev-parse", "HEAD"]);
   const id = `${now.getTime().toString(36)}-${slug(outcome).slice(0, 20)}`;
@@ -155,9 +176,10 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
   const task: CrewTask = {
     id, repo, outcome, branch, baseBranch, baseCommit, worktree, status: "running", log,
-    createdAt: now.toISOString(), source: options.source ?? "chat",
+    createdAt: now.toISOString(), source: options.source ?? "chat", attempts: 1,
+    ...(doneWhen.length ? { doneWhen } : {}),
   };
-  const brief = crewBrief(outcome, verification, branch);
+  const brief = crewBrief(outcome, verification, branch, doneWhen);
   const pid = (options.launch ?? launchOpenCode)(task, brief);
   saveTask({ ...task, ...(pid ? { pid } : {}) }, dir);
   return readTask(id, dir)!;
@@ -220,6 +242,50 @@ export interface SuperviseDependencies {
   alive?: (pid: number | undefined) => boolean;
   runCommand?: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>;
   kill?: (pid: number) => void;
+  /** The independent reviewer's raw reply, or null to skip review. Defaults to a model call outside tests. */
+  review?: (prompt: string) => Promise<string | null>;
+  /** Restart the crewmate in its worktree for a repair round. */
+  launch?: (task: CrewTask, brief: string) => number | undefined;
+}
+
+export function reviewPrompt(task: CrewTask, diff: string): string {
+  return [
+    "You are reviewing work a coding agent did for George. Its tests already pass; that proves little about whether it did what was asked.",
+    "Your job is to find what would make it unacceptable, not to confirm it looks good.",
+    `The outcome asked for: ${task.outcome}`,
+    "Done when:",
+    ...acceptanceCriteria(task).map((criterion, index) => `${index + 1}. ${criterion}`),
+    `The agent's own summary (a claim, not proof):\n"""${task.summary ?? ""}"""`,
+    `The diff:\n\`\`\`diff\n${diff}\n\`\`\``,
+    "Judge each point from the diff alone: an easier version of the outcome, a stub, a test that asserts nothing, or a point the diff never touches is UNMET.",
+    ...VERDICT_FORMAT,
+  ].join("\n");
+}
+
+export function crewRepairBrief(task: CrewTask, unmet: AcceptanceCheck[], verification: string[]): string {
+  return [
+    "You are a crewmate working for Flyd, George's personal agent, continuing unattended work on this outcome:",
+    "",
+    task.outcome,
+    "",
+    "An independent reviewer read your diff and found these points not met:",
+    ...unmet.map((check) => `- ${check.criterion}: ${check.note}`),
+    "",
+    "Rules:",
+    `- You are on branch ${task.branch} in a dedicated git worktree, with your earlier commits. Work only here. Never push, never touch other branches.`,
+    "- Fix the points above with the smallest complete change. If one can't be met, say exactly why.",
+    `- Before finishing, run and pass: ${verification.join(" && ") || "the project's own tests"}.`,
+    "- Commit your work on this branch. Uncommitted work is lost.",
+    "- End with a short plain-English summary: what changed, how you verified it, anything George must decide.",
+  ].join("\n");
+}
+
+const MAX_REVIEW_DIFF = 80_000;
+
+async function defaultReview(prompt: string): Promise<string | null> {
+  if (process.env.VITEST || process.env.FLYD_CREW_REVIEW === "0") return null;
+  const { query } = await import("../lib/llm.js");
+  return query(prompt);
 }
 
 const MAX_RUNTIME_MS = 2 * 60 * 60 * 1000;
@@ -269,11 +335,39 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
       }
     }
     const verified = commits > 0 && verification.every((step) => step.ok);
+    // Passing checks is necessary, not sufficient: an independent reviewer
+    // holds the diff to what was asked, and unmet points go back to the
+    // crewmate once before George hears about it.
+    let review: AcceptanceCheck[] | undefined;
+    if (verified) {
+      const diff = await git(task.worktree, ["diff", `${task.baseCommit}..HEAD`]).catch(() => "");
+      const clipped = diff.length > MAX_REVIEW_DIFF ? `${diff.slice(0, MAX_REVIEW_DIFF)}\n… (diff truncated)` : diff;
+      const criteria = acceptanceCriteria(task);
+      let repairable = true;
+      try {
+        const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, clipped));
+        if (reply !== null) review = parseVerdicts(criteria, reply);
+      } catch {
+        review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run" }));
+        repairable = false;
+      }
+      const unmet = unmetChecks(review ?? []);
+      const attempts = task.attempts ?? 1;
+      if (unmet.length && repairable && attempts < MAX_CREW_ATTEMPTS) {
+        const commands = verification.map((step) => step.command);
+        const pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmet, commands));
+        const again: CrewTask = { ...task, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, ...(pid ? { pid } : {}) };
+        saveTask(again, dir);
+        changed.push(again);
+        continue;
+      }
+    }
     const done: CrewTask = {
       ...task,
       status: verified ? "ready" : "failed",
       finishedAt: now.toISOString(),
       commits, diffStat, verification, summary,
+      ...(review ? { review } : {}),
       ...(verified ? {} : {
         failure: commits === 0
           ? `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
@@ -283,10 +377,13 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     saveTask(done, dir);
     changed.push(done);
   }
-  for (const task of changed.filter((item) => !item.notified && deps.notify)) {
-    const message = task.status === "ready"
-      ? `${plainOutcome(task)} is done and tested. Say /land to merge it in.`
-      : `I couldn't finish ${plainOutcome(task)} (${task.failure}).`;
+  for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
+    const short = task.review && unmetChecks(task.review).length ? shortfall(task.review) : "";
+    const message = task.status !== "ready"
+      ? `I couldn't finish ${plainOutcome(task)} (${task.failure}).`
+      : short
+        ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
+        : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
     await deps.notify!("Flyd", message).catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
@@ -337,7 +434,13 @@ export function plainOutcome(task: CrewTask): string {
   return first.length > 90 ? `${first.slice(0, 89)}…` : first;
 }
 
+/** The review, one line per point: what George weighs before /land. */
+export function reviewLines(task: CrewTask): string[] {
+  return (task.review ?? []).map((check) => `${check.met ? "✓" : "✗"} ${check.criterion}: ${check.note}`);
+}
+
 export function describeTask(task: CrewTask): string {
   const verification = task.verification?.length ? ` · checks ${task.verification.every((step) => step.ok) ? "pass" : "FAIL"}` : "";
-  return `[${task.id}] ${task.status}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
+  const review = task.review?.length ? ` · review ${task.review.filter((check) => check.met).length}/${task.review.length}` : "";
+  return `[${task.id}] ${task.status}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
 }

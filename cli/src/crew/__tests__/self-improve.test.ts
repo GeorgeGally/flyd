@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendJournalTurn } from "../../council/journal.js";
 import { saveTask, type CrewTask } from "../crew.js";
-import { gatherEvidence, parseImprovement, runSelfImprovement } from "../self-improve.js";
+import { gatherEvidence, improverPrompt, parseImprovement, runSelfImprovement } from "../self-improve.js";
 
 let home: string;
 const NOW = new Date("2026-09-27T09:00:00Z");
@@ -83,7 +83,7 @@ describe("runSelfImprovement", () => {
     const notify = vi.fn(async (_title: string, _message: string) => undefined);
     const first = await runSelfImprovement({ complete, dispatch, notify, flydDir: home, repo: "/flyd", now: () => NOW });
     expect(first.status).toBe("dispatched");
-    expect(dispatch).toHaveBeenCalledWith("/flyd", expect.stringContaining("what's on today"));
+    expect(dispatch).toHaveBeenCalledWith("/flyd", expect.stringContaining("what's on today"), ["a test fails before the change and passes after it"]);
     expect(notify.mock.calls[0]).toEqual(["Flyd", "I'm teaching myself to check the calendar for day questions. I'll show you before anything changes."]);
 
     // A day later the fix is still waiting on George: nothing new is started.
@@ -107,5 +107,54 @@ describe("runSelfImprovement", () => {
   it("does nothing once George has turned it off", async () => {
     process.env.FLYD_SELF_IMPROVE = "0";
     expect((await runSelfImprovement({ complete, flydDir: home, now: () => NOW })).status).toBe("disabled");
+  });
+});
+
+describe("harness failures as evidence", () => {
+  it("collects jobs that fell short, crew work a review found short, and loops the harness stopped", () => {
+    mkdirSync(join(home, "jobs"), { recursive: true });
+    const check = (met: boolean) => ({ criterion: "three mixes exist", met, note: met ? "yes" : "only one" });
+    writeFileSync(join(home, "jobs", "a1.json"), JSON.stringify({ id: "a1", status: "short", startedAt: "2026-09-26T10:00:00Z", contract: { task: "new DIR mixes" }, checks: [check(false)] }));
+    writeFileSync(join(home, "jobs", "a2.json"), JSON.stringify({ id: "a2", status: "ok", startedAt: "2026-09-26T10:00:00Z", contract: { task: "fine" }, checks: [check(true)] }));
+    saveTask(task({ id: "c1", status: "ready", review: [{ criterion: "a test covers it", met: false, note: "no test" }] }));
+    saveTask(task({ id: "c2", status: "ready", review: [{ criterion: "ok", met: true, note: "" }] }));
+    mkdirSync(join(home, "turn-receipts", "s1"), { recursive: true });
+    writeFileSync(join(home, "turn-receipts", "s1", "1.json"), JSON.stringify({
+      recordedAt: "2026-09-26T12:00:00Z", message: "build DIR",
+      toolCalls: [{ name: "bash", error: "Skipped: this exact bash call already failed 2 times the same way (Error: exit 1)." }],
+    }));
+    const evidence = gatherEvidence({ flydDir: home, now: NOW });
+    expect(evidence.map((item) => item.id).sort()).toEqual(["crew-review:c1", "job:a1", "loop:s1:1.json"]);
+    expect(evidence.find((item) => item.kind === "job")!.text).toContain("three mixes exist (only one)");
+    expect(evidence.find((item) => item.kind === "loop")!.text).toContain("build DIR");
+  });
+
+  it("asks for the most durable fix and keeps its class, layer and done_when", () => {
+    const prompt = improverPrompt([], [], "2026-09-27");
+    expect(prompt).toContain("A prompt rule is the last resort");
+    expect(prompt).toContain("repeated_loop");
+    const parsed = parseImprovement(JSON.stringify({ improvement: {
+      title: "Validate calendar answers", failure_class: "bad_output", layer: "check", outcome: "o", why: "w",
+      done_when: ["an answer about today cites a calendar tool call", ""], evidence: ["fix:f1"],
+    } }), [{ id: "fix:f1", kind: "fix", at: "", text: "" }]);
+    expect(parsed).toMatchObject({ failureClass: "bad_output", layer: "check", doneWhen: ["an answer about today cites a calendar tool call"] });
+    expect(parseImprovement(JSON.stringify({ improvement: { title: "t", outcome: "o", failure_class: "vibes", layer: "hope", evidence: ["fix:f1"] } }), [{ id: "fix:f1", kind: "fix", at: "", text: "" }]))
+      .toEqual({ title: "t", outcome: "o", why: "", evidence: ["fix:f1"] });
+  });
+
+  it("hands the crew done_when, always including a test that fails before the fix", async () => {
+    seedEvidence();
+    const complete = async () => JSON.stringify({ improvement: {
+      title: "Stop retrying", failure_class: "repeated_loop", layer: "check", outcome: "o", why: "w",
+      done_when: ["the loop stops"], evidence: ["fix:f1"],
+    } });
+    const dispatch = vi.fn(async (repo: string, outcome: string, _doneWhen: string[]) => {
+      const dispatched = task({ repo, outcome, status: "running" });
+      saveTask(dispatched);
+      return dispatched;
+    });
+    await runSelfImprovement({ complete, dispatch, flydDir: home, repo: "/flyd", now: () => NOW });
+    expect(dispatch.mock.calls[0][2]).toEqual(["the loop stops", "a test fails before the change and passes after it"]);
+    expect(dispatch.mock.calls[0][1]).toContain("Failure kind: repeated_loop; fix it at the check layer.");
   });
 });

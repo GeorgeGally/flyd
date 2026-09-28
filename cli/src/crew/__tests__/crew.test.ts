@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -105,5 +105,56 @@ describe("crew", () => {
     expect(CREW_OPENCODE_CONFIG.permission.bash["rm -rf *"]).toBe("deny");
     expect(crewBrief("x", ["npm test"], "flyd/x")).toContain("run and pass: npm test");
     expect(lastSummary(join(home, "missing.jsonl"))).toBe("");
+  });
+});
+
+describe("crew review against done_when", () => {
+  const doneWhen = ["feature.txt says done", "a test covers the feature"];
+  const passing = async () => ({ ok: true, output: "" });
+
+  it("puts done_when in the brief and marks ready when the reviewer finds every point met", async () => {
+    const launch = fakeCrewmate();
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch });
+    expect(launch.mock.calls[0][1]).toContain("1. feature.txt says done");
+    const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
+    expect(review.mock.calls[0][0]).toContain("+done");
+    expect(review.mock.calls[0][0]).toContain("find what would make it unacceptable");
+    expect(done).toMatchObject({ status: "ready", review: [{ met: true }, { met: true }] });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/));
+  });
+
+  it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);
+    const review = vi.fn(async () => "MET 1: yes\nUNMET 2: no test in the diff");
+    const notify = vi.fn(async () => {});
+    const [again] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(again).toMatchObject({ status: "running", attempts: 2, pid: 515151 });
+    expect(relaunch.mock.calls[0][1]).toContain("a test covers the feature: no test in the diff");
+    expect(notify).not.toHaveBeenCalled();
+
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(relaunch).toHaveBeenCalledTimes(MAX_CREW_ATTEMPTS - 1);
+    expect(done).toMatchObject({ id: task.id, status: "ready" });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test in the diff). Your call whether to /land it."));
+  });
+
+  it("doesn't rebuild when the review itself breaks", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const relaunch = vi.fn(() => 1);
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review: async () => { throw new Error("down"); }, launch: relaunch });
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(done.status).toBe("ready");
+    expect(done.review?.[0].note).toBe("the review couldn't run");
+  });
+
+  it("holds a task without done_when to its outcome", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    const review = vi.fn(async (_prompt: string) => "MET 1: added");
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review });
+    expect(review.mock.calls[0][0]).toContain("1. Add a feature file");
+    expect(done.review).toEqual([{ criterion: "Add a feature file", met: true, note: "added" }]);
   });
 });

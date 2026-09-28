@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_APPLICATION_ROOT, FLYD_DIR } from "../lib/config.js";
 import { readAdvisories } from "../council/advisors.js";
 import { recentJournal } from "../council/journal.js";
 import { localDay } from "../council/memory-store.js";
+import { normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
@@ -16,16 +17,28 @@ import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 
 export interface Evidence {
   id: string;
-  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew";
+  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop";
   at: string;
   text: string;
 }
+
+// Where a failure came from decides what the fix should be. A fix that lives
+// in the harness (a check, a validator, a tool contract, saved state) holds
+// on every run; a prompt rule holds only while the model remembers it.
+export const FAILURE_CLASSES = ["missing_context", "wrong_tool", "bad_output", "repeated_loop", "unsafe_action", "lost_decision", "judgment", "unknown"] as const;
+export type FailureClass = typeof FAILURE_CLASSES[number];
+export const FIX_LAYERS = ["check", "tool", "context", "state", "trace", "prompt"] as const;
+export type FixLayer = typeof FIX_LAYERS[number];
 
 export interface Improvement {
   title: string;
   outcome: string;
   why: string;
   evidence: string[];
+  failureClass?: FailureClass;
+  layer?: FixLayer;
+  /** Checkable points the crew's reviewer holds the diff to. */
+  doneWhen?: string[];
 }
 
 export interface Attempt {
@@ -130,8 +143,48 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   }
 
   for (const task of listTasks()) {
-    if (task.status !== "failed" || task.createdAt < since) continue;
-    evidence.push({ id: `crew:${task.id}`, kind: "crew", at: task.createdAt, text: `A crew task failed (${task.failure ?? "unknown"}): "${task.outcome.slice(0, 200)}"` });
+    if (task.createdAt < since) continue;
+    if (task.status === "failed") {
+      evidence.push({ id: `crew:${task.id}`, kind: "crew", at: task.createdAt, text: `A crew task failed (${task.failure ?? "unknown"}): "${task.outcome.slice(0, 200)}"` });
+      continue;
+    }
+    const short = (task.review ?? []).filter((check) => !check.met);
+    if (short.length && task.status !== "running") {
+      evidence.push({
+        id: `crew-review:${task.id}`, kind: "crew", at: task.createdAt,
+        text: `A crew task passed its tests but an independent review found it short of what was asked: "${task.outcome.slice(0, 200)}" — ${short.map((check) => `${check.criterion} (${check.note})`).join("; ").slice(0, 300)}`,
+      });
+    }
+  }
+
+  // Background jobs that ended short of their contract or were cut off.
+  for (const { value: job } of readJsonFiles<{ id: string; status: string; startedAt: string; contract?: { task?: string }; checks?: Array<{ criterion: string; met: boolean; note: string }> }>(join(flydDir, "jobs"))) {
+    if (job.startedAt < since || (job.status !== "short" && job.status !== "interrupted")) continue;
+    const short = (job.checks ?? []).filter((check) => !check.met).map((check) => `${check.criterion} (${check.note})`).join("; ");
+    evidence.push({
+      id: `job:${job.id}`, kind: "job", at: job.startedAt,
+      text: job.status === "interrupted"
+        ? `A background job was cut off by a restart: "${(job.contract?.task ?? "").slice(0, 200)}"`
+        : `A background job ended short of its done_when: "${(job.contract?.task ?? "").slice(0, 200)}" — ${short.slice(0, 300)}`,
+    });
+  }
+
+  // Turns where the harness had to stop the same failing call being retried.
+  const receipts = join(flydDir, "turn-receipts");
+  if (existsSync(receipts)) {
+    for (const session of readdirSync(receipts, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
+      const sessionDir = join(receipts, session.name);
+      if (statSync(sessionDir).mtime.toISOString() < since) continue;
+      for (const { name, value } of readJsonFiles<{ recordedAt?: string; message?: string; toolCalls?: Array<{ name: string; error?: string }> }>(sessionDir)) {
+        if (name === "latest.json" || !value.recordedAt || value.recordedAt < since) continue;
+        const stopped = (value.toolCalls ?? []).find((call) => call.error?.startsWith("Skipped: this exact"));
+        if (!stopped) continue;
+        evidence.push({
+          id: `loop:${session.name}:${name}`, kind: "loop", at: value.recordedAt,
+          text: `Flyd kept retrying a failing ${stopped.name} call until the harness stopped it. George had asked: "${(value.message ?? "").slice(0, 200)}" — ${stopped.error!.slice(0, 250)}`,
+        });
+      }
+    }
   }
 
   return evidence.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
@@ -141,18 +194,23 @@ export function improverPrompt(evidence: Evidence[], attempts: Attempt[], today:
   return [
     "You are Flyd's Critic, turned on Flyd itself: a measured, fair-minded engineer who wants Flyd to serve George better.",
     "Flyd is George's personal agent (TypeScript Core in cli/src; AGENTS.md describes the architecture).",
-    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json.",
+    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; answer checks cli/src/runtime/honesty-check.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; retry limits cli/src/runtime/repeat-guard.ts; background jobs cli/src/runtime/background-jobs.ts; done_when checks cli/src/runtime/acceptance.ts; coding crew cli/src/crew/crew.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json.",
     "Name only files from that list or describe the behaviour; never invent paths.",
     `Today is ${today}. Below is recent evidence of where Flyd fell short.`,
     "",
+    "First name what kind of failure it is: missing_context (the right information wasn't loaded), wrong_tool (wrong tool, or a tool with an unclear contract), bad_output (an answer or artifact a validator could have caught), repeated_loop (retrying without changing anything), unsafe_action (something that should have been gated), lost_decision (something decided earlier was forgotten), judgment (a call no code can check), unknown.",
+    "Then fix the system that allowed it, not the one reply. Prefer the layer that holds on every run, strongest first:",
+    "  check (code that detects or blocks the failure: a validator, a guard, a test of behaviour) > tool (a clearer tool contract, argument validation, better errors) > context (loading the right information) > state (saving what must not be forgotten) > trace (recording what's needed to diagnose it) > prompt (a rule in the system prompt).",
+    "A prompt rule is the last resort: choose it only for judgment code can't check, and say why nothing stronger works. If the chat prompt already states a rule that keeps being broken, the fix is a check, not a louder rule.",
+    "",
     "Pick at most ONE improvement to Flyd's code that would most reduce these failures. It must be:",
-    "- concrete and small enough for one focused branch (a prompt rule, a tool fix, a retrieval tweak, a missing test);",
+    "- concrete and small enough for one focused branch;",
     "- verifiable: a test can pin the new behaviour;",
     "- supported by at least one evidence id below — cite them;",
     "- not a repeat of a recent attempt (listed below), and never a change to which models Flyd uses.",
     "If the evidence is noise, one-off, or not Flyd's fault, reply {\"improvement\": null}. That is often the right answer.",
     "",
-    'Reply with JSON only: {"improvement": {"title": "short imperative title", "outcome": "the finished change, precise enough to build and verify unattended, naming the files or behaviour to change and the test to add", "why": "one sentence tying it to the evidence", "evidence": ["id", "..."]}}',
+    'Reply with JSON only: {"improvement": {"title": "short imperative title", "failure_class": "one of the kinds above", "layer": "check|tool|context|state|trace|prompt", "outcome": "the finished change, precise enough to build and verify unattended, naming the files or behaviour to change and the test to add", "done_when": ["checkable point a reviewer can confirm in the diff", "..."], "why": "one sentence tying it to the evidence, and for a prompt fix why nothing stronger works", "evidence": ["id", "..."]}}',
     "",
     "--- Evidence ---",
     ...evidence.map((item) => `[${item.id}] ${item.text}`),
@@ -176,7 +234,15 @@ export function parseImprovement(text: string, evidence: Evidence[]): Improvemen
     const outcome = String(raw.outcome ?? "").replace(/\s+/g, " ").trim();
     // An improvement with no real evidence behind it is a guess, not a fix.
     if (!title || !outcome || cited.length === 0) return null;
-    return { title, outcome, why: String(raw.why ?? "").trim(), evidence: cited };
+    const failureClass = FAILURE_CLASSES.find((value) => value === raw.failure_class);
+    const layer = FIX_LAYERS.find((value) => value === raw.layer);
+    const doneWhen = normalizeCriteria(raw.done_when ?? []);
+    return {
+      title, outcome, why: String(raw.why ?? "").trim(), evidence: cited,
+      ...(failureClass ? { failureClass } : {}),
+      ...(layer ? { layer } : {}),
+      ...(doneWhen.length ? { doneWhen } : {}),
+    };
   } catch {
     return null;
   }
@@ -199,7 +265,7 @@ export interface SelfImproveDependencies {
   /** Evidence George just gave in person ("you need to be smarter at X"). */
   extraEvidence?: Evidence[];
   /** Test seam; defaults to dispatching a real crewmate. */
-  dispatch?: (repo: string, outcome: string) => Promise<CrewTask>;
+  dispatch?: (repo: string, outcome: string, doneWhen: string[]) => Promise<CrewTask>;
 }
 
 export interface SelfImproveResult {
@@ -214,6 +280,7 @@ export function crewOutcome(improvement: Improvement, evidence: Evidence[]): str
   return [
     `Self-improvement for Flyd: ${improvement.title}.`,
     improvement.outcome,
+    ...(improvement.failureClass || improvement.layer ? [`Failure kind: ${improvement.failureClass ?? "unknown"}; fix it at the ${improvement.layer ?? "most durable"} layer.`] : []),
     `Why: ${improvement.why}`,
     `Evidence: ${cited.map((item) => item.text.slice(0, 300)).join(" | ")}`,
     "Add a test that fails before your change and passes after. Do not change which models Flyd uses or its .env.",
@@ -248,7 +315,8 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
 
   const repo = deps.repo ?? FLYD_APPLICATION_ROOT;
   const outcome = crewOutcome(improvement, evidence);
-  const task = await (deps.dispatch ?? ((root, text) => dispatchCrewTask({ repo: root, outcome: text, source: "self-improvement" })))(repo, outcome);
+  const doneWhen = [...(improvement.doneWhen ?? []), "a test fails before the change and passes after it"];
+  const task = await (deps.dispatch ?? ((root, text, points) => dispatchCrewTask({ repo: root, outcome: text, doneWhen: points, source: "self-improvement" })))(repo, outcome, doneWhen);
   writeState({
     lastRunAt: now.toISOString(),
     // Only the evidence this fix addresses is spent; the rest stays for later nights.

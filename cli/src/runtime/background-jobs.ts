@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "./acceptance.js";
 import { processIsAlive } from "./recovery.js";
 
 // Work Flyd takes on while the conversation carries on: generating, drafting,
@@ -24,7 +25,7 @@ export interface JobContract {
   deliverable?: string;
 }
 
-export interface JobCheck { criterion: string; met: boolean; note: string }
+export type JobCheck = AcceptanceCheck;
 
 export type JobStatus = "running" | "verifying" | "ok" | "short" | "failed" | "interrupted";
 
@@ -110,25 +111,8 @@ export function verifyMessage(contract: JobContract, report: string): string {
     ...contractLines(contract),
     `The worker's report (a claim, not proof):\n"""${report}"""`,
     "Check each point against what is actually on disk or observable with your tools. Don't trust the report; look.",
-    "Reply with exactly one line per point, in order, and nothing else:",
-    "MET <n>: <what you saw that proves it>",
-    "UNMET <n>: <what is missing or wrong>",
+    ...VERDICT_FORMAT,
   ].join("\n");
-}
-
-/** Lines the checker didn't answer count as unmet: silence is not evidence. */
-export function parseChecks(contract: JobContract, reply: string): JobCheck[] {
-  const verdicts = new Map<number, { met: boolean; note: string }>();
-  for (const line of reply.split("\n")) {
-    const match = line.trim().match(/^[*_\s-]*(MET|UNMET)\s*(\d+)[*_]*\s*[:.)-]\s*(.*)$/i);
-    if (!match) continue;
-    const index = Number(match[2]) - 1;
-    if (!verdicts.has(index)) verdicts.set(index, { met: match[1].toUpperCase() === "MET", note: match[3].trim() });
-  }
-  return contract.doneWhen.map((criterion, index) => ({
-    criterion,
-    ...(verdicts.get(index) ?? { met: false, note: "the check couldn't confirm it" }),
-  }));
 }
 
 function expandHome(path: string): string {
@@ -143,11 +127,9 @@ export function deterministicChecks(contract: JobContract, exists: (path: string
 }
 
 export function jobOutcome(report: string, checks: JobCheck[]): { status: "ok" | "short"; result: string } {
-  const unmet = checks.filter((check) => !check.met);
   const body = report.trim() || "(no result)";
-  if (!unmet.length) return { status: "ok", result: body };
-  const shortfall = unmet.map((check) => `${check.criterion} (${check.note})`).join("; ");
-  return { status: "short", result: `${body}\n\nI checked it against what you wanted and it's still short on: ${shortfall}.` };
+  if (!unmetChecks(checks).length) return { status: "ok", result: body };
+  return { status: "short", result: `${body}\n\nI checked it against what you wanted and it's still short on: ${shortfall(checks)}.` };
 }
 
 export interface JobDependencies {
@@ -164,7 +146,7 @@ async function checkJob(contract: JobContract, report: string, id: string, deps:
   const facts = deterministicChecks(contract, deps.exists);
   if (facts.some((check) => !check.met) || !deps.verify) return { checks: facts, repairable: true };
   try {
-    return { checks: [...facts, ...parseChecks(contract, await deps.verify(verifyMessage(contract, report), id))], repairable: true };
+    return { checks: [...facts, ...parseVerdicts(contract.doneWhen, await deps.verify(verifyMessage(contract, report), id))], repairable: true };
   } catch {
     const unchecked = contract.doneWhen.map((criterion) => ({ criterion, met: false, note: "I couldn't check this one" }));
     return { checks: [...facts, ...unchecked], repairable: false };
@@ -181,7 +163,7 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<{ status: 
     save({ status: "verifying", attempts: job.attempts + 1 });
     const { checks, repairable } = await checkJob(job.contract, report, job.id, deps);
     save({ checks });
-    const unmet = checks.filter((check) => !check.met);
+    const unmet = unmetChecks(checks);
     if (!unmet.length || !repairable || job.attempts >= MAX_JOB_ATTEMPTS) return jobOutcome(report, checks);
     save({ status: "running" });
     report = await deps.run(repairMessage(job.contract, report, unmet), job.id);
@@ -191,9 +173,7 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<{ status: 
 export function normalizeContract(input: { task?: unknown; done_when?: unknown; deliverable?: unknown }): JobContract | string {
   const task = String(input.task ?? "").replace(/\s+/g, " ").trim();
   if (!task) return "background_task needs a task";
-  const doneWhen = (Array.isArray(input.done_when) ? input.done_when : [input.done_when])
-    .map((item) => String(item ?? "").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
+  const doneWhen = normalizeCriteria(input.done_when);
   if (!doneWhen.length) return "background_task needs done_when: the checkable points that mean the job is done";
   const deliverable = String(input.deliverable ?? "").trim();
   return { task, doneWhen, ...(deliverable ? { deliverable } : {}) };

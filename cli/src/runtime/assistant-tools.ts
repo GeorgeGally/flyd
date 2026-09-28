@@ -72,9 +72,10 @@ export const assistantTools: AgentTool[] = [
       type: "object",
       properties: {
         outcome: { type: "string", description: "The finished result, stated precisely enough to build and verify unattended" },
+        done_when: { type: "array", items: { type: "string" }, description: "Checkable points that mean it's done, beyond tests passing (e.g. \"the TUI scrolls with the mouse wheel\", \"a test covers an empty inbox\"). An independent reviewer holds the diff to these." },
         repo: { type: "string", description: "Repository root path (default: the current project)" },
       },
-      required: ["outcome"],
+      required: ["outcome", "done_when"],
     },
   },
   {
@@ -207,7 +208,10 @@ export async function runAssistantTool(
         if (!outcome) return "Error: start_coding_task needs an outcome";
         const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot || process.cwd();
         const { dispatchCrewTask } = await import("../crew/crew.js");
-        const task = await dispatchCrewTask({ repo, outcome, source: "chat" });
+        const { normalizeCriteria } = await import("./acceptance.js");
+        const doneWhen = normalizeCriteria(input.done_when);
+        if (!doneWhen.length) return "Error: start_coding_task needs done_when: the checkable points that mean it's done";
+        const task = await dispatchCrewTask({ repo, outcome, doneWhen, source: "chat" });
         return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land. Tell him in your own words; don't mention crewmates, branches, or worktrees.`;
       }
       case "background_task": {
@@ -232,6 +236,7 @@ export async function runAssistantTool(
             crew.describeTask(task),
             task.summary ? `Crewmate's summary: ${task.summary}` : "",
             ...(task.verification ?? []).map((step) => `${step.ok ? "✓" : "✗"} ${step.command}${step.ok ? "" : `\n${step.tail}`}`),
+            ...(task.review?.length ? ["Independent review against what was asked:", ...crew.reviewLines(task)] : []),
           ].filter(Boolean).join("\n");
         }
         if (input.action === "land") return crew.describeTask(await crew.landCrewTask(id));
