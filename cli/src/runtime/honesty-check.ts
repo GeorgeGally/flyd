@@ -12,6 +12,12 @@ const DONE_CLAIM = /\bI(?:'ve| have| just)?\s+(?:wrote|written|created|saved|dra
 const STARTED_CLAIM = /\bI(?:'ve| have| just)?\s+(?:started|kicked off|begun|queued)\b|\bI(?:'m| am) (?:now )?(?:already )?(?:drafting|building|going through|working (?:on|through)|writing|generating|putting together|pulling together)\b/i;
 /** Tools that start work which finishes later: they back "I've started", never "I've drafted". */
 const DELEGATIONS = new Set(["background_task", "start_coding_task"]);
+/**
+ * After a hand-off, any first-person perfect ("I've left it on", "I've made
+ * sure…") describes work nobody has done yet. Matched by grammar, not a verb
+ * list: the list only ever catches last week's phrasing.
+ */
+const PERFECT_CLAIM = /\bI(?:'ve| have)\s+(?:also\s+|already\s+)?(?!started\b|kicked\b|begun\b|queued\b|handed\b|passed\b|asked\b|got\b)[a-z]+(?:ed|en|t|de|ne|ft|ht)\b/i;
 const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
 
 export interface ClaimToolCall { name: string; input: Record<string, unknown>; succeeded: boolean }
@@ -25,7 +31,8 @@ export function unsupportedClaims(
   const problems: string[] = [];
   const acted = toolCalls.filter((call) => call.succeeded && isMutating(call.name, call.input));
   const didItNow = acted.some((call) => !DELEGATIONS.has(call.name));
-  if (DONE_CLAIM.test(answer) && !didItNow) {
+  const onlyHandedOff = acted.length > 0 && !didItNow && toolCalls.every((call) => !call.succeeded || DELEGATIONS.has(call.name));
+  if ((DONE_CLAIM.test(answer) || (onlyHandedOff && PERFECT_CLAIM.test(answer))) && !didItNow) {
     problems.push(acted.length
       ? "It says the work is done, but you only started it in the background; nothing is finished or on disk yet. Say you've started it and that it will come back when done."
       : "It says you did or made something, but no action ran in this turn. Only claim what a tool did now; otherwise say what you will do or what you don't know.");
@@ -59,8 +66,14 @@ export function honestyRewritePrompt(answer: string, problems: string[]): string
 // voice holds even when the model drifts.
 const SLOP = /\b(?:stings?|lonely|the silence|a verdict|in the room|into the (?:dark|void)|wears? on you|a lot to carry|carry(?:ing)? (?:that|this)|sit with|the part that|heavy lift|journey|resonates?|tapestry|testament|navigat(?:e|ing) (?:this|the)|at the end of the day|it's (?:okay|ok) to feel)\b/i;
 
+// George only ever talks to Flyd (AGENTS.md "One voice"): the crew, jobs,
+// worktrees and council are Flyd's own backstage.
+const BACKSTAGE = /\b(?:crew ?mates?|crewmember|worktrees?|subagents?|the (?:council|librarian|strategist|critic|muse|scout))\b/i;
+
 export function styleProblems(answer: string): string[] {
   const problems: string[] = [];
+  const backstage = answer.match(BACKSTAGE);
+  if (backstage) problems.push(`It names your own backstage ("${backstage[0]}"). Speak as yourself: say what you're doing, not who inside you is doing it.`);
   const phrase = answer.match(SLOP);
   if (phrase) problems.push(`It uses stock phrasing ("${phrase[0]}"). Say the literal, specific thing instead, in plain words.`);
   if ((answer.match(/—/g) ?? []).length >= 2) problems.push("It leans on em dashes. Use full stops or commas.");

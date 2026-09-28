@@ -26,6 +26,8 @@ export interface TurnReceipt {
   answer: string;
   status: "succeeded" | "failed";
   error?: string;
+  /** The turn's plan (turn-plan.ts), or "unplanned" when no room reading came back in time. */
+  plan?: { route: string; cover: string[] };
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;

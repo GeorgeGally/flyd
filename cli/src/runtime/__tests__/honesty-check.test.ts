@@ -16,6 +16,13 @@ describe("honesty check", () => {
     // A handed-off job backs "started", not "drafted".
     const job = [{ name: "background_task", input: { task: "draft the GNM letter" }, succeeded: true }];
     expect(unsupportedClaims("I've drafted the demand letter.", job, mutating, () => true)[0]).toMatch(/only started it in the background/);
+    // Any perfect-tense claim after a hand-off, whatever the verb.
+    const crew = [{ name: "start_coding_task", input: { outcome: "clock" }, succeeded: true }];
+    const doneish = (text: string) => unsupportedClaims(text, crew, (name) => name === "start_coding_task", () => true);
+    expect(doneish("Started it. I've left it on by default and made sure the timer is cleared.")).toHaveLength(1);
+    expect(doneish("I've set it to tick every minute.")).toHaveLength(1);
+    expect(doneish("Started: a live clock in the header, ticking each minute. I'll tell you when it's ready.")).toEqual([]);
+    expect(doneish("I've started it and I've handed over the details.")).toEqual([]);
   });
 
   it("catches files that are not there, unless this turn touched them", () => {
@@ -38,6 +45,8 @@ describe("style check", () => {
     const { styleProblems } = await import("../honesty-check.js");
     expect(styleProblems("The silence is the part that stings — a lonely feeling — worse than failing.")).toHaveLength(2);
     expect(styleProblems("None of the sets are online yet. Put one on Mixcloud tonight.")).toEqual([]);
+    expect(styleProblems("Started it: a crewmate is adding the clock in its own worktree.")[0]).toMatch(/backstage \("crewmate"\)/);
+    expect(styleProblems("I'll build the clock and tell you when it's ready.")).toEqual([]);
   });
 });
 

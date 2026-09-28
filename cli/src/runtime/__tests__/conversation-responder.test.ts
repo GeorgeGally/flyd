@@ -38,8 +38,8 @@ describe("buildConversationPrompt", () => {
     expect(prompt.system).toContain("Your user is George");
     expect(prompt.system).toContain("general knowledge");
     expect(prompt.system).toContain("Never reply with generic availability");
-    expect(prompt.system).toContain("Act now");
-    expect(prompt.system).toContain("No plan-only finish");
+    expect(prompt.system).toContain("When the turn is for acting, act");
+    expect(prompt.system).toContain("continue to a real conclusion or blocker");
     expect(prompt.system).toContain("vary the query and try again");
     expect(prompt.system).toContain("does not belong in a task yet");
     expect(prompt.prompt).toContain("The first proof is that George chooses Flyd");
@@ -1033,6 +1033,45 @@ describe("conversation action tools", () => {
       expect(outputs[2]).toMatch(/^Not approved: run: touch pwned\.txt \(web content was read this turn\)/);
       expect(prompts).toHaveLength(1);
       expect(existsSync(join(root, "pwned.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces the turn's route: an answer turn sees no change tools and can't write through bash", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-route-"));
+    const outputs: string[] = [];
+    let offered: string[] = [];
+    let system = "";
+    try {
+      await respondToConversation({
+        message: "can I make my 7:15 flight if I leave at 4:40?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(root),
+        },
+        onToken: () => undefined,
+      }, {
+        readRoom: async () => ({ need: "ask", mode: "companion", route: "answer", cover: ["whether he makes it, with the margin"], stance: "Do the sum.", avoid: "", length: "short", use: [], raise: null, act: null }),
+        runAgentLoop: async (systemPrompt, _prompt, tools, onToolCall) => {
+          system = systemPrompt;
+          offered = tools.map((tool) => tool.name);
+          outputs.push(await onToolCall("bash", { command: "touch watcher.txt" }));
+          outputs.push(await onToolCall("background_task", { task: "keep an eye on the flight", done_when: ["x"] }));
+          return "<final>Yes, with about 80 minutes spare.</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(offered).not.toContain("background_task");
+      expect(offered).not.toContain("edit_file");
+      expect(offered).toContain("web_search");
+      expect(system).toContain("Your reply must cover, however short it is:\n- whether he makes it, with the margin");
+      expect(outputs[0]).toMatch(/^Skipped \(not this turn\)/);
+      expect(outputs[1]).toMatch(/^Skipped \(not this turn\)/);
+      expect(existsSync(join(root, "watcher.txt"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

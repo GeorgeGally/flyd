@@ -36,7 +36,15 @@ describe("reading the room", () => {
 
   it("keeps only ids it was shown and defaults to silence on notes", () => {
     const room = parseRoom('{"need":"vent","mode":"companion","stance":"Hear him out.","avoid":"reciting awards","length":"short","use":["u3","u9"],"raise":"zz"}', { knowledge, notes });
-    expect(room).toEqual({ need: "vent", mode: "companion", stance: "Hear him out.", avoid: "reciting awards", length: "short", use: ["u3"], raise: null, act: null });
+    expect(room).toEqual({ need: "vent", mode: "companion", stance: "Hear him out.", avoid: "reciting awards", length: "short", use: ["u3"], raise: null, act: null, route: "answer", cover: [] });
+  });
+
+  it("commits to a route and what the reply must cover, falling back from the need", () => {
+    const planned = parseRoom('{"need":"ask","mode":"companion","route":"answer","cover":["tomorrow\'s calendar","the GNM loose end",""],"stance":"Brief him."}', { knowledge, notes });
+    expect(planned).toMatchObject({ route: "answer", cover: ["tomorrow's calendar", "the GNM loose end"] });
+    expect(parseRoom('{"need":"do","stance":"Do it."}', { knowledge, notes })!.route).toBe("act");
+    expect(parseRoom('{"need":"do","route":"yolo","stance":"Do it."}', { knowledge, notes })!.route).toBe("act");
+    expect(parseRoom('{"need":"vent","stance":"Listen."}', { knowledge, notes })!.route).toBe("answer");
   });
 
   it("returns null rather than guessing when the reply is unusable or slow", async () => {

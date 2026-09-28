@@ -20,6 +20,8 @@ import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
+import { offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
+import { contractError } from "./tool-contracts.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
@@ -191,7 +193,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     [
       "## How you talk (this outranks every operating rule below)",
       "- Conversation first. When George shares a feeling, a doubt, an idea, or something he made, respond like a person who cares about him and his work — curiosity, taste, encouragement, an honest opinion — before any logistics. Don't turn feelings into to-do lists, check-ins, or schedules. Do help, though: a friend who can fix something doesn't just sympathise.",
-      "- When he tells you how he feels, show you get it in a sentence, from what you already know (no digging through repos first). Then help: start something concrete with background_task, or offer one or two specific things you could do right now. Never just comment. A mood isn't an instruction: don't cancel or change what he set up himself (his reminders, scheduled nudges, commitments) because he sounds tired of it; offer to instead.",
+      "- When he tells you how he feels, show you get it in a sentence, from what you already know (no digging through repos first). Then help with something concrete: this turn's plan says whether to start it or offer it. Never just comment. A mood isn't an instruction: don't cancel or change what he set up himself (his reminders, scheduled nudges, commitments) because he sounds tired of it; offer to instead.",
       "- Write natural paragraphs of a few sentences, not a stack of one-line paragraphs. No markdown bold or headings in chat; lists only when he asks for steps or options.",
       "- Don't narrate housekeeping (\"I added X to your list\", \"that's on my agenda\") unless he asked for it or needs to know.",
       "- End when you've said the thing. At most one offer, only when it's the obvious next step — never a \"say go and I'll…\" on every reply.",
@@ -283,7 +285,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
-      "Act now — don't describe what you'll do, do it. Continue to a real conclusion or blocker. No plan-only finish when you have tools to act. Weak tool result — vary the query and try again, then conclude. You have read and write tools. When George asks you to change code, make the edit yourself, then verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Only actions that leave this machine or can't be undone (push, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
+      "When the turn is for acting, act — don't describe what you'll do, do it, and continue to a real conclusion or blocker. Weak tool result — vary the query and try again, then conclude. When you change code, verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Only actions that leave this machine or can't be undone (push, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       speakingStyleSystemRule(),
     ].filter(Boolean).join("\n\n"),
@@ -852,6 +854,7 @@ export async function respondToConversation(
     try { write(); } catch (error) { console.warn("[transitions] capture failed:", error instanceof Error ? error.message : error); }
   };
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
+  let turnPlan: TurnPlan | null = null;
   const record = async (
     connection: Pick<ModelConnection, "model" | "providerIdentity">,
     toolCalls: TurnToolCall[],
@@ -901,6 +904,7 @@ export async function respondToConversation(
       answer,
       status,
       ...(error ? { error } : {}),
+      plan: turnPlan ? { route: turnPlan.route, cover: turnPlan.cover } : { route: "unplanned", cover: [] },
     });
   };
   const emit = (text: string): string => {
@@ -937,10 +941,15 @@ export async function respondToConversation(
   }).catch(() => null);
   // Naming a project ("DIR feels dead") is conversation; asking about its code
   // or state is work. Only work turns get the operator prompt and repo evidence.
+  // The reading becomes the turn's contract: its route decides the tools on
+  // the table and the budget; unattended runs are the work itself.
+  const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
+  const plan = room ? planTurn(room.route, room.cover, { unattended }) : null;
+  turnPlan = plan;
   const projectTurn = room ? room.mode === "operator" : isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history);
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
-    ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
+    ...(room ? { room: { core: roomContext.core, brief: [roomBrief(room, roomContext.knowledge, notes), plan ? planBrief(plan) : ""].filter(Boolean).join("\n") } } : {}),
   });
   const raisedAdvisory = room?.raise ? notes.find((note) => note.id === room.raise)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();
@@ -965,7 +974,9 @@ export async function respondToConversation(
   let attemptMutated = false;
   const repeats = createRepeatGuard();
   const observedHandler: ToolHandler = async (name, toolInput) => {
-    const skip = repeats.blocked(name, toolInput);
+    // The harness's gate, before anything runs: the turn's route, the tool's
+    // contract, then the retry limit.
+    const skip = offRoute(plan, name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
     if (skip) {
       toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
       return skip;
@@ -989,14 +1000,14 @@ export async function respondToConversation(
     }
   };
   const codingIntent = interpretAgentInput(input.message).kind;
-  const budget = turnBudget(input.message, codingIntent, input.sessionId);
+  const budget = planBudget(turnBudget(input.message, codingIntent, input.sessionId), plan);
   const maxIterations = budget.iterations;
   try {
     const { answer, model: usedModel } = await agentLoopWithFailover(
       models,
       system,
       prompt,
-      [...conversationTools, ...personalTools, ...assistantTools],
+      visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan),
       observedHandler,
       maxIterations,
       {
