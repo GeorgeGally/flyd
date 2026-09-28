@@ -64,6 +64,32 @@ describe("librarian", () => {
     expect(readLibrarianState().runs).toBe(1);
   });
 
+  it("closes a commitment that finished work proves done, even when nothing else is new", async () => {
+    const now = at("2026-09-28T10:00:00Z");
+    applyMemoryOps([
+      { op: "add", section: "Commitments", text: "Flyd still needs to switch the purple text in its terminal to green.", tier: "perishable" },
+      { op: "add", section: "Commitments", text: "Send the GNM invoice chase to whoever holds the budget.", tier: "perishable" },
+    ], { now });
+    const [purple, gnm] = readMemoryEntries();
+    const finishedWork = vi.fn(async () => [
+      { id: "done:flyd@5e2748b", at: "2026-09-28T02:10:00Z", source: "commit" as const, text: "flyd: feat(flyd): a PA's opening, one green voice, honest delegation" },
+    ]);
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return JSON.stringify({ memory_ops: [{ op: "archive", id: purple.id, reason: "done: [done:flyd@5e2748b]" }], profile_ops: [], observations: [] });
+    });
+    const result = await runLibrarian({ complete, finishedWork, rawDir: join(home, "none"), now: () => now });
+    expect(result.memory).toMatchObject({ archived: 1 });
+    expect(prompts[0]).toContain("[done:flyd@5e2748b] 2026-09-28 flyd: feat(flyd): a PA's opening, one green voice");
+    expect(prompts[0]).toContain("For every Commitments entry, stale or not");
+    expect(readMemoryEntries().map((entry) => entry.id)).toEqual([gnm.id]);
+    expect(readFileSync(join(home, "mem", "memory-archive.md"), "utf8")).toContain("done: [done:flyd@5e2748b]");
+    // The next pass only looks at work finished after this one.
+    await runLibrarian({ complete, finishedWork, rawDir: join(home, "none"), now: () => at("2026-09-28T12:00:00Z") });
+    expect(finishedWork.mock.calls[1]).toEqual([now]);
+  });
+
   it("keeps its cursors when the model returns no proposal, so the slice is retried", async () => {
     appendJournalTurn({ user: "remember I switched to the standing desk", assistant: "ok", at: at("2026-09-27T09:00:00Z") });
     await expect(runLibrarian({ complete: async () => "", rawDir: join(home, "none") })).rejects.toThrow("cursors kept for retry");

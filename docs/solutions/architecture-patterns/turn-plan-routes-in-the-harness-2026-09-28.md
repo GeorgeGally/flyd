@@ -40,7 +40,7 @@ All of them were routing: the model decided *what kind of turn this is* implicit
 
 Two secondary causes made it worse:
 
-- **Stale state as a task.** MEMORY.md still said "Flyd still needs to switch the purple text to green" after the work was done elsewhere; code turns read it as an open task and chased it.
+- **Stale state as a task.** MEMORY.md still said "Flyd still needs to switch the purple text to green" after the work was done elsewhere; code turns read it as an open task and chased it. The Librarian only saw conversation and captures, so it could not close what got done in a commit. It now also reads finished work (commits, landed crew tasks, successful jobs and agenda runs) and archives the commitments it proves done.
 - **No trace of the decision.** Nothing recorded which route a turn took, so a silent fallback (room reading timed out → old behaviour) was indistinguishable from a wrong route.
 
 ## Solution
@@ -62,6 +62,10 @@ The room reading commits to a **turn plan** (`turn-plan.ts`): a `route` and the 
 - The honesty check reads grammar, not verb lists: after a hand-off, any "I've …-ed" other than "started" is a claim about work nobody has done yet. The one-voice rule ("never name the crew") became a mechanical style check.
 
 Prompt rules the harness now enforces were removed or reworded so they stop competing.
+
+## Speed
+
+The LLM room reading took a median 11.3s and timed out on 5 of 12 benched turns, which then ran unplanned. The route now comes from Jev (`chat_turn_route`, benched in `evals/fixtures/system-one/chat-turn.jsonl`): at confidence ≥ 0.6 it decides 32/34 turns, all correct, in ~0.3s; below that the room reading decides. "Small edit" vs "feature" was a boundary Jev scored 0.41-0.65 on the same request, so any change to code in a repo is `delegate`. `cli/scripts/turn-latency.ts` reproduces the stage timings.
 
 ## Result
 

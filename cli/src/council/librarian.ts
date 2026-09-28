@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
@@ -15,6 +17,11 @@ import {
 // contradictions — citing sources and archiving rather than deleting.
 // It proposes; memory-store.ts applies. (Letta's reflection subagent,
 // Honcho's deductive dreamer, firstmate's /stow.)
+//
+// It also sees work that finished since its last pass (commits in his repos,
+// crew work landed, background jobs and agenda runs that succeeded), so a
+// commitment that got done — in a chat or anywhere else — is closed instead
+// of lingering as an open task every prompt keeps chasing.
 
 export interface LibrarianState {
   journalCursor: string | null;
@@ -65,6 +72,61 @@ export function collectNewCaptures(sinceMs: number, rawDir = RAW_DIR, limit = 40
   return notes.sort((a, b) => a.mtimeMs - b.mtimeMs).slice(0, limit);
 }
 
+export interface FinishedWork {
+  id: string;
+  at: string;
+  source: "commit" | "crew" | "job" | "agenda";
+  text: string;
+}
+
+const execFileAsync = promisify(execFile);
+const MAX_FINISHED = 40;
+
+async function recentCommits(since: Date): Promise<FinishedWork[]> {
+  const { refreshRepoRegistry } = await import("../runtime/repo-registry.js");
+  const repos = await refreshRepoRegistry().catch(() => []);
+  const perRepo = await Promise.all(repos.map(async (repo) => {
+    try {
+      const { stdout } = await execFileAsync("git", ["-C", repo.root, "log", `--since=${since.toISOString()}`, "--no-merges", "-n", "15", "--format=%h%x09%cI%x09%s"], { timeout: 10_000 });
+      return stdout.split("\n").filter(Boolean).map((line) => {
+        const [hash, at, subject] = line.split("\t");
+        return { id: `done:${repo.name}@${hash}`, at, source: "commit" as const, text: `${repo.name}: ${subject}` };
+      });
+    } catch {
+      return [];
+    }
+  }));
+  return perRepo.flat();
+}
+
+/** What got done since `since`, newest first, bounded. Each source is best-effort. */
+export async function collectFinishedWork(since: Date): Promise<FinishedWork[]> {
+  const after = (at: string | undefined) => Boolean(at) && Date.parse(at!) >= since.getTime();
+  const found: FinishedWork[] = [];
+  try {
+    const crew = await import("../crew/crew.js");
+    for (const task of crew.listTasks()) {
+      if (task.status === "landed" && after(task.finishedAt ?? task.createdAt)) {
+        found.push({ id: `done:crew-${task.id}`, at: task.finishedAt ?? task.createdAt, source: "crew", text: `Built and landed: ${crew.plainOutcome(task)}` });
+      }
+    }
+  } catch { /* no crew store */ }
+  try {
+    const { listJobs } = await import("../runtime/background-jobs.js");
+    for (const job of listJobs()) {
+      if (job.status === "ok" && after(job.updatedAt)) found.push({ id: `done:job-${job.id}`, at: job.updatedAt, source: "job", text: `Background work done: ${job.contract.task.slice(0, 200)}` });
+    }
+  } catch { /* no job store */ }
+  try {
+    const { readInbox } = await import("../runtime/agenda.js");
+    for (const entry of readInbox()) {
+      if (entry.status === "ok" && after(entry.at)) found.push({ id: `done:agenda-${entry.id}`, at: entry.at, source: "agenda", text: `${entry.task.slice(0, 120)}: ${entry.result.split("\n")[0].slice(0, 160)}` });
+    }
+  } catch { /* no inbox */ }
+  found.push(...await recentCommits(since).catch(() => []));
+  return found.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_FINISHED);
+}
+
 export interface LibrarianInput {
   turns: JournalTurn[];
   captures: CaptureNote[];
@@ -72,6 +134,7 @@ export interface LibrarianInput {
   stale: ReturnType<typeof staleEntries>;
   profile: string | null;
   today: string;
+  finished?: FinishedWork[];
 }
 
 export function librarianPrompt(input: LibrarianInput): string {
@@ -80,6 +143,7 @@ export function librarianPrompt(input: LibrarianInput): string {
   const captures = input.captures.map((note) => `[${note.id}] ${note.text}`).join("\n\n");
   const memory = input.memory.map((entry) => `[${entry.id}] (${entry.section}, ${entry.tier}, confirmed ${entry.date}) ${entry.text}`).join("\n");
   const stale = input.stale.map((entry) => `[${entry.id}] ${entry.text}`).join("\n");
+  const finished = (input.finished ?? []).map((work) => `[${work.id}] ${work.at.slice(0, 10)} ${work.text}`).join("\n");
   return [
     "You are Flyd's Librarian: the curator of George's memory. George is the only person you serve.",
     `Today is ${input.today}.`,
@@ -102,6 +166,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- Commitments with a date are perishable; standing facts and decisions are aging.",
     "- Cite sources with the [j:…] / [cap:…] ids you were shown. Do not invent ids.",
     "- For each STALE entry: reinforce it if today's evidence confirms it, archive it if superseded or done, otherwise leave it.",
+    "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
     "",
     `Memory sections: ${MEMORY_SECTIONS.join(", ")}. Profile sections: ${PROFILE_SECTIONS.join(", ")}.`,
@@ -116,6 +181,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     `--- Stale entries needing a decision ---\n${stale || "(none)"}`,
     `--- Conversation since last pass ---\n${turns || "(none)"}`,
     `--- New captures ---\n${captures || "(none)"}`,
+    `--- Work finished since your last pass ---\n${finished || "(none)"}`,
   ].join("\n");
 }
 
@@ -162,7 +228,11 @@ export interface LibrarianDependencies {
   rawDir?: string;
   addProfileFact?: (fact: string, section: string) => boolean;
   readProfile?: () => string | null;
+  /** What got done since the last pass; defaults to commits, crew, jobs and agenda outside tests. */
+  finishedWork?: (since: Date) => Promise<FinishedWork[]>;
 }
+
+const FIRST_PASS_LOOKBACK_MS = 7 * 86_400_000;
 
 /** One curation pass over everything new since the last one. */
 export async function runLibrarian(deps: LibrarianDependencies): Promise<LibrarianRunResult> {
@@ -173,12 +243,17 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const paths = deps.memoryPaths ?? memoryPaths();
   const memory = readMemoryEntries(paths);
   const stale = staleEntries(memory, now);
-  if (turns.length === 0 && captures.length === 0 && stale.length === 0) {
+  const since = state.lastRunAt ? new Date(state.lastRunAt) : new Date(now.getTime() - FIRST_PASS_LOOKBACK_MS);
+  const commitments = memory.some((entry) => entry.section === "Commitments");
+  const finished = commitments
+    ? await (deps.finishedWork ?? (process.env.VITEST ? async () => [] : collectFinishedWork))(since).catch(() => [])
+    : [];
+  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
   }
   const profile = (deps.readProfile ?? readUserProfile)();
   const reply = await deps.complete(librarianPrompt({
-    turns, captures, memory, stale, profile, today: localDay(now),
+    turns, captures, memory, stale, profile, today: localDay(now), finished,
   }));
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");
