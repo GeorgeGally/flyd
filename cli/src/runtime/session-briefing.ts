@@ -63,7 +63,11 @@ export interface SessionBriefingDependencies {
   paths?: AgendaPaths;
   loadReminders?: () => Promise<DueReminder[]>;
   readProfile?: () => string | null;
+  loadCalendar?: () => Promise<string[]>;
 }
+
+/** After telling him the news, don't lead with the same stories again for a few hours. */
+const NEWS_REPEAT_MS = 3 * 60 * 60 * 1000;
 
 /** Lines for the session intro, or [] when there is nothing worth saying. */
 export async function composeSessionBriefing(deps: SessionBriefingDependencies = {}): Promise<string[]> {
@@ -87,14 +91,24 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     const edition = scout.latestEdition();
     const markPath = `${scout.scoutDir()}/briefed-date`;
     const { readFileSync: read, writeFileSync: write, mkdirSync: mkdir } = await import("node:fs");
-    let briefed = "";
-    try { briefed = read(markPath, "utf8").trim(); } catch { /* never briefed */ }
-    const today = formatLocalDateTime(now).slice(0, 10);
-    if (!deps.paths && edition && edition.items.length && briefed !== today && edition.date >= formatLocalDateTime(new Date(now.getTime() - 86_400_000)).slice(0, 10)) {
-      lines.push("Worth your time (/more N, /less N):");
-      for (const item of edition.items.slice(0, 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
-      mkdir(scout.scoutDir(), { recursive: true });
-      write(markPath, today);
+    let toldAt: Date | null = null;
+    try {
+      // Holds when he was last told the news (older builds wrote only the date).
+      const raw = read(markPath, "utf8").trim();
+      const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw);
+      toldAt = Number.isNaN(parsed.getTime()) ? null : parsed;
+    } catch { /* never told */ }
+    const yesterday = formatLocalDateTime(new Date(now.getTime() - 86_400_000)).slice(0, 10);
+    if (!deps.paths && edition && edition.items.length && edition.date >= yesterday) {
+      const heard = toldAt && now.getTime() - toldAt.getTime() < NEWS_REPEAT_MS;
+      lines.push(heard
+        ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
+        : "Today's news, not yet told him (/more N, /less N):");
+      for (const item of edition.items.slice(0, heard ? 3 : 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
+      if (!heard) {
+        mkdir(scout.scoutDir(), { recursive: true });
+        write(markPath, now.toISOString());
+      }
     }
   } catch {
     // News is optional; the briefing never fails for it.
@@ -129,6 +143,14 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     }
     if (inbox.length > 3) lines.push("  …more in `flyd agenda inbox`");
     markInboxRead(paths);
+  }
+
+  try {
+    const real = async () => (process.env.VITEST ? [] : (await import("./personal-tools.js")).calendarToday(now));
+    const events = await (deps.loadCalendar ?? real)();
+    if (events.length) lines.push(`Calendar today: ${events.slice(0, 6).map((event) => firstLine(event, 90)).join("; ")}`);
+  } catch {
+    // Calendar access can be denied or slow; the briefing goes on without it.
   }
 
   let reminders: DueReminder[] = [];

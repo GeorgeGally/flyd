@@ -10,29 +10,40 @@ export interface GreetingInput {
   briefing: string[];
   hypothesis?: string | null;
   now: Date;
+  /** USER.md: who George is and what he has asked of Flyd. His standing instructions win. */
+  profile?: string | null;
 }
+
+const PROFILE_CHARS = 4_000;
 
 export function greetingPrompt(input: GreetingInput): string {
   const day = input.now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const time = input.now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const morning = input.now.getHours() < 12;
+  const freshNews = input.briefing.some((line) => /^Today's news, not yet told him/.test(line.trim()));
+  const profile = input.profile?.trim() ? input.profile.trim().slice(0, PROFILE_CHARS) : "";
   return [
     readSoul(),
     "",
-    "George has just sat down and opened you. You have already said hello.",
+    "George has just sat down and opened you. The header already said good morning/afternoon; you speak next, as his PA.",
     `It is ${day}, ${time}.`,
-    "Write what you would say next, the way a sharp PA who knows him talks when he sits down — not a report.",
+    "A good PA doesn't wait to be asked: walk in with what he needs to know and what you've already done, then offer the next useful thing.",
+    ...(profile ? ["", "Who he is and what he has asked of you (his standing instructions override the rules below):", profile] : []),
     "",
-    "What you know right now (raw notes, most of it can wait):",
+    "What you know right now:",
     ...input.briefing.map((line) => `- ${line.trim()}`),
     ...(input.hypothesis?.trim() ? [`- Flyd's read on his work: ${input.hypothesis.trim()}`] : []),
     "",
     "Rules:",
-    "- 2 to 4 short sentences, under 70 words, plain prose. No lists, no headings, no labels like 'Strategist:' or 'Crew:'.",
-    "- Lead with the one thing that genuinely matters to him today: something due or overdue, a person, a decision with a clock on it. If nothing is pressing, say so lightly.",
-    "- Then, if it fits, one thing he might enjoy or find useful — a story worth his time (say why in a few words), or good news from work Flyd did for him.",
+    ...(morning && freshNews
+      ? ["- It's morning and he hasn't had the news: lead with it. The two or three stories that matter most to him, each with a few words on why it matters to him specifically. Then his day: calendar, anything due."]
+      : ["- Lead with what matters to him right now: something due or overdue, what's on his calendar next, a decision with a clock on it, or news he hasn't heard. If nothing is pressing, say so lightly."]),
+    "- Mention good news from work you did for him while he was away, if any.",
+    "- End with one concrete offer you can act on now, tied to something above (\"Want me to…?\"), unless nothing fits.",
+    "- Plain prose, up to 6 short sentences, under 120 words. No lists, no headings, no labels like 'Strategist:' or 'Crew:'. Don't open with 'Hello' or his name.",
     "- Weekends and evenings are lighter: don't nag about work, commits, or backlogs.",
     "- Skip your own plumbing (memory, write paths, workstream counts, task ids, commits) unless he must act on it. Never name internal helpers.",
-    "- Never invent anything that is not in the notes. No greeting — you already said hello. No sign-off.",
+    "- Never invent anything that is not in these notes. No sign-off.",
     "- If there is more in the notes than you mentioned, end with: (/brief has the rest.)",
     "",
     "Reply with the text only.",
@@ -42,7 +53,7 @@ export function greetingPrompt(input: GreetingInput): string {
 /** Accept only plain, short prose; anything list-shaped or empty falls back. */
 export function parseGreeting(text: string): string | null {
   const cleaned = text.trim().replace(/^["“]|["”]$/g, "").trim();
-  if (!cleaned || cleaned.length > 600) return null;
+  if (!cleaned || cleaned.length > 900) return null;
   if (/^\s*(?:[-*•]|\d+\.)\s/m.test(cleaned) || /^#/m.test(cleaned)) return null;
   return cleaned.replace(/\s*\n\s*/g, " ");
 }

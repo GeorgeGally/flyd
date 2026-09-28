@@ -126,7 +126,7 @@ describe("RSS adapter", () => {
   it("parses RSS entries without a third-party parser dependency", async () => {
     const xml = `<?xml version="1.0"?><rss><channel><title>Example Feed</title>
       <item><title>First post</title><link>https://example.com/1</link><guid>one</guid><pubDate>Thu, 30 Jul 2026 00:00:00 GMT</pubDate><description><![CDATA[<p>Hello &amp; world</p>]]></description></item>
-      <item><title>Second post</title><link>https://example.com/2</link><guid>two</guid><description>Second</description></item>
+      <item><title>Reverse Engineering Apple&amp;#8217;s Mikey Chip &#x2014; part 2&hellip;</title><link>https://example.com/2</link><guid>two</guid><description>Second</description></item>
     </channel></rss>`;
     const adapter = new RssAdapter({
       fetchFn: async () => new Response(xml, { status: 200, headers: { "Content-Type": "application/rss+xml" } }),
@@ -136,6 +136,7 @@ describe("RSS adapter", () => {
     expect(items[0].title).toBe("First post");
     expect(items[0].content).toBe("Hello & world");
     expect(items[0].metadata?.feedTitle).toBe("Example Feed");
+    expect(items[1].title).toBe("Reverse Engineering Apple’s Mikey Chip — part 2…");
   });
 });
 

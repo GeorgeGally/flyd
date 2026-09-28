@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
 
-const mutating = (name: string) => name === "write_file" || name === "reminders";
+const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task";
 
 describe("honesty check", () => {
   it("catches claimed work that no tool did", () => {
     expect(unsupportedClaims("I wrote the demo spec and the one-pager.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I wrote the demo spec.", [{ name: "write_file", input: { path: "spec.md" }, succeeded: true }], mutating, () => true)).toEqual([]);
+    // Claims of work already under way need a tool that started it.
+    expect(unsupportedClaims("So I've started going through the repo myself.", [], mutating, () => true)).toHaveLength(1);
+    expect(unsupportedClaims("I'm going through the mixes now and will report back.", [], mutating, () => true)).toHaveLength(1);
+    expect(unsupportedClaims("I've taken them off the calendar.", [], mutating, () => true)).toHaveLength(1);
+    expect(unsupportedClaims("I've started on it.", [{ name: "background_task", input: { task: "x" }, succeeded: true }], mutating, () => true)).toEqual([]);
+    expect(unsupportedClaims("Want me to start going through it?", [], mutating, () => true)).toEqual([]);
+    // A handed-off job backs "started", not "drafted".
+    const job = [{ name: "background_task", input: { task: "draft the GNM letter" }, succeeded: true }];
+    expect(unsupportedClaims("I've drafted the demand letter.", job, mutating, () => true)[0]).toMatch(/only started it in the background/);
   });
 
   it("catches files that are not there, unless this turn touched them", () => {

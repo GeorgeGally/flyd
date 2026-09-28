@@ -360,6 +360,12 @@ on run argv
   return out
 end run`;
 
+/** Today's events from Calendar, one line each ("<start> | <title> [<calendar>]"). */
+export async function calendarToday(now = new Date()): Promise<string[]> {
+  const out = await runOsascriptOnce(LIST_EVENTS, [...localDateParts(now), "1"]);
+  return out.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
 function localDateParts(date: Date): [string, string, string] {
   return [
     String(date.getFullYear()),

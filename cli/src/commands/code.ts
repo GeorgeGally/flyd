@@ -186,8 +186,10 @@ export async function runAgent(): Promise<void> {
       composeGreeting: async ({ briefing, hypothesis }) => {
         const [{ museGreeting, fallbackGreeting }, { query }] = await Promise.all([import("../council/greeting.js"), import("../lib/llm.js")]);
         if (process.env.FLYD_MUSE === "0") return fallbackGreeting(briefing);
-        const slow = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("greeting timed out")), 15_000).unref());
-        return museGreeting({ briefing, hypothesis, now: new Date() }, (prompt) => Promise.race([query(prompt), slow]));
+        const slow = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("greeting timed out")), 25_000).unref());
+        const { readUserProfile } = await import("../lib/user-profile.js");
+        const profile = (() => { try { return readUserProfile(); } catch { return null; } })();
+        return museGreeting({ briefing, hypothesis, profile, now: new Date() }, (prompt) => Promise.race([query(prompt), slow]));
       },
       copyToClipboard: (text) => new Promise<void>((resolve, reject) => {
         void import("node:child_process").then(({ spawn }) => {

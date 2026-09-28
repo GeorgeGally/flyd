@@ -18,6 +18,21 @@ describe("greeting", () => {
     expect(prompt).toContain("Weekends and evenings are lighter");
   });
 
+  it("walks in like a PA: morning news first when he hasn't had it, his standing instructions on top", () => {
+    const morning = new Date("2026-09-28T08:05:00");
+    const prompt = greetingPrompt({
+      briefing: ["Today's news, not yet told him (/more N, /less N):", "  1. Art Blocks opens a new drop — on-chain generative"],
+      profile: "- Have the news already sitting there when he opens the app in the morning.",
+      now: morning,
+    });
+    expect(prompt).toContain("his standing instructions override the rules below");
+    expect(prompt).toContain("Have the news already sitting there");
+    expect(prompt).toContain("lead with it");
+    expect(prompt).toContain("one concrete offer");
+    expect(greetingPrompt({ briefing: ["News he already heard at 08:05 (bring up only if something is new or he asks):"], now: new Date("2026-09-28T10:30:00") }))
+      .not.toContain("he hasn't had the news");
+  });
+
   it("rejects list-shaped or empty replies", () => {
     expect(parseGreeting("- one\n- two")).toBeNull();
     expect(parseGreeting("   ")).toBeNull();

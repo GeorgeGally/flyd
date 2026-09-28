@@ -17,6 +17,17 @@ describe("composeSessionBriefing", () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it("puts today's calendar in the briefing, and survives a denied Calendar", async () => {
+    const lines = await composeSessionBriefing({
+      paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE,
+      loadCalendar: async () => ["Monday, 28 September 2026 at 11:00:00 | Call with Sam [Work]"],
+    });
+    expect(lines).toEqual(["Calendar today: Monday, 28 September 2026 at 11:00:00 | Call with Sam [Work]"]);
+    expect(await composeSessionBriefing({
+      paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE, loadCalendar: async () => { throw new Error("not authorized"); },
+    })).toEqual([]);
+  });
+
   it("says nothing when there is nothing to say", async () => {
     expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
   });

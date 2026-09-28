@@ -6,7 +6,12 @@ import { homedir } from "node:os";
 // the pattern — "I wrote the spec, it's in ~/Documents/Glasses" — and it reads
 // as fact. This catches that class mechanically and sends the answer back once.
 
-const ACTION_CLAIM = /\bI(?:'ve| have| just)?\s+(?:wrote|written|created|saved|drafted|built|set up|scheduled|added|sent|booked|put together)\b/i;
+// Finished work ("I've drafted it") needs a tool that did it this turn.
+const DONE_CLAIM = /\bI(?:'ve| have| just)?\s+(?:wrote|written|created|saved|drafted|built|set up|scheduled|added|sent|booked|put together|taken (?:them|it) off|cancelled|canceled)\b/i;
+// Work under way ("I've started", "I'm drafting") may rest on a handed-off job.
+const STARTED_CLAIM = /\bI(?:'ve| have| just)?\s+(?:started|kicked off|begun|queued)\b|\bI(?:'m| am) (?:now )?(?:already )?(?:drafting|building|going through|working (?:on|through)|writing|generating|putting together|pulling together)\b/i;
+/** Tools that start work which finishes later: they back "I've started", never "I've drafted". */
+const DELEGATIONS = new Set(["background_task", "start_coding_task"]);
 const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
 
 export interface ClaimToolCall { name: string; input: Record<string, unknown>; succeeded: boolean }
@@ -18,9 +23,14 @@ export function unsupportedClaims(
   exists: (path: string) => boolean = existsSync,
 ): string[] {
   const problems: string[] = [];
-  const acted = toolCalls.some((call) => call.succeeded && isMutating(call.name, call.input));
-  if (ACTION_CLAIM.test(answer) && !acted) {
-    problems.push("It says you did or made something, but no action ran in this turn. Only claim what a tool did now; otherwise say what you will do or what you don't know.");
+  const acted = toolCalls.filter((call) => call.succeeded && isMutating(call.name, call.input));
+  const didItNow = acted.some((call) => !DELEGATIONS.has(call.name));
+  if (DONE_CLAIM.test(answer) && !didItNow) {
+    problems.push(acted.length
+      ? "It says the work is done, but you only started it in the background; nothing is finished or on disk yet. Say you've started it and that it will come back when done."
+      : "It says you did or made something, but no action ran in this turn. Only claim what a tool did now; otherwise say what you will do or what you don't know.");
+  } else if (STARTED_CLAIM.test(answer) && !acted.length) {
+    problems.push("It says work is under way, but nothing was started in this turn. Start it with a tool, or offer to.");
   }
   const touched = JSON.stringify(toolCalls.map((call) => call.input));
   for (const raw of new Set(answer.match(LOCAL_PATH) ?? [])) {

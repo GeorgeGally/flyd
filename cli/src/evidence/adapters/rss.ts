@@ -20,7 +20,17 @@ function decodeXml(value: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
-    .replace(/&amp;/g, "&");
+    .replace(/&amp;/g, "&")
+    // After &amp;, so double-escaped feeds ("&amp;#8217;") still read cleanly.
+    .replace(/&#(\d+);/g, (_, code: string) => safeCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => safeCodePoint(parseInt(code, 16)))
+    .replace(/&(rsquo|lsquo|rdquo|ldquo|hellip|mdash|ndash|nbsp);/g, (_, name: string) => NAMED[name] ?? `&${name};`);
+}
+
+const NAMED: Record<string, string> = { rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“", hellip: "…", mdash: "—", ndash: "–", nbsp: " " };
+
+function safeCodePoint(code: number): string {
+  return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
 }
 
 function stripMarkup(value: string): string {

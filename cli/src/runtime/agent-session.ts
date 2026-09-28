@@ -14,7 +14,6 @@ const GREEN = "\u001b[32m";
 const CYAN = "\u001b[36m";
 const WHITE = "\u001b[97m";
 const RESET = "\u001b[0m";
-const MAGENTA = "\u001b[35m";
 const DIM = "\u001b[2m";
 
 function useColor(): boolean {
@@ -403,7 +402,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         void deps.afterTurn({ user: message, assistant: answer }).then((reaction) => {
           if (!reaction?.museNote) return;
           lastMuseAdvisory = reaction.advisoryId ?? null;
-          deps.terminal.write(`\n${wrapDisplayText(`  ${reaction.museNote}`).split("\n").map((line) => paint(line, MAGENTA)).join("\n")}\n`);
+          deps.terminal.write(`\n${wrapDisplayText(`  ${reaction.museNote}`).split("\n").map((line) => (useColor() ? paintFlyd(line) : line)).join("\n")}\n`);
         }).catch(() => undefined);
       }
     }).catch((error) => {
@@ -452,7 +451,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     if (deps.composeGreeting) {
       deps.terminal.write(wrapDisplayText(`\n${ART}\n\n  ${greeting()}\n`));
       const note = deps.composeGreeting({ briefing: briefingLines, hypothesis: presentHypothesis })
-        .then((text) => deps.terminal.write(`${wrapDisplayText(`  ${text}`).split("\n").map((line) => paint(line, MAGENTA)).join("\n")}\n\n`))
+        .then((text) => deps.terminal.write(`${wrapDisplayText(`  ${text}`).split("\n").map((line) => (useColor() ? paintFlyd(line) : line)).join("\n")}\n\n`))
         .catch(() => deps.terminal.write("\n"));
       // A full-screen host keeps taking input while the Muse writes; a plain terminal waits so lines don't interleave.
       if (!deps.terminal.tui) await note;

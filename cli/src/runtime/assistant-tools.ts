@@ -42,11 +42,11 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "flyd",
-    description: "Flyd's own skills and jobs. action=skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background work you took on (status, which done_when points were met) plus scheduled overnight jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
+    description: "Flyd's own skills and jobs. action=news gives today's news edition, already picked for George's taste with why each item matters to him — start there for any news question; skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background work you took on (status, which done_when points were met) plus scheduled overnight jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["skills", "skillify", "jobs_status", "run_briefing", "job_hunt", "improve"], description: "What to do" },
+        action: { type: "string", enum: ["news", "skills", "skillify", "jobs_status", "run_briefing", "job_hunt", "improve"], description: "What to do" },
         feedback: { type: "string", description: "For improve: what George said Flyd should do better, in his words" },
         project: { type: "string", description: "Project for run_briefing (optional)" },
       },
@@ -80,13 +80,13 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "background_task",
-    description: "Take on real work in the background while the conversation carries on: generate, draft, research, build, evaluate. Returns at once; the result comes back to George in the chat when done. Use it to act on something he cares about instead of only commenting — e.g. generate new DIR mixes and judge them. For code changes to a repo, prefer start_coding_task.",
+    description: "Take on real work in the background while the conversation carries on: generate, draft, research, build, evaluate. Returns at once; the result comes back to George in the chat when done. Use it to act on something he cares about instead of only commenting — e.g. generate new DIR mixes and judge them. For code changes to a repo, prefer start_coding_task. Not for anything you can answer or write right now in this reply, and not for watching or monitoring: a job runs once and ends, so use schedule for a later check instead of promising to keep an eye on something.",
     input_schema: {
       type: "object",
       properties: {
         task: { type: "string", description: "The job, stated fully: what to make or find, where, and how to judge the result" },
         done_when: { type: "array", items: { type: "string" }, description: "Checkable points that mean the job is done, in George's terms (e.g. \"three new mixes exist in DIR/mixes\", \"each is under 4 minutes\"). An independent check holds the result to these." },
-        deliverable: { type: "string", description: "Optional file or folder the job must leave behind, checked on disk" },
+        deliverable: { type: "string", description: "Optional absolute or ~/ file or folder the job must leave behind, checked on disk. Put it where George would look: beside the project it's about, or ~/Documents/Flyd for anything else. Never inside the Flyd repo." },
       },
       required: ["task", "done_when"],
     },
@@ -171,6 +171,12 @@ export async function runAssistantTool(
         switch (input.action) {
           case "skills": return compound.buildSkillsInventoryReply();
           case "skillify": return compound.buildSkillifyProposeReply({});
+          case "news": {
+            const scout = await import("../council/scout.js");
+            const edition = scout.latestEdition();
+            const lines = scout.formatEdition(edition);
+            return lines.length ? `Today's edition (${edition!.date}):\n${lines.join("\n")}` : "No news edition yet today; search the web for what he cares about.";
+          }
           case "jobs_status": {
             const { describeJobs } = await import("./background-jobs.js");
             return `Background work you took on:\n${describeJobs()}\n\n${compound.buildJobsStatusReply()}`;
@@ -192,7 +198,7 @@ export async function runAssistantTool(
             if (result.status === "awaiting_george") return "A self-improvement is already built and waiting for George's /land; tell him that one is ready first.";
             return `No change started (${result.status.replace(/_/g, " ")}). Tell him honestly and say what you'd need to see.`;
           }
-          default: return "Error: flyd action must be skills, skillify, jobs_status, run_briefing, job_hunt, or improve";
+          default: return "Error: flyd action must be news, skills, skillify, jobs_status, run_briefing, job_hunt, or improve";
         }
       }
       case "consult_specialist": {
