@@ -81,8 +81,32 @@ describe("NodeTerminal TUI mode", () => {
     await terminal.close();
   });
 
-  it("scrolls on a wheel burst of arrows but recalls history on a single arrow press", async () => {
+  it("captures the mouse by default, so an arrow is always a key and the wheel always scrolls", async () => {
     const { terminal, input, output } = tuiTerminal();
+    for (let index = 0; index < 60; index += 1) terminal.write(`line ${index}`);
+    expect(drain(output)).toContain("\x1b[?1000h\x1b[?1006h");
+    const first = terminal.ask("You > ");
+    input.write("hello\r");
+    await first;
+    const second = terminal.ask("You > ");
+    drain(output);
+    // A slow trackpad used to send lone arrows that recalled history; now it sends wheel events.
+    input.write("\x1b[<64;10;10M");
+    const scrolled = drain(output);
+    expect(scrolled).toContain("line 45");
+    expect(scrolled).not.toContain("You > hello");
+    input.write("\x1b[<65;10;10M");
+    drain(output);
+    input.write("\x1b[A");
+    expect(drain(output)).toContain("You > hello");
+    input.write("\r");
+    await second;
+    await terminal.close();
+  });
+
+  it("with mouse capture off, scrolls on a wheel burst of arrows but recalls history on a single arrow press", async () => {
+    const { terminal, input, output } = tuiTerminal();
+    expect(terminal.toggleMouse()).toBe(false);
     for (let index = 0; index < 60; index += 1) terminal.write(`line ${index}`);
     const first = terminal.ask("You > ");
     input.write("hello\r");

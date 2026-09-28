@@ -564,8 +564,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
           deps.terminal.write("  Mouse mode only applies to the full-screen view.\n");
         } else {
           deps.terminal.write(paint(deps.terminal.toggleMouse()
-            ? "  Wheel scrolling on. Text selection is off until /mouse again.\n"
-            : "  Text selection on. Scroll with Shift+↑/↓ or PgUp/PgDn.\n", DIM));
+            ? "  Wheel scrolling on. Select text with Shift+drag.\n"
+            : "  Mouse capture off: plain drag selects, but the wheel may act like ↑/↓. Scroll with Shift+↑/↓ or PgUp/PgDn.\n", DIM));
         }
         continue;
       }

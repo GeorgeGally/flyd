@@ -30,9 +30,11 @@ const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "�
 const PGUP = "\x1b[5~";
 const PGDN = "\x1b[6~";
 /**
- * Trackpad/wheel scroll only reaches the app when mouse reporting is on, but
- * reporting also swallows click-drag, so George couldn't select and copy.
- * Selection wins by default; /mouse (or FLYD_TUI_MOUSE=1) trades it for the wheel.
+ * With mouse reporting off, the terminal turns the wheel into ↑/↓ keys, the
+ * same bytes as a real key press; no timing rule tells them apart (a slow
+ * trackpad scroll recalled input history). So reporting is on by default and
+ * the wheel arrives as wheel events. Text is still selectable: Shift+drag in
+ * Ghostty, Option+drag in iTerm2. /mouse (or FLYD_TUI_MOUSE=0) turns it off.
  */
 const ARROW_ONLY = /^(?:\x1b[[O][AB])+$/;
 const ARROW_BURST_MS = 40;
@@ -99,7 +101,7 @@ export class NodeTerminal {
   private readonly isTty: boolean;
   private readonly tuiMode: boolean;
   private pasteEnabled = false;
-  private mouse = process.env.FLYD_TUI_MOUSE === "1";
+  private mouse = process.env.FLYD_TUI_MOUSE !== "0";
   private pendingArrow = "";
   private replayingArrow = false;
   private lastArrowAt = 0;
@@ -364,10 +366,11 @@ export class NodeTerminal {
       this.render();
       return;
     }
-    // With mouse capture off, terminals turn the wheel into bursts of arrow
-    // keys. A burst scrolls the transcript; a lone arrow (a real key press)
-    // waits a moment, then recalls input history as usual.
-    if (ARROW_ONLY.test(chunk) && !this.replayingArrow) {
+    // Only with mouse capture off do wheel scrolls arrive as arrow keys: then
+    // a burst scrolls the transcript and a lone arrow (probably a real key)
+    // waits a moment before recalling input history. With capture on, an
+    // arrow is always a key.
+    if (!this.mouse && ARROW_ONLY.test(chunk) && !this.replayingArrow) {
       const now = Date.now();
       const arrows = chunk.match(/\x1b[[O][AB]/g) ?? [];
       const burst = arrows.length > 1 || this.pendingArrow !== "" || now - this.lastArrowAt < ARROW_BURST_MS;
