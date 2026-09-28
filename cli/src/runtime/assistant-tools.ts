@@ -84,8 +84,10 @@ export const assistantTools: AgentTool[] = [
       type: "object",
       properties: {
         task: { type: "string", description: "The job, stated fully: what to make or find, where, and how to judge the result" },
+        done_when: { type: "array", items: { type: "string" }, description: "Checkable points that mean the job is done, in George's terms (e.g. \"three new mixes exist in DIR/mixes\", \"each is under 4 minutes\"). An independent check holds the result to these." },
+        deliverable: { type: "string", description: "Optional file or folder the job must leave behind, checked on disk" },
       },
-      required: ["task"],
+      required: ["task", "done_when"],
     },
   },
   {
@@ -209,10 +211,10 @@ export async function runAssistantTool(
         return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land. Tell him in your own words; don't mention crewmates, branches, or worktrees.`;
       }
       case "background_task": {
-        const task = String(input.task ?? "").replace(/\s+/g, " ").trim();
-        if (!task) return "Error: background_task needs a task";
         const jobs = await import("./background-jobs.js");
-        const id = jobs.startBackgroundJob(task, { run: jobs.runJobTurn, deliver: jobs.deliverJob });
+        const contract = jobs.normalizeContract(input);
+        if (typeof contract === "string") return `Error: ${contract}`;
+        const id = jobs.startBackgroundJob(contract, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn, deliver: jobs.deliverJob });
         return `Started in the background (job ${id}). The result will come back to George in the chat when it's done. Tell him in a few words what you're doing; don't mention job ids.`;
       }
       case "crew": {
