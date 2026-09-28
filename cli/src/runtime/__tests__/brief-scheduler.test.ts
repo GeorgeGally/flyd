@@ -5,7 +5,15 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { configureCoachMemoryDirectory, addGoal } from "../coach-memory.js";
 import { configureOutcomeJournalDirectory } from "../../work-intelligence/outcome-journal.js";
-import { startBriefScheduler, stopBriefScheduler, runAndPersistBrief } from "../brief-scheduler.js";
+import {
+  startBriefScheduler,
+  stopBriefScheduler,
+  runAndPersistBrief,
+  briefDueNow,
+  localDayKey,
+  isBriefWindow,
+  isLocalWeekday,
+} from "../brief-scheduler.js";
 import { refreshRepositoryIntelligence } from "../repository-intelligence-refresh.js";
 import { readLatestBrief } from "../daily-brief.js";
 
@@ -47,6 +55,7 @@ describe("brief scheduler", () => {
       intervalMs: 60_000,
       deps: { situation: null },
       repositoryRefresh,
+      force: true,
     });
     expect(stop).toBe(stopBriefScheduler);
 
@@ -62,6 +71,7 @@ describe("brief scheduler", () => {
       intervalMs: 60_000,
       deps: { situation: null },
       repositoryRefresh,
+      force: true,
     });
 
     await vi.runAllTicks();
@@ -86,5 +96,58 @@ describe("brief scheduler", () => {
       "[repository-intelligence] refresh failed:",
       "work index unavailable",
     );
+  });
+
+  it("only considers a brief due on a local weekday inside the local morning window", () => {
+    const sundayAfternoon = new Date(2026, 8, 27, 16, 18);
+    const mondayMorning = new Date(2026, 8, 28, 8, 40);
+    const mondayNight = new Date(2026, 8, 28, 22, 0);
+    const mondayEarly = new Date(2026, 8, 28, 5, 30);
+
+    expect(isLocalWeekday(sundayAfternoon)).toBe(false);
+    expect(isBriefWindow(sundayAfternoon)).toBe(false);
+    expect(briefDueNow(sundayAfternoon)).toBe(false);
+
+    expect(isLocalWeekday(mondayMorning)).toBe(true);
+    expect(briefDueNow(mondayMorning, undefined)).toBe(true);
+    expect(briefDueNow(mondayMorning, localDayKey(mondayMorning))).toBe(false);
+
+    expect(briefDueNow(mondayNight)).toBe(false);
+    expect(briefDueNow(mondayEarly)).toBe(false);
+  });
+
+  it("does not compose off-hours on start or on a fixed interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 27, 16, 18)); // Sunday afternoon
+    const repositoryRefresh = vi.fn(async () => undefined);
+    startBriefScheduler({ intervalMs: 60_000, deps: { situation: null }, repositoryRefresh });
+
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(repositoryRefresh).not.toHaveBeenCalled();
+
+    stopBriefScheduler();
+  });
+
+  it("composes once when the local clock reaches the morning window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 27, 16, 18));
+    addGoal("Ship CleanX", "user");
+    const repositoryRefresh = vi.fn(async () => undefined);
+    startBriefScheduler({ intervalMs: 60_000, deps: { situation: null }, repositoryRefresh });
+
+    await vi.runAllTicks();
+    expect(repositoryRefresh).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date(2026, 8, 28, 8, 0)); // Monday 08:00
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    await vi.waitFor(() => expect(repositoryRefresh).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(readLatestBrief()?.body).toContain("Ship CleanX"));
+
+    // Same day, later in the window: still just the one brief.
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(repositoryRefresh).toHaveBeenCalledTimes(1);
+
+    stopBriefScheduler();
   });
 });
