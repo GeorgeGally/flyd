@@ -3,14 +3,31 @@ import XCTest
 @testable import FlydMacAdapter
 
 final class DictationPillTests: XCTestCase {
-    func testSitsBottomCentreOfTheVisibleFrame() {
-        let frame = DictationPill.frame(width: 100, in: NSRect(x: 0, y: 25, width: 1440, height: 875))
-        XCTAssertEqual(frame, NSRect(x: 670, y: 53, width: 100, height: 34))
+    private let macBook = NSRect(x: 0, y: 0, width: 1512, height: 982)
+    private let notch = NSRect(x: 656, y: 950, width: 200, height: 32)
+
+    func testGrowsWingsEitherSideOfTheNotch() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, messageWidth: nil)
+        XCTAssertEqual(frame, NSRect(x: 598, y: 950, width: 316, height: 32))
+    }
+
+    func testDropsAMessageStripBelowTheNotch() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, messageWidth: 300)
+        XCTAssertEqual(frame, NSRect(x: 592, y: 920, width: 328, height: 62))
+    }
+
+    func testSitsTopCentreOnScreensWithoutANotch() {
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 1440, y: 0, width: 1920, height: 1080), notch: nil, messageWidth: nil)
+        XCTAssertEqual(frame, NSRect(x: 2342, y: 1048, width: 116, height: 32))
     }
 
     func testNeverWiderThanTheScreen() {
-        let frame = DictationPill.frame(width: 900, in: NSRect(x: 1440, y: 0, width: 600, height: 400))
-        XCTAssertEqual(frame, NSRect(x: 1468, y: 28, width: 544, height: 34))
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, messageWidth: 400)
+        XCTAssertEqual(frame, NSRect(x: 0, y: 438, width: 300, height: 62))
+    }
+
+    func testCollapsesIntoTheNotch() {
+        XCTAssertEqual(DictationPill.collapsedFrame(screen: macBook, notch: notch), notch)
     }
 
     func testTellsGeorgeWhereTheTextWentWhenItWasNotPasted() {

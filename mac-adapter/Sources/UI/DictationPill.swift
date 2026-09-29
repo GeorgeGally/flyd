@@ -1,7 +1,9 @@
 import AppKit
 
-/// The small capsule that shows dictation is live. It never takes focus, so the app
-/// George is dictating into stays frontmost and receives the paste.
+/// Dictation status grown out of the MacBook notch: a black island flush with the notch
+/// whose wings carry the live dot and level bars, dropping a strip below the notch for
+/// messages. Screens without a notch get the same island at the top centre. It never
+/// takes focus, so the app George is dictating into stays frontmost and receives the paste.
 final class DictationPill {
     enum Phase: Equatable {
         case listening
@@ -11,38 +13,83 @@ final class DictationPill {
         case failed(String)
     }
 
-    static let height: CGFloat = 34
-    static let bottomMargin: CGFloat = 28
-    private static let barCount = 9
+    /// Height of the island on screens without a notch.
+    static let fallbackHeight: CGFloat = 32
+    static let wingWidth: CGFloat = 58
+    static let messageStripHeight: CGFloat = 30
+    static let cornerRadius: CGFloat = 14
+    private static let barCount = 7
     private static let barWidth: CGFloat = 3
     private static let barGap: CGFloat = 3
-    private static let autoHideDelay: TimeInterval = 1.2
+    private static let autoHideDelay: TimeInterval = 1.4
+    private static let animationDuration: TimeInterval = 0.28
 
     private var panel: NSPanel?
-    private var capsule: NSView?
+    private var island: NSView?
     private var dot: FlydStatusDot?
     private var bars: [NSView] = []
     private var spinner: NSProgressIndicator?
+    private var check: NSTextField?
     private var label: NSTextField?
     private var hideWork: DispatchWorkItem?
+    /// Bumped on every show, so a collapse that finishes after a newer show never hides it.
+    private var generation = 0
+    private var wingMidY: CGFloat = fallbackHeight / 2
 
-    /// Bottom-centre of `visibleFrame`, clamped so the pill never leaves the screen.
-    static func frame(width: CGFloat, in visibleFrame: NSRect) -> NSRect {
-        let clampedWidth = min(width, visibleFrame.width - 2 * bottomMargin)
-        let x = visibleFrame.midX - clampedWidth / 2
-        let y = visibleFrame.minY + bottomMargin
-        return NSRect(x: x.rounded(), y: y, width: clampedWidth, height: height)
+    /// The notch in screen coordinates, or nil on screens without one.
+    static func notchRect(of screen: NSScreen) -> NSRect? {
+        guard #available(macOS 12.0, *), screen.safeAreaInsets.top > 0,
+              let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
+        let height = screen.safeAreaInsets.top
+        return NSRect(x: left.maxX, y: screen.frame.maxY - height, width: right.minX - left.maxX, height: height)
+    }
+
+    /// Flush with the top edge, centred on the notch; wings either side, plus a strip
+    /// below the notch when there is a message.
+    static func islandFrame(screen: NSRect, notch: NSRect?, messageWidth: CGFloat?) -> NSRect {
+        let notchWidth = notch?.width ?? 0
+        let midX = notch?.midX ?? screen.midX
+        var width = notchWidth + 2 * wingWidth
+        var height = notch?.height ?? fallbackHeight
+        if let messageWidth {
+            width = max(width, messageWidth + 2 * cornerRadius)
+            height += messageStripHeight
+        }
+        width = min(width, screen.width)
+        let x = min(max(midX - width / 2, screen.minX), screen.maxX - width)
+        return NSRect(x: x.rounded(), y: screen.maxY - height, width: width, height: height)
+    }
+
+    /// Collapsed into the notch itself: where the island grows from and shrinks back to.
+    static func collapsedFrame(screen: NSRect, notch: NSRect?) -> NSRect {
+        let height = notch?.height ?? fallbackHeight
+        let width = notch?.width ?? 2 * cornerRadius
+        let midX = notch?.midX ?? screen.midX
+        return NSRect(x: (midX - width / 2).rounded(), y: screen.maxY - height, width: width, height: height)
     }
 
     func show(_ phase: Phase) {
         hideWork?.cancel()
         hideWork = nil
+        generation += 1
+        let wasVisible = panel?.isVisible == true
         let panel = panel ?? makePanel()
+        let screen = Self.screenUnderMouse()
+        let notch = Self.notchRect(of: screen)
 
-        let width = layout(for: phase)
-        panel.setFrame(Self.frame(width: width, in: Self.screenUnderMouse().visibleFrame), display: true)
-        capsule?.frame = NSRect(x: 0, y: 0, width: panel.frame.width, height: Self.height)
-        panel.orderFrontRegardless()
+        let messageWidth = configure(for: phase)
+        let target = Self.islandFrame(screen: screen.frame, notch: notch, messageWidth: messageWidth)
+        layoutContent(in: target.size, notch: notch)
+
+        if !wasVisible {
+            panel.setFrame(Self.collapsedFrame(screen: screen.frame, notch: notch), display: false)
+            panel.orderFrontRegardless()
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.animationDuration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+            panel.animator().setFrame(target, display: true)
+        }
 
         switch phase {
         case .listening, .working:
@@ -56,6 +103,7 @@ final class DictationPill {
 
     func updateSpectrum(_ bands: [Float]) {
         guard !bars.isEmpty, bars.first?.isHidden == false else { return }
+        let maxHeight = max(6, wingMidY * 2 - 14)
         for (index, bar) in bars.enumerated() {
             let value: CGFloat
             if bands.isEmpty {
@@ -64,98 +112,147 @@ final class DictationPill {
                 let source = min(bands.count - 1, index * bands.count / bars.count)
                 value = CGFloat(max(0, min(1, bands[source])))
             }
-            let barHeight = 3 + value * 16
+            let barHeight = 3 + value * (maxHeight - 3)
             bar.frame.size.height = barHeight
-            bar.frame.origin.y = (Self.height - barHeight) / 2
+            bar.frame.origin.y = wingMidY - barHeight / 2
         }
     }
 
     func hide() {
         hideWork?.cancel()
         hideWork = nil
+        guard let panel, panel.isVisible else { return }
+        let hiding = generation
+        let screen = Self.screenUnderMouse()
+        let collapsed = Self.collapsedFrame(screen: screen.frame, notch: Self.notchRect(of: screen))
+        [dot, check, label].forEach { $0?.isHidden = true }
+        bars.forEach { $0.isHidden = true }
         spinner?.stopAnimation(nil)
-        panel?.orderOut(nil)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.animationDuration
+            panel.animator().setFrame(collapsed, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.generation == hiding else { return }
+            panel.orderOut(nil)
+        })
     }
 
-    private func layout(for phase: Phase) -> CGFloat {
-        let leading: CGFloat = 14
-        let barsWidth = CGFloat(Self.barCount) * Self.barWidth + CGFloat(Self.barCount - 1) * Self.barGap
-        let showBars = phase == .listening
-        bars.forEach { $0.isHidden = !showBars }
-        dot?.isHidden = !showBars
+    /// Shows the views this phase needs; returns the width of the message strip, if any.
+    private func configure(for phase: Phase) -> CGFloat? {
+        bars.forEach { $0.isHidden = phase != .listening }
         spinner?.isHidden = phase != .working
         if phase == .working { spinner?.startAnimation(nil) } else { spinner?.stopAnimation(nil) }
+        check?.isHidden = phase != .inserted
+        label?.isHidden = true
+        dot?.isHidden = true
 
         switch phase {
         case .listening:
-            dot?.frame.origin = NSPoint(x: leading, y: (Self.height - 7) / 2)
+            dot?.isHidden = false
             dot?.set(color: FlydPalette.listenBlue, pulsing: true)
-            for (index, bar) in bars.enumerated() {
-                bar.frame = NSRect(
-                    x: leading + 7 + 10 + CGFloat(index) * (Self.barWidth + Self.barGap),
-                    y: (Self.height - 3) / 2,
-                    width: Self.barWidth,
-                    height: 3
-                )
-            }
-            label?.isHidden = true
-            return leading + 7 + 10 + barsWidth + leading
+            return nil
         case .working:
-            spinner?.frame = NSRect(x: leading, y: (Self.height - 16) / 2, width: 16, height: 16)
-            return setLabel("Writing", color: FlydPalette.paper.withAlphaComponent(0.72), after: leading + 16 + 8)
+            return nil
         case .inserted:
-            return setLabel("✓", color: FlydPalette.signalGreen, after: leading)
+            dot?.isHidden = false
+            dot?.set(color: FlydPalette.signalGreen, pulsing: false)
+            return nil
         case .notice(let message):
-            return setLabel(message, color: FlydPalette.brassGlow, after: leading)
+            return setLabel(message, color: FlydPalette.brassGlow)
         case .failed(let message):
-            return setLabel(message, color: FlydPalette.signalRust, after: leading)
+            return setLabel(message, color: FlydPalette.signalRust)
         }
     }
 
-    private func setLabel(_ text: String, color: NSColor, after x: CGFloat) -> CGFloat {
-        guard let label else { return x }
+    /// Positions content for the island's final size, in its own (bottom-left origin) coordinates.
+    private func layoutContent(in size: NSSize, notch: NSRect?) {
+        let topHeight = notch?.height ?? Self.fallbackHeight
+        let notchWidth = notch?.width ?? 0
+        let wingsStart = (size.width - notchWidth) / 2 - Self.wingWidth
+        let leftWingMidX = wingsStart + Self.wingWidth / 2 + 4
+        let rightWingMinX = wingsStart + Self.wingWidth + notchWidth
+        let midY = size.height - topHeight / 2
+        wingMidY = midY
+
+        dot?.frame.origin = NSPoint(x: (leftWingMidX - 3.5).rounded(), y: (midY - 3.5).rounded())
+        spinner?.frame = NSRect(x: (leftWingMidX - 8).rounded(), y: (midY - 8).rounded(), width: 16, height: 16)
+
+        let barsWidth = CGFloat(Self.barCount) * Self.barWidth + CGFloat(Self.barCount - 1) * Self.barGap
+        let barsStart = rightWingMinX + (Self.wingWidth - barsWidth) / 2 - 4
+        for (index, bar) in bars.enumerated() {
+            bar.frame = NSRect(
+                x: barsStart + CGFloat(index) * (Self.barWidth + Self.barGap),
+                y: midY - 1.5,
+                width: Self.barWidth,
+                height: 3
+            )
+        }
+
+        if let check {
+            let checkSize = check.attributedStringValue.size()
+            check.frame = NSRect(
+                x: (rightWingMinX + (Self.wingWidth - checkSize.width) / 2 - 4).rounded(),
+                y: (midY - checkSize.height / 2).rounded(),
+                width: ceil(checkSize.width) + 2,
+                height: ceil(checkSize.height)
+            )
+        }
+
+        if let label, !label.isHidden {
+            let labelSize = label.attributedStringValue.size()
+            label.frame = NSRect(
+                x: ((size.width - labelSize.width) / 2).rounded(),
+                y: ((Self.messageStripHeight - labelSize.height) / 2 + 2).rounded(),
+                width: ceil(labelSize.width) + 2,
+                height: ceil(labelSize.height)
+            )
+        }
+    }
+
+    private func setLabel(_ text: String, color: NSColor) -> CGFloat {
+        guard let label else { return 0 }
         label.isHidden = false
         label.stringValue = text
         label.textColor = color
-        let size = label.attributedStringValue.size()
-        label.frame = NSRect(x: x, y: (Self.height - size.height) / 2, width: ceil(size.width) + 2, height: ceil(size.height))
-        return x + label.frame.width + 14
+        return ceil(label.attributedStringValue.size().width) + 8
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 120, height: Self.height),
+        let panel = NotchPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: Self.fallbackHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.isFloatingPanel = true
-        panel.level = .statusBar
+        // Above the menu bar, so the island can sit on the notch.
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 2)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         panel.ignoresMouseEvents = true
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
 
-        let capsule = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: Self.height))
-        capsule.wantsLayer = true
-        capsule.layer?.backgroundColor = FlydPalette.ink.withAlphaComponent(0.94).cgColor
-        capsule.layer?.cornerRadius = Self.height / 2
-        capsule.layer?.borderWidth = 1
-        capsule.layer?.borderColor = FlydPalette.line.cgColor
-        panel.contentView?.addSubview(capsule)
+        let island = NSView(frame: panel.contentView?.bounds ?? .zero)
+        island.autoresizingMask = [.width, .height]
+        island.wantsLayer = true
+        // Pure black so the island reads as the notch itself growing.
+        island.layer?.backgroundColor = NSColor.black.cgColor
+        island.layer?.cornerRadius = Self.cornerRadius
+        island.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        panel.contentView?.addSubview(island)
 
         let dot = FlydStatusDot(frame: .zero)
-        capsule.addSubview(dot)
+        island.addSubview(dot)
 
         bars = (0..<Self.barCount).map { _ in
             let bar = NSView()
             bar.wantsLayer = true
-            bar.layer?.backgroundColor = FlydPalette.listenBlue.withAlphaComponent(0.85).cgColor
+            bar.layer?.backgroundColor = FlydPalette.listenBlue.withAlphaComponent(0.9).cgColor
             bar.layer?.cornerRadius = Self.barWidth / 2
-            capsule.addSubview(bar)
+            island.addSubview(bar)
             return bar
         }
 
@@ -164,16 +261,22 @@ final class DictationPill {
         spinner.controlSize = .small
         spinner.appearance = NSAppearance(named: .darkAqua)
         spinner.isDisplayedWhenStopped = false
-        capsule.addSubview(spinner)
+        island.addSubview(spinner)
+
+        let check = NSTextField(labelWithString: "✓")
+        check.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        check.textColor = FlydPalette.signalGreen
+        island.addSubview(check)
 
         let label = NSTextField(labelWithString: "")
-        label.font = FlydPalette.monospace(12)
-        capsule.addSubview(label)
+        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        island.addSubview(label)
 
         self.panel = panel
-        self.capsule = capsule
+        self.island = island
         self.dot = dot
         self.spinner = spinner
+        self.check = check
         self.label = label
         return panel
     }
@@ -183,5 +286,12 @@ final class DictationPill {
         return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
             ?? NSScreen.main
             ?? NSScreen.screens[0]
+    }
+}
+
+/// AppKit pushes windows below the menu bar; the island has to overlap it to reach the notch.
+private final class NotchPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
     }
 }
