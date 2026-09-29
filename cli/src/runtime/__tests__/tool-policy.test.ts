@@ -142,3 +142,13 @@ describe("a no holds for the turn", () => {
     expect(decideToolCall("bash", { command: "touch x" }, local, "trusted").kind).toBe("deny");
   });
 });
+
+describe("approving crew follow-ups at dispatch", () => {
+  it("asks George right away when a hand-off includes a push or deploy", () => {
+    const clean = { tainted: false };
+    expect(decideToolCall("start_coding_task", { outcome: "Ship the polish", after_land: ["push", "deploy"] }, clean, "trusted"))
+      .toEqual({ kind: "confirm", category: "outward", reason: 'build "Ship the polish", then push and deploy once you land it (leaves this machine)' });
+    expect(decideToolCall("start_coding_task", { outcome: "Ship the polish" }, clean, "trusted")).toEqual({ kind: "allow" });
+  });
+});
+

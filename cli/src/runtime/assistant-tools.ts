@@ -67,13 +67,14 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "start_coding_task",
-    description: "Dispatch an OpenCode crewmate to build something, in the background: it gets its own git worktree and branch, works unattended, and Flyd verifies it with the repo's own tests and tells George when it is ready to land. Use for features, refactors, and multi-file work; small edits you can make directly. Returns immediately with a task id.",
+    description: "Hand code work in one of George's repos to the crew, in the background. The crew can build the change on its own branch, install dependencies, run the repo's tests, and commit. It cannot push, deploy, publish, or merge: those happen only after George says /land, and only if he approves them now. So if what he asked for includes pushing or deploying, put those steps in after_land and he is asked right away; never promise them otherwise. Returns immediately.",
     input_schema: {
       type: "object",
       properties: {
         outcome: { type: "string", description: "The finished result, stated precisely enough to build and verify unattended" },
         done_when: { type: "array", items: { type: "string" }, description: "Checkable points that mean it's done, beyond tests passing (e.g. \"the TUI scrolls with the mouse wheel\", \"a test covers an empty inbox\"). An independent reviewer holds the diff to these." },
         repo: { type: "string", description: "Repository root path (default: the current project)" },
+        after_land: { type: "array", items: { type: "string" }, description: "Steps beyond the crew that he asked for, run in order once he lands it: push, deploy. George approves them now." },
       },
       required: ["outcome", "done_when"],
     },
@@ -220,8 +221,15 @@ export async function runAssistantTool(
         const { normalizeCriteria } = await import("./acceptance.js");
         const doneWhen = normalizeCriteria(input.done_when);
         if (!doneWhen.length) return "Error: start_coding_task needs done_when: the checkable points that mean it's done";
-        const task = await dispatchCrewTask({ repo, outcome, doneWhen, source: "chat" });
-        return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land. Tell him in your own words; don't mention crewmates, branches, or worktrees.`;
+        const { AFTER_LAND_STEPS, deployCommand } = await import("../crew/crew.js");
+        const afterLand = normalizeCriteria(input.after_land).map((step) => step.toLowerCase())
+          .filter((step): step is (typeof AFTER_LAND_STEPS)[number] => (AFTER_LAND_STEPS as readonly string[]).includes(step));
+        const task = await dispatchCrewTask({ repo, outcome, doneWhen, afterLand, source: "chat" });
+        const noDeploy = afterLand.includes("deploy") && !deployCommand(task.repo)
+          ? " This repo declares no deploy command, so deploying will need one set up; tell him." : "";
+        const verbs = { push: "pushes", deploy: "deploys" } as const;
+        const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}, as he just approved.` : "";
+        return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
       }
       case "background_task": {
         const jobs = await import("./background-jobs.js");

@@ -48,7 +48,20 @@ export interface CrewTask {
   attempts?: number;
   /** When the current crewmate run began; the runtime cap is per run. */
   attemptStartedAt?: string;
+  /** Steps beyond the crew that George approved at dispatch, run when he lands it. */
+  afterLand?: AfterLandStep[];
+  afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string }>;
 }
+
+/**
+ * What the crew itself does and doesn't do. Flyd reads this before it
+ * promises anything: work beyond it is approved by George at dispatch
+ * (after_land) and carried out when he lands the task, never on its own.
+ */
+export const CREW_CAN = "build the change on its own branch, install dependencies, run the repo's tests, and commit";
+export const CREW_CANNOT = "push, deploy, publish, merge into his branch, or touch anything outside its worktree";
+export const AFTER_LAND_STEPS = ["push", "deploy"] as const;
+export type AfterLandStep = (typeof AFTER_LAND_STEPS)[number];
 
 export function crewDir(): string {
   return process.env.FLYD_CREW_DIR?.trim() || join(FLYD_DIR, "crew");
@@ -149,6 +162,7 @@ export interface DispatchOptions {
   repo: string;
   outcome: string;
   doneWhen?: string[];
+  afterLand?: AfterLandStep[];
   source?: CrewTask["source"];
   now?: Date;
   dir?: string;
@@ -180,6 +194,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
     id, repo, outcome, branch, baseBranch, baseCommit, worktree, status: "running", log,
     createdAt: now.toISOString(), source: options.source ?? "chat", attempts: 1,
     ...(doneWhen.length ? { doneWhen } : {}),
+    ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
   };
   const brief = crewBrief(outcome, verification, branch, doneWhen);
   const pid = (options.launch ?? launchOpenCode)(task, brief);
@@ -432,7 +447,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
  * possible, a merge commit otherwise; refuses a dirty or moved checkout
  * rather than guessing.
  */
-export async function landCrewTask(id: string, dir = crewDir()): Promise<CrewTask> {
+export async function landCrewTask(id: string, dir = crewDir(), run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }> = defaultRunCommand): Promise<CrewTask> {
   const task = readTask(id, dir);
   if (!task) throw new Error(`No crew task ${id}`);
   if (task.status !== "ready") throw new Error(`Task ${id} is ${task.status}, not ready to land`);
@@ -445,9 +460,38 @@ export async function landCrewTask(id: string, dir = crewDir()): Promise<CrewTas
     await git(task.repo, ["merge", "--no-ff", "-m", `Merge ${task.branch}: ${task.outcome.slice(0, 60)}`, task.branch]);
   }
   await git(task.repo, ["worktree", "remove", task.worktree]).catch(() => undefined);
-  const landed = { ...task, status: "landed" as const };
+  const afterLandResults = await runAfterLand(task, run);
+  const landed: CrewTask = { ...task, status: "landed", finishedAt: new Date().toISOString(), ...(afterLandResults.length ? { afterLandResults } : {}) };
   saveTask(landed, dir);
   return landed;
+}
+
+/** The repo's own deploy command, if it declares one. */
+export function deployCommand(repo: string): string | null {
+  try {
+    const scripts = (JSON.parse(readFileSync(join(repo, "package.json"), "utf8")) as { scripts?: Record<string, string> }).scripts ?? {};
+    if (scripts.deploy) return "npm run deploy";
+  } catch { /* no package.json */ }
+  try {
+    if (/^deploy\s*:/m.test(readFileSync(join(repo, "Makefile"), "utf8"))) return "make deploy";
+  } catch { /* no Makefile */ }
+  return null;
+}
+
+/** Carry out the steps George approved when he dispatched the task, in order; stop at the first failure. */
+async function runAfterLand(task: CrewTask, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<NonNullable<CrewTask["afterLandResults"]>> {
+  const results: NonNullable<CrewTask["afterLandResults"]> = [];
+  for (const step of task.afterLand ?? []) {
+    const command = step === "push" ? `git push origin ${task.baseBranch}` : deployCommand(task.repo);
+    if (!command) {
+      results.push({ step, ok: false, detail: "this repo declares no deploy command (package.json \"deploy\" script or a Makefile deploy target)" });
+      break;
+    }
+    const result = await run(command, task.repo);
+    results.push({ step, ok: result.ok, detail: `${command}: ${result.output.trim().split("\n").slice(-3).join(" ").slice(0, 300)}` });
+    if (!result.ok) break;
+  }
+  return results;
 }
 
 /** Discard a task's worktree and branch (George's call; the branch is gone after this). */
@@ -479,5 +523,8 @@ export function reviewLines(task: CrewTask): string[] {
 export function describeTask(task: CrewTask): string {
   const verification = task.verification?.length ? ` · checks ${task.verification.every((step) => step.ok) ? "pass" : "FAIL"}` : "";
   const review = task.review?.length ? ` · review ${task.review.filter((check) => check.met).length}/${task.review.length}` : "";
-  return `[${task.id}] ${task.status}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
+  const after = task.afterLandResults?.length
+    ? ` · ${task.afterLandResults.map((result) => `${result.step} ${result.ok ? "done" : "FAILED"}`).join(", ")}`
+    : task.afterLand?.length ? ` · then ${task.afterLand.join(", ")} on /land` : "";
+  return `[${task.id}] ${task.status}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review}${after} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
 }

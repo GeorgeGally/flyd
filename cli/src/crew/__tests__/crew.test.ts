@@ -187,3 +187,26 @@ describe("crew review against done_when", () => {
     expect(done.review).toEqual([{ criterion: "Add a feature file", met: true, note: "added" }]);
   });
 });
+
+describe("after landing", () => {
+  it("runs what George approved at dispatch, in order, once he lands it", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", afterLand: ["push", "deploy"], launch: fakeCrewmate() });
+    expect(task.afterLand).toEqual(["push", "deploy"]);
+    await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["git push origin main", "npm run deploy"]);
+    expect(landed.afterLandResults?.map((result) => [result.step, result.ok])).toEqual([["push", true], ["deploy", true]]);
+  });
+
+  it("says so when the repo has no deploy command, and stops at the first failure", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", afterLand: ["deploy", "push"], launch: fakeCrewmate() });
+    await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    const run = vi.fn(async () => ({ ok: true, output: "" }));
+    const landed = await landCrewTask(task.id, undefined, run);
+    expect(run).not.toHaveBeenCalled();
+    expect(landed.afterLandResults).toEqual([{ step: "deploy", ok: false, detail: expect.stringContaining("declares no deploy command") }]);
+  });
+});

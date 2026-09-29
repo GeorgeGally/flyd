@@ -185,9 +185,10 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
       return "local";
     case "schedule": return input.action === "list" ? "read" : "local";
     case "todos": return input.action === "list" ? "read" : "local";
+    // Building on its own branch is local; approving a push or deploy for when he lands it is not.
+    case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
     case "work_model":
     case "speaking_style":
-    case "start_coding_task":
     case "background_task":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
@@ -219,6 +220,10 @@ function describe(name: string, input: Record<string, unknown>): string {
     case "mac": return input.action === "applescript"
       ? `run AppleScript: ${clip(String(input.script ?? ""), 120)}`
       : `${String(input.action)} ${clip(String(input.target ?? input.text ?? ""), 80)}`;
+    case "start_coding_task": {
+      const after = Array.isArray(input.after_land) ? input.after_land.map(String) : [];
+      return `build "${clip(String(input.outcome ?? ""), 80)}"${after.length ? `, then ${after.join(" and ")} once you land it` : ""}`;
+    }
     default: return `use ${name}`;
   }
 }

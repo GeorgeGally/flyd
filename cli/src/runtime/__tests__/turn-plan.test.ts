@@ -49,4 +49,10 @@ describe("tool contracts", () => {
     expect(contractError("remember", { text: "George is learning plain English grammar for his kid's school" })).toBeNull();
     expect(contractError("speaking_style", { style: "asd-ste100" })).toBeNull();
   });
+
+  it("won't let a hand-off promise what the crew can't do", () => {
+    expect(contractError("start_coding_task", { outcome: "Merge the polish branch and deploy it", done_when: ["x"] })).toMatch(/crew can't do/);
+    expect(contractError("start_coding_task", { outcome: "Merge the polish branch and deploy it", done_when: ["x"], after_land: ["deploy"] })).toBeNull();
+    expect(contractError("start_coding_task", { outcome: "Push notifications for new mixes", done_when: ["x"] })).toBeNull();
+  });
 });
