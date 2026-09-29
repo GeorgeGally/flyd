@@ -49,13 +49,14 @@ export const personalTools: AgentTool[] = [
   },
   {
     name: "reminders",
-    description: "Apple Reminders. action=list shows open reminders; action=create adds one (only when George asks for a reminder).",
+    description: "Apple Reminders. list shows open reminders; create adds one (only when George asks for a reminder); update changes an existing one's due time or title (\"make it Saturday instead\" is an update, never a second create); complete ticks one off; delete removes one. update/complete/delete find the reminder by match, part of its title; if several match, ask George which.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "create"], description: "list or create" },
-        title: { type: "string", description: "Reminder title (create)" },
-        due: { type: "string", description: "Local due time as YYYY-MM-DD HH:MM (create, optional)" },
+        action: { type: "string", enum: ["list", "create", "update", "complete", "delete"], description: "What to do" },
+        match: { type: "string", description: "Part of the existing reminder's title (update, complete, delete)" },
+        title: { type: "string", description: "Reminder title (create), or the new title (update, optional)" },
+        due: { type: "string", description: "Local due time as YYYY-MM-DD HH:MM (create, optional; update: the new due time)" },
         notes: { type: "string", description: "Extra notes (create, optional)" },
         list: { type: "string", description: "Reminders list name (optional)" },
       },
@@ -115,7 +116,7 @@ export function isMutatingToolCall(name: string, input: Record<string, unknown>)
   if (name === "crew") return input.action === "land" || input.action === "discard";
   if (name === "flyd") return input.action === "run_briefing" || input.action === "skillify" || input.action === "improve";
   if (name === "mac") return input.action !== "clipboard_read";
-  return name === "reminders" && input.action === "create";
+  return name === "reminders" && input.action !== "list";
 }
 
 export interface PersonalToolDependencies {
@@ -333,6 +334,47 @@ on run argv
   end tell
 end run`;
 
+// Finds exactly one open reminder whose title contains the match; several
+// matches come back as a list so Flyd asks George instead of guessing.
+const CHANGE_REMINDER = `
+on run argv
+  set {mode, theMatch, newTitle, hasDue, y, mo, dd, hh, mi} to argv
+  tell application "Reminders"
+    set found to (every reminder whose completed is false and name contains theMatch)
+    if (count of found) is 0 then return "NONE"
+    if (count of found) > 1 then
+      set out to "MANY"
+      repeat with r in found
+        set out to out & linefeed & "- " & (name of r)
+      end repeat
+      return out
+    end if
+    set r to item 1 of found
+    set theName to name of r
+    if mode is "delete" then
+      delete r
+      return theName
+    end if
+    if mode is "complete" then
+      set completed of r to true
+      return theName
+    end if
+    if newTitle is not "" then set name of r to newTitle
+    if hasDue is "1" then
+      set d to current date
+      set day of d to 1
+      set year of d to (y as integer)
+      set month of d to (mo as integer)
+      set day of d to (dd as integer)
+      set hours of d to (hh as integer)
+      set minutes of d to (mi as integer)
+      set seconds of d to 0
+      set due date of r to d
+    end if
+    return name of r
+  end tell
+end run`;
+
 const LIST_EVENTS = `
 on run argv
   set {y, mo, dd, span} to argv
@@ -468,7 +510,25 @@ export async function runPersonalTool(
           const out = await osascript(LIST_REMINDERS, []);
           return out || "No open reminders.";
         }
-        if (input.action !== "create") return "Error: reminders action must be list or create";
+        if (input.action === "update" || input.action === "complete" || input.action === "delete") {
+          const match = String(input.match ?? "").trim();
+          if (!match) return `Error: reminders ${input.action} needs match, part of the existing reminder's title`;
+          const dueText = String(input.due ?? "").trim();
+          const due = dueText ? dueText.match(LOCAL_DATE_TIME) : null;
+          if (dueText && !due) return `Error: due must be local YYYY-MM-DD HH:MM, got "${dueText}"`;
+          const newTitle = String(input.title ?? "").trim();
+          if (input.action === "update" && !due && !newTitle) return "Error: reminders update needs a new due or title";
+          const out = await osascript(CHANGE_REMINDER, [
+            String(input.action), match, newTitle, due ? "1" : "0",
+            due?.[1] ?? "0", due?.[2] ?? "0", due?.[3] ?? "0", due?.[4] ?? "9", due?.[5] ?? "0",
+          ]);
+          if (out === "NONE") return `Error: no open reminder matches "${match}". List them and try the exact title.`;
+          if (out.startsWith("MANY")) return `Several open reminders match "${match}":\n${out.slice(4).trim()}\nAsk George which one he means; don't guess.`;
+          return input.action === "update"
+            ? `Updated reminder: ${out}${due ? ` — now due ${dueText}` : ""}`
+            : input.action === "complete" ? `Completed reminder: ${out}` : `Deleted reminder: ${out}`;
+        }
+        if (input.action !== "create") return "Error: reminders action must be list, create, update, complete, or delete";
         const title = String(input.title ?? "").trim();
         if (!title) return "Error: a reminder needs a title";
         const dueText = String(input.due ?? "").trim();

@@ -64,6 +64,7 @@ describe("personal tools", () => {
   it("classifies which calls may not be replayed or parallelized", () => {
     expect(isMutatingToolCall("reminders", { action: "create" })).toBe(true);
     expect(isMutatingToolCall("reminders", { action: "list" })).toBe(false);
+    expect(isMutatingToolCall("reminders", { action: "update" })).toBe(true);
     expect(isMutatingToolCall("remember", {})).toBe(true);
     expect(isMutatingToolCall("bash", { command: "ls" })).toBe(true);
     expect(isMutatingToolCall("web_search", { query: "x" })).toBe(false);
@@ -98,3 +99,23 @@ describe("personal tools", () => {
     expect(appleScriptError(error)).toBe("Calendar got an error: Application isn’t running. (-600)");
   });
 });
+
+describe("changing a reminder", () => {
+  it("moves the one reminder that matches instead of adding a second", async () => {
+    const runOsascript = vi.fn(async (_script: string, _args: string[]) => "Call mum");
+    expect(await runPersonalTool("reminders", { action: "update", match: "mum", due: "2026-10-03 10:00" }, { runOsascript }))
+      .toBe("Updated reminder: Call mum — now due 2026-10-03 10:00");
+    expect(runOsascript.mock.calls[0][1]).toEqual(["update", "mum", "", "1", "2026", "10", "03", "10", "00"]);
+  });
+
+  it("asks rather than guesses when several reminders match, and says when none do", async () => {
+    const many = async () => "MANY\n- Call mum\n- Call mum about flights";
+    expect(await runPersonalTool("reminders", { action: "complete", match: "mum" }, { runOsascript: many }))
+      .toBe('Several open reminders match "mum":\n- Call mum\n- Call mum about flights\nAsk George which one he means; don\'t guess.');
+    expect(await runPersonalTool("reminders", { action: "delete", match: "dentist" }, { runOsascript: async () => "NONE" }))
+      .toMatch(/^Error: no open reminder matches "dentist"/);
+    expect(await runPersonalTool("reminders", { action: "update", match: "mum" }, { runOsascript: async () => "x" }))
+      .toBe("Error: reminders update needs a new due or title");
+  });
+});
+

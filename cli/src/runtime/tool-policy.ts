@@ -193,7 +193,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     // Merging into George's branch or deleting a crew branch is his call, every time.
     case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
     case "flyd": return input.action === "run_briefing" || input.action === "skillify" || input.action === "improve" ? "local" : "read";
-    case "reminders": return input.action === "create" ? "local" : "read";
+    case "reminders": return input.action === "list" ? "read" : input.action === "delete" ? "destructive" : "local";
     case "mac":
       if (input.action === "applescript") return classifyAppleScript(String(input.script ?? ""));
       return input.action === "clipboard_read" ? "read" : "local";
@@ -212,7 +212,9 @@ function describe(name: string, input: Record<string, unknown>): string {
     case "edit_file": return `edit ${clip(String(input.path ?? ""), 80)}`;
     case "write_file": return `write ${clip(String(input.path ?? ""), 80)}`;
     case "remember": return `save to memory: "${clip(String(input.text ?? ""), 80)}"`;
-    case "reminders": return `create reminder "${clip(String(input.title ?? ""), 60)}"`;
+    case "reminders": return input.action === "create"
+      ? `create reminder "${clip(String(input.title ?? ""), 60)}"`
+      : `${String(input.action)} reminder "${clip(String(input.match ?? ""), 60)}"`;
     case "schedule": return `${String(input.action)} scheduled task "${clip(String(input.task ?? input.id ?? ""), 80)}"`;
     case "mac": return input.action === "applescript"
       ? `run AppleScript: ${clip(String(input.script ?? ""), 120)}`
