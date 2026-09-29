@@ -8,6 +8,8 @@ final class DictationController {
     private struct Session {
         let invocationId: String
         let bundleId: String
+        let startedAt: TimeInterval
+        var peakLevel: Float = 0
         var targetPid: pid_t?
     }
 
@@ -31,18 +33,13 @@ final class DictationController {
     private let relay = VoiceTranscriptionRelay.shared
     private let stateMachine = InvocationStateMachine.shared
 
-    var isActive: Bool {
-        if case .idle = phase { return false }
-        return true
-    }
-
     func start() {
         guard case .idle = phase else { return }
         let (invocationId, _) = state.startInvocation()
         let session = Session(
             invocationId: invocationId,
             bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown",
-            targetPid: nil
+            startedAt: ProcessInfo.processInfo.systemUptime
         )
         phase = .recording(session)
         state.transition(to: .listening)
@@ -56,7 +53,9 @@ final class DictationController {
         }
 
         capture.onAudioChunk = { [relay] chunk in relay.sendAudioChunk(chunk) }
-        capture.onLevel = nil
+        capture.onLevel = { [weak self] level in
+            DispatchQueue.main.async { self?.heard(level) }
+        }
         capture.onSpectrum = { [weak self] bands in
             DispatchQueue.main.async { self?.pill.updateSpectrum(bands) }
         }
@@ -81,6 +80,12 @@ final class DictationController {
         guard case .recording(var session) = phase else { return }
         session.targetPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         stopCapture()
+
+        let duration = ProcessInfo.processInfo.systemUptime - session.startedAt
+        guard SpeechGate.heardSpeech(duration: duration, peakLevel: session.peakLevel) else {
+            finishWithoutSpeech(session)
+            return
+        }
         phase = .transcribing(session)
         state.transition(to: .transcribing)
         pill.show(.working)
@@ -110,15 +115,22 @@ final class DictationController {
         pill.show(.failed(message))
     }
 
+    private func heard(_ level: Float) {
+        guard case .recording(var session) = phase else { return }
+        session.peakLevel = max(session.peakLevel, level)
+        phase = .recording(session)
+    }
+
+    /// Core answers with an empty transcript when it judged the audio to be silence.
     private func transcribed(_ transcript: String) {
         guard case .transcribing(let session) = phase else { return }
-        teardown()
 
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            fail("I didn't catch that")
+            finishWithoutSpeech(session)
             return
         }
+        teardown()
 
         phase = .inserting
         state.transition(to: .executing)
@@ -132,6 +144,17 @@ final class DictationController {
             self.state.transition(to: .present)
             self.phase = .idle
         }
+    }
+
+    private func finishWithoutSpeech(_ session: Session) {
+        AuditRecorder.shared.record(
+            invocationId: session.invocationId,
+            contextSources: ["dictation", "app:\(session.bundleId)", "outcome:no-speech"]
+        )
+        teardown()
+        pill.show(.notice("No speech"))
+        state.cancelInvocation()
+        phase = .idle
     }
 
     private func fail(_ message: String) {
@@ -176,9 +199,9 @@ final class DictationController {
         case .pasted, .typed:
             return .inserted
         case .copiedOnly(.secureInput):
-            return .copied("Secure input is on — copied instead")
+            return .notice("Secure input is on — copied instead")
         case .copiedOnly:
-            return .copied("Copied — paste with ⌘V")
+            return .notice("Copied — paste with ⌘V")
         }
     }
 
@@ -190,5 +213,16 @@ final class DictationController {
         case .copiedOnly(.targetChanged): return "copied:target-changed"
         case .copiedOnly(.pasteFailed): return "copied:paste-failed"
         }
+    }
+}
+
+/// Recordings that are too short or never rise above room noise are dropped before any
+/// audio leaves the Mac. `peakLevel` is VoiceCapture's scaled RMS (0...1).
+enum SpeechGate {
+    static let minimumDuration: TimeInterval = 0.3
+    static let silenceLevel: Float = 0.15
+
+    static func heardSpeech(duration: TimeInterval, peakLevel: Float) -> Bool {
+        duration >= minimumDuration && peakLevel >= silenceLevel
     }
 }

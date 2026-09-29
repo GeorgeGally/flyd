@@ -18,11 +18,17 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(DictationController.pillPhase(for: .typed), .inserted)
         XCTAssertEqual(
             DictationController.pillPhase(for: .copiedOnly(reason: .targetChanged)),
-            .copied("Copied — paste with ⌘V")
+            .notice("Copied — paste with ⌘V")
         )
         XCTAssertEqual(
             DictationController.pillPhase(for: .copiedOnly(reason: .secureInput)),
-            .copied("Secure input is on — copied instead")
+            .notice("Secure input is on — copied instead")
         )
+    }
+
+    func testDropsRecordingsThatAreTooShortOrSilent() {
+        XCTAssertEqual(SpeechGate.heardSpeech(duration: 2.0, peakLevel: 0.6), true)
+        XCTAssertEqual(SpeechGate.heardSpeech(duration: 0.2, peakLevel: 0.6), false)
+        XCTAssertEqual(SpeechGate.heardSpeech(duration: 4.0, peakLevel: 0.05), false)
     }
 }

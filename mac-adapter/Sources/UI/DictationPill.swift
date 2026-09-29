@@ -7,7 +7,7 @@ final class DictationPill {
         case listening
         case working
         case inserted
-        case copied(String)
+        case notice(String)
         case failed(String)
     }
 
@@ -47,7 +47,7 @@ final class DictationPill {
         switch phase {
         case .listening, .working:
             break
-        case .inserted, .copied, .failed:
+        case .inserted, .notice, .failed:
             let work = DispatchWorkItem { [weak self] in self?.hide() }
             hideWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoHideDelay, execute: work)
@@ -105,7 +105,7 @@ final class DictationPill {
             return setLabel("Writing", color: FlydPalette.paper.withAlphaComponent(0.72), after: leading + 16 + 8)
         case .inserted:
             return setLabel("✓", color: FlydPalette.signalGreen, after: leading)
-        case .copied(let message):
+        case .notice(let message):
             return setLabel(message, color: FlydPalette.brassGlow, after: leading)
         case .failed(let message):
             return setLabel(message, color: FlydPalette.signalRust, after: leading)
