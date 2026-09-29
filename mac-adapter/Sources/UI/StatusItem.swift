@@ -9,6 +9,7 @@ final class StatusItem {
     var onInvoke: (() -> Void)?
     var onOpenSetup: (() -> Void)?
     var onRestartFlyd: (() -> Void)?
+    var onPasteLastDictation: (() -> Void)?
 
     func start() {
         if statusItem != nil {
@@ -46,6 +47,14 @@ final class StatusItem {
         )
         invokeItem.target = self
         menu.addItem(invokeItem)
+
+        let pasteLastItem = NSMenuItem(
+            title: "Paste Last Dictation",
+            action: #selector(pasteLastDictation),
+            keyEquivalent: ""
+        )
+        pasteLastItem.target = self
+        menu.addItem(pasteLastItem)
 
         menu.addItem(.separator())
 
@@ -106,6 +115,10 @@ final class StatusItem {
 
         self.menu = menu
         statusItem?.menu = menu
+    }
+
+    @objc private func pasteLastDictation() {
+        onPasteLastDictation?()
     }
 
     @objc private func invokeFlyd() {

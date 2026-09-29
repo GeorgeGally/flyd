@@ -90,6 +90,9 @@ statusItem.onOpenSetup = {
 statusItem.onRestartFlyd = {
     restartFlyd()
 }
+statusItem.onPasteLastDictation = {
+    dictation.pasteLast()
+}
 statusItem.start()
 ensureCoreLaunched()
 

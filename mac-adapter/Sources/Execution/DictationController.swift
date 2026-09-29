@@ -27,6 +27,9 @@ final class DictationController {
     private let pill = DictationPill()
     private var timeout: DispatchWorkItem?
     private var recordingCap: DispatchWorkItem?
+    /// The last dictated text, so a paste that landed in the wrong place can be redone.
+    /// Memory only: never written to disk, the journal or Flyd's memory.
+    private var lastText: String?
 
     private let state = FlydState.shared
     private let capture = VoiceCapture.shared
@@ -109,6 +112,18 @@ final class DictationController {
         }
     }
 
+    func pasteLast() {
+        guard case .idle = phase else { return }
+        guard let text = lastText else {
+            pill.show(.notice("Nothing dictated yet"))
+            return
+        }
+        Task { @MainActor in
+            let outcome = await TextInserter.insert(text, targetPid: nil)
+            self.pill.show(Self.pillPhase(for: outcome))
+        }
+    }
+
     /// Shows a problem before any recording started (setup, permissions).
     func showBlocked(_ message: String) {
         guard case .idle = phase else { return }
@@ -132,6 +147,7 @@ final class DictationController {
         }
         teardown()
 
+        lastText = text
         phase = .inserting
         state.transition(to: .executing)
         Task { @MainActor in
