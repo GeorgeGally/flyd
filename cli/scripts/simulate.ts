@@ -18,6 +18,7 @@ const CONVERSATIONS: Record<string, string[]> = {
   money: ["where am I with money this month, who owes me what?", "I need paid work soon, who should I reach out to first?"],
   overwhelm: ["too many things on. what can I drop this week?", "ok, park Tastemaker for now"],
   recall: ["who coined the name radarboy?", "what's the story with GNM?", "what have I been building lately?"],
+  past: ["what did I actually do at Cartier?", "remind me what Music for Blockchains was", "which of my old projects would make a good story for an AI lab application?"],
 };
 
 interface Row { conversation: string; turn: number; message: string; seconds: number; route: string; tools: string[]; failed: string[]; answer: string; error?: string }
