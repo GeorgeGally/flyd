@@ -1,6 +1,6 @@
 ---
 name: research-brief
-description: Finding out about a topic, market, venue, tool, or person for George, and bringing back a short answer he can act on.
+description: Researching something new for George from outside sources (the web, papers, listings): a market, venue, tool, open call, or person he doesn't know yet, brought back as a short answer he can act on. Not for recalling what he or Flyd already knows.
 ---
 
 # Research brief

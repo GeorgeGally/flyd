@@ -174,6 +174,8 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<{ status: 
   };
   let report = await deps.run(jobMessage(job.contract), job.id);
   for (;;) {
+    // Nothing came back: that is a failed job, not a finished one to check.
+    if (!report.trim()) throw new Error("the work came back empty");
     save({ status: "verifying", attempts: job.attempts + 1 });
     const { checks, repairable } = await checkJob(job.contract, report, job.id, deps);
     save({ checks });

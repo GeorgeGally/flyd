@@ -6,6 +6,7 @@ import { runAdvisors, type Advisory } from "./advisors.js";
 import { readJournalSince, recentJournal } from "./journal.js";
 import { collectNewCaptures, readLibrarianState, runLibrarian, type LibrarianRunResult } from "./librarian.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
+import { describeProject, liveProjects } from "./projects.js";
 
 // A council pass: the Librarian curates what is new, then the Critic and the
 // Strategist advise on it. Runs in the background — after a burst of turns,
@@ -92,6 +93,7 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
     const advisories = await runAdvisors({
       profile: readUserProfile(),
       memory: memoryPromptText(),
+      projects: liveProjects().map((project) => `- ${describeProject(project)}`).join("\n"),
       recentTurns: recentJournal(40),
       observations: librarian.observations,
     }, { complete: deps.complete, now: () => now });

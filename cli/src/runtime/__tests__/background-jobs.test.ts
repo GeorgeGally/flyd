@@ -91,6 +91,14 @@ describe("background jobs", () => {
     expect(describeJobs(listJobs(dir))).toMatch(/short · 1\/2 points met .*\n    ✗ each set is judged against the last one: no comparison/);
   });
 
+  it("fails a job whose work comes back empty instead of calling it done", async () => {
+    const verify = vi.fn(async () => "MET 1: ok\nMET 2: ok");
+    const done = nextDone();
+    startBackgroundJob(contract, { run: async () => "  ", verify, dir });
+    expect(await done).toMatchObject({ status: "failed", result: "Couldn't finish: the work came back empty" });
+    expect(verify).not.toHaveBeenCalled();
+  });
+
   it("caps how many jobs run at once", () => {
     const never = () => new Promise<string>(() => undefined);
     for (let index = 0; index < MAX_RUNNING_JOBS; index += 1) startBackgroundJob({ ...contract, task: `job ${index}` }, { run: never, dir });

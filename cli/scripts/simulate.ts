@@ -13,6 +13,11 @@ const CONVERSATIONS: Record<string, string[]> = {
   reminder: ["remind me to call mum on sunday", "actually make it saturday at 10am"],
   quick: ["usd to idr right now?", "write a reply to Sam: can't make thursday, friday works", "why is the sky blue, one line"],
   skills: ["GNM still hasn't paid me, sort it out", "what do I need to do to get Bloom live by Sunday?"],
+  startup: ["thinking of pricing CleanX at $5 a month vs $29 lifetime, gut check?", "ok, $5 a month, no lifetime", "draft the Product Hunt tagline and first comment for it"],
+  art: ["I want to make a new generative piece that brings back the car-tyre brushes idea, riff with me", "find open calls for generative or on-chain art closing in October or November"],
+  money: ["where am I with money this month, who owes me what?", "I need paid work soon, who should I reach out to first?"],
+  overwhelm: ["too many things on. what can I drop this week?", "ok, park Tastemaker for now"],
+  recall: ["who coined the name radarboy?", "what's the story with GNM?", "what have I been building lately?"],
 };
 
 interface Row { conversation: string; turn: number; message: string; seconds: number; route: string; tools: string[]; failed: string[]; answer: string; error?: string }

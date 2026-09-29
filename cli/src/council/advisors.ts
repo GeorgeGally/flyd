@@ -146,6 +146,8 @@ export interface AdvisorInput {
   observations: string[];
   open: Advisory[];
   today: string;
+  /** His projects, one line each: what advice is grounded in. */
+  projects?: string;
 }
 
 export function advisorPrompt(advisor: AdvisorName, input: AdvisorInput): string {
@@ -163,11 +165,13 @@ export function advisorPrompt(advisor: AdvisorName, input: AdvisorInput): string
     "- 'expires' is the date after which the advisory is no longer useful (YYYY-MM-DD).",
     "- 'topics' are 2-5 lowercase keywords (people, project names, places) that would make this relevant in a conversation.",
     "- urgency 'high' only for something that will cost him if not handled within ~48 hours.",
+    "- Advise George about his life, work, money and people. Never about Flyd itself (its voice, bugs, what it forgot): that is not his to fix.",
     "",
     'Reply with JSON only: {"advisories": [{"text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}]}',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
     `--- Memory ---\n${input.memory ?? "(empty)"}`,
+    `--- His projects ---\n${input.projects ?? "(none yet)"}`,
     `--- Librarian's notes from this pass ---\n${input.observations.map((note) => `- ${note}`).join("\n") || "(none)"}`,
     `--- Recent conversation (George's side) ---\n${turns || "(none)"}`,
     `--- Already open (do not repeat) ---\n${input.open.map((advisory) => `- [${advisory.advisor}] ${advisory.text}`).join("\n") || "(none)"}`,

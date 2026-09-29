@@ -30,12 +30,14 @@ export interface Project {
   people: string[];
   /** Code roots on this Mac; empty when the project has no code. */
   repos: string[];
+  /** The specifics he'd otherwise have to dig for again: amounts, invoice numbers, dates, contacts, decisions, links. */
+  facts?: string[];
   /** Last local day the Librarian touched it. */
   updated: string;
 }
 
 export type ProjectOp =
-  | { op: "upsert"; id?: string; name: string; what?: string; kind?: string; status?: string; now?: string; next?: string | null; due?: string | null; people?: string[]; repos?: string[] }
+  | { op: "upsert"; id?: string; name: string; what?: string; kind?: string; status?: string; now?: string; next?: string | null; due?: string | null; people?: string[]; repos?: string[]; facts?: string[] }
   | { op: "archive"; id: string; reason: string };
 
 export function projectsPath(): string {
@@ -65,6 +67,8 @@ function writeProjects(projects: Project[], path: string): void {
 const oneLine = (value: unknown, max: number) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   allowed.includes(value as T) ? value as T : fallback;
+
+export const MAX_FACTS = 8;
 
 export interface ProjectApplyReceipt { upserted: number; archived: number; rejected: string[] }
 
@@ -109,6 +113,12 @@ export function applyProjectOps(ops: ProjectOp[], options: { knownRepos: string[
       ...(due ? { due } : {}),
       people: (op.people ?? existing?.people ?? []).map((person) => oneLine(person, 60)).filter(Boolean).slice(0, 8),
       repos: [...new Set(repos)],
+      ...(() => {
+        // Facts replace the list when given (the Librarian sends the whole
+        // current set); newest-first, short, and capped so it stays a card.
+        const facts = (op.facts ?? existing?.facts ?? []).map((fact) => oneLine(fact, 200)).filter(Boolean);
+        return facts.length ? { facts: [...new Set(facts)].slice(0, MAX_FACTS) } : {};
+      })(),
       updated: today,
     };
     if (existing) Object.assign(existing, project); else projects.push(project);
@@ -127,6 +137,7 @@ export function describeProject(project: Project): string {
     project.next ? ` Next: ${project.next}` : "",
     project.due ? ` Due ${project.due}.` : "",
     project.people.length ? ` With: ${project.people.join(", ")}.` : "",
+    project.facts?.length ? ` Facts: ${project.facts.join("; ")}.` : "",
   ].join("");
 }
 

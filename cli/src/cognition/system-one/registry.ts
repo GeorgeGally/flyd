@@ -323,6 +323,15 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "runtime/turn-plan.ts routeWithJev: asked once per skill as skill_{index}; the most likely at ≥ threshold is loaded into the turn (runtime/skills.ts)",
   },
 
+  {
+    id: "note_relevant", family: "chat", type: "noul",
+    instructions: "George just said `utterance` to Flyd, his personal assistant. Flyd privately knows: \"{note}\". Would bringing that up now clearly help him with what he just said? Yes only when it bears on this exact topic or decision (a deadline, money, a person, a risk, an opportunity he'd want to know now); no when it's merely interesting or about something else.",
+    // 0.8 missed half the relevant notes (GNM at 0.79); 0.7 raises none wrongly on the bench.
+    threshold: 0.7, use: "gate", failureMode: "skip_mutation",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "note_relevant.v1", status: "production",
+    consumer: "runtime/turn-plan.ts routeWithJev: asked once per private note (advisories, must-know news, finished crew work) as note_{index}; the most likely at ≥ threshold is woven into the answer",
+  },
+
   // ── proposed: model routing (replay only) ─────────────────────────────
   {
     id: "needs_reasoning_model", family: "model_routing", type: "noul",

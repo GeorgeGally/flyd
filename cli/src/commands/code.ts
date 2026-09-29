@@ -46,6 +46,13 @@ import { repairLatestTurn } from "../runtime/turn-repair.js";
 const execFileAsync = promisify(execFile);
 const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
+const STOPWORDS = new Set(["the", "and", "for", "you", "what", "who", "how", "why", "are", "was", "with", "that", "this", "have", "has", "can", "about", "from", "still", "where", "when", "does", "did", "should", "would", "could", "some", "any", "all", "now", "any", "get", "let", "yet", "our", "your", "their", "them", "they", "his", "her", "its", "into", "over", "just", "like", "want", "need"]);
+
+/** Content words of a question, for deciding whether a claim is about it. */
+export function queryTerms(query: string): string[] {
+  return [...new Set(query.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [])].filter((term) => !STOPWORDS.has(term));
+}
+
 export async function retrieveRuntimeMemory(query: string): Promise<MemoryEvidence> {
   const memory = await queryMemory({ text: query, temporalFrame: "mixed", includeHistorical: true, projectRoot: process.cwd(), limit: 6 });
   const current = memory.current.map((claim) => ({
@@ -69,7 +76,13 @@ export async function retrieveRuntimeMemory(query: string): Promise<MemoryEviden
       : "durable_memory" as const,
     outcome: "unknown" as const,
   }));
-  const matches = [...current, ...recalled].slice(0, 6);
+  // Current-state claims (mostly repo telemetry: branch, dirty, latest commit)
+  // used to take every slot whatever he asked, so "GNM still owes me" was
+  // answered with "bloom · dirty: true". They count only when they share a
+  // word with the question, and what was recalled for it comes first.
+  const terms = queryTerms(query);
+  const relevantCurrent = current.filter((claim) => terms.some((term) => claim.excerpt.toLowerCase().includes(term)));
+  const matches = [...recalled, ...relevantCurrent].slice(0, 6);
   return {
     verdict: memory.conflicts.length > 0 ? "conflicting" : matches.length >= 3 ? "sufficient" : matches.length > 0 ? "partial" : "insufficient",
     matches,
@@ -202,12 +215,12 @@ export async function runAgent(): Promise<void> {
           child.stdin.end(text);
         }, reject);
       }),
-      afterTurn: async ({ user, assistant }) => {
+      afterTurn: async ({ user, assistant, tools }) => {
         const [{ appendJournalTurn }, { runCouncilInBackground }] = await Promise.all([
           import("../council/journal.js"),
           import("../council/council.js"),
         ]);
-        appendJournalTurn({ user, assistant, surface: "cli_chat" });
+        appendJournalTurn({ user, assistant, surface: "cli_chat", ...(tools?.length ? { tools } : {}) });
         runCouncilInBackground();
         // One voice: backstage findings reach George through Flyd's own answer
         // (read-the-room private notes), never as a second message after it.

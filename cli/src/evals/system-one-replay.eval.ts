@@ -30,7 +30,7 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl"];
+const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl", "note-relevance.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
 
@@ -161,6 +161,12 @@ describe("System-1 replay bench", () => {
     const skill = predicateReport(report, "skill_applies").rows;
     expect(skill.filter((r) => r.jev !== "abstain" && r.jev !== r.label)).toEqual([]);
     expect(skill.filter((r) => r.label === true).every((r) => r.jev === true)).toBe(true);
+
+    // note_relevant: never raises a note that's off-topic for the turn; the
+    // unsure ones (a DIR build on "DIR feels dead", 0.59) stay unsaid.
+    const note = predicateReport(report, "note_relevant").rows;
+    expect(note.filter((r) => r.jev !== "abstain" && r.jev !== r.label)).toEqual([]);
+    expect(note.filter((r) => r.label === true && r.jev === true).length).toBeGreaterThanOrEqual(4);
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);

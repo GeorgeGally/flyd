@@ -57,6 +57,8 @@ interface ConversationInput {
   now?: () => Date;
   /** Short present-tense description of what Flyd is doing right now. */
   onActivity?: (activity: string) => void;
+  /** Called with each tool that ran, so the journal knows the turn found something out. */
+  onTool?: (name: string) => void;
   /** Cancels provider requests and stops further tool calls. */
   signal?: AbortSignal;
   /** The model handed a coding job to the supervised runtime (start_coding_task). */
@@ -73,17 +75,17 @@ interface ConversationResponderDependencies {
   /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
   /** The fast route reading; defaults to Jev outside tests. */
-  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null }) | null>;
+  routeTurn?: (message: string, history: ConversationInput["history"], notes?: Array<{ id: string; text: string }>) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null>;
   /** Skills a matched name resolves against; defaults to ~/.flyd/skills. */
   skills?: () => Skill[];
   /** Honesty rewrite call; defaults to the turn's model. */
   rewrite?: (prompt: string) => Promise<string>;
 }
 
-async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null }) | null> {
+async function defaultRouteTurn(message: string, history: ConversationInput["history"], notes: Array<{ id: string; text: string }> = []): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null> {
   if (process.env.VITEST) return null;
   try { seedSkills(); } catch { /* skills are optional */ }
-  return routeWithJev(message, history, loadSkills());
+  return routeWithJev(message, history, loadSkills(), notes);
 }
 
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
@@ -964,7 +966,7 @@ export async function respondToConversation(
   // decides it in ~0.3s when it's sure; only then is the ~10s LLM room
   // reading skipped. Unattended runs are the work itself and read nothing.
   const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
-  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history).catch(() => null);
+  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes).catch(() => null);
   const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)({
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   }).catch(() => null);
@@ -974,6 +976,8 @@ export async function respondToConversation(
   // The one skill that fits this turn, if any: its know-how rides in this turn only.
   const skill = fast?.skill ? (() => { try { return (dependencies.skills ?? loadSkills)().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
   turnSkill = skill?.name ?? null;
+  // On the fast path the room reading never runs, so a note Jev found relevant rides in the plan.
+  const fastNote = !room && fast?.raise ? notes.find((note) => note.id === fast.raise) ?? null : null;
   // Naming a project is not a code turn: the room reading decides, then Jev
   // when sure, then the keyword heuristic.
   const projectTurn = room ? room.mode === "operator"
@@ -981,9 +985,14 @@ export async function respondToConversation(
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
     ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
-    ...(plan || skill ? { plan: [plan ? planBrief(plan) : "", skill ? skillPromptBlock(skill) : ""].filter(Boolean).join("\n\n") } : {}),
+    ...(plan || skill || fastNote ? { plan: [
+      plan ? planBrief(plan) : "",
+      skill ? skillPromptBlock(skill) : "",
+      fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
+    ].filter(Boolean).join("\n\n") } : {}),
   });
-  const raisedAdvisory = room?.raise ? notes.find((note) => note.id === room.raise)?.advisoryId : undefined;
+  const raisedId = room?.raise ?? (room ? null : fast?.raise ?? null);
+  const raisedAdvisory = raisedId ? notes.find((note) => note.id === raisedId)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();
   const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
   const model = models[0];
@@ -1015,6 +1024,7 @@ export async function respondToConversation(
       return skip;
     }
     input.onActivity?.(describeToolActivity(name, toolInput));
+    input.onTool?.(name);
     if (isMutatingToolCall(name, toolInput)) attemptMutated = true;
     try {
       const result = await handler(name, toolInput);

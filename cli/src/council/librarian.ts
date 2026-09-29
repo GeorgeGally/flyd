@@ -117,7 +117,7 @@ export async function collectFinishedWork(since: Date): Promise<FinishedWork[]> 
   try {
     const { listJobs } = await import("../runtime/background-jobs.js");
     for (const job of listJobs()) {
-      if (job.status === "ok" && after(job.updatedAt)) found.push({ id: `done:job-${job.id}`, at: job.updatedAt, source: "job", text: `Background work done: ${job.contract.task.slice(0, 200)}` });
+      if (job.status === "ok" && after(job.updatedAt)) found.push({ id: `done:job-${job.id}`, at: job.updatedAt, source: "job", text: `Background work done: ${job.contract.task.slice(0, 200)}. It found: ${(job.result ?? "").replace(/\s+/g, " ").slice(0, 1_500)}` });
     }
   } catch { /* no job store */ }
   try {
@@ -145,7 +145,8 @@ export interface LibrarianInput {
 
 export function librarianPrompt(input: LibrarianInput): string {
   const turns = input.turns.map((turn) =>
-    `[j:${turn.id}] ${turn.at.slice(0, 16)}\nGeorge: ${turn.user.slice(0, 1_500)}\nFlyd: ${turn.assistant.slice(0, 800)}${turn.tools?.length ? `\n(tools: ${turn.tools.join("; ").slice(0, 300)})` : ""}`).join("\n\n");
+    // A turn that used tools usually found something out; its answer carries the findings.
+    `[j:${turn.id}] ${turn.at.slice(0, 16)}\nGeorge: ${turn.user.slice(0, 1_500)}\nFlyd: ${turn.assistant.slice(0, turn.tools?.length ? 2_500 : 800)}${turn.tools?.length ? `\n(tools: ${turn.tools.join("; ").slice(0, 300)})` : ""}`).join("\n\n");
   const captures = input.captures.map((note) => `[${note.id}] ${note.text}`).join("\n\n");
   const memory = input.memory.map((entry) => `[${entry.id}] (${entry.section}, ${entry.tier}, confirmed ${entry.date}) ${entry.text}`).join("\n");
   const stale = input.stale.map((entry) => `[${entry.id}] ${entry.text}`).join("\n");
@@ -174,7 +175,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- Commitments with a date are perishable; standing facts and decisions are aging.",
     "- Cite sources with the [j:…] / [cap:…] ids you were shown. Do not invent ids.",
     "- For each STALE entry: reinforce it if today's evidence confirms it, archive it if superseded or done, otherwise leave it.",
-    "- Keep his projects current. A project is anything he is making, running, or owed, with or without code (a product launch, a client job, an artwork, money owed, the glasses venture). Add one when it first comes up; update its now/next/due/status/people from what he said or what got done; mark it done when it is finished. Link code only from the repo list below, and only when that repo is the project's code. Projects stay out of memory_ops: they live here.",
+    "- Keep his projects current. A project is anything he is making, running, or owed, with or without code (a product launch, a client job, an artwork, money owed, the glasses venture). Add one when it first comes up; update its now/next/due/status/people from what he said or what got done; mark it done when it is finished. Keep its facts: the specifics Flyd found or he said that he'd otherwise have to dig for again (amounts, invoice numbers, dates, who pays, contacts, decisions and why, links). Send the project's whole current facts list, newest first, at most 8, dropping ones that are no longer true. Link code only from the repo list below, and only when that repo is the project's code. Projects stay out of memory_ops: they live here.",
     input.projects?.length ? "" : "- He has no project list yet: build it now from his profile, memory, the repos, and the conversation. Only real, current projects; skip one-off tasks.",
     "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
@@ -184,7 +185,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "Reply with JSON only:",
     '{"memory_ops": [ {"op":"add","section":"...","text":"...","tier":"aging|perishable","sources":["j:..."]} | {"op":"update","id":"...","text":"...","sources":[...]} | {"op":"reinforce","id":"...","sources":[...]} | {"op":"archive","id":"...","reason":"..."} | {"op":"daily_note","text":"...","sources":[...]} ],',
     ' "profile_ops": [ {"section":"...","fact":"..."} ],',
-    ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"]} | {"op":"archive","id":"...","reason":"..."} ],`,
+    ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"],"facts":["..."]} | {"op":"archive","id":"...","reason":"..."} ],`,
     ' "observations": ["<up to 5 short notes for George\'s advisors about what stands out: risks, patterns, momentum, loose ends>"] }',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,

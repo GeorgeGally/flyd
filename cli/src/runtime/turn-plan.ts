@@ -26,6 +26,9 @@ export const TURN_ROUTES: TurnRoute[] = ["answer", "clarify", "act", "delegate"]
 
 export interface TurnBudget { iterations: number; toolCalls: number }
 
+/** Private notes weighed per turn; the rest wait for a turn they fit. */
+export const MAX_NOTES = 10;
+
 /** How the route was decided: Jev when it's sure (~0.3s), else the LLM room reading (~10s). */
 export interface RouteReading { route: TurnRoute; confidence: number; source: "jev" | "llm" }
 
@@ -136,7 +139,8 @@ export async function routeWithJev(
   message: string,
   history: Array<{ role: string; content: string }> = [],
   skills: Array<{ name: string; description: string }> = [],
-): Promise<RouteReading & { decided: boolean; needsCode: boolean | null; skill: string | null } | null> {
+  notes: Array<{ id: string; text: string }> = [],
+): Promise<RouteReading & { decided: boolean; needsCode: boolean | null; skill: string | null; raise: string | null } | null> {
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey || process.env.FLYD_JEV_TURN_ROUTE === "0") return null;
   // Flyd's offer ("want me to…?") ends its reply, so keep the tail of what it said.
@@ -148,7 +152,8 @@ export async function routeWithJev(
   const code = questionFor("chat_turn_needs_code");
   // One call: the route, whether it's about code, and which skill (if any) fits.
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
-  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, ...skillQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
+  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
@@ -161,7 +166,13 @@ export async function routeWithJev(
     .map((skill, index) => ({ name: skill.name, p: result.answers[`skill_${index}`]?.probability ?? 0 }))
     .filter((candidate) => candidate.p >= skillThreshold)
     .sort((a, b) => b.p - a.p)[0];
-  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), needsCode, skill: best?.name ?? null };
+  // Backstage thinking reaches him only through the answer, and only when it bears on this turn.
+  const noteThreshold = predicateThreshold("note_relevant");
+  const raised = notes.slice(0, MAX_NOTES)
+    .map((note, index) => ({ id: note.id, p: result.answers[`note_${index}`]?.probability ?? 0 }))
+    .filter((candidate) => candidate.p >= noteThreshold)
+    .sort((a, b) => b.p - a.p)[0];
+  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
 }
 
 /** Tools that read or change a codebase; out of reach on a turn that isn't about code. */

@@ -77,7 +77,7 @@ interface AgentSessionDependencies {
   /** Optional: known repos for tool inspection — not shown as a catalog dump. */
   loadCrossRepo?(foregroundPath?: string): Promise<BriefRepo[]>;
   /** After a turn is answered: journal it and let the council react (never blocks the chat). */
-  afterTurn?(turn: { user: string; assistant: string }): Promise<{ museNote?: string; advisoryId?: string } | null>;
+  afterTurn?(turn: { user: string; assistant: string; tools?: string[] }): Promise<{ museNote?: string; advisoryId?: string } | null>;
   /** George's verdict on the last Muse note that raised an advisory. */
   rateAdvisory?(advisoryId: string, verdict: "useful" | "dismissed"): Promise<void>;
   /** George's verdict on a Scout edition item. */
@@ -104,6 +104,7 @@ interface AgentSessionDependencies {
     weather?: string;
     askUser?(prompt: string): Promise<boolean | "always">;
     onActivity?(activity: string): void;
+    onTool?(name: string): void;
     signal?: AbortSignal;
     onCodingHandoff?(outcome: string): void;
     onToken(token: string): void;
@@ -120,6 +121,8 @@ export const ONBOARD_REQUEST = [
 
 interface TurnHandle {
   message: string;
+  /** Tools that ran for this turn; the journal keeps them so the Librarian reads what was found. */
+  tools?: string[];
   /** Moved backstage because George kept talking; answers as a whole message when done. */
   background: boolean;
   /** The reply is being written to the screen right now. */
@@ -253,6 +256,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     const deadline = createTurnDeadline(responseTimeoutMs, MAX_TURN_MS);
     try {
       const answer = await deadline.run(deps.respond({
+        onTool: (name) => { (handle.tools ??= []).push(name); },
         sessionId: deps.sessionId,
         turnNumber: history.length / 2 + 1,
         message,
@@ -399,7 +403,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
       }
       if (pendingHandoff) signalHandoff(pendingHandoff);
       if (deps.afterTurn) {
-        void deps.afterTurn({ user: message, assistant: answer }).then((reaction) => {
+        void deps.afterTurn({ user: message, assistant: answer, tools: [...new Set(handle.tools ?? [])] }).then((reaction) => {
           if (!reaction?.museNote) return;
           lastMuseAdvisory = reaction.advisoryId ?? null;
           deps.terminal.write(`\n${wrapDisplayText(`  ${reaction.museNote}`).split("\n").map((line) => (useColor() ? paintFlyd(line) : line)).join("\n")}\n`);
