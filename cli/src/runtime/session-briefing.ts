@@ -64,6 +64,8 @@ export interface SessionBriefingDependencies {
   loadReminders?: () => Promise<DueReminder[]>;
   readProfile?: () => string | null;
   loadCalendar?: () => Promise<string[]>;
+  /** Gather without marking anything seen (news told, advisories shown, inbox read): for preparing ahead. */
+  peek?: boolean;
 }
 
 /** After telling him the news, don't lead with the same stories again for a few hours. */
@@ -80,7 +82,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     const worth = openAdvisories(now).filter((advisory) => advisory.urgency !== "low").slice(0, 2);
     for (const advisory of worth) {
       lines.push(`On my mind: ${firstLine(advisory.text, 160)}`);
-      if (!deps.paths) updateAdvisoryStatus(advisory.id, "shown", now);
+      if (!deps.paths && !deps.peek) updateAdvisoryStatus(advisory.id, "shown", now);
     }
   } catch {
     // The council is advisory; a missing store never blocks the briefing.
@@ -105,7 +107,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
         ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
         : "Today's news, not yet told him (/more N, /less N):");
       for (const item of edition.items.slice(0, heard ? 3 : 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
-      if (!heard) {
+      if (!heard && !deps.peek) {
         mkdir(scout.scoutDir(), { recursive: true });
         write(markPath, now.toISOString());
       }
@@ -142,7 +144,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
       lines.push(`  • ${firstLine(entry.task, 50)} → ${firstLine(entry.result)}`);
     }
     if (inbox.length > 3) lines.push("  …more in `flyd agenda inbox`");
-    markInboxRead(paths);
+    if (!deps.peek) markInboxRead(paths);
   }
 
   try {

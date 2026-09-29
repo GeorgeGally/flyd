@@ -61,6 +61,16 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
         const { scoutTick } = await import("../council/scout.js");
         await scoutTick({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
+        // Have the morning ready before George is up (council/morning.ts).
+        const [{ prepareMorning }, { composeSessionBriefing }, { museGreeting }, { readUserProfile }, scout, { localDay }] = await Promise.all([
+          import("../council/morning.js"), import("./session-briefing.js"), import("../council/greeting.js"),
+          import("../lib/user-profile.js"), import("../council/scout.js"), import("../council/memory-store.js"),
+        ]);
+        await prepareMorning({
+          briefing: (now) => composeSessionBriefing({ now: () => now, peek: true }),
+          compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, (prompt) => query(prompt)),
+          newsReady: (now) => scout.latestEdition()?.date === localDay(now),
+        }).catch(() => undefined);
       })
       .catch((error) => options.onError?.(error));
   };

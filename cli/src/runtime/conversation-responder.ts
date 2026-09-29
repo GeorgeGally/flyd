@@ -20,6 +20,7 @@ import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
+import { morningPromptBlock } from "../council/morning.js";
 import { offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
@@ -193,6 +194,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn })}\n` : "";
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
+  try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
 
   const voice = [
     readSoul(),

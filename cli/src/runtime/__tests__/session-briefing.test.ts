@@ -28,6 +28,14 @@ describe("composeSessionBriefing", () => {
     })).toEqual([]);
   });
 
+  it("can gather ahead of time without marking the inbox read", async () => {
+    addAgendaItem({ task: "Check whether the PR merged", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
+    await runDueAgenda({ paths, now: () => at("2026-09-26 08:01"), runTask: async () => "Merged.", notify: async () => {} });
+    const peeked = await composeSessionBriefing({ paths, peek: true, readProfile: () => FULL_PROFILE, loadReminders: async () => [] });
+    expect(peeked.join("\n")).toContain("While you were away (1 update)");
+    expect(unreadInbox(paths)).toHaveLength(1);
+  });
+
   it("says nothing when there is nothing to say", async () => {
     expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
   });

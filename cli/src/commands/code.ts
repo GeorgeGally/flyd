@@ -184,6 +184,9 @@ export async function runAgent(): Promise<void> {
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
       loadBriefing: async () => (await import("../runtime/session-briefing.js")).composeSessionBriefing(),
       composeGreeting: async ({ briefing, hypothesis }) => {
+        // Prepared before he was up: say it at once instead of waiting on a model.
+        const prepared = (await import("../council/morning.js")).readMorning();
+        if (prepared) return prepared.greeting;
         const [{ museGreeting, fallbackGreeting }, { query }] = await Promise.all([import("../council/greeting.js"), import("../lib/llm.js")]);
         if (process.env.FLYD_MUSE === "0") return fallbackGreeting(briefing);
         const slow = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("greeting timed out")), 25_000).unref());
