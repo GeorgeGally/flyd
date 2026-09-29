@@ -13,6 +13,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "code", integration: "runtime", description: "Start or resume a durable repository-aware coding task through the canonical agent runtime.", mutatesArchive: false },
   { id: "task", integration: "runtime", description: "Inspect and advance canonical coding task, grant, worker, correction, and outcome state.", mutatesArchive: false },
   { id: "crew", integration: "runtime", description: "Dispatch, supervise, verify, and land OpenCode crewmates working in isolated worktrees.", mutatesArchive: false },
+  { id: "skills", integration: "runtime", description: "How-to skills loaded into a chat turn when it fits; list, or import one of George's Claude/OpenCode skills.", mutatesArchive: false },
   { id: "improve", integration: "runtime", description: "Human-gated self-improvement: gather shortfall evidence, pick one fix, hand it to the crew for a verified branch.", mutatesArchive: false },
   { id: "scout", integration: "runtime", description: "Personal news: ranked editions, pre-emptive must-know alerts, and sources that evolve with feedback.", mutatesArchive: false },
   { id: "council", integration: "runtime", description: "Run and inspect the council: Librarian curation, Critic and Strategist advisories, Muse.", mutatesArchive: false },

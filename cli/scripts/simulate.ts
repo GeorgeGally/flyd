@@ -12,6 +12,7 @@ const CONVERSATIONS: Record<string, string[]> = {
   work: ["what did I ship in flyd yesterday?", "add a /time command to the flyd chat that prints my local time", "how's that going?"],
   reminder: ["remind me to call mum on sunday", "actually make it saturday at 10am"],
   quick: ["usd to idr right now?", "write a reply to Sam: can't make thursday, friday works", "why is the sky blue, one line"],
+  skills: ["GNM still hasn't paid me, sort it out", "what do I need to do to get Bloom live by Sunday?"],
 };
 
 interface Row { conversation: string; turn: number; message: string; seconds: number; route: string; tools: string[]; failed: string[]; answer: string; error?: string }
@@ -25,7 +26,7 @@ for (const name of names.length ? names : Object.keys(CONVERSATIONS)) {
   const history: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const [turn, message] of CONVERSATIONS[name].entries()) {
     const memory = await retrieveAgentMemory(message).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-    let receipt: { plan?: { route: string; source?: string }; toolCalls?: Array<{ name: string; input: unknown; succeeded: boolean; error?: string }> } = {};
+    let receipt: { plan?: { route: string; source?: string; skill?: string }; toolCalls?: Array<{ name: string; input: unknown; succeeded: boolean; error?: string }> } = {};
     const started = Date.now();
     const row: Row = { conversation: name, turn: turn + 1, message, seconds: 0, route: "", tools: [], failed: [], answer: "" };
     try {
@@ -37,7 +38,7 @@ for (const name of names.length ? names : Object.keys(CONVERSATIONS)) {
       row.error = error instanceof Error ? error.message : String(error);
     }
     row.seconds = Math.round((Date.now() - started) / 1000);
-    row.route = receipt.plan ? `${receipt.plan.route}${receipt.plan.source ? `/${receipt.plan.source}` : ""}` : "?";
+    row.route = receipt.plan ? `${receipt.plan.route}${receipt.plan.source ? `/${receipt.plan.source}` : ""}${receipt.plan.skill ? ` +${receipt.plan.skill}` : ""}` : "?";
     row.tools = (receipt.toolCalls ?? []).map((call) => `${call.name}${call.succeeded ? "" : "✗"} ${JSON.stringify(call.input).slice(0, 140)}`);
     row.failed = (receipt.toolCalls ?? []).filter((call) => !call.succeeded && !String(call.error).startsWith("Skipped (evaluation run)")).map((call) => `${call.name}: ${String(call.error).slice(0, 120)}`);
     rows.push(row);

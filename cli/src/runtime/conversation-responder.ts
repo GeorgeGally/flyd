@@ -22,6 +22,7 @@ import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { morningPromptBlock } from "../council/morning.js";
 import { projectsPromptBlock } from "../council/projects.js";
+import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
@@ -72,13 +73,17 @@ interface ConversationResponderDependencies {
   /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
   /** The fast route reading; defaults to Jev outside tests. */
-  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null }) | null>;
+  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null }) | null>;
+  /** Skills a matched name resolves against; defaults to ~/.flyd/skills. */
+  skills?: () => Skill[];
   /** Honesty rewrite call; defaults to the turn's model. */
   rewrite?: (prompt: string) => Promise<string>;
 }
 
-async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null }) | null> {
-  return process.env.VITEST ? null : routeWithJev(message, history);
+async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null }) | null> {
+  if (process.env.VITEST) return null;
+  try { seedSkills(); } catch { /* skills are optional */ }
+  return routeWithJev(message, history, loadSkills());
 }
 
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
@@ -873,6 +878,7 @@ export async function respondToConversation(
   };
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
   let turnPlan: TurnPlan | null = null;
+  let turnSkill: string | null = null;
   const record = async (
     connection: Pick<ModelConnection, "model" | "providerIdentity">,
     toolCalls: TurnToolCall[],
@@ -922,7 +928,7 @@ export async function respondToConversation(
       answer,
       status,
       ...(error ? { error } : {}),
-      plan: turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] },
+      plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
     });
   };
   const emit = (text: string): string => {
@@ -965,6 +971,9 @@ export async function respondToConversation(
   const reading = room ? { route: room.route, source: "llm" as const } : fast;
   const plan = planTurn(reading, room?.cover ?? [], { unattended });
   turnPlan = plan;
+  // The one skill that fits this turn, if any: its know-how rides in this turn only.
+  const skill = fast?.skill ? (() => { try { return (dependencies.skills ?? loadSkills)().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
+  turnSkill = skill?.name ?? null;
   // Naming a project is not a code turn: the room reading decides, then Jev
   // when sure, then the keyword heuristic.
   const projectTurn = room ? room.mode === "operator"
@@ -972,7 +981,7 @@ export async function respondToConversation(
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
     ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
-    ...(plan ? { plan: planBrief(plan) } : {}),
+    ...(plan || skill ? { plan: [plan ? planBrief(plan) : "", skill ? skillPromptBlock(skill) : ""].filter(Boolean).join("\n\n") } : {}),
   });
   const raisedAdvisory = room?.raise ? notes.find((note) => note.id === room.raise)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();

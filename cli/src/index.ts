@@ -99,6 +99,23 @@ program
   });
 
 program
+  .command("skills")
+  .description("Flyd's how-to skills, loaded into a chat turn when it fits: list | import <name> (from ~/.claude/skills or ~/.config/opencode/skills)")
+  .argument("[action]", "list or import")
+  .argument("[name]", "skill to import")
+  .action(async (action: string | undefined, name: string | undefined) => {
+    const skills = await import("./runtime/skills.js");
+    skills.seedSkills();
+    if (action === "import") {
+      if (!name) throw new Error("flyd skills import <name>");
+      const skill = skills.importSkill(name);
+      process.stdout.write(`Imported ${skill.name} into ${skill.path}\n`);
+      return;
+    }
+    process.stdout.write(`${skills.describeSkills()}\n\nEdit or add skills in ${skills.skillsHome()}\n`);
+  });
+
+program
   .command("crew")
   .description("Flyd's coding crew (OpenCode crewmates in worktrees): list | dispatch <outcome> [--done <point>]… | show <id> | supervise | land <id> | discard <id>")
   .argument("[action]", "list, dispatch, show, supervise, land, discard")

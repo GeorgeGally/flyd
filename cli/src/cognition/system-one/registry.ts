@@ -315,6 +315,14 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "conversation-responder.ts: operator prompt and repo evidence only when yes (≥ threshold); no (≤ 1 − threshold) keeps the lean companion prompt; unsure falls back to the keyword heuristic",
   },
 
+  {
+    id: "skill_applies", family: "chat", type: "noul",
+    instructions: "George just said `utterance` to Flyd, his personal assistant. Would Flyd's skill \"{name}\" (for: {description}) directly help it do what he is asking right now? Only yes when that is the job he is asking for, not when the topic is merely related.",
+    threshold: 0.75, use: "gate", failureMode: "skip_mutation",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "skill_applies.v1", status: "production",
+    consumer: "runtime/turn-plan.ts routeWithJev: asked once per skill as skill_{index}; the most likely at ≥ threshold is loaded into the turn (runtime/skills.ts)",
+  },
+
   // ── proposed: model routing (replay only) ─────────────────────────────
   {
     id: "needs_reasoning_model", family: "model_routing", type: "noul",

@@ -30,7 +30,7 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl"];
+const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
 
@@ -155,6 +155,12 @@ describe("System-1 replay bench", () => {
     const codeDecided = code.filter((r) => r.jev !== "abstain");
     expect(codeDecided.length).toBeGreaterThanOrEqual(30);
     expect(codeDecided.filter((r) => r.jev !== r.label).map((r) => r.caseId)).toEqual(["chat-turn-26"]);
+
+    // skill_applies: every decided answer across 13 requests x 6 skills is
+    // right; a mood about a launch loads no launch checklist (0.36).
+    const skill = predicateReport(report, "skill_applies").rows;
+    expect(skill.filter((r) => r.jev !== "abstain" && r.jev !== r.label)).toEqual([]);
+    expect(skill.filter((r) => r.label === true).every((r) => r.jev === true)).toBe(true);
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);

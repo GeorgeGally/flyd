@@ -21,6 +21,7 @@ process.env.FLYD_SOUL_PATH ??= join(sandbox, "SOUL.md");
 process.env.FLYD_INVESTIGATOR_DIR ??= join(sandbox, "investigator");
 process.env.FLYD_MORNING_PATH ??= join(sandbox, "morning.json");
 process.env.FLYD_PROJECTS_PATH ??= join(sandbox, "projects.json");
+process.env.FLYD_SKILLS_DIR ??= join(sandbox, "skills");
 process.env.FLYD_BACKGROUND_JOBS_DIR ??= join(sandbox, "jobs");
 process.env.FLYD_INVESTIGATOR ??= "0";
 // Self-improvement dispatches real crew work; tests opt in explicitly.

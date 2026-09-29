@@ -170,7 +170,11 @@ export async function runAssistantTool(
       case "flyd": {
         const compound = await import("../work-intelligence/compound-nl.js");
         switch (input.action) {
-          case "skills": return compound.buildSkillsInventoryReply();
+          case "skills": {
+            const skills = await import("./skills.js");
+            try { skills.seedSkills(); } catch { /* optional */ }
+            return `How-to skills (each loads into a turn only when that turn needs it; George edits them in ${skills.skillsHome()}, imports his own with \`flyd skills import <name>\`):\n${skills.describeSkills()}\n\n${compound.buildSkillsInventoryReply()}`;
+          }
           case "skillify": return compound.buildSkillifyProposeReply({});
           case "news": {
             const scout = await import("../council/scout.js");

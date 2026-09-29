@@ -1106,6 +1106,30 @@ describe("conversation action tools", () => {
     expect(receipt.plan).toEqual({ route: "delegate", source: "jev", cover: [] });
   });
 
+  it("loads the one skill that fits into that turn, and records it", async () => {
+    let system = "";
+    let receipt: { plan?: unknown } = {};
+    await respondToConversation({
+      sessionId: "skill-turn", turnNumber: 1,
+      message: "GNM still hasn't paid me, sort it out",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "test/project", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      routeTurn: async () => ({ route: "answer", confidence: 0.9, source: "jev", decided: true, needsCode: false, skill: "chase-payment" }),
+      skills: () => [{ name: "chase-payment", description: "Getting money paid", body: "Every draft ends with a pay-by date.", path: "/x" }],
+      runAgentLoop: async (systemPrompt) => { system = systemPrompt; return "<final>Here's the chase.</final>"; },
+      persistReceipt: async (input) => { receipt = input; return input as never; },
+    });
+    expect(system).toContain("## How to do this well (chase-payment)\nEvery draft ends with a pay-by date.");
+    expect(receipt.plan).toEqual({ route: "answer", source: "jev", cover: [], skill: "chase-payment" });
+  });
+
   it("falls back to the room reading when Jev is unsure, and to Jev's guess when that fails too", async () => {
     const plans: unknown[] = [];
     const run = (readRoom: () => Promise<null | Record<string, unknown>>) => respondToConversation({

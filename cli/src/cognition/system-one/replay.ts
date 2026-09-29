@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { evaluatePredicates, stateProjectionHash } from "./jev.js";
@@ -38,6 +39,8 @@ export interface ReplayCase {
   inputs: Record<string, unknown>;
   /** Expected answer per predicate id. */
   labels: Record<string, ReplayLabel>;
+  /** Fills `{name}` placeholders in templated questions (e.g. which skill is being asked about). */
+  vars?: Record<string, string>;
 }
 
 /** Current non-Jev behaviour for a predicate; null means it cannot decide. */
@@ -206,14 +209,17 @@ export async function replayPredicates(cases: readonly ReplayCase[], options: Re
       if (!(predicateId in c.labels)) continue;
       const label = c.labels[predicateId];
       const state = projectInputs(definition, c.inputs, c.id);
+      // A templated question is a different question per filling, so its fingerprint carries the vars.
+      const caseQuestion = c.vars ? questionFor(predicateId, c.vars) : question;
+      const caseFingerprint = c.vars ? `${fingerprint}:${createHash("sha256").update(JSON.stringify(c.vars)).digest("hex").slice(0, 12)}` : fingerprint;
 
       let answer: PredicateAnswer | undefined;
       if (options.mode === "recorded") {
         const trace = recordings.get(`${c.id}::${predicateId}`);
         if (!trace) unreplayable.missing.push(c.id);
-        else if (trace.questionFingerprint !== fingerprint || trace.evaluatorVersion !== definition.evaluatorVersion || trace.projectionHash !== stateProjectionHash(state)) unreplayable.stale.push(c.id);
+        else if (trace.questionFingerprint !== caseFingerprint || trace.evaluatorVersion !== definition.evaluatorVersion || trace.projectionHash !== stateProjectionHash(state)) unreplayable.stale.push(c.id);
         else {
-          const evaluation = await evaluatePredicates(state, [question], { apiKey: "replay", fetchFn: recordedFetch(trace) }, egress);
+          const evaluation = await evaluatePredicates(state, [caseQuestion], { apiKey: "replay", fetchFn: recordedFetch(trace) }, egress);
           if (!evaluation.ok) unreplayable.errors.push(`${c.id}: ${evaluation.error}`);
           answer = evaluation.answers[predicateId];
           jevLatencies.push(trace.latencyMs);
@@ -223,7 +229,7 @@ export async function replayPredicates(cases: readonly ReplayCase[], options: Re
         const sink: Parameters<typeof capturingFetch>[1] = {};
         const evaluation = await evaluatePredicates(
           state,
-          [question],
+          [caseQuestion],
           { ...options.jev, fetchFn: capturingFetch(options.jev?.fetchFn ?? fetch, sink) },
           egress,
         );
@@ -238,7 +244,7 @@ export async function replayPredicates(cases: readonly ReplayCase[], options: Re
             caseId: c.id,
             predicateId,
             evaluatorVersion: definition.evaluatorVersion,
-            questionFingerprint: fingerprint,
+            questionFingerprint: caseFingerprint,
             projectionHash: evaluation.projectionHash,
             model,
             answer: sink.body.answers[predicateId],
