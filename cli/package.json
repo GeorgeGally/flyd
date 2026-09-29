@@ -1,7 +1,7 @@
 {
   "name": "@radarboy/flyd",
   "version": "0.1.0",
-  "description": "flyd \u2014 continuous personal coding agent",
+  "description": "flyd — continuous personal coding agent",
   "type": "module",
   "bin": {
     "flyd": "./dist/entry.js"
@@ -27,11 +27,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "@tobilu/qmd": "^2.5.3",
+    "better-sqlite3": "^12.10.0",
     "commander": "^12.0.0",
     "dotenv": "^17.4.2",
     "openai": "^4.0.0",
     "pg": "^8.22.0",
-    "better-sqlite3": "^12.10.0",
+    "undici": "^7.30.0",
     "ws": "^8.21.1"
   },
   "overrides": {
