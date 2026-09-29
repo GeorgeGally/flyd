@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnRoute } from "../turn-plan.js";
+import { offCode, offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnRoute } from "../turn-plan.js";
 import { contractError } from "../tool-contracts.js";
 
 const tools = ["read_file", "bash", "edit_file", "write_file", "web_search", "remember", "todos", "background_task", "start_coding_task", "speaking_style"].map((name) => ({ name }));
@@ -56,3 +56,21 @@ describe("tool contracts", () => {
     expect(contractError("start_coding_task", { outcome: "Push notifications for new mixes", done_when: ["x"] })).toBeNull();
   });
 });
+
+describe("project talk isn't code", () => {
+  const roots = ["/Users/g/Documents/cleanx"];
+  it("keeps him out of the repo on a turn about the project, not its code", () => {
+    expect(offCode(false, "read_file", { path: "README.md" }, roots)).toMatch(/talking about the project, not its code/);
+    expect(offCode(false, "bash", { command: "cd /Users/g/Documents/cleanx && ls docs" }, roots)).toMatch(/^Skipped/);
+    expect(offCode(false, "bash", { command: "ls", repo: "/Users/g/Documents/cleanx" }, roots)).toMatch(/^Skipped/);
+    expect(offCode(false, "bash", { command: "git log -3" }, roots)).toMatch(/^Skipped/);
+    expect(offCode(false, "bash", { command: "mdfind -name glasses" }, roots)).toBeNull();
+    expect(offCode(false, "calendar_events", {}, roots)).toBeNull();
+  });
+
+  it("opens the code on a code turn", () => {
+    expect(offCode(true, "bash", { command: "cd /Users/g/Documents/cleanx && git log" }, roots)).toBeNull();
+    expect(offCode(true, "read_file", { path: "x" }, roots)).toBeNull();
+  });
+});
+

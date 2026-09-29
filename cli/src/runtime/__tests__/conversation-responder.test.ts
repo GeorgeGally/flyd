@@ -810,7 +810,7 @@ describe("conversation action tools", () => {
   ): Promise<string> {
     let result = "";
     await respondToConversation({
-      message: "use the tool",
+      message: "use the tool on this file",
       history: [],
       memory: { verdict: "insufficient", matches: [] },
       situation: {
@@ -1008,7 +1008,7 @@ describe("conversation action tools", () => {
     try {
       writeFileSync(join(root, "a.txt"), "hello world\n");
       await respondToConversation({
-        message: "use the tool",
+        message: "use the tool on this file",
         history: [],
         memory: { verdict: "insufficient", matches: [] },
         situation: {
@@ -1136,7 +1136,7 @@ describe("conversation action tools", () => {
     const outputs: string[] = [];
     try {
       await respondToConversation({
-        message: "use the tool",
+        message: "use the tool on this file",
         history: [],
         memory: { verdict: "insufficient", matches: [] },
         situation: {
@@ -1176,7 +1176,7 @@ describe("conversation action tools", () => {
     const outputs: string[] = [];
     try {
       await respondToConversation({
-        message: "use the tool",
+        message: "use the tool on this file",
         history: [],
         memory: { verdict: "insufficient", matches: [] },
         situation: {

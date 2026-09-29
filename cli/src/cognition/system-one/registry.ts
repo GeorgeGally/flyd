@@ -307,6 +307,14 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "runtime/turn-plan.ts routeWithJev: decides the chat turn's route at ≥ threshold, before and instead of the LLM room reading; below it the room reading decides",
   },
 
+  {
+    id: "chat_turn_needs_code", family: "chat", type: "noul",
+    instructions: "To answer `utterance` well, does Flyd need to open George's code, repositories, files, or git history? Talking about a project (its launch, status, plans, how he feels about it, what to do next) needs knowledge of the project, not its code: no. Asking what changed in the code, where something is implemented, what a commit did, or to change code: yes.",
+    threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "chat_turn_needs_code.v1", status: "production",
+    consumer: "conversation-responder.ts: operator prompt and repo evidence only when yes (≥ threshold); no (≤ 1 − threshold) keeps the lean companion prompt; unsure falls back to the keyword heuristic",
+  },
+
   // ── proposed: model routing (replay only) ─────────────────────────────
   {
     id: "needs_reasoning_model", family: "model_routing", type: "noul",

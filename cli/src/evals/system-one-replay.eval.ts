@@ -147,6 +147,14 @@ describe("System-1 replay bench", () => {
     expect(decided.length).toBeGreaterThanOrEqual(32);
     expect(decided.filter((r) => r.jev !== r.label)).toEqual([]);
     expect(route.find((r) => r.caseId === "chat-turn-01")?.jev).toBe("delegate");
+
+    // chat_turn_needs_code: decided turns are right but for one scheduled PR
+    // check (0.83); talk about a project's launch or status stays unsure
+    // (0.35-0.46), so the responder falls back to code-only keywords there.
+    const code = predicateReport(report, "chat_turn_needs_code").rows;
+    const codeDecided = code.filter((r) => r.jev !== "abstain");
+    expect(codeDecided.length).toBeGreaterThanOrEqual(30);
+    expect(codeDecided.filter((r) => r.jev !== r.label).map((r) => r.caseId)).toEqual(["chat-turn-26"]);
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);

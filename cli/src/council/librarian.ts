@@ -6,6 +6,7 @@ import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { addUserProfileFact, PROFILE_SECTIONS, readUserProfile } from "../lib/user-profile.js";
 import { readJournalSince, type JournalTurn } from "./journal.js";
+import { applyProjectOps, describeProject, PROJECT_KINDS, PROJECT_STATUSES, readProjects, type Project, type ProjectApplyReceipt, type ProjectOp } from "./projects.js";
 import {
   applyMemoryOps, localDay, MEMORY_SECTIONS, memoryPaths, readMemoryEntries, staleEntries,
   type ApplyReceipt, type MemoryOp, type MemoryPaths,
@@ -28,6 +29,8 @@ export interface LibrarianState {
   captureCursorMs: number;
   lastRunAt: string | null;
   runs: number;
+  /** Local day the Librarian last tried to build an empty project list; once a day at most. */
+  projectsSeededOn?: string;
 }
 
 export function librarianStatePath(): string {
@@ -135,6 +138,9 @@ export interface LibrarianInput {
   profile: string | null;
   today: string;
   finished?: FinishedWork[];
+  projects?: Project[];
+  /** Code repos on his Mac a project can point at. */
+  repos?: Array<{ name: string; root: string }>;
 }
 
 export function librarianPrompt(input: LibrarianInput): string {
@@ -144,6 +150,8 @@ export function librarianPrompt(input: LibrarianInput): string {
   const memory = input.memory.map((entry) => `[${entry.id}] (${entry.section}, ${entry.tier}, confirmed ${entry.date}) ${entry.text}`).join("\n");
   const stale = input.stale.map((entry) => `[${entry.id}] ${entry.text}`).join("\n");
   const finished = (input.finished ?? []).map((work) => `[${work.id}] ${work.at.slice(0, 10)} ${work.text}`).join("\n");
+  const projects = (input.projects ?? []).map((project) => `[${project.id}] ${describeProject(project)} (updated ${project.updated})`).join("\n");
+  const repos = (input.repos ?? []).map((repo) => `${repo.name}: ${repo.root}`).join("\n");
   return [
     "You are Flyd's Librarian: the curator of George's memory. George is the only person you serve.",
     `Today is ${input.today}.`,
@@ -166,6 +174,8 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- Commitments with a date are perishable; standing facts and decisions are aging.",
     "- Cite sources with the [j:…] / [cap:…] ids you were shown. Do not invent ids.",
     "- For each STALE entry: reinforce it if today's evidence confirms it, archive it if superseded or done, otherwise leave it.",
+    "- Keep his projects current. A project is anything he is making, running, or owed, with or without code (a product launch, a client job, an artwork, money owed, the glasses venture). Add one when it first comes up; update its now/next/due/status/people from what he said or what got done; mark it done when it is finished. Link code only from the repo list below, and only when that repo is the project's code. Projects stay out of memory_ops: they live here.",
+    input.projects?.length ? "" : "- He has no project list yet: build it now from his profile, memory, the repos, and the conversation. Only real, current projects; skip one-off tasks.",
     "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
     "",
@@ -174,6 +184,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "Reply with JSON only:",
     '{"memory_ops": [ {"op":"add","section":"...","text":"...","tier":"aging|perishable","sources":["j:..."]} | {"op":"update","id":"...","text":"...","sources":[...]} | {"op":"reinforce","id":"...","sources":[...]} | {"op":"archive","id":"...","reason":"..."} | {"op":"daily_note","text":"...","sources":[...]} ],',
     ' "profile_ops": [ {"section":"...","fact":"..."} ],',
+    ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"]} | {"op":"archive","id":"...","reason":"..."} ],`,
     ' "observations": ["<up to 5 short notes for George\'s advisors about what stands out: risks, patterns, momentum, loose ends>"] }',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
@@ -182,22 +193,29 @@ export function librarianPrompt(input: LibrarianInput): string {
     `--- Conversation since last pass ---\n${turns || "(none)"}`,
     `--- New captures ---\n${captures || "(none)"}`,
     `--- Work finished since your last pass ---\n${finished || "(none)"}`,
+    `--- His projects ---\n${projects || "(none yet)"}`,
+    `--- Code repos on his Mac ---\n${repos || "(none found)"}`,
   ].join("\n");
 }
 
 export interface LibrarianProposal {
+  projectOps: ProjectOp[];
   memoryOps: MemoryOp[];
   profileOps: Array<{ section: string; fact: string }>;
   observations: string[];
 }
 
 export function parseLibrarianProposal(text: string): LibrarianProposal {
-  const empty: LibrarianProposal = { memoryOps: [], profileOps: [], observations: [] };
+  const empty: LibrarianProposal = { memoryOps: [], profileOps: [], observations: [], projectOps: [] };
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return empty;
   try {
-    const parsed = JSON.parse(match[0]) as { memory_ops?: unknown[]; profile_ops?: unknown[]; observations?: unknown[] };
+    const parsed = JSON.parse(match[0]) as { memory_ops?: unknown[]; profile_ops?: unknown[]; observations?: unknown[]; project_ops?: unknown[] };
     return {
+      projectOps: (parsed.project_ops ?? []).filter((op): op is ProjectOp => {
+        const record = op as { op?: unknown; name?: unknown; id?: unknown };
+        return (record?.op === "upsert" && typeof record.name === "string") || (record?.op === "archive" && typeof record.id === "string");
+      }).slice(0, 30),
       memoryOps: (parsed.memory_ops ?? []).filter((op): op is MemoryOp => typeof op === "object" && op !== null && typeof (op as { op?: unknown }).op === "string").slice(0, 30),
       profileOps: (parsed.profile_ops ?? []).flatMap((op) => {
         const record = op as { section?: unknown; fact?: unknown };
@@ -215,6 +233,7 @@ export interface LibrarianRunResult {
   turns: number;
   captures: number;
   memory?: ApplyReceipt;
+  projects?: ProjectApplyReceipt;
   profileAdded: number;
   observations: string[];
 }
@@ -230,9 +249,17 @@ export interface LibrarianDependencies {
   readProfile?: () => string | null;
   /** What got done since the last pass; defaults to commits, crew, jobs and agenda outside tests. */
   finishedWork?: (since: Date) => Promise<FinishedWork[]>;
+  /** His code repos; defaults to the repo registry outside tests. */
+  repos?: () => Promise<Array<{ name: string; root: string }>>;
+  projectsPath?: string;
 }
 
 const FIRST_PASS_LOOKBACK_MS = 7 * 86_400_000;
+
+async function defaultRepos(): Promise<Array<{ name: string; root: string }>> {
+  const { refreshRepoRegistry } = await import("../runtime/repo-registry.js");
+  return (await refreshRepoRegistry()).map((repo) => ({ name: repo.name, root: repo.root }));
+}
 
 /** One curation pass over everything new since the last one. */
 export async function runLibrarian(deps: LibrarianDependencies): Promise<LibrarianRunResult> {
@@ -244,21 +271,25 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const memory = readMemoryEntries(paths);
   const stale = staleEntries(memory, now);
   const since = state.lastRunAt ? new Date(state.lastRunAt) : new Date(now.getTime() - FIRST_PASS_LOOKBACK_MS);
+  const projects = readProjects(deps.projectsPath);
+  const seedProjects = projects.length === 0 && state.projectsSeededOn !== localDay(now);
   const commitments = memory.some((entry) => entry.section === "Commitments");
   const finished = commitments
     ? await (deps.finishedWork ?? (process.env.VITEST ? async () => [] : collectFinishedWork))(since).catch(() => [])
     : [];
-  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0) {
+  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
   }
   const profile = (deps.readProfile ?? readUserProfile)();
+  const repos = await (deps.repos ?? (process.env.VITEST ? async () => [] : defaultRepos))().catch(() => []);
   const reply = await deps.complete(librarianPrompt({
-    turns, captures, memory, stale, profile, today: localDay(now), finished,
+    turns, captures, memory, stale, profile, today: localDay(now), finished, projects, repos,
   }));
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");
   const proposal = parseLibrarianProposal(reply);
   const receipt = applyMemoryOps(proposal.memoryOps, { now, paths });
+  const projectReceipt = applyProjectOps(proposal.projectOps, { knownRepos: repos.map((repo) => repo.root), now, ...(deps.projectsPath ? { path: deps.projectsPath } : {}) });
   const addProfile = deps.addProfileFact
     ?? ((fact: string, section: string) => addUserProfileFact(fact, {
       section: PROFILE_SECTIONS.find((name) => name.toLowerCase() === section.toLowerCase()) ?? "Learned in conversation",
@@ -270,6 +301,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     captureCursorMs: captures.at(-1)?.mtimeMs ?? state.captureCursorMs,
     lastRunAt: now.toISOString(),
     runs: state.runs + 1,
+    ...(seedProjects ? { projectsSeededOn: localDay(now) } : state.projectsSeededOn ? { projectsSeededOn: state.projectsSeededOn } : {}),
   }, deps.statePath);
-  return { turns: turns.length, captures: captures.length, memory: receipt, profileAdded, observations: proposal.observations };
+  return { turns: turns.length, captures: captures.length, memory: receipt, projects: projectReceipt, profileAdded, observations: proposal.observations };
 }

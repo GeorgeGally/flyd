@@ -97,7 +97,7 @@ describe("librarian", () => {
   });
 
   it("ignores malformed proposals and skips tiny captures", () => {
-    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [] });
+    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [], projectOps: [] });
     expect(parseLibrarianProposal('{"memory_ops":[{"op":"add","text":"x"},"junk"],"profile_ops":[{"fact":""}]}').memoryOps).toHaveLength(1);
     const raw = join(home, "raw2");
     mkdirSync(raw);

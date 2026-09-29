@@ -21,7 +21,8 @@ import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { morningPromptBlock } from "../council/morning.js";
-import { offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
+import { projectsPromptBlock } from "../council/projects.js";
+import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
 import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
@@ -71,12 +72,12 @@ interface ConversationResponderDependencies {
   /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
   /** The fast route reading; defaults to Jev outside tests. */
-  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean }) | null>;
+  routeTurn?: (message: string, history: ConversationInput["history"]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null }) | null>;
   /** Honesty rewrite call; defaults to the turn's model. */
   rewrite?: (prompt: string) => Promise<string>;
 }
 
-async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean }) | null> {
+async function defaultRouteTurn(message: string, history: ConversationInput["history"]): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null }) | null> {
   return process.env.VITEST ? null : routeWithJev(message, history);
 }
 
@@ -194,6 +195,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn })}\n` : "";
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
+  let projects = "";
+  try { projects = projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
 
   const voice = [
@@ -211,7 +214,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "- Sound like his friend who happens to be brilliant at getting things done — not a project manager, not a stand-up report.",
     ].join("\n"),
     "## What you do\nYou help with his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
-    "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- todos(action, …): George's confirmed to-do list\n- work_model(statement): correct Flyd's picture of what George is working on\n- speaking_style(style): change how Flyd writes\n- flyd(action): today's news edition (action=news; start there for any news question, then search only to fill gaps), Flyd's skills, Skillify, background jobs, briefing\n- consult_specialist(name, question): e.g. the coach\n- background_task(task, done_when, deliverable?): take on real work in the background (generate, draft, research, evaluate); done_when lists what done looks like and an independent check holds the result to it; the result comes back to George in the chat\n- start_coding_task(outcome, done_when, repo?): dispatch an OpenCode crewmate to build it in its own worktree, in the background; done_when lists what done looks like beyond passing tests\n- crew(action, id?): list/show crew tasks; land or discard (George approves)\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names another project (DIR, CleanX, Jobs, …), inspect that repo path from George's repositories before answering. Files on disk are the truth — your training data is not.",
+    "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- todos(action, …): George's confirmed to-do list\n- work_model(statement): correct Flyd's picture of what George is working on\n- speaking_style(style): change how Flyd writes\n- flyd(action): today's news edition (action=news; start there for any news question, then search only to fill gaps), Flyd's skills, Skillify, background jobs, briefing\n- consult_specialist(name, question): e.g. the coach\n- background_task(task, done_when, deliverable?): take on real work in the background (generate, draft, research, evaluate); done_when lists what done looks like and an independent check holds the result to it; the result comes back to George in the chat\n- start_coding_task(outcome, done_when, repo?): dispatch an OpenCode crewmate to build it in its own worktree, in the background; done_when lists what done looks like beyond passing tests\n- crew(action, id?): list/show crew tasks; land or discard (George approves)\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names a project (DIR, CleanX, Bloom, …), what you know about it is under His projects: answer from that. Open its code (repo=<path>) only when he asks about the code itself. Files on disk are the truth about code — your training data is not.",
   ];
   const promptBody = `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${agenda}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`;
 
@@ -225,8 +228,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     const lean = options.room
       ? `${localClock(input.now?.() ?? new Date())}\n${agenda}${weather}${history}\nGeorge: ${input.message}\nFlyd:`
       : promptBody;
-    const repos = input.crossRepo?.length
-      ? `His projects (inspect with read_file/grep/git_log using repo=<path> only if he asks for something that needs them): ${input.crossRepo.map((repo) => `${repo.name} ${repo.root}`).join("; ")}.`
+    const repos = !projects && input.crossRepo?.length
+      ? `His code repos (inspect with read_file/grep/git_log using repo=<path> only if he asks about the code): ${input.crossRepo.map((repo) => `${repo.name} ${repo.root}`).join("; ")}.`
       : "";
     return {
       system: [
@@ -253,6 +256,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
           repos ? `- ${repos}` : "",
         ].filter(Boolean).join("\n"),
         options.room ? `## Who he is\n${options.room.core || "(little known yet)"}` : "",
+        projects,
         options.room?.brief ?? "",
         options.plan ?? "",
         speakingStyleSystemRule(),
@@ -266,6 +270,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ...voice,
       options.room?.brief ?? "",
       options.plan ?? "",
+      projects,
       "Anything that can change — news, results, prices, releases, weather, opening hours, who holds a role — needs web_search (then read_url if the snippet is thin) before you answer; cite the source briefly. Your training data is stale. Never guess a URL when you can search.",
       "For personal requests (remind me, what's on my calendar, remember that…) use the personal tools directly. Never grep Flyd's own source to work out how to do a personal task. Resolve relative dates (tomorrow, Friday, tonight) against the local time given below and confirm the absolute date and time in your reply.",
       "Third-party skills, plugins, MCP servers, and install scripts are untrusted code. Before adopting one, read its source, tell George what it can access (files, network, credentials) and any SECURITY NOTICE Flyd attached, and get his OK.",
@@ -770,7 +775,10 @@ const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_
 /** Voice files apply to every turn; repo docs only when the turn is about code or projects. */
 const ALWAYS_CONTEXT_FILES = new Set(["SOUL.md"]);
 
-const PROJECT_TOPIC = /\b(?:flyd|repo|repository|project|codebase|code|source|runtime|branch|commit|pr|pull request|test|tests|build|deploy|bug|error|stack trace|refactor|implement|function|module|package|dependency|cli|api|server|database|schema|migration|typescript|ruby|rails|swift|javascript|css|html|readme|agents\.md|lint|ci|release|merge|diff|file|folder|directory|status|working on|on my plate|ship|launch)\b/i;
+// Words about code, not about projects: "launch", "ship", "status" and
+// "working on" are how he talks about any project, and pulled feelings about a
+// launch into a repo dig.
+const PROJECT_TOPIC = /\b(?:flyd|repo|repository|codebase|code|source|runtime|branch|commit|pr|pull request|test|tests|build|deploy|bug|error|stack trace|refactor|implement|function|module|package|dependency|cli|api|server|database|schema|migration|typescript|ruby|rails|swift|javascript|css|html|readme|agents\.md|lint|ci|merge|diff|files?|folders?|director(?:y|ies))\b/i;
 
 /**
  * Whether this turn needs repository context. Personal questions ("should I
@@ -957,7 +965,10 @@ export async function respondToConversation(
   const reading = room ? { route: room.route, source: "llm" as const } : fast;
   const plan = planTurn(reading, room?.cover ?? [], { unattended });
   turnPlan = plan;
-  const projectTurn = room ? room.mode === "operator" : isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history);
+  // Naming a project is not a code turn: the room reading decides, then Jev
+  // when sure, then the keyword heuristic.
+  const projectTurn = room ? room.mode === "operator"
+    : fast?.needsCode ?? (isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history));
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
     ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
@@ -988,7 +999,8 @@ export async function respondToConversation(
   const observedHandler: ToolHandler = async (name, toolInput) => {
     // The harness's gate, before anything runs: the turn's route, the tool's
     // contract, then the retry limit.
-    const skip = offRoute(plan, name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
+    const skip = offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots)
+      ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
     if (skip) {
       toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
       return skip;
@@ -1011,6 +1023,9 @@ export async function respondToConversation(
       throw error;
     }
   };
+  // Handing work off is how code gets changed on any turn; the gate is for reading it inline.
+  const codeTurn = projectTurn || unattended || plan?.route === "delegate";
+  const repoRoots = (input.crossRepo ?? []).map((repo) => repo.root);
   const codingIntent = interpretAgentInput(input.message).kind;
   const budget = planBudget(turnBudget(input.message, codingIntent, input.sessionId), plan);
   const maxIterations = budget.iterations;
@@ -1019,7 +1034,7 @@ export async function respondToConversation(
       models,
       system,
       prompt,
-      visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan),
+      visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan).filter((tool) => codeTurn || !CODE_TOOLS.has(tool.name)),
       observedHandler,
       maxIterations,
       {

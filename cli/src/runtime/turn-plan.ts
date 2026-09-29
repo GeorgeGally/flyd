@@ -132,14 +132,44 @@ export function planBudget<B extends TurnBudget>(defaults: B, plan: TurnPlan | n
  * release, so this asks that release, not jev-latest. Off with
  * FLYD_JEV_TURN_ROUTE=0 or no key.
  */
-export async function routeWithJev(message: string, history: Array<{ role: string; content: string }> = []): Promise<RouteReading & { decided: boolean } | null> {
+export async function routeWithJev(message: string, history: Array<{ role: string; content: string }> = []): Promise<RouteReading & { decided: boolean; needsCode: boolean | null } | null> {
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey || process.env.FLYD_JEV_TURN_ROUTE === "0") return null;
-  const recap = history.slice(-4).map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content.replace(/\s+/g, " ").slice(0, 240)}`).join("\n");
+  // Flyd's offer ("want me to…?") ends its reply, so keep the tail of what it said.
+  const recap = history.slice(-4).map((turn) => {
+    const text = turn.content.replace(/\s+/g, " ");
+    return turn.role === "user" ? `George: ${text.slice(0, 240)}` : `Flyd: …${text.slice(-320)}`;
+  }).join("\n");
   const question = questionFor("chat_turn_route");
-  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const code = questionFor("chat_turn_needs_code");
+  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
-  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route") };
+  // Does the turn need his code opened? Yes/no only when Jev is sure; unsure is null.
+  const codeThreshold = predicateThreshold("chat_turn_needs_code");
+  const p = result.answers[code.id]?.probability;
+  const needsCode = p === undefined ? null : p >= codeThreshold ? true : p <= 1 - codeThreshold ? false : null;
+  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), needsCode };
+}
+
+/** Tools that read or change a codebase; out of reach on a turn that isn't about code. */
+export const CODE_TOOLS = new Set(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file"]);
+
+/**
+ * On a turn about a project rather than its code ("stuck on the CleanX
+ * launch"), the answer comes from what Flyd knows about the project. A
+ * prompt rule saying so was ignored run after run, so the harness holds it:
+ * code tools are out of sight, and a shell command that goes into one of his
+ * repos or runs git is stopped.
+ */
+export function offCode(codeTurn: boolean, name: string, input: Record<string, unknown>, repoRoots: string[]): string | null {
+  if (codeTurn) return null;
+  const why = "Skipped (not this turn): he's talking about the project, not its code. Answer from what you know about it (His projects); if the code would really help, offer to look.";
+  if (CODE_TOOLS.has(name)) return why;
+  if (name !== "bash") return null;
+  if (String(input.repo ?? "").trim()) return why;
+  const command = String(input.command ?? "");
+  if (/(?:^|[\s;&|(])git\s/.test(command)) return why;
+  return repoRoots.some((root) => root && command.includes(root)) ? why : null;
 }
