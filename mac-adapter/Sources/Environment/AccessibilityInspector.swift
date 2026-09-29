@@ -393,6 +393,10 @@ final class AccessibilityInspector {
         return nil
     }
 
+    func focusedWindowTitle() -> String? {
+        focusedWindow().flatMap { axAttribute($0, kAXTitleAttribute as CFString) }
+    }
+
     private func focusedWindow() -> AXUIElement? {
         guard let app = AXUIElementCreateApplication(pid) as AXUIElement? else { return nil }
         var windowRef: CFTypeRef?

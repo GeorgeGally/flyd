@@ -48,7 +48,14 @@ final class DictationController {
         state.transition(to: .listening)
         pill.show(.listening)
 
-        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId())
+        let bundleId = session.bundleId
+        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) {
+            var app: [String: Any] = ["bundleId": bundleId]
+            if let title = AccessibilityInspector.shared.focusedWindowTitle(), !title.isEmpty {
+                app["windowTitle"] = title
+            }
+            return ["purpose": "dictation", "app": app]
+        }
         relay.onTranscriptDelta = nil
         relay.onComplete = { [weak self] transcript in self?.transcribed(transcript) }
         relay.onError = { [weak self] error in

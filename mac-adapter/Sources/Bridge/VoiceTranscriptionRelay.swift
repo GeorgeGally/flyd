@@ -21,15 +21,19 @@ final class VoiceTranscriptionRelay {
     private var commitPending = false
     private var currentSessionId: Int = -1
     private var sessionToken: Int = 0
+    private var startFields: () -> [String: Any] = { [:] }
 
     var onTranscriptDelta: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
-    func connect(sessionId: Int) {
+    /// `startFields` is evaluated on the relay queue, so slow Accessibility reads it
+    /// makes (the front window title) never hold up the recording on the main thread.
+    func connect(sessionId: Int, startFields: @escaping () -> [String: Any] = { [:] }) {
         queue.async { [weak self] in
             guard let self, self.state == .disconnected else { return }
 
+            self.startFields = startFields
             self.currentSessionId = sessionId
             self.sessionToken += 1
             self.state = .connecting
@@ -105,7 +109,11 @@ final class VoiceTranscriptionRelay {
     }
 
     private func sendStart() {
-        webSocket?.send(.string(#"{"type":"start"}"#)) { _ in }
+        var fields = startFields()
+        fields["type"] = "start"
+        guard let data = try? JSONSerialization.data(withJSONObject: fields),
+              let message = String(data: data, encoding: .utf8) else { return }
+        webSocket?.send(.string(message)) { _ in }
     }
 
     private func waitForReady(token: Int) {
