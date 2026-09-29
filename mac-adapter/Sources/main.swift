@@ -57,12 +57,12 @@ let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
 let voiceRelay = VoiceTranscriptionRelay.shared
+let dictation = DictationController.shared
 
 let invocationPanel = InvocationPanel()
 var activeAugmentPanels: [AugmentPanel] = []
 var activeInvocationTask: Task<Void, Never>?
 var activeVoiceInvocationId: String?
-var activeVoicePurpose: VoiceInvocationPurpose = .conversation
 let voiceConversationId = UUID().uuidString
 var voiceTranscriptionTimeout: DispatchWorkItem?
 var voiceHoldMonitor: Timer?
@@ -156,13 +156,13 @@ func startFlyd(closeSetup: Bool = true) {
         }
     }
     stateMachine.onShortcutHoldDetected = {
-        handleVoiceInvocation(purpose: .conversation)
+        handleVoiceInvocation()
     }
     stateMachine.onDictationHoldDetected = {
-        handleVoiceInvocation(purpose: .dictation)
+        startDictation()
     }
     stateMachine.onDictationReleased = {
-        handleVoiceRelease()
+        dictation.stop()
     }
     stateMachine.onLiveToggle = {
         LiveSessionController.shared.handleToggle()
@@ -266,7 +266,7 @@ func repoRoot() -> String {
     return FileManager.default.currentDirectoryPath
 }
 
-func handleVoiceInvocation(purpose: VoiceInvocationPurpose) {
+func handleVoiceInvocation() {
     if state.mode == .live {
         LiveSessionController.shared.stop()
     }
@@ -287,13 +287,29 @@ func handleVoiceInvocation(purpose: VoiceInvocationPurpose) {
         return
     }
 
-    beginVoiceInvocation(purpose: purpose)
+    beginVoiceInvocation()
 }
 
-func beginVoiceInvocation(purpose: VoiceInvocationPurpose) {
+func startDictation() {
+    guard state.mode != .live, state.phase == .idle else { return }
+
+    if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
+        dictation.showBlocked(voiceStatus.message ?? "Voice setup needs attention")
+        return
+    }
+
+    guard permissionGate.hasMicrophone else {
+        permissionGate.requestMicrophonePermission()
+        dictation.showBlocked("Microphone permission required")
+        return
+    }
+
+    dictation.start()
+}
+
+func beginVoiceInvocation() {
     let (invocationId, revision) = state.startInvocation()
     activeVoiceInvocationId = invocationId
-    activeVoicePurpose = purpose
     stateMachine.setRevision(revision)
     stateMachine.startPrewarm()
 
@@ -335,22 +351,13 @@ func beginVoiceInvocation(purpose: VoiceInvocationPurpose) {
                 executor.registerElement(ref: "el_01", element: element)
             }
             activeInvocationTask = Task {
-                switch purpose {
-                case .conversation:
-                    await processInvocation(
-                        invocationId: invocationId,
-                        revision: revision,
-                        modality: "voice",
-                        intent: transcript,
-                        conversationId: voiceConversationId
-                    )
-                case .dictation:
-                    await processDictation(
-                        invocationId: invocationId,
-                        revision: revision,
-                        transcript: transcript
-                    )
-                }
+                await processInvocation(
+                    invocationId: invocationId,
+                    revision: revision,
+                    modality: "voice",
+                    intent: transcript,
+                    conversationId: voiceConversationId
+                )
             }
         }
     }
@@ -431,10 +438,7 @@ func startVoiceHoldMonitor() {
     voiceHoldMonitor = Timer(timeInterval: 0.05, repeats: true) { _ in
         guard state.phase == .listening else { return }
         let flags = CGEventSource.flagsState(.hidSystemState)
-        let chordIsActive = activeVoicePurpose == .conversation
-            ? ShortcutRouter.isVoiceChordActive(flags: flags)
-            : ShortcutRouter.isDictationChordActive(flags: flags)
-        if !chordIsActive {
+        if !ShortcutRouter.isVoiceChordActive(flags: flags) {
             handleVoiceRelease()
         }
     }
@@ -469,6 +473,7 @@ func cleanupVoiceInvocation(message: String? = nil) {
 func handleShortcutPress() {
     guard state.phase != .idle else { return }
 
+    dictation.cancel()
     suppressNextShortcutRelease = true
     activeInvocationTask?.cancel()
     state.cancelInvocation()
@@ -569,58 +574,6 @@ func handleInvocation() {
     }
 
     invocationPanel.show()
-}
-
-func processDictation(invocationId: String, revision: Int, transcript: String) async {
-    stateMachine.captureIntent(intent: transcript)
-
-    let environment = accessibilityInspector.captureEnvironment() ?? EnvironmentState.fallback(
-        application: applicationMonitor.foregroundApp,
-        reason: "Focused element unavailable"
-    )
-
-    guard DictationTargetPolicy.canInsert(into: environment.focusedElement.role) else {
-        auditRecorder.record(
-            invocationId: invocationId,
-            contextSources: ["dictation", "element:\(environment.focusedElement.role)"],
-            error: "Dictation target is not editable"
-        )
-        await MainActor.run {
-            invocationPanel.updateState(.error(message: "Dictation needs an editable text field"))
-            state.transition(to: .present)
-            activeVoiceInvocationId = nil
-            executor.clearInvocationRefs()
-            stateMachine.resetCheckpoints()
-        }
-        return
-    }
-
-    state.transition(to: .executing)
-    let operation = ResolvedOperation(target: "el_01", kind: "insert_text", text: transcript)
-    let result = await executor.execute(
-        operation: operation,
-        fingerprint: buildFingerprint(from: environment)
-    )
-
-    auditRecorder.record(
-        invocationId: invocationId,
-        contextSources: ["dictation", "element:\(environment.focusedElement.role)"],
-        error: result.error
-    )
-
-    await MainActor.run {
-        if result.success {
-            invocationPanel.updateState(
-                .undoAvailable(invocationId: invocationId, preview: "insert_text: \"\(transcript.prefix(60))\"")
-            )
-        } else {
-            invocationPanel.updateState(.error(message: result.error ?? "Dictation could not be inserted"))
-        }
-        state.transition(to: .present)
-        activeVoiceInvocationId = nil
-        executor.clearInvocationRefs()
-        stateMachine.resetCheckpoints()
-    }
 }
 
 func processInvocation(
