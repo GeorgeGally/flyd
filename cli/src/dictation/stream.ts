@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { isPromptEcho, removePromptEcho } from "./echo.js";
 
 // Dictation audio streamed to OpenAI's realtime transcription while George
 // speaks. Server VAD transcribes each phrase at its pause, so when he stops
@@ -73,7 +74,7 @@ export function openStreamingTranscriber(options: StreamingOptions): StreamingTr
   const settleIfDone = () => {
     if (!settle || finalCommit !== "acked") return;
     if (items.some((id) => !transcripts.has(id))) return;
-    settle.resolve(items.map((id) => transcripts.get(id)!.trim()).filter(Boolean).join(" "));
+    settle.resolve(removePromptEcho(items.map((id) => transcripts.get(id)!.trim()).filter(Boolean).join(" "), options.prompt));
     settle = null;
   };
 
@@ -92,7 +93,11 @@ export function openStreamingTranscriber(options: StreamingOptions): StreamingTr
         if (finalCommit === "sent") finalCommit = "acked";
         break;
       case "conversation.item.input_audio_transcription.completed":
-        transcripts.set(String(event.item_id), String(event.transcript ?? ""));
+        {
+          // A phrase that is only a pause can come back as the prompt itself.
+          const transcript = String(event.transcript ?? "");
+          transcripts.set(String(event.item_id), isPromptEcho(transcript, options.prompt) ? "" : transcript);
+        }
         break;
       case "conversation.item.input_audio_transcription.failed":
         fail(new Error(`Realtime transcription failed: ${JSON.stringify(event.error ?? {})}`));

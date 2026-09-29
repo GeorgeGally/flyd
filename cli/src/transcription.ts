@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import { finishDictation } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
 import type { DictationTarget } from "./dictation/profile.js";
+import { removePromptEcho } from "./dictation/echo.js";
 import { openStreamingTranscriber, type StreamingTranscriber } from "./dictation/stream.js";
 import { loadReplacementRules, loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
 
@@ -345,6 +346,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, pu
 
     if (response.ok) {
       const body = await response.json() as { text?: string };
+      body.text = removePromptEcho(body.text || "", prompt);
       if (purpose.kind === "dictation") {
         await completeDictation(clientWs, body.text || "", pcm.length / PCM_BYTES_PER_SECOND, purpose, vocabulary);
         return;
