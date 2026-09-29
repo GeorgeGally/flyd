@@ -3,200 +3,182 @@ import XCTest
 @testable import FlydMacAdapter
 
 final class ShortcutRoutingTests: XCTestCase {
-    private func tap(_ state: inout ShortcutRoutingState, at time: TimeInterval) -> ShortcutRouteEvent {
-        _ = ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskSecondaryFn], state: &state, now: time)
-        return ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: time + 0.05)
+    private let fn: CGEventFlags = [.maskSecondaryFn]
+    private let ctrlFn: CGEventFlags = [.maskControl, .maskSecondaryFn]
+
+    private func flags(_ flags: CGEventFlags, _ state: inout ShortcutRoutingState, at time: TimeInterval) -> [ShortcutRouteEvent] {
+        ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &state, now: time)
     }
 
-    func testDoubleTapFnRoutesToText() {
-        var state = ShortcutRoutingState()
-
-        XCTAssertEqual(tap(&state, at: 0.0), .none)
-        XCTAssertEqual(tap(&state, at: 0.2), .textTapped)
+    private func key(_ keyCode: CGKeyCode, _ state: inout ShortcutRoutingState, at time: TimeInterval) -> [ShortcutRouteEvent] {
+        ShortcutRouter.route(eventType: .keyDown, flags: [], keyCode: keyCode, state: &state, now: time)
     }
 
-    func testSingleFnTapDoesNothing() {
-        var state = ShortcutRoutingState()
-
-        XCTAssertEqual(tap(&state, at: 0.0), .none)
+    /// fn down at `time`, up 0.05 s later; returns every event the two edges produced.
+    private func tap(_ state: inout ShortcutRoutingState, at time: TimeInterval) -> [ShortcutRouteEvent] {
+        flags(fn, &state, at: time) + flags([], &state, at: time + 0.05)
     }
 
-    func testSlowSecondTapDoesNotTriggerText() {
+    func testTapStartsDictationAndNextTapStopsIt() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(tap(&state, at: 0.0), .none)
-        XCTAssertEqual(tap(&state, at: 1.0), .none)
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(tap(&state, at: 3.0), [.dictationStop])
+        XCTAssertEqual(tap(&state, at: 5.0), [.dictationStart])
     }
 
-    func testThirdTapAfterDoubleTapStartsFreshChain() {
+    func testHoldIsPushToTalk() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(tap(&state, at: 0.0), .none)
-        XCTAssertEqual(tap(&state, at: 0.2), .textTapped)
-        XCTAssertEqual(tap(&state, at: 0.4), .none)
+        XCTAssertEqual(flags(fn, &state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(flags([], &state, at: 2.5), [.dictationStop])
+        XCTAssertEqual(tap(&state, at: 4.0), [.dictationStart])
     }
 
-    func testControlOptionNoLongerRoutesToText() {
+    func testDoubleTapCancelsTheRecordingAndOpensText() {
         var state = ShortcutRoutingState()
 
-        let pressed = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskAlternate],
-            state: &state
-        )
-        XCTAssertEqual(pressed, .none)
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(tap(&state, at: 0.2), [.dictationCancel, .textTapped])
+        XCTAssertEqual(tap(&state, at: 1.0), [.dictationStart])
+    }
 
-        let released = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [],
-            state: &state
-        )
-        XCTAssertEqual(released, .none)
+    func testSecondTapJustOutsideTheWindowStopsInstead() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(tap(&state, at: 0.5), [.dictationStop])
+    }
+
+    func testControlJoiningFnCancelsDictationAndStartsConversation() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(flags(fn, &state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(flags(ctrlFn, &state, at: 0.1), [.dictationCancel, .voicePressed])
+        XCTAssertEqual(flags([], &state, at: 0.6), [.voiceReleased])
+        XCTAssertEqual(tap(&state, at: 1.0), [.dictationStart])
+    }
+
+    func testKeyPressedWhileFnHeldCancelsDictation() {
+        var state = ShortcutRoutingState()
+        let leftArrow: CGKeyCode = 123
+
+        XCTAssertEqual(flags(fn, &state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(key(leftArrow, &state, at: 0.1), [.dictationCancel])
+        XCTAssertEqual(flags([], &state, at: 0.2), [])
+        XCTAssertEqual(tap(&state, at: 1.0), [.dictationStart])
+    }
+
+    func testOtherModifierJoiningFnCancelsDictation() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(flags(fn, &state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(flags([.maskSecondaryFn, .maskCommand], &state, at: 0.1), [.dictationCancel])
+        XCTAssertEqual(flags(fn, &state, at: 0.2), [])
+        XCTAssertEqual(flags([], &state, at: 0.3), [])
+    }
+
+    func testEscapeCancelsHandsFreeDictation() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(key(ShortcutRouter.escapeKeyCode, &state, at: 2.0), [.dictationCancel])
+        XCTAssertEqual(tap(&state, at: 3.0), [.dictationStart])
+    }
+
+    func testTypingDuringHandsFreeDictationKeepsRecording() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(key(0, &state, at: 1.0), [])
+        XCTAssertEqual(tap(&state, at: 2.0), [.dictationStop])
+    }
+
+    func testDictationEndedElsewhereLetsTheNextTapStartFresh() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        ShortcutRouter.endDictation(state: &state)
+        XCTAssertEqual(tap(&state, at: 300.0), [.dictationStart])
     }
 
     func testFunctionControlRoutesToVoiceOnPressAndRelease() {
         var state = ShortcutRoutingState()
 
-        let pressed = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskSecondaryFn],
-            state: &state
-        )
-        XCTAssertEqual(pressed, .voicePressed)
-
-        let released = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [],
-            state: &state
-        )
-        XCTAssertEqual(released, .voiceReleased)
+        XCTAssertEqual(flags([.maskControl], &state, at: 0.0), [])
+        XCTAssertEqual(flags(ctrlFn, &state, at: 0.1), [.voicePressed])
+        XCTAssertEqual(flags([.maskControl], &state, at: 0.8), [.voiceReleased])
+        XCTAssertEqual(flags([], &state, at: 0.9), [])
     }
 
-    func testShiftFunctionControlRoutesToDictationOnPressAndRelease() {
+    func testVoiceChordDuringHandsFreeDictationCancelsIt() {
         var state = ShortcutRoutingState()
 
-        let pressed = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskShift, .maskControl, .maskSecondaryFn],
-            state: &state
-        )
-        XCTAssertEqual(pressed, .dictationPressed)
-
-        let released = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [],
-            state: &state
-        )
-        XCTAssertEqual(released, .dictationReleased)
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(flags([.maskControl], &state, at: 1.0), [])
+        XCTAssertEqual(flags(ctrlFn, &state, at: 1.1), [.dictationCancel, .voicePressed])
+        XCTAssertEqual(flags([], &state, at: 1.5), [.voiceReleased])
     }
 
-    func testConversationAndDictationChordsAreExclusive() {
-        XCTAssertTrue(ShortcutRouter.isVoiceChordActive(flags: [.maskControl, .maskSecondaryFn]))
-        XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: [.maskShift, .maskControl, .maskSecondaryFn]))
-        XCTAssertTrue(ShortcutRouter.isDictationChordActive(flags: [.maskShift, .maskControl, .maskSecondaryFn]))
-        XCTAssertFalse(ShortcutRouter.isDictationChordActive(flags: [.maskControl, .maskSecondaryFn]))
-    }
-
-    func testFnFirstVoiceChordStillRoutesToVoice() {
+    func testShiftControlFnNoLongerDictates() {
         var state = ShortcutRoutingState()
 
-        let fnDown = ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskSecondaryFn], state: &state, now: 0.0)
-        XCTAssertEqual(fnDown, .none)
-
-        let controlJoined = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskSecondaryFn],
-            state: &state,
-            now: 0.1
-        )
-        XCTAssertEqual(controlJoined, .voicePressed)
-
-        let released = ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: 0.5)
-        XCTAssertEqual(released, .voiceReleased)
+        XCTAssertEqual(flags([.maskShift], &state, at: 0.0), [])
+        XCTAssertEqual(flags([.maskShift, .maskControl], &state, at: 0.05), [])
+        XCTAssertEqual(flags([.maskShift, .maskControl, .maskSecondaryFn], &state, at: 0.1), [])
+        XCTAssertEqual(flags([], &state, at: 0.5), [])
     }
 
-    func testFnTapThenVoiceChordDoesNotFireText() {
+    func testControlOptionDoesNotRoute() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(tap(&state, at: 0.0), .none)
-
-        let pressed = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskSecondaryFn],
-            state: &state,
-            now: 0.2
-        )
-        XCTAssertEqual(pressed, .voicePressed)
-
-        let released = ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: 0.4)
-        XCTAssertEqual(released, .voiceReleased)
-
-        // The fn release inside the voice chord must not chain into a text tap.
-        XCTAssertEqual(tap(&state, at: 0.5), .none)
+        XCTAssertEqual(flags([.maskControl, .maskAlternate], &state, at: 0.0), [])
+        XCTAssertEqual(flags([], &state, at: 0.1), [])
     }
 
     func testVoiceChordIsInactiveWhenEitherKeyIsReleased() {
-        XCTAssertTrue(ShortcutRouter.isVoiceChordActive(flags: [.maskControl, .maskSecondaryFn]))
+        XCTAssertTrue(ShortcutRouter.isVoiceChordActive(flags: ctrlFn))
+        XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: [.maskShift, .maskControl, .maskSecondaryFn]))
         XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: [.maskControl]))
-        XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: [.maskSecondaryFn]))
+        XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: fn))
         XCTAssertFalse(ShortcutRouter.isVoiceChordActive(flags: []))
     }
 
-    func testChordWithAllThreeModifiersRoutesToNone() {
-        var state = ShortcutRoutingState()
-
-        let event = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskAlternate, .maskSecondaryFn],
-            state: &state
-        )
-
-        XCTAssertEqual(event, .none)
-    }
-
-    private func ctrlPress(_ state: inout ShortcutRoutingState, at time: TimeInterval) -> ShortcutRouteEvent {
-        let result = ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl], state: &state, now: time)
-        _ = ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: time + 0.02)
-        return result
+    private func ctrlPress(_ state: inout ShortcutRoutingState, at time: TimeInterval) -> [ShortcutRouteEvent] {
+        flags([.maskControl], &state, at: time) + flags([], &state, at: time + 0.02)
     }
 
     func testTripleCtrlTapRoutesToLiveToggle() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.30), .liveToggle)
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), [.liveToggle])
     }
 
     func testSlowCtrlPressesDoNotToggle() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 1.0), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), [])
+        XCTAssertEqual(ctrlPress(&state, at: 1.0), [])
     }
 
     func testQuadCtrlPressFiresOnThird() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.15), .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.30), .liveToggle)
-        XCTAssertEqual(ctrlPress(&state, at: 0.45), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.15), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), [.liveToggle])
+        XCTAssertEqual(ctrlPress(&state, at: 0.45), [])
     }
 
     func testCtrlWithShiftDoesNotCount() {
         var state = ShortcutRoutingState()
 
-        XCTAssertEqual(ctrlPress(&state, at: 0.0), .none)
-        let shiftCtrl = ShortcutRouter.route(
-            eventType: .flagsChanged,
-            flags: [.maskControl, .maskShift],
-            state: &state,
-            now: 0.15
-        )
-        XCTAssertEqual(shiftCtrl, .none)
-        XCTAssertEqual(ctrlPress(&state, at: 0.30), .none)
+        XCTAssertEqual(ctrlPress(&state, at: 0.0), [])
+        XCTAssertEqual(flags([.maskControl, .maskShift], &state, at: 0.15), [])
+        XCTAssertEqual(ctrlPress(&state, at: 0.30), [])
     }
 
     func testCoordinatorPhaseTransitions() {

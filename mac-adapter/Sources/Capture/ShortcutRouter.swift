@@ -2,24 +2,29 @@ import CoreGraphics
 import Foundation
 
 enum ShortcutRouteEvent: Equatable {
-    case none
     case textTapped
     case voicePressed
     case voiceReleased
-    case dictationPressed
-    case dictationReleased
+    case dictationStart
+    case dictationStop
+    case dictationCancel
     case liveToggle
 }
 
-fileprivate enum ActiveCaptureChord {
+/// fn alone: tap starts hands-free dictation and the next tap stops it, a hold is
+/// push-to-talk, a double-tap opens the text bar. Recording starts optimistically on
+/// fn down and is cancelled when fn turns out to be part of a chord or key combo.
+fileprivate enum FnGesture: Equatable {
+    case idle
+    case armed(since: TimeInterval)
+    case recording(tapUpAt: TimeInterval)
     case conversation
-    case dictation
+    /// A gesture ended while keys are still held; ignore edges until everything is up.
+    case draining
 }
 
 struct ShortcutRoutingState {
-    fileprivate var activeCaptureChord: ActiveCaptureChord?
-    fileprivate var fnDownAlone = false
-    fileprivate var lastFnTapUpAt: TimeInterval?
+    fileprivate var gesture: FnGesture = .idle
     fileprivate var ctrlWasDown = false
     fileprivate var ctrlPressCount = 0
     fileprivate var lastCtrlDownAt: TimeInterval?
@@ -27,12 +32,13 @@ struct ShortcutRoutingState {
 
 enum ShortcutRouter {
     private static let voiceFlags: CGEventFlags = [.maskControl, .maskSecondaryFn]
-    private static let dictationFlags: CGEventFlags = [.maskShift, .maskControl, .maskSecondaryFn]
-    private static let fnOnly: CGEventFlags = [.maskSecondaryFn]
-    private static let relevantFlags: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskSecondaryFn]
+    private static let chordFlags: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskSecondaryFn]
+    private static let gestureFlags: CGEventFlags = chordFlags.union(.maskCommand)
 
-    /// Maximum gap between two clean fn taps to count as a double-tap.
+    static let holdThreshold: TimeInterval = 0.3
+    /// Maximum gap between the first tap's release and the second press to count as a double-tap.
     static let doubleTapWindow: TimeInterval = 0.4
+    static let escapeKeyCode: CGKeyCode = 53
 
     static let ctrlPressWindow: TimeInterval = 0.4
     static let ctrlSequenceTimeout: TimeInterval = 0.8
@@ -40,17 +46,109 @@ enum ShortcutRouter {
     static func route(
         eventType: CGEventType,
         flags: CGEventFlags,
+        keyCode: CGKeyCode = 0,
         state: inout ShortcutRoutingState,
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) -> ShortcutRouteEvent {
-        guard eventType == .flagsChanged else { return .none }
-        let relevant = flags.intersection(relevantFlags)
+    ) -> [ShortcutRouteEvent] {
+        switch eventType {
+        case .keyDown:
+            return routeKeyDown(keyCode: keyCode, state: &state)
+        case .flagsChanged:
+            if routeControlTriple(flags: flags, state: &state, now: now) {
+                return [.liveToggle]
+            }
+            return routeFn(flags: flags, state: &state, now: now)
+        default:
+            return []
+        }
+    }
 
-        let ctrlOnly = flags.contains(.maskControl)
+    /// Dictation ended outside the router (5 min cap, error): forget the recording so
+    /// the next fn press starts fresh instead of stopping a recording that is gone.
+    static func endDictation(state: inout ShortcutRoutingState) {
+        switch state.gesture {
+        case .armed: state.gesture = .draining
+        case .recording: state.gesture = .idle
+        case .idle, .conversation, .draining: break
+        }
+    }
+
+    static func isVoiceChordActive(flags: CGEventFlags) -> Bool {
+        flags.intersection(chordFlags) == voiceFlags
+    }
+
+    private static func routeKeyDown(keyCode: CGKeyCode, state: inout ShortcutRoutingState) -> [ShortcutRouteEvent] {
+        switch state.gesture {
+        case .armed:
+            state.gesture = .draining
+            return [.dictationCancel]
+        case .recording where keyCode == escapeKeyCode:
+            state.gesture = .idle
+            return [.dictationCancel]
+        case .idle, .recording, .conversation, .draining:
+            return []
+        }
+    }
+
+    private static func routeFn(flags: CGEventFlags, state: inout ShortcutRoutingState, now: TimeInterval) -> [ShortcutRouteEvent] {
+        let held = flags.intersection(gestureFlags)
+        let isVoiceChord = flags.intersection(chordFlags) == voiceFlags
+        let isFnAlone = held == [.maskSecondaryFn]
+
+        switch state.gesture {
+        case .idle, .draining:
+            if isVoiceChord {
+                state.gesture = .conversation
+                return [.voicePressed]
+            }
+            if state.gesture == .idle, isFnAlone {
+                state.gesture = .armed(since: now)
+                return [.dictationStart]
+            }
+            if held.isEmpty { state.gesture = .idle }
+            return []
+
+        case .armed(let since):
+            if held.isEmpty {
+                if now - since >= holdThreshold {
+                    state.gesture = .idle
+                    return [.dictationStop]
+                }
+                state.gesture = .recording(tapUpAt: now)
+                return []
+            }
+            if isFnAlone { return [] }
+            if isVoiceChord {
+                state.gesture = .conversation
+                return [.dictationCancel, .voicePressed]
+            }
+            state.gesture = .draining
+            return [.dictationCancel]
+
+        case .recording(let tapUpAt):
+            if isVoiceChord {
+                state.gesture = .conversation
+                return [.dictationCancel, .voicePressed]
+            }
+            guard isFnAlone else { return [] }
+            state.gesture = .draining
+            return now - tapUpAt <= doubleTapWindow ? [.dictationCancel, .textTapped] : [.dictationStop]
+
+        case .conversation:
+            if isVoiceChord { return [] }
+            state.gesture = held.isEmpty ? .idle : .draining
+            return [.voiceReleased]
+        }
+    }
+
+    /// ⌃ pressed alone three times in quick succession toggles LIVE.
+    private static func routeControlTriple(flags: CGEventFlags, state: inout ShortcutRoutingState, now: TimeInterval) -> Bool {
+        let ctrlDown = flags.contains(.maskControl)
             && !flags.contains(.maskShift)
             && !flags.contains(.maskSecondaryFn)
             && !flags.contains(.maskAlternate)
-        let ctrlDown = ctrlOnly
+        defer { state.ctrlWasDown = ctrlDown }
+
         if ctrlDown && !state.ctrlWasDown {
             if let lastCtrl = state.lastCtrlDownAt, now - lastCtrl <= ctrlPressWindow {
                 state.ctrlPressCount += 1
@@ -60,68 +158,12 @@ enum ShortcutRouter {
             state.lastCtrlDownAt = now
             if state.ctrlPressCount >= 3 {
                 state.ctrlPressCount = 0
-                state.ctrlWasDown = true
-                return .liveToggle
+                return true
             }
         }
         if !ctrlDown, let lastCtrl = state.lastCtrlDownAt, now - lastCtrl > ctrlSequenceTimeout {
             state.ctrlPressCount = 0
         }
-        state.ctrlWasDown = ctrlDown
-
-        if let activeCaptureChord = state.activeCaptureChord {
-            let activeFlags = activeCaptureChord == .conversation ? voiceFlags : dictationFlags
-            if relevant == activeFlags { return .none }
-            state.activeCaptureChord = nil
-            return activeCaptureChord == .conversation ? .voiceReleased : .dictationReleased
-        }
-
-        if relevant == voiceFlags {
-            state.activeCaptureChord = .conversation
-            state.fnDownAlone = false
-            state.lastFnTapUpAt = nil
-            return .voicePressed
-        }
-
-        if relevant == dictationFlags {
-            state.activeCaptureChord = .dictation
-            state.fnDownAlone = false
-            state.lastFnTapUpAt = nil
-            return .dictationPressed
-        }
-
-        if relevant == fnOnly {
-            state.fnDownAlone = true
-            return .none
-        }
-
-        if state.fnDownAlone {
-            state.fnDownAlone = false
-            // A clean tap ends with all relevant modifiers released. If another
-            // modifier joined instead, this was the start of a chord — not a tap.
-            guard relevant.isEmpty else {
-                state.lastFnTapUpAt = nil
-                return .none
-            }
-            if let last = state.lastFnTapUpAt, now - last <= doubleTapWindow {
-                state.lastFnTapUpAt = nil
-                return .textTapped
-            }
-            state.lastFnTapUpAt = now
-            return .none
-        }
-
-        if !relevant.isEmpty {
-            state.lastFnTapUpAt = nil
-        }
-        return .none
-    }
-
-    static func isVoiceChordActive(flags: CGEventFlags) -> Bool {
-        flags.intersection(relevantFlags) == voiceFlags
-    }
-
-    static func isDictationChordActive(flags: CGEventFlags) -> Bool {
-        flags.intersection(relevantFlags) == dictationFlags
+        return false
     }
 }

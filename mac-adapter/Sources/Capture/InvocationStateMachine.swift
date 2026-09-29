@@ -19,15 +19,8 @@ final class InvocationStateMachine {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    var wasPressed = false
-    fileprivate var textIntercepted = false
     fileprivate var shortcutRoutingState = ShortcutRoutingState()
-
-    fileprivate let holdThreshold: TimeInterval = 0.3
-    fileprivate var holdTimer: DispatchWorkItem?
-    fileprivate var holdTimerDidFire = false
     fileprivate(set) var isVoiceInvocation = false
-    fileprivate(set) var isDictationInvocation = false
 
     private(set) var transcriptionSessionId: Int = -1
 
@@ -72,8 +65,9 @@ final class InvocationStateMachine {
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
-    var onDictationHoldDetected: (() -> Void)?
-    var onDictationReleased: (() -> Void)?
+    var onDictationStart: (() -> Void)?
+    var onDictationStop: (() -> Void)?
+    var onDictationCancel: (() -> Void)?
     var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
@@ -126,7 +120,7 @@ final class InvocationStateMachine {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         CFRunLoopAddSource(RunLoop.current.getCFRunLoop(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-        print("[Flyd] Keyboard monitor started. Double-tap fn for text, hold ⌃fn for conversation, hold ⇧⌃fn for dictation.")
+        print("[Flyd] Keyboard monitor started. Tap or hold fn to dictate, double-tap fn for text, hold ⌃fn for conversation.")
         writeKeyboardDiagnostic(status: "running")
     }
 
@@ -239,27 +233,16 @@ final class InvocationStateMachine {
 
     func cancel() {
         prewarmTask?.cancel()
-        holdTimer?.cancel()
-        holdTimer = nil
-        holdTimerDidFire = false
         isVoiceInvocation = false
-        isDictationInvocation = false
         shortcutRoutingState = ShortcutRoutingState()
         transcriptionSessionId += 1
         resetCheckpoints()
         onCancelled?()
     }
 
-    fileprivate func isModifierKeyCode(_ keyCode: CGKeyCode) -> Bool {
-        let modifierKeyCodes: Set<CGKeyCode> = [
-            0x36, 0x37, // right/left Command
-            0x38, 0x3C, // left/right Shift
-            0x3A, 0x3D, // left/right Option
-            0x3B, 0x3E, // left/right Control
-            0x3F,       // Fn
-            0x39,       // Caps Lock
-        ]
-        return modifierKeyCodes.contains(keyCode)
+    /// Dictation ended on its own (cap, error); the next fn press should start a new one.
+    func endDictationGesture() {
+        ShortcutRouter.endDictation(state: &shortcutRoutingState)
     }
 
     func nextTranscriptionSessionId() -> Int {
@@ -386,6 +369,37 @@ private struct KeyboardMonitorSnapshot: Encodable {
     let capturedAt: Date
 }
 
+private extension InvocationStateMachine {
+    func dispatch(_ routeEvent: ShortcutRouteEvent) {
+        switch routeEvent {
+        case .textTapped:
+            isVoiceInvocation = false
+            DispatchQueue.main.async {
+                self.onShortcutPressed?()
+                self.onShortcutReleased?()
+            }
+        case .voicePressed:
+            isVoiceInvocation = true
+            DispatchQueue.main.async {
+                self.onShortcutPressed?()
+                self.onShortcutHoldDetected?()
+            }
+        case .voiceReleased:
+            isVoiceInvocation = true
+            DispatchQueue.main.async { self.onShortcutReleased?() }
+        case .dictationStart:
+            DispatchQueue.main.async { self.onDictationStart?() }
+        case .dictationStop:
+            DispatchQueue.main.async { self.onDictationStop?() }
+        case .dictationCancel:
+            DispatchQueue.main.async { self.onDictationCancel?() }
+        case .liveToggle:
+            guard FlydState.shared.mode != .invoked else { return }
+            DispatchQueue.main.async { self.onLiveToggle?() }
+        }
+    }
+}
+
 private func stateMachineEventCallback(
     proxy: CGEventTapProxy,
     type: CGEventType,
@@ -399,74 +413,20 @@ private func stateMachineEventCallback(
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
         machine.reenableEventTap()
 
-    case .keyDown:
-        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-        if machine.wasPressed
-            && !machine.isVoiceInvocation
-            && !machine.isDictationInvocation
-            && !machine.isModifierKeyCode(keyCode) {
-            machine.textIntercepted = true
-        }
-
-    case .flagsChanged:
+    case .keyDown, .flagsChanged:
         let flags = event.flags
-        machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
-
-        let routeEvent = ShortcutRouter.route(
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        if type == .flagsChanged {
+            machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
+        }
+        let routeEvents = ShortcutRouter.route(
             eventType: type,
             flags: flags,
+            keyCode: keyCode,
             state: &machine.shortcutRoutingState
         )
-
-        switch routeEvent {
-        case .textTapped:
-            machine.wasPressed = false
-            machine.isVoiceInvocation = false
-            machine.isDictationInvocation = false
-            machine.textIntercepted = false
-            DispatchQueue.main.async {
-                machine.writeKeyboardDiagnostic(status: "running", eventType: "text-double-tap", flags: flags)
-                machine.onShortcutPressed?()
-                machine.onShortcutReleased?()
-            }
-        case .voicePressed:
-            machine.wasPressed = true
-            machine.isVoiceInvocation = true
-            machine.isDictationInvocation = false
-            DispatchQueue.main.async {
-                machine.writeKeyboardDiagnostic(status: "running", eventType: "voice-shortcut-pressed", flags: flags)
-                machine.onShortcutPressed?()
-                machine.onShortcutHoldDetected?()
-            }
-        case .voiceReleased:
-            machine.wasPressed = false
-            machine.isVoiceInvocation = true
-            DispatchQueue.main.async {
-                machine.onShortcutReleased?()
-            }
-        case .dictationPressed:
-            machine.wasPressed = true
-            machine.isVoiceInvocation = false
-            machine.isDictationInvocation = true
-            DispatchQueue.main.async {
-                machine.writeKeyboardDiagnostic(status: "running", eventType: "dictation-shortcut-pressed", flags: flags)
-                machine.onShortcutPressed?()
-                machine.onDictationHoldDetected?()
-            }
-        case .dictationReleased:
-            machine.wasPressed = false
-            machine.isVoiceInvocation = false
-            machine.isDictationInvocation = true
-            DispatchQueue.main.async {
-                machine.onDictationReleased?()
-            }
-        case .liveToggle:
-            guard FlydState.shared.mode != .invoked else { break }
-            DispatchQueue.main.async {
-                machine.onLiveToggle?()
-            }
-        case .none:
-            break
+        for routeEvent in routeEvents {
+            machine.dispatch(routeEvent)
         }
 
     default:

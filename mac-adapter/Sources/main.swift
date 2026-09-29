@@ -158,11 +158,14 @@ func startFlyd(closeSetup: Bool = true) {
     stateMachine.onShortcutHoldDetected = {
         handleVoiceInvocation()
     }
-    stateMachine.onDictationHoldDetected = {
+    stateMachine.onDictationStart = {
         startDictation()
     }
-    stateMachine.onDictationReleased = {
+    stateMachine.onDictationStop = {
         dictation.stop()
+    }
+    stateMachine.onDictationCancel = {
+        dictation.cancel()
     }
     stateMachine.onLiveToggle = {
         LiveSessionController.shared.handleToggle()
@@ -194,7 +197,7 @@ func startFlyd(closeSetup: Bool = true) {
         }
     }
 
-    print("[Flyd] Agent started. Double-tap fn for text, hold ⌃fn for conversation, or hold ⇧⌃fn for dictation.")
+    print("[Flyd] Agent started. Tap fn to dictate (tap again to insert) or hold it to talk, double-tap fn for text, hold ⌃fn for conversation.")
 }
 
 func ensureCoreLaunched() {

@@ -18,11 +18,13 @@ final class DictationController {
         case inserting
     }
 
+    static let maxRecording: TimeInterval = 300
     private static let transcriptionTimeout: TimeInterval = 20
 
     private var phase: Phase = .idle
     private let pill = DictationPill()
     private var timeout: DispatchWorkItem?
+    private var recordingCap: DispatchWorkItem?
 
     private let state = FlydState.shared
     private let capture = VoiceCapture.shared
@@ -66,6 +68,13 @@ final class DictationController {
             fail("Microphone unavailable")
             return
         }
+
+        let cap = DispatchWorkItem { [weak self] in
+            self?.stop()
+            self?.stateMachine.endDictationGesture()
+        }
+        recordingCap = cap
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxRecording, execute: cap)
     }
 
     func stop() {
@@ -137,12 +146,15 @@ final class DictationController {
             )
         }
         teardown()
+        stateMachine.endDictationGesture()
         pill.show(.failed(message))
         state.cancelInvocation()
         phase = .idle
     }
 
     private func stopCapture() {
+        recordingCap?.cancel()
+        recordingCap = nil
         capture.stop()
         capture.onAudioChunk = nil
         capture.onLevel = nil
