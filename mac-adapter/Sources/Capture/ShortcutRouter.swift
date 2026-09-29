@@ -167,3 +167,45 @@ enum ShortcutRouter {
         return false
     }
 }
+
+/// Decides which events the HID-level tap swallows so the system never sees them: the
+/// fn-alone press and its matching release (no emoji picker or input-source switch on
+/// the globe key), and an Esc that cancelled a dictation (so it doesn't also interrupt
+/// the app underneath, e.g. a running OpenCode turn). Everything else passes through.
+struct KeyEventFilter {
+    static let fnKeyCode: CGKeyCode = 63
+    private static let gestureFlags: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
+
+    private var fnPressDropped = false
+    private var escapeDownDropped = false
+
+    mutating func shouldDrop(
+        eventType: CGEventType,
+        keyCode: CGKeyCode,
+        flags: CGEventFlags,
+        routed: [ShortcutRouteEvent]
+    ) -> Bool {
+        switch eventType {
+        case .flagsChanged where keyCode == Self.fnKeyCode:
+            let held = flags.intersection(Self.gestureFlags)
+            if held == [.maskSecondaryFn] {
+                fnPressDropped = true
+                return true
+            }
+            if held.isEmpty, fnPressDropped {
+                fnPressDropped = false
+                return true
+            }
+            fnPressDropped = false
+            return false
+        case .keyDown where keyCode == ShortcutRouter.escapeKeyCode:
+            escapeDownDropped = routed.contains(.dictationCancel)
+            return escapeDownDropped
+        case .keyUp where keyCode == ShortcutRouter.escapeKeyCode:
+            defer { escapeDownDropped = false }
+            return escapeDownDropped
+        default:
+            return false
+        }
+    }
+}

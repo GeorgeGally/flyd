@@ -20,6 +20,7 @@ final class InvocationStateMachine {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     fileprivate var shortcutRoutingState = ShortcutRoutingState()
+    fileprivate var keyEventFilter = KeyEventFilter()
     fileprivate(set) var isVoiceInvocation = false
 
     private(set) var transcriptionSessionId: Int = -1
@@ -103,7 +104,9 @@ final class InvocationStateMachine {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
 
         eventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            // HID level, first in line, so fn-alone edges can be swallowed before the
+            // system's globe-key handling sees them.
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
@@ -417,7 +420,10 @@ private func stateMachineEventCallback(
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         if type == .flagsChanged {
-            machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
+            // Every modifier press on the system waits on this callback; keep file I/O off it.
+            DispatchQueue.global(qos: .utility).async {
+                machine.writeKeyboardDiagnostic(status: "running", eventType: "flags-changed", flags: flags)
+            }
         }
         let routeEvents = ShortcutRouter.route(
             eventType: type,
@@ -427,6 +433,15 @@ private func stateMachineEventCallback(
         )
         for routeEvent in routeEvents {
             machine.dispatch(routeEvent)
+        }
+        if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: flags, routed: routeEvents) {
+            return nil
+        }
+
+    case .keyUp:
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: event.flags, routed: []) {
+            return nil
         }
 
     default:
