@@ -161,7 +161,7 @@ final class DictationPill {
         switch phase {
         case .listening:
             dot?.isHidden = false
-            dot?.set(color: FlydPalette.listenBlue, pulsing: true)
+            dot?.set(color: FlydPalette.signalGreen, pulsing: true)
             return nil
         case .working:
             return nil
@@ -278,7 +278,7 @@ final class DictationPill {
         bars = (0..<Self.barCount).map { _ in
             let bar = NSView()
             bar.wantsLayer = true
-            bar.layer?.backgroundColor = FlydPalette.listenBlue.withAlphaComponent(0.9).cgColor
+            bar.layer?.backgroundColor = FlydPalette.signalGreen.withAlphaComponent(0.9).cgColor
             bar.layer?.cornerRadius = Self.barWidth / 2
             island.addSubview(bar)
             return bar
