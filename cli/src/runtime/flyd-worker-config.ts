@@ -36,7 +36,7 @@ export function opencodeEndpoint(provider: string): string {
  * "openai:gpt-5.6-luna") names its provider explicitly, so fallback chains can
  * mix providers regardless of the global FLYD_PROVIDER.
  */
-const QUALIFIED_MODEL = /^(openai|anthropic|commandcode|opencode|opencode-go):(.+)$/i;
+const QUALIFIED_MODEL = /^(openai|anthropic|commandcode|opencode|opencode-go|openrouter):(.+)$/i;
 
 export function qualifiedModelProvider(model: string): string | null {
   return model.trim().match(QUALIFIED_MODEL)?.[1].toLowerCase() ?? null;

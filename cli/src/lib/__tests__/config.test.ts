@@ -135,4 +135,21 @@ describe("Flyd directory configuration", () => {
 
     expect(() => config.resolveModelConnection()).toThrow(/not supported/);
   });
+
+  it("routes an openrouter: model to OpenRouter with its own key and the bare model id", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "router-key");
+    vi.stubEnv("FLYD_MODEL_API_KEY", "wrong-key");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(config.apiModelId("openrouter:x-ai/grok-4.3")).toBe("x-ai/grok-4.3");
+    expect(config.usesOpenAITransport("openrouter:x-ai/grok-4.3")).toBe(true);
+    expect(config.resolveModelConnection("openrouter:x-ai/grok-4.3")).toEqual({
+      model: "openrouter:x-ai/grok-4.3",
+      apiKey: "router-key",
+      baseURL: "https://openrouter.ai/api/v1",
+      providerIdentity: "openrouter.ai/x-ai/grok-4.3",
+    });
+  });
 });

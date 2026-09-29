@@ -89,6 +89,8 @@ interface FlydConfig {
   FLYD_CHAT_FALLBACK_MODELS?: string;
   FLYD_MODEL_API_KEY?: string;
   COMMANDCODE_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
+  FLYD_DICTATE_MODEL?: string;
   CMD_API_KEY?: string;
   COMMANDCODE_MODEL?: string;
   COMMANDCODE_API_KEY_MODEL?: string;
@@ -184,6 +186,8 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
         };
       case "openai":
         return { apiKey: getKey("OPENAI_API_KEY")?.trim(), keyName: "OPENAI_API_KEY", baseURL: undefined };
+      case "openrouter":
+        return { apiKey: getKey("OPENROUTER_API_KEY")?.trim(), keyName: "OPENROUTER_API_KEY", baseURL: OPENROUTER_BASE_URL };
       case "anthropic":
         return { apiKey: getKey("ANTHROPIC_API_KEY")?.trim(), keyName: "ANTHROPIC_API_KEY", baseURL: undefined };
       default:
@@ -207,6 +211,8 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
     providerIdentity: `${host}/${id}`,
   };
 }
+
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
   const qualified = qualifiedModelProvider(model);
