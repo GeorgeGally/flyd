@@ -190,10 +190,8 @@ export function startTranscriptionServer(): Promise<void> {
             pendingAudio = [];
             closeStream();
             purpose = transcriptionPurpose(msg);
-            if (purpose.kind === "dictation") {
-              warmDictationHosts();
-              stream = openDictationStream(purpose);
-            }
+            if (purpose.kind === "dictation") warmDictationHosts();
+            stream = openTranscriptionStream(purpose);
             sendTranscriptionReady(ws);
             break;
           case "audio":
@@ -208,8 +206,8 @@ export function startTranscriptionServer(): Promise<void> {
             isTranscribing = true;
             const streamed = stream;
             stream = null;
-            (streamed && purpose.kind === "dictation"
-              ? finishStreamedDictation(streamed, pendingAudio, ws, purpose)
+            (streamed
+              ? finishStreamedTranscription(streamed, pendingAudio, ws, purpose)
               : transcribeBufferedAudio(pendingAudio, ws, purpose))
               .catch((error) => {
                 console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -254,14 +252,16 @@ function transcriptionApiKey(): string | undefined {
   return process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
 }
 
-function openDictationStream(purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>): StreamingTranscriber | null {
+function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTranscriber | null {
   const apiKey = transcriptionApiKey();
   if (!apiKey) return null;
   try {
     return openStreamingTranscriber({
       apiKey,
       model: transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL),
-      prompt: transcriptionPrompt(loadVocabulary(purpose.target.windowTitle)),
+      prompt: purpose.kind === "dictation"
+        ? transcriptionPrompt(loadVocabulary(purpose.target.windowTitle))
+        : TRANSCRIPTION_PROMPT,
     });
   } catch (error) {
     console.warn(`[Flyd Core] Streaming transcription unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -270,11 +270,11 @@ function openDictationStream(purpose: Extract<TranscriptionPurpose, { kind: "dic
 }
 
 /** The streamed transcript when it arrives in time; otherwise the same audio, uploaded whole. */
-async function finishStreamedDictation(
+async function finishStreamedTranscription(
   stream: StreamingTranscriber,
   chunks: Buffer[],
   clientWs: WebSocket,
-  purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>,
+  purpose: TranscriptionPurpose,
 ): Promise<void> {
   const pcm = Buffer.concat(chunks);
   if (pcm.length < 1600) {
@@ -289,7 +289,11 @@ async function finishStreamedDictation(
     await transcribeBufferedAudio(chunks, clientWs, purpose);
     return;
   }
-  await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, loadVocabulary(purpose.target.windowTitle));
+  if (purpose.kind === "dictation") {
+    await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, loadVocabulary(purpose.target.windowTitle));
+    return;
+  }
+  sendJson(clientWs, { type: "complete", text: transcript });
 }
 
 async function completeDictation(

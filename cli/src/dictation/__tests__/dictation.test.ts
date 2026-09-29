@@ -20,6 +20,7 @@ function project(name: string, people: string[]): Project {
 describe("dictation profile", () => {
   it("picks the style from the app", () => {
     expect(dictationProfile(ghostty)).toBe("code");
+    expect(dictationProfile({ bundleId: "com.cmuxterm.app" })).toBe("code");
     expect(dictationProfile({ bundleId: "com.todesktop.230313mzl4w4u92" })).toBe("code");
     expect(dictationProfile(slack)).toBe("chat");
     expect(dictationProfile(notes)).toBe("prose");

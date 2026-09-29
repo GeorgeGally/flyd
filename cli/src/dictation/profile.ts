@@ -12,6 +12,7 @@ export interface DictationTarget {
 
 const APP_PROFILES: Record<string, DictationProfile> = {
   "com.mitchellh.ghostty": "code",
+  "com.cmuxterm.app": "code",
   "com.googlecode.iterm2": "code",
   "com.apple.Terminal": "code",
   "dev.warp.Warp-Stable": "code",

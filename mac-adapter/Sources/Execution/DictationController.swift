@@ -24,7 +24,7 @@ final class DictationController {
     private static let transcriptionTimeout: TimeInterval = 20
 
     private var phase: Phase = .idle
-    private let pill = DictationPill()
+    private let pill = DictationPill.shared
     private var timeout: DispatchWorkItem?
     private var recordingCap: DispatchWorkItem?
     /// The last dictated text, so a paste that landed in the wrong place can be redone.

@@ -26,6 +26,14 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(frame, NSRect(x: 0, y: 438, width: 300, height: 62))
     }
 
+    func testShowsAQuestionOnOneLineCutAtAWord() {
+        XCTAssertEqual(DictationPill.quoted("  what time is it in London  "), "what time is it in London")
+        XCTAssertEqual(
+            DictationPill.quoted("what should I work on next given everything that is going on with CleanX and the launch this week"),
+            "what should I work on next given everything that is going on…"
+        )
+    }
+
     func testCollapsesIntoTheNotch() {
         XCTAssertEqual(DictationPill.collapsedFrame(screen: macBook, notch: notch), notch)
     }

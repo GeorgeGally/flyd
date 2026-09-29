@@ -58,6 +58,7 @@ let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
 let voiceRelay = VoiceTranscriptionRelay.shared
 let dictation = DictationController.shared
+let island = DictationPill.shared
 
 let invocationPanel = InvocationPanel()
 var activeAugmentPanels: [AugmentPanel] = []
@@ -281,15 +282,13 @@ func handleVoiceInvocation() {
     guard state.phase == .idle else { return }
 
     if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
-        invocationPanel.show()
-        invocationPanel.updateState(.error(message: voiceStatus.message ?? "Voice setup needs attention"))
+        island.show(.failed(voiceStatus.message ?? "Voice setup needs attention"))
         return
     }
 
     guard PermissionGate.shared.hasMicrophone else {
         PermissionGate.shared.requestMicrophonePermission()
-        invocationPanel.show()
-        invocationPanel.updateState(.error(message: "Microphone permission required for voice"))
+        island.show(.failed("Microphone permission required"))
         return
     }
 
@@ -324,20 +323,11 @@ func beginVoiceInvocation() {
     }
 
     state.transition(to: .listening)
-    invocationPanel.show()
-    invocationPanel.updateState(.recording)
-    invocationPanel.onIntentSubmitted = nil
-    invocationPanel.onCancelled = {
-        cleanupVoiceInvocation()
-    }
+    island.show(.listening)
 
     let sessionId = stateMachine.nextTranscriptionSessionId()
     voiceRelay.connect(sessionId: sessionId)
-    voiceRelay.onTranscriptDelta = { delta in
-        DispatchQueue.main.async {
-            invocationPanel.fillIntent(invocationPanel.currentIntent + delta)
-        }
-    }
+    voiceRelay.onTranscriptDelta = nil
     voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
             clearVoiceTranscriptionTimeout()
@@ -349,7 +339,7 @@ func beginVoiceInvocation() {
                 return
             }
 
-            invocationPanel.updateState(.resolving)
+            island.show(.thinking(transcript))
 
             stateMachine.setRevision(revision)
             stateMachine.startPrewarm()
@@ -381,15 +371,11 @@ func beginVoiceInvocation() {
         voiceRelay.sendAudioChunk(chunk)
     }
 
-    voiceCapture.onLevel = { level in
-        DispatchQueue.main.async {
-            invocationPanel.updateVoiceLevel(level)
-        }
-    }
+    voiceCapture.onLevel = nil
 
     voiceCapture.onSpectrum = { bands in
         DispatchQueue.main.async {
-            invocationPanel.updateVoiceSpectrum(bands)
+            island.updateSpectrum(bands)
         }
     }
 
@@ -415,7 +401,7 @@ func handleVoiceRelease() {
         stopVoiceHoldMonitor()
         voiceCapture.stop()
         state.transition(to: .transcribing)
-        invocationPanel.updateState(.transcribing)
+        island.show(.working)
         startVoiceTranscriptionTimeout()
         voiceRelay.commitAudio()
     case .ignore:
@@ -472,7 +458,9 @@ func cleanupVoiceInvocation(message: String? = nil) {
     executor.clearInvocationRefs()
 
     if let message {
-        invocationPanel.updateState(.error(message: message))
+        island.show(.failed(message))
+    } else {
+        island.hide()
     }
 }
 
@@ -480,6 +468,7 @@ func handleShortcutPress() {
     guard state.phase != .idle else { return }
 
     dictation.cancel()
+    island.hide()
     suppressNextShortcutRelease = true
     activeInvocationTask?.cancel()
     state.cancelInvocation()
@@ -645,7 +634,7 @@ func processInvocation(
         )
 
         await MainActor.run {
-            invocationPanel.updateState(.error(message: "Flyd is starting - try again in a moment"))
+            showInvocationError("Flyd is starting - try again in a moment", modality: modality)
             state.transition(to: .present)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
@@ -694,7 +683,7 @@ func processInvocation(
         )
 
         await MainActor.run {
-            invocationPanel.updateState(.error(message: "Flyd did not answer in time - try again"))
+            showInvocationError("Flyd did not answer in time - try again", modality: modality)
             state.transition(to: .present)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
@@ -716,6 +705,7 @@ func processInvocation(
         )
         await MainActor.run {
             invocationPanel.dismiss()
+            island.hide()
             state.transition(to: .present)
         }
         return
@@ -748,6 +738,7 @@ func processInvocation(
                 )
                 await MainActor.run {
                     invocationPanel.dismiss()
+                    island.hide()
                     state.transition(to: .present)
                 }
                 return
@@ -762,7 +753,9 @@ func processInvocation(
                         : result.message
                 }
                 .joined(separator: ", ")
-            if results.contains(where: \.success) {
+            if modality == "voice" {
+                island.show(results.contains(where: \.success) ? .inserted : .failed(preview))
+            } else if results.contains(where: \.success) {
                 invocationPanel.updateState(.undoAvailable(invocationId: invocationId, preview: preview))
             } else {
                 invocationPanel.updateState(.executing(operationCount: resolution.operations.count, preview: preview))
@@ -862,8 +855,22 @@ func processInvocation(
     stateMachine.resetCheckpoints()
 
     await MainActor.run {
-        invocationPanel.dismissUnlessShowingResult()
+        if modality == "voice" {
+            if resolution.mode != "native" { island.hide() }
+        } else {
+            invocationPanel.dismissUnlessShowingResult()
+        }
         state.transition(to: .present)
+    }
+}
+
+/// Voice questions report in the notch island; typed ones in the text bar they came from.
+@MainActor
+func showInvocationError(_ message: String, modality: String) {
+    if modality == "voice" {
+        island.show(.failed(message))
+    } else {
+        invocationPanel.updateState(.error(message: message))
     }
 }
 

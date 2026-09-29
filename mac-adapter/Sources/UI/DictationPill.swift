@@ -5,9 +5,14 @@ import AppKit
 /// messages. Screens without a notch get the same island at the top centre. It never
 /// takes focus, so the app George is dictating into stays frontmost and receives the paste.
 final class DictationPill {
+    /// One island for dictation and voice questions, so they never draw over each other.
+    static let shared = DictationPill()
+
     enum Phase: Equatable {
         case listening
         case working
+        /// A voice question on its way to Flyd: spinner in the wing, the question below the notch.
+        case thinking(String)
         case inserted
         case notice(String)
         case failed(String)
@@ -94,7 +99,7 @@ final class DictationPill {
         }
 
         switch phase {
-        case .listening, .working:
+        case .listening, .working, .thinking:
             break
         case .inserted, .notice, .failed:
             let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -141,9 +146,14 @@ final class DictationPill {
 
     /// Shows the views this phase needs; returns the width of the message strip, if any.
     private func configure(for phase: Phase) -> CGFloat? {
+        let spinning: Bool
+        switch phase {
+        case .working, .thinking: spinning = true
+        default: spinning = false
+        }
         bars.forEach { $0.isHidden = phase != .listening }
-        spinner?.isHidden = phase != .working
-        if phase == .working { spinner?.startAnimation(nil) } else { spinner?.stopAnimation(nil) }
+        spinner?.isHidden = !spinning
+        if spinning { spinner?.startAnimation(nil) } else { spinner?.stopAnimation(nil) }
         check?.isHidden = phase != .inserted
         label?.isHidden = true
         dot?.isHidden = true
@@ -155,6 +165,8 @@ final class DictationPill {
             return nil
         case .working:
             return nil
+        case .thinking(let question):
+            return setLabel(Self.quoted(question), color: FlydPalette.paper.withAlphaComponent(0.78))
         case .inserted:
             dot?.isHidden = false
             dot?.set(color: FlydPalette.signalGreen, pulsing: false)
@@ -212,6 +224,17 @@ final class DictationPill {
                 height: ceil(labelSize.height)
             )
         }
+    }
+
+    static let questionLimit = 64
+
+    /// The question as George said it, cut on a word boundary so the strip stays one line.
+    static func quoted(_ question: String) -> String {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count > questionLimit else { return text }
+        let cut = text.prefix(questionLimit)
+        let words = cut.split(separator: " ").dropLast()
+        return (words.isEmpty ? String(cut) : words.joined(separator: " ")) + "…"
     }
 
     private func setLabel(_ text: String, color: NSColor) -> CGFloat {
