@@ -138,12 +138,13 @@ program
 
 program
   .command("council")
-  .description("Flyd's council — Librarian (curator), Critic, Strategist, Muse: status | run [--all] | advisories")
-  .argument("[action]", "status, run, advisories")
+  .description("Flyd's council — Librarian (curator), Critic, Strategist, Muse: status | run [--all] | advisories | reprocess [identity|journal|captures|all]")
+  .argument("[action]", "status, run, advisories, reprocess")
+  .argument("[stage]", "reprocess: identity (CV, profiles, other assistants), journal, captures, or all")
   .option("--all", "run: work through the whole backlog")
-  .action(async (action: string | undefined, opts: { all?: boolean }) => {
+  .action(async (action: string | undefined, stage: string | undefined, opts: { all?: boolean }) => {
     const { runCouncilCommand } = await import("./commands/council.js");
-    await runCouncilCommand(action, opts);
+    await runCouncilCommand(action, { ...opts, ...(stage ? { stage } : {}) });
   });
 
 program

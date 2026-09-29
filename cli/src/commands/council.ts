@@ -1,11 +1,55 @@
 import { advisoriesPath, openAdvisories, readAdvisories } from "../council/advisors.js";
 import { runCouncilPass } from "../council/council.js";
-import { collectNewCaptures, readLibrarianState } from "../council/librarian.js";
+import { readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { FLYD_DIR } from "../lib/config.js";
+import { collectNewCaptures, readLibrarianState, reprocessSources, type BackfillSource } from "../council/librarian.js";
 import { readJournalSince } from "../council/journal.js";
 import { memoryPaths, readMemoryEntries, staleEntries } from "../council/memory-store.js";
 
-export async function runCouncilCommand(action = "status", options: { all?: boolean } = {}): Promise<void> {
+/** Old material about George, identity first, then conversation, then captures oldest-first so newer facts win. */
+export function historicalSources(stage: string, home = homedir()): BackfillSource[] {
+  const read = (path: string) => { try { return readFileSync(path, "utf8"); } catch { return ""; } };
+  const identity: BackfillSource[] = [
+    { id: "doc:cv", text: read(join(home, "Documents", "jobs", "cv", "george_galanakis_cv.md")) },
+    { id: "doc:candidate-profile", text: read(join(home, "Documents", "jobs", "profile", "candidate_profile.json")) },
+    { id: "doc:innovation-highlights", text: read(join(home, "Documents", "jobs", "George Galanakis Innovation Project Highlights.docx.txt")) },
+    { id: "doc:job-search-tracker", text: read(join(home, "Documents", "jobs", "job_search_tracker.csv")) },
+    ...["USER.md", "MEMORY.md"].map((file) => ({ id: `doc:hermes-${file.toLowerCase()}`, text: read(join(home, ".hermes", "memories", file)) })),
+    ...["USER.md", "MEMORY.md"].map((file) => ({ id: `doc:openclaw-${file.toLowerCase()}`, text: read(join(home, ".openclaw", "workspace", file)) })),
+    ...(() => {
+      const dir = join(FLYD_DIR, "wiki", "projects");
+      try { return readdirSync(dir).filter((name) => name.endsWith(".md")).map((name) => ({ id: `doc:wiki-${name.replace(/\.md$/, "")}`, text: read(join(dir, name)) })); } catch { return []; }
+    })(),
+  ];
+  const journal = Object.entries(readJournalSince(null, undefined, 10_000).reduce<Record<string, string[]>>((days, turn) => {
+    (days[turn.at.slice(0, 10)] ??= []).push(`George: ${turn.user}\nFlyd: ${turn.assistant.slice(0, 1_500)}`);
+    return days;
+  }, {})).map(([day, turns]) => ({ id: `journal:${day}`, text: turns.join("\n\n") }));
+  const captures = collectNewCaptures(0, undefined, 10_000).map((capture) => ({ id: capture.id, text: capture.text }));
+  const pick = { identity, journal, captures, all: [...identity, ...journal, ...captures] }[stage] ?? [];
+  return pick.filter((source) => source.text.trim().length >= 20);
+}
+
+export async function runCouncilCommand(action = "status", options: { all?: boolean; stage?: string } = {}): Promise<void> {
   switch (action) {
+    case "reprocess": {
+      // Old material run through the Librarian again (resumable: council/reprocess.json).
+      const { query } = await import("../lib/llm.js");
+      const stage = options.stage ?? "all";
+      const sources = historicalSources(stage);
+      process.stdout.write(`Reprocessing ${sources.length} sources (${stage}), ${sources.reduce((n, source) => n + source.text.length, 0)} chars…\n`);
+      const started = Date.now();
+      const result = await reprocessSources(sources, {
+        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+        progressPath: join(FLYD_DIR, "council", "reprocess.json"),
+        onSkip: (ids) => process.stdout.write(`  skipped (unreadable reply twice, will retry next run): ${ids.join(", ")}\n`),
+        onBatch: (done, total, receipt) => process.stdout.write(`  batch ${done}/${total}: memory +${receipt.memory.added} ~${receipt.memory.updated} notes +${receipt.memory.notes}, profile +${receipt.profileAdded}, projects ${receipt.projects.upserted} (${Math.round((Date.now() - started) / 1000)}s)\n`),
+      });
+      process.stdout.write(`Done: ${result.batches} batches → memory +${result.memory.added} ~${result.memory.updated} ↓${result.memory.archived}, daily notes +${result.memory.notes}, profile +${result.profileAdded}, projects ${result.projects.upserted} updated ${result.projects.archived} closed\n`);
+      return;
+    }
     case "status": {
       const state = readLibrarianState();
       const memory = readMemoryEntries();

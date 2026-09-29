@@ -141,6 +141,8 @@ export interface LibrarianInput {
   projects?: Project[];
   /** Code repos on his Mac a project can point at. */
   repos?: Array<{ name: string; root: string }>;
+  /** Re-reading old material (CV, past notes, other assistants' memories) rather than what's new. */
+  backfill?: boolean;
 }
 
 export function librarianPrompt(input: LibrarianInput): string {
@@ -156,7 +158,16 @@ export function librarianPrompt(input: LibrarianInput): string {
   return [
     "You are Flyd's Librarian: the curator of George's memory. George is the only person you serve.",
     `Today is ${input.today}.`,
-    "Read what happened since your last pass and keep his memory accurate, small, and current.",
+    input.backfill
+      ? [
+        "This pass re-reads OLD material about George (his CV, past notes and captures, other assistants' memories of him), not new conversation. Build what Flyd should know about him from it:",
+        "- Who he is, his background, how he works and what he's known for: profile ops, a few crisp lines, the headline career and wins in 'Work'. Not the whole CV: his profile is read on every turn.",
+        "- The detail behind it (roles and dates, clients, awards, exhibitions, testimonials, past projects): daily_note ops, one fact each, so they can be recalled when needed without riding in every prompt.",
+        "- His current projects, with their facts: project_ops. Past projects that are over: status done.",
+        "- People who matter to him, standing decisions, open commitments: memory_ops.",
+        "- Old material can be out of date. When it conflicts with the current profile, memory or projects, the current ones win. Skip anything already known, one-off chatter, and code or product specs.",
+      ].join("\n")
+      : "Read what happened since your last pass and keep his memory accurate, small, and current.",
     "",
     "Priorities, in order:",
     "1. Corrections and mistakes — George correcting Flyd or himself. Fix the stored fact at its source.",
@@ -262,6 +273,24 @@ async function defaultRepos(): Promise<Array<{ name: string; root: string }>> {
   return (await refreshRepoRegistry()).map((repo) => ({ name: repo.name, root: repo.root }));
 }
 
+/** Apply a proposal: memory, projects and profile, each through its own validation. */
+function applyProposal(
+  proposal: LibrarianProposal,
+  options: { now: Date; paths: MemoryPaths; repos: Array<{ root: string }>; deps: Pick<LibrarianDependencies, "addProfileFact" | "projectsPath"> },
+): { memory: ApplyReceipt; projects: ProjectApplyReceipt; profileAdded: number } {
+  const memory = applyMemoryOps(proposal.memoryOps, { now: options.now, paths: options.paths });
+  const projects = applyProjectOps(proposal.projectOps, {
+    knownRepos: options.repos.map((repo) => repo.root), now: options.now,
+    ...(options.deps.projectsPath ? { path: options.deps.projectsPath } : {}),
+  });
+  const addProfile = options.deps.addProfileFact
+    ?? ((fact: string, section: string) => addUserProfileFact(fact, {
+      section: PROFILE_SECTIONS.find((name) => name.toLowerCase() === section.toLowerCase()) ?? "Learned in conversation",
+    }));
+  const profileAdded = proposal.profileOps.filter(({ fact, section }) => addProfile(fact, section)).length;
+  return { memory, projects, profileAdded };
+}
+
 /** One curation pass over everything new since the last one. */
 export async function runLibrarian(deps: LibrarianDependencies): Promise<LibrarianRunResult> {
   const now = (deps.now ?? (() => new Date()))();
@@ -289,13 +318,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");
   const proposal = parseLibrarianProposal(reply);
-  const receipt = applyMemoryOps(proposal.memoryOps, { now, paths });
-  const projectReceipt = applyProjectOps(proposal.projectOps, { knownRepos: repos.map((repo) => repo.root), now, ...(deps.projectsPath ? { path: deps.projectsPath } : {}) });
-  const addProfile = deps.addProfileFact
-    ?? ((fact: string, section: string) => addUserProfileFact(fact, {
-      section: PROFILE_SECTIONS.find((name) => name.toLowerCase() === section.toLowerCase()) ?? "Learned in conversation",
-    }));
-  const profileAdded = proposal.profileOps.filter(({ fact, section }) => addProfile(fact, section)).length;
+  const { memory: receipt, projects: projectReceipt, profileAdded } = applyProposal(proposal, { now, paths, repos, deps });
   // Advance cursors only after a successful pass so a failed one is retried.
   writeLibrarianState({
     journalCursor: turns.at(-1)?.at ?? state.journalCursor,
@@ -305,4 +328,108 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     ...(seedProjects ? { projectsSeededOn: localDay(now) } : state.projectsSeededOn ? { projectsSeededOn: state.projectsSeededOn } : {}),
   }, deps.statePath);
   return { turns: turns.length, captures: captures.length, memory: receipt, projects: projectReceipt, profileAdded, observations: proposal.observations };
+}
+
+export interface BackfillSource { id: string; text: string }
+
+/** The proposal, or null when the reply isn't parseable JSON (as opposed to an empty proposal). */
+function strictProposal(reply: string): LibrarianProposal | null {
+  const match = reply.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { JSON.parse(match[0]); } catch { return null; }
+  return parseLibrarianProposal(reply);
+}
+
+/** Memory sections that belong in every prompt; anything else from old material is detail. */
+const STANDING_SECTIONS = new Set(["People", "Commitments", "Decisions"]);
+
+/**
+ * Old material is mostly detail (past roles, clients, artworks). MEMORY.md
+ * rides in every prompt, so during a backfill only people, commitments and
+ * decisions go there; every other fact becomes a daily note that recall
+ * finds when it's needed.
+ */
+function toBackfillOps(proposal: LibrarianProposal, today: string): LibrarianProposal {
+  return {
+    ...proposal,
+    memoryOps: proposal.memoryOps.map((op) => (op.op === "add" && !STANDING_SECTIONS.has(op.section)
+      ? { op: "daily_note" as const, text: op.text, ...(op.sources ? { sources: op.sources } : {}) }
+      : op)),
+  };
+}
+
+export interface ReprocessResult {
+  batches: number;
+  sources: number;
+  memory: { added: number; updated: number; archived: number; notes: number };
+  projects: { upserted: number; archived: number };
+  profileAdded: number;
+}
+
+/** Pack sources into batches of about `size` characters; a long source is split into parts. */
+export function batchSources(sources: BackfillSource[], size = 14_000): BackfillSource[][] {
+  const parts = sources.flatMap((source) => {
+    if (source.text.length <= size) return [source];
+    const count = Math.ceil(source.text.length / size);
+    return Array.from({ length: count }, (_, index) => ({ id: `${source.id}#${index + 1}`, text: source.text.slice(index * size, (index + 1) * size) }));
+  });
+  const batches: BackfillSource[][] = [];
+  let current: BackfillSource[] = [];
+  let chars = 0;
+  for (const part of parts) {
+    if (current.length && chars + part.text.length > size) { batches.push(current); current = []; chars = 0; }
+    current.push(part);
+    chars += part.text.length;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+/**
+ * Run old material through the Librarian again, batch by batch, with the
+ * same prompt, validation and stores as a normal pass. Progress is saved after
+ * every batch, so an interrupted run picks up where it stopped.
+ */
+export async function reprocessSources(
+  sources: BackfillSource[],
+  deps: LibrarianDependencies & {
+    progressPath: string;
+    onBatch?: (done: number, total: number, result: ReturnType<typeof applyProposal>) => void;
+    onSkip?: (ids: string[]) => void;
+  },
+): Promise<ReprocessResult> {
+  const done = new Set<string>(existsSync(deps.progressPath) ? (JSON.parse(readFileSync(deps.progressPath, "utf8")) as { done: string[] }).done : []);
+  const batches = batchSources(sources).filter((batch) => batch.some((part) => !done.has(part.id)));
+  const total: ReprocessResult = { batches: 0, sources: sources.length, memory: { added: 0, updated: 0, archived: 0, notes: 0 }, projects: { upserted: 0, archived: 0 }, profileAdded: 0 };
+  const paths = deps.memoryPaths ?? memoryPaths();
+  const repos = await (deps.repos ?? (process.env.VITEST ? async () => [] : defaultRepos))().catch(() => []);
+  for (const batch of batches) {
+    const now = (deps.now ?? (() => new Date()))();
+    const memory = readMemoryEntries(paths);
+    const prompt = librarianPrompt({
+      turns: [],
+      captures: batch.map((part) => ({ id: part.id, mtimeMs: 0, text: part.text })),
+      memory, stale: [], profile: (deps.readProfile ?? readUserProfile)(), today: localDay(now),
+      projects: readProjects(deps.projectsPath), repos, backfill: true,
+    });
+    const reply = await deps.complete(prompt);
+    // A reply that isn't valid JSON gets one more try; it never counts as "nothing to add".
+    let proposal = strictProposal(reply);
+    if (!proposal) proposal = strictProposal(await deps.complete(prompt));
+    if (!proposal) { deps.onSkip?.(batch.map((part) => part.id)); continue; }
+    const result = applyProposal(toBackfillOps(proposal, localDay(now)), { now, paths, repos, deps });
+    for (const part of batch) done.add(part.id);
+    mkdirSync(dirname(deps.progressPath), { recursive: true, mode: 0o700 });
+    writeFileSync(deps.progressPath, JSON.stringify({ done: [...done] }), { encoding: "utf8", mode: 0o600 });
+    total.batches += 1;
+    total.memory.added += result.memory.added;
+    total.memory.updated += result.memory.updated;
+    total.memory.archived += result.memory.archived;
+    total.memory.notes += result.memory.notes;
+    total.projects.upserted += result.projects.upserted;
+    total.projects.archived += result.projects.archived;
+    total.profileAdded += result.profileAdded;
+    deps.onBatch?.(total.batches, batches.length, result);
+  }
+  return total;
 }
