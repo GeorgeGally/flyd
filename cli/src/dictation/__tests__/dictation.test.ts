@@ -157,7 +157,7 @@ describe("finishDictation", () => {
   it("returns the deterministic text when the model answers instead of cleaning", async () => {
     const complete = async () => "Sure! Here is a detailed plan for running your tests at four o'clock, step by step, with reminders.";
 
-    const result = await finishDictation("what time is it", { ...base, target: notes, model: "openai:gpt-x", complete, audioSeconds: 3 });
+    const result = await finishDictation("um what time is it", { ...base, target: notes, model: "openai:gpt-x", complete, audioSeconds: 3 });
 
     expect(result).toEqual({ text: "What time is it", profile: "prose" });
   });
@@ -184,6 +184,26 @@ describe("finishDictation", () => {
     const result = await finishDictation("sounds good", { ...base, target: slack, model: "openrouter:x-ai/grok-4.3", complete });
 
     expect(result).toEqual({ text: "Sounds good", profile: "chat" });
+  });
+
+  it("skips the model for a long sentence with nothing to fix", async () => {
+    const complete = async () => "Something else entirely";
+
+    const result = await finishDictation(
+      "open the turn plan file and rename the gate function to check gate, then run the tests",
+      { ...base, target: ghostty, model: "openrouter:x-ai/grok-4.3", complete },
+    );
+
+    expect(result).toEqual({ text: "Open the turn plan file and rename the gate function to check gate, then run the tests", profile: "code" });
+  });
+
+  it("sends long prose to the model for paragraphs and lists", async () => {
+    const complete = async () => "Formatted.";
+    const long = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
+
+    const result = await finishDictation(long, { ...base, target: notes, model: "openrouter:x-ai/grok-4.3", complete });
+
+    expect(result).toEqual({ text: "Formatted.", profile: "prose" });
   });
 
   it("returns empty text for a silence hallucination on short audio", async () => {

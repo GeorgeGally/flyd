@@ -18,6 +18,7 @@ final class DictationPill {
     static let wingWidth: CGFloat = 58
     static let messageStripHeight: CGFloat = 30
     static let cornerRadius: CGFloat = 14
+    static let opticalLift: CGFloat = 2.5
     private static let barCount = 7
     private static let barWidth: CGFloat = 3
     private static let barGap: CGFloat = 3
@@ -35,6 +36,7 @@ final class DictationPill {
     /// Bumped on every show, so a collapse that finishes after a newer show never hides it.
     private var generation = 0
     private var wingMidY: CGFloat = fallbackHeight / 2
+    private var wingHeight: CGFloat = fallbackHeight
 
     /// The notch in screen coordinates, or nil on screens without one.
     static func notchRect(of screen: NSScreen) -> NSRect? {
@@ -103,7 +105,7 @@ final class DictationPill {
 
     func updateSpectrum(_ bands: [Float]) {
         guard !bars.isEmpty, bars.first?.isHidden == false else { return }
-        let maxHeight = max(6, wingMidY * 2 - 14)
+        let maxHeight = max(6, wingHeight - 14)
         for (index, bar) in bars.enumerated() {
             let value: CGFloat
             if bands.isEmpty {
@@ -171,8 +173,11 @@ final class DictationPill {
         let wingsStart = (size.width - notchWidth) / 2 - Self.wingWidth
         let leftWingMidX = wingsStart + Self.wingWidth / 2 + 4
         let rightWingMinX = wingsStart + Self.wingWidth + notchWidth
-        let midY = size.height - topHeight / 2
+        // The rounded bottom corners pull the island's visual centre up; centring on the
+        // geometry reads as sitting low.
+        let midY = size.height - topHeight / 2 + Self.opticalLift
         wingMidY = midY
+        wingHeight = topHeight
 
         dot?.frame.origin = NSPoint(x: (leftWingMidX - 3.5).rounded(), y: (midY - 3.5).rounded())
         spinner?.frame = NSRect(x: (leftWingMidX - 8).rounded(), y: (midY - 8).rounded(), width: 16, height: 16)

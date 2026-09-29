@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import { finishDictation } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
 import type { DictationTarget } from "./dictation/profile.js";
+import { openStreamingTranscriber, type StreamingTranscriber } from "./dictation/stream.js";
 import { loadReplacementRules, loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
 
 const TRANSCRIPTION_WS_PORT = 4816;
@@ -177,6 +178,8 @@ export function startTranscriptionServer(): Promise<void> {
       let pendingAudio: Buffer[] = [];
       let isTranscribing = false;
       let purpose: TranscriptionPurpose = { kind: "conversation" };
+      let stream: StreamingTranscriber | null = null;
+      const closeStream = () => { stream?.close(); stream = null; };
 
       ws.on("message", async (data) => {
         try {
@@ -185,30 +188,43 @@ export function startTranscriptionServer(): Promise<void> {
           switch (msg.type) {
           case "start":
             pendingAudio = [];
+            closeStream();
             purpose = transcriptionPurpose(msg);
-            if (purpose.kind === "dictation") warmDictationHosts();
+            if (purpose.kind === "dictation") {
+              warmDictationHosts();
+              stream = openDictationStream(purpose);
+            }
             sendTranscriptionReady(ws);
             break;
           case "audio":
             if (typeof msg.audio === "string") {
-              pendingAudio.push(Buffer.from(msg.audio, "base64"));
+              const chunk = Buffer.from(msg.audio, "base64");
+              pendingAudio.push(chunk);
+              stream?.append(chunk);
             }
             break;
-          case "commit":
+          case "commit": {
             if (isTranscribing) break;
             isTranscribing = true;
-            transcribeBufferedAudio(pendingAudio, ws, purpose)
+            const streamed = stream;
+            stream = null;
+            (streamed && purpose.kind === "dictation"
+              ? finishStreamedDictation(streamed, pendingAudio, ws, purpose)
+              : transcribeBufferedAudio(pendingAudio, ws, purpose))
               .catch((error) => {
                 console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
                 sendJson(ws, { type: "error", message: "Voice transcription failed" });
               })
               .finally(() => {
+                streamed?.close();
                 pendingAudio = [];
                 isTranscribing = false;
               });
             break;
+          }
           case "stop":
             pendingAudio = [];
+            closeStream();
             break;
           }
         } catch {
@@ -218,6 +234,7 @@ export function startTranscriptionServer(): Promise<void> {
 
       ws.on("close", () => {
         pendingAudio = [];
+        closeStream();
         console.log(`[Flyd Core] Transcription session ${sessionId.slice(0, 8)} disconnected`);
       });
     });
@@ -228,6 +245,69 @@ function sendJson(ws: Pick<WebSocket, "send">, payload: Record<string, unknown>)
   ws.send(JSON.stringify(payload));
 }
 
+const STREAM_FINISH_TIMEOUT_MS = 4_000;
+const PCM_BYTES_PER_SECOND = 24_000 * 2;
+
+function transcriptionApiKey(): string | undefined {
+  // Voice endpoints are OpenAI-only — prefer OPENAI_API_KEY so FLYD_MODEL_API_KEY
+  // can point at a non-OpenAI provider (e.g. OpenRouter) without breaking voice.
+  return process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
+}
+
+function openDictationStream(purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>): StreamingTranscriber | null {
+  const apiKey = transcriptionApiKey();
+  if (!apiKey) return null;
+  try {
+    return openStreamingTranscriber({
+      apiKey,
+      model: transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL),
+      prompt: transcriptionPrompt(loadVocabulary(purpose.target.windowTitle)),
+    });
+  } catch (error) {
+    console.warn(`[Flyd Core] Streaming transcription unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/** The streamed transcript when it arrives in time; otherwise the same audio, uploaded whole. */
+async function finishStreamedDictation(
+  stream: StreamingTranscriber,
+  chunks: Buffer[],
+  clientWs: WebSocket,
+  purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>,
+): Promise<void> {
+  const pcm = Buffer.concat(chunks);
+  if (pcm.length < 1600) {
+    sendJson(clientWs, { type: "error", message: "No speech detected" });
+    return;
+  }
+  let transcript: string;
+  try {
+    transcript = await stream.finish(STREAM_FINISH_TIMEOUT_MS);
+  } catch (error) {
+    console.warn(`[Flyd Core] Streaming transcription fell back to upload: ${error instanceof Error ? error.message : String(error)}`);
+    await transcribeBufferedAudio(chunks, clientWs, purpose);
+    return;
+  }
+  await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, loadVocabulary(purpose.target.windowTitle));
+}
+
+async function completeDictation(
+  clientWs: WebSocket,
+  transcript: string,
+  audioSeconds: number,
+  purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>,
+  vocabulary: string[],
+): Promise<void> {
+  const result = await finishDictation(transcript, {
+    target: purpose.target,
+    audioSeconds,
+    rules: loadReplacementRules(),
+    vocabulary,
+  });
+  sendJson(clientWs, { type: "complete", text: result.text, profile: result.profile });
+}
+
 async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, purpose: TranscriptionPurpose): Promise<void> {
   const pcm = Buffer.concat(chunks);
   if (pcm.length < 1600) {
@@ -235,9 +315,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, pu
     return;
   }
 
-  // Voice endpoints are OpenAI-only — prefer OPENAI_API_KEY so FLYD_MODEL_API_KEY
-  // can point at a non-OpenAI provider (e.g. OpenRouter) without breaking voice.
-  const apiKey = process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
+  const apiKey = transcriptionApiKey();
 
   if (!apiKey) {
     sendJson(clientWs, { type: "error", message: "Transcription not configured" });
@@ -264,13 +342,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, pu
     if (response.ok) {
       const body = await response.json() as { text?: string };
       if (purpose.kind === "dictation") {
-        const result = await finishDictation(body.text || "", {
-          target: purpose.target,
-          audioSeconds: pcm.length / (24000 * 2),
-          rules: loadReplacementRules(),
-          vocabulary,
-        });
-        sendJson(clientWs, { type: "complete", text: result.text, profile: result.profile });
+        await completeDictation(clientWs, body.text || "", pcm.length / PCM_BYTES_PER_SECOND, purpose, vocabulary);
         return;
       }
       sendJson(clientWs, { type: "complete", text: body.text || "" });

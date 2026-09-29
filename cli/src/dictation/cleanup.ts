@@ -17,8 +17,11 @@ const SILENCE_HALLUCINATION_MAX_SECONDS = 2;
 const FILLER = String.raw`(?:um+|uh+|erm+|er)`;
 const LEADING_FILLERS = new RegExp(String.raw`^(?:${FILLER}\b[\s,.…-]*)+`, "i");
 const TRAILING_FILLERS = new RegExp(String.raw`(?:[\s,]*\b${FILLER})+([.!?…]*)$`, "i");
-const NEEDS_MODEL = /\b(?:um+|uh+|erm+|like|i mean|you know|sorry|no wait|scratch that|actually)\b/i;
-const SHORT_WORDS = 6;
+// The transcription model already punctuates, so the ~1 s model pass runs only when
+// there is something it alone can fix: fillers, self-corrections, or long prose
+// that may need paragraphs or a list.
+const NEEDS_MODEL = /\b(?:um+|uh+|erm+|i mean|you know|sorry|no wait|wait no|scratch that|actually)\b/i;
+const LONG_PROSE_WORDS = 40;
 
 export function isSilenceHallucination(transcript: string, audioSeconds: number): boolean {
   if (audioSeconds >= SILENCE_HALLUCINATION_MAX_SECONDS) return false;
@@ -47,9 +50,9 @@ function finalize(text: string, profile: DictationProfile): string {
   return profile === "chat" ? capitalised.replace(/(?<!\.)\.$/, "") : capitalised;
 }
 
-/** Short, clean utterances only need capitalisation; skip the model's latency. */
-export function needsModel(text: string): boolean {
-  return text.split(/\s+/).filter(Boolean).length >= SHORT_WORDS || NEEDS_MODEL.test(text);
+export function needsModel(text: string, profile: DictationProfile): boolean {
+  if (NEEDS_MODEL.test(text)) return true;
+  return profile === "prose" && text.split(/\s+/).filter(Boolean).length >= LONG_PROSE_WORDS;
 }
 
 const PROFILE_RULES: Record<DictationProfile, string> = {
@@ -106,7 +109,7 @@ export async function finishDictation(transcript: string, options: FinishDictati
   const ruled = applyRules(transcript, options.rules);
   const deterministic = deterministicCleanup(ruled, profile);
   const model = options.model ?? getKey("FLYD_DICTATE_MODEL")?.trim();
-  if (!model || !deterministic || !needsModel(ruled)) return { text: deterministic, profile };
+  if (!model || !deterministic || !needsModel(ruled, profile)) return { text: deterministic, profile };
 
   const spellExactly = [...new Set([...options.rules.map((rule) => rule.to), ...options.vocabulary])];
   try {
