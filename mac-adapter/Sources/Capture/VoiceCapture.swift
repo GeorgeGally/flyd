@@ -40,7 +40,9 @@ final class VoiceCapture {
         }
     }
 
-    func start() -> Bool {
+    /// `muteOutput` silences the Mac's other sound while capturing so it can't bleed into
+    /// the transcript; LIVE passes false because George has to hear Flyd answer.
+    func start(muteOutput: Bool = true) -> Bool {
         guard !isRunning else { return true }
         guard PermissionGate.shared.hasMicrophone else {
             onError?("Microphone permission not granted")
@@ -63,6 +65,9 @@ final class VoiceCapture {
 
         do {
             try engine.start()
+            if muteOutput {
+                SystemAudioMute.engage()
+            }
             isRunning = true
             audioBuffer = Data()
             PrivacyInvariants.audioEngineActive = true
@@ -80,6 +85,7 @@ final class VoiceCapture {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         engine.reset()
+        SystemAudioMute.release()
 
         PrivacyInvariants.audioEngineActive = false
 

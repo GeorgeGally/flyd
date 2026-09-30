@@ -69,7 +69,7 @@ final class LiveSessionController {
         voiceCapture.onAudioChunk = { [weak self] chunk in
             self?.bridge.sendAudioChunk(chunk)
         }
-        _ = voiceCapture.start()
+        _ = voiceCapture.start(muteOutput: false)
         bridge.connect()
     }
 

@@ -94,6 +94,7 @@ statusItem.onRestartFlyd = {
 statusItem.onPasteLastDictation = {
     dictation.pasteLast()
 }
+SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
 ensureCoreLaunched()
 

@@ -896,7 +896,7 @@ private final class PermissionsViewModel: ObservableObject {
                 self?.microphoneBands = bands.map { CGFloat($0) }
             }
         }
-        _ = VoiceCapture.shared.start()
+        _ = VoiceCapture.shared.start(muteOutput: false)
 
         micSilenceTimer?.invalidate()
         micSilenceTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: false) { [weak self] _ in
@@ -949,7 +949,7 @@ private final class PermissionsViewModel: ObservableObject {
                 self?.microphoneBands = bands.map { CGFloat($0) }
             }
         }
-        _ = VoiceCapture.shared.start()
+        _ = VoiceCapture.shared.start(muteOutput: false)
     }
 
     func stopFirstPromptPractice() {
