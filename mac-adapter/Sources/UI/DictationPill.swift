@@ -24,6 +24,8 @@ final class DictationPill {
     static let messageStripHeight: CGFloat = 30
     static let cornerRadius: CGFloat = 14
     static let opticalLift: CGFloat = 2.5
+    /// The level bars read low beside the dot, so they sit a little higher than it.
+    private static let barLift: CGFloat = 2
     private static let barCount = 7
     private static let barWidth: CGFloat = 3
     private static let barGap: CGFloat = 3
@@ -121,7 +123,7 @@ final class DictationPill {
             }
             let barHeight = 3 + value * (maxHeight - 3)
             bar.frame.size.height = barHeight
-            bar.frame.origin.y = wingMidY - barHeight / 2
+            bar.frame.origin.y = wingMidY + Self.barLift - barHeight / 2
         }
     }
 
@@ -199,7 +201,7 @@ final class DictationPill {
         for (index, bar) in bars.enumerated() {
             bar.frame = NSRect(
                 x: barsStart + CGFloat(index) * (Self.barWidth + Self.barGap),
-                y: midY - 1.5,
+                y: midY + Self.barLift - 1.5,
                 width: Self.barWidth,
                 height: 3
             )
