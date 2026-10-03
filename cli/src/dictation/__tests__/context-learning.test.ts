@@ -61,6 +61,15 @@ describe("faithful cleanup and edit attribution", () => {
     expect(acceptCleanup("ask flight about it", "Ask fled about it", ["Flyd"])).toBeNull();
     expect(acceptCleanup("ask flight about it", "Ask Flyd about it", ["Flyd"])).toBe("Ask Flyd about it");
   });
+  it.each([
+    ["um send it to her", "Send it to Harry.", "Harry"],
+    ["um tell them all", "Tell them Ali.", "Ali"],
+    ["um turn right here", "Turn Rita here.", "Rita"],
+    ["um ask the team", "Ask the Tom.", "Tom"],
+    ["um he said yes", "Hugh said yes.", "Hugh"],
+  ])("never swaps a short-key word by sound: %s", (input, output, term) => {
+    expect(acceptCleanup(input, output, [term])).toBeNull();
+  });
   it("accepts an approved correction pair even when it does not sound alike", () => {
     expect(acceptCleanup("um ping kinstar today", "Ping Kinsta today.", ["Kinsta"])).toBeNull();
     expect(acceptCleanup("um ping kinstar today", "Ping Kinsta today.", ["Kinsta"], [{ from: "Kinstar", to: "Kinsta" }]))

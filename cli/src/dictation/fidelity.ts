@@ -85,8 +85,12 @@ export function soundKey(word: string): string {
 function isSanctionedSpelling(source: string, target: string, terms: Set<string>, approved: Set<string>): boolean {
   if (!terms.has(target)) return false;
   if (approved.has(`${source}\u0000${target}`)) return true;
+  // Sound-alike bound: the shared key needs at least 3 characters (shorter keys such as
+  // "hr" or "tm" are shared by too many common words) and the two words must be within a
+  // 0.6-1.6 length ratio. Shorter keys are swapped only by an approved correction pair.
   const key = soundKey(source);
-  return key !== "" && key === soundKey(target);
+  const ratio = source.length / target.length;
+  return key.length >= 3 && key === soundKey(target) && ratio >= 0.6 && ratio <= 1.6;
 }
 
 /**
