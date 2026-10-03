@@ -74,6 +74,8 @@ Other integrations can use the same ingress without changing the learning engine
 
 Core regression tests cover context bounds and credentials, semantic fidelity, reviewed/scoped corrections, mundane content, attribution, failed-extraction retry, explicit reversals, duplicate imports, ambiguous project scope, independent pause, original-message search and source erasure.
 
-Swift tests cover config migration and inserted-span isolation. Native compilation and OS interaction require macOS; this implementation was developed in Linux and must pass the existing macOS CI job and a real dictation/edit session before installation is called verified.
+Swift tests cover config migration and inserted-span isolation. The macOS CI build and all 149 native tests passed. A real dictation/edit session is still required before installation and end-to-end accuracy are called verified.
+
+CI also exposed a pre-existing Scout timezone test failure (reproduced on the preparation commit with TZ=UTC) and dependency audit failures in unchanged dependency files.
 
 No real-user audio corpus was available here. Accuracy and latency improvements are not yet measured. Local baseline extraction is intentionally limited; rich learning requires a configured model. Automatic whole-conversation capture in arbitrary applications requires an attributed integration or intentional import. Unsupported text fields skip edit learning. Existing legacy captures from before source migration are separate historical files.
