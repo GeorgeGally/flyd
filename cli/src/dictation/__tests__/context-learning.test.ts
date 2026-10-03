@@ -58,6 +58,10 @@ describe("faithful cleanup and edit attribution", () => {
   it("rejects semantic rewrites even when numbers and negations didn't change", () => {
     expect(acceptCleanup("um can you fix uploads", "Please delete uploads.")).toBeNull();
   });
+  it("never lets a sanctioned spelling rewrite swap a bare negation", () => {
+    expect(preservesProtectedTokens("there is no limit", "there is now limit")).toBe(false);
+    expect(acceptCleanup("um there is no limit", "There is now limit.", ["now"])).toBeNull();
+  });
   it("extracts narrow spelling changes but ignores mind changes and numbers", () => {
     expect(correctionPair("Ask flight about it", "Ask Flyd about it")).toEqual({ from: "flight", to: "Flyd" });
     expect(correctionPair("Charge 105", "Charge 115")).toBeNull();
