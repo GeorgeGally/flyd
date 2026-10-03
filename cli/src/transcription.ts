@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { IncomingMessage } from "node:http";
+import { currentProjectVocabulary } from "./dictation/context.js";
+import { reviewedRules } from "./dictation/corrections.js";
 import { finishDictation } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
 import { transcriptionPurpose, type TranscriptionPurpose } from "./dictation/request.js";
@@ -171,6 +173,7 @@ export function startTranscriptionServer(): Promise<void> {
 
           switch (msg.type) {
           case "start":
+            if (isTranscribing) break;
             pendingAudio = [];
             closeStream();
             purpose = transcriptionPurpose(msg);
@@ -179,6 +182,7 @@ export function startTranscriptionServer(): Promise<void> {
             sendTranscriptionReady(ws);
             break;
           case "audio":
+            if (isTranscribing) break;
             if (typeof msg.audio === "string") {
               const chunk = Buffer.from(msg.audio, "base64");
               pendingAudio.push(chunk);
@@ -189,10 +193,12 @@ export function startTranscriptionServer(): Promise<void> {
             if (isTranscribing) break;
             isTranscribing = true;
             const streamed = stream;
+            const committedAudio = pendingAudio;
+            const committedPurpose = purpose;
             stream = null;
             (streamed
-              ? finishStreamedTranscription(streamed, pendingAudio, ws, purpose)
-              : transcribeBufferedAudio(pendingAudio, ws, purpose))
+              ? finishStreamedTranscription(streamed, committedAudio, ws, committedPurpose)
+              : transcribeBufferedAudio(committedAudio, ws, committedPurpose))
               .catch((error) => {
                 console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
                 sendJson(ws, { type: "error", message: "Voice transcription failed" });
@@ -236,6 +242,11 @@ function transcriptionApiKey(): string | undefined {
   return process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
 }
 
+function dictationVocabulary(target: import("./dictation/profile.js").DictationTarget): string[] {
+  const approved = [...reviewedRules(target.bundleId, target.windowTitle), ...loadReplacementRules()].map(rule => rule.to);
+  return [...new Set(["Flyd", ...approved, ...currentProjectVocabulary(target, loadVocabulary(target.windowTitle))])].slice(0, 40);
+}
+
 function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTranscriber | null {
   const apiKey = transcriptionApiKey();
   if (!apiKey) return null;
@@ -244,7 +255,7 @@ function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTransc
       apiKey,
       model: transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL),
       prompt: purpose.kind === "dictation"
-        ? transcriptionPrompt(loadVocabulary(purpose.target.windowTitle))
+        ? transcriptionPrompt(dictationVocabulary(purpose.target))
         : TRANSCRIPTION_PROMPT,
     });
   } catch (error) {
@@ -274,7 +285,7 @@ async function finishStreamedTranscription(
     return;
   }
   if (purpose.kind === "dictation") {
-    await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, loadVocabulary(purpose.target.windowTitle));
+    await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, dictationVocabulary(purpose.target));
     return;
   }
   sendJson(clientWs, { type: "complete", text: transcript });
@@ -290,10 +301,10 @@ async function completeDictation(
   const result = await finishDictation(transcript, {
     target: purpose.target,
     audioSeconds,
-    rules: loadReplacementRules(),
+    rules: [...reviewedRules(purpose.target.bundleId, purpose.target.windowTitle), ...loadReplacementRules()],
     vocabulary,
   });
-  sendJson(clientWs, { type: "complete", text: result.text, profile: result.profile });
+  sendJson(clientWs, { type: "complete", text: result.text, rawText: transcript, profile: result.profile });
 }
 
 async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, purpose: TranscriptionPurpose): Promise<void> {
@@ -311,7 +322,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, pu
   }
 
   const wav = pcm16ToWav(pcm);
-  const vocabulary = purpose.kind === "dictation" ? loadVocabulary(purpose.target.windowTitle) : [];
+  const vocabulary = purpose.kind === "dictation" ? dictationVocabulary(purpose.target) : [];
   const prompt = purpose.kind === "dictation" ? transcriptionPrompt(vocabulary) : TRANSCRIPTION_PROMPT;
 
   for (const model of transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL)) {

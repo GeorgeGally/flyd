@@ -9,6 +9,7 @@ final class StatusItem {
     var onInvoke: (() -> Void)?
     var onOpenSetup: (() -> Void)?
     var onRestartFlyd: (() -> Void)?
+    var onPasteRawDictation: (() -> Void)?
     var onPasteLastDictation: (() -> Void)?
 
     func start() {
@@ -55,6 +56,9 @@ final class StatusItem {
         )
         pasteLastItem.target = self
         menu.addItem(pasteLastItem)
+        let rawItem = NSMenuItem(title: "Paste Last Raw Transcript", action: #selector(pasteRawDictation), keyEquivalent: "")
+        rawItem.target = self
+        menu.addItem(rawItem)
 
         menu.addItem(.separator())
 
@@ -116,6 +120,8 @@ final class StatusItem {
         self.menu = menu
         statusItem?.menu = menu
     }
+
+    @objc private func pasteRawDictation() { onPasteRawDictation?() }
 
     @objc private func pasteLastDictation() {
         onPasteLastDictation?()

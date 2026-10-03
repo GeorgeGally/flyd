@@ -202,6 +202,23 @@ export class IntelligenceEventStore {
     return row.head ?? 0;
   }
 
+  /** Search original attributed conversation evidence without a second archive/index. */
+  searchConversations(terms: string[], projectIds: string[] = [], limit = 8): StoredEvent[] {
+    const words = [...new Set(terms.map(t => t.toLowerCase().trim()).filter(t => t.length >= 3))].slice(0, 8);
+    if (!words.length) return [];
+    const clauses = words.map(() => "LOWER(json_extract(payload_json, '$.conversation.user')) LIKE ? ESCAPE '\\'");
+    const patterns = words.map(t => "%" + t.replace(/[\\%_]/g, c => "\\" + c) + "%");
+    const projectClause = projectIds.length
+      ? " AND EXISTS (SELECT 1 FROM json_each(json_extract(payload_json, '$.conversation.projectIds')) WHERE value IN (" +
+        projectIds.map(() => "?").join(",") + "))" : "";
+    const rows = this.db.prepare(
+      "SELECT * FROM personal_events WHERE erased = 0 AND source_id IN ('chat.cognition','conversation.import')" +
+      " AND json_type(payload_json, '$.conversation') = 'object' AND (" + clauses.join(" OR ") + ")" +
+      projectClause + " ORDER BY sequence DESC LIMIT ?",
+    ).all(...patterns, ...projectIds, Math.max(1, Math.min(limit, 50))) as Array<Record<string, unknown>>;
+    return rows.map(row => this.mapRow(row));
+  }
+
   count(): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS n FROM personal_events`).get() as { n: number };
     return row.n;

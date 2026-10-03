@@ -91,6 +91,7 @@ interface FlydConfig {
   COMMANDCODE_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   FLYD_DICTATE_MODEL?: string;
+  FLYD_CONVERSATION_LEARN_MODEL?: string;
   CMD_API_KEY?: string;
   COMMANDCODE_MODEL?: string;
   COMMANDCODE_API_KEY_MODEL?: string;

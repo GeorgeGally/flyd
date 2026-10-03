@@ -1,4 +1,5 @@
 import { conversationOf, type ConversationPayload } from "./conversation.js";
+import { runContentLearning } from "./content-learning.js";
 import { createHash } from "node:crypto";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
 import { ProjectionEngine } from "../../intelligence/projections.js";
@@ -147,7 +148,7 @@ export async function runCuratorSweep(options: { store?: IntelligenceEventStore;
     const events = store.readFrom(cursor, options.limit ?? 500);
     for (const event of events) {
       const conversation = conversationOf(event);
-      if (conversation) {
+      if (conversation && event.sourceId === "chat.cognition") {
         await reconcileConversation(event, conversation, store, options.jev);
         reconciled += 1;
       }
@@ -159,6 +160,9 @@ export async function runCuratorSweep(options: { store?: IntelligenceEventStore;
       const curator = new CognitiveCurator(store);
       curator.rebuild();
     }
+    await runContentLearning({ store }).catch(error => {
+      console.warn("[cognition] Content learning deferred:", error instanceof Error ? error.message : "extraction failed");
+    });
     return { processed, reconciled, fromSequence, toSequence: cursor };
   } finally {
     if (owned) store.close();
