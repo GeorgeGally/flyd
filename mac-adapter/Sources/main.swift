@@ -96,6 +96,7 @@ statusItem.onPasteLastDictation = {
 }
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
+NotificationBridge.shared.start()
 ensureCoreLaunched()
 
 if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {

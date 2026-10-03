@@ -57,7 +57,8 @@ Swift macOS adapter (thin OS driver)
     ├── PRESENT: NSWorkspace + AXObserver — observation only
     ├── INVOKED text/voice: environment capture → TypeScript Core
     ├── LIVE: audio I/O → LiveAudioBridge → TypeScript Core → OpenAI Realtime
-    └── Execution: NativeExecutor (AX refs + fingerprint verification)
+    ├── Execution: NativeExecutor (AX refs + fingerprint verification)
+    └── Notifications: NotificationBridge posts user notifications from Flyd.app on 127.0.0.1:4818 (so a click opens Flyd); Core's `notifyMac` prefers it and falls back to `osascript`
 
 TypeScript Core (intelligence, memory, evidence, resolution)
     ├── HTTP server :4815 — manifest, learnings, health
@@ -296,6 +297,7 @@ Do not run `xcodebuild` directly from Terminal for normal testing; it can invali
 - Launching the raw adapter binary directly from Terminal can make macOS attribute TCC checks to the wrong responsible process; test with `make run`.
 - The TypeScript baseline currently has unrelated pre-existing type errors in older memory/graph tests/files. Do not attribute those to new evidence code unless an error points into `cli/src/evidence/`.
 - Rails CI/schema failures are legacy noise and must not drive active Flyd architecture decisions.
+- Crew and self-improvement verification run through `/bin/bash -lc`, whose login profile rebuilds `PATH` and can surface an older Node (`/usr/local/bin/node` here) ahead of the one running Flyd. `withRunningNodeFirst` (`cli/src/runtime/verification-commands.ts`) forces the running Node first; route any new verification spawn through it (or `nodeFirstPath`).
 
 ## Maintaining this file
 
