@@ -55,6 +55,17 @@ describe("faithful cleanup and edit attribution", () => {
     expect(acceptCleanup("ask flight about it", "Ask the airline about it", ["Flyd"])).toBeNull();
     expect(acceptCleanup("charge 105", "Charge 115", ["Flyd"])).toBeNull();
   });
+  it("accepts a spelling swap only when the spoken word is a plausible mishearing of the term", () => {
+    expect(acceptCleanup("um meet on sunday", "Meet on Monday.", ["Monday"])).toBeNull();
+    expect(acceptCleanup("um send it to sarah", "Send it to David.", ["David"])).toBeNull();
+    expect(acceptCleanup("ask flight about it", "Ask fled about it", ["Flyd"])).toBeNull();
+    expect(acceptCleanup("ask flight about it", "Ask Flyd about it", ["Flyd"])).toBe("Ask Flyd about it");
+  });
+  it("accepts an approved correction pair even when it does not sound alike", () => {
+    expect(acceptCleanup("um ping kinstar today", "Ping Kinsta today.", ["Kinsta"])).toBeNull();
+    expect(acceptCleanup("um ping kinstar today", "Ping Kinsta today.", ["Kinsta"], [{ from: "Kinstar", to: "Kinsta" }]))
+      .toBe("Ping Kinsta today.");
+  });
   it("rejects semantic rewrites even when numbers and negations didn't change", () => {
     expect(acceptCleanup("um can you fix uploads", "Please delete uploads.")).toBeNull();
   });

@@ -79,7 +79,7 @@ export function cleanupSystemPrompt(profile: DictationProfile, spellExactly: str
 }
 
 /** Rejects outputs that answered the text instead of cleaning it, or came back empty. */
-export function acceptCleanup(input: string, output: string, spellings: string[] = []): string | null {
+export function acceptCleanup(input: string, output: string, spellings: string[] = [], rules: ReplacementRule[] = []): string | null {
   const text = output.trim()
     .replace(/^<dictation>\s*|\s*<\/dictation>$/g, "")
     .replace(/^"([\s\S]*)"$/, "$1")
@@ -88,7 +88,7 @@ export function acceptCleanup(input: string, output: string, spellings: string[]
   if (text.length > input.length * 1.5 + 40) return null;
   if (text.length < input.length * 0.6) return null;
   if (!preservesProtectedTokens(input, text)) return null;
-  if (!preservesWords(input, text, spellings)) return null;
+  if (!preservesWords(input, text, spellings, rules)) return null;
   return text;
 }
 
@@ -125,7 +125,7 @@ export async function finishDictation(transcript: string, options: FinishDictati
       maxTokens: Math.max(256, Math.ceil(ruled.length / 2)),
       signal: AbortSignal.timeout(options.timeoutMs ?? CLEANUP_TIMEOUT_MS),
     });
-    const accepted = acceptCleanup(ruled, output, spellExactly);
+    const accepted = acceptCleanup(ruled, output, spellExactly, options.rules);
     return { text: accepted ? finalize(accepted, profile) : deterministic, profile };
   } catch (error) {
     console.warn(`[Flyd Core] Dictation cleanup fell back: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
