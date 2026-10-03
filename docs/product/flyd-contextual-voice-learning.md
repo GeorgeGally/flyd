@@ -28,7 +28,7 @@ Inspect with:
     flyd learning --pause dictation.corrections
     flyd learning --erase dictation.corrections
 
-`flyd learning` lists corrections waiting for review and approved ones (`--json` for the raw response). An approved spelling's term joins every later dictation's spelling hints. The word replacement itself applies in the application it was learned in, whatever the window title, so a fix learned in a terminal never rewrites the same word in Mail. Within that application a spelling approved in the same window wins; otherwise conflicting approved spellings are withheld. Review and rejection are reversible; erasure revokes the source and removes its payloads.
+`flyd learning` lists corrections waiting for review and approved ones (`--json` for the raw response). An approved spelling's term joins every later dictation's spelling hints. The word replacement itself applies in the application it was learned in, whatever the window title, so a fix learned in a terminal never rewrites the same word in Mail. Within that application a spelling approved in the same window wins; otherwise conflicting approved spellings are withheld. Review and rejection are reversible; erasure revokes the source and removes its payloads. Learned words — approved spellings and conversation-learned subjects — are sent with the dictation to the transcription service as spelling hints.
 
 ## Conversation-content learning
 

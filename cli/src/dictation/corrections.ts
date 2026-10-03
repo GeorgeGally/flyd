@@ -18,7 +18,10 @@ export function learningRegistry(): SourceContractRegistry {
     [IMPORT_SOURCE, "Learn project state from explicitly imported conversations; local history and derived claims share one erasable source."],
   ]) if (!registry.contract(sourceId)) registry.register({
     sourceId, displayName: sourceId, sensitivity: "medium", scopes: [sourceId],
-    retentionClass: "local_default", egressDestinations: sourceId === IMPORT_SOURCE ? ["configured-learning-model"] : [],
+    retentionClass: "local_default",
+    egressDestinations: sourceId === IMPORT_SOURCE
+      ? ["configured-learning-model", "transcription-provider"]
+      : ["transcription-provider"],
     purpose,
   });
   return registry;

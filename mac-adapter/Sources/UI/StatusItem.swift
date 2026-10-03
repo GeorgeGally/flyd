@@ -72,6 +72,7 @@ final class StatusItem {
         // The one switch for vocabulary learning; the same toggle lives in Settings.
         let learnItem = NSMenuItem(title: Self.learnTitle, action: #selector(toggleDictationLearning), keyEquivalent: "")
         learnItem.target = self
+        learnItem.toolTip = "Learned words are sent with your dictation to the transcription service as spelling hints."
         learnItem.state = ConfigManager.shared.config.dictationCorrectionLearning ? .on : .off
         menu.addItem(learnItem)
 

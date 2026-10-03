@@ -49,6 +49,12 @@ describe("faithful cleanup and edit attribution", () => {
   it("allows punctuation without changing protected meaning", () => {
     expect(acceptCleanup("um don't commit before tests", "Don't commit before tests.")).toBe("Don't commit before tests.");
   });
+  it("allows only the two sanctioned rewrites: spoken extensions and listed spellings", () => {
+    expect(acceptCleanup("um open config dot json", "Open config.json")).toBe("Open config.json");
+    expect(acceptCleanup("ask flight about it", "Ask Flyd about it", ["Flyd"])).toBe("Ask Flyd about it");
+    expect(acceptCleanup("ask flight about it", "Ask the airline about it", ["Flyd"])).toBeNull();
+    expect(acceptCleanup("charge 105", "Charge 115", ["Flyd"])).toBeNull();
+  });
   it("rejects semantic rewrites even when numbers and negations didn't change", () => {
     expect(acceptCleanup("um can you fix uploads", "Please delete uploads.")).toBeNull();
   });
