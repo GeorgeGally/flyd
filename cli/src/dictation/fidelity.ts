@@ -1,16 +1,29 @@
 /** Lexical guard: reject altered protected slots, including number words.
  * Explicit self-corrections remain untouched when ambiguous; fidelity beats polish. */
 
-// The only spoken form cleanup may rewrite: "config dot json" -> "config.json".
-const SPOKEN_EXTENSION = /\b([\p{L}\p{N}_-]+)\s+dot\s+(tsx|ts|js|json|swift|rb|md)\b/giu;
+// The spoken file extensions cleanup may rewrite: "config dot json" -> "config.json".
+// Shared with the cleanup prompt so the sanctioned set and the guard cannot drift apart.
+export const SPOKEN_EXTENSIONS = [
+  "ts", "tsx", "js", "json", "swift", "rb", "md",
+  "py", "go", "rs", "java", "kt", "c", "h", "cpp", "cs", "php", "sql",
+  "sh", "zsh", "yml", "yaml", "toml", "ini", "env", "html", "css", "scss",
+  "xml", "csv", "txt", "pdf", "png", "jpg", "svg", "mp4",
+] as const;
+
+const EXTENSION_PATTERN = [...SPOKEN_EXTENSIONS].sort((a, b) => b.length - a.length).join("|");
+
+const SPOKEN_EXTENSION = new RegExp(String.raw`\b([\p{L}\p{N}_-]+)\s+dot\s+(${EXTENSION_PATTERN})\b`, "giu");
 function writeSpokenExtensions(text: string): string {
   return text.replace(SPOKEN_EXTENSION, "$1.$2");
 }
 
+const PROTECTED_TOKEN = new RegExp(
+  String.raw`\b(?:don't|can't|won't|isn't|wasn't|shouldn't|wouldn't|couldn't|mustn't|not|never|without|before|after|unless|only|if|maybe|approximately|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand|million|billion)\b|\b\d+(?:[.,:/-]\d+)*%?\b|(?:--?[\w-]+)|(?:[~./][\w./-]+)|\b[\w-]+\.(?:${EXTENSION_PATTERN})\b`,
+  "g",
+);
+
 export function protectedTokens(text: string): string[] {
-  return (writeSpokenExtensions(text).toLowerCase().replace(/’/g, "'").match(
-    /\b(?:don't|can't|won't|isn't|wasn't|shouldn't|wouldn't|couldn't|mustn't|not|never|without|before|after|unless|only|if|maybe|approximately|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand|million|billion)\b|\b\d+(?:[.,:/-]\d+)*%?\b|(?:--?[\w-]+)|(?:[~./][\w./-]+)|\b[\w-]+\.(?:ts|tsx|js|json|swift|rb|md)\b/g,
-  ) ?? []);
+  return (writeSpokenExtensions(text).toLowerCase().replace(/’/g, "'").match(PROTECTED_TOKEN) ?? []);
 }
 
 export function preservesProtectedTokens(input: string, output: string): boolean {

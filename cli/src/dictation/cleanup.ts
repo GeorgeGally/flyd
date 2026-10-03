@@ -2,7 +2,7 @@ import { getKey } from "../lib/config.js";
 import { completeText, type CompleteText } from "./http.js";
 import { dictationProfile, type DictationProfile, type DictationTarget } from "./profile.js";
 import type { ReplacementRule } from "./vocabulary.js";
-import { preservesProtectedTokens, preservesWords } from "./fidelity.js";
+import { preservesProtectedTokens, preservesWords, SPOKEN_EXTENSIONS } from "./fidelity.js";
 
 // Turns a raw transcript into the text George meant to type. Deterministic
 // cleanup always runs; a model pass runs only when FLYD_DICTATE_MODEL is set,
@@ -60,7 +60,7 @@ const PROFILE_RULES: Record<DictationProfile, string> = {
   code: [
     "The text goes into a coding tool or terminal: it is a prompt or a command for that tool.",
     "Never reword, never shorten, never add. Keep every word he said, including phrasing like \"can you\"; only remove standalone fillers and punctuate. Retain spoken corrections when removing them would change words.",
-    "Write a spoken file extension in its written form (\"config dot json\" becomes \"config.json\"), keeping every word before it. Do not invent the form of any other name: keep identifiers, paths, flags and commands as he said them unless the spelling list has them.",
+    `Write a spoken file extension in its written form ("config dot json" becomes "config.json"), keeping every word before it. Known extensions: ${SPOKEN_EXTENSIONS.join(", ")}. Do not invent the form of any other name: keep identifiers, paths, flags and commands as he said them unless the spelling list has them.`,
   ].join(" "),
   chat: "The text is a chat message: keep it light and casual, lowercase is fine where he'd type it that way, and no trailing period.",
   prose: "The text is written prose (an email, a note, a document): full punctuation and capitalisation, paragraph breaks where he changes topic, a list when he enumerates.",
