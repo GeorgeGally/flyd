@@ -3,6 +3,7 @@
 enum ResolutionDisplayPolicy {
     static let nothingToShow = "Flyd came back empty - try again"
     static let superseded = "Things changed while Flyd was thinking - try again"
+    static let notRunnable = "Flyd can't run that step from here yet"
 
     /// The failure to show instead of the answer, or nil when the resolution renders.
     static func failure(for resolution: FlydClient.ResolutionResponse) -> String? {
@@ -10,8 +11,10 @@ enum ResolutionDisplayPolicy {
         switch resolution.mode {
         case "native":
             return resolution.operations.isEmpty ? nothingToShow : nil
-        case "requires_augment", "requires_execution":
+        case "requires_augment":
             return augmentations.isEmpty ? nothingToShow : nil
+        case "requires_execution":
+            return augmentations.contains { !($0.commands ?? []).isEmpty } ? nil : notRunnable
         case "work_intelligence":
             return resolution.diagnosis == nil || resolution.intervention == nil ? nothingToShow : nil
         case "requires_task":

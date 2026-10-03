@@ -48,10 +48,33 @@ final class ResolutionDisplayPolicyTests: XCTestCase {
         XCTAssertNil(ResolutionDisplayPolicy.failure(for: native))
     }
 
-    func testExecutionTaskAndWorkModesWithoutTheirPayloadFailVisibly() throws {
-        for mode in ["requires_execution", "requires_task", "work_intelligence"] {
+    func testTaskAndWorkModesWithoutTheirPayloadFailVisibly() throws {
+        for mode in ["requires_task", "work_intelligence"] {
             XCTAssertEqual(ResolutionDisplayPolicy.failure(for: try resolution(mode)), ResolutionDisplayPolicy.nothingToShow, mode)
         }
+    }
+
+    func testExecutionWithoutACommandCardFailsVisibly() throws {
+        XCTAssertEqual(
+            ResolutionDisplayPolicy.failure(for: try resolution("requires_execution")),
+            ResolutionDisplayPolicy.notRunnable
+        )
+        let fileOperationsOnly = """
+        "augmentations": [{ "kind": "execution", "content": "Read the file", "placement": "cursor",
+          "fileOperations": [{ "kind": "read", "path": "a.txt", "explanation": "inspect" }] }]
+        """
+        XCTAssertEqual(
+            ResolutionDisplayPolicy.failure(for: try resolution("requires_execution", extra: fileOperationsOnly)),
+            ResolutionDisplayPolicy.notRunnable
+        )
+    }
+
+    func testExecutionWithACommandCardRenders() throws {
+        let withCommands = """
+        "augmentations": [{ "kind": "execution", "content": "Run it", "placement": "cursor",
+          "commands": [{ "command": "ls", "explanation": "list files" }] }]
+        """
+        XCTAssertNil(ResolutionDisplayPolicy.failure(for: try resolution("requires_execution", extra: withCommands)))
     }
 
     func testComposeAlwaysOpensASurface() throws {
