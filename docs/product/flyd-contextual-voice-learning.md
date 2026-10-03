@@ -6,7 +6,7 @@ Implementation: 3 October 2026. Extends the TypeScript cognitive event spine and
 
 At the explicit dictation invocation, the adapter captures the original PID, focused AX element and window, a bounded window title, selection and nearby text. Reads have a short AX messaging timeout and run alongside recording. Context is ephemeral. Secure fields, excluded apps and Incognito suppress field context. Privacy settings can disable nearby-text context independently of learning.
 
-Core compiles a bounded spelling shortlist: approved corrections, manual vocabulary replacements, relevant names, distinctive terms in the focus, and the current state of a matched project. It does not send full screen context or the entire work history as a transcription prompt.
+Core compiles a bounded spelling shortlist (40 terms), most authoritative first: approved corrections and manual replacements, then distinctive names from subjects conversation learning recorded (newest eight), then relevant names, distinctive terms in the focus, and the current state of a matched project. Learning is read once per utterance through indexed queries, so the prompt and the cleanup see the same state. It does not send full screen context or the entire work history as a transcription prompt.
 
 The target is revalidated before insertion. Switching app, window or focused element sends the result to the clipboard instead. A memory-only “Paste Last Raw Transcript” action recovers the unpolished transcript.
 
@@ -14,7 +14,7 @@ Cleanup preserves words apart from fillers and formatting. Model changes to numb
 
 ## Vocabulary learning
 
-Enable “Learn vocabulary from dictation edits” in Privacy settings. It is off by default, and Private retention, Incognito and excluded apps suppress capture.
+Turn on “Learn From My Dictation Edits” in the Flyd menu bar menu (the same switch is in Settings). It is off by default, and Private retention, Incognito and excluded apps suppress capture. The adapter flips Core's `dictation.corrections` source and only shows the switch on once Core confirms, so the menu tick is the source of truth; `flyd learning` points at the menu while the source is off.
 
 Learning starts only after the field value matches the expected insertion at the observed selection range. It follows only that inserted span for up to 30 seconds. Focus drift, unrelated surrounding edits, unsupported AX fields and ambiguous attribution stop observation.
 
@@ -28,7 +28,7 @@ Inspect with:
     flyd learning --pause dictation.corrections
     flyd learning --erase dictation.corrections
 
-Approved corrections apply only in the same application/window scope. Conflicting approved spellings are withheld. Review and rejection are reversible; erasure revokes the source and removes its payloads.
+`flyd learning` lists corrections waiting for review and approved ones (`--json` for the raw response). An approved spelling's term joins every later dictation's spelling hints. The word replacement itself applies in the application it was learned in, whatever the window title, so a fix learned in a terminal never rewrites the same word in Mail. Within that application a spelling approved in the same window wins; otherwise conflicting approved spellings are withheld. Review and rejection are reversible; erasure revokes the source and removes its payloads.
 
 ## Conversation-content learning
 
@@ -72,7 +72,7 @@ Other integrations can use the same ingress without changing the learning engine
 
 ## Verification and remaining limits
 
-Core regression tests cover context bounds and credentials, semantic fidelity, reviewed/scoped corrections, mundane content, attribution, failed-extraction retry, explicit reversals, duplicate imports, ambiguous project scope, independent pause, original-message search and source erasure.
+Core regression tests cover an approved correction changing the next transcription request's prompt and text (and a candidate alone changing nothing), conversation-learned subjects reaching the next request's spelling hints, context bounds and credentials, semantic fidelity, reviewed/scoped corrections, mundane content, attribution, failed-extraction retry, explicit reversals, duplicate imports, ambiguous project scope, independent pause, original-message search and source erasure.
 
 Swift tests cover config migration and inserted-span isolation. The macOS CI build and all 149 native tests passed. A real dictation/edit session is still required before installation and end-to-end accuracy are called verified.
 

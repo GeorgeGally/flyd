@@ -156,6 +156,8 @@ final class DictationController {
         state.transition(to: .executing)
         Task { @MainActor in
             let expectedValue = DictationEditMonitor.expectedValue(text: text, target: session.target)
+            // A moved window or field counts as a changed target: pid -1 never matches the
+            // frontmost app, so TextInserter's one clipboard rule copies instead of pasting.
             let outcome = await TextInserter.insert(text, targetPid: session.target.isStillFocused() ? session.target.pid : -1)
             if outcome == .pasted || outcome == .typed, let expectedValue {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

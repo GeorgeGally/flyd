@@ -31,6 +31,13 @@ export function contextualTerms(text: string): string[] {
     .slice(0, 24);
 }
 
+/** Names from subjects conversation learning recorded (newest first), so what he talks about is spelled right. */
+export function conversationVocabulary(labels: string[], limit = 8): string[] {
+  return [...new Set(labels.flatMap(contextualTerms))]
+    .filter(term => !/^(?:The|This|That|These|Those|Our|My|Its|New|Old|And|But)$/.test(term))
+    .slice(0, limit);
+}
+
 export function contextVocabulary(target: DictationTarget, baseline: string[], projectText = ""): string[] {
   const context = target.context;
   const focus = [target.windowTitle, context?.documentTitle, context?.selectedText, context?.nearbyText].filter(Boolean).join(" ");

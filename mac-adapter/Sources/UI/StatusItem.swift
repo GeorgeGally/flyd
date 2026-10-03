@@ -36,7 +36,17 @@ final class StatusItem {
         ) { [weak self] _ in
             self?.updateColor(for: FlydState.shared.mode)
         }
+
+        NotificationCenter.default.addObserver(
+            forName: .flydConfigDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateToggleItems()
+        }
     }
+
+    static let learnTitle = "Learn From My Dictation Edits"
 
     private func setupMenu() {
         let menu = NSMenu()
@@ -59,6 +69,11 @@ final class StatusItem {
         let rawItem = NSMenuItem(title: "Paste Last Raw Transcript", action: #selector(pasteRawDictation), keyEquivalent: "")
         rawItem.target = self
         menu.addItem(rawItem)
+        // The one switch for vocabulary learning; the same toggle lives in Settings.
+        let learnItem = NSMenuItem(title: Self.learnTitle, action: #selector(toggleDictationLearning), keyEquivalent: "")
+        learnItem.target = self
+        learnItem.state = ConfigManager.shared.config.dictationCorrectionLearning ? .on : .off
+        menu.addItem(learnItem)
 
         menu.addItem(.separator())
 
@@ -180,13 +195,18 @@ final class StatusItem {
     @objc private func toggleIncognito() {
         let newValue = !ConfigManager.shared.config.incognito
         ConfigManager.shared.setIncognito(newValue)
-        updateIncognitoMenuItem()
+        updateToggleItems()
     }
 
-    private func updateIncognitoMenuItem() {
-        if let item = menu?.items.first(where: { $0.title == "Incognito Mode" }) {
-            item.state = ConfigManager.shared.config.incognito ? .on : .off
-        }
+    /// Core confirms the switch before the config changes, so the tick follows the saved config.
+    @objc private func toggleDictationLearning() {
+        ConfigManager.shared.setDictationCorrectionLearning(!ConfigManager.shared.config.dictationCorrectionLearning)
+    }
+
+    private func updateToggleItems() {
+        let config = ConfigManager.shared.config
+        menu?.items.first(where: { $0.title == "Incognito Mode" })?.state = config.incognito ? .on : .off
+        menu?.items.first(where: { $0.title == Self.learnTitle })?.state = config.dictationCorrectionLearning ? .on : .off
     }
 
     @objc private func restartFlyd() {

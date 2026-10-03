@@ -726,6 +726,7 @@ program
   .option("--approve <sequence>", "Approve a scoped vocabulary correction")
   .option("--reject <sequence>", "Reject or deactivate a vocabulary correction")
   .option("--process", "Process queued conversations")
+  .option("--json", "Print the review as JSON")
   .action(runLearning);
 
 program

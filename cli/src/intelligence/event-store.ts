@@ -202,6 +202,25 @@ export class IntelligenceEventStore {
     return row.head ?? 0;
   }
 
+  /** One source's events in sequence order, via the source index; dictation reads this per utterance. */
+  readSource(sourceId: string): StoredEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM personal_events WHERE source_id = ? ORDER BY sequence ASC`)
+      .all(sourceId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapRow(row));
+  }
+
+  /** Newest first: subjects that conversation learning labelled, for dictation's spelling hints. */
+  learnedTopicLabels(limit = 50): string[] {
+    const rows = this.db.prepare(
+      "SELECT json_extract(payload_json, '$.value') AS label FROM personal_events WHERE erased = 0" +
+      " AND source_id IN ('chat.cognition','conversation.import')" +
+      " AND json_extract(payload_json, '$.attribute') = 'label'" +
+      " AND json_extract(payload_json, '$.entity.id') LIKE 'topic:%' ORDER BY sequence DESC LIMIT ?",
+    ).all(Math.max(1, Math.min(limit, 200))) as Array<{ label: unknown }>;
+    return rows.flatMap(row => typeof row.label === "string" ? [row.label] : []);
+  }
+
   /** Search original attributed conversation evidence without a second archive/index. */
   searchConversations(terms: string[], projectIds: string[] = [], limit = 8): StoredEvent[] {
     const words = [...new Set(terms.map(t => t.toLowerCase().trim()).filter(t => t.length >= 3))].slice(0, 8);

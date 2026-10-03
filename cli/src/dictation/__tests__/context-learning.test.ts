@@ -7,6 +7,7 @@ import { correctionPair, dictationScope, reviewedRules } from "../corrections.js
 import { preservesProtectedTokens } from "../fidelity.js";
 import { acceptCleanup } from "../cleanup.js";
 import { learningRequest } from "../../cognition/learning-service.js";
+import { formatLearning } from "../../commands/learning.js";
 
 const dirs: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -57,7 +58,7 @@ describe("faithful cleanup and edit attribution", () => {
     expect(correctionPair("Don't commit", "Commit")).toBeNull();
     expect(correctionPair("Make a plan", "Delete everything and start over")).toBeNull();
   });
-  it("requires consent and review, isolates contexts, and supports rejection/erasure", async () => {
+  it("requires consent and review, keeps replacements in their app, and supports rejection/erasure", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);
     const input = { before: "Ask flight about it", after: "Ask Flyd about it", invocationId: "voice1",
       bundleId: "terminal", scope: dictationScope("terminal", "Flyd") };
@@ -69,7 +70,8 @@ describe("faithful cleanup and edit attribution", () => {
     expect(reviewedRules("terminal", "Flyd")).toEqual([]);
     await learningRequest("/dictation/review", "POST", { sequence, approved: true });
     expect(reviewedRules("terminal", "Flyd")).toEqual([{ from: "flight", to: "Flyd" }]);
-    expect(reviewedRules("terminal", "Other project")).toEqual([]);
+    expect(reviewedRules("terminal", "Other project")).toEqual([{ from: "flight", to: "Flyd" }]);
+    expect(reviewedRules("mail", "Flyd")).toEqual([]);
     await learningRequest("/dictation/review", "POST", { sequence, approved: false });
     expect(reviewedRules("terminal", "Flyd")).toEqual([]);
     await learningRequest("/dictation/review", "POST", { sequence, approved: true });
@@ -77,5 +79,34 @@ describe("faithful cleanup and edit attribution", () => {
     await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "erase" });
     expect(reviewedRules("terminal", "Flyd")).toEqual([]);
     expect((await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" })).status).toBe(409);
+  });
+  it("prefers the window's own spelling and withholds an app's conflicting ones", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);
+    await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
+    for (const [title, to] of [["Nuanu", "Nuanu"], ["Block42", "Nuano"]]) {
+      const captured = await learningRequest("/dictation/correction", "POST", { before: "Ask new are now", after: `Ask ${to} now`,
+        invocationId: "voice-" + title, bundleId: "slack", scope: dictationScope("slack", title) });
+      await learningRequest("/dictation/review", "POST", { sequence: (captured.body as { sequence: number }).sequence, approved: true });
+    }
+    expect(reviewedRules("slack", "Nuanu")).toEqual([{ from: "new are", to: "Nuanu" }]);
+    expect(reviewedRules("slack", "Block42")).toEqual([{ from: "new are", to: "Nuano" }]);
+    expect(reviewedRules("slack", "general")).toEqual([]);
+  });
+});
+
+describe("flyd learning review screen", () => {
+  it("points at the menu switch when off and lists pending and approved corrections", () => {
+    const sources = (status: "enabled" | "disabled") => [{ contract: { sourceId: "dictation.corrections" }, state: { status } }] as unknown as Parameters<typeof formatLearning>[0]["sources"];
+    expect(formatLearning({ sources: sources("disabled"), corrections: [] })).toContain("Learn From My Dictation Edits");
+    const row = { invocationId: "v", bundleId: "slack", scope: "s" };
+    const text = formatLearning({ sources: sources("enabled"), corrections: [
+      { ...row, sequence: 7, from: "Kinstar", to: "Kinsta", approved: false, reviewed: false },
+      { ...row, sequence: 8, from: "flight", to: "Flyd", approved: true, reviewed: true },
+      { ...row, sequence: 9, from: "new", to: "Nuanu", approved: false, reviewed: true },
+    ] });
+    expect(text).not.toContain("Learn From My Dictation Edits");
+    expect(text).toMatch(/Waiting for review[^\n]*\n {2}#7 {2}Kinstar → Kinsta/);
+    expect(text).toMatch(/Approved[^\n]*\n {2}#8 {2}flight → Flyd/);
+    expect(text).not.toContain("#9");
   });
 });

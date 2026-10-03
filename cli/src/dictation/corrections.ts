@@ -29,6 +29,8 @@ export interface CorrectionCandidate extends ReplacementRule {
   invocationId: string;
   bundleId: string;
   approved: boolean;
+  /** False until George approves or rejects it. */
+  reviewed: boolean;
   scope: string;
 }
 
@@ -60,33 +62,52 @@ export function recordCorrection(input: { before: string; after: string; invocat
 }
 
 export function correctionCandidates(store: IntelligenceEventStore): CorrectionCandidate[] {
-  const events = [];
-  for (let seq = 0;;) {
-    const batch = store.readFrom(seq);
-    if (!batch.length) break;
-    events.push(...batch); seq = batch[batch.length - 1].sequence;
-  }
+  const events = store.readSource(CORRECTION_SOURCE);
   const approvals = new Map<number, boolean>();
-  for (const event of events) if (event.sourceId === CORRECTION_SOURCE && event.payload?.review)
+  for (const event of events) if (event.payload?.review)
     approvals.set(Number(event.payload.review), event.payload.approved === true);
   return events.flatMap(event => {
-    if (event.sourceId !== CORRECTION_SOURCE || !event.payload?.correction || event.erased) return [];
+    if (!event.payload?.correction || event.erased) return [];
     const p = event.payload, pair = p.correction as ReplacementRule;
     return [{ ...pair, sequence: event.sequence, invocationId: String(p.invocationId), bundleId: String(p.bundleId),
-      scope: String(p.scope), approved: approvals.get(event.sequence) === true }];
+      scope: String(p.scope), approved: approvals.get(event.sequence) === true, reviewed: approvals.has(event.sequence) }];
   });
 }
 
-export function reviewedRules(bundleId: string, windowTitle = ""): ReplacementRule[] {
-  if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return [];
-  const store = new IntelligenceEventStore();
-  try {
-    const grouped = new Map<string, Set<string>>();
-    const rules = correctionCandidates(store).filter(c => c.approved && c.bundleId === bundleId && c.scope === dictationScope(bundleId, windowTitle));
-    for (const rule of rules) {
-      const key = rule.from.toLowerCase(); const tos = grouped.get(key) ?? new Set<string>();
-      tos.add(rule.to); grouped.set(key, tos);
+export interface ReviewedVocabulary {
+  /** Word replacements for this app: same window first, then anywhere in the app. */
+  rules: ReplacementRule[];
+  /** Every approved spelling, newest first: George's words, hinted to every transcription. */
+  terms: string[];
+}
+
+/**
+ * What George approved, for one dictation target. A spelling he approved is his
+ * vocabulary everywhere, so its term biases every transcription; the replacement
+ * itself stays in the app it was learned in, so "flight → Flyd" from a terminal
+ * never rewrites a real flight in Mail. Conflicting spellings are withheld.
+ */
+export function reviewedVocabulary(store: IntelligenceEventStore, bundleId: string, windowTitle = ""): ReviewedVocabulary {
+  if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return { rules: [], terms: [] };
+  const approved = correctionCandidates(store).filter(c => c.approved);
+  const scope = dictationScope(bundleId, windowTitle);
+  // null marks a spelling withheld because its narrowest tier disagrees with itself.
+  const rules = new Map<string, ReplacementRule | null>();
+  for (const tier of [approved.filter(c => c.scope === scope), approved.filter(c => c.bundleId === bundleId)]) {
+    const spellings = new Map<string, Set<string>>();
+    for (const c of tier) spellings.set(c.from.toLowerCase(), (spellings.get(c.from.toLowerCase()) ?? new Set()).add(c.to));
+    for (const c of tier) {
+      const key = c.from.toLowerCase();
+      if (!rules.has(key)) rules.set(key, spellings.get(key)!.size === 1 ? { from: c.from, to: c.to } : null);
     }
-    return rules.filter(r => grouped.get(r.from.toLowerCase())?.size === 1).map(({ from, to }) => ({ from, to }));
-  } finally { store.close(); }
+  }
+  return {
+    rules: [...rules.values()].filter((rule): rule is ReplacementRule => rule !== null),
+    terms: [...new Set(approved.reverse().map(c => c.to))],
+  };
+}
+
+export function reviewedRules(bundleId: string, windowTitle = ""): ReplacementRule[] {
+  const store = new IntelligenceEventStore();
+  try { return reviewedVocabulary(store, bundleId, windowTitle).rules; } finally { store.close(); }
 }
