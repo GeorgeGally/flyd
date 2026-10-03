@@ -25,7 +25,13 @@ export async function learningRequest(path: string, method: string, body: unknow
         registry.setStatus(source, "revoked");
         store.eraseSource(source);
         rebuildKnowledgeProjections(store);
-      } else registry.setStatus(source, action === "enable" ? "enabled" : action === "pause" ? "paused" : "disabled");
+      } else {
+        if (action === "enable" && registry.status(source) === "revoked") {
+          store.renewSource(source);
+          registry.renew(source);
+        }
+        registry.setStatus(source, action === "enable" ? "enabled" : action === "pause" ? "paused" : "disabled");
+      }
       return { status: 200, body: { sourceId: source, status: registry.status(source) } };
     }
     if (path === "/dictation/correction") {

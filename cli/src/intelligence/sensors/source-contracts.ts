@@ -176,6 +176,13 @@ export class SourceContractRegistry {
     this.persist();
   }
 
+  /** Starts a fresh, disabled generation for a revoked source; erased data stays erased. */
+  renew(sourceId: string): void {
+    if (this.states.get(sourceId)?.status !== "revoked") throw new Error(`Source ${sourceId} is not revoked`);
+    this.states.set(sourceId, { status: "disabled", changedAt: new Date().toISOString(), explicitlyConfigured: true });
+    this.persist();
+  }
+
   list(): Array<{ contract: SourceContract; state: SourceConsentState }> {
     return [...this.contracts.entries()]
       .map(([sourceId, contract]) => ({ contract, state: this.states.get(sourceId)! }))

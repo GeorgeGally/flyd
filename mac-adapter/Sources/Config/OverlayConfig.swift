@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct OverlayConfig: Codable {
@@ -175,6 +176,13 @@ final class ConfigManager {
             DispatchQueue.main.async {
                 if changed { self.config.dictationCorrectionLearning = enabled }
                 self.save()
+                if !changed {
+                    let alert = NSAlert()
+                    alert.messageText = enabled ? "Couldn't turn on learning from dictation edits" : "Couldn't turn off learning from dictation edits"
+                    alert.informativeText = "Flyd Core didn't confirm the change, so the switch stays as it was. Check that Flyd Core is running and try again."
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
             }
         }
     }

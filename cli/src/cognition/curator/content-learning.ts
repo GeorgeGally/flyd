@@ -10,6 +10,7 @@ import { learningRegistry, IMPORT_SOURCE } from "../../dictation/corrections.js"
 import { redactSensitiveText } from "../../runtime/context-redactor.js";
 
 const CHECKPOINT = "conversation-content-v1";
+const MAX_EXTRACTION_ATTEMPTS = 3;
 const KINDS = ["goal", "decision", "constraint", "problem", "blocker", "dependency", "rejected", "outcome", "fact"] as const;
 export type ContentKind = typeof KINDS[number];
 export interface ContentLesson {
@@ -129,7 +130,7 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
 }
 
 let active: Promise<number> | undefined;
-/** Single flight, bounded, asynchronous. Model failure leaves the cursor for retry. */
+/** Single flight, bounded, asynchronous. Model failure leaves the cursor for retry; a turn that fails three times is skipped. */
 export function runContentLearning(options: {
   store?: IntelligenceEventStore;
   extract?: (user: string, assistant?: string) => Promise<ContentLesson[]>;
@@ -149,7 +150,17 @@ export function runContentLearning(options: {
           const conversation = event.sourceId === sourceId ? conversationOf(event) : null;
           if (conversation && !event.erased) {
             if (turns >= (options.limit ?? 5)) break;
-            const lessons = await (options.extract ?? extractLessons)(conversation.user ?? "", conversation.assistant);
+            let lessons: ContentLesson[];
+            try {
+              lessons = await (options.extract ?? extractLessons)(conversation.user ?? "", conversation.assistant);
+            } catch (error) {
+              const failures = store.getCheckpoint(checkpoint + ":failures:" + event.sequence) + 1;
+              if (failures < MAX_EXTRACTION_ATTEMPTS) {
+                store.saveCheckpoint(checkpoint + ":failures:" + event.sequence, failures, String(failures));
+                throw error;
+              }
+              lessons = [];
+            }
             if (store.getBySequence(event.sequence)?.erased) break;
             if (sourceId === IMPORT_SOURCE && learningRegistry().status(IMPORT_SOURCE) !== "enabled") break;
             count += applyLessons(store, event, parseLessons(JSON.stringify(lessons), conversation.user ?? ""));

@@ -116,6 +116,11 @@ export class IntelligenceEventStore {
         status TEXT NOT NULL DEFAULT 'pending'
       );
 
+      CREATE TABLE IF NOT EXISTS source_renewals (
+        source_id TEXT PRIMARY KEY,
+        tombstone_rowid INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS projector_checkpoints (
         projector_name TEXT PRIMARY KEY,
         last_sequence INTEGER NOT NULL,
@@ -311,7 +316,25 @@ export class IntelligenceEventStore {
   }
 
   isRevoked(sourceId: string): boolean {
-    return !!this.latestTombstone(sourceId);
+    const latest = this.db
+      .prepare(`SELECT MAX(rowid) AS id FROM erasure_tombstones WHERE source_id = ?`)
+      .get(sourceId) as { id: number | null };
+    if (latest.id === null) return false;
+    const renewal = this.db
+      .prepare(`SELECT tombstone_rowid FROM source_renewals WHERE source_id = ?`)
+      .get(sourceId) as { tombstone_rowid: number } | undefined;
+    return latest.id > (renewal?.tombstone_rowid ?? 0);
+  }
+
+  /** Accepts new events for an erased source after an explicit re-enable; erased events stay erased. */
+  renewSource(sourceId: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO source_renewals (source_id, tombstone_rowid)
+         SELECT ?, MAX(rowid) FROM erasure_tombstones WHERE source_id = ? GROUP BY source_id
+         ON CONFLICT(source_id) DO UPDATE SET tombstone_rowid = excluded.tombstone_rowid`,
+      )
+      .run(sourceId, sourceId);
   }
 
   getCheckpoint(projectorName: string): number {

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseVoiceContext, contextVocabulary, contextualTerms } from "../context.js";
-import { correctionPair, dictationScope, reviewedRules } from "../corrections.js";
+import { correctionPair, dictationScope, learningRegistry, reviewedRules } from "../corrections.js";
+import { SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import { preservesProtectedTokens } from "../fidelity.js";
 import { acceptCleanup } from "../cleanup.js";
 import { learningRequest } from "../../cognition/learning-service.js";
@@ -108,7 +109,37 @@ describe("faithful cleanup and edit attribution", () => {
     expect(reviewedRules("terminal", "Flyd")).toHaveLength(1);
     await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "erase" });
     expect(reviewedRules("terminal", "Flyd")).toEqual([]);
-    expect((await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" })).status).toBe(409);
+    expect((await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "pause" })).status).toBe(409);
+  });
+  it("re-enabling after erase starts an empty source and never restores erased corrections", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);
+    const input = { before: "Ask flight about it", after: "Ask Flyd about it", invocationId: "voice1",
+      bundleId: "terminal", scope: dictationScope("terminal", "Flyd") };
+    await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
+    const sequence = ((await learningRequest("/dictation/correction", "POST", input)).body as { sequence: number }).sequence;
+    await learningRequest("/dictation/review", "POST", { sequence, approved: true });
+    await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "erase" });
+    expect(learningRegistry().status("dictation.corrections")).toBe("revoked");
+    const enabled = await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
+    expect(enabled).toEqual({ status: 200, body: { sourceId: "dictation.corrections", status: "enabled" } });
+    const listed = (await learningRequest("/learning", "GET")).body as { corrections: unknown[] };
+    expect(listed.corrections).toEqual([]);
+    expect(reviewedRules("terminal", "Flyd")).toEqual([]);
+    expect((await learningRequest("/dictation/review", "POST", { sequence, approved: true })).status).toBe(404);
+    const next = ((await learningRequest("/dictation/correction", "POST", { ...input, invocationId: "voice2" })).body as { sequence: number }).sequence;
+    expect(next).toBeGreaterThan(sequence);
+    expect(reviewedRules("terminal", "Flyd")).toEqual([]);
+  });
+  it("refreshes a stale persisted contract to the current egress without changing consent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);
+    const stale = new SourceContractRegistry();
+    stale.register({ sourceId: "dictation.corrections", displayName: "dictation.corrections", sensitivity: "medium",
+      scopes: ["dictation.corrections"], retentionClass: "local_default", egressDestinations: [], purpose: "old" });
+    stale.setStatus("dictation.corrections", "enabled");
+    const registry = learningRegistry();
+    expect(registry.contract("dictation.corrections")?.egressDestinations).toEqual(["transcription-provider"]);
+    expect(registry.contract("conversation.import")?.egressDestinations).toEqual(["configured-learning-model", "transcription-provider"]);
+    expect(new SourceContractRegistry().status("dictation.corrections")).toBe("enabled");
   });
   it("prefers the window's own spelling and withholds an app's conflicting ones", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);

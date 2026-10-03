@@ -16,14 +16,17 @@ export function learningRegistry(): SourceContractRegistry {
   for (const [sourceId, purpose] of [
     [CORRECTION_SOURCE, "Learn reviewed vocabulary corrections from edits to explicitly inserted dictation; only changed terms are retained."],
     [IMPORT_SOURCE, "Learn project state from explicitly imported conversations; local history and derived claims share one erasable source."],
-  ]) if (!registry.contract(sourceId)) registry.register({
-    sourceId, displayName: sourceId, sensitivity: "medium", scopes: [sourceId],
-    retentionClass: "local_default",
-    egressDestinations: sourceId === IMPORT_SOURCE
+  ]) {
+    const egressDestinations = sourceId === IMPORT_SOURCE
       ? ["configured-learning-model", "transcription-provider"]
-      : ["transcription-provider"],
-    purpose,
-  });
+      : ["transcription-provider"];
+    const stored = registry.contract(sourceId);
+    if (stored && stored.purpose === purpose && stored.egressDestinations?.join("\n") === egressDestinations.join("\n")) continue;
+    registry.register({
+      sourceId, displayName: sourceId, sensitivity: "medium", scopes: [sourceId],
+      retentionClass: "local_default", egressDestinations, purpose,
+    });
+  }
   return registry;
 }
 

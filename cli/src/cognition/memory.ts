@@ -85,9 +85,14 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
     }
   }
 
+  const relevantLimit = input.limit ?? 8;
+  const conversationShare = Math.max(Math.floor(relevantLimit / 2), relevantLimit - relevant.length);
+  const rankedConversations = conversations.filter(c => c.relevance > 0)
+    .sort((a, b) => b.relevance - a.relevance || b.freshness - a.freshness).slice(0, conversationShare);
+
   return {
     current: canonicalCurrent.slice(0, input.limit ?? 20),
-    relevant: [...conversations, ...relevant].slice(0, input.limit ?? 8),
+    relevant: [...rankedConversations, ...relevant].sort((a, b) => b.relevance - a.relevance).slice(0, relevantLimit),
     historical: canonicalHistorical.slice(0, input.limit ?? 20),
     conflicts: derived.conflicts.map((c) => ({
       entityId: c.entityId, attribute: c.attribute,
