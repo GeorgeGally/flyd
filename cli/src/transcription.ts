@@ -6,7 +6,8 @@ import { homedir } from "node:os";
 import type { IncomingMessage } from "node:http";
 import { finishDictation } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
-import type { DictationTarget } from "./dictation/profile.js";
+import { transcriptionPurpose, type TranscriptionPurpose } from "./dictation/request.js";
+export { transcriptionPurpose } from "./dictation/request.js";
 import { removePromptEcho } from "./dictation/echo.js";
 import { openStreamingTranscriber, type StreamingTranscriber } from "./dictation/stream.js";
 import { loadReplacementRules, loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
@@ -38,24 +39,6 @@ let wss: WebSocketServer | null = null;
 let cachedVoiceSetup:
   | { checkedAt: number; result: { ok: boolean; message?: string } }
   | null = null;
-
-export type TranscriptionPurpose =
-  | { kind: "conversation" }
-  | { kind: "dictation"; target: DictationTarget };
-
-/** The adapter's `start` message says whether this is a question for Flyd or text for another app. */
-export function transcriptionPurpose(message: Record<string, unknown>): TranscriptionPurpose {
-  if (message.purpose !== "dictation") return { kind: "conversation" };
-  const app = (typeof message.app === "object" && message.app !== null ? message.app : {}) as Record<string, unknown>;
-  const windowTitle = typeof app.windowTitle === "string" && app.windowTitle.trim() ? app.windowTitle : undefined;
-  return {
-    kind: "dictation",
-    target: {
-      bundleId: typeof app.bundleId === "string" && app.bundleId ? app.bundleId : "unknown",
-      ...(windowTitle ? { windowTitle } : {}),
-    },
-  };
-}
 
 export function sendTranscriptionReady(clientWs: Pick<WebSocket, "send">): void {
   clientWs.send(JSON.stringify({ type: "ready" }));

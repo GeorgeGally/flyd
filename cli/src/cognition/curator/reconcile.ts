@@ -1,3 +1,4 @@
+import { conversationOf, type ConversationPayload } from "./conversation.js";
 import { createHash } from "node:crypto";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
 import { ProjectionEngine } from "../../intelligence/projections.js";
@@ -29,25 +30,8 @@ export function explicitLifecycleStatus(text: string): "completed" | "cancelled"
   return null;
 }
 
-interface ConversationPayload {
-  sessionId?: string;
-  user?: string;
-  assistant?: string;
-  projectIds?: string[];
-  intentKind?: string;
-  temporalFrame?: string;
-  referents?: Record<string, string>;
-}
-
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function conversationOf(event: StoredEvent): ConversationPayload | null {
-  if (event.sourceId !== "chat.cognition" || !event.payload) return null;
-  const raw = event.payload.conversation;
-  if (!raw || typeof raw !== "object") return null;
-  return raw as ConversationPayload;
 }
 
 function existingEntityFor(projectIds: string[], store: IntelligenceEventStore): string | null {
