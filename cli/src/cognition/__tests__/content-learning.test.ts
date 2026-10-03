@@ -70,19 +70,21 @@ describe("conversation content learning", () => {
       expect(await runContentLearning({ store })).toBe(1);
     } finally { store.close(); }
   });
-  it("skips a turn whose extraction keeps failing so later turns still learn", async () => {
+  it("falls back to the local baseline for a turn whose extraction keeps failing so later turns still learn", async () => {
     const { store, curator } = fixture();
     try {
-      const poison = curator.recordConversationTurn({ sessionId: "s", user: "Reply only with ok.", assistant: "" });
+      const poison = curator.recordConversationTurn({ sessionId: "s", user: "Checkout depends on authentication.", assistant: "" });
       curator.recordConversationTurn({ sessionId: "s", user: "Upload is broken.", assistant: "" });
       const extract = async (user: string) => {
-        if (user.startsWith("Reply")) throw new Error("Invalid content extraction");
+        if (user.startsWith("Checkout")) throw new Error("Invalid content extraction");
         return deterministicLessons(user);
       };
       await expect(runContentLearning({ store, extract })).rejects.toThrow("Invalid content extraction");
       await expect(runContentLearning({ store, extract })).rejects.toThrow("Invalid content extraction");
       expect(store.getCheckpoint("conversation-content-v1")).toBeLessThan(poison);
-      expect(await runContentLearning({ store, extract })).toBe(1);
+      expect(await runContentLearning({ store, extract })).toBe(2);
+      const state = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+      expect(state.current.some(c => c.attribute === "dependency" && c.value === "Checkout depends on authentication.")).toBe(true);
       expect(await runContentLearning({ store, extract })).toBe(0);
     } finally { store.close(); }
   });

@@ -30,7 +30,8 @@ export async function learningRequest(path: string, method: string, body: unknow
           store.renewSource(source);
           registry.renew(source);
         }
-        registry.setStatus(source, action === "enable" ? "enabled" : action === "pause" ? "paused" : "disabled");
+        if (registry.status(source) !== "revoked")
+          registry.setStatus(source, action === "enable" ? "enabled" : action === "pause" ? "paused" : "disabled");
       }
       return { status: 200, body: { sourceId: source, status: registry.status(source) } };
     }

@@ -109,7 +109,9 @@ describe("faithful cleanup and edit attribution", () => {
     expect(reviewedRules("terminal", "Flyd")).toHaveLength(1);
     await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "erase" });
     expect(reviewedRules("terminal", "Flyd")).toEqual([]);
-    expect((await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "pause" })).status).toBe(409);
+    expect(await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "pause" }))
+      .toEqual({ status: 200, body: { sourceId: "dictation.corrections", status: "revoked" } });
+    expect((await learningRequest("/dictation/correction", "POST", input)).status).toBe(403);
   });
   it("re-enabling after erase starts an empty source and never restores erased corrections", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-corrections-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);

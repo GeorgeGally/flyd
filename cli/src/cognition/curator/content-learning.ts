@@ -130,7 +130,7 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
 }
 
 let active: Promise<number> | undefined;
-/** Single flight, bounded, asynchronous. Model failure leaves the cursor for retry; a turn that fails three times is skipped. */
+/** Single flight, bounded, asynchronous. Model failure leaves the cursor for retry; a turn that fails three times falls back to the local baseline. */
 export function runContentLearning(options: {
   store?: IntelligenceEventStore;
   extract?: (user: string, assistant?: string) => Promise<ContentLesson[]>;
@@ -159,7 +159,7 @@ export function runContentLearning(options: {
                 store.saveCheckpoint(checkpoint + ":failures:" + event.sequence, failures, String(failures));
                 throw error;
               }
-              lessons = [];
+              lessons = deterministicLessons(conversation.user ?? "");
             }
             if (store.getBySequence(event.sequence)?.erased) break;
             if (sourceId === IMPORT_SOURCE && learningRegistry().status(IMPORT_SOURCE) !== "enabled") break;
