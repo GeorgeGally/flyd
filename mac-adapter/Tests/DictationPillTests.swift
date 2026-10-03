@@ -49,6 +49,10 @@ final class DictationPillTests: XCTestCase {
             DictationController.pillPhase(for: .copiedOnly(reason: .secureInput)),
             .notice("Secure input is on — copied instead")
         )
+        XCTAssertEqual(
+            DictationController.pillPhase(for: .copiedOnly(reason: .noTextField)),
+            .notice("Copied to clipboard")
+        )
     }
 
     func testDropsRecordingsThatAreTooShortOrSilent() {

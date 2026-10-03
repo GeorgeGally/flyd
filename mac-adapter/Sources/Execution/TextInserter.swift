@@ -5,6 +5,7 @@ enum CopyReason: Equatable {
     case secureInput
     case targetChanged
     case pasteFailed
+    case noTextField
 }
 
 enum InsertOutcome: Equatable {
@@ -15,7 +16,7 @@ enum InsertOutcome: Equatable {
 
 /// Puts dictated text into whatever app has focus: paste via the general pasteboard
 /// (restored afterwards), synthetic typing when the pasteboard cannot be written, and
-/// clipboard-only when inserting would be unsafe.
+/// clipboard-only when inserting would be unsafe or nothing editable is focused.
 enum TextInserter {
     enum Route: Equatable {
         case paste
@@ -31,9 +32,15 @@ enum TextInserter {
     private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
     private static let typingChunkCharacters = 16
 
-    static func route(secureInputEnabled: Bool, targetPid: pid_t?, frontmostPid: pid_t?) -> Route {
+    static func route(
+        secureInputEnabled: Bool,
+        targetPid: pid_t?,
+        frontmostPid: pid_t?,
+        focus: @autoclosure () -> FocusedTextTarget
+    ) -> Route {
         if secureInputEnabled { return .copyOnly(.secureInput) }
         if let targetPid, targetPid != frontmostPid { return .copyOnly(.targetChanged) }
+        if focus() == .noTextInput { return .copyOnly(.noTextField) }
         return .paste
     }
 
@@ -60,10 +67,12 @@ enum TextInserter {
     @MainActor
     static func insert(_ text: String, targetPid: pid_t?) async -> InsertOutcome {
         let pasteboard = NSPasteboard.general
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let route = route(
             secureInputEnabled: IsSecureEventInputEnabled(),
             targetPid: targetPid,
-            frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier
+            frontmostPid: frontmostPid,
+            focus: FocusedTextTarget.current(pid: frontmostPid)
         )
         if case .copyOnly(let reason) = route {
             _ = write(text, to: pasteboard, transient: false)
