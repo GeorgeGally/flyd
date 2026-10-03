@@ -523,6 +523,18 @@ final class FlydClient {
         return await postRaw("/work-intelligence/file/write", body: jsonData).flatMap { try? JSONDecoder().decode(FileWriteResultPayload.self, from: $0) }
     }
 
+    func setCorrectionLearning(_ enabled: Bool) async -> Bool {
+        let body: [String: Any] = ["sourceId": "dictation.corrections", "action": enabled ? "enable" : "pause"]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        return await postRaw("/learning/source", body: data) != nil
+    }
+
+    func sendDictationCorrection(before: String, after: String, invocationId: String, bundleId: String, scope: String) async {
+        let body: [String: Any] = ["before": before, "after": after, "invocationId": invocationId, "bundleId": bundleId, "scope": scope]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        _ = await postRaw("/dictation/correction", body: data)
+    }
+
     private func postRaw(_ path: String, body: Data) async -> Data? {
         guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
 

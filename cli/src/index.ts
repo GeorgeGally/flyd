@@ -29,6 +29,7 @@ import { runWorkStatus } from "./commands/tasks.js";
 import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
+import { runLearning } from "./commands/learning.js";
 import { runTransitions } from "./commands/transitions.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runAgent, runCode } from "./commands/code.js";
@@ -712,6 +713,20 @@ repos
   .description("Reconcile PROJECT.md with recent Git activity")
   .argument("[path]", "specific repository path (omit for all)")
   .action((path?: string) => runReposReconcile(path));
+
+program
+  .command("learning")
+  .description("Inspect and govern conversation learning and dictation vocabulary")
+  .option("--enable <source>", "Enable conversation.import or dictation.corrections")
+  .option("--pause <source>", "Pause a learning source")
+  .option("--disable <source>", "Disable a learning source")
+  .option("--erase <source>", "Revoke and erase a source and its derived content")
+  .option("--export <source>", "Export retained source evidence")
+  .option("--import <file>", "Import attributed conversation JSON")
+  .option("--approve <sequence>", "Approve a scoped vocabulary correction")
+  .option("--reject <sequence>", "Reject or deactivate a vocabulary correction")
+  .option("--process", "Process queued conversations")
+  .action(runLearning);
 
 program
   .command("transitions")

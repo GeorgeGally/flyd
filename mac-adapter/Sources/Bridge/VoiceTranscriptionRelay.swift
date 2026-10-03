@@ -24,6 +24,7 @@ final class VoiceTranscriptionRelay {
     private var startFields: () -> [String: Any] = { [:] }
 
     var onTranscriptDelta: ((String) -> Void)?
+    var onRawTranscript: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
@@ -217,6 +218,7 @@ final class VoiceTranscriptionRelay {
             DispatchQueue.main.async { [weak self] in
                 guard let self, capturedSessionId >= 0,
                       capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                self.onRawTranscript?(json["rawText"] as? String ?? finalText)
                 self.onComplete?(finalText)
             }
         case "error":

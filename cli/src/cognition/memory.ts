@@ -24,20 +24,31 @@ export interface MemoryQuery {
 export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResult> {
   const store = new IntelligenceEventStore();
   let derived;
+  let conversations: Array<{ id: string; content: string; source: string; relevance: number; epistemicStatus: string; freshness: number; temporalStatus: string }> = [];
   try {
     derived = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+    const terms = input.text.match(/[\p{L}\p{N}_-]+/gu)?.filter(t => !/^(?:what|where|when|why|how|the|this|that|did|was|were|with|from|have|about|working)$/i.test(t)) ?? [];
+    conversations = store.searchConversations(terms, input.projectIds, input.limit ?? 8).map(event => {
+      const turn = event.payload!.conversation as { user: string; assistant?: string };
+      return { id: "conversation:" + event.sequence, source: "event:" + event.sequence,
+        content: "User: " + turn.user.slice(0, 1000) + "\nAssistant (proposal/report, not verified): " + (turn.assistant ?? "").slice(0, 400),
+        relevance: terms.filter(term => turn.user.toLowerCase().includes(term.toLowerCase())).length / Math.max(1, terms.length),
+        epistemicStatus: "source_evidence", freshness: Math.max(0, 1 - (Date.now() - Date.parse(event.capturedAt)) / (14 * 86400000)), temporalStatus: "background" };
+    });
   } finally {
     store.close();
   }
 
   const includeHistorical = input.includeHistorical ?? input.temporalFrame === "past";
   const entitySet = new Set([...(input.entities ?? []), ...(input.projectIds ?? [])].map((x) => x.toLowerCase()));
-  const canonicalCurrent = derived.current.filter((c) => entitySet.size === 0 || [...entitySet].some((e) => c.entityId.toLowerCase().includes(e.replace(/^project:/,""))));
+  const matchesScope = (c: { entityId: string; parentEntityId?: string }) => entitySet.size === 0 ||
+    [...entitySet].some(e => [c.entityId, c.parentEntityId ?? ""].some(id => id.toLowerCase().includes(e.replace(/^project:/, ""))));
+  const canonicalCurrent = derived.current.filter(matchesScope);
   const canonicalHistorical = includeHistorical
     ? derived.historical.filter((c) => {
         if (!input.includeExpired && c.temporalStatus === "expired" && input.temporalFrame !== "past") return false;
         if (!input.includeSuperseded && c.temporalStatus === "superseded" && input.temporalFrame !== "past") return false;
-        return entitySet.size === 0 || [...entitySet].some((e) => c.entityId.toLowerCase().includes(e.replace(/^project:/,"")));
+        return matchesScope(c);
       })
     : [];
 
@@ -76,7 +87,7 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
 
   return {
     current: canonicalCurrent.slice(0, input.limit ?? 20),
-    relevant: relevant.slice(0, input.limit ?? 8),
+    relevant: [...conversations, ...relevant].slice(0, input.limit ?? 8),
     historical: canonicalHistorical.slice(0, input.limit ?? 20),
     conflicts: derived.conflicts.map((c) => ({
       entityId: c.entityId, attribute: c.attribute,
