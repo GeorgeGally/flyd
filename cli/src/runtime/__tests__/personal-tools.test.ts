@@ -100,6 +100,17 @@ describe("personal tools", () => {
   });
 });
 
+describe.runIf(process.platform === "darwin")("mac notify", () => {
+  it("routes through the Flyd-attributed helper, not osascript", async () => {
+    const notify = vi.fn(async (_title: string, _message: string) => {});
+    const runOsascript = vi.fn(async (_script: string, _args: string[]) => "");
+    const result = await runPersonalTool("mac", { action: "notify", text: "self-improvement started" }, { notify, runOsascript });
+    expect(result).toBe("Notification shown");
+    expect(notify).toHaveBeenCalledWith("Flyd", "self-improvement started");
+    expect(runOsascript).not.toHaveBeenCalled();
+  });
+});
+
 describe("changing a reminder", () => {
   it("moves the one reminder that matches instead of adding a second", async () => {
     const runOsascript = vi.fn(async (_script: string, _args: string[]) => "Call mum");
