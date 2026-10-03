@@ -11,7 +11,7 @@ final class DictationPill {
     enum Phase: Equatable {
         case listening
         case working
-        /// A voice question on its way to Flyd: spinner in the wing, the question below the notch.
+        /// Flyd at work: spinner in the wing, the question (or what it is doing) below the notch.
         case thinking(String)
         case inserted
         case notice(String)
@@ -40,6 +40,8 @@ final class DictationPill {
     private var check: NSTextField?
     private var label: NSTextField?
     private var hideWork: DispatchWorkItem?
+    /// What the island shows now; nil once it starts collapsing.
+    private(set) var shownPhase: Phase?
     /// Bumped on every show, so a collapse that finishes after a newer show never hides it.
     private var generation = 0
     private var wingMidY: CGFloat = fallbackHeight / 2
@@ -77,10 +79,14 @@ final class DictationPill {
         return NSRect(x: (midX - width / 2).rounded(), y: screen.maxY - height, width: width, height: height)
     }
 
-    func show(_ phase: Phase) {
+    /// Returns a token for `hide(ifShowing:)`, so work that finishes late only clears its own
+    /// indicator and never one a newer dictation or question put up since.
+    @discardableResult
+    func show(_ phase: Phase) -> Int {
         hideWork?.cancel()
         hideWork = nil
         generation += 1
+        shownPhase = phase
         let wasVisible = panel?.isVisible == true
         let panel = panel ?? makePanel()
         let screen = Self.screenUnderMouse()
@@ -108,6 +114,13 @@ final class DictationPill {
             hideWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoHideDelay, execute: work)
         }
+        return generation
+    }
+
+    /// Hides the island only if nothing has been shown since `token` was handed out.
+    func hide(ifShowing token: Int) {
+        guard token == generation else { return }
+        hide()
     }
 
     func updateSpectrum(_ bands: [Float]) {
@@ -130,6 +143,7 @@ final class DictationPill {
     func hide() {
         hideWork?.cancel()
         hideWork = nil
+        shownPhase = nil
         guard let panel, panel.isVisible else { return }
         let hiding = generation
         let screen = Self.screenUnderMouse()

@@ -113,6 +113,8 @@ final class WorkInteractionCoordinator {
     private var activeInvocationId: String?
     private var activeInteractionId: String?
     private var activeRepositoryActionIdentity: RepositoryActionRunIdentity?
+    /// The island's spinner while approved work runs with its cards dismissed.
+    private var busyToken: Int?
 
     func configure(invocationPanel: InvocationPanel, executor: NativeExecutor) {
         self.invocationPanel = invocationPanel
@@ -306,6 +308,7 @@ final class WorkInteractionCoordinator {
         let workSession = InvocationStateMachine.shared.ensureWorkSession()
 
         dismissActivePanels()
+        showBusy(approvedCommands.count == 1 ? "Running the command" : "Running \(approvedCommands.count) commands")
 
         Task { [weak self] in
             guard let self = self else { return }
@@ -347,6 +350,7 @@ final class WorkInteractionCoordinator {
     }
 
     private func showExecutionResult(success: Bool, output: String, commands: [ShellCommandPayload]) {
+        clearBusy()
         dismissActivePanels()
 
         let resultContent = """
@@ -456,6 +460,7 @@ final class WorkInteractionCoordinator {
     private func executeTaskPlanSteps(taskPlan: TaskPlanResponsePayload) {
         dismissActivePanels()
         phase = .idle
+        showBusy("Working through the plan")
 
         Task { [weak self] in
             guard let self = self else { return }
@@ -726,6 +731,7 @@ final class WorkInteractionCoordinator {
         }
 
         cancelRepositoryActionExecution()
+        showBusy("Applying the change")
         let identity = RepositoryActionRunIdentity(
             token: UUID(),
             actionId: pending.actionId,
@@ -743,7 +749,10 @@ final class WorkInteractionCoordinator {
                 workSessionRevision: pending.workSessionRevision
             )
             guard !Task.isCancelled,
-                  await self.repositoryActionIsCurrent(identity) else { return }
+                  await self.repositoryActionIsCurrent(identity) else {
+                await self.abandonRepositoryAction(identity)
+                return
+            }
             guard let approval else {
                 await MainActor.run {
                     guard self.activeRepositoryActionIdentity == identity else { return }
@@ -765,7 +774,10 @@ final class WorkInteractionCoordinator {
                 workSessionRevision: approval.workSessionRevision
             )
             guard !Task.isCancelled,
-                  await self.repositoryActionIsCurrent(identity) else { return }
+                  await self.repositoryActionIsCurrent(identity) else {
+                await self.abandonRepositoryAction(identity)
+                return
+            }
             await MainActor.run {
                 guard self.activeRepositoryActionIdentity == identity else { return }
                 self.finishRepositoryAction(identity)
@@ -786,6 +798,16 @@ final class WorkInteractionCoordinator {
         }
     }
 
+    /// A run overtaken by a newer session or invocation ends without a result card, and its
+    /// spinner goes with it.
+    private func abandonRepositoryAction(_ identity: RepositoryActionRunIdentity) async {
+        await MainActor.run {
+            guard self.activeRepositoryActionIdentity == identity else { return }
+            self.finishRepositoryAction(identity)
+            self.clearBusy()
+        }
+    }
+
     private func finishRepositoryAction(_ identity: RepositoryActionRunIdentity) {
         guard activeRepositoryActionIdentity == identity else { return }
         repositoryActionTask = nil
@@ -796,9 +818,21 @@ final class WorkInteractionCoordinator {
         repositoryActionTask?.cancel()
         repositoryActionTask = nil
         activeRepositoryActionIdentity = nil
+        clearBusy()
+    }
+
+    private func showBusy(_ activity: String) {
+        busyToken = DictationPill.shared.show(.thinking(activity))
+    }
+
+    /// Clears only this coordinator's spinner; a dictation or question shown since keeps the island.
+    private func clearBusy() {
+        if let busyToken { DictationPill.shared.hide(ifShowing: busyToken) }
+        busyToken = nil
     }
 
     private func showRepositoryActionResult(_ result: FlydClient.RepositoryActionResponse?, fallback: String) {
+        clearBusy()
         dismissActivePanels()
         let content: String
         if let result = result {

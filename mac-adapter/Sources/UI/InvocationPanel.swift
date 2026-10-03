@@ -439,13 +439,13 @@ final class InvocationPanel {
         }
     }
 
-    /// `.executing`/`.undoAvailable` own their own dismissal via an internal timer (and,
+    /// `.executing`/`.undoAvailable`/`.error` own their own dismissal via an internal timer (and,
     /// for `.undoAvailable`, a live ⌘Z key monitor) — calling this instead of `dismiss()`
     /// after showing one of those states lets it actually stay on screen for its window
     /// instead of being torn down by the caller on the very next run-loop turn.
     func dismissUnlessShowingResult() {
         switch currentState {
-        case .executing, .undoAvailable, .workSession:
+        case .executing, .undoAvailable, .workSession, .error:
             return
         default:
             dismiss()

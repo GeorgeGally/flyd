@@ -55,6 +55,27 @@ final class DictationPillTests: XCTestCase {
         )
     }
 
+    func testLateWorkClearsOnlyItsOwnSpinner() {
+        let pill = DictationPill()
+        let commands = pill.show(.thinking("Running 2 commands"))
+        let question = pill.show(.thinking("what time is it in London"))
+
+        pill.hide(ifShowing: commands)
+        XCTAssertEqual(pill.shownPhase, .thinking("what time is it in London"))
+
+        pill.hide(ifShowing: question)
+        XCTAssertNil(pill.shownPhase)
+    }
+
+    func testWorkClearsItsSpinnerWhenNothingReplacedIt() {
+        let pill = DictationPill()
+        let plan = pill.show(.thinking("Working through the plan"))
+        XCTAssertEqual(pill.shownPhase, .thinking("Working through the plan"))
+
+        pill.hide(ifShowing: plan)
+        XCTAssertNil(pill.shownPhase)
+    }
+
     func testDropsRecordingsThatAreTooShortOrSilent() {
         XCTAssertEqual(SpeechGate.heardSpeech(duration: 2.0, peakLevel: 0.6), true)
         XCTAssertEqual(SpeechGate.heardSpeech(duration: 0.2, peakLevel: 0.6), false)

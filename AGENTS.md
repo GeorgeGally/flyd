@@ -28,7 +28,7 @@ Flyd Core is the intelligence runtime, implemented in TypeScript (`cli/src/serve
 | PRESENT | Always on | Shipped | OS notification-based foreground observation. No cognition, no network, no persistence. |
 | INVOKED (text) | Double-tap fn key | Shipped | One-shot text invocation. Intent field → resolution → native/augment/compose. |
 | INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk → `gpt-realtime-whisper` transcription → same `/manifest` pipeline. |
-| DICTATE | fn tap (toggle) or fn hold | Shipped | Speech → Core cleanup over 4816 (`purpose: dictation`) → pasted into the focused app by `TextInserter`; fn-alone edges are swallowed at the HID tap. |
+| DICTATE | fn tap (toggle) or fn hold | Shipped | Speech → Core cleanup over 4816 (`purpose: dictation`) → pasted into the focused app by `TextInserter` (left on the clipboard when `FocusedTextTarget` finds no text field); fn-alone edges are swallowed at the HID tap. |
 | LIVE | Ctrl×3 (triple-press) | Shipped | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. MVP requires headphones. |
 
 ### Resolution outcomes
@@ -271,6 +271,10 @@ Do not add a separate invocation deadline task. A prior 10-second deadline later
 - Clamp card layout to `screen.visibleFrame`.
 - Multiple augmentations require separate `AugmentPanel` instances; reusing one silently drops previous cards because `.show()` begins with `dismiss()`.
 - A card stays on screen until dismissed by ✕, Escape, or an option choice — it never auto-dismisses and no click outside destroys it, so the captain can read and copy the answer at leisure.
+
+### Notch island busy state
+
+`DictationPill.shared` is the one busy indicator for dictation, voice questions and approved work. Background work holds the token `show(_:)` returns and clears with `hide(ifShowing:)`, never a bare `hide()`, so it cannot wipe a newer spinner. A resolution with nothing renderable must fail visibly (`ResolutionDisplayPolicy`), never just hide the island.
 
 ### Resolution routing
 
