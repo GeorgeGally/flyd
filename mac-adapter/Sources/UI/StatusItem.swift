@@ -11,6 +11,7 @@ final class StatusItem {
     var onRestartFlyd: (() -> Void)?
     var onPasteRawDictation: (() -> Void)?
     var onPasteLastDictation: (() -> Void)?
+    var onOpenConversation: (() -> Void)?
 
     func start() {
         if statusItem != nil {
@@ -50,6 +51,17 @@ final class StatusItem {
 
     private func setupMenu() {
         let menu = NSMenu()
+
+        // The real shortcut is a global hot key (GlobalHotKey.conversation);
+        // the menu only shows it.
+        let conversationItem = NSMenuItem(
+            title: "Conversation…",
+            action: #selector(openConversation),
+            keyEquivalent: "f"
+        )
+        conversationItem.keyEquivalentModifierMask = [.control, .option, .command]
+        conversationItem.target = self
+        menu.addItem(conversationItem)
 
         let invokeItem = NSMenuItem(
             title: "Ask Flyd...",
@@ -141,6 +153,10 @@ final class StatusItem {
 
     @objc private func pasteLastDictation() {
         onPasteLastDictation?()
+    }
+
+    @objc private func openConversation() {
+        onOpenConversation?()
     }
 
     @objc private func invokeFlyd() {

@@ -95,9 +95,32 @@ statusItem.onPasteRawDictation = { dictation.pasteLast(raw: true) }
 statusItem.onPasteLastDictation = {
     dictation.pasteLast()
 }
+statusItem.onOpenConversation = {
+    ConversationWindow.shared.show()
+}
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
 ensureCoreLaunched()
+
+// The Conversation window's server runs from launch, so the window opens at once.
+let conversationServer = ConversationServer.shared
+conversationServer.onReady = { ConversationWindow.shared.serverReady($0) }
+conversationServer.onFailure = { ConversationWindow.shared.serverFailed($0) }
+conversationServer.start()
+let conversationHotKey = GlobalHotKey(
+    keyCode: GlobalHotKey.conversation.keyCode,
+    modifiers: GlobalHotKey.conversation.modifiers,
+    id: 1
+) {
+    ConversationWindow.shared.toggle()
+}
+NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+    conversationServer.stop()
+}
+// `open Flyd.app --args --conversation` opens straight to the conversation.
+if CommandLine.arguments.contains("--conversation") {
+    DispatchQueue.main.async { ConversationWindow.shared.show() }
+}
 
 if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {
     startFlyd(closeSetup: false)

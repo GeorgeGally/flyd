@@ -268,6 +268,8 @@ const SCRIPT = `
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     themeBtn.textContent = theme === "light" ? "dark" : "light";
+    // Inside Flyd.app the window's title bar follows the page.
+    try { window.webkit.messageHandlers.flyd.postMessage({ theme: theme }); } catch (e) { /* in a browser */ }
   }
   applyTheme(store("flyd-view-theme") === "light" ? "light" : "dark");
   var modeBtn = document.getElementById("mode");
@@ -579,9 +581,17 @@ const SCRIPT = `
     event.preventDefault();
     addImages(files);
   });
-  composer.addEventListener("dragover", function (event) { event.preventDefault(); composer.classList.add("dropping"); });
-  composer.addEventListener("dragleave", function () { composer.classList.remove("dropping"); });
-  composer.addEventListener("drop", function (event) {
+  // Images can be dropped anywhere on the page; a stray drop never navigates away.
+  document.addEventListener("dragover", function (event) {
+    if (composer.hidden) return;
+    event.preventDefault();
+    composer.classList.add("dropping");
+  });
+  document.addEventListener("dragleave", function (event) {
+    if (!event.relatedTarget) composer.classList.remove("dropping");
+  });
+  document.addEventListener("drop", function (event) {
+    if (composer.hidden) return;
     event.preventDefault();
     composer.classList.remove("dropping");
     if (event.dataTransfer) addImages(event.dataTransfer.files);

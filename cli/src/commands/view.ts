@@ -66,12 +66,26 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   if (options.open !== false) openInBrowser(url);
 
   await new Promise<void>((resolve) => {
+    let watchdog: NodeJS.Timeout | undefined;
     const stop = () => {
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
+      if (watchdog) clearInterval(watchdog);
       void server.close().then(resolve);
     };
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
+    // Started by Flyd.app: go away with it, even if it crashed without
+    // stopping us.
+    const parent = Number(process.env.FLYD_VIEW_PARENT_PID);
+    if (Number.isInteger(parent) && parent > 1) {
+      watchdog = setInterval(() => {
+        try {
+          process.kill(parent, 0);
+        } catch {
+          stop();
+        }
+      }, 2_000);
+    }
   });
 }
