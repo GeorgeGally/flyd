@@ -33,6 +33,13 @@ export interface SessionSummary {
   updatedAt: string;
 }
 
+/** A message the captain sent from the view, as the source recorded it. */
+export interface SentMessage {
+  /** The id the message will carry in snapshots once the source reads it back. */
+  id: string;
+  timestamp: string;
+}
+
 export interface ConversationFollower {
   close(): void;
 }
@@ -49,6 +56,12 @@ export interface ConversationSource {
    * only); consumers diff them.
    */
   follow(sessionId: string, onUpdate: (snapshot: ConversationSnapshot) => void, onError?: (error: Error) => void): ConversationFollower;
-  // Seam for a later input box: a source that can accept the captain's words
-  // will add `send(sessionId, text)`. v1 is read-only.
+  /** Whether this source can take the captain's words; the page shows a composer only then. */
+  readonly canSend: boolean;
+  /**
+   * Delivers the captain's message. The returned id appears in a later
+   * snapshot once the source can read the message back, so the page can
+   * swap its optimistic copy for the real one.
+   */
+  send(sessionId: string, text: string): Promise<SentMessage>;
 }

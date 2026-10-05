@@ -1,18 +1,21 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { mergeNotes, type CaptainInbox } from "./firstmate-inbox.js";
 import { LineFollower } from "./line-follower.js";
 import { TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
   ConversationSnapshot,
   ConversationSource,
+  SentMessage,
   SessionSummary,
 } from "./types.js";
 
 /** Firstmate's Claude Code home; the default conversation for `flyd view`. */
 export const FIRSTMATE_PROJECT_DIR = "-Users-radarboy3000-Documents-firstmate";
 const TITLE_SCAN_BYTES = 256 * 1024;
+const START_SCAN_BYTES = 64 * 1024;
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 export function claudeProjectsRoot(): string {
@@ -66,17 +69,65 @@ function sessionTitle(path: string, size: number): string {
   return first ? first.text.replace(/\s+/g, " ").slice(0, 80) : "Untitled session";
 }
 
-/** Reads Claude Code session transcripts. Read-only: transcript files are never written. */
+/** Timestamp of a transcript's first timed entry: when the session started. */
+function sessionStart(path: string, size: number): string | undefined {
+  return /"timestamp":"([^"]+)"/.exec(readRange(path, 0, Math.min(size, START_SCAN_BYTES)))?.[1];
+}
+
+/**
+ * Reads Claude Code session transcripts; transcript files are never written.
+ * With a CaptainInbox, the captain can also send messages, and the ones he
+ * sent are shown in the session that was current when he sent them.
+ */
 export class ClaudeCodeTranscriptSource implements ConversationSource {
   readonly assistantLabel: string;
   private readonly projectDir: string;
   private readonly pollMs: number;
+  private readonly inbox?: CaptainInbox;
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
+  private readonly starts = new Map<string, string | undefined>();
 
-  constructor(options: { projectDir?: string; assistantLabel?: string; pollMs?: number } = {}) {
+  constructor(options: { projectDir?: string; assistantLabel?: string; pollMs?: number; inbox?: CaptainInbox } = {}) {
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
     this.assistantLabel = options.assistantLabel ?? (basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
     this.pollMs = options.pollMs ?? 400;
+    this.inbox = options.inbox;
+  }
+
+  get canSend(): boolean {
+    return this.inbox !== undefined;
+  }
+
+  async send(sessionId: string, text: string): Promise<SentMessage> {
+    if (!this.inbox) throw new Error("This conversation is read-only");
+    this.sessionPath(sessionId);
+    return this.inbox.send(text);
+  }
+
+  /** Cached: a session's first entry never changes. */
+  private startOf(path: string, size: number): string | undefined {
+    if (!this.starts.has(path)) this.starts.set(path, sessionStart(path, size));
+    return this.starts.get(path);
+  }
+
+  /** From this session's start until the next session started; open-ended for the latest. */
+  private noteWindow(sessionId: string): { from?: string; until?: string } {
+    const starts = readdirSync(this.projectDir)
+      .filter((name) => name.endsWith(".jsonl"))
+      .map((name) => {
+        const path = join(this.projectDir, name);
+        return { id: name.slice(0, -".jsonl".length), start: this.startOf(path, statSync(path).size) };
+      })
+      .filter((session): session is { id: string; start: string } => session.start !== undefined)
+      .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+    const index = starts.findIndex((session) => session.id === sessionId);
+    if (index === -1) return {};
+    return { from: starts[index]!.start, ...(starts[index + 1] ? { until: starts[index + 1]!.start } : {}) };
+  }
+
+  private withNotes(sessionId: string, snapshot: ConversationSnapshot, notes: ReturnType<CaptainInbox["notes"]>): ConversationSnapshot {
+    if (notes.length === 0) return snapshot;
+    return { ...snapshot, messages: mergeNotes(snapshot.messages, notes, this.noteWindow(sessionId)) };
   }
 
   private sessionPath(sessionId: string): string {
@@ -118,7 +169,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   async read(sessionId: string): Promise<ConversationSnapshot> {
     const conversation = new TranscriptConversation();
     new LineFollower(this.sessionPath(sessionId)).readNew((line) => conversation.pushLine(line));
-    return conversation.snapshot();
+    return this.withNotes(sessionId, conversation.snapshot(), this.inbox?.notes() ?? []);
   }
 
   follow(
@@ -130,6 +181,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const follower = new LineFollower(path);
     let conversation = new TranscriptConversation();
     let closed = false;
+    let noteKey = "";
 
     const pump = (initial: boolean): void => {
       if (closed) return;
@@ -142,8 +194,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
             conversation = new TranscriptConversation();
           },
         );
-        if (!initial && !truncated && count === 0) return;
-        onUpdate(conversation.snapshot());
+        const notes = this.inbox?.notes() ?? [];
+        const key = notes.map((note) => note.id).join(",");
+        const notesChanged = key !== noteKey;
+        noteKey = key;
+        if (!initial && !truncated && count === 0 && !notesChanged) return;
+        onUpdate(this.withNotes(sessionId, conversation.snapshot(), notes));
       } catch (error) {
         onError?.(error instanceof Error ? error : new Error(String(error)));
       }

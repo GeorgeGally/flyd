@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
+import type { CaptainInbox } from "../firstmate-inbox.js";
+import type { ConversationMessage } from "../types.js";
 import { renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { assistantText, captain } from "./transcript-fixture.js";
@@ -75,12 +77,40 @@ describe("ConversationViewServer", () => {
     });
   }
 
-  async function start(): Promise<number> {
+  function post(port: number, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/send", method: "POST", headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => (text += chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
+      });
+      req.on("error", reject);
+      req.end(body);
+    });
+  }
+
+  /** In-memory stand-in for firstmate's inbox. */
+  class MemoryInbox implements CaptainInbox {
+    readonly sent: ConversationMessage[] = [];
+    async send(text: string) {
+      const message = { id: `note:${this.sent.length + 1}`, role: "user" as const, text, timestamp: new Date().toISOString() };
+      this.sent.push(message);
+      return { id: message.id, timestamp: message.timestamp! };
+    }
+    notes() {
+      return this.sent;
+    }
+  }
+
+  async function start(inbox?: CaptainInbox): Promise<number> {
     dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
     writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi, **Captain**.")].join("\n") + "\n");
-    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate" }));
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }));
     return server.listen(0);
   }
+
+  const tokenOf = (page: string): string => /data-send-token="([0-9a-f]+)"/.exec(page)?.[1] ?? "";
 
   it("serves the page, sessions and a rendered stream on loopback", async () => {
     const port = await start();
@@ -100,5 +130,38 @@ describe("ConversationViewServer", () => {
   it("rejects requests carrying a foreign Host header", async () => {
     const port = await start();
     expect((await get(port, "/api/sessions", "attacker.example")).status).toBe(403);
+  });
+
+  it("delivers the captain's message only from its own page", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const token = tokenOf((await get(port, "/")).body);
+    expect(token).toHaveLength(48);
+    const json = { "content-type": "application/json" };
+    const body = JSON.stringify({ session: "s1", text: "run the flyd viewer" });
+
+    expect((await post(port, body, json)).status).toBe(403);
+    expect((await post(port, body, { ...json, "x-flyd-view-token": "0".repeat(48) })).status).toBe(403);
+    expect((await post(port, body, { ...json, "x-flyd-view-token": token, origin: "https://attacker.example" })).status).toBe(403);
+    expect((await post(port, body, { "content-type": "text/plain", "x-flyd-view-token": token })).status).toBe(415);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "  " }), { ...json, "x-flyd-view-token": token })).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "../x", text: "hi" }), { ...json, "x-flyd-view-token": token })).status).toBe(502);
+    expect(inbox.sent).toEqual([]);
+
+    const ok = await post(port, body, { ...json, "x-flyd-view-token": token, origin: `http://127.0.0.1:${port}` });
+    expect(ok.status).toBe(200);
+    expect(JSON.parse(ok.body)).toMatchObject({ id: "note:1" });
+    expect(inbox.sent.map((m) => m.text)).toEqual(["run the flyd viewer"]);
+
+    const stream = await get(port, "/api/stream");
+    const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.order).toEqual([expect.any(String), expect.any(String), "note:1"]);
+  });
+
+  it("offers no message box and refuses sends when the source is read-only", async () => {
+    const port = await start();
+    const page = (await get(port, "/")).body;
+    expect(tokenOf(page)).toBe("");
+    expect((await post(port, JSON.stringify({ session: "s1", text: "hi" }), { "content-type": "application/json" })).status).toBe(405);
   });
 });

@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { renderMarkdown } from "./markdown.js";
@@ -5,11 +6,14 @@ import { renderPage } from "./page.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource } from "./types.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
-// transcript content anywhere but the local browser that asked for it.
+// transcript content anywhere but the local browser that asked for it. The
+// one write it accepts is the captain's message, POST /api/send, which the
+// source delivers (for firstmate: its own inbox).
 
 export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
 const HEARTBEAT_MS = 15_000;
+const MAX_SEND_BODY_BYTES = 64 * 1024;
 
 export interface RenderedMessage {
   id: string;
@@ -64,6 +68,31 @@ function isLoopbackHost(hostHeader: string | undefined, port: number): boolean {
   return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(hostHeader.toLowerCase());
 }
 
+function readBody(req: IncomingMessage, limit: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function sameToken(given: string | string[] | undefined, expected: string): boolean {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -76,6 +105,11 @@ function sseEvent(res: ServerResponse, event: string, data: unknown): void {
 export class ConversationViewServer {
   private server: Server | null = null;
   private port = 0;
+  /**
+   * Proof a send came from this server's own page: other origins can POST to
+   * loopback, but cannot read the page that carries this token.
+   */
+  private readonly token = randomBytes(24).toString("hex");
 
   constructor(private readonly source: ConversationSource) {}
 
@@ -111,11 +145,15 @@ export class ConversationViewServer {
       sendJson(res, 403, { error: "forbidden host" });
       return;
     }
-    if (req.method !== "GET") {
-      sendJson(res, 405, { error: "read-only" });
+    const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (req.method === "POST" && url.pathname === "/api/send") {
+      await this.send(req, res);
       return;
     }
-    const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "method not allowed" });
+      return;
+    }
     if (url.pathname === "/") {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
@@ -123,7 +161,10 @@ export class ConversationViewServer {
         // Inline page only; nothing loads from elsewhere.
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
       });
-      res.end(renderPage({ assistantLabel: this.source.assistantLabel }));
+      res.end(renderPage({
+        assistantLabel: this.source.assistantLabel,
+        ...(this.source.canSend ? { sendToken: this.token } : {}),
+      }));
       return;
     }
     if (url.pathname === "/api/sessions") {
@@ -135,6 +176,42 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.source.canSend) {
+      sendJson(res, 405, { error: "read-only" });
+      return;
+    }
+    const origin = req.headers.origin;
+    if (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) {
+      sendJson(res, 403, { error: "forbidden origin" });
+      return;
+    }
+    if (!sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "missing or wrong token" });
+      return;
+    }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+      sendJson(res, 415, { error: "expected application/json" });
+      return;
+    }
+    let payload: { session?: unknown; text?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.session !== "string" || typeof payload.text !== "string" || !payload.text.trim()) {
+      sendJson(res, 400, { error: "expected { session, text }" });
+      return;
+    }
+    try {
+      sendJson(res, 200, await this.source.send(payload.session, payload.text));
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
