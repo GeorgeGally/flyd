@@ -3,11 +3,13 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { mergeNotes, type CaptainInbox } from "./firstmate-inbox.js";
 import { LineFollower } from "./line-follower.js";
-import { TranscriptConversation } from "./transcript-filter.js";
+import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
   ConversationSnapshot,
   ConversationSource,
+  ImageData,
+  ImageUpload,
   SentMessage,
   SessionSummary,
 } from "./types.js";
@@ -16,6 +18,9 @@ import type {
 export const FIRSTMATE_PROJECT_DIR = "-Users-radarboy3000-Documents-firstmate";
 const TITLE_SCAN_BYTES = 256 * 1024;
 const START_SCAN_BYTES = 64 * 1024;
+/** A transcript line holding pasted screenshots can be large; past this it is not read back. */
+const MAX_IMAGE_LINE_BYTES = 64 * 1024 * 1024;
+const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 export function claudeProjectsRoot(): string {
@@ -69,6 +74,31 @@ function sessionTitle(path: string, size: number): string {
   return first ? first.text.replace(/\s+/g, " ").slice(0, 80) : "Untitled session";
 }
 
+/** The whole line that starts at byte `offset`, or null past the size cap. */
+function readLineAt(path: string, offset: number): string | null {
+  const fd = openSync(path, "r");
+  try {
+    const chunks: Buffer[] = [];
+    const buffer = Buffer.allocUnsafe(1 << 20);
+    let position = offset;
+    let total = 0;
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, position);
+      if (read <= 0) break;
+      const end = buffer.subarray(0, read).indexOf(0x0a);
+      const piece = Buffer.from(buffer.subarray(0, end === -1 ? read : end));
+      chunks.push(piece);
+      total += piece.length;
+      if (total > MAX_IMAGE_LINE_BYTES) return null;
+      if (end !== -1) break;
+      position += read;
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Timestamp of a transcript's first timed entry: when the session started. */
 function sessionStart(path: string, size: number): string | undefined {
   return /"timestamp":"([^"]+)"/.exec(readRange(path, 0, Math.min(size, START_SCAN_BYTES)))?.[1];
@@ -98,10 +128,35 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox !== undefined;
   }
 
-  async send(sessionId: string, text: string): Promise<SentMessage> {
+  async send(sessionId: string, text: string, images?: ImageUpload[]): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
-    return this.inbox.send(text);
+    return this.inbox.send(text, images);
+  }
+
+  /**
+   * "t<offset>.<n>": the n-th pasted image of the transcript line at that
+   * byte offset, read back from the transcript. "f<name>": an image the
+   * captain sent from the view, from firstmate's inbox images.
+   */
+  async image(sessionId: string, imageId: string): Promise<ImageData | null> {
+    const path = this.sessionPath(sessionId);
+    if (imageId.startsWith("f")) return this.inbox?.image(imageId) ?? null;
+    const ref = /^t(\d+)\.(\d+)$/.exec(imageId);
+    if (!ref) return null;
+    const offset = Number(ref[1]);
+    if (!Number.isSafeInteger(offset) || offset >= statSync(path).size) return null;
+    const line = readLineAt(path, offset);
+    if (!line) return null;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    const image = captainImageAt(entry, Number(ref[2]));
+    if (!image || !IMAGE_MEDIA_TYPES.has(image.mediaType)) return null;
+    return { mediaType: image.mediaType, data: Buffer.from(image.data, "base64") };
   }
 
   /** Cached: a session's first entry never changes. An empty file is retried later. */
@@ -172,7 +227,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
 
   async read(sessionId: string): Promise<ConversationSnapshot> {
     const conversation = new TranscriptConversation();
-    new LineFollower(this.sessionPath(sessionId)).readNew((line) => conversation.pushLine(line));
+    new LineFollower(this.sessionPath(sessionId)).readNew((line, offset) => conversation.pushLine(line, offset));
     return this.withNotes(sessionId, conversation.snapshot(), this.inbox?.notes() ?? []);
   }
 
@@ -192,7 +247,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       try {
         let truncated = false;
         const count = follower.readNew(
-          (line) => conversation.pushLine(line),
+          (line, offset) => conversation.pushLine(line, offset),
           () => {
             truncated = true;
             conversation = new TranscriptConversation();

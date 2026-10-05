@@ -97,23 +97,74 @@ export function cleanCaptainText(raw: string): string | null {
   return text || null;
 }
 
-/** Text the captain typed in a user content value (string or blocks); null if none. */
-function captainTextOf(content: unknown): string | null {
-  if (typeof content === "string") return cleanCaptainText(content);
+/**
+ * Id of the n-th image block in the transcript line starting at byte
+ * `offset`. The bytes stay in the transcript; the source reads them back on
+ * demand (see ClaudeCodeTranscriptSource.image).
+ */
+export function transcriptImageId(offset: number, n: number): string {
+  return `t${offset}.${n}`;
+}
+
+function imageBlocks(content: unknown): Json[] {
+  return contentBlocks(content).filter((block) => block.type === "image");
+}
+
+/** The n-th pasted image of a captain entry (a user message or a queued command), as base64. */
+export function captainImageAt(entry: unknown, n: number): { mediaType: string; data: string } | null {
+  if (!isRecord(entry)) return null;
+  const content = entry.type === "user" && isRecord(entry.message)
+    ? entry.message.content
+    : entry.type === "attachment" && isRecord(entry.attachment)
+      ? entry.attachment.prompt
+      : undefined;
+  const source = imageBlocks(content)[n]?.source;
+  if (!isRecord(source) || source.type !== "base64") return null;
+  const mediaType = stringField(source, "media_type");
+  const data = stringField(source, "data");
+  return mediaType && data ? { mediaType, data } : null;
+}
+
+/**
+ * What the captain typed in a user content value (string or blocks), plus
+ * the ids of images he pasted; null when there is neither. Claude Code puts
+ * an "[Image #N]" marker in the text for each pasted image, in order; markers
+ * whose image is shown are dropped from the text.
+ */
+function captainContentOf(content: unknown, offset?: number): { text: string; images: string[] } | null {
+  if (typeof content === "string") {
+    const text = cleanCaptainText(content);
+    return text ? { text, images: [] } : null;
+  }
   const blocks = contentBlocks(content);
   if (blocks.some((block) => block.type === "tool_result")) return null;
-  const texts = blocks
+  const joined = blocks
     .filter((block) => block.type === "text")
-    .map((block) => stringField(block, "text") ?? "");
-  const hasImage = blocks.some((block) => block.type === "image");
-  const joined = texts.join("\n\n");
-  if (!joined.trim()) return hasImage ? "*[image]*" : null;
-  return cleanCaptainText(joined);
+    .map((block) => stringField(block, "text") ?? "")
+    .join("\n\n");
+  const count = offset === undefined ? 0 : imageBlocks(content).length;
+  const images = Array.from({ length: count }, (_unused, n) => transcriptImageId(offset!, n));
+  let text = joined.trim() ? cleanCaptainText(joined) : "";
+  if (text === null) return null;
+  let left = images.length;
+  text = text.replace(/\[Image #\d+\]\s?/g, (marker) => (left-- > 0 ? "" : marker)).trim();
+  if (!text && images.length === 0) return blocks.some((block) => block.type === "image") ? { text: "*[image]*", images } : null;
+  return { text, images };
 }
 
 function originKind(record: Json): string | undefined {
   const origin = record.origin;
   return isRecord(origin) ? stringField(origin, "kind") : undefined;
+}
+
+function captainMessage(id: string, said: { text: string; images: string[] }, timestamp?: string): ConversationMessage {
+  return {
+    id,
+    role: "user",
+    text: said.text,
+    ...(said.images.length ? { images: said.images } : {}),
+    ...(timestamp ? { timestamp } : {}),
+  };
 }
 
 /**
@@ -126,8 +177,11 @@ export class TranscriptConversation {
   private lastActivity?: string;
   private segmentCount = 0;
 
-  /** Parses one JSONL line; malformed lines (e.g. a torn write) are ignored. */
-  pushLine(line: string): void {
+  /**
+   * Parses one JSONL line; malformed lines (e.g. a torn write) are ignored.
+   * With the line's byte `offset`, pasted images become viewable.
+   */
+  pushLine(line: string, offset?: number): void {
     // Tool results carry most of a transcript's bytes and never matter here;
     // the unescaped marker cannot occur inside a JSON string value, and an
     // entry carrying a tool result is never a captain message.
@@ -141,7 +195,7 @@ export class TranscriptConversation {
     } catch {
       return;
     }
-    if (isRecord(entry)) this.push(entry);
+    if (isRecord(entry)) this.push(entry, offset);
   }
 
   private touch(line: string): void {
@@ -149,27 +203,27 @@ export class TranscriptConversation {
     if (match) this.lastActivity = match[1];
   }
 
-  push(entry: Json): void {
+  push(entry: Json, offset?: number): void {
     if (entry.isSidechain === true) return;
     const timestamp = stringField(entry, "timestamp");
     if (timestamp) this.lastActivity = timestamp;
 
     switch (entry.type) {
       case "user":
-        this.pushUser(entry, timestamp);
+        this.pushUser(entry, timestamp, offset);
         return;
       case "assistant":
         this.pushAssistant(entry, timestamp);
         return;
       case "attachment":
-        this.pushAttachment(entry, timestamp);
+        this.pushAttachment(entry, timestamp, offset);
         return;
       default:
         return;
     }
   }
 
-  private pushUser(entry: Json, timestamp?: string): void {
+  private pushUser(entry: Json, timestamp?: string, offset?: number): void {
     const message = isRecord(entry.message) ? entry.message : undefined;
     if (!message) return;
     const blocks = contentBlocks(message.content);
@@ -179,25 +233,25 @@ export class TranscriptConversation {
 
     const id = stringField(entry, "uuid") ?? `user-${this.finished.length}`;
     const kind = originKind(entry);
-    const text = entry.isCompactSummary === true || (kind !== undefined && kind !== "human")
+    const said = entry.isCompactSummary === true || (kind !== undefined && kind !== "human")
       ? null
-      : captainTextOf(message.content);
+      : captainContentOf(message.content, offset);
     this.startSegment(id);
-    if (text) this.finished.push({ id, role: "user", text, ...(timestamp ? { timestamp } : {}) });
+    if (said) this.finished.push(captainMessage(id, said, timestamp));
   }
 
   /** Messages the captain sends while the assistant works arrive as queued_command attachments. */
-  private pushAttachment(entry: Json, timestamp?: string): void {
+  private pushAttachment(entry: Json, timestamp?: string, offset?: number): void {
     const attachment = isRecord(entry.attachment) ? entry.attachment : undefined;
     if (!attachment || attachment.type !== "queued_command") return;
     if (attachment.commandMode !== undefined && attachment.commandMode !== "prompt") return;
     const kind = originKind(attachment);
     if (kind !== undefined && kind !== "human") return;
-    const text = captainTextOf(attachment.prompt);
-    if (!text) return;
+    const said = captainContentOf(attachment.prompt, offset);
+    if (!said) return;
     const id = stringField(attachment, "source_uuid") ?? stringField(entry, "uuid") ?? `queued-${this.finished.length}`;
     this.startSegment(id);
-    this.finished.push({ id, role: "user", text, ...(timestamp ? { timestamp } : {}) });
+    this.finished.push(captainMessage(id, said, timestamp));
   }
 
   private pushAssistant(entry: Json, timestamp?: string): void {

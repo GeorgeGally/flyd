@@ -8,7 +8,9 @@ import type { CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
 import { renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
-import { assistantText, captain } from "./transcript-fixture.js";
+import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
+
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 describe("renderMarkdown", () => {
   it("renders tables, lists, code and links", () => {
@@ -57,7 +59,7 @@ describe("ConversationViewServer", () => {
     dir = null;
   });
 
-  function get(port: number, path: string, host = `127.0.0.1:${port}`): Promise<{ status: number; body: string }> {
+  function get(port: number, path: string, host = `127.0.0.1:${port}`): Promise<{ status: number; body: string; type?: string }> {
     return new Promise((resolve, reject) => {
       const req = request({ host: "127.0.0.1", port, path, headers: { host } }, (res) => {
         let body = "";
@@ -70,7 +72,7 @@ describe("ConversationViewServer", () => {
             resolve({ status: res.statusCode ?? 0, body });
           }
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body, type: res.headers["content-type"] }));
       });
       req.on("error", reject);
       req.end();
@@ -93,7 +95,9 @@ describe("ConversationViewServer", () => {
   /** In-memory stand-in for firstmate's inbox. */
   class MemoryInbox implements CaptainInbox {
     readonly sent: ConversationMessage[] = [];
-    async send(text: string) {
+    readonly uploads: unknown[] = [];
+    async send(text: string, images: unknown[] = []) {
+      this.uploads.push(...images);
       const message = { id: `note:${this.sent.length + 1}`, role: "user" as const, text, timestamp: new Date().toISOString() };
       this.sent.push(message);
       return { id: message.id, timestamp: message.timestamp! };
@@ -101,11 +105,14 @@ describe("ConversationViewServer", () => {
     notes() {
       return this.sent;
     }
+    image() {
+      return null;
+    }
   }
 
-  async function start(inbox?: CaptainInbox): Promise<number> {
+  async function start(inbox?: CaptainInbox, lines = [captain("hello"), assistantText("Hi, **Captain**.")]): Promise<number> {
     dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
-    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi, **Captain**.")].join("\n") + "\n");
+    writeFileSync(join(dir, "s1.jsonl"), lines.join("\n") + "\n");
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }));
     return server.listen(0);
   }
@@ -158,10 +165,44 @@ describe("ConversationViewServer", () => {
     expect(update.order).toEqual([expect.any(String), expect.any(String), "note:1"]);
   });
 
+  it("hands its current token to its own origin so an open tab can recover after a restart", async () => {
+    const port = await start(new MemoryInbox());
+    const token = tokenOf((await get(port, "/")).body);
+    expect(JSON.parse((await get(port, "/api/token")).body)).toEqual({ token });
+    expect((await get(port, "/api/token", "attacker.example")).status).toBe(403);
+  });
+
   it("offers no message box and refuses sends when the source is read-only", async () => {
     const port = await start();
     const page = (await get(port, "/")).body;
     expect(tokenOf(page)).toBe("");
+    expect((await get(port, "/api/token")).status).toBe(404);
     expect((await post(port, JSON.stringify({ session: "s1", text: "hi" }), { "content-type": "application/json" })).status).toBe(405);
+  });
+
+  it("serves a pasted transcript image as an image, and nothing for unknown ids", async () => {
+    const port = await start(undefined, [captainBlocks([{ type: "text", text: "[Image #1] broken" }, { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }])]);
+    const stream = await get(port, "/api/stream");
+    const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.messages[0].html).toBe("<p>broken</p>\n");
+    const [id] = update.messages[0].images;
+
+    const image = await get(port, `/api/image?session=s1&id=${encodeURIComponent(id)}`);
+    expect(image.status).toBe(200);
+    expect(image.type).toBe("image/png");
+    expect((await get(port, "/api/image?session=s1&id=t1.9")).status).toBe(404);
+    expect((await get(port, `/api/image?session=..%2Fx&id=${encodeURIComponent(id)}`)).status).toBe(404);
+  });
+
+  it("passes pasted images through to the inbox, and accepts an image with no text", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const token = tokenOf((await get(port, "/")).body);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": token };
+    const images = [{ mediaType: "image/png", data: PNG }];
+    expect((await post(port, JSON.stringify({ session: "s1", text: "", images }), headers)).status).toBe(200);
+    expect(inbox.uploads).toEqual(images);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "", images: [{ mediaType: 1 }] }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "  ", images: [] }), headers)).status).toBe(400);
   });
 });

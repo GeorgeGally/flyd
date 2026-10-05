@@ -94,10 +94,13 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
   background: var(--sel-bg); color: var(--sel-fg);
   -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
-/* Fill the whole line box, as a selection does: (1.6em line - ~1.2em glyph box) / 2. */
-.msg.user .hl { padding: 0.2em 0; }
+/* Padded blocks: every wrapped line gets its own padding (clone), the
+   negative margins keep the text aligned with the replies, and the taller
+   line height keeps wrapped lines from touching. */
+.msg.user .body { line-height: 2.1; }
+.msg.user .hl { padding: 0.35em 0.6em; margin: 0 -0.6em; border-radius: 0.18em; }
 .msg.user strong, .msg.user a { color: inherit; }
-.msg.user + .msg.user { margin-top: 0.5em; }
+.msg.user + .msg.user { margin-top: 0.9em; }
 .msg.assistant { margin-top: 0.85em; }
 .time {
   position: absolute; right: calc(100% + 2em); top: 0.55em; white-space: nowrap;
@@ -144,6 +147,18 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .problem { position: fixed; right: 16px; bottom: 16px; font: 12px var(--mono); color: var(--muted); }
 
+/* Pasted images: thumbnails under the message, full size on click. */
+.shots { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.45em; }
+.shot { font: inherit; padding: 0; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); cursor: zoom-in; overflow: hidden; line-height: 0; }
+.shot img { display: block; width: auto; height: auto; max-height: 9em; max-width: min(22em, calc(100vw - 3em)); }
+.shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, #000 82%, transparent); cursor: zoom-out; padding: 3vh 3vw;
+}
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+
 /* Pending: the captain's message is on its way to firstmate. */
 .msg.pending { opacity: 0.72; }
 .msg.pending .body { white-space: pre-wrap; }
@@ -178,6 +193,15 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   border-radius: 6px; padding: 9px 12px; cursor: pointer;
 }
 .composer button:disabled { opacity: 0.4; cursor: default; }
+.attachments { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0 0 0.5em; }
+.attachments[hidden] { display: none; }
+.attachment { position: relative; line-height: 0; border: 1px solid var(--faint); border-radius: 6px; overflow: hidden; background: var(--tint); }
+.attachment img { display: block; height: 72px; max-width: 160px; object-fit: cover; }
+.attachment button {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.composer.dropping .field { border-color: var(--accent); }
 .composer .hint { margin-top: 0.45em; font: 12.5px/1 var(--mono); color: var(--muted); }
 
 @media (max-width: 720px) {
@@ -283,8 +307,41 @@ const SCRIPT = `
     var body = el.querySelector(".body");
     body.innerHTML = message.html;
     if (message.role === "user") highlight(body);
+    var old = el.querySelector(".shots");
+    if (old) old.remove();
+    if (message.images && message.images.length) {
+      body.after(shots(message.images.map(function (id) {
+        return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
+      })));
+    }
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
   }
+  function shots(urls) {
+    var row = document.createElement("div");
+    row.className = "shots";
+    urls.forEach(function (url) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "shot";
+      button.setAttribute("aria-label", "Open image");
+      var img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "";
+      img.src = url;
+      button.appendChild(img);
+      button.addEventListener("click", function () { openImage(url); });
+      row.appendChild(button);
+    });
+    return row;
+  }
+  var lightbox = document.getElementById("lightbox");
+  function openImage(url) {
+    document.getElementById("lightbox-img").src = url;
+    lightbox.hidden = false;
+  }
+  lightbox.addEventListener("click", function () { lightbox.hidden = true; });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") lightbox.hidden = true; });
+
   // A sent note that was saved but did not wake firstmate says so.
   function showWarning(el, text) {
     if (el.querySelector(".state")) return;
@@ -408,17 +465,68 @@ const SCRIPT = `
     composer.hidden = false;
     document.body.classList.add("can-send");
   }
+  var attachmentsEl = document.getElementById("attachments");
+  var attachments = [];
+  var MAX_ATTACHMENTS = 4;
   function grow() {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
-    sendBtn.disabled = !input.value.trim();
+    sendBtn.disabled = !input.value.trim() && attachments.length === 0;
   }
+  function renderAttachments() {
+    attachmentsEl.textContent = "";
+    attachments.forEach(function (attachment, index) {
+      var item = document.createElement("div");
+      item.className = "attachment";
+      var img = document.createElement("img");
+      img.src = attachment.url;
+      img.alt = "";
+      item.appendChild(img);
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "Remove image");
+      remove.addEventListener("click", function () { attachments.splice(index, 1); renderAttachments(); });
+      item.appendChild(remove);
+      attachmentsEl.appendChild(item);
+    });
+    attachmentsEl.hidden = attachments.length === 0;
+    grow();
+  }
+  function addImages(files) {
+    Array.prototype.forEach.call(files, function (file) {
+      if (!file || file.type.indexOf("image/") !== 0 || attachments.length >= MAX_ATTACHMENTS) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var url = String(reader.result);
+        if (attachments.length >= MAX_ATTACHMENTS) return;
+        attachments.push({ url: url, mediaType: file.type, data: url.slice(url.indexOf(",") + 1) });
+        renderAttachments();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  input.addEventListener("paste", function (event) {
+    var files = Array.prototype.map.call((event.clipboardData && event.clipboardData.items) || [], function (item) {
+      return item.kind === "file" ? item.getAsFile() : null;
+    }).filter(function (file) { return file && file.type.indexOf("image/") === 0; });
+    if (!files.length) return;
+    event.preventDefault();
+    addImages(files);
+  });
+  composer.addEventListener("dragover", function (event) { event.preventDefault(); composer.classList.add("dropping"); });
+  composer.addEventListener("dragleave", function () { composer.classList.remove("dropping"); });
+  composer.addEventListener("drop", function (event) {
+    event.preventDefault();
+    composer.classList.remove("dropping");
+    if (event.dataTransfer) addImages(event.dataTransfer.files);
+  });
   input.addEventListener("input", grow);
   input.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); composer.requestSubmit(); }
   });
 
-  function pendingMessage(text) {
+  function pendingMessage(text, images) {
     var el = document.createElement("article");
     el.className = "msg user pending fresh";
     var time = document.createElement("span");
@@ -429,8 +537,9 @@ const SCRIPT = `
     var hl = document.createElement("span");
     hl.className = "hl";
     hl.textContent = text;
-    body.appendChild(hl);
+    if (text) body.appendChild(hl);
     el.appendChild(body);
+    if (images.length) el.appendChild(shots(images.map(function (image) { return image.url; })));
     var state = document.createElement("span");
     state.className = "state";
     state.textContent = "sending…";
@@ -440,24 +549,78 @@ const SCRIPT = `
     return el;
   }
 
+  // A tiny electronic blip when a message goes out: synthesized, no file.
+  var audio = null;
+  function wakeAudio() {
+    try {
+      var Context = window.AudioContext || window.webkitAudioContext;
+      if (!audio && Context) audio = new Context();
+      if (audio && audio.state === "suspended") audio.resume();
+    } catch (e) { audio = null; }
+  }
+  function blip() {
+    if (!audio) return;
+    try {
+      var t = audio.currentTime;
+      var osc = audio.createOscillator();
+      var gain = audio.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1500, t);
+      osc.frequency.exponentialRampToValueAtTime(950, t + 0.07);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.05, t + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.075);
+      osc.connect(gain);
+      gain.connect(audio.destination);
+      osc.start(t);
+      osc.stop(t + 0.08);
+    } catch (e) { /* sound is a nicety */ }
+  }
+
+  function post(payload) {
+    return fetch("/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-flyd-view-token": SEND_TOKEN },
+      body: payload,
+    }).then(function (response) {
+      return response.json().then(function (data) { return { response: response, data: data }; });
+    });
+  }
+  // After the view restarts, its token changes; an open tab fetches the new
+  // one and tries once more.
+  function deliver(payload, retry) {
+    return post(payload).then(function (result) {
+      if (result.response.status === 403 && retry) {
+        return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
+          if (!data.token) throw new Error(result.data.error || "not sent");
+          SEND_TOKEN = data.token;
+          return deliver(payload, false);
+        });
+      }
+      if (!result.response.ok) throw new Error(result.data.error || "not sent");
+      return result.data;
+    });
+  }
+
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
     var text = input.value.trim();
-    if (!text || !current) return;
-    var el = pendingMessage(text);
+    var images = attachments.slice();
+    if ((!text && !images.length) || !current) return;
+    // Created inside the key press, as browsers require for audio.
+    wakeAudio();
+    var el = pendingMessage(text, images);
     input.value = "";
-    grow();
+    attachments = [];
+    renderAttachments();
     toBottom();
-    fetch("/api/send", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-flyd-view-token": SEND_TOKEN },
-      body: JSON.stringify({ session: current, text: text }),
-    }).then(function (response) {
-      return response.json().then(function (data) {
-        if (!response.ok) throw new Error(data.error || "not sent");
-        return data;
-      });
-    }).then(function (sent) {
+    var payload = JSON.stringify({
+      session: current,
+      text: text,
+      images: images.map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
+    });
+    deliver(payload, true).then(function (sent) {
+      blip();
       // Kept until the message shows up in the conversation itself.
       if (nodes.has(sent.id)) {
         el.remove();
@@ -481,7 +644,7 @@ const SCRIPT = `
       el.classList.add("failed");
       el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
       el.addEventListener("click", function () { el.remove(); });
-      if (!input.value) { input.value = text; grow(); }
+      if (!input.value && !attachments.length) { input.value = text; attachments = images; renderAttachments(); }
     });
   });
 
@@ -513,14 +676,16 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <div class="working" id="working" hidden aria-label="${label} is working"><i></i><i></i><i></i></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
+    <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
       <button id="send" type="submit" disabled>send</button>
     </div>
-    <div class="hint">enter to send · shift+enter for a new line</div>
+    <div class="hint">enter to send · shift+enter for a new line · paste or drop images</div>
   </div>
 </form>
 <script>${SCRIPT}</script>

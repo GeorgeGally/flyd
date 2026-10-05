@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { LineFollower } from "../line-follower.js";
 import type { ConversationSnapshot } from "../types.js";
-import { assistantText, captain, title, toolResult, toolUse } from "./transcript-fixture.js";
+import { assistantText, attachment, captain, captainBlocks, title, toolResult, toolUse } from "./transcript-fixture.js";
+
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 let dir: string;
 
@@ -52,6 +54,14 @@ describe("LineFollower", () => {
     expect(readAll(follower)).toEqual([]);
     appendFileSync(path, bytes.subarray(4));
     expect(readAll(follower)).toEqual(["café ✓"]);
+  });
+
+  it("reports each line's starting byte, counting multi-byte characters", () => {
+    const path = join(dir, "s.jsonl");
+    writeFileSync(path, "a\né✓\n\nccc\n");
+    const seen: Array<[string, number]> = [];
+    new LineFollower(path).readNew((line, offset) => seen.push([line, offset]));
+    expect(seen).toEqual([["a", 0], ["é✓", 2], ["ccc", 9]]);
   });
 
   it("starts over when the file is truncated", () => {
@@ -114,6 +124,27 @@ describe("ClaudeCodeTranscriptSource", () => {
       follower.close();
     }
     expect(readFileSync(path, "utf8").endsWith("Captain, the view is live.\"}],\"stop_reason\":\"end_turn\"}}\n")).toBe(true);
+  });
+
+  it("shows pasted images in place of their [Image #N] markers and reads them back from the transcript", async () => {
+    const path = join(dir, "imgs.jsonl");
+    writeFileSync(path, [
+      captain("plain text first"),
+      assistantText("ok"),
+      captainBlocks([{ type: "text", text: "[Image #7] mobile spacing is off" }, { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }]),
+      attachment({ type: "queued_command", commandMode: "prompt", origin: { kind: "human" }, source_uuid: "q1", prompt: [{ type: "text", text: "and this [Image #8]" }, { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }] }),
+    ].join("\n") + "\n");
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir });
+
+    const messages = (await source.read("imgs")).messages.filter((m) => m.role === "user");
+    expect(messages.map((m) => [m.text, m.images?.length ?? 0])).toEqual([["plain text first", 0], ["mobile spacing is off", 1], ["and this", 1]]);
+    for (const message of messages.slice(1)) {
+      const image = await source.image("imgs", message.images![0]!);
+      expect(image).toEqual({ mediaType: "image/png", data: Buffer.from(PNG, "base64") });
+    }
+    expect(await source.image("imgs", "t0.0")).toBeNull();
+    expect(await source.image("imgs", "t999999.0")).toBeNull();
+    expect(await source.image("imgs", "../../etc/passwd")).toBeNull();
   });
 
   it("lists sessions newest first with their titles", async () => {

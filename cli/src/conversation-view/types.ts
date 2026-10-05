@@ -14,6 +14,8 @@ export interface ConversationMessage {
   role: ConversationRole;
   /** Markdown. The view renders it; sources never produce HTML. */
   text: string;
+  /** Opaque ids of images in the message; fetch them with ConversationSource.image. */
+  images?: string[];
   /** ISO timestamp, when the source knows it. */
   timestamp?: string;
 }
@@ -31,6 +33,17 @@ export interface SessionSummary {
   title: string;
   /** ISO timestamp of the last change. */
   updatedAt: string;
+}
+
+/** An image the captain attaches in the view: base64 bytes and their type. */
+export interface ImageUpload {
+  mediaType: string;
+  data: string;
+}
+
+export interface ImageData {
+  mediaType: string;
+  data: Buffer;
 }
 
 /** A message the captain sent from the view, as the source recorded it. */
@@ -65,5 +78,7 @@ export interface ConversationSource {
    * snapshot once the source can read the message back, so the page can
    * swap its optimistic copy for the real one.
    */
-  send(sessionId: string, text: string): Promise<SentMessage>;
+  send(sessionId: string, text: string, images?: ImageUpload[]): Promise<SentMessage>;
+  /** Bytes of an image named in a message's `images`, or null when unknown. */
+  image(sessionId: string, imageId: string): Promise<ImageData | null>;
 }

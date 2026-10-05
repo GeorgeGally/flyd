@@ -12,6 +12,8 @@ const CHUNK_BYTES = 1 << 20;
 export class LineFollower {
   private offset = 0;
   private pending = "";
+  /** Byte offset in the file where `pending` starts. */
+  private pendingStart = 0;
   private decoder = new StringDecoder("utf8");
 
   constructor(private readonly path: string) {}
@@ -21,6 +23,7 @@ export class LineFollower {
     if (size >= this.offset) return false;
     this.offset = 0;
     this.pending = "";
+    this.pendingStart = 0;
     this.decoder = new StringDecoder("utf8");
     return true;
   }
@@ -29,9 +32,10 @@ export class LineFollower {
    * Hands each new complete line (without newline) to `onLine` as it is
    * read, so a large file is never held in memory at once. `onTruncate` runs
    * first when the file was rewritten, so the caller can rebuild from the
-   * lines that follow. Returns the number of lines delivered.
+   * lines that follow. `offset` is the line's starting byte in the file, so a
+   * caller can come back for it later. Returns the number of lines delivered.
    */
-  readNew(onLine: (line: string) => void, onTruncate?: () => void): number {
+  readNew(onLine: (line: string, offset: number) => void, onTruncate?: () => void): number {
     const size = statSync(this.path).size;
     if (this.resetIfTruncated(size)) onTruncate?.();
     if (size === this.offset) return 0;
@@ -47,11 +51,15 @@ export class LineFollower {
         const text = this.pending + this.decoder.write(buffer.subarray(0, read));
         const parts = text.split("\n");
         this.pending = parts.pop() ?? "";
+        let cursor = this.pendingStart;
         for (const part of parts) {
+          const start = cursor;
+          cursor += Buffer.byteLength(part) + 1;
           if (part.length === 0) continue;
           count++;
-          onLine(part);
+          onLine(part, start);
         }
+        this.pendingStart = cursor;
       }
     } finally {
       closeSync(fd);

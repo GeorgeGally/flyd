@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource } from "./types.js";
+import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -13,12 +13,15 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource } fr
 export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
 const HEARTBEAT_MS = 15_000;
-const MAX_SEND_BODY_BYTES = 64 * 1024;
+/** Text plus up to four pasted screenshots, base64-encoded. */
+const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 
 export interface RenderedMessage {
   id: string;
   role: ConversationMessage["role"];
   html: string;
+  /** Image ids; the page loads each from /api/image. */
+  images?: string[];
   timestamp?: string;
 }
 
@@ -42,12 +45,14 @@ export class SnapshotDiffer {
     for (const message of snapshot.messages) {
       order.push(message.id);
       seen.add(message.id);
-      if (this.sent.get(message.id) === message.text) continue;
-      this.sent.set(message.id, message.text);
+      const key = `${message.text}\u0000${(message.images ?? []).join(",")}`;
+      if (this.sent.get(message.id) === key) continue;
+      this.sent.set(message.id, key);
       changed.push({
         id: message.id,
         role: message.role,
         html: renderMarkdown(message.text),
+        ...(message.images?.length ? { images: message.images } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
       });
     }
@@ -171,6 +176,19 @@ export class ConversationViewServer {
       sendJson(res, 200, { assistantLabel: this.source.assistantLabel, sessions: await this.source.listSessions() });
       return;
     }
+    if (url.pathname === "/api/token") {
+      // Lets an open tab recover after the view process restarted with a new
+      // token. Other origins cannot read this response (no CORS), and the Host
+      // check above stops DNS rebinding, so it proves the same thing the
+      // token embedded in the page does.
+      if (!this.source.canSend) sendJson(res, 404, { error: "read-only" });
+      else sendJson(res, 200, { token: this.token });
+      return;
+    }
+    if (url.pathname === "/api/image") {
+      await this.image(res, url.searchParams.get("session"), url.searchParams.get("id"));
+      return;
+    }
     if (url.pathname === "/api/stream") {
       await this.stream(req, res, url.searchParams.get("session"));
       return;
@@ -196,22 +214,48 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
       sendJson(res, 400, { error: "invalid body" });
       return;
     }
-    if (typeof payload.session !== "string" || typeof payload.text !== "string" || !payload.text.trim()) {
-      sendJson(res, 400, { error: "expected { session, text }" });
+    const images = payload.images ?? [];
+    const validImages = Array.isArray(images) && images.every((image) =>
+      typeof image === "object" && image !== null &&
+      typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
+    if (typeof payload.session !== "string" || typeof payload.text !== "string" || !validImages ||
+        (!payload.text.trim() && (images as ImageUpload[]).length === 0)) {
+      sendJson(res, 400, { error: "expected { session, text, images? }" });
       return;
     }
     try {
-      sendJson(res, 200, await this.source.send(payload.session, payload.text));
+      sendJson(res, 200, await this.source.send(payload.session, payload.text, images as ImageUpload[]));
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  private async image(res: ServerResponse, session: string | null, id: string | null): Promise<void> {
+    let image = null;
+    try {
+      image = session && id ? await this.source.image(session, id) : null;
+    } catch {
+      image = null;
+    }
+    if (!image) {
+      sendJson(res, 404, { error: "no such image" });
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": image.mediaType,
+      "content-length": image.data.length,
+      "x-content-type-options": "nosniff",
+      // An id always names the same bytes.
+      "cache-control": "private, max-age=86400, immutable",
+    });
+    res.end(image.data);
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {

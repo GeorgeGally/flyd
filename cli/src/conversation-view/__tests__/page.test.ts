@@ -30,6 +30,22 @@ const SESSIONS = [
   { id: "older", title: "Older", updatedAt: "2026-10-04T20:00:00.000Z" },
 ];
 let sendResponse: Record<string, unknown>;
+let blips = 0;
+
+/** Counts blips: each one is an oscillator started. */
+class FakeAudioContext {
+  state = "running";
+  currentTime = 0;
+  destination = {};
+  resume() {}
+  createOscillator() {
+    const param = { setValueAtTime() {}, exponentialRampToValueAtTime() {} };
+    return { type: "", frequency: param, connect() {}, start: () => (blips += 1), stop() {} };
+  }
+  createGain() {
+    return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} };
+  }
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -69,7 +85,9 @@ const pending = (): string[] => Array.from(document.querySelectorAll(".msg.pendi
 beforeEach(() => {
   FakeEventSource.instances = [];
   sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z" };
+  blips = 0;
   vi.stubGlobal("EventSource", FakeEventSource);
+  vi.stubGlobal("AudioContext", FakeAudioContext);
   vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
   window.scrollTo = () => {};
 });
@@ -127,5 +145,74 @@ describe("conversation page", () => {
     stream.emit("update", { order: ["note:1"], messages: [{ id: "note:1", role: "user", html: "<p>are you there?</p>" }], working: false });
     expect(pending()).toEqual([]);
     expect(document.querySelector(".msg.user .state")?.textContent).toBe("saved, but firstmate was not woken: fm-inbox: firstmate was NOT woken");
+  });
+
+  it("previews a pasted image, sends it with the message, and shows transcript images as thumbnails", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>broken</p>", images: ["t10.0"] } as never]);
+    const shot = document.querySelector(".msg.user .shot img") as HTMLImageElement;
+    expect(shot.getAttribute("src")).toBe("/api/image?session=latest&id=t10.0");
+    (document.querySelector(".msg.user .shot") as HTMLElement).click();
+    expect((document.getElementById("lightbox") as HTMLElement).hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect((document.getElementById("lightbox") as HTMLElement).hidden).toBe(true);
+
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] },
+    });
+    document.getElementById("input")!.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+    expect((document.getElementById("send") as HTMLButtonElement).disabled).toBe(false);
+
+    await type("");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "", images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }] });
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
+    expect(document.querySelectorAll(".msg.pending .shot img")).toHaveLength(1);
+    void stream;
+  });
+
+  it("blips once for a message that went out, and stays quiet when it did not", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    await type("ping");
+    expect(blips).toBe(1);
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json({ error: "firstmate did not take the message: no" }, 502) : json({ sessions: SESSIONS }))));
+    await type("pong");
+    expect(document.querySelector(".msg.failed")).not.toBeNull();
+    expect(blips).toBe(1);
+  });
+
+  it("recovers from a restarted viewer's new token by fetching it and retrying once", async () => {
+    const fresh = "b".repeat(48);
+    const sends: Array<string | null> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/token") return json({ token: fresh });
+      if (url === "/api/send") {
+        const token = new Headers(init?.headers).get("x-flyd-view-token");
+        sends.push(token);
+        return token === fresh ? json(sendResponse) : json({ error: "missing or wrong token" }, 403);
+      }
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    open("latest", []);
+    await type("still there?");
+    expect(sends).toEqual(["a".repeat(48), fresh]);
+    expect(pending()[0]).toContain("delivered");
+
+    // The new token sticks; and a token that keeps failing gives up after one retry.
+    await type("again");
+    expect(sends.slice(2)).toEqual([fresh]);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/token" ? json({ token: fresh }) : url === "/api/send" ? json({ error: "missing or wrong token" }, 403) : json({ sessions: SESSIONS }))));
+    await type("third");
+    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("missing or wrong token");
   });
 });

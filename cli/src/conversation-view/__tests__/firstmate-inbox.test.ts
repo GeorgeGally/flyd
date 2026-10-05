@@ -24,6 +24,8 @@ printf 'queued %s\\n  %s\\n' "$id" "$body"
 let dir: string;
 let home: string;
 
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 function writeScript(name: string, content: string): string {
   const path = join(dir, name);
   writeFileSync(path, content);
@@ -58,6 +60,38 @@ describe("FirstmateInbox", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ id: sent.id, role: "user", text });
     expect(readdirSync(dir)).not.toContain("pwned");
+  });
+
+  it("saves pasted images under data/inbox-images and names them in the note for firstmate", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    const sent = await inbox.send("look at this", [{ mediaType: "image/png", data: PNG }]);
+
+    const saved = readdirSync(join(home, "data", "inbox-images"));
+    expect(saved).toHaveLength(1);
+    const path = join(home, "data", "inbox-images", saved[0]!);
+    expect(readFileSync(path)).toEqual(Buffer.from(PNG, "base64"));
+    const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
+    expect(raw).toContain(`look at this\n\n[image: ${path}]`);
+
+    const [note] = inbox.notes();
+    expect(note).toMatchObject({ id: sent.id, text: "look at this", images: [`f${saved[0]}`] });
+    expect(inbox.image(note!.images![0]!)).toEqual({ mediaType: "image/png", data: Buffer.from(PNG, "base64") });
+
+    // An image alone is a message too.
+    await inbox.send("", [{ mediaType: "image/png", data: PNG }]);
+    expect(inbox.notes()[1]).toMatchObject({ text: "", images: [expect.stringMatching(/^f.+\.png$/)] });
+  });
+
+  it("refuses files that are not images, too many images, and image names outside its folder", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    await expect(inbox.send("x", [{ mediaType: "image/png", data: Buffer.from("#!/bin/sh\nrm -rf ~").toString("base64") }])).rejects.toThrow("Only PNG, JPEG, GIF and WebP");
+    await expect(inbox.send("x", Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: PNG })))).rejects.toThrow("At most 4 images");
+    expect(inbox.notes()).toEqual([]);
+
+    writeNote("", "300-c", "2026-10-05T20:00:00Z", `see\n[image: /etc/passwd]\n[image: ${join(home, "data", "inbox-images")}/../../x.png]`);
+    expect(inbox.notes()[0]).toMatchObject({ text: expect.stringContaining("[image: /etc/passwd]") });
+    expect(inbox.notes()[0]!.images).toBeUndefined();
+    expect(inbox.image("f../../x.png")).toBeNull();
   });
 
   it("reports the script's own refusal", async () => {
