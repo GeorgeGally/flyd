@@ -1,0 +1,167 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { renderMarkdown } from "./markdown.js";
+import { renderPage } from "./page.js";
+import type { ConversationMessage, ConversationSnapshot, ConversationSource } from "./types.js";
+
+// Loopback-only HTTP server for the conversation view. It never sends
+// transcript content anywhere but the local browser that asked for it.
+
+export const VIEW_HOST = "127.0.0.1";
+export const DEFAULT_VIEW_PORT = 4818;
+const HEARTBEAT_MS = 15_000;
+
+export interface RenderedMessage {
+  id: string;
+  role: ConversationMessage["role"];
+  html: string;
+  timestamp?: string;
+}
+
+interface StreamUpdate {
+  /** Every visible message id, in order; the page drops ids not listed. */
+  order: string[];
+  /** Messages that are new or whose content changed. */
+  messages: RenderedMessage[];
+  working: boolean;
+  lastActivity?: string;
+}
+
+/** Turns successive snapshots into minimal updates, rendering only what changed. */
+export class SnapshotDiffer {
+  private readonly sent = new Map<string, string>();
+
+  next(snapshot: ConversationSnapshot): StreamUpdate {
+    const changed: RenderedMessage[] = [];
+    const order: string[] = [];
+    const seen = new Set<string>();
+    for (const message of snapshot.messages) {
+      order.push(message.id);
+      seen.add(message.id);
+      if (this.sent.get(message.id) === message.text) continue;
+      this.sent.set(message.id, message.text);
+      changed.push({
+        id: message.id,
+        role: message.role,
+        html: renderMarkdown(message.text),
+        ...(message.timestamp ? { timestamp: message.timestamp } : {}),
+      });
+    }
+    for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
+    return {
+      order,
+      messages: changed,
+      working: snapshot.working,
+      ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
+    };
+  }
+}
+
+function isLoopbackHost(hostHeader: string | undefined, port: number): boolean {
+  // Rejects DNS-rebinding: a page on another origin that resolves to
+  // 127.0.0.1 still sends its own Host header.
+  if (!hostHeader) return false;
+  return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(hostHeader.toLowerCase());
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+function sseEvent(res: ServerResponse, event: string, data: unknown): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+export class ConversationViewServer {
+  private server: Server | null = null;
+  private port = 0;
+
+  constructor(private readonly source: ConversationSource) {}
+
+  async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
+    const server = createServer((req, res) => {
+      void this.handle(req, res).catch((error: unknown) => {
+        if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        else res.end();
+      });
+    });
+    this.server = server;
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, VIEW_HOST, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    this.port = (server.address() as AddressInfo).port;
+    return this.port;
+  }
+
+  async close(): Promise<void> {
+    const server = this.server;
+    this.server = null;
+    if (!server) return;
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!isLoopbackHost(req.headers.host, this.port)) {
+      sendJson(res, 403, { error: "forbidden host" });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "read-only" });
+      return;
+    }
+    const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (url.pathname === "/") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        // Inline page only; nothing loads from elsewhere.
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
+      });
+      res.end(renderPage({ assistantLabel: this.source.assistantLabel }));
+      return;
+    }
+    if (url.pathname === "/api/sessions") {
+      sendJson(res, 200, { assistantLabel: this.source.assistantLabel, sessions: await this.source.listSessions() });
+      return;
+    }
+    if (url.pathname === "/api/stream") {
+      await this.stream(req, res, url.searchParams.get("session"));
+      return;
+    }
+    sendJson(res, 404, { error: "not found" });
+  }
+
+  private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
+    const sessions = await this.source.listSessions();
+    const session = requested ? sessions.find((candidate) => candidate.id === requested) : sessions[0];
+    if (!session) {
+      sendJson(res, 404, { error: requested ? `No such session: ${requested}` : "No sessions found" });
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store",
+      connection: "keep-alive",
+    });
+    sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel });
+
+    const differ = new SnapshotDiffer();
+    const follower = this.source.follow(
+      session.id,
+      (snapshot) => sseEvent(res, "update", differ.next(snapshot)),
+      (error) => sseEvent(res, "problem", { error: error.message }),
+    );
+    const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
+    heartbeat.unref?.();
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      follower.close();
+    });
+  }
+}
