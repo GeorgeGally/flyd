@@ -38,6 +38,8 @@ export interface SentMessage {
   /** The id the message will carry in snapshots once the source reads it back. */
   id: string;
   timestamp: string;
+  /** Delivered, but something after delivery went wrong (e.g. the recipient was not woken). */
+  warning?: string;
 }
 
 export interface ConversationFollower {

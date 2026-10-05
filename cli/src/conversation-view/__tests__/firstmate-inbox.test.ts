@@ -66,6 +66,33 @@ describe("FirstmateInbox", () => {
     await expect(inbox.send("   ")).rejects.toThrow("Nothing to send");
   });
 
+  it("treats a saved note whose wake failed as delivered, with a warning, so it is never resent", async () => {
+    // fm-inbox.sh publishes the note and prints `queued <id>` before waking
+    // firstmate; a failed wake then exits non-zero.
+    const script = writeScript("fm-inbox.sh", FAKE_SCRIPT.replace(/\n$/, "\necho \"fm-inbox: note $id is saved but firstmate was NOT woken\" >&2\nexit 1\n"));
+    const inbox = new FirstmateInbox({ home, script });
+    const sent = await inbox.send("are you there?");
+    expect(sent.warning).toMatch(/^fm-inbox: note \S+ is saved but firstmate was NOT woken$/);
+    expect(inbox.notes().map((note) => [note.id, note.text])).toEqual([[sent.id, "are you there?"]]);
+  });
+
+  it("reads each note file once, including after firstmate moves it to handled/", () => {
+    writeNote("", "100-a", "2026-10-05T20:00:00Z", "first");
+    const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
+    expect(inbox.notes().map((note) => note.text)).toEqual(["first"]);
+
+    // Unreadable from here on: only a re-read would lose it.
+    const pendingPath = join(home, "state", "inbox", "100-a.note");
+    chmodSync(pendingPath, 0o000);
+    mkdirSync(join(home, "state", "inbox", "handled"));
+    renameSync(pendingPath, join(home, "state", "inbox", "handled", "100-a.note"));
+    writeNote("", "200-b", "2026-10-05T20:05:00Z", "second");
+    expect(inbox.notes().map((note) => note.text)).toEqual(["first", "second"]);
+
+    rmSync(join(home, "state", "inbox", "handled", "100-a.note"));
+    expect(inbox.notes().map((note) => note.text)).toEqual(["second"]);
+  });
+
   it("reads notes both pending and already handled by firstmate, oldest first", () => {
     writeNote("handled", "200-b", "2026-10-05T20:10:00Z", "second");
     writeNote("", "100-a", "2026-10-05T20:00:00Z", "first\nwith two lines");

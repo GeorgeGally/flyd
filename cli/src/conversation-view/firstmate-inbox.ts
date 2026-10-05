@@ -40,6 +40,13 @@ function parseNote(file: string): ConversationMessage | null {
 export class FirstmateInbox implements CaptainInbox {
   readonly script: string;
   readonly home: string;
+  /**
+   * Parsed notes by file name. A note's content never changes; firstmate only
+   * moves it into handled/ under the same name, so each is read once.
+   */
+  private readonly parsed = new Map<string, ConversationMessage | null>();
+  private sorted: ConversationMessage[] = [];
+  private listingKey = "";
 
   constructor(options: { home?: string; script?: string } = {}) {
     this.home = options.home ?? FIRSTMATE_HOME;
@@ -62,12 +69,14 @@ export class FirstmateInbox implements CaptainInbox {
         { env: { ...process.env, FM_HOME: this.home }, timeout: SEND_TIMEOUT_MS, maxBuffer: 1 << 20 },
         (error, stdout, stderr) => {
           const id = /^queued (\S+)/m.exec(stdout)?.[1];
-          if (error || !id) {
-            const detail = `${stderr}`.trim().split("\n").pop() || (error ? error.message : "no note id returned");
+          const detail = `${stderr}`.trim().split("\n").pop() || (error ? error.message : "no note id returned");
+          if (!id) {
             reject(new Error(`firstmate did not take the message: ${detail}`));
             return;
           }
-          resolve({ id: `note:${id}`, timestamp: new Date().toISOString() });
+          // `queued <id>` means the note is saved; a failure after that (the
+          // wake) must not read as "not sent", or a resend would duplicate it.
+          resolve({ id: `note:${id}`, timestamp: new Date().toISOString(), ...(error ? { warning: detail } : {}) });
         },
       );
       child.stdin?.end(body);
@@ -76,20 +85,30 @@ export class FirstmateInbox implements CaptainInbox {
 
   notes(): ConversationMessage[] {
     const inbox = join(this.home, "state", "inbox");
-    const notes: ConversationMessage[] = [];
+    const present = new Map<string, string>();
     for (const dir of [inbox, join(inbox, "handled")]) {
       if (!existsSync(dir)) continue;
-      for (const name of readdirSync(dir)) {
-        if (!name.endsWith(".note")) continue;
-        try {
-          const note = parseNote(join(dir, name));
-          if (note) notes.push(note);
-        } catch {
-          // Moved to handled/ between listing and reading; the next poll finds it.
-        }
+      for (const name of readdirSync(dir)) if (name.endsWith(".note")) present.set(name, join(dir, name));
+    }
+    const key = [...present.keys()].sort().join("\n");
+    if (key === this.listingKey) return this.sorted;
+
+    for (const name of this.parsed.keys()) if (!present.has(name)) this.parsed.delete(name);
+    let unreadable = false;
+    for (const [name, path] of present) {
+      if (this.parsed.has(name)) continue;
+      try {
+        this.parsed.set(name, parseNote(path));
+      } catch {
+        // Moved to handled/ between listing and reading; read it next time.
+        unreadable = true;
       }
     }
-    return notes.sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
+    this.sorted = [...this.parsed.values()]
+      .filter((note): note is ConversationMessage => note !== null)
+      .sort((a, b) => Date.parse(a.timestamp ?? "") - Date.parse(b.timestamp ?? ""));
+    this.listingKey = unreadable ? "" : key;
+    return this.sorted;
   }
 }
 

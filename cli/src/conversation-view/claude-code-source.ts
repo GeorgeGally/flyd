@@ -104,9 +104,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox.send(text);
   }
 
-  /** Cached: a session's first entry never changes. */
-  private startOf(path: string, size: number): string | undefined {
-    if (!this.starts.has(path)) this.starts.set(path, sessionStart(path, size));
+  /** Cached: a session's first entry never changes. An empty file is retried later. */
+  private startOf(path: string): string | undefined {
+    if (!this.starts.has(path)) {
+      const start = sessionStart(path, statSync(path).size);
+      if (start === undefined) return undefined;
+      this.starts.set(path, start);
+    }
     return this.starts.get(path);
   }
 
@@ -116,7 +120,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => {
         const path = join(this.projectDir, name);
-        return { id: name.slice(0, -".jsonl".length), start: this.startOf(path, statSync(path).size) };
+        return { id: name.slice(0, -".jsonl".length), start: this.startOf(path) };
       })
       .filter((session): session is { id: string; start: string } => session.start !== undefined)
       .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));

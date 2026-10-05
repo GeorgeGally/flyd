@@ -218,6 +218,8 @@ const SCRIPT = `
   var isWorking = false;
   var first = true;
   var awaiting = new Set();
+  var latestSession = null;
+  var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
 
   function store(key, value) {
@@ -284,8 +286,18 @@ const SCRIPT = `
   function fill(el, message) {
     el.dataset.ts = message.timestamp || "";
     el.firstChild.textContent = message.timestamp ? clock(message.timestamp) : "";
-    el.lastChild.innerHTML = message.html;
-    if (message.role === "user") highlight(el.lastChild);
+    var body = el.querySelector(".body");
+    body.innerHTML = message.html;
+    if (message.role === "user") highlight(body);
+    if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
+  }
+  // A sent note that was saved but did not wake firstmate says so.
+  function showWarning(el, text) {
+    if (el.querySelector(".state")) return;
+    var state = document.createElement("span");
+    state.className = "state";
+    state.textContent = text;
+    el.appendChild(state);
   }
 
   function refreshWorking() {
@@ -334,6 +346,9 @@ const SCRIPT = `
   function reset() {
     nodes.forEach(function (el) { el.remove(); });
     nodes.clear();
+    // Optimistic copies belong to the session they were sent from.
+    main.querySelectorAll(".msg.pending").forEach(function (el) { el.remove(); });
+    awaiting.clear();
     first = true;
     jump.hidden = true;
   }
@@ -357,6 +372,7 @@ const SCRIPT = `
   function loadSessions() {
     return fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (data) {
       var sessions = data.sessions || [];
+      latestSession = sessions.length ? sessions[0].id : null;
       picker.textContent = "";
       sessions.forEach(function (session, index) {
         var option = document.createElement("option");
@@ -449,10 +465,24 @@ const SCRIPT = `
       });
     }).then(function (sent) {
       // Kept until the message shows up in the conversation itself.
-      if (nodes.has(sent.id)) { el.remove(); return; }
+      if (nodes.has(sent.id)) {
+        el.remove();
+        if (sent.warning) {
+          warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+          showWarning(nodes.get(sent.id), warnings.get(sent.id));
+        }
+        return;
+      }
+      var state = el.querySelector(".state");
+      if (latestSession && current !== latestSession) {
+        // Firstmate answers in its live session; the note is shown there.
+        state.textContent = "delivered · shows in the latest session";
+        return;
+      }
       el.dataset.wait = sent.id;
       awaiting.add(sent.id);
-      el.querySelector(".state").textContent = "delivered";
+      if (sent.warning) warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+      state.textContent = warnings.get(sent.id) || "delivered";
     }).catch(function (error) {
       el.classList.add("failed");
       el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
