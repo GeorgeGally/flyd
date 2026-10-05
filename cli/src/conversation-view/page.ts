@@ -78,7 +78,7 @@ header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ~66 characters a line at the reading size. */
 main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh 2.2em; }
-body.can-send main { padding-bottom: calc(30vh + 6em); }
+body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -145,7 +145,7 @@ body.can-send main { padding-bottom: calc(30vh + 6em); }
   border-radius: 999px; padding: 9px 14px; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,.25);
 }
 .jump[hidden] { display: none; }
-body.can-send .jump { bottom: 7.5em; font-size: 14px; }
+body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .problem { position: fixed; right: 16px; bottom: 16px; font: 12px var(--mono); color: var(--muted); }
 
 /* Pending: the captain's message is on its way to firstmate. */
@@ -157,7 +157,8 @@ body.can-send .jump { bottom: 7.5em; font-size: 14px; }
 
 .composer {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
-  padding: 1.6em 0 0.9em;
+  /* Lifted clear of the window's bottom edge. */
+  padding: 1.6em 0 max(72px, 9vh);
   background: linear-gradient(to bottom, transparent, var(--bg) 1.4em);
   font-size: 0.8em;
 }
