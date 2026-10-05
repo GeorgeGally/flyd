@@ -215,4 +215,42 @@ describe("conversation page", () => {
     await type("third");
     expect(document.querySelector(".msg.failed .state")?.textContent).toContain("missing or wrong token");
   });
+
+  it("leads long replies with their summary, opens the full reply on demand, and switches to full view", async () => {
+    load("");
+    await settle();
+    open("latest", [
+      { id: "r1", role: "assistant", html: "<p>The whole long reply.</p>", summary: { html: "<p>Menu bar fixed.</p>", source: "model" } } as never,
+      { id: "r2", role: "assistant", html: "<p>Short and whole.</p>" },
+    ]);
+    const reply = document.querySelector("article.assistant") as HTMLElement;
+    expect(reply.querySelector(".summary")!.textContent).toBe("Menu bar fixed.");
+    expect(document.documentElement.getAttribute("data-view")).toBe("summary");
+    expect(reply.classList.contains("open")).toBe(false);
+    const more = reply.querySelector(".more") as HTMLButtonElement;
+    expect(more.textContent).toBe("more");
+    more.click();
+    expect(reply.classList.contains("open")).toBe(true);
+    expect(more.textContent).toBe("less");
+    expect(document.querySelectorAll("article.assistant")[1]!.querySelector(".summary")).toBeNull();
+
+    (document.getElementById("mode") as HTMLButtonElement).click();
+    expect(document.documentElement.getAttribute("data-view")).toBe("full");
+    expect(localStorage.getItem("flyd-view-mode")).toBe("full");
+    (document.getElementById("mode") as HTMLButtonElement).click();
+    expect(document.documentElement.getAttribute("data-view")).toBe("summary");
+  });
+
+  it("swaps a pending first-sentence summary for the model's when it arrives", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [
+      { id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>First sentence.</p>", source: "first-sentence", pending: true } } as never,
+    ]);
+    expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(true);
+    stream.emit("update", { order: ["r1"], messages: [{ id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>Plain English.</p>", source: "model" } }], working: false });
+    expect(document.querySelectorAll(".summary")).toHaveLength(1);
+    expect(document.querySelector(".summary")!.textContent).toBe("Plain English.");
+    expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(false);
+  });
 });

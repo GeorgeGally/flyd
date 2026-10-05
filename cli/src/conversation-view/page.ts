@@ -147,6 +147,28 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .problem { position: fixed; right: 16px; bottom: 16px; font: 12px var(--mono); color: var(--muted); }
 
+/* Summary view: a long reply leads with its plain-English summary; the full
+   reply waits behind "more". Full view shows replies whole. */
+.summary { color: var(--strong); }
+.summary > :first-child { margin-top: 0; }
+.summary > :last-child { margin-bottom: 0; }
+.summary p { margin: 0 0 0.5em; }
+.summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
+.compare { margin-top: 0.5em; padding-left: 0.8em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.86em; }
+.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.compare p { margin: 0; }
+.more {
+  display: inline-block; margin: 0.35em 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer;
+  font: 500 13px/1.4 var(--mono); color: var(--muted); letter-spacing: 0.02em;
+}
+.more:hover { color: var(--fg); }
+.msg.has-summary > .body { margin-top: 0.7em; }
+:root:not([data-view="full"]) .msg.has-summary:not(.open) > .body { display: none; }
+:root[data-view="full"] .msg.has-summary .more,
+:root[data-view="full"] .msg.has-summary .compare,
+:root[data-view="full"] .msg.has-summary:not([data-summary="author"]) .summary { display: none; }
+:root[data-view="full"] .msg.has-summary:not([data-summary="author"]) > .body { margin-top: 0; }
+
 /* Pasted images: thumbnails under the message, full size on click. */
 .shots { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.45em; }
 .shot { font: inherit; padding: 0; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); cursor: zoom-in; overflow: hidden; line-height: 0; }
@@ -248,6 +270,17 @@ const SCRIPT = `
     themeBtn.textContent = theme === "light" ? "dark" : "light";
   }
   applyTheme(store("flyd-view-theme") === "light" ? "light" : "dark");
+  var modeBtn = document.getElementById("mode");
+  function applyMode(mode) {
+    document.documentElement.setAttribute("data-view", mode);
+    modeBtn.textContent = mode === "full" ? "summary" : "full";
+  }
+  applyMode(store("flyd-view-mode") === "full" ? "full" : "summary");
+  modeBtn.addEventListener("click", function () {
+    var next = document.documentElement.getAttribute("data-view") === "full" ? "summary" : "full";
+    store("flyd-view-mode", next);
+    applyMode(next);
+  });
   themeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     store("flyd-view-theme", next);
@@ -314,7 +347,39 @@ const SCRIPT = `
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
       })));
     }
+    if (message.role === "assistant") summarize(el, message);
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
+  }
+  function summarize(el, message) {
+    ["summary", "compare", "more"].forEach(function (name) {
+      var old = el.querySelector(":scope > ." + name);
+      if (old) old.remove();
+    });
+    el.classList.toggle("has-summary", !!message.summary);
+    if (!message.summary) { delete el.dataset.summary; return; }
+    el.dataset.summary = message.summary.source;
+    var body = el.querySelector(".body");
+    var summary = document.createElement("div");
+    summary.className = "summary" + (message.summary.pending ? " pending" : "");
+    summary.innerHTML = message.summary.html;
+    el.insertBefore(summary, body);
+    if (message.compare) {
+      var compare = document.createElement("div");
+      compare.className = "compare" + (message.compare.pending ? " pending" : "");
+      compare.innerHTML = message.compare.html;
+      el.insertBefore(compare, body);
+    }
+    var more = document.createElement("button");
+    more.type = "button";
+    more.className = "more";
+    more.textContent = el.classList.contains("open") ? "less" : "more";
+    more.setAttribute("aria-expanded", el.classList.contains("open") ? "true" : "false");
+    more.addEventListener("click", function () {
+      var open = el.classList.toggle("open");
+      more.textContent = open ? "less" : "more";
+      more.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    el.insertBefore(more, body);
   }
   function shots(urls) {
     var row = document.createElement("div");
@@ -669,6 +734,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="who">${label}</span>
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
   <span class="when" id="when"></span>
+  <button id="mode" type="button" aria-label="Switch between summaries and full replies">full</button>
   <button id="theme" type="button" aria-label="Toggle theme">light</button>
 </header>
 <main id="stream" aria-live="polite">

@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
+import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
+import { getKey } from "../lib/config.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 
 export interface ViewOptions {
@@ -45,13 +47,22 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     throw new Error(`No session ${options.session} in ${projectDir}`);
   }
 
-  const server = new ConversationViewServer(source);
+  // Plain-English summaries: xAI Grok, then Claude Haiku, from whichever keys
+  // exist; with neither, a long reply leads with its own first sentence.
+  const providers = defaultProviders({ anthropicKey: getKey("ANTHROPIC_API_KEY") });
+  const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
+  const server = new ConversationViewServer(source, { summarizer, always: process.env.FLYD_SUMMARY_ALWAYS === "1" });
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);
   console.log(source.canSend
     ? `Messages you type go to firstmate's inbox (${inbox.script}). Ctrl-C to stop.`
     : "Read-only. Ctrl-C to stop.");
+  console.log(providers.length
+    ? `Summaries: ${providers.map((provider) => provider.name).join(", then ")} (reply text is sent to that provider; FLYD_VIEW_SUMMARIES=0 turns it off).`
+    : process.env.FLYD_VIEW_SUMMARIES === "0"
+      ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with their first sentence."
+      : "Summaries: no XAI_API_KEY or ANTHROPIC_API_KEY found; long replies lead with their first sentence.");
   if (options.open !== false) openInBrowser(url);
 
   await new Promise<void>((resolve) => {

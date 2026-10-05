@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
+import { authorSummary, firstSentence, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
@@ -15,6 +16,8 @@ export const DEFAULT_VIEW_PORT = 4818;
 const HEARTBEAT_MS = 15_000;
 /** Text plus up to four pasted screenshots, base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
+/** Model summaries are only asked for the newest replies; older ones use what is cached. */
+const SUMMARIZE_NEWEST = 20;
 
 export interface RenderedMessage {
   id: string;
@@ -22,7 +25,19 @@ export interface RenderedMessage {
   html: string;
   /** Image ids; the page loads each from /api/image. */
   images?: string[];
+  /** For a long reply: what to read first. `html` is then the rest of the reply. */
+  summary?: { html: string; source: SummarySource; pending?: boolean };
+  /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
+  compare?: { html: string; pending?: boolean };
   timestamp?: string;
+}
+
+export interface SummaryOptions {
+  summarizer: ReplySummarizer;
+  /** Also summarise replies that carry their own "» " summary, to compare. */
+  always?: boolean;
+  /** Called when a requested summary arrives (or fails), so the stream can push it. */
+  onSummary?: () => void;
 }
 
 interface StreamUpdate {
@@ -38,21 +53,67 @@ interface StreamUpdate {
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
 
+  constructor(private readonly summaries?: SummaryOptions) {}
+
+  /** Starts a model summary in the background; the stream re-renders when it lands. */
+  private ask(text: string): void {
+    const summaries = this.summaries!;
+    void summaries.summarizer.request(text).then(() => summaries.onSummary?.());
+  }
+
+  /** The summary parts of an assistant reply. Never waits for a model. */
+  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare"> & { body: string } {
+    const author = authorSummary(message.text);
+    const summarizer = this.summaries?.summarizer;
+    const modelFor = (text: string): { text?: string; pending: boolean } => {
+      if (!summarizer) return { pending: false };
+      const cached = summarizer.cached(text);
+      if (cached) return { text: cached, pending: false };
+      if (newest && summarizer.wants(text)) this.ask(text);
+      return { pending: summarizer.pending(text) };
+    };
+    if (author) {
+      const parts: Pick<RenderedMessage, "summary" | "compare"> & { body: string } = {
+        body: author.rest,
+        summary: { html: renderMarkdown(author.summary), source: "author" },
+      };
+      if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
+        const model = modelFor(message.text);
+        if (model.text || model.pending) parts.compare = { html: model.text ? renderMarkdown(model.text) : "", ...(model.pending ? { pending: true } : {}) };
+      }
+      return parts;
+    }
+    if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text };
+    const model = modelFor(message.text);
+    return {
+      body: message.text,
+      summary: model.text
+        ? { html: renderMarkdown(model.text), source: "model" }
+        : { html: renderMarkdown(firstSentence(message.text)), source: "first-sentence", ...(model.pending ? { pending: true } : {}) },
+    };
+  }
+
   next(snapshot: ConversationSnapshot): StreamUpdate {
     const changed: RenderedMessage[] = [];
     const order: string[] = [];
     const seen = new Set<string>();
+    const newest = new Set(
+      snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
+    );
     for (const message of snapshot.messages) {
       order.push(message.id);
       seen.add(message.id);
-      const key = `${message.text}\u0000${(message.images ?? []).join(",")}`;
+      const parts = message.role === "assistant" ? this.summarize(message, newest.has(message.id)) : { body: message.text };
+      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
         id: message.id,
         role: message.role,
-        html: renderMarkdown(message.text),
+        html: renderMarkdown(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
+        ...(parts.summary ? { summary: parts.summary } : {}),
+        ...(parts.compare ? { compare: parts.compare } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
       });
     }
@@ -116,7 +177,10 @@ export class ConversationViewServer {
    */
   private readonly token = randomBytes(24).toString("hex");
 
-  constructor(private readonly source: ConversationSource) {}
+  constructor(
+    private readonly source: ConversationSource,
+    private readonly summaries?: { summarizer: ReplySummarizer; always?: boolean },
+  ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
     const server = createServer((req, res) => {
@@ -272,15 +336,29 @@ export class ConversationViewServer {
     });
     sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel });
 
-    const differ = new SnapshotDiffer();
+    let latest: ConversationSnapshot | null = null;
+    let closed = false;
+    const differ = new SnapshotDiffer(this.summaries
+      ? {
+          ...this.summaries,
+          // A summary landed: push whatever it changed.
+          onSummary: () => {
+            if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+          },
+        }
+      : undefined);
     const follower = this.source.follow(
       session.id,
-      (snapshot) => sseEvent(res, "update", differ.next(snapshot)),
+      (snapshot) => {
+        latest = snapshot;
+        sseEvent(res, "update", differ.next(snapshot));
+      },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
+      closed = true;
       clearInterval(heartbeat);
       follower.close();
     });

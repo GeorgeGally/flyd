@@ -8,6 +8,7 @@ import type { CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
 import { renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
+import { ReplySummarizer } from "../summaries.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -45,6 +46,70 @@ describe("SnapshotDiffer", () => {
     expect(second.order).toEqual(["a", "b"]);
     expect(second.messages).toEqual([{ id: "b", role: "assistant", html: "<p><strong>yo</strong></p>\n" }]);
     expect(differ.next({ messages: [{ id: "a", role: "user", text: "hi" }], working: false }).messages).toEqual([]);
+  });
+});
+
+describe("SnapshotDiffer summaries", () => {
+  const long = "Captain, the menu bar now sits ten pixels higher on every page, including the member login. " +
+    "I checked it in the browser on desktop and mobile, and the change is committed but not pushed yet. ".repeat(2);
+  const message = (id: string, text: string) => ({ id, role: "assistant" as const, text });
+
+  function withModel(answer: () => Promise<string>) {
+    let landed = 0;
+    const cacheFile = join(mkdtempSync(join(tmpdir(), "flyd-view-sum-")), "s.json");
+    const summarizer = new ReplySummarizer({ providers: [{ name: "fake", summarize: answer }], cacheFile });
+    return { summarizer, landed: () => landed, onSummary: () => (landed += 1) };
+  }
+
+  it("leads with the reply's own » summary and keeps the rest as the reply, without calling a model", () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "x"));
+    const differ = new SnapshotDiffer(model);
+    const [rendered] = differ.next({ messages: [message("r1", `» Menu bar fixed.\n» Pushed.\n\n${long}`)], working: false }).messages;
+    expect(rendered!.summary).toEqual({ html: "<p>Menu bar fixed. Pushed.</p>\n", source: "author" });
+    expect(rendered!.html).not.toContain("Menu bar fixed");
+    expect(calls).toBe(0);
+  });
+
+  it("shows the first sentence while a model summary is on its way, then pushes the model's", async () => {
+    let resolve!: (summary: string) => void;
+    const model = withModel(() => new Promise((r) => (resolve = r)));
+    const differ = new SnapshotDiffer(model);
+    const snapshot = { messages: [message("short", "Done."), message("r1", long)], working: false };
+    const first = differ.next(snapshot).messages;
+    expect(first[0]!.summary).toBeUndefined();
+    expect(first[1]!.summary).toMatchObject({ source: "first-sentence", pending: true });
+    expect(first[1]!.summary!.html).toContain("Captain, the menu bar now sits ten pixels higher");
+
+    await new Promise((r) => setTimeout(r, 0));
+    resolve("The menu bar is a little higher and saved, not yet published.");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(model.landed()).toBe(1);
+    const second = differ.next(snapshot).messages;
+    expect(second.map((m) => m.id)).toEqual(["r1"]);
+    expect(second[0]!.summary).toEqual({ html: "<p>The menu bar is a little higher and saved, not yet published.</p>\n", source: "model" });
+  });
+
+  it("only asks the model about the newest twenty replies, two at a time", async () => {
+    let calls = 0;
+    const model = withModel(() => (calls++, new Promise(() => {})));
+    const messages = Array.from({ length: 25 }, (_unused, i) => message(`r${i}`, `${i} ${long}`));
+    const rendered = new SnapshotDiffer(model).next({ messages, working: false }).messages;
+    expect(rendered.map((m) => m.summary?.pending === true)).toEqual([...Array(5).fill(false), ...Array(20).fill(true)]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(2);
+  });
+
+  it("with always on, also asks the model about replies that carry their own summary, to compare", async () => {
+    const model = withModel(async () => "Grok's take.");
+    const differ = new SnapshotDiffer({ ...model, always: true });
+    const snapshot = { messages: [message("r1", `» Menu bar fixed.\n\n${long}`)], working: false };
+    expect(differ.next(snapshot).messages[0]!.compare).toEqual({ html: "", pending: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(differ.next(snapshot).messages[0]).toMatchObject({
+      summary: { source: "author" },
+      compare: { html: "<p>Grok&#39;s take.</p>\n" },
+    });
   });
 });
 
