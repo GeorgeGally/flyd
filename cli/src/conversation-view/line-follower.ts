@@ -26,15 +26,17 @@ export class LineFollower {
   }
 
   /**
-   * Returns new complete lines (without newline). `truncated` tells the
-   * caller the file was rewritten and it should rebuild from these lines.
+   * Hands each new complete line (without newline) to `onLine` as it is
+   * read, so a large file is never held in memory at once. `onTruncate` runs
+   * first when the file was rewritten, so the caller can rebuild from the
+   * lines that follow. Returns the number of lines delivered.
    */
-  readNew(): { lines: string[]; truncated: boolean } {
+  readNew(onLine: (line: string) => void, onTruncate?: () => void): number {
     const size = statSync(this.path).size;
-    const truncated = this.resetIfTruncated(size);
-    if (size === this.offset) return { lines: [], truncated };
+    if (this.resetIfTruncated(size)) onTruncate?.();
+    if (size === this.offset) return 0;
 
-    const lines: string[] = [];
+    let count = 0;
     const fd = openSync(this.path, "r");
     try {
       const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
@@ -45,11 +47,15 @@ export class LineFollower {
         const text = this.pending + this.decoder.write(buffer.subarray(0, read));
         const parts = text.split("\n");
         this.pending = parts.pop() ?? "";
-        for (const part of parts) if (part.length > 0) lines.push(part);
+        for (const part of parts) {
+          if (part.length === 0) continue;
+          count++;
+          onLine(part);
+        }
       }
     } finally {
       closeSync(fd);
     }
-    return { lines, truncated };
+    return count;
   }
 }

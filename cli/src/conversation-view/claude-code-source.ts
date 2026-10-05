@@ -71,6 +71,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   readonly assistantLabel: string;
   private readonly projectDir: string;
   private readonly pollMs: number;
+  private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
 
   constructor(options: { projectDir?: string; assistantLabel?: string; pollMs?: number } = {}) {
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
@@ -96,16 +97,27 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       })
       .filter((session) => session.size > 0 && SESSION_ID.test(session.id))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    const listed = new Set(sessions.map((session) => session.path));
+    for (const path of this.titles.keys()) if (!listed.has(path)) this.titles.delete(path);
     return sessions.map((session) => ({
       id: session.id,
-      title: sessionTitle(session.path, session.size),
+      title: this.cachedTitle(session.path, session.size, session.mtime.getTime()),
       updatedAt: session.mtime.toISOString(),
     }));
   }
 
+  /** Titles are rescanned only when a transcript's size or mtime changed. */
+  private cachedTitle(path: string, size: number, mtimeMs: number): string {
+    const cached = this.titles.get(path);
+    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.title;
+    const title = sessionTitle(path, size);
+    this.titles.set(path, { size, mtimeMs, title });
+    return title;
+  }
+
   async read(sessionId: string): Promise<ConversationSnapshot> {
     const conversation = new TranscriptConversation();
-    for (const line of new LineFollower(this.sessionPath(sessionId)).readNew().lines) conversation.pushLine(line);
+    new LineFollower(this.sessionPath(sessionId)).readNew((line) => conversation.pushLine(line));
     return conversation.snapshot();
   }
 
@@ -122,10 +134,15 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const pump = (initial: boolean): void => {
       if (closed) return;
       try {
-        const { lines, truncated } = follower.readNew();
-        if (truncated) conversation = new TranscriptConversation();
-        if (!initial && !truncated && lines.length === 0) return;
-        for (const line of lines) conversation.pushLine(line);
+        let truncated = false;
+        const count = follower.readNew(
+          (line) => conversation.pushLine(line),
+          () => {
+            truncated = true;
+            conversation = new TranscriptConversation();
+          },
+        );
+        if (!initial && !truncated && count === 0) return;
         onUpdate(conversation.snapshot());
       } catch (error) {
         onError?.(error instanceof Error ? error : new Error(String(error)));

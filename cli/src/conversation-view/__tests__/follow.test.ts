@@ -27,15 +27,21 @@ async function until<T>(read: () => T | undefined, timeoutMs = 3000): Promise<T>
   }
 }
 
+function readAll(follower: LineFollower): string[] {
+  const lines: string[] = [];
+  follower.readNew((line) => lines.push(line));
+  return lines;
+}
+
 describe("LineFollower", () => {
   it("returns only appended complete lines and holds back a partial one", () => {
     const path = join(dir, "s.jsonl");
     writeFileSync(path, "one\ntwo\nthr");
     const follower = new LineFollower(path);
-    expect(follower.readNew().lines).toEqual(["one", "two"]);
-    expect(follower.readNew().lines).toEqual([]);
+    expect(readAll(follower)).toEqual(["one", "two"]);
+    expect(readAll(follower)).toEqual([]);
     appendFileSync(path, "ee\nfour\n");
-    expect(follower.readNew().lines).toEqual(["three", "four"]);
+    expect(readAll(follower)).toEqual(["three", "four"]);
   });
 
   it("does not split a multi-byte character across reads", () => {
@@ -43,18 +49,34 @@ describe("LineFollower", () => {
     const bytes = Buffer.from("café ✓\n", "utf8");
     writeFileSync(path, bytes.subarray(0, 4));
     const follower = new LineFollower(path);
-    expect(follower.readNew().lines).toEqual([]);
+    expect(readAll(follower)).toEqual([]);
     appendFileSync(path, bytes.subarray(4));
-    expect(follower.readNew().lines).toEqual(["café ✓"]);
+    expect(readAll(follower)).toEqual(["café ✓"]);
   });
 
   it("starts over when the file is truncated", () => {
     const path = join(dir, "s.jsonl");
     writeFileSync(path, "a long first line\n");
     const follower = new LineFollower(path);
-    follower.readNew();
+    readAll(follower);
     writeFileSync(path, "new\n");
-    expect(follower.readNew()).toEqual({ lines: ["new"], truncated: true });
+    const events: string[] = [];
+    const count = follower.readNew(
+      (line) => events.push(line),
+      () => events.push("<truncated>"),
+    );
+    expect(count).toBe(1);
+    expect(events).toEqual(["<truncated>", "new"]);
+  });
+
+  it("delivers lines of a multi-megabyte file intact across read chunks", () => {
+    const path = join(dir, "s.jsonl");
+    const expected = Array.from({ length: 3000 }, (_, i) => `${i}:${"é".repeat(500 + (i % 7))}`);
+    writeFileSync(path, expected.join("\n") + "\n");
+    const follower = new LineFollower(path);
+    const seen: string[] = [];
+    expect(follower.readNew((line) => seen.push(line))).toBe(expected.length);
+    expect(seen).toEqual(expected);
   });
 });
 
@@ -109,6 +131,24 @@ describe("ClaudeCodeTranscriptSource", () => {
       ["older", "Older work"],
     ]);
     expect(readFileSync(join(dir, "older.jsonl"), "utf8")).toBe(older);
+  });
+
+  it("rescans a session title only when the transcript's size or mtime changes", async () => {
+    const path = join(dir, "s1.jsonl");
+    const stamp = new Date(Date.now() - 60_000);
+    writeFileSync(path, [title("First title"), captain("hi")].join("\n") + "\n");
+    utimesSync(path, stamp, stamp);
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir });
+    expect((await source.listSessions()).map((s) => s.title)).toEqual(["First title"]);
+
+    // Same size and mtime: the cached title stands, the file is not rescanned.
+    writeFileSync(path, [title("Other title"), captain("hi")].join("\n") + "\n");
+    utimesSync(path, stamp, stamp);
+    expect((await source.listSessions()).map((s) => s.title)).toEqual(["First title"]);
+
+    const later = new Date(stamp.getTime() + 1000);
+    utimesSync(path, later, later);
+    expect((await source.listSessions()).map((s) => s.title)).toEqual(["Other title"]);
   });
 
   it("refuses session ids that would escape the project dir", async () => {
