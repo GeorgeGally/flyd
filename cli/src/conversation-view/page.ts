@@ -77,7 +77,7 @@ header button:hover { color: var(--fg); border-color: color-mix(in srgb, var(--m
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ~66 characters a line at the reading size. */
-main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh 2.2em; }
+main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh; }
 body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
 
@@ -87,10 +87,6 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
   font: 500 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
 }
 .msg.user { margin-top: 2em; }
-.msg.user .body::before {
-  content: "›"; position: absolute; left: -1.1em; color: var(--accent);
-  font: 500 1em/1.6 var(--mono);
-}
 /* The captain's words look exactly like selected text: the selection's
    colours, hugging each line the way a selection does. The page wraps each
    block's text in .hl. */
@@ -164,17 +160,14 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .composer[hidden] { display: none; }
 .composer .row {
-  position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.9em 0 2.75em;
+  position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
 .composer .field {
   display: flex; align-items: flex-end; gap: 0.6em;
-  background: var(--tint); border-radius: 0.4em; padding: 0.5em 0.6em 0.5em 1.75em; margin-left: -1.75em;
+  background: var(--tint); border-radius: 0.4em; padding: 0.5em 0.6em 0.5em 0.75em; margin-left: -0.75em;
   border: 1px solid transparent; transition: border-color 140ms ease;
 }
 .composer .field:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.composer .field::before {
-  content: "›"; position: absolute; margin-left: -1.2em; color: var(--accent); font: 500 1em/1.5 var(--mono);
-}
 .composer textarea {
   flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent;
   color: var(--fg); font: 400 1em/1.5 var(--sans); max-height: 38vh; padding: 0;
@@ -189,8 +182,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 
 @media (max-width: 720px) {
   body { font-size: 20px; }
-  main { padding: 1em 1em 30vh 1.9em; }
-  .composer .row { padding: 0 1em 0 2.4em; }
+  main { padding: 1em 1em 30vh; }
+  .composer .row { padding: 0 1.25em; }
   .composer .hint { display: none; }
   .time { display: none; }
   header .when { display: none; }
