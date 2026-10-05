@@ -19,9 +19,7 @@ export interface CaptainInbox {
 const SEND_TIMEOUT_MS = 20_000;
 export const MAX_NOTE_CHARS = 8_000;
 
-export function defaultFirstmateHome(): string {
-  return process.env.FIRSTMATE_HOME ?? join(homedir(), "Documents", "firstmate");
-}
+export const FIRSTMATE_HOME = join(homedir(), "Documents", "firstmate");
 
 function parseNote(file: string): ConversationMessage | null {
   const raw = readFileSync(file, "utf8");
@@ -44,7 +42,7 @@ export class FirstmateInbox implements CaptainInbox {
   readonly home: string;
 
   constructor(options: { home?: string; script?: string } = {}) {
-    this.home = options.home ?? defaultFirstmateHome();
+    this.home = options.home ?? FIRSTMATE_HOME;
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
   }
 

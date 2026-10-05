@@ -8,12 +8,6 @@ export interface ViewOptions {
   session?: string;
   port?: number;
   open?: boolean;
-  /** Path to firstmate's fm-inbox.sh; default <firstmate home>/bin/fm-inbox.sh. */
-  inbox?: string;
-  /** Firstmate's home (FM_HOME); default $FIRSTMATE_HOME or ~/Documents/firstmate. */
-  firstmateHome?: string;
-  /** false: no message box, even when firstmate's inbox is available. */
-  send?: boolean;
 }
 
 const PORT_ATTEMPTS = 10;
@@ -41,14 +35,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   }
   const projectDir = resolveProjectDir(options.project ?? FIRSTMATE_PROJECT_DIR);
   // Messages go to firstmate's own inbox, so the box only appears on
-  // firstmate's conversation unless an inbox is named explicitly.
-  const inbox = new FirstmateInbox({
-    ...(options.firstmateHome ? { home: options.firstmateHome } : {}),
-    ...(options.inbox ? { script: options.inbox } : {}),
-  });
-  const wantsInbox = options.send !== false && (options.project === undefined || options.inbox !== undefined);
-  if (wantsInbox && options.inbox !== undefined && !inbox.available()) throw new Error(`No inbox script at ${inbox.script}`);
-  const source = new ClaudeCodeTranscriptSource({ projectDir, ...(wantsInbox && inbox.available() ? { inbox } : {}) });
+  // firstmate's conversation.
+  const inbox = new FirstmateInbox();
+  const wantsInbox = options.project === undefined && inbox.available();
+  const source = new ClaudeCodeTranscriptSource({ projectDir, ...(wantsInbox ? { inbox } : {}) });
   const sessions = await source.listSessions();
   if (sessions.length === 0) throw new Error(`No Claude Code sessions in ${projectDir}`);
   if (options.session && !sessions.some((session) => session.id === options.session)) {

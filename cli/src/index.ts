@@ -189,10 +189,7 @@ program
   .option("--project <dir>", "Claude Code project dir name under ~/.claude/projects, or an absolute path")
   .option("--port <n>", "loopback port (default 4818)", (value: string) => Number.parseInt(value, 10))
   .option("--no-open", "don't open the browser")
-  .option("--no-send", "read-only: no message box")
-  .option("--inbox <script>", "firstmate's fm-inbox.sh (default <firstmate home>/bin/fm-inbox.sh)")
-  .option("--firstmate-home <dir>", "firstmate's home, passed as FM_HOME (default $FIRSTMATE_HOME or ~/Documents/firstmate)")
-  .action((opts: { session?: string; project?: string; port?: number; open?: boolean; send?: boolean; inbox?: string; firstmateHome?: string }) => runView(opts));
+  .action((opts: { session?: string; project?: string; port?: number; open?: boolean }) => runView(opts));
 
 program
   .command("dashboard")
