@@ -597,9 +597,56 @@ const SCRIPT = `
     if (event.dataTransfer) addImages(event.dataTransfer.files);
   });
   input.addEventListener("input", grow);
+  // Terminal-style history: Up on the first line recalls earlier messages,
+  // newest first; Down walks back and finally restores the draft.
+  var recall = { list: [], index: -1, draft: "" };
+  function captainHistory() {
+    var list = [];
+    main.querySelectorAll(".msg.user .body").forEach(function (body) {
+      var text = (body.innerText || body.textContent || "").trim();
+      if (text && text !== list[list.length - 1]) list.push(text);
+    });
+    return list;
+  }
+  function setRecalled(text) {
+    input.value = text;
+    grow();
+    input.setSelectionRange(text.length, text.length);
+  }
   input.addEventListener("keydown", function (event) {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); composer.requestSubmit(); }
+    if (event.isComposing) return;
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    var value = input.value;
+    if (event.key === "ArrowUp") {
+      var onFirstLine = value.lastIndexOf("\\n", input.selectionStart - 1) === -1;
+      if (!onFirstLine) return;
+      if (recall.index === -1) {
+        recall.list = captainHistory();
+        if (!recall.list.length) return;
+        recall.draft = value;
+        recall.index = recall.list.length;
+      }
+      if (recall.index === 0) { event.preventDefault(); return; }
+      event.preventDefault();
+      recall.index -= 1;
+      setRecalled(recall.list[recall.index]);
+    } else if (event.key === "ArrowDown") {
+      if (recall.index === -1) return;
+      var onLastLine = value.indexOf("\\n", input.selectionEnd) === -1;
+      if (!onLastLine) return;
+      event.preventDefault();
+      recall.index += 1;
+      if (recall.index >= recall.list.length) {
+        recall.index = -1;
+        setRecalled(recall.draft);
+      } else {
+        setRecalled(recall.list[recall.index]);
+      }
+    }
   });
+  // Editing a recalled message makes it the draft.
+  input.addEventListener("input", function () { recall.index = -1; });
 
   function pendingMessage(text, images) {
     var el = document.createElement("article");
@@ -682,6 +729,7 @@ const SCRIPT = `
     var text = input.value.trim();
     var images = attachments.slice();
     if ((!text && !images.length) || !current) return;
+    recall.index = -1;
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, images);

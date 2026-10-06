@@ -253,4 +253,53 @@ describe("conversation page", () => {
     expect(document.querySelector(".summary")!.textContent).toBe("Plain English.");
     expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(false);
   });
+
+  it("recalls earlier messages with Up on the first line and restores the draft with Down", async () => {
+    load("");
+    await settle();
+    open("latest", [
+      { id: "u1", role: "user", html: "<p>first ask</p>" },
+      { id: "r1", role: "assistant", html: "<p>reply</p>" },
+      { id: "u2", role: "user", html: "<p>second ask</p>" },
+      { id: "u3", role: "user", html: "<p>second ask</p>" },
+    ]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const press = (key: string) => {
+      const event = new KeyboardEvent("keydown", { key, cancelable: true });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    input.value = "half-typed draft";
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    expect(press("ArrowUp")).toBe(true);
+    expect(input.value).toBe("second ask");
+    press("ArrowUp");
+    expect(input.value).toBe("first ask");
+    press("ArrowUp");
+    expect(input.value).toBe("first ask");
+    press("ArrowDown");
+    expect(input.value).toBe("second ask");
+    press("ArrowDown");
+    expect(input.value).toBe("half-typed draft");
+    expect(press("ArrowDown")).toBe(false);
+  });
+
+  it("leaves Up to move the caret inside a multi-line draft, and includes messages just sent", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>older</p>" }]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "line one\nline two";
+    input.setSelectionRange(input.value.length, input.value.length);
+    const up = new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true });
+    input.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(false);
+    expect(input.value).toBe("line one\nline two");
+
+    input.value = "";
+    await type("just sent");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true }));
+    expect(input.value).toBe("just sent");
+  });
 });
