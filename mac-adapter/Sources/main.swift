@@ -91,6 +91,7 @@ statusItem.onOpenSetup = {
 statusItem.onRestartFlyd = {
     restartFlyd()
 }
+statusItem.onPasteRawDictation = { dictation.pasteLast(raw: true) }
 statusItem.onPasteLastDictation = {
     dictation.pasteLast()
 }

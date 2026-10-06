@@ -1,3 +1,5 @@
+import { conversationOf, type ConversationPayload } from "./conversation.js";
+import { runContentLearning } from "./content-learning.js";
 import { createHash } from "node:crypto";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
 import { ProjectionEngine } from "../../intelligence/projections.js";
@@ -29,25 +31,8 @@ export function explicitLifecycleStatus(text: string): "completed" | "cancelled"
   return null;
 }
 
-interface ConversationPayload {
-  sessionId?: string;
-  user?: string;
-  assistant?: string;
-  projectIds?: string[];
-  intentKind?: string;
-  temporalFrame?: string;
-  referents?: Record<string, string>;
-}
-
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function conversationOf(event: StoredEvent): ConversationPayload | null {
-  if (event.sourceId !== "chat.cognition" || !event.payload) return null;
-  const raw = event.payload.conversation;
-  if (!raw || typeof raw !== "object") return null;
-  return raw as ConversationPayload;
 }
 
 function existingEntityFor(projectIds: string[], store: IntelligenceEventStore): string | null {
@@ -163,7 +148,7 @@ export async function runCuratorSweep(options: { store?: IntelligenceEventStore;
     const events = store.readFrom(cursor, options.limit ?? 500);
     for (const event of events) {
       const conversation = conversationOf(event);
-      if (conversation) {
+      if (conversation && event.sourceId === "chat.cognition") {
         await reconcileConversation(event, conversation, store, options.jev);
         reconciled += 1;
       }
@@ -175,6 +160,9 @@ export async function runCuratorSweep(options: { store?: IntelligenceEventStore;
       const curator = new CognitiveCurator(store);
       curator.rebuild();
     }
+    await runContentLearning({ store }).catch(error => {
+      console.warn("[cognition] Content learning deferred:", error instanceof Error ? error.message : "extraction failed");
+    });
     return { processed, reconciled, fromSequence, toSequence: cursor };
   } finally {
     if (owned) store.close();

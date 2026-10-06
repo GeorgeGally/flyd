@@ -100,6 +100,19 @@ struct PrivacySettingsView: View {
 
     private var feedbackCaptureSection: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Toggle("Use nearby text to recognise names", isOn: $viewModel.dictationContext)
+                .onChange(of: viewModel.dictationContext) { _, enabled in
+                    ConfigManager.shared.setDictationContext(enabled)
+                }
+            Text("During dictation only, relevant terms from selected and nearby text help recognition. The context is discarded after the invocation.")
+                .font(.caption).foregroundColor(.secondary)
+            Toggle("Learn vocabulary from dictation edits", isOn: $viewModel.dictationCorrectionLearning)
+                .onChange(of: viewModel.dictationCorrectionLearning) { _, enabled in
+                    ConfigManager.shared.setDictationCorrectionLearning(enabled)
+                }
+            Text("Tracks only the inserted text for up to 30 seconds in supported fields. A word you fix becomes a suggestion; approve it with `flyd learning` and later dictation spells it your way. Learned words are sent with your dictation to the transcription service as spelling hints. Disabled in Private and Incognito modes.")
+                .font(.caption).foregroundColor(.secondary)
+
             Toggle("Learn when I reject a Flyd answer elsewhere", isOn: $viewModel.foregroundFeedbackCapture)
                 .font(.subheadline)
                 .fontWeight(.semibold)
@@ -226,6 +239,8 @@ private class PrivacySettingsViewModel: ObservableObject {
     @Published var newExcludedApp: String = ""
     @Published var redactionRules: [OverlayConfig.RedactionRule] = []
     @Published var incognito: Bool = false
+    @Published var dictationContext: Bool = true
+    @Published var dictationCorrectionLearning: Bool = false
     @Published var foregroundFeedbackCapture: Bool = true
 
     init() {
@@ -246,6 +261,8 @@ private class PrivacySettingsViewModel: ObservableObject {
         excludedApps = config.excludedApps
         redactionRules = config.redactionRules
         incognito = config.incognito
+        dictationContext = config.dictationContext
+        dictationCorrectionLearning = config.dictationCorrectionLearning
         foregroundFeedbackCapture = config.foregroundFeedbackCapture
     }
 

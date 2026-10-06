@@ -10,7 +10,7 @@ final class DictationController {
         let bundleId: String
         let startedAt: TimeInterval
         var peakLevel: Float = 0
-        var targetPid: pid_t?
+        let target: DictationContextCapture
     }
 
     private enum Phase {
@@ -30,6 +30,7 @@ final class DictationController {
     /// The last dictated text, so a paste that landed in the wrong place can be redone.
     /// Memory only: never written to disk, the journal or Flyd's memory.
     private var lastText: String?
+    private var lastRawText: String?
 
     private let state = FlydState.shared
     private let capture = VoiceCapture.shared
@@ -39,23 +40,20 @@ final class DictationController {
     func start() {
         guard case .idle = phase else { return }
         let (invocationId, _) = state.startInvocation()
+        DictationEditMonitor.shared.stop()
+        let app = NSWorkspace.shared.frontmostApplication
         let session = Session(
             invocationId: invocationId,
             bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown",
-            startedAt: ProcessInfo.processInfo.systemUptime
+            startedAt: ProcessInfo.processInfo.systemUptime,
+            target: DictationContextCapture(pid: app?.processIdentifier ?? 0, bundleId: app?.bundleIdentifier ?? "unknown")
         )
         phase = .recording(session)
         state.transition(to: .listening)
         pill.show(.listening)
 
-        let bundleId = session.bundleId
-        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) {
-            var app: [String: Any] = ["bundleId": bundleId]
-            if let title = AccessibilityInspector.shared.focusedWindowTitle(), !title.isEmpty {
-                app["windowTitle"] = title
-            }
-            return ["purpose": "dictation", "app": app]
-        }
+        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) { session.target.startFields() }
+        relay.onRawTranscript = { [weak self] text in self?.lastRawText = text }
         relay.onTranscriptDelta = nil
         relay.onComplete = { [weak self] transcript in self?.transcribed(transcript) }
         relay.onError = { [weak self] error in
@@ -87,8 +85,7 @@ final class DictationController {
     }
 
     func stop() {
-        guard case .recording(var session) = phase else { return }
-        session.targetPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard case .recording(let session) = phase else { return }
         stopCapture()
 
         let duration = ProcessInfo.processInfo.systemUptime - session.startedAt
@@ -119,9 +116,9 @@ final class DictationController {
         }
     }
 
-    func pasteLast() {
+    func pasteLast(raw: Bool = false) {
         guard case .idle = phase else { return }
-        guard let text = lastText else {
+        guard let text = raw ? lastRawText : lastText else {
             pill.show(.notice("Nothing dictated yet"))
             return
         }
@@ -158,7 +155,16 @@ final class DictationController {
         phase = .inserting
         state.transition(to: .executing)
         Task { @MainActor in
-            let outcome = await TextInserter.insert(text, targetPid: session.targetPid)
+            let expectedValue = DictationEditMonitor.expectedValue(text: text, target: session.target)
+            // A moved window or field counts as a changed target: pid -1 never matches the
+            // frontmost app, so TextInserter's one clipboard rule copies instead of pasting.
+            let outcome = await TextInserter.insert(text, targetPid: session.target.isStillFocused() ? session.target.pid : -1)
+            if outcome == .pasted || outcome == .typed, let expectedValue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    DictationEditMonitor.shared.track(text: text, target: session.target,
+                        invocationId: session.invocationId, expectedValue: expectedValue)
+                }
+            }
             AuditRecorder.shared.record(
                 invocationId: session.invocationId,
                 contextSources: ["dictation", "app:\(session.bundleId)", "outcome:\(Self.auditName(outcome))"]
@@ -212,6 +218,7 @@ final class DictationController {
         timeout?.cancel()
         timeout = nil
         stopCapture()
+        relay.onRawTranscript = nil
         relay.onComplete = nil
         relay.onError = nil
         relay.disconnect()

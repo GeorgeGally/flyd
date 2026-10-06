@@ -25,7 +25,7 @@ function write(path: string, content: string): void {
 
 function line(claim: DerivedWorldState["current"][number]): string {
   const date = claim.validUntil ? ` until ${claim.validUntil}` : claim.observedAt ? ` observed ${claim.observedAt.slice(0,10)}` : "";
-  return `- [${claim.authority}; ${claim.temporalStatus}${date}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`;
+  return `- [${claim.authority}; ${claim.temporalStatus}${date}; evidence:${claim.evidenceRefs.join(",")}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`;
 }
 
 export function renderProfile(state: DerivedWorldState): string {
