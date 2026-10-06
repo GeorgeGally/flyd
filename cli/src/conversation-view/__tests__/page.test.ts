@@ -367,4 +367,22 @@ describe("conversation page", () => {
     expect(document.getElementById("problem")!.textContent).toBe("I didn't catch that - try again");
     expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
   });
+
+  it("sends a push-to-talk message once the conversation has loaded, without taking focus", async () => {
+    load("");
+    await settle();
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+    const before = document.activeElement;
+    voice.start!();
+    expect(document.activeElement).toBe(before);
+    voice.send!("Check the deals page.");
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+
+    open("latest", []);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ session: "latest", text: "Check the deals page." });
+  });
 });

@@ -779,7 +779,6 @@ const SCRIPT = `
       voiceBase = input.value;
       composer.classList.add("listening");
       composer.classList.remove("transcribing");
-      input.focus();
     },
     draft: function (text) {
       if (voiceBase === null) return;
@@ -795,7 +794,15 @@ const SCRIPT = `
       input.value = joinVoice(text).trim();
       endVoice();
       grow();
-      if (input.value) composer.requestSubmit();
+      if (!input.value) return;
+      // A window that was never shown may still be connecting: wait for the
+      // session before sending, rather than dropping the message.
+      var tries = 0;
+      (function submitWhenReady() {
+        if (current) { composer.requestSubmit(); return; }
+        if (tries++ < 100) setTimeout(submitWhenReady, 200);
+        else problem.textContent = "Not sent: the conversation did not load";
+      })();
     },
     cancel: function (message) {
       if (voiceBase !== null) { input.value = voiceBase; grow(); }
