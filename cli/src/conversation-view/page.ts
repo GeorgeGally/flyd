@@ -224,6 +224,10 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
 .composer.dropping .field { border-color: var(--accent); }
+/* Push-to-talk (Fn+Control in Flyd.app): the box shows it is listening. */
+.composer.listening .field, .composer.transcribing .field { border-color: var(--accent); }
+.composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+.composer.transcribing .hint::before { content: "… writing it down   "; color: var(--accent); }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
@@ -751,6 +755,48 @@ const SCRIPT = `
       return result.data;
     });
   }
+
+  // Push-to-talk from Flyd.app: the words appear in the box as they are
+  // heard and go out on release like a typed message. Whatever was typed
+  // before stays in front of them.
+  var voiceBase = null;
+  function joinVoice(text) {
+    return voiceBase && voiceBase.trim() ? voiceBase.trimEnd() + " " + text : text;
+  }
+  function endVoice() {
+    composer.classList.remove("listening", "transcribing");
+    voiceBase = null;
+  }
+  window.flydVoice = {
+    start: function () {
+      if (composer.hidden) return;
+      voiceBase = input.value;
+      composer.classList.add("listening");
+      composer.classList.remove("transcribing");
+      input.focus();
+    },
+    draft: function (text) {
+      if (voiceBase === null) return;
+      input.value = joinVoice(text);
+      grow();
+    },
+    transcribing: function () {
+      composer.classList.remove("listening");
+      composer.classList.add("transcribing");
+    },
+    send: function (text) {
+      if (voiceBase === null) voiceBase = input.value;
+      input.value = joinVoice(text).trim();
+      endVoice();
+      grow();
+      if (input.value) composer.requestSubmit();
+    },
+    cancel: function (message) {
+      if (voiceBase !== null) { input.value = voiceBase; grow(); }
+      endVoice();
+      if (message) problem.textContent = message;
+    },
+  };
 
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
