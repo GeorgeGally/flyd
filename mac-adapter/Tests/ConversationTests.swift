@@ -56,3 +56,24 @@ final class ConversationServerTests: XCTestCase {
         XCTAssertNotEqual(other, preferred)
     }
 }
+
+final class ConversationSurfaceDecodingTests: XCTestCase {
+    /// Exactly what Core's /manifest sends for "open Flyd".
+    func testCoreAsksForTheConversationWindow() throws {
+        let json = """
+        {"mode":"requires_surface","surface":"conversation","resolutionId":"r1","invocationId":"i1",
+         "environmentRevision":1,"rationale":"open-conversation","operations":[]}
+        """
+        let response = try JSONDecoder().decode(FlydClient.ResolutionResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.mode, "requires_surface")
+        XCTAssertEqual(response.surface, "conversation")
+    }
+
+    func testOtherResolutionsCarryNoSurface() throws {
+        let json = """
+        {"mode":"requires_augment","resolutionId":"r1","invocationId":"i1","environmentRevision":1,
+         "rationale":"x","operations":[],"augmentations":[{"kind":"explanation","content":"hi","placement":"cursor"}]}
+        """
+        XCTAssertNil(try JSONDecoder().decode(FlydClient.ResolutionResponse.self, from: Data(json.utf8)).surface)
+    }
+}

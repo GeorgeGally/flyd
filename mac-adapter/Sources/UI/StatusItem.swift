@@ -55,13 +55,14 @@ final class StatusItem {
         // The real shortcut is a global hot key (GlobalHotKey.conversation);
         // the menu only shows it.
         let conversationItem = NSMenuItem(
-            title: "Conversation…",
+            title: "Conversation",
             action: #selector(openConversation),
             keyEquivalent: "f"
         )
         conversationItem.keyEquivalentModifierMask = [.control, .option, .command]
         conversationItem.target = self
         menu.addItem(conversationItem)
+        menu.addItem(.separator())
 
         let invokeItem = NSMenuItem(
             title: "Ask Flyd...",
@@ -157,6 +158,12 @@ final class StatusItem {
 
     @objc private func openConversation() {
         onOpenConversation?()
+    }
+
+    /// Diagnostics: choose "Conversation" through the menu itself.
+    func chooseConversationItem() {
+        guard let menu, let index = menu.items.firstIndex(where: { $0.title == "Conversation" }) else { return }
+        menu.performActionForItem(at: index)
     }
 
     @objc private func invokeFlyd() {

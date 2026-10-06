@@ -45,10 +45,36 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
 
     func show() {
         let window = self.window ?? makeWindow()
+        keepOnScreen(window)
         NSApp.setActivationPolicy(.regular)
         ConversationMenu.install()
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        // An accessory app that has just become a regular one is not always
+        // allowed to take focus in the same pass; ask again a moment later.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// A remembered frame from a screen that is gone (or bigger than this one) comes back into view.
+    private func keepOnScreen(_ window: NSWindow) {
+        guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var frame = window.frame
+        frame.size.width = min(frame.width, visible.width)
+        frame.size.height = min(frame.height, visible.height)
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            frame.origin = NSPoint(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2)
+        }
+        frame.origin.y = max(frame.origin.y, visible.minY)
+        frame.origin.y = min(frame.origin.y, visible.maxY - frame.height)
+        if frame != window.frame { window.setFrame(frame, display: false) }
+    }
+
+    func close() {
+        window?.performClose(nil)
     }
 
     func toggle() {
@@ -153,8 +179,12 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         return nil
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard CommandLine.arguments.contains("--conversation-selftest"), webView.url?.scheme == "http" else { return }
+    /// Diagnostics: once the view has loaded and streamed, run the selftest.
+    func runSelfTestWhenLoaded(attempt: Int = 0) {
+        guard let webView, webView.url?.scheme == "http", !webView.isLoading else {
+            if attempt < 120 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.runSelfTestWhenLoaded(attempt: attempt + 1) } }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.runSelfTest(webView) }
     }
 
@@ -193,9 +223,33 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         """
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
             switch result {
-            case .success(let value): ConversationServer.appendLog("conversation selftest: \(value ?? "nil")")
+            case .success(let value):
+                ConversationServer.appendLog("conversation selftest: \(value ?? "nil")")
+                self.logWindowState()
+                self.saveSnapshot(webView)
             case .failure(let error): ConversationServer.appendLog("conversation selftest failed: \(error)")
             }
+        }
+    }
+
+    /// What the selftest saw of the window itself.
+    private func logWindowState() {
+        guard let window else { return }
+        let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(window.frame) }
+        ConversationServer.appendLog(
+            "conversation window: visible=\(window.isVisible) key=\(window.isKeyWindow) onScreen=\(onScreen) " +
+            "frame=\(NSStringFromRect(window.frame)) appActive=\(NSApp.isActive) dockIcon=\(NSApp.activationPolicy() == .regular)"
+        )
+    }
+
+    /// The window's content as the captain sees it, without needing Screen Recording.
+    private func saveSnapshot(_ webView: WKWebView) {
+        webView.takeSnapshot(with: nil) { image, _ in
+            guard let image, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:]) else { return }
+            let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".flyd/overlay/conversation-window.png")
+            try? png.write(to: url)
+            ConversationServer.appendLog("conversation snapshot: \(url.path)")
         }
     }
 

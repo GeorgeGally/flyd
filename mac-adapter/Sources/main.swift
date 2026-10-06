@@ -117,9 +117,31 @@ let conversationHotKey = GlobalHotKey(
 NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
     conversationServer.stop()
 }
-// `open Flyd.app --args --conversation` opens straight to the conversation.
-if CommandLine.arguments.contains("--conversation") {
-    DispatchQueue.main.async { ConversationWindow.shared.show() }
+/// Opening Flyd again (Dock, Spotlight, `open -a Flyd`) shows the conversation.
+final class FlydAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        ConversationServer.appendLog("reopen: showing the conversation")
+        ConversationWindow.shared.show()
+        return false
+    }
+}
+let appDelegate = FlydAppDelegate()
+app.delegate = appDelegate
+
+// Launching Flyd opens the conversation.
+DispatchQueue.main.async { ConversationWindow.shared.show() }
+
+// `--conversation-selftest`: close the window, reopen it through the
+// menu-bar menu, then check the page and save a snapshot (see ConversationWindow).
+if CommandLine.arguments.contains("--conversation-selftest") {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+        ConversationWindow.shared.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            statusItem.chooseConversationItem()
+            ConversationServer.appendLog("conversation selftest: opened from the menu-bar item, visible=\(ConversationWindow.shared.isVisible)")
+            ConversationWindow.shared.runSelfTestWhenLoaded()
+        }
+    }
 }
 
 if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {
@@ -852,6 +874,17 @@ func processInvocation(
                 invocationId: invocationId,
                 resolution: resolution
             )
+        }
+
+    case "requires_surface":
+        // "Open Flyd" and the like: Core asked for a native surface, not an answer.
+        await MainActor.run {
+            invocationPanel.dismiss()
+            island.hide()
+            state.transition(to: .present)
+            if resolution.surface == "conversation" {
+                ConversationWindow.shared.show()
+            }
         }
 
     case "requires_task":
