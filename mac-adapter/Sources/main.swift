@@ -346,13 +346,13 @@ func handleVoiceInvocation() {
     guard state.phase == .idle else { return }
 
     if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
-        ConversationWindow.shared.voice(.fail(voiceStatus.message ?? "Voice setup needs attention"))
+        island.show(.failed(voiceStatus.message ?? "Voice setup needs attention"))
         return
     }
 
     guard PermissionGate.shared.hasMicrophone else {
         PermissionGate.shared.requestMicrophonePermission()
-        ConversationWindow.shared.voice(.fail("Microphone permission required"))
+        island.show(.failed("Microphone permission required"))
         return
     }
 
@@ -376,14 +376,16 @@ func startDictation() {
     dictation.start()
 }
 
-/// Fn+Control held: the captain is talking to Flyd. The Conversation window
-/// opens, his words appear in its message box as he speaks, and on release
-/// they are sent like a typed message. No panel, no island.
+/// Fn+Control held: the captain is talking to Flyd, in the background. His
+/// words go into the Conversation's message box and are sent on release like
+/// a typed message; nothing is raised or focused, so he keeps looking at what
+/// he is talking about. The notch pill is the only cue.
 func beginVoiceInvocation() {
     let (invocationId, _) = state.startInvocation()
     activeVoiceInvocationId = invocationId
 
     state.transition(to: .listening)
+    island.show(.listening)
     ConversationWindow.shared.voice(.start)
 
     var heard = ""
@@ -423,7 +425,11 @@ func beginVoiceInvocation() {
         voiceRelay.sendAudioChunk(chunk)
     }
     voiceCapture.onLevel = nil
-    voiceCapture.onSpectrum = nil
+    voiceCapture.onSpectrum = { bands in
+        DispatchQueue.main.async {
+            island.updateSpectrum(bands)
+        }
+    }
     voiceCapture.onError = { error in
         DispatchQueue.main.async {
             print("[Flyd] Voice capture error: \(error)")
@@ -446,6 +452,7 @@ func handleVoiceRelease() {
         stopVoiceHoldMonitor()
         voiceCapture.stop()
         state.transition(to: .transcribing)
+        island.show(.working)
         ConversationWindow.shared.voice(.transcribing)
         startVoiceTranscriptionTimeout()
         voiceRelay.commitAudio()
@@ -506,10 +513,11 @@ func cleanupVoiceInvocation(message: String? = nil) {
     // and a finished or abandoned recording leaves the message box as it was.
     if let message {
         ConversationWindow.shared.voice(.fail(message))
+        island.show(.failed(message))
     } else {
         ConversationWindow.shared.voice(.cancel)
+        island.hide()
     }
-    island.hide()
 }
 
 func handleShortcutPress() {

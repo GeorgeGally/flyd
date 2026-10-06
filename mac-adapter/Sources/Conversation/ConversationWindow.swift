@@ -145,13 +145,16 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         return window
     }
 
-    /// Drives the message box from push-to-talk: opens the window, shows the
-    /// words as they are heard, and sends them on release like a typed message.
+    /// Drives the message box from push-to-talk, in the background: the
+    /// window is never raised or focused (the captain is looking at what he
+    /// is talking about). The words go into the box as they are heard and
+    /// are sent on release; an open window shows them, a closed one has the
+    /// message waiting in the conversation.
     func voice(_ event: VoiceEvent) {
         switch event {
         case .start:
             voiceActive = true
-            show()
+            _ = window ?? makeWindow()
             run("window.flydVoice && window.flydVoice.start()")
         case .draft(let text):
             guard voiceActive else { return }
@@ -169,7 +172,6 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
             run("window.flydVoice && window.flydVoice.cancel()")
         case .fail(let message):
             voiceActive = false
-            show()
             run("window.flydVoice && window.flydVoice.cancel(\(Self.jsString(message)))")
         }
     }
@@ -307,7 +309,11 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     /// the microphone: start, words arrive, then cancel (nothing is sent).
     private func voiceSelfTest(_ webView: WKWebView) {
         let probe = "JSON.stringify({ value: document.getElementById('input').value, listening: document.getElementById('composer').classList.contains('listening') })"
+        // Background: with the window closed, push-to-talk must not bring it back.
+        window?.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
         voice(.start)
+        ConversationServer.appendLog("conversation voice selftest: after start windowVisible=\(window?.isVisible ?? false) dockIcon=\(NSApp.activationPolicy() == .regular)")
         voice(.draft("selftest words"))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             webView.evaluateJavaScript(probe) { during, _ in
