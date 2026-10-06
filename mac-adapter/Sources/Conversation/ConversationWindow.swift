@@ -298,6 +298,11 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         out.sendLabel = document.getElementById('send').textContent;
         const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
         if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }
+        // Pasted code in the captain's messages: one block each; show the newest.
+        const codeBlocks = Array.from(document.querySelectorAll('.msg.user pre'));
+        out.captainCodeBlocks = codeBlocks.length;
+        out.codeLineHighlights = document.querySelectorAll('.msg.user pre .hl').length;
+        if (codeBlocks.length) { codeBlocks[codeBlocks.length - 1].scrollIntoView({ block: 'center' }); await wait(300); }
         return JSON.stringify(out);
         """
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import type { CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
-import { renderMarkdown } from "../markdown.js";
+import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
@@ -34,6 +34,29 @@ describe("renderMarkdown", () => {
 
   it("marks pasted screenshots", () => {
     expect(renderMarkdown("[Image #3] squashed")).toContain('<span class="pill">image 3</span>');
+  });
+});
+
+describe("pasted code in the captain's messages", () => {
+  const paste = "change to @media (max-width: 640px) {\n    body .adviser-section .adviser-inner h2 {\n        font-size: 10vw;\n    }\n}";
+
+  it("renders an indented multi-line paste as one preformatted block with its indentation", () => {
+    const html = renderCaptainMarkdown(paste);
+    expect(html).toBe(
+      "<p>change to</p>\n<pre><code>@media (max-width: 640px) {\n    body .adviser-section .adviser-inner h2 {\n        font-size: 10vw;\n    }\n}\n</code></pre>\n",
+    );
+    expect(html).not.toContain("<br>");
+  });
+
+  it("leaves prose, single lines and existing fences alone", () => {
+    expect(fenceCaptainCode("make the menu smaller\nand the footer wider")).toBe("make the menu smaller\nand the footer wider");
+    expect(fenceCaptainCode("set .x { color: red; }")).toBe("set .x { color: red; }");
+    const fenced = "look:\n```\n  a {\n  }\n```";
+    expect(fenceCaptainCode(fenced)).toBe(fenced);
+  });
+
+  it("keeps code that follows a sentence on its own lines", () => {
+    expect(fenceCaptainCode("for mobile:\n.hero {\n  padding: 18px;\n}")).toBe("for mobile:\n```\n.hero {\n  padding: 18px;\n}\n```");
   });
 });
 

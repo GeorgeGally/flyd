@@ -90,10 +90,13 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 /* The captain's words look exactly like selected text: the selection's
    colours, hugging each line the way a selection does. The page wraps each
    block's text in .hl. */
-.msg.user .hl, .msg.user pre code {
+.msg.user .hl {
   background: var(--sel-bg); color: var(--sel-fg);
   -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
+/* Pasted code: one solid highlighted block, indentation kept, no per-line bars. */
+.msg.user pre { background: var(--sel-bg); color: var(--sel-fg); line-height: 1.6; }
+.msg.user pre code { background: none; color: inherit; }
 /* Taller lines so the padded highlights of wrapped lines do not touch. */
 .msg.user .body { line-height: 2.1; }
 /* Horizontal "padding" comes from side shadows in the same colour: WebKit
