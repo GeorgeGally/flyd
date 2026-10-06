@@ -207,9 +207,10 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .composer .field {
   display: flex; align-items: flex-end; gap: 0.6em;
   background: var(--tint); border-radius: 0.4em; padding: 0.5em 0.6em 0.5em 0.75em; margin-left: -0.75em;
-  border: 1px solid transparent; transition: border-color 140ms ease;
+  border: 0; transition: background-color 140ms ease;
 }
-.composer .field:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+/* No border (the captain asked); focus and state show as a change of fill. */
+.composer .field:focus-within { background: color-mix(in srgb, var(--fg) 6%, var(--tint)); }
 .composer textarea {
   flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent;
   color: var(--fg); font: 400 1em/1.5 var(--sans); max-height: 38vh; padding: 0;
@@ -229,9 +230,9 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
-.composer.dropping .field { border-color: var(--accent); }
+.composer.dropping .field { background: color-mix(in srgb, var(--accent) 16%, var(--tint)); }
 /* Push-to-talk (Fn+Control in Flyd.app): the box shows it is listening. */
-.composer.listening .field, .composer.transcribing .field { border-color: var(--accent); }
+.composer.listening .field, .composer.transcribing .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
 .composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
 .composer.transcribing .hint::before { content: "… writing it down   "; color: var(--accent); }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
