@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { renderMarkdown } from "./markdown.js";
+import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
@@ -113,7 +113,7 @@ export class SnapshotDiffer {
       changed.push({
         id: message.id,
         role: message.role,
-        html: renderMarkdown(parts.body),
+        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : renderMarkdown(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
