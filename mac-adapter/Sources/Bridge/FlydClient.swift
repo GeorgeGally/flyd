@@ -161,6 +161,8 @@ final class FlydClient {
         let taskPlan: TaskPlanResponsePayload?
         let workSessionId: String?
         let workSessionRevision: Int?
+        /// requires_surface: the native surface to open ("conversation").
+        let surface: String?
     }
 
     struct OperationPayload: Codable {
@@ -655,7 +657,8 @@ final class FlydClient {
             intervention: response.intervention,
             taskPlan: response.taskPlan,
             workSessionId: response.workSessionId,
-            workSessionRevision: response.workSessionRevision
+            workSessionRevision: response.workSessionRevision,
+            surface: response.surface
         )
     }
 

@@ -52,6 +52,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "jobs", integration: "runtime", description: "Run bounded overnight work jobs with artifact-first delivery.", mutatesArchive: true },
   { id: "daemon", integration: "runtime", description: "Continuously process new captures and refresh derived memory.", mutatesArchive: true },
   { id: "tasks", integration: "interactive", description: "Manage work tasks from the cross-repository work index.", mutatesArchive: true },
+  { id: "view", integration: "interactive", description: "Human-only view of a conversation (firstmate's Claude Code session first, Flyd chat later) served on loopback, with a box that messages firstmate through its inbox.", mutatesArchive: false },
   { id: "transitions", integration: "maintenance", description: "Inspect interaction transitions, judgments, and behavioural directives; export or erase governed transition sources.", mutatesArchive: false },
   { id: "learning", integration: "maintenance", description: "Control conversation learning sources and inspect, review, export or erase grounded vocabulary and work-state evidence.", mutatesArchive: true },
 ] satisfies BrainCapability[]).sort((a, b) => a.id.localeCompare(b.id));

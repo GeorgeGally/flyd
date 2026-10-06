@@ -95,9 +95,54 @@ statusItem.onPasteRawDictation = { dictation.pasteLast(raw: true) }
 statusItem.onPasteLastDictation = {
     dictation.pasteLast()
 }
+statusItem.onOpenConversation = {
+    ConversationWindow.shared.show()
+}
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
 ensureCoreLaunched()
+
+// The Conversation window's server runs from launch, so the window opens at once.
+let conversationServer = ConversationServer.shared
+conversationServer.onReady = { ConversationWindow.shared.serverReady($0) }
+conversationServer.onFailure = { ConversationWindow.shared.serverFailed($0) }
+conversationServer.start()
+let conversationHotKey = GlobalHotKey(
+    keyCode: GlobalHotKey.conversation.keyCode,
+    modifiers: GlobalHotKey.conversation.modifiers,
+    id: 1
+) {
+    ConversationWindow.shared.toggle()
+}
+NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+    conversationServer.stop()
+}
+/// Opening Flyd again (Dock, Spotlight, `open -a Flyd`) shows the conversation.
+final class FlydAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        ConversationServer.appendLog("reopen: showing the conversation")
+        ConversationWindow.shared.show()
+        return false
+    }
+}
+let appDelegate = FlydAppDelegate()
+app.delegate = appDelegate
+
+// Launching Flyd opens the conversation.
+DispatchQueue.main.async { ConversationWindow.shared.show() }
+
+// `--conversation-selftest`: close the window, reopen it through the
+// menu-bar menu, then check the page and save a snapshot (see ConversationWindow).
+if CommandLine.arguments.contains("--conversation-selftest") {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+        ConversationWindow.shared.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            statusItem.chooseConversationItem()
+            ConversationServer.appendLog("conversation selftest: opened from the menu-bar item, visible=\(ConversationWindow.shared.isVisible)")
+            ConversationWindow.shared.runSelfTestWhenLoaded()
+        }
+    }
+}
 
 if UserDefaults.standard.bool(forKey: setupCompletedKey), permissionGate.allRequiredGranted() {
     startFlyd(closeSetup: false)
@@ -829,6 +874,17 @@ func processInvocation(
                 invocationId: invocationId,
                 resolution: resolution
             )
+        }
+
+    case "requires_surface":
+        // "Open Flyd" and the like: Core asked for a native surface, not an answer.
+        await MainActor.run {
+            invocationPanel.dismiss()
+            island.hide()
+            state.transition(to: .present)
+            if resolution.surface == "conversation" {
+                ConversationWindow.shared.show()
+            }
         }
 
     case "requires_task":

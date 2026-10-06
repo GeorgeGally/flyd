@@ -1,5 +1,6 @@
 import { learningRequest } from "./cognition/learning-service.js";
 import { config } from "dotenv";
+import { isOpenConversationIntent } from "./conversation-view/open-intent.js";
 import { resolve as resolvePath, join } from "node:path";
 
 config({ path: resolvePath(join(process.cwd(), "..", ".env")) });
@@ -295,6 +296,21 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   if (!parsed.environment || !parsed.environment.application) {
     sendJson(res, 400, { error: "Missing environment payload" });
+    return;
+  }
+
+  // "Open Flyd" / "show the conversation": open the Conversation window
+  // rather than answer about it.
+  if (isOpenConversationIntent(parsed.intent)) {
+    sendJson(res, 200, {
+      mode: "requires_surface",
+      surface: "conversation",
+      resolutionId: randomUUID(),
+      invocationId: parsed.invocation_id,
+      environmentRevision: parsed.environment_revision ?? 1,
+      rationale: "open-conversation",
+      operations: [],
+    });
     return;
   }
 
