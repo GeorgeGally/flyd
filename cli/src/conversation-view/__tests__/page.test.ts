@@ -317,4 +317,12 @@ describe("conversation page", () => {
     expect(document.body.textContent).not.toContain("enter to send");
     planResponse = null;
   });
+
+  it("labels the send button Ahoy, with a spoken name that says what it does", async () => {
+    load("");
+    await settle();
+    const send = document.getElementById("send") as HTMLButtonElement;
+    expect(send.textContent).toBe("Ahoy");
+    expect(send.getAttribute("aria-label")).toBe("Send to firstmate");
+  });
 });

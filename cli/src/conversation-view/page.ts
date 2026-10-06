@@ -835,7 +835,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
-      <button id="send" type="submit" disabled>send</button>
+      <button id="send" type="submit" disabled aria-label="Send to ${label}">Ahoy</button>
     </div>
     <div class="hint" id="usage"></div>
   </div>
