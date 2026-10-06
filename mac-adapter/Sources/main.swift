@@ -104,7 +104,11 @@ ensureCoreLaunched()
 
 // The Conversation window's server runs from launch, so the window opens at once.
 let conversationServer = ConversationServer.shared
-conversationServer.onReady = { ConversationWindow.shared.serverReady($0) }
+conversationServer.onReady = { url in
+    ConversationWindow.shared.serverReady(url)
+    // The notch island follows the conversation: working, replies, decisions.
+    ConversationStatus.shared.start(serverURL: url)
+}
 conversationServer.onFailure = { ConversationWindow.shared.serverFailed($0) }
 conversationServer.start()
 let conversationHotKey = GlobalHotKey(
@@ -140,6 +144,16 @@ if CommandLine.arguments.contains("--conversation-selftest") {
             statusItem.chooseConversationItem()
             ConversationServer.appendLog("conversation selftest: opened from the menu-bar item, visible=\(ConversationWindow.shared.isVisible)")
             ConversationWindow.shared.runSelfTestWhenLoaded()
+            // The island: a reply status shows, and clicking it opens the window.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+                ConversationWindow.shared.close()
+                island.show(.status("selftest reply", .reply))
+                ConversationServer.appendLog("island selftest: showing=\(String(describing: island.currentPhase)) clickable=\(island.currentPhase != nil)")
+                island.onStatusClick?()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    ConversationServer.appendLog("island selftest: after click windowVisible=\(ConversationWindow.shared.isVisible) islandHidden=\(island.currentPhase == nil)")
+                }
+            }
         }
     }
 }

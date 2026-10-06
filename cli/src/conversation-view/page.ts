@@ -831,6 +831,8 @@ const SCRIPT = `
     });
     deliver(payload, true).then(function (sent) {
       blip();
+      // Inside Flyd.app the notch island says "sent".
+      try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
       // Kept until the message shows up in the conversation itself.
       if (nodes.has(sent.id)) {
         el.remove();
