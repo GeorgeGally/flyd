@@ -199,6 +199,24 @@ describe("ConversationViewServer", () => {
     expect(update.messages.map((m: { html: string }) => m.html)).toEqual(["<p>hello</p>\n", "<p>Hi, <strong>Captain</strong>.</p>\n"]);
   });
 
+  it("feeds the island a compact status of the newest session", async () => {
+    const port = await start(undefined, [captain("push it"), assistantText("» Pushed to main. Want me to merge the PR?")]);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: status")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
+    expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
+  });
+
   it("rejects requests carrying a foreign Host header", async () => {
     const port = await start();
     expect((await get(port, "/api/sessions", "attacker.example")).status).toBe(403);

@@ -87,3 +87,60 @@ final class ConversationVoiceBridgeTests: XCTestCase {
         XCTAssertFalse(literal.contains("\n"))
     }
 }
+
+final class ConversationStatusDecisionTests: XCTestCase {
+    private func status(_ session: String = "s1", working: Bool = false, reply: (String, String, Bool)? = nil) -> ConversationStatusPayload {
+        var json = "{\"session\":\"\(session)\",\"working\":\(working)"
+        if let reply { json += ",\"reply\":{\"id\":\"\(reply.0)\",\"headline\":\"\(reply.1)\",\"asks\":\(reply.2)}" }
+        json += "}"
+        return try! JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8))
+    }
+
+    func testTheFirstReadingAnnouncesNothingOld() {
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: status(reply: ("r1", "Old news.", false))), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: status(working: true)), [.showWorking])
+    }
+
+    func testANewReplyIsAnnouncedAndAQuestionAsksForADecision() {
+        let before = status(working: true, reply: ("r1", "Old.", false))
+        XCTAssertEqual(
+            ConversationStatusDecision.decide(previous: before, current: status(reply: ("r2", "Pushed.", false))),
+            [.announce("Pushed.", .reply), .clearWorking]
+        )
+        XCTAssertEqual(
+            ConversationStatusDecision.decide(previous: before, current: status(reply: ("r2", "Merge it?", true))),
+            [.announce("Needs you: Merge it?", .decision), .clearWorking]
+        )
+    }
+
+    func testANewSessionStartsFromItsOwnBaseline() {
+        let before = status("s1", reply: ("r1", "Old.", false))
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: before, current: status("s2", reply: ("r9", "Other.", false))), [.none])
+    }
+
+    func testStatusPhasesHoldForTheirTone() {
+        XCTAssertNil(DictationPill.StatusTone.working.holdSeconds)
+        XCTAssertEqual(DictationPill.StatusTone.sent.holdSeconds, 2)
+        XCTAssertEqual(DictationPill.StatusTone.reply.holdSeconds, 6)
+        XCTAssertEqual(DictationPill.StatusTone.decision.holdSeconds, 10)
+    }
+}
+
+final class ConversationStatusWorkingTests: XCTestCase {
+    func testWorkingIsAnnouncedOnceNotOnEveryTick() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
+        let idle = try decode(#"{"session":"s1","working":false}"#)
+        let busy = try decode(#"{"session":"s1","working":true}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: idle, current: busy), [.showWorking])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: busy, current: busy), [.none])
+    }
+}
+
+final class IslandStatusTextTests: XCTestCase {
+    func testStatusTextStaysShortOnAWordBoundary() {
+        let short = DictationPill.quoted("Good idea. I've asked the worker to turn the Mac's top-of-screen pill into a status line", limit: DictationPill.statusLimit)
+        XCTAssertLessThanOrEqual(short.count, DictationPill.statusLimit + 1)
+        XCTAssertTrue(short.hasSuffix("…"))
+        XCTAssertEqual(ConversationStatus.workingText, "")
+    }
+}

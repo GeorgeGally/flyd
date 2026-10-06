@@ -4,7 +4,7 @@ import AppKit
 /// whose wings carry the live dot and level bars, dropping a strip below the notch for
 /// messages. Screens without a notch get the same island at the top centre. It never
 /// takes focus, so the app George is dictating into stays frontmost and receives the paste.
-final class DictationPill {
+final class DictationPill: NSObject {
     /// One island for dictation and voice questions, so they never draw over each other.
     static let shared = DictationPill()
 
@@ -16,6 +16,40 @@ final class DictationPill {
         case inserted
         case notice(String)
         case failed(String)
+        /// The firstmate conversation at a glance (ConversationStatus). Clickable.
+        case status(String, StatusTone)
+    }
+
+    enum StatusTone: Equatable {
+        /// The assistant is mid-turn: spinner, stays up while it lasts.
+        case working
+        /// A new reply: green dot, a few seconds.
+        case reply
+        /// The reply asks for the captain's decision: pulsing brass dot, a little longer.
+        case decision
+        /// A message went out: check mark, briefly.
+        case sent
+
+        var holdSeconds: TimeInterval? {
+            switch self {
+            case .working: return nil
+            case .reply: return 6
+            case .decision: return 10
+            case .sent: return 2
+            }
+        }
+    }
+
+    /// What the island shows now, or nil when hidden.
+    private(set) var currentPhase: Phase?
+    /// Clicking a conversation status opens the Conversation window.
+    var onStatusClick: (() -> Void)?
+
+    /// Dictation or a voice question is using the island; conversation status waits.
+    var isBusyWithVoice: Bool {
+        guard let currentPhase, panel?.isVisible == true else { return false }
+        if case .status = currentPhase { return false }
+        return true
     }
 
     /// Height of the island on screens without a notch.
@@ -81,6 +115,7 @@ final class DictationPill {
         hideWork?.cancel()
         hideWork = nil
         generation += 1
+        currentPhase = phase
         let wasVisible = panel?.isVisible == true
         let panel = panel ?? makePanel()
         let screen = Self.screenUnderMouse()
@@ -100,13 +135,22 @@ final class DictationPill {
             panel.animator().setFrame(target, display: true)
         }
 
+        var clickable = false
+        var hold: TimeInterval?
         switch phase {
         case .listening, .working, .thinking:
             break
         case .inserted, .notice, .failed:
+            hold = Self.autoHideDelay
+        case .status(_, let tone):
+            clickable = true
+            hold = tone.holdSeconds
+        }
+        panel.ignoresMouseEvents = !clickable
+        if let hold {
             let work = DispatchWorkItem { [weak self] in self?.hide() }
             hideWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoHideDelay, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
         }
     }
 
@@ -130,6 +174,8 @@ final class DictationPill {
     func hide() {
         hideWork?.cancel()
         hideWork = nil
+        currentPhase = nil
+        panel?.ignoresMouseEvents = true
         guard let panel, panel.isVisible else { return }
         let hiding = generation
         let screen = Self.screenUnderMouse()
@@ -150,13 +196,13 @@ final class DictationPill {
     private func configure(for phase: Phase) -> CGFloat? {
         let spinning: Bool
         switch phase {
-        case .working, .thinking: spinning = true
+        case .working, .thinking, .status(_, .working): spinning = true
         default: spinning = false
         }
         bars.forEach { $0.isHidden = phase != .listening }
         spinner?.isHidden = !spinning
         if spinning { spinner?.startAnimation(nil) } else { spinner?.stopAnimation(nil) }
-        check?.isHidden = phase != .inserted
+        check?.isHidden = phase != .inserted && !Self.isSent(phase)
         label?.isHidden = true
         dot?.isHidden = true
 
@@ -177,7 +223,27 @@ final class DictationPill {
             return setLabel(message, color: FlydPalette.brassGlow)
         case .failed(let message):
             return setLabel(message, color: FlydPalette.signalRust)
+        case .status(let text, let tone):
+            switch tone {
+            case .reply:
+                dot?.isHidden = false
+                dot?.set(color: FlydPalette.signalGreen, pulsing: false)
+            case .decision:
+                dot?.isHidden = false
+                dot?.set(color: FlydPalette.brassGlow, pulsing: true)
+            case .working, .sent:
+                break
+            }
+            // Working is just the small spinning glyph in the wing: no words.
+            guard tone != .working, !text.isEmpty else { return nil }
+            let color = tone == .decision ? FlydPalette.brassGlow : FlydPalette.paper.withAlphaComponent(0.82)
+            return setLabel(Self.quoted(text, limit: Self.statusLimit), color: color)
         }
+    }
+
+    private static func isSent(_ phase: Phase) -> Bool {
+        if case .status(_, .sent) = phase { return true }
+        return false
     }
 
     /// Positions content for the island's final size, in its own (bottom-left origin) coordinates.
@@ -229,12 +295,14 @@ final class DictationPill {
     }
 
     static let questionLimit = 64
+    /// Conversation status stays glanceable.
+    static let statusLimit = 48
 
     /// The question as George said it, cut on a word boundary so the strip stays one line.
-    static func quoted(_ question: String) -> String {
+    static func quoted(_ question: String, limit: Int = questionLimit) -> String {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count > questionLimit else { return text }
-        let cut = text.prefix(questionLimit)
+        guard text.count > limit else { return text }
+        let cut = text.prefix(limit)
         let words = cut.split(separator: " ").dropLast()
         return (words.isEmpty ? String(cut) : words.joined(separator: " ")) + "…"
     }
@@ -302,6 +370,8 @@ final class DictationPill {
         label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         island.addSubview(label)
 
+        island.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(islandClicked)))
+
         self.panel = panel
         self.island = island
         self.dot = dot
@@ -309,6 +379,12 @@ final class DictationPill {
         self.check = check
         self.label = label
         return panel
+    }
+
+    @objc private func islandClicked() {
+        guard case .status = currentPhase else { return }
+        hide()
+        onStatusClick?()
     }
 
     private static func screenUnderMouse() -> NSScreen {
