@@ -94,11 +94,16 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
   background: var(--sel-bg); color: var(--sel-fg);
   -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
-/* Padded blocks: every wrapped line gets its own padding (clone), the
-   negative margins keep the text aligned with the replies, and the taller
-   line height keeps wrapped lines from touching. */
+/* Taller lines so the padded highlights of wrapped lines do not touch. */
 .msg.user .body { line-height: 2.1; }
-.msg.user .hl { padding: 0.35em 0.6em; margin: 0 -0.6em; border-radius: 0.18em; }
+/* Horizontal "padding" comes from side shadows in the same colour: WebKit
+   draws them on every wrapped line, so each line's highlight starts at the
+   same left edge (inline padding and margins only reach the first line
+   there), and the text itself stays aligned with the replies. */
+.msg.user .hl {
+  padding: 0.35em 0;
+  box-shadow: 0.6em 0 0 var(--sel-bg), -0.6em 0 0 var(--sel-bg);
+}
 .msg.user strong, .msg.user a { color: inherit; }
 .msg.user + .msg.user { margin-top: 0.9em; }
 .msg.assistant { margin-top: 0.85em; }
@@ -211,7 +216,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .composer textarea::placeholder { color: var(--muted); font-weight: 400; }
 .composer button {
-  font: 500 14px/1 var(--mono); color: var(--bg); background: var(--accent); border: 0;
+  font: 800 14px/1 var(--mono); letter-spacing: -0.03em; text-transform: uppercase;
+  color: var(--bg); background: var(--accent); border: 0;
   border-radius: 6px; padding: 9px 12px; cursor: pointer;
 }
 .composer button:disabled { opacity: 0.4; cursor: default; }
@@ -881,7 +887,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
-      <button id="send" type="submit" disabled aria-label="Send to ${label}">Ahoy</button>
+      <button id="send" type="submit" disabled aria-label="Send to ${label}">AHOY</button>
     </div>
     <div class="hint" id="usage"></div>
   </div>

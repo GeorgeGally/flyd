@@ -278,6 +278,17 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         const send = await fetch('/api/send', { method: 'POST', headers: { 'content-type': 'application/json', 'x-flyd-view-token': token }, body: JSON.stringify({ session: '../selftest', text: 'selftest' }) });
         out.sendPlumbing = send.status + ' ' + (await send.json()).error;
         out.externalLinks = document.querySelectorAll('.body a[target=_blank]').length;
+        // Every wrapped line of a captain highlight should start at the same left edge.
+        let wrapped = 0, spread = 0;
+        document.querySelectorAll('.msg.user .hl').forEach((hl) => {
+          const lefts = Array.from(hl.getClientRects()).map((r) => r.left);
+          if (lefts.length > 1) { wrapped++; spread = Math.max(spread, Math.max(...lefts) - Math.min(...lefts)); }
+        });
+        out.wrappedHighlights = wrapped;
+        out.wrapLeftSpread = spread;
+        out.sendLabel = document.getElementById('send').textContent;
+        const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
+        if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }
         return JSON.stringify(out);
         """
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
