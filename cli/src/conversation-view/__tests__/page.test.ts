@@ -325,4 +325,46 @@ describe("conversation page", () => {
     expect(send.textContent).toBe("Ahoy");
     expect(send.getAttribute("aria-label")).toBe("Send to firstmate");
   });
+
+  it("takes push-to-talk: shows the words as they are heard and sends them on release", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const composer = document.getElementById("composer")!;
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+
+    voice.start!();
+    expect(composer.classList.contains("listening")).toBe(true);
+    voice.draft!("open the");
+    expect(input.value).toBe("open the");
+    voice.draft!("open the deals page");
+    voice.transcribing!();
+    expect(composer.classList.contains("transcribing")).toBe(true);
+    voice.send!("Open the deals page.");
+    await settle();
+
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ session: "latest", text: "Open the deals page." });
+    expect(pending()[0]).toContain("Open the deals page.");
+    expect(composer.classList.contains("listening")).toBe(false);
+    expect(input.value).toBe("");
+  });
+
+  it("keeps what was typed before talking, and restores it when nothing was heard", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+    input.value = "about the menu:";
+
+    voice.start!();
+    voice.draft!("make it smaller");
+    expect(input.value).toBe("about the menu: make it smaller");
+    voice.cancel!("I didn't catch that - try again");
+    expect(input.value).toBe("about the menu:");
+    expect(document.getElementById("problem")!.textContent).toBe("I didn't catch that - try again");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+  });
 });
