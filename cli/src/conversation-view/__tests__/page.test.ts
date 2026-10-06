@@ -318,11 +318,11 @@ describe("conversation page", () => {
     planResponse = null;
   });
 
-  it("labels the send button Ahoy, with a spoken name that says what it does", async () => {
+  it("labels the send button AHOY, with a spoken name that says what it does", async () => {
     load("");
     await settle();
     const send = document.getElementById("send") as HTMLButtonElement;
-    expect(send.textContent).toBe("Ahoy");
+    expect(send.textContent).toBe("AHOY");
     expect(send.getAttribute("aria-label")).toBe("Send to firstmate");
   });
 
