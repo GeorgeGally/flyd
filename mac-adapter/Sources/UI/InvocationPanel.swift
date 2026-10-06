@@ -389,9 +389,8 @@ final class InvocationPanel {
         fieldBackground.wantsLayer = true
         fieldBackground.layer?.cornerRadius = 9
         fieldBackground.layer?.cornerCurve = .continuous
-        fieldBackground.layer?.backgroundColor = FlydPalette.paper.withAlphaComponent(0.06).cgColor
-        fieldBackground.layer?.borderWidth = 1
-        fieldBackground.layer?.borderColor = FlydPalette.line.cgColor
+        // No border (the captain asked): the faint fill and the caret mark the field.
+        fieldBackground.layer?.backgroundColor = FlydPalette.paper.withAlphaComponent(0.08).cgColor
         view.addSubview(fieldBackground)
         inputBackground = fieldBackground
 
@@ -499,4 +498,22 @@ final class InvocationPanel {
 private final class FocusablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+extension InvocationPanel {
+    /// Diagnostics: the text bar's content drawn off-screen to a PNG, without
+    /// showing a panel or taking focus. The blur is behind-window, so the
+    /// image sits on a plain dark backdrop instead.
+    func renderSnapshotForDiagnostics(to url: URL) {
+        let size = NSSize(width: 390, height: 82)
+        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.backgroundColor = NSColor(srgbRed: 0.12, green: 0.12, blue: 0.13, alpha: 1)
+        guard let view = panel.contentView else { return }
+        buildContent(in: view, panel: panel)
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: url)
+        ConversationServer.appendLog("ask-flyd snapshot: \(url.path)")
+    }
 }

@@ -168,6 +168,9 @@ if CommandLine.arguments.contains("--conversation-selftest") {
                 ConversationServer.appendLog("island selftest: showing=\(String(describing: island.currentPhase)) clickable=\(island.currentPhase != nil)")
                 island.onStatusClick?()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    InvocationPanel().renderSnapshotForDiagnostics(
+                        to: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".flyd/overlay/ask-flyd-panel.png")
+                    )
                     ConversationServer.appendLog("island selftest: after click windowVisible=\(ConversationWindow.shared.isVisible) islandHidden=\(island.currentPhase == nil)")
                 }
             }
