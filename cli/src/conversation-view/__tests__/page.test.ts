@@ -30,6 +30,7 @@ const SESSIONS = [
   { id: "older", title: "Older", updatedAt: "2026-10-04T20:00:00.000Z" },
 ];
 let sendResponse: Record<string, unknown>;
+let planResponse: unknown = null;
 let blips = 0;
 
 /** Counts blips: each one is an oscillator started. */
@@ -88,7 +89,7 @@ beforeEach(() => {
   blips = 0;
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("AudioContext", FakeAudioContext);
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
   window.scrollTo = () => {};
 });
 
@@ -301,5 +302,19 @@ describe("conversation page", () => {
     await type("just sent");
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true }));
     expect(input.value).toBe("just sent");
+  });
+
+  it("shows context use and the plan's limits where the key hints used to be", async () => {
+    planResponse = { source: "quota-axi", windows: [{ label: "session", percentRemaining: 72.4 }, { label: "week", percentRemaining: 41 }] };
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, context: { tokens: 629_918, window: 1_000_000 } });
+    const usage = document.getElementById("usage")!.textContent!;
+    expect(usage).toContain("context 63% · 630k of 1M");
+    expect(usage).toContain("session 72% left");
+    expect(usage).toContain("week 41% left");
+    expect(document.body.textContent).not.toContain("enter to send");
+    planResponse = null;
   });
 });

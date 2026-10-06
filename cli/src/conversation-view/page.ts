@@ -224,7 +224,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
 .composer.dropping .field { border-color: var(--accent); }
-.composer .hint { margin-top: 0.45em; font: 12.5px/1 var(--mono); color: var(--muted); }
+.composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
   body { font-size: 20px; }
@@ -454,6 +454,7 @@ const SCRIPT = `
     main.appendChild(working);
     document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
     isWorking = update.working;
+    if (update.context) { usage.context = update.context; renderUsage(); }
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
     if (lastActivity) whenEl.textContent = dayOf(lastActivity) + "  " + clock(lastActivity);
@@ -461,9 +462,36 @@ const SCRIPT = `
     first = false;
   }
 
+  // Under the message box: how full the context is, and the plan's limits.
+  var usageEl = document.getElementById("usage");
+  var usage = { context: null, plan: null };
+  function compact(n) {
+    return n >= 1000000 ? (Math.round(n / 100000) / 10) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+  }
+  function renderUsage() {
+    var parts = [];
+    if (usage.context) {
+      var c = usage.context;
+      parts.push("context " + Math.round((c.tokens / c.window) * 100) + "% · " + compact(c.tokens) + " of " + compact(c.window));
+    }
+    if (usage.plan) {
+      usage.plan.windows.forEach(function (w) {
+        parts.push(w.label + " " + Math.round(w.percentRemaining) + "% left" + (w.resetsAt ? ", resets " + dayOf(w.resetsAt) + " " + clock(w.resetsAt) : ""));
+      });
+    }
+    usageEl.textContent = parts.join("   ·   ");
+  }
+  function loadPlan() {
+    fetch("/api/plan").then(function (r) { return r.json(); }).then(function (data) { usage.plan = data.plan; renderUsage(); }).catch(function () {});
+  }
+  loadPlan();
+  setInterval(loadPlan, 60000);
+
   function reset() {
     nodes.forEach(function (el) { el.remove(); });
     nodes.clear();
+    usage.context = null;
+    renderUsage();
     // Optimistic copies belong to the session they were sent from.
     main.querySelectorAll(".msg.pending").forEach(function (el) { el.remove(); });
     awaiting.clear();
@@ -809,7 +837,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
       <button id="send" type="submit" disabled>send</button>
     </div>
-    <div class="hint">enter to send · shift+enter for a new line · paste or drop images</div>
+    <div class="hint" id="usage"></div>
   </div>
 </form>
 <script>${SCRIPT}</script>

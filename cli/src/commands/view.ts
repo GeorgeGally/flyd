@@ -3,6 +3,7 @@ import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } 
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { getKey } from "../lib/config.js";
+import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 
 export interface ViewOptions {
@@ -51,7 +52,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // exist; with neither, a long reply leads with its own first sentence.
   const providers = defaultProviders({ anthropicKey: getKey("ANTHROPIC_API_KEY") });
   const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
-  const server = new ConversationViewServer(source, { summarizer, always: process.env.FLYD_SUMMARY_ALWAYS === "1" });
+  // The plan's usage limits, from quota-axi when it can read them without prompting.
+  const plan = new PlanUsageReader();
+  plan.start();
+  const server = new ConversationViewServer(source, { summarizer, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan);
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

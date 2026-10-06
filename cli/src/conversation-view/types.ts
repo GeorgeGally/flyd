@@ -26,6 +26,8 @@ export interface ConversationSnapshot {
   working: boolean;
   /** ISO timestamp of the newest activity the source saw, if known. */
   lastActivity?: string;
+  /** How full the assistant's context window is, when the source knows. */
+  context?: { tokens: number; window: number };
 }
 
 export interface SessionSummary {

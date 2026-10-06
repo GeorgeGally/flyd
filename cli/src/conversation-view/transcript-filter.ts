@@ -176,6 +176,8 @@ export class TranscriptConversation {
   private segment: Segment | null = null;
   private lastActivity?: string;
   private segmentCount = 0;
+  private context?: { tokens: number; model: string };
+  private maxContext = 0;
 
   /**
    * Parses one JSONL line; malformed lines (e.g. a torn write) are ignored.
@@ -258,6 +260,7 @@ export class TranscriptConversation {
     if (entry.isApiErrorMessage === true) return;
     const message = isRecord(entry.message) ? entry.message : undefined;
     if (!message || message.model === "<synthetic>") return;
+    this.noteUsage(message);
     if (!this.segment) this.startSegment(stringField(entry, "uuid") ?? "start");
     const segment = this.segment!;
     segment.started = true;
@@ -277,6 +280,17 @@ export class TranscriptConversation {
       if (!segment.longest || text.length > segment.longest.text.length) segment.longest = piece;
     });
     if (message.stop_reason === "end_turn" || message.stop_reason === "stop_sequence") segment.settled = true;
+  }
+
+  /** Context in use = everything the model read for this turn: fresh, cached and newly cached input. */
+  private noteUsage(message: Json): void {
+    const usage = isRecord(message.usage) ? message.usage : undefined;
+    if (!usage) return;
+    const count = (key: string) => (typeof usage[key] === "number" ? (usage[key] as number) : 0);
+    const tokens = count("input_tokens") + count("cache_read_input_tokens") + count("cache_creation_input_tokens");
+    if (tokens <= 0) return;
+    this.context = { tokens, model: stringField(message, "model") ?? "" };
+    this.maxContext = Math.max(this.maxContext, tokens);
   }
 
   private startSegment(id: string): void {
@@ -319,8 +333,25 @@ export class TranscriptConversation {
     if (reply) messages.push(reply);
     const lastIsUser = this.finished.length > 0 && this.finished[this.finished.length - 1]!.role === "user";
     const working = open !== null && !reply && (open.started || lastIsUser);
-    return { messages, working, ...(this.lastActivity ? { lastActivity: this.lastActivity } : {}) };
+    return {
+      messages,
+      working,
+      ...(this.lastActivity ? { lastActivity: this.lastActivity } : {}),
+      ...(this.context ? { context: { tokens: this.context.tokens, window: contextWindow(this.context.model, this.maxContext) } } : {}),
+    };
   }
+}
+
+/**
+ * The model's context window. Claude 5 models in Claude Code run with 1M;
+ * a session that has already gone past 200k proves it is 1M too.
+ * FLYD_VIEW_CONTEXT_WINDOW overrides.
+ */
+export function contextWindow(model: string, maxSeen: number, env: NodeJS.ProcessEnv = process.env): number {
+  const override = Number(env.FLYD_VIEW_CONTEXT_WINDOW);
+  if (Number.isInteger(override) && override > 0) return override;
+  if (/\[1m\]/i.test(model) || /^claude-(opus|sonnet|fable|haiku)-5/.test(model) || maxSeen > 200_000) return 1_000_000;
+  return 200_000;
 }
 
 /** Convenience for whole-file reads and tests. */

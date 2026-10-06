@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
+import type { PlanUsageReader } from "./plan-usage.js";
 import { authorSummary, firstSentence, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
@@ -47,6 +48,7 @@ interface StreamUpdate {
   messages: RenderedMessage[];
   working: boolean;
   lastActivity?: string;
+  context?: { tokens: number; window: number };
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -123,6 +125,7 @@ export class SnapshotDiffer {
       messages: changed,
       working: snapshot.working,
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
+      ...(snapshot.context ? { context: snapshot.context } : {}),
     };
   }
 }
@@ -180,6 +183,7 @@ export class ConversationViewServer {
   constructor(
     private readonly source: ConversationSource,
     private readonly summaries?: { summarizer: ReplySummarizer; always?: boolean },
+    private readonly plan?: PlanUsageReader,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -247,6 +251,10 @@ export class ConversationViewServer {
       // token embedded in the page does.
       if (!this.source.canSend) sendJson(res, 404, { error: "read-only" });
       else sendJson(res, 200, { token: this.token });
+      return;
+    }
+    if (url.pathname === "/api/plan") {
+      sendJson(res, 200, { plan: this.plan?.current() ?? null });
       return;
     }
     if (url.pathname === "/api/image") {
