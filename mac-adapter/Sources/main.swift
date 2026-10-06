@@ -335,6 +335,7 @@ func repoRoot() -> String {
 }
 
 func handleVoiceInvocation() {
+    ShortcutLog.record("handler: talk to Flyd (Fn+Control)")
     if state.mode == .live {
         LiveSessionController.shared.stop()
     }
@@ -357,6 +358,7 @@ func handleVoiceInvocation() {
 }
 
 func startDictation() {
+    ShortcutLog.record("handler: dictation")
     guard state.mode != .live, state.phase == .idle else { return }
 
     if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
@@ -547,6 +549,7 @@ func resetVoiceCaptureCallbacks() {
 }
 
 func handleInvocation() {
+    ShortcutLog.record("handler: text bar (Ask Flyd)")
     if state.mode == .live {
         LiveSessionController.shared.stop()
     }

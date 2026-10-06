@@ -35,12 +35,43 @@ final class ShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(tap(&state, at: 4.0), [.dictationStart])
     }
 
-    func testDoubleTapCancelsTheRecordingAndOpensText() {
+    func testDoubleTapCancelsTheRecordingAndOpensTextOnRelease() {
         var state = ShortcutRoutingState()
 
         XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
-        XCTAssertEqual(tap(&state, at: 0.2), [.dictationCancel, .textTapped])
+        XCTAssertEqual(flags(fn, &state, at: 0.2), [.dictationCancel])
+        XCTAssertEqual(flags([], &state, at: 0.25), [.textTapped])
         XCTAssertEqual(tap(&state, at: 1.0), [.dictationStart])
+    }
+
+    /// The captain's Fn+Control often begins with Fn a moment early, soon after an
+    /// earlier Fn tap; that must be talking to Flyd, never the text bar.
+    func testControlJoiningASecondFnPressIsTalkingToFlydNotTheTextBar() {
+        var state = ShortcutRoutingState()
+
+        XCTAssertEqual(tap(&state, at: 0.0), [.dictationStart])
+        XCTAssertEqual(flags(fn, &state, at: 0.2), [.dictationCancel])
+        XCTAssertEqual(flags(ctrlFn, &state, at: 0.24), [.voicePressed])
+        XCTAssertEqual(flags([], &state, at: 1.5), [.voiceReleased])
+        XCTAssertEqual(tap(&state, at: 3.0), [.dictationStart])
+    }
+
+    func testFnControlNeverOpensTheTextBar() {
+        var state = ShortcutRoutingState()
+        var events: [ShortcutRouteEvent] = []
+        // Every ordering of the two keys, quick and slow, repeated.
+        for start in stride(from: 0.0, to: 6.0, by: 1.5) {
+            events += flags(fn, &state, at: start)
+            events += flags(ctrlFn, &state, at: start + 0.02)
+            events += flags([.maskControl], &state, at: start + 0.4)
+            events += flags([], &state, at: start + 0.42)
+            events += flags([.maskControl], &state, at: start + 0.6)
+            events += flags(ctrlFn, &state, at: start + 0.62)
+            events += flags(fn, &state, at: start + 1.0)
+            events += flags([], &state, at: start + 1.02)
+        }
+        XCTAssertFalse(events.contains(.textTapped))
+        XCTAssertEqual(events.filter { $0 == .voicePressed }.count, 8)
     }
 
     func testSecondTapJustOutsideTheWindowStopsInstead() {
