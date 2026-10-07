@@ -6,6 +6,7 @@ import type { Project } from "../projects.js";
 import {
   applyObservations,
   isAgentSessionDir,
+  learningPrompt,
   learnTaste,
   parseLearned,
   parseTaste,
@@ -93,6 +94,25 @@ describe("applyObservations", () => {
     profile.vetoed.push({ id: ruleId("Loves gradients."), text: "Loves gradients.", scope: "personal", count: 1, projects: [], evidence: [] });
     expect(applyObservations(profile, [observe("loves gradients", "personal")])).toMatchObject({ added: 0, ignored: 1 });
     expect(profile.rules).toEqual([]);
+  });
+
+  it("does not re-learn a vetoed rule reworded from the same words", () => {
+    const profile = empty();
+    const text = "Never center body copy; use left-aligned paragraphs.";
+    profile.vetoed.push({ id: ruleId(text), text, scope: "personal", count: 1, projects: [], evidence: [{ quote: "never centre body copy", source: "Claude Code", date: "2026-10-05" }] });
+    const result = applyObservations(profile, [observe("Never center body copy; keep paragraphs left-aligned.", "personal", undefined, "2026-10-07", "never centre body copy, i hate centred paragraphs")]);
+    expect(result).toMatchObject({ added: 0, ignored: 1 });
+    expect(profile.rules).toEqual([]);
+  });
+
+  it("shows the model the vetoed rules so it can point same_as at them", () => {
+    const profile = empty();
+    const text = "Never center body copy; use left-aligned paragraphs.";
+    profile.vetoed.push({ id: ruleId(text), text, scope: "personal", count: 1, projects: [], evidence: [] });
+    const turn: CandidateTurn = { id: "u1", text: "never centre body copy", context: "", date: "2026-10-07" };
+    expect(learningPrompt([turn], profile, PROJECTS)).toContain(`[${ruleId(text)}] ${text}`);
+    const learned = parseLearned(JSON.stringify({ rules: [{ turn: 1, rule: "Keep paragraphs left-aligned.", scope: "personal", quote: "never centre body copy", same_as: ruleId(text) }] }), [turn], profile, PROJECTS);
+    expect(applyObservations(profile, learned.map((rule) => ({ rule, source: "Claude Code", date: "2026-10-07" })))).toMatchObject({ added: 0, ignored: 1 });
   });
 });
 
