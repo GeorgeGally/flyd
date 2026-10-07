@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,6 +32,13 @@ describe("slash commands", () => {
       { name: "fm-status", description: "Fleet status at a glance" },
       { name: "git:commit", description: "Write a commit message for the staged diff." },
     ]);
+  });
+
+  it("skips a dangling symlink in a commands folder", () => {
+    symlinkSync(join(dir, "missing.md"), join(dir, "claude", "commands", "gone.md"));
+    symlinkSync(join(dir, "missing-folder"), join(dir, "claude", "commands", "gone-folder"));
+    const names = discoverCommands({ claudeHome: join(dir, "claude") }).map((command) => command.name);
+    expect(names).toEqual(["caveman:caveman", "design-review", "git:commit"]);
   });
 
   it("recognises a message that runs one of them", () => {

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -39,6 +39,22 @@ function shorten(text: string): string {
   return flat.length > DESCRIPTION_CHARS ? `${flat.slice(0, DESCRIPTION_CHARS - 1).trimEnd()}…` : flat;
 }
 
+function entries(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+function statOf(path: string): Stats | undefined {
+  try {
+    return statSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
 function readText(path: string): string {
   try {
     return readFileSync(path, "utf8");
@@ -49,8 +65,7 @@ function readText(path: string): string {
 
 /** <dir>/<name>/SKILL.md */
 function skillsIn(dir: string, prefix = ""): SlashCommand[] {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).flatMap((entry) => {
+  return entries(dir).flatMap((entry) => {
     const file = join(dir, entry, "SKILL.md");
     if (!existsSync(file)) return [];
     const fields = frontMatter(readText(file));
@@ -61,14 +76,14 @@ function skillsIn(dir: string, prefix = ""): SlashCommand[] {
 
 /** <dir>/**\/*.md; nested folders become "folder:name", as in Claude Code. */
 function commandsIn(dir: string, prefix = ""): SlashCommand[] {
-  if (!existsSync(dir)) return [];
   const found: SlashCommand[] = [];
   const walk = (folder: string, namespace: string) => {
-    for (const entry of readdirSync(folder)) {
+    for (const entry of entries(folder)) {
       const path = join(folder, entry);
-      if (statSync(path).isDirectory()) {
+      const stat = statOf(path);
+      if (stat?.isDirectory()) {
         walk(path, `${namespace}${entry}:`);
-      } else if (entry.endsWith(".md")) {
+      } else if (stat?.isFile() && entry.endsWith(".md")) {
         const text = readText(path);
         const fields = frontMatter(text);
         const firstLine = text.replace(/^---[\s\S]*?---/, "").split("\n").find((line) => line.trim()) ?? "";
