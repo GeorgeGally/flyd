@@ -1,4 +1,4 @@
-# flyd — agent reference
+# flyd â agent reference
 
 ## Repository workflow
 
@@ -14,7 +14,7 @@
 Flyd = intelligence + harness + interface.
 
 - **runtime/** makes Flyd capable: execution, memory, tools, orchestration, Git awareness, and coding-agent capabilities. It can be heavily developed without being the user-facing product.
-- **work-intelligence/** makes Flyd a product: the Mac-native manifestation — overlay, voice, scenes, proactive context, interaction.
+- **work-intelligence/** makes Flyd a product: the Mac-native manifestation â overlay, voice, scenes, proactive context, interaction.
 - **CLI** exposes the runtime for development, debugging, and dogfooding. It is a useful way to test and operate Flyd, not the destination. Evaluate every runtime task with one question: what capability does this unlock or improve in the Mac interface?
 
 Flyd Core is the intelligence runtime, implemented in TypeScript (`cli/src/server.ts` + friends). Swift (`mac-adapter/`) is the thin native OS adapter/presence layer that captures environment, renders native UI, handles audio, and executes grounded operations.
@@ -26,10 +26,10 @@ Flyd Core is the intelligence runtime, implemented in TypeScript (`cli/src/serve
 | Mode | Trigger | Status | Description |
 |------|---------|--------|-------------|
 | PRESENT | Always on | Shipped | OS notification-based foreground observation. No cognition, no network, no persistence. |
-| INVOKED (text) | Double-tap fn key | Shipped | One-shot text invocation. Intent field → resolution → native/augment/compose. |
-| INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk → `gpt-realtime-whisper` transcription → Conversation window's message box, sent to firstmate on release (no `/manifest`, nothing raised or focused). |
-| DICTATE | fn tap (toggle) or fn hold | Shipped | Speech → Core cleanup over 4816 (`purpose: dictation`) → pasted into the focused app by `TextInserter`; fn-alone edges are swallowed at the HID tap. |
-| LIVE | Ctrl×3 (triple-press) | Shipped | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. MVP requires headphones. |
+| INVOKED (text) | Double-tap fn key | Shipped | One-shot text invocation. Intent field â resolution â native/augment/compose. |
+| INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk â `gpt-realtime-whisper` transcription â Conversation window's message box, sent to firstmate on release (no `/manifest`, nothing raised or focused). |
+| DICTATE | fn tap (toggle) or fn hold | Shipped | Speech â Core cleanup over 4816 (`purpose: dictation`) â pasted into the focused app by `TextInserter`; fn-alone edges are swallowed at the HID tap. |
+| LIVE | CtrlÃ3 (triple-press) | Shipped | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. CtrlÃ3 again to exit. MVP requires headphones. |
 
 ### Resolution outcomes
 
@@ -54,61 +54,61 @@ These are Core outcomes, not adapter modes.
 
 ```text
 Swift macOS adapter (thin OS driver)
-    ├── PRESENT: NSWorkspace + AXObserver — observation only
-    ├── INVOKED text/voice: environment capture → TypeScript Core
-    ├── LIVE: audio I/O → LiveAudioBridge → TypeScript Core → OpenAI Realtime
-    └── Execution: NativeExecutor (AX refs + fingerprint verification)
+    âââ PRESENT: NSWorkspace + AXObserver â observation only
+    âââ INVOKED text/voice: environment capture â TypeScript Core
+    âââ LIVE: audio I/O â LiveAudioBridge â TypeScript Core â OpenAI Realtime
+    âââ Execution: NativeExecutor (AX refs + fingerprint verification)
 
 TypeScript Core (intelligence, memory, evidence, resolution)
-    ├── HTTP server :4815 — manifest, learnings, health
-    ├── Transcription WS :4816 — gpt-realtime-whisper relay
-    ├── Realtime WS :4817 — gpt-realtime-2.1 session + tool relay
-    ├── Cognitive Core: event/claim/relation world model → Present/projections → Context Compiler
-    ├── System-1: bounded Jev predicates when explicitly enabled; deterministic safety/lifecycle remains authoritative;
-    │   every predicate is declared in cognition/system-one/registry.ts and scored by the replay bench before any call site uses it
-    ├── Memory: unified cognitive facade; legacy archive retrieval is background evidence
-    ├── Evidence Engine: health → multi-lens planning → retrieval → fusion → clusters/conflicts
-    ├── Compose: loopback-only, short-lived generated evidence dossiers
-    ├── Live task intake: `task_plan` utterance → canonical `AgentTask` + plan (`requires_task`)
-    └── Delegation: legacy intent pattern matching → capability envelope (dormant)
+    âââ HTTP server :4815 â manifest, learnings, health
+    âââ Transcription WS :4816 â gpt-realtime-whisper relay
+    âââ Realtime WS :4817 â gpt-realtime-2.1 session + tool relay
+    âââ Cognitive Core: event/claim/relation world model â Present/projections â Context Compiler
+    âââ System-1: bounded Jev predicates when explicitly enabled; deterministic safety/lifecycle remains authoritative;
+    â   every predicate is declared in cognition/system-one/registry.ts and scored by the replay bench before any call site uses it
+    âââ Memory: unified cognitive facade; legacy archive retrieval is background evidence
+    âââ Evidence Engine: health â multi-lens planning â retrieval â fusion â clusters/conflicts
+    âââ Compose: loopback-only, short-lived generated evidence dossiers
+    âââ Live task intake: `task_plan` utterance â canonical `AgentTask` + plan (`requires_task`)
+    âââ Delegation: legacy intent pattern matching â capability envelope (dormant)
 ```
 
 ### Evidence Engine
 
 External provider output is evidence supplied to Flyd, never direct UI instructions.
 
-Current E0–E4 architecture lives under `cli/src/evidence/`:
+Current E0âE4 architecture lives under `cli/src/evidence/`:
 
 ```text
 external source
-    ↓
+    â
 CapabilityAdapter
-    ↓
+    â
 CapabilityRegistry health + ordered fallback
-    ↓
+    â
 intent-aware quick/default/deep planning
-    ↓
+    â
 retrieval + provenance + weighted fusion
-    ↓
+    â
 clusters + contradictions + coverage gaps
-    ↓
+    â
 EvidenceBundle
-    ↓
+    â
 Flyd Core reasoning
-    ↓
+    â
 augment or Core-owned composed dossier
 ```
 
 Current capabilities:
 
-- `web.read` — Jina Reader
-- `web.search` — Jina Search (`JINA_API_KEY`)
-- `github.read/search` — GitHub REST (`GITHUB_TOKEN`/`GH_TOKEN` optional for higher limits)
-- `rss.read` — native Flyd RSS/Atom parser
-- `youtube.read/search` — `yt-dlp`, with transcript extraction when available
-- `hackernews.read/search` — anonymous Algolia/Firebase APIs
-- `reddit.read/search` — public JSON in degraded mode; optional `REDDIT_ACCESS_TOKEN`
-- `x.read/search` — X API v2; requires `X_BEARER_TOKEN` or `TWITTER_BEARER_TOKEN`
+- `web.read` â Jina Reader
+- `web.search` â Jina Search (`JINA_API_KEY`)
+- `github.read/search` â GitHub REST (`GITHUB_TOKEN`/`GH_TOKEN` optional for higher limits)
+- `rss.read` â native Flyd RSS/Atom parser
+- `youtube.read/search` â `yt-dlp`, with transcript extraction when available
+- `hackernews.read/search` â anonymous Algolia/Firebase APIs
+- `reddit.read/search` â public JSON in degraded mode; optional `REDDIT_ACCESS_TOKEN`
+- `x.read/search` â X API v2; requires `X_BEARER_TOKEN` or `TWITTER_BEARER_TOKEN`
 
 E2 automatically enriches INVOKED and LIVE questions that materially depend on current external facts. Stable writing and personal recall do not browse. Required current claims fail closed when evidence cannot be retrieved.
 
@@ -139,9 +139,9 @@ Guardrails:
 - Do not treat engagement or popularity as truth.
 - Do not persist raw external evidence into personal memory without a separate governed decision.
 - Deep research must remain bounded; no recursive browsing loop without a hard cap.
-- Chat autonomy (`cli/src/runtime/tool-policy.ts`, `FLYD_AUTONOMY=full|trusted|ask`, default trusted): local, reversible work runs without asking; push/publish/send/delete/pipe-to-shell ask George (answer `a` = always this session); after web content enters a turn, shell/AppleScript/scheduling ask too. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). George wants Flyd powerful — don't add new approval gates without asking him.
-- Command hierarchy: `cli/src/command/` is Flyd's cross-domain command layer. Flyd owns George's intent, cross-domain priority, escalation and retained results; domain bosses own their domain outcome and delegate execution. FirstMate owns coding via its durable inbox/reply API. Librarian owns substantial knowledge work and manages Retriever/Researcher/Fact Checker specialist jobs. Domain handoffs retain George's original wording plus layered results (brief → detailed report → specialist outputs/evidence/raw); summaries never become the sole surviving truth. Routing/handoff failures feed the existing governed self-improvement evidence loop rather than a second learner. See `docs/product/flyd-command-architecture-prd.md`.
-- One voice: George only ever talks to Flyd. Council, Scout, crew and self-improvement are backstage — never label user-facing text (chat, greeting, notifications) with their names. Voice comes from `~/.flyd/SOUL.md` (default in `cli/src/lib/soul.ts`). Chat has two prompt modes (`buildConversationPrompt`): lean companion mode by default, operator rulebook + repo evidence only for code/work-state turns — naming a project is not a work turn. Keep companion mode short; small models lose EQ under long rule lists. Before every answer Flyd reads the room (`cli/src/runtime/read-the-room.ts`): need, stance, what to avoid, which few knowledge ids matter, and a route (answer/clarify/act/delegate) plus what the reply must cover. The harness enforces the route (`cli/src/runtime/turn-plan.ts`: tools in sight, a gate on each call, budget; recorded in the turn receipt) — the same ~0.3s Jev call also picks at most one how-to skill (`cli/src/runtime/skills.ts`, SKILL.md files in `~/.flyd/skills`, seeded from `cli/agent/flyd-skills`, `flyd skills import <name>` brings in his Claude/OpenCode ones) whose know-how rides in that turn only; fix wrong-kind-of-turn failures there, not with another prompt rule (see `docs/solutions/architecture-patterns/turn-plan-routes-in-the-harness-2026-09-28.md`); the answer sees who George is plus only that selection, and backstage findings arrive as private notes it may weave in. The investigator (`cli/src/council/investigator.ts`, `flyd council investigate|backfill`) fills gaps from George's own data — calendar, reminders, captures, past conversations, and his other assistants' memories (Hermes/OpenClaw) — into MEMORY.md, never USER.md. In the TUI, a message sent while Flyd is working moves that work to the background; it answers when done.
+- Chat autonomy (`cli/src/runtime/tool-policy.ts`, `FLYD_AUTONOMY=full|trusted|ask`, default trusted): local, reversible work runs without asking; push/publish/send/delete/pipe-to-shell ask George (answer `a` = always this session); after web content enters a turn, shell/AppleScript/scheduling ask too. `read_url` is public-web only (`url-guard.ts`); fetched code is scanned (`code-audit.ts`). George wants Flyd powerful â don't add new approval gates without asking him.
+- Command hierarchy: `cli/src/command/` is Flyd's cross-domain command layer. Flyd owns George's intent, cross-domain priority, escalation and retained results; domain bosses own their domain outcome and delegate execution. FirstMate owns coding via its durable inbox/reply API. Librarian owns substantial knowledge work and manages Retriever/Researcher/Fact Checker specialist jobs. Domain handoffs retain George's original wording plus layered results (brief â detailed report â specialist outputs/evidence/raw); summaries never become the sole surviving truth. Routing/handoff failures feed the existing governed self-improvement evidence loop rather than a second learner. See `docs/product/flyd-command-architecture-prd.md`.
+- One voice: George only ever talks to Flyd. Council, Scout, crew and self-improvement are backstage â never label user-facing text (chat, greeting, notifications) with their names. Voice comes from `~/.flyd/SOUL.md` (default in `cli/src/lib/soul.ts`). Chat has two prompt modes (`buildConversationPrompt`): lean companion mode by default, operator rulebook + repo evidence only for code/work-state turns â naming a project is not a work turn. Keep companion mode short; small models lose EQ under long rule lists. Before every answer Flyd reads the room (`cli/src/runtime/read-the-room.ts`): need, stance, what to avoid, which few knowledge ids matter, and a route (answer/clarify/act/delegate) plus what the reply must cover. The harness enforces the route (`cli/src/runtime/turn-plan.ts`: tools in sight, a gate on each call, budget; recorded in the turn receipt) â the same ~0.3s Jev call also picks at most one how-to skill (`cli/src/runtime/skills.ts`, SKILL.md files in `~/.flyd/skills`, seeded from `cli/agent/flyd-skills`, `flyd skills import <name>` brings in his Claude/OpenCode ones) whose know-how rides in that turn only; fix wrong-kind-of-turn failures there, not with another prompt rule (see `docs/solutions/architecture-patterns/turn-plan-routes-in-the-harness-2026-09-28.md`); the answer sees who George is plus only that selection, and backstage findings arrive as private notes it may weave in. The investigator (`cli/src/council/investigator.ts`, `flyd council investigate|backfill`) fills gaps from George's own data â calendar, reminders, captures, past conversations, and his other assistants' memories (Hermes/OpenClaw) â into MEMORY.md, never USER.md. In the TUI, a message sent while Flyd is working moves that work to the background; it answers when done.
 
 ## Structure
 
@@ -155,7 +155,7 @@ flyd/
 
   cli/                         TypeScript Core
     src/server.ts              Core HTTP + WS runtime
-    src/resolve.ts             manifest → resolution
+    src/resolve.ts             manifest â resolution
     src/transcription.ts       invoked voice transcription relay
     src/realtime-session.ts    LIVE realtime relay
     src/cognition/             canonical context compiler, Present materialization, curator, projections, Jev System-1
@@ -167,9 +167,9 @@ flyd/
 
   docs/product/                current product PRDs
   docs/solutions/              documented engineering solutions with YAML frontmatter (module, tags, problem_type); search before implementing or debugging in documented areas
-  CONCEPTS.md                  shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts
+  CONCEPTS.md                  shared domain vocabulary (entities, named processes, status concepts) â relevant when orienting to the codebase or discussing domain concepts
 
-  app/, db/, lib/, test/       legacy Rails tree — historical only; do not extend for active Flyd
+  app/, db/, lib/, test/       legacy Rails tree â historical only; do not extend for active Flyd
 ```
 
 ## Commands
@@ -188,27 +188,28 @@ flyd doctor --json                   # structured diagnostics
 flyd evidence research "topic"       # direct default-depth evidence research
 flyd evidence research "topic" --deep
 flyd evidence research "topic" --deep --json
-flyd agenda [list|add|cancel|inbox|run-due|install]  # Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Core every 5 min + optional launchd), results → inbox + macOS notification + next session's opening briefing
+flyd agenda [list|add|cancel|inbox|run-due|install]  # Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Core every 5 min + optional launchd), results â inbox + macOS notification + next session's opening briefing
 flyd council [status|run [--all]|advisories]  # the council (cli/src/council/): Librarian curates journal + captures into tiered MEMORY.md/USER.md and closes commitments that finished work (commits in his repos, landed crew work, successful jobs and agenda runs) shows done; it also keeps George's projects (`~/.flyd/projects.json`, `cli/src/council/projects.ts`): anything he's making, running or owed, with or without code, each linked to its repos. Chat answers project talk from that list; on a turn that isn't about code the harness keeps code tools and repo shell access out of reach (`offCode` in `turn-plan.ts`); Critic (measured) and Strategist advise it; the Muse speaks after chat turns when it can help (/useful, /dismiss). Runs on the agenda/Core tick; FLYD_COUNCIL=0 / FLYD_MUSE=0 disable
 flyd scout [show|run|watch|evolve|more N|less N|sources|taste]  # personal news (cli/src/council/scout.ts): last30days topics + RSS + subreddits as an evolving source population with fitness; taste seeded from George's Hermes curator; daily edition, 3-hourly must-know watch, weekly evolution; engine pinned at ~/.flyd/vendor/last30days-skill. Reddit: www.reddit.com/r/<sub>/.rss, sequential, no bot UA
-flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]   # Flyd as first mate (cli/src/crew/crew.ts): OpenCode crewmates in git worktrees under ~/.flyd/worktrees, verified with the repo's own checks, then an independent reviewer holds the diff to the task's done_when (one repair round) on the agenda tick; nothing lands without George's /land. Tests must never launch a real crewmate (guarded under VITEST)
+flyd crew [list|dispatch <outcome> [--done <point>]â¦|show|supervise|land|discard]   # Flyd as first mate (cli/src/crew/crew.ts): OpenCode crewmates in git worktrees under ~/.flyd/worktrees, verified with the repo's own checks, then an independent reviewer holds the diff to the task's done_when (one repair round) on the agenda tick; nothing lands without George's /land. Tests must never launch a real crewmate (guarded under VITEST)
 flyd improve [status|evidence|run]    # human-gated self-improvement (cli/src/crew/self-improve.ts): daily, gathers shortfall evidence (/flyd-fix incidents, failed chat evals, dismissed advisories, pushback in the journal, failed crew tasks, crew work the review found short, background jobs that ended short or were cut off, loops the repeat guard stopped), picks ONE evidence-backed fix at the most durable layer (a check in code before a prompt rule), dispatches it to the crew on the Flyd repo; one in flight at a time; FLYD_SELF_IMPROVE=0 disables
-flyd profile [edit|bootstrap]         # George's USER.md — highest-authority personal context, fed to every compiled context; bootstrap drafts it from raw captures; chat `/onboard` interviews George; durable facts he states are learned in the background (FLYD_PROFILE_AUTOLEARN=0 to disable)
+flyd profile [edit|bootstrap]         # George's USER.md â highest-authority personal context, fed to every compiled context; bootstrap drafts it from raw captures; chat `/onboard` interviews George; durable facts he states are learned in the background (FLYD_PROFILE_AUTOLEARN=0 to disable)
 cd cli && npm run evals:chat          # live chat evals (read-only; --only id,id --model provider:model); intelligence cases are LLM-judged (FLYD_EVAL_JUDGE_MODEL); results + regressions in ~/.flyd/evals/chat/. Pick chat models with this, not by reputation.
-flyd learning [--approve|--reject <n>]  # review dictation corrections (menu bar “Learn From My Dictation Edits”); eligible fixes hint immediately and 3 independent corrections activate narrow contextual rules; latest explicit review governs the rule group; controls/limits in docs/product/flyd-contextual-voice-learning.md
-flyd view [--session id] [--project dir]  # calm conversation view on 127.0.0.1:4818 (cli/src/conversation-view/); Flyd.app hosts it natively — menu bar "Conversation…" or ⌃⌥⌘F opens a WKWebView window (mac-adapter/Sources/Conversation/), the app supervises `node --import tsx src/entry.ts view` from Core's cli/ (FLYD_VIEW_CLI_DIR overrides; log ~/.flyd/overlay/conversation-view.log; `--conversation-selftest` checks the page in-app); under the message box: context % from the transcript's own usage, plan limits from `quota-axi --provider claude` (read-only, no Keychain prompt): only George's words + final replies, followed live; v1 source is firstmate's Claude Code transcripts (ClaudeCodeTranscriptSource), Flyd chat plugs in as another ConversationSource; the message box sends via firstmate's own `bin/fm-inbox.sh note -` (home ~/Documents/firstmate, FLYD_FIRSTMATE_HOME overrides, never the real one under vitest — `cli/src/lib/firstmate-home.ts`; only on firstmate's conversation) and shows sent notes from its state/inbox; "/" at the start of the box lists Claude Code's skills and commands (`commands.ts`, `/api/commands`) and a sent command carries a hidden marker telling firstmate to run it; `/api/status` feeds the notch island (working / reply / needs you); pasted images: transcript ones are read back by line byte offset (`/api/image`), box ones are saved to firstmate's data/inbox-images and named in the note as `[image: /path]`; long replies lead with a summary (`summaries.ts`: the reply's own leading `» ` lines, else xAI Grok → Claude Haiku from XAI_API_KEY/~/.grok or ANTHROPIC_API_KEY, cached in ~/.flyd/view/summaries.json, newest 20 only; sends reply text to that provider, FLYD_VIEW_SUMMARIES=0 off, FLYD_SUMMARY_ALWAYS=1 compares); never writes transcripts
+flyd learning [--approve|--reject <n>]  # review dictation corrections (menu bar âLearn From My Dictation Editsâ); eligible fixes hint immediately and 3 independent corrections activate narrow contextual rules; latest explicit review governs the rule group; controls/limits in docs/product/flyd-contextual-voice-learning.md
+flyd view [--session id] [--project dir]  # calm conversation view on 127.0.0.1:4818 (cli/src/conversation-view/); Flyd.app hosts it natively â menu bar "Conversationâ¦" or ââ¥âF opens a WKWebView window (mac-adapter/Sources/Conversation/), the app supervises `node --import tsx src/entry.ts view` from Core's cli/ (FLYD_VIEW_CLI_DIR overrides; log ~/.flyd/overlay/conversation-view.log; `--conversation-selftest` checks the page in-app); under the message box: context % from the transcript's own usage, plan limits from `quota-axi --provider claude` (read-only, no Keychain prompt): only George's words + final replies, followed live; v1 source is firstmate's Claude Code transcripts (ClaudeCodeTranscriptSource), Flyd chat plugs in as another ConversationSource; the message box sends via firstmate's own `bin/fm-inbox.sh note -` (home ~/Documents/firstmate, FLYD_FIRSTMATE_HOME overrides, never the real one under vitest — `cli/src/lib/firstmate-home.ts`; only on firstmate's conversation) and shows sent notes from its state/inbox; "/" at the start of the box lists Claude Code's skills and commands (`commands.ts`, `/api/commands`) and a sent command carries a hidden marker telling firstmate to run it; `/api/status` feeds the notch island (working / reply / needs you); pasted images: transcript ones are read back by line byte offset (`/api/image`), box ones are saved to firstmate's data/inbox-images and named in the note as `[image: /path]`; long replies lead with a summary that keeps every outcome, decision and ask (`summaries.ts`: the reply's own leading `Â» ` lines, else xAI Grok â Claude Haiku â OpenAI from XAI_API_KEY/~/.grok, ANTHROPIC_API_KEY or OPENAI_API_KEY, cached in ~/.flyd/view/summaries.json, newest 20 only; until then, or with no key, a local digest of the lead sentence and every numbered point; sends reply text to that provider, FLYD_VIEW_SUMMARIES=0 off, FLYD_SUMMARY_ALWAYS=1 compares); routine replies (acks, status pings, a model's ROUTINE) are muted and never announced on the island; replies with something to act on (code block, table, "add these") are never folded; a small line under the busy dots says the current step (firstmate's narration/task list, else a shell step's description); "taste" in the header opens `/taste` (see `flyd taste`); never writes transcripts
+flyd taste [show|for <project|path>|learn [--days N]|edit]  # George's learned design/code taste (cli/src/council/taste.ts, ~/.flyd/TASTE.md, his to edit; "## Not me" = vetoed, never relearned): each correction/rejection/approval in his own Claude Code turns (~/.claude/projects, crewmate/worktree sessions and agent briefs skipped; never tool output, pasted code or assistant words) becomes a rule with its quote, project and date; repeats strengthen, a project rule seen in a second project moves to Everywhere. Learned on the Core tick (7-day backfill, 3 model calls/tick, FLYD_TASTE_LEARNING=0 off); read by the context compiler and crew briefs; other agents run `flyd taste for <repo>` before design or code work
 flyd transitions                      # inspect recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
 FLYD_CHAT_FALLBACK_MODELS=openai:gpt-5.6-luna  # chat/ask failover after FLYD_CHAT_MODEL (provider-qualified: openai:|anthropic:|commandcode:|opencode-go:); COMMANDCODE_API_KEY appends commandcode:<COMMANDCODE_MODEL> automatically
 FLYD_TRANSITIONS_DISABLED=1           # kill switch: disables all transition capture (behaviour identical to feature off)
 FLYD_JEV_MODEL=jev-1.13.0             # pin an exact Jev release (default jev-latest); thresholds were tuned against the pinned one
-FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze output as src/evals/fixtures/system-one/recordings.jsonl
+FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=â¦ FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze output as src/evals/fixtures/system-one/recordings.jsonl
 ```
 
 > **CLI uses compiled `dist/`, not source.** The `flyd` terminal CLI is the global
 > npm symlink into `cli/dist/index.js`. Source edits under `cli/src/` are NOT
 > picked up until you run `cd cli && npm run build` (regenerates `dist/`). After
 > changing `cli/src/` and verifying with `npm test`, rebuild before claiming a
-> CLI fix is live — a stale `dist/` means the running CLI still uses the old
+> CLI fix is live â a stale `dist/` means the running CLI still uses the old
 > behavior. The Mac overlay/Core auto-rebuilds via `make install`; the plain
 > `flyd` terminal does not.
 
@@ -216,38 +217,38 @@ Legacy Rails commands are not part of the active product workflow.
 
 ## Key files
 
-- `docs/product/flyd-personal-intelligence-prd.md` — **Active product authority** for Flyd's overall direction (personal intelligence, LEARN consent plane, event runtime, action authority, policy promotion); supersedes the work-intelligence PRD for direction
-- `docs/product/flyd-work-intelligence-prd.md` — product authority for the overlay work loop (ground → diagnose → intervene); superseded for direction by `flyd-personal-intelligence-prd.md`
-- `docs/product/flyd-overlay-prd.md` — overlay product definition (superseded for work-intelligence authority by `flyd-work-intelligence-prd.md`)
-- `docs/product/flyd-evidence-engine-prd.md` — evidence/reach architecture and E0–E5 sequence
-- `docs/product/flyd-evidence-engine-e1.md` — E1 implementation decisions
-- `docs/product/flyd-evidence-engine-e3-e4.md` — social reach and deep compose implementation
-- `mac-adapter/Sources/main.swift` — app entry point and invocation lifecycle
-- `mac-adapter/Makefile` — build/bundle/install/run
-- `mac-adapter/Sources/UI/InvocationPanel.swift` — text invocation command bar
-- `mac-adapter/Sources/UI/AugmentPanel.swift` — augment UI
-- `mac-adapter/Sources/Capture/VoiceCapture.swift` — mic capture / spectrum
-- `mac-adapter/Sources/Bridge/FlydClient.swift` — `/manifest` client
-- `mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift` — port 4816 client
-- `mac-adapter/Sources/Bridge/LiveAudioBridge.swift` — port 4817 LIVE client
-- `mac-adapter/Sources/Execution/ObservedTarget.swift` — LIVE execution grounding
-- `mac-adapter/Sources/Auth/AdapterAuth.swift` — shared Core/adapter bearer token
-- `cli/src/server.ts` — Flyd Core runtime
-- `cli/src/resolve.ts` — resolution logic
-- `cli/src/realtime-session.ts` — LIVE session relay
-- `cli/src/evidence/types.ts` — evidence/capability/surface contracts
-- `cli/src/evidence/capability-registry.ts` — health-aware backend selection
-- `cli/src/evidence/evidence-engine.ts` — planning/retrieval/fusion/deep orchestration
-- `cli/src/evidence/default-registry.ts` — current E1/E3 adapter registry
-- `cli/src/evidence/clustering.ts` — evidence theme clustering and bounded drill-down
-- `cli/src/evidence/contradictions.ts` — independent opposing-claim extraction
-- `cli/src/evidence/compose-surface.ts` — Core-owned evidence dossier renderer
-- `cli/src/evidence/doctor.ts` — capability diagnostics
-- `cli/src/lib/brain-retrieval.ts` — shared personal-memory evidence retrieval
+- `docs/product/flyd-personal-intelligence-prd.md` â **Active product authority** for Flyd's overall direction (personal intelligence, LEARN consent plane, event runtime, action authority, policy promotion); supersedes the work-intelligence PRD for direction
+- `docs/product/flyd-work-intelligence-prd.md` â product authority for the overlay work loop (ground â diagnose â intervene); superseded for direction by `flyd-personal-intelligence-prd.md`
+- `docs/product/flyd-overlay-prd.md` â overlay product definition (superseded for work-intelligence authority by `flyd-work-intelligence-prd.md`)
+- `docs/product/flyd-evidence-engine-prd.md` â evidence/reach architecture and E0âE5 sequence
+- `docs/product/flyd-evidence-engine-e1.md` â E1 implementation decisions
+- `docs/product/flyd-evidence-engine-e3-e4.md` â social reach and deep compose implementation
+- `mac-adapter/Sources/main.swift` â app entry point and invocation lifecycle
+- `mac-adapter/Makefile` â build/bundle/install/run
+- `mac-adapter/Sources/UI/InvocationPanel.swift` â text invocation command bar
+- `mac-adapter/Sources/UI/AugmentPanel.swift` â augment UI
+- `mac-adapter/Sources/Capture/VoiceCapture.swift` â mic capture / spectrum
+- `mac-adapter/Sources/Bridge/FlydClient.swift` â `/manifest` client
+- `mac-adapter/Sources/Bridge/VoiceTranscriptionRelay.swift` â port 4816 client
+- `mac-adapter/Sources/Bridge/LiveAudioBridge.swift` â port 4817 LIVE client
+- `mac-adapter/Sources/Execution/ObservedTarget.swift` â LIVE execution grounding
+- `mac-adapter/Sources/Auth/AdapterAuth.swift` â shared Core/adapter bearer token
+- `cli/src/server.ts` â Flyd Core runtime
+- `cli/src/resolve.ts` â resolution logic
+- `cli/src/realtime-session.ts` â LIVE session relay
+- `cli/src/evidence/types.ts` â evidence/capability/surface contracts
+- `cli/src/evidence/capability-registry.ts` â health-aware backend selection
+- `cli/src/evidence/evidence-engine.ts` â planning/retrieval/fusion/deep orchestration
+- `cli/src/evidence/default-registry.ts` â current E1/E3 adapter registry
+- `cli/src/evidence/clustering.ts` â evidence theme clustering and bounded drill-down
+- `cli/src/evidence/contradictions.ts` â independent opposing-claim extraction
+- `cli/src/evidence/compose-surface.ts` â Core-owned evidence dossier renderer
+- `cli/src/evidence/doctor.ts` â capability diagnostics
+- `cli/src/lib/brain-retrieval.ts` â shared personal-memory evidence retrieval
 
 ## Overlay gotchas
 
-### JSON key format — Core sends camelCase, Swift must match
+### JSON key format â Core sends camelCase, Swift must match
 
 Core uses `JSON.stringify(body)`, producing camelCase responses. The Swift decoder in `FlydClient.post()` must NOT use `.convertFromSnakeCase`; response properties match JS keys directly.
 
@@ -273,11 +274,11 @@ Do not add a separate invocation deadline task. A prior 10-second deadline later
 ### AugmentPanel
 
 - All cards accept mouse events so the answer text can be selected and copied; interactive `choice`/`control` cards additionally have draggable backgrounds and option buttons.
-- Every card shows the ✕ close button; Escape also dismisses. There is no click-to-dismiss or auto-dismiss timer — a card stays until the captain dismisses it or chooses an option.
+- Every card shows the â close button; Escape also dismisses. There is no click-to-dismiss or auto-dismiss timer â a card stays until the captain dismisses it or chooses an option.
 - Interactive cards may be dragged by their background.
 - Clamp card layout to `screen.visibleFrame`.
 - Multiple augmentations require separate `AugmentPanel` instances; reusing one silently drops previous cards because `.show()` begins with `dismiss()`.
-- A card stays on screen until dismissed by ✕, Escape, or an option choice — it never auto-dismisses and no click outside destroys it, so the captain can read and copy the answer at leisure.
+- A card stays on screen until dismissed by â, Escape, or an option choice â it never auto-dismisses and no click outside destroys it, so the captain can read and copy the answer at leisure.
 
 ### Resolution routing
 

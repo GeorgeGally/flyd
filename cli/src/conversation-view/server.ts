@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
+import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
+import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, ReplySummarizer, ROUTINE, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
@@ -241,6 +243,10 @@ export class ConversationViewServer {
       await this.send(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/taste") {
+      await this.editTaste(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -256,6 +262,15 @@ export class ConversationViewServer {
         assistantLabel: this.source.assistantLabel,
         ...(this.source.canSend ? { sendToken: this.token } : {}),
       }));
+      return;
+    }
+    if (url.pathname === "/taste") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+      });
+      res.end(renderTastePage(readTaste(), { token: this.token }));
       return;
     }
     if (url.pathname === "/api/sessions") {
@@ -292,6 +307,34 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  /** George rewords, vetoes or restores a learned taste rule from the taste page. */
+  private async editTaste(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) {
+      sendJson(res, 403, { error: "forbidden origin" });
+      return;
+    }
+    if (!sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "missing or wrong token" });
+      return;
+    }
+    let payload: { action?: unknown; id?: unknown; text?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 16 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    const id = typeof payload.id === "string" ? payload.id : "";
+    const done = payload.action === "veto" ? vetoRule(id)
+      : payload.action === "restore" ? restoreRule(id)
+        : payload.action === "reword" && typeof payload.text === "string" ? rewordRule(id, payload.text)
+          : null;
+    if (done === null) sendJson(res, 400, { error: "expected { action: veto|restore|reword, id, text? }" });
+    else if (!done) sendJson(res, 404, { error: "unknown rule" });
+    else sendJson(res, 200, { ok: true });
   }
 
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {

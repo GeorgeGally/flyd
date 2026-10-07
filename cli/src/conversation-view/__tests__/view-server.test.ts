@@ -9,6 +9,7 @@ import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
+import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
 
@@ -198,9 +199,9 @@ describe("ConversationViewServer", () => {
     });
   }
 
-  function post(port: number, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  function post(port: number, body: string, headers: Record<string, string>, path = "/api/send"): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
-      const req = request({ host: "127.0.0.1", port, path: "/api/send", method: "POST", headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+      const req = request({ host: "127.0.0.1", port, path, method: "POST", headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
         let text = "";
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => (text += chunk));
@@ -269,6 +270,30 @@ describe("ConversationViewServer", () => {
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
     expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
+  });
+
+  it("shows what Flyd knows about the captain's taste, and lets only its own page reword or veto a rule", async () => {
+    writeTaste({
+      rules: [{ id: "abc12345", text: "No shadows on icon boxes.", scope: "personal", count: 2, projects: [], last: "2026-10-06",
+        evidence: [{ quote: "no shadows on the icon boxes", source: "Claude Code", date: "2026-10-06" }] }],
+      vetoed: [],
+      names: {},
+    });
+    const port = await start();
+    const page = await get(port, "/taste");
+    expect(page.status).toBe(200);
+    expect(page.body).toContain("No shadows on icon boxes.");
+    expect(page.body).toContain("no shadows on the icon boxes");
+    const token = /data-token="([0-9a-f]+)"/.exec(page.body)![1]!;
+    const json = { "content-type": "application/json" };
+    const veto = JSON.stringify({ action: "veto", id: "abc12345" });
+    expect((await post(port, veto, json, "/api/taste")).status).toBe(403);
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token, origin: "https://attacker.example" }, "/api/taste")).status).toBe(403);
+    expect((await post(port, JSON.stringify({ action: "reword", id: "abc12345", text: "Never shadows on icon boxes." }), { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste().rules[0]!.text).toBe("Never shadows on icon boxes.");
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste()).toMatchObject({ rules: [], vetoed: [{ id: "abc12345" }] });
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(404);
   });
 
   it("lists no slash commands for a read-only conversation", async () => {

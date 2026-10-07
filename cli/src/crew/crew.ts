@@ -135,7 +135,7 @@ export function acceptanceCriteria(task: Pick<CrewTask, "outcome" | "doneWhen">)
   return task.doneWhen?.length ? task.doneWhen : [task.outcome];
 }
 
-export function crewBrief(outcome: string, verification: string[], branch: string, doneWhen: string[] = []): string {
+export function crewBrief(outcome: string, verification: string[], branch: string, doneWhen: string[] = [], taste: string | null = null): string {
   return [
     "You are a crewmate working for Flyd, George's personal agent. Deliver this outcome, unattended:",
     "",
@@ -146,6 +146,7 @@ export function crewBrief(outcome: string, verification: string[], branch: strin
       ...doneWhen.map((criterion, index) => `${index + 1}. ${criterion}`),
       "",
     ] : []),
+    ...(taste ? [taste, ""] : []),
     "Rules:",
     `- You are on branch ${branch} in a dedicated git worktree. Work only here. Never push, never touch other branches.`,
     "- Read the repository's AGENTS.md / CLAUDE.md / README first and follow its conventions.",
@@ -196,7 +197,10 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
     ...(doneWhen.length ? { doneWhen } : {}),
     ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
   };
-  const brief = crewBrief(outcome, verification, branch, doneWhen);
+  // George's taste for this repo's project: what he has corrected before.
+  const { resolveTasteProject, tastePromptText } = await import("../council/taste.js");
+  const tasteProject = resolveTasteProject(repo);
+  const brief = crewBrief(outcome, verification, branch, doneWhen, (() => { try { return tastePromptText({ projects: tasteProject ? [tasteProject] : [] }); } catch { return null; } })());
   const pid = (options.launch ?? launchOpenCode)(task, brief);
   saveTask({ ...task, ...(pid ? { pid } : {}) }, dir);
   return readTask(id, dir)!;

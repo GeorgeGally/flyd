@@ -10,6 +10,7 @@ import type { JevOptions } from "./system-one/types.js";
 import { readContextBundles } from "../lib/context-bundles.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { memoryPromptText } from "../council/memory-store.js";
+import { resolveTasteProject, tastePromptText } from "../council/taste.js";
 
 export interface CompileContextInput {
   intent: string;
@@ -100,7 +101,18 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   try { curated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
   if (curated) sources.push("MEMORY.md");
   const curatedBlock = curated ? `## Flyd memory (curated by the Librarian: standing facts, decisions, commitments)\n${curated}` : "";
-  const profileCombined = [ownProfileBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
+  // His taste, learned from his corrections: personal rules plus the rules of
+  // the projects in play, so Flyd never makes him correct the same thing twice.
+  let taste: string | null = null;
+  try {
+    const projectsInPlay = [...interpretation.projectIds, input.projectRoot]
+      .map((hint) => resolveTasteProject(hint))
+      .filter((id): id is string => Boolean(id));
+    taste = tastePromptText({ projects: projectsInPlay });
+  } catch { omissions.push("taste_unreadable"); }
+  if (taste) sources.push("TASTE.md");
+  const tasteBlock = taste ? `## George's taste (TASTE.md)\n${taste}` : "";
+  const profileCombined = [ownProfileBlock, tasteBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne
