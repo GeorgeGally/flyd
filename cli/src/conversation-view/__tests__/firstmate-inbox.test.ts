@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -212,6 +212,22 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     await source.send("s1", "/not-real please");
     await source.send("s1", "plain words");
     expect(sent).toEqual(["design-review", undefined, undefined]);
+  });
+
+  it("still sends when a commands folder holds a dangling symlink", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "commands"), { recursive: true });
+    writeFileSync(join(claude, "commands", "ship.md"), "Ship it.\n");
+    symlinkSync(join(dir, "missing.md"), join(claude, "commands", "gone.md"));
+    const sent: Array<string | undefined> = [];
+    const inbox = { send: async (_t: string, _i?: unknown, command?: string) => (sent.push(command), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, commandRoots: { claudeHome: claude } });
+    await source.send("s1", "/ship now");
+    await source.send("s1", "plain words");
+    expect(sent).toEqual(["ship", undefined]);
   });
 
   it("is read-only without an inbox", async () => {

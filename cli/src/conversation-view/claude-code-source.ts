@@ -152,7 +152,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     if (!this.inbox) return [];
     const now = Date.now();
     if (!this.commandCache || now - this.commandCache.at > 60_000) {
-      this.commandCache = { at: now, commands: discoverCommands(this.commandRoots) };
+      let commands: SlashCommand[];
+      try {
+        commands = discoverCommands(this.commandRoots);
+      } catch {
+        commands = this.commandCache?.commands ?? [];
+      }
+      this.commandCache = { at: now, commands };
     }
     return this.commandCache.commands;
   }
