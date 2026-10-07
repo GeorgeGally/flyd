@@ -201,6 +201,18 @@ describe("learning from Claude Code sessions", () => {
     return path;
   }
 
+  it("keeps his corrections whatever the word form", async () => {
+    const corrections = [
+      "headlines on one line where they fit",
+      "inconsistency is the biggest red flag",
+      "rejected, go with lifted navy",
+      "stop centering the body text, paragraphs go flush left please",
+    ];
+    const file = session("-Users-george-Documents-cap5", "forms.jsonl", corrections.flatMap((text) => [said(text), reply("Done.")]));
+    const read = await readSessionTurns(file, 0, "2026-01-01", PROJECTS);
+    expect(read.turns.map((turn) => turn.text)).toEqual(corrections);
+  });
+
   it("learns from George's own turns only, once, and skips agent sessions", async () => {
     const file = session("-Users-george-Documents-cap5", "s1.jsonl", [
       said("make the cards azure"),

@@ -275,8 +275,8 @@ export function captainProse(text: string): string {
   return text.replace(/```[\s\S]*?```/g, "").split("\n").filter((line) => !/^\s*>/.test(line)).join("\n").trim();
 }
 
-/** Cheap gate before a model sees a turn: does it sound like a judgement on the work? */
-const TASTE_SIGNAL = /\b(?:no|not|don'?t|never|always|prefer|hate|love|like|instead|rather|should(?:n'?t)?|looks?|feels?|ugly|nice|perfect|great|better|worse|wrong|(?:in)?consistent|keep|remove|too|bigger|smaller|tighter|looser|spacing|gap|padding|margin|font|type|colou?r|shadow|border|align|cent(?:re|er)|bold|eyebrow|headline|heading|style|cramped|clean|minimal|simple|clutter)\b/i;
+/** Cheap gate before a model sees a turn: does it sound like a judgement on the work? Any word form counts (headlines, centred, rejected). */
+const TASTE_SIGNAL = /\b(?:no|not|don'?t|never|always|prefer|hate|love|like|instead|rather|should(?:n'?t)?|looks?|feels?|ugly|nice|perfect|great|better|worse|wrong|(?:in)?consisten(?:t|cy)|reject|approve|keep|remove|too|bigger|smaller|tighter|looser|spacing|gap|padding|margin|font|type|colou?r|shadow|border|align|cent(?:re|er)|bold|eyebrow|headline|heading|style|cramped|clean|minimal|simple|clutter)(?:s|es|d|ed|ing|ly)?\b/i;
 
 export function mightCarryTaste(text: string): boolean {
   const prose = captainProse(text);
