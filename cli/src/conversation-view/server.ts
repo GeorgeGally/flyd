@@ -254,6 +254,10 @@ export class ConversationViewServer {
       else sendJson(res, 200, { token: this.token });
       return;
     }
+    if (url.pathname === "/api/commands") {
+      sendJson(res, 200, { commands: await this.source.commands() });
+      return;
+    }
     if (url.pathname === "/api/plan") {
       sendJson(res, 200, { plan: this.plan?.current() ?? null });
       return;

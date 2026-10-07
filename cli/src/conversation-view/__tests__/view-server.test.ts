@@ -240,6 +240,11 @@ describe("ConversationViewServer", () => {
     expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
   });
 
+  it("lists no slash commands for a read-only conversation", async () => {
+    const port = await start();
+    expect(JSON.parse((await get(port, "/api/commands")).body)).toEqual({ commands: [] });
+  });
+
   it("rejects requests carrying a foreign Host header", async () => {
     const port = await start();
     expect((await get(port, "/api/sessions", "attacker.example")).status).toBe(403);
