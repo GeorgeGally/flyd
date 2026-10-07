@@ -146,7 +146,7 @@ export async function planTask(params: {
     intent: params.intent,
     projectRoot: params.projectRoot,
     currentWork: params.currentWork,
-    context: [params.context, formatCompiledContext(compiledContext)].filter(Boolean).join("\n\n"),
+    context: [params.context, formatCompiledContext(compiledContext, { includeTaste: true })].filter(Boolean).join("\n\n"),
   });
 
   const raw = await query(

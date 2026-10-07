@@ -7,7 +7,7 @@ import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.j
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, ReplySummarizer, ROUTINE, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
@@ -96,17 +96,18 @@ export class SnapshotDiffer {
       return parts;
     }
     if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text, ...(isRoutine(message.text) ? { routine: true } : {}) };
-    // Rules to paste, steps to carry out: shown whole, never behind "more".
-    if (isActionable(message.text)) return { body: message.text };
+    // Rules to paste, steps to carry out: the summary leads, the reply shows open under it.
+    const actionable = isActionable(message.text);
     const model = modelFor(message.text);
     const digest = digestReply(message.text);
     // The model found no outcome, decision or ask: one muted line.
-    if (model.text === ROUTINE) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
+    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
     return {
       body: message.text,
-      summary: model.text
+      summary: model.text && !isRoutineAnswer(model.text)
         ? { html: renderMarkdown(model.text), source: "model" }
         : { html: renderMarkdown(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
+      ...(actionable ? { expanded: true } : {}),
     };
   }
 

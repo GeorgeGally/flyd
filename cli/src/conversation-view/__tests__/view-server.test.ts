@@ -10,7 +10,7 @@ import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../mark
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
-import { KINSTA_RULES } from "./fixtures/replies.js";
+import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -119,16 +119,19 @@ describe("SnapshotDiffer summaries", () => {
     // The captain asked "what rules bro": the folded view showed "Kinsta won't
     // accept #." while the four rules he had to paste sat behind "more".
     const differ = new SnapshotDiffer();
-    const [rendered] = differ.next({ messages: [message("r1", KINSTA_RULES)], working: false }).messages;
-    expect(rendered!.summary).toBeUndefined();
+    const [rendered, table] = differ.next({ messages: [message("r1", KINSTA_RULES), message("r3", KINSTA_TABLE)], working: false }).messages;
+    expect(rendered).toMatchObject({ summary: { source: "digest" }, expanded: true });
+    expect(rendered!.summary!.html).toContain("Set each to 301 and All domains");
     expect(rendered!.html).toContain("^/members-and-firms/?$");
+    expect(table).toMatchObject({ summary: { source: "digest" }, expanded: true });
+    expect(table!.html).toContain("https://capfive.com/professionals/");
     const [authored] = new SnapshotDiffer().next({ messages: [message("r2", `» Four rules for Kinsta.\n\n${KINSTA_RULES}`)], working: false }).messages;
     expect(authored).toMatchObject({ summary: { source: "author" }, expanded: true });
     expect(authored!.html).toContain("https://capfive.com/$1");
   });
 
   it("mutes routine chatter, and a reply the model finds routine shrinks to one line", async () => {
-    const differ = new SnapshotDiffer(withModel(async () => "ROUTINE"));
+    const differ = new SnapshotDiffer(withModel(async () => "**ROUTINE.**"));
     const [shipshape] = differ.next({ messages: [message("r1", "Captain, shipshape.")], working: false }).messages;
     expect(shipshape).toMatchObject({ routine: true });
     const snapshot = { messages: [message("r2", long)], working: false };

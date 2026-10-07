@@ -52,10 +52,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     throw new Error(`No session ${options.session} in ${projectDir}`);
   }
 
-  // Plain-English summaries: xAI Grok, then Claude Haiku, then OpenAI, from
-  // whichever keys exist; with none, a long reply leads with a local digest
-  // (its lead sentence and every numbered point).
-  const providers = defaultProviders({ anthropicKey: getKey("ANTHROPIC_API_KEY"), openaiKey: getKey("OPENAI_API_KEY") });
+  // Plain-English summaries: xAI Grok, then Claude Haiku, from whichever keys
+  // exist; with neither, a long reply leads with a local digest (its lead
+  // sentence and every point it reports).
+  const providers = defaultProviders({ anthropicKey: getKey("ANTHROPIC_API_KEY") });
   const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
   // The plan's usage limits, from quota-axi when it can read them without prompting.
   const plan = new PlanUsageReader();
@@ -71,7 +71,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     ? `Summaries: ${providers.map((provider) => provider.name).join(", then ")} (reply text is sent to that provider; FLYD_VIEW_SUMMARIES=0 turns it off).`
     : process.env.FLYD_VIEW_SUMMARIES === "0"
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with a local digest."
-      : "Summaries: no XAI_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY found; long replies lead with a local digest.");
+      : "Summaries: no XAI_API_KEY or ANTHROPIC_API_KEY found; long replies lead with a local digest.");
   if (options.open !== false) openInBrowser(url);
 
   await new Promise<void>((resolve) => {

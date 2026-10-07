@@ -111,8 +111,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     taste = tastePromptText({ projects: projectsInPlay });
   } catch { omissions.push("taste_unreadable"); }
   if (taste) sources.push("TASTE.md");
-  const tasteBlock = taste ? `## George's taste (TASTE.md)\n${taste}` : "";
-  const profileCombined = [ownProfileBlock, tasteBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
+  const profileCombined = [ownProfileBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne
@@ -131,7 +130,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   return {
     generatedAt: new Date().toISOString(),
     interpretation,
-    user: { profile: profileCombined, autonomy: [], communication: [] },
+    user: { profile: profileCombined, ...(taste ? { taste } : {}), autonomy: [], communication: [] },
     present,
     projects,
     conversation,

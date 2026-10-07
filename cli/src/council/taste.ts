@@ -362,12 +362,23 @@ interface TasteState {
   lastRunAt?: string;
 }
 
-function readState(now: Date, backfillDays: number): TasteState {
+/** An explicit backfill reaching further back than before re-reads the transcripts in that window. */
+function readState(now: Date, backfillDays: number | undefined): TasteState {
+  const since = new Date(now.getTime() - (backfillDays ?? 7) * 86_400_000).toISOString();
   try {
     const state = JSON.parse(readFileSync(statePath(), "utf8")) as TasteState;
-    if (state && typeof state.files === "object" && typeof state.since === "string") return state;
+    if (state && typeof state.files === "object" && typeof state.since === "string") {
+      if (backfillDays !== undefined && since < state.since) {
+        const sinceMs = Date.parse(since);
+        for (const file of Object.keys(state.files)) {
+          try { if (statSync(file).mtimeMs >= sinceMs) delete state.files[file]; } catch { delete state.files[file]; }
+        }
+        state.since = since;
+      }
+      return state;
+    }
   } catch { /* first run */ }
-  return { files: {}, since: new Date(now.getTime() - backfillDays * 86_400_000).toISOString() };
+  return { files: {}, since };
 }
 
 const SEEN_KEPT = 5_000;
@@ -383,17 +394,21 @@ const MAX_LINE_BYTES = 400_000;
 export async function readSessionTurns(file: string, offset: number, since: string, projects: Project[]): Promise<{ turns: CandidateTurn[]; end: number }> {
   const conversation = new TranscriptConversation();
   let cwd: string | undefined;
+  const size = statSync(file).size;
+  if (size <= offset) return { turns: [], end: offset };
   let end = offset;
-  const stream = createReadStream(file, { start: offset, encoding: "utf8" });
+  let lineStart = offset;
+  const stream = createReadStream(file, { start: offset, end: size - 1, encoding: "utf8" });
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   for await (const line of lines) {
+    lineStart = end;
     end += Buffer.byteLength(line, "utf8") + 1;
     if (!line.trim() || line.length > MAX_LINE_BYTES) continue;
     if (!cwd) cwd = /"cwd":"([^"]+)"/.exec(line)?.[1];
     conversation.pushLine(line);
   }
-  // A torn final line is read again next time.
-  end = Math.min(end, statSync(file).size);
+  // A final line with no newline yet may be torn: it is read again next time.
+  if (end > size) end = lineStart;
   const project = projectForPath(cwd, projects);
   const messages = conversation.snapshot().messages;
   const turns: CandidateTurn[] = [];
@@ -439,7 +454,7 @@ export interface TasteRunResult extends ApplyResult {
 export interface TasteLearnOptions {
   complete(prompt: string): Promise<string>;
   now?: () => Date;
-  /** First run reaches back this far. */
+  /** How far back to learn: the first run's reach (default 7 days), or an explicit backfill that reaches further back. */
   backfillDays?: number;
   /** Model calls per run; each reads up to `batch` turns. */
   maxCalls?: number;
@@ -461,7 +476,7 @@ export function learnTaste(options: TasteLearnOptions): Promise<TasteRunResult> 
   running = (async () => {
     const now = (options.now ?? (() => new Date()))();
     const projects = options.projects ?? readProjects();
-    const state = readState(now, options.backfillDays ?? 7);
+    const state = readState(now, options.backfillDays);
     const batch = options.batch ?? 12;
     const maxCalls = options.maxCalls ?? 3;
     const result: TasteRunResult = { added: 0, strengthened: 0, promoted: 0, ignored: 0, turns: 0, calls: 0 };
@@ -476,9 +491,10 @@ export function learnTaste(options: TasteLearnOptions): Promise<TasteRunResult> 
       for (let start = 0; start < turns.length; start += batch) {
         if (result.calls >= maxCalls) { learnedAll = false; break; }
         const slice = turns.slice(start, start + batch);
-        const profile = readTaste();
         result.calls += 1;
-        const learned = parseLearned(await options.complete(learningPrompt(slice, profile, projects)), slice, profile, projects);
+        const output = await options.complete(learningPrompt(slice, readTaste(), projects));
+        const profile = readTaste();
+        const learned = parseLearned(output, slice, profile, projects);
         const applied = applyObservations(profile, learned.map((item) => ({ rule: item, source: "Claude Code", date: slice[item.turn - 1]!.date })));
         if (applied.added || applied.strengthened) writeTaste(profile);
         result.added += applied.added;
