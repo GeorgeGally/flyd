@@ -11,7 +11,7 @@ import {
   firstSentence,
   isActionable,
   isRoutine,
-  openaiProvider,
+  isRoutineAnswer,
   ReplySummarizer,
   SUMMARY_PROMPT,
   xaiProvider,
@@ -73,9 +73,26 @@ describe("digestReply", () => {
     expect(summary.length).toBeLessThan(ABOUT_FIXES.length / 2);
   });
 
+  it("keeps the lead of every paragraph when the reply has no list, so the ask is not lost", () => {
+    const digest = digestReply(KINSTA_RULES);
+    expect(digest.lead).toBe("Kinsta won't accept #.");
+    expect(digest.points.map((point) => point.text)).toEqual([
+      "The four old service pages need no rules of their own: the same addresses already work on CapFive.",
+      "Set each to 301 and All domains:",
+      "Put rule 4 into the existing ^(.*)$ rule rather than adding it alongside.",
+    ]);
+  });
+
   it("skips a bare acknowledgement to the sentence that says something", () => {
     expect(digestReply("Captain, agreed. Today Flyd's profile of you is a list of general manners.\n\n1. **Watch:** x\n2. **Layers:** y").lead)
       .toBe("Today Flyd's profile of you is a list of general manners.");
+  });
+});
+
+describe("isRoutineAnswer", () => {
+  it("reads ROUTINE however the model dressed it, and nothing else", () => {
+    for (const answer of ["ROUTINE", "ROUTINE.", "**Routine**", " routine\n"]) expect(isRoutineAnswer(answer)).toBe(true);
+    expect(isRoutineAnswer("Routine check passed; the site is live.")).toBe(false);
   });
 });
 
@@ -95,7 +112,11 @@ describe("isActionable", () => {
     expect(isActionable(KINSTA_RULES)).toBe(true);
     expect(isActionable(KINSTA_TABLE)).toBe(true);
     expect(isActionable("Add these in the dialog you showed, as 301 on All domains.")).toBe(true);
+    expect(isActionable("Captain, the rules are ready.\n\n1. Paste them into Kinsta.\n2. Clear the cache.")).toBe(true);
+    expect(isActionable("Captain, run this once in the terminal and tell me what it says.")).toBe(true);
     expect(isActionable(ABOUT_FIXES)).toBe(false);
+    expect(isActionable("Captain, the spacing is fixed on About. I'll use this spacing on the other pages next.")).toBe(false);
+    expect(isActionable("Captain, the copyright line is now set in the footer, and the old plugin stays in use in production for now.")).toBe(false);
     expect(isActionable("Captain, the `menu` bar is fixed.")).toBe(false);
   });
 });
@@ -142,9 +163,8 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("asks xAI first, then Anthropic, then OpenAI, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
-    expect(defaultProviders({ env: {}, home: dir, openaiKey: "o" }).map((p) => p.name)).toEqual(["openai:gpt-4o-mini"]);
-    expect(defaultProviders({ env: { OPENAI_API_KEY: "o", FLYD_VIEW_OPENAI_MODEL: "gpt-x" }, home: dir }).map((p) => p.name)).toEqual(["openai:gpt-x"]);
+  it("asks xAI first, then Anthropic, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
+    expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
     expect(defaultProviders({ env: { XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
       .toEqual(["xai:grok-4-fast-non-reasoning", "anthropic:claude-haiku-4-5-20251001"]);
@@ -175,9 +195,5 @@ describe("providers", () => {
     expect(requests[1]!.url).toBe("https://api.anthropic.com/v1/messages");
     expect((requests[1]!.init.headers as Record<string, string>)["x-api-key"]).toBe("ak");
     expect(JSON.parse(String(requests[1]!.init.body))).toMatchObject({ model: "claude-haiku-4-5-20251001", system: SUMMARY_PROMPT });
-
-    expect(await openaiProvider("ok", "gpt-4o-mini", fake({ choices: [{ message: { content: "Three fixes:\n- cards\n- heading\n" } }] })).summarize("reply", signal)).toBe("Three fixes:\n- cards\n- heading");
-    expect(requests[2]!.url).toBe("https://api.openai.com/v1/chat/completions");
-    expect(JSON.parse(String(requests[2]!.init.body))).toMatchObject({ model: "gpt-4o-mini", messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: "reply" }] });
   });
 });

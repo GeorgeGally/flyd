@@ -15,6 +15,8 @@ export function meaningfulConflicts(conflicts: CompiledContext["memory"]["confli
 export interface FormatContextOptions {
   /** Personal turns skip repository state and project projections. */
   includeProjects?: boolean;
+  /** Design, code and work-state turns follow George's learned taste; companion chat, LIVE and resolve never see it. */
+  includeTaste?: boolean;
 }
 
 export function formatCompiledContext(context: CompiledContext, options: FormatContextOptions = {}): string {
@@ -28,6 +30,7 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
   return [
     "<flyd_context>",
     "<profile>", context.user.profile || "(no profile projection)", "</profile>",
+    ...(options.includeTaste && context.user.taste ? ["<taste>", context.user.taste, "</taste>"] : []),
     "<now>",
     includeProjects ? context.present.projection || "" : "",
     `Active projects: ${context.present.activeProjects.join(", ") || "none"}`,

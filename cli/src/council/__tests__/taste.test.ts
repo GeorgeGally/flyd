@@ -9,6 +9,7 @@ import {
   learnTaste,
   parseLearned,
   parseTaste,
+  readSessionTurns,
   readTaste,
   renderTaste,
   resolveTasteProject,
@@ -228,6 +229,49 @@ describe("learning from Claude Code sessions", () => {
     };
     expect(await learnTaste({ complete: again, now, projects: PROJECTS })).toMatchObject({ calls: 1, strengthened: 1 });
     expect(readTaste().rules[0]!.count).toBe(2);
+  });
+
+  it("keeps a veto George makes on /taste while the model is still reading", async () => {
+    const id = ruleId("No shadows on icon boxes.");
+    writeTaste({ rules: [{ id, text: "No shadows on icon boxes.", scope: "personal", count: 1, projects: [], evidence: [] }], vetoed: [], names: {} });
+    session("-Users-george-Documents-cap5", "s.jsonl", [reply("Added soft shadows."), said("no shadows on the icon boxes, and tighter type please")]);
+    const complete = async () => {
+      expect(vetoRule(id)).toBe(true);
+      return JSON.stringify({ rules: [
+        { turn: 1, rule: "No shadows on icon boxes.", scope: "personal", quote: "no shadows on the icon boxes", same_as: id },
+        { turn: 1, rule: "Tight type.", scope: "personal", quote: "tighter type", same_as: null },
+      ] });
+    };
+    await learnTaste({ complete, now: () => new Date("2026-10-07T00:00:00Z"), projects: PROJECTS });
+    const profile = readTaste();
+    expect(profile.vetoed.map((rule) => rule.id)).toEqual([id]);
+    expect(profile.rules.map((rule) => rule.text)).toEqual(["Tight type."]);
+  });
+
+  it("reads a turn caught mid-write once it is whole", async () => {
+    const whole = `${reply("Cards are azure.")}\n`;
+    const turn = said("no, prefer lifted navy cards to azure");
+    const file = session("-Users-george-Documents-cap5", "s.jsonl", []);
+    writeFileSync(file, `${whole}${turn.slice(0, 40)}`);
+    const first = await readSessionTurns(file, 0, "2026-01-01", PROJECTS);
+    expect(first.turns).toEqual([]);
+    expect(first.end).toBe(Buffer.byteLength(whole));
+    writeFileSync(file, `${whole}${turn}\n`);
+    const second = await readSessionTurns(file, first.end, "2026-01-01", PROJECTS);
+    expect(second.turns.map((item) => item.text)).toEqual(["no, prefer lifted navy cards to azure"]);
+    expect(second.end).toBe(Buffer.byteLength(`${whole}${turn}\n`));
+  });
+
+  it("reaches further back on an explicit --days backfill after the first run", async () => {
+    const old = JSON.stringify({ ...JSON.parse(said("never centre body copy, it looks wrong")), timestamp: "2026-09-20T09:00:00.000Z" });
+    session("-Users-george-Documents-cap5", "s.jsonl", [old]);
+    const now = () => new Date("2026-10-07T00:00:00Z");
+    const prompts: string[] = [];
+    const complete = async (prompt: string) => (prompts.push(prompt), JSON.stringify({ rules: [] }));
+    expect(await learnTaste({ complete, now, projects: PROJECTS })).toMatchObject({ turns: 0 });
+    expect(await learnTaste({ complete, now, projects: PROJECTS, backfillDays: 30 })).toMatchObject({ turns: 1, calls: 1 });
+    expect(prompts[0]).toContain("never centre body copy");
+    expect(await learnTaste({ complete, now, projects: PROJECTS, backfillDays: 30 })).toMatchObject({ turns: 0, calls: 0 });
   });
 
   it("is off with FLYD_TASTE_LEARNING=0", async () => {

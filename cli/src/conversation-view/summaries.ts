@@ -13,16 +13,21 @@ import { dirname, join } from "node:path";
 //
 // A reply can carry its own summary: its leading lines that start with "» "
 // (up to about three sentences). Any other long reply gets a short summary
-// from a cheap model (xAI Grok, then Claude Haiku, then OpenAI), cached on
-// disk and asked for at most once per reply; until then, and without a
-// provider, digestReply() builds one locally from the reply's lead sentence
-// and its numbered points. FLYD_SUMMARY_ALWAYS=1 also asks the model for
+// from a cheap model (xAI Grok, then Claude Haiku), cached on disk and asked
+// for at most once per reply; until then, and without a provider,
+// digestReply() builds one locally from the reply's lead sentence and every
+// point or paragraph it reports. FLYD_SUMMARY_ALWAYS=1 also asks the model for
 // replies that carry their own summary, to compare the two.
 // PRIVACY: this sends the reply text to that provider. FLYD_VIEW_SUMMARIES=0
 // turns model summaries off; "» " summaries never leave the machine.
 
 /** What a model answers for a reply with no outcome, decision or ask. */
 export const ROUTINE = "ROUTINE";
+
+/** Whether a model's answer is ROUTINE, however it dressed it ("ROUTINE.", "**Routine**"). */
+export function isRoutineAnswer(text: string): boolean {
+  return text.replace(/[^a-z]/gi, "").toUpperCase() === ROUTINE;
+}
 
 export const SUMMARY_PROMPT =
   "You condense an engineering assistant's report for its boss, who reads it at a glance. " +
@@ -118,17 +123,21 @@ export interface ReplyDigest {
   routine: boolean;
   /** The overall result, one sentence, salutation and bare acknowledgements dropped. */
   lead: string;
-  /** Every top-level numbered or bulleted item of the reply, shortened. */
+  /** Every top-level numbered or bulleted item of the reply, else the lead of every later paragraph, shortened. */
   points: ReplyPoint[];
 }
 
-/** Something the captain must act on: steps he is told to carry out with the reply's own text. */
-const ACT_ON = /\b(?:add|paste|set|enter|copy|put|type|replace|use)\s+(?:these|this|each|them|the following|rule|it in|in)\b/i;
+/**
+ * An imperative addressed to the captain, at the start of a sentence, line or
+ * numbered step: "Add these…", "Set each to 301", "2. Paste it into…".
+ */
+const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
 
 /**
  * Whether the reply hands the captain something to act on: a code block, a
- * table, or instructions to add, paste or set what it contains. Such a reply
- * is never folded behind its summary; the deliverable is the point.
+ * table, or an instruction to him to paste, add, run or set what it contains.
+ * Such a reply opens with its body shown under the summary; the deliverable
+ * is the point.
  */
 export function isActionable(text: string): boolean {
   if (/^\s*```/m.test(text)) return true;
@@ -167,7 +176,15 @@ function pointsOf(body: string): ReplyPoint[] {
     if (!label && !first) continue;
     points.push({ ...(label ? { label } : {}), text: clip(first, 140) });
   }
-  return points.length >= 2 ? points.slice(0, 8) : [];
+  return points.length >= 2 ? points : [];
+}
+
+/** The first sentence of every prose paragraph after the first. */
+function paragraphPoints(paragraphs: string[]): ReplyPoint[] {
+  return paragraphs.slice(1).flatMap((paragraph) => {
+    const first = sentences(inline(paragraph))[0];
+    return first ? [{ text: clip(first, 140) }] : [];
+  });
 }
 
 /**
@@ -176,11 +193,12 @@ function pointsOf(body: string): ReplyPoint[] {
  */
 export function digestReply(text: string): ReplyDigest {
   const body = bodyOf(text);
-  const firstParagraph = body.split(/\n\s*\n/).find((block) => block.trim() && !/^\s*(?:\d+[.)]|[-*+]|#|\|)/.test(block)) ?? "";
-  const opening = sentences(inline(firstParagraph));
+  const paragraphs = body.split(/\n\s*\n/).filter((block) => block.trim() && !/^\s*(?:\d+[.)]|[-*+]|#|\|)/.test(block));
+  const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
   const lead = capitalise(clip(opening[0] ?? firstSentence(body), 220));
-  return { routine: isRoutine(text), lead, points: pointsOf(body) };
+  const points = pointsOf(body);
+  return { routine: isRoutine(text), lead, points: points.length ? points : paragraphPoints(paragraphs) };
 }
 
 /** The digest as Markdown: the lead, then one line per point. */
@@ -249,28 +267,6 @@ export function anthropicProvider(apiKey: string, model: string, fetchFn: FetchF
   };
 }
 
-export function openaiProvider(apiKey: string, model: string, fetchFn: FetchFn = fetch): SummaryProvider {
-  return {
-    name: `openai:${model}`,
-    async summarize(text, signal) {
-      const response = await fetchFn("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        signal,
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model,
-          max_tokens: 320,
-          temperature: 0.2,
-          messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: text }],
-        }),
-      });
-      if (!response.ok) throw new Error(`OpenAI ${response.status}`);
-      const body = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
-      return tidySummary(body.choices?.[0]?.message?.content);
-    },
-  };
-}
-
 /** xAI key: XAI_API_KEY, else the grok CLI's stored key (~/.grok/user-settings.json). */
 export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir()): string | undefined {
   if (env.XAI_API_KEY?.trim()) return env.XAI_API_KEY.trim();
@@ -285,7 +281,7 @@ export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir(
 }
 
 /** The providers to try, in order, from whatever keys this machine has. */
-export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; openaiKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
+export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
   const env = options.env ?? process.env;
   if (env.FLYD_VIEW_SUMMARIES === "0") return [];
   const providers: SummaryProvider[] = [];
@@ -293,8 +289,6 @@ export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: stri
   if (xai) providers.push(xaiProvider(xai, env.FLYD_VIEW_XAI_MODEL?.trim() || "grok-4-fast-non-reasoning", options.fetchFn));
   const anthropic = env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
   if (anthropic) providers.push(anthropicProvider(anthropic, env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5-20251001", options.fetchFn));
-  const openai = env.OPENAI_API_KEY?.trim() || options.openaiKey?.trim();
-  if (openai) providers.push(openaiProvider(openai, env.FLYD_VIEW_OPENAI_MODEL?.trim() || "gpt-4o-mini", options.fetchFn));
   return providers;
 }
 
