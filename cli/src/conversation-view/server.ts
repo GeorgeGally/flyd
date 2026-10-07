@@ -5,7 +5,7 @@ import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, firstSentence, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, ReplySummarizer, ROUTINE, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
@@ -31,6 +31,10 @@ export interface RenderedMessage {
   summary?: { html: string; source: SummarySource; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
   compare?: { html: string; pending?: boolean };
+  /** The reply hands the captain something to act on: the page never folds it behind its summary. */
+  expanded?: boolean;
+  /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
+  routine?: boolean;
   timestamp?: string;
 }
 
@@ -48,6 +52,8 @@ interface StreamUpdate {
   /** Messages that are new or whose content changed. */
   messages: RenderedMessage[];
   working: boolean;
+  /** While working: what the assistant is doing now, in a few plain words. */
+  activity?: string;
   lastActivity?: string;
   context?: { tokens: number; window: number };
 }
@@ -65,7 +71,7 @@ export class SnapshotDiffer {
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
-  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare"> & { body: string } {
+  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
     const author = authorSummary(message.text);
     const summarizer = this.summaries?.summarizer;
     const modelFor = (text: string): { text?: string; pending: boolean } => {
@@ -76,9 +82,10 @@ export class SnapshotDiffer {
       return { pending: summarizer.pending(text) };
     };
     if (author) {
-      const parts: Pick<RenderedMessage, "summary" | "compare"> & { body: string } = {
+      const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
         summary: { html: renderMarkdown(author.summary), source: "author" },
+        ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
         const model = modelFor(message.text);
@@ -86,13 +93,18 @@ export class SnapshotDiffer {
       }
       return parts;
     }
-    if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text };
+    if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text, ...(isRoutine(message.text) ? { routine: true } : {}) };
+    // Rules to paste, steps to carry out: shown whole, never behind "more".
+    if (isActionable(message.text)) return { body: message.text };
     const model = modelFor(message.text);
+    const digest = digestReply(message.text);
+    // The model found no outcome, decision or ask: one muted line.
+    if (model.text === ROUTINE) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
     return {
       body: message.text,
       summary: model.text
         ? { html: renderMarkdown(model.text), source: "model" }
-        : { html: renderMarkdown(firstSentence(message.text)), source: "first-sentence", ...(model.pending ? { pending: true } : {}) },
+        : { html: renderMarkdown(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
     };
   }
 
@@ -107,7 +119,9 @@ export class SnapshotDiffer {
       order.push(message.id);
       seen.add(message.id);
       const parts = message.role === "assistant" ? this.summarize(message, newest.has(message.id)) : { body: message.text };
-      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare]);
+      const routine = "routine" in parts && parts.routine === true;
+      const expanded = "expanded" in parts && parts.expanded === true;
+      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -117,6 +131,8 @@ export class SnapshotDiffer {
         ...(message.images?.length ? { images: message.images } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
+        ...(routine ? { routine: true } : {}),
+        ...(expanded ? { expanded: true } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
       });
     }
@@ -125,6 +141,7 @@ export class SnapshotDiffer {
       order,
       messages: changed,
       working: snapshot.working,
+      ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
     };

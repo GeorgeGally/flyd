@@ -9,6 +9,7 @@ import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
+import { KINSTA_RULES } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -94,15 +95,15 @@ describe("SnapshotDiffer summaries", () => {
     expect(calls).toBe(0);
   });
 
-  it("shows the first sentence while a model summary is on its way, then pushes the model's", async () => {
+  it("shows a local digest while a model summary is on its way, then pushes the model's", async () => {
     let resolve!: (summary: string) => void;
     const model = withModel(() => new Promise((r) => (resolve = r)));
     const differ = new SnapshotDiffer(model);
     const snapshot = { messages: [message("short", "Done."), message("r1", long)], working: false };
     const first = differ.next(snapshot).messages;
     expect(first[0]!.summary).toBeUndefined();
-    expect(first[1]!.summary).toMatchObject({ source: "first-sentence", pending: true });
-    expect(first[1]!.summary!.html).toContain("Captain, the menu bar now sits ten pixels higher");
+    expect(first[1]!.summary).toMatchObject({ source: "digest", pending: true });
+    expect(first[1]!.summary!.html).toContain("The menu bar now sits ten pixels higher");
 
     await new Promise((r) => setTimeout(r, 0));
     resolve("The menu bar is a little higher and saved, not yet published.");
@@ -111,6 +112,36 @@ describe("SnapshotDiffer summaries", () => {
     const second = differ.next(snapshot).messages;
     expect(second.map((m) => m.id)).toEqual(["r1"]);
     expect(second[0]!.summary).toEqual({ html: "<p>The menu bar is a little higher and saved, not yet published.</p>\n", source: "model" });
+  });
+
+  it("never folds a reply that hands the captain something to act on behind its summary", () => {
+    // The captain asked "what rules bro": the folded view showed "Kinsta won't
+    // accept #." while the four rules he had to paste sat behind "more".
+    const differ = new SnapshotDiffer();
+    const [rendered] = differ.next({ messages: [message("r1", KINSTA_RULES)], working: false }).messages;
+    expect(rendered!.summary).toBeUndefined();
+    expect(rendered!.html).toContain("^/members-and-firms/?$");
+    const [authored] = new SnapshotDiffer().next({ messages: [message("r2", `» Four rules for Kinsta.\n\n${KINSTA_RULES}`)], working: false }).messages;
+    expect(authored).toMatchObject({ summary: { source: "author" }, expanded: true });
+    expect(authored!.html).toContain("https://capfive.com/$1");
+  });
+
+  it("mutes routine chatter, and a reply the model finds routine shrinks to one line", async () => {
+    const differ = new SnapshotDiffer(withModel(async () => "ROUTINE"));
+    const [shipshape] = differ.next({ messages: [message("r1", "Captain, shipshape.")], working: false }).messages;
+    expect(shipshape).toMatchObject({ routine: true });
+    const snapshot = { messages: [message("r2", long)], working: false };
+    differ.next(snapshot);
+    await new Promise((r) => setTimeout(r, 0));
+    const [routine] = differ.next(snapshot).messages;
+    expect(routine).toMatchObject({ routine: true, summary: { source: "model" } });
+    expect(routine!.summary!.html).not.toContain("ROUTINE");
+  });
+
+  it("passes what the assistant is doing while it works, and nothing once it stops", () => {
+    const differ = new SnapshotDiffer();
+    expect(differ.next({ messages: [], working: true, activity: "Checking the About page on iPhone SE" }).activity).toBe("Checking the About page on iPhone SE");
+    expect(differ.next({ messages: [], working: false, activity: "stale" }).activity).toBeUndefined();
   });
 
   it("only asks the model about the newest twenty replies, two at a time", async () => {

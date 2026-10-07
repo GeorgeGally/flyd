@@ -141,8 +141,12 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .body th, .body td { padding: 0.45em 0.8em 0.45em 0; border-bottom: 1px solid var(--faint); vertical-align: top; }
 .pill { font: 500 0.7em var(--mono); color: var(--muted); border: 1px solid var(--faint); border-radius: 999px; padding: 0.12em 0.6em; vertical-align: 0.12em; white-space: nowrap; }
 
-.working { margin-top: 1em; height: 20px; display: flex; gap: 7px; align-items: center; }
+.working { margin-top: 1em; }
 .working[hidden] { display: none; }
+.working .dots { height: 20px; display: flex; gap: 7px; align-items: center; }
+/* What the assistant is doing now, small and quiet under the dots. */
+.working .doing { display: block; margin-top: 0.3em; font: 13px/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working .doing:empty { display: none; }
 .working i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: breathe 1.4s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: .18s; } .working i:nth-child(3) { animation-delay: .36s; }
 @keyframes breathe { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
@@ -172,6 +176,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .more:hover { color: var(--fg); }
 .msg.has-summary > .body { margin-top: 0.7em; }
+/* Routine chatter ("shipshape", "still waiting"): one quiet line. */
+.msg.routine .body, .msg.routine .summary { color: var(--muted); font-size: 0.86em; }
 :root:not([data-view="full"]) .msg.has-summary:not(.open) > .body { display: none; }
 :root[data-view="full"] .msg.has-summary .more,
 :root[data-view="full"] .msg.has-summary .compare,
@@ -272,6 +278,7 @@ const SCRIPT = `
 (function () {
   var main = document.getElementById("stream");
   var working = document.getElementById("working");
+  var doing = document.getElementById("doing");
   var jump = document.getElementById("jump");
   var header = document.querySelector("header");
   var whenEl = document.getElementById("when");
@@ -377,7 +384,12 @@ const SCRIPT = `
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
       })));
     }
-    if (message.role === "assistant") summarize(el, message);
+    if (message.role === "assistant") {
+      el.classList.toggle("routine", !!message.routine);
+      // Something to act on (rules to paste, steps) shows whole until he folds it.
+      if (message.expanded && !el.dataset.folded) el.classList.add("open");
+      summarize(el, message);
+    }
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
   }
   function summarize(el, message) {
@@ -406,6 +418,7 @@ const SCRIPT = `
     more.setAttribute("aria-expanded", el.classList.contains("open") ? "true" : "false");
     more.addEventListener("click", function () {
       var open = el.classList.toggle("open");
+      if (!open) el.dataset.folded = "1";
       more.textContent = open ? "less" : "more";
       more.setAttribute("aria-expanded", open ? "true" : "false");
     });
@@ -482,6 +495,7 @@ const SCRIPT = `
     main.appendChild(working);
     document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
     isWorking = update.working;
+    doing.textContent = update.working && update.activity ? update.activity : "";
     if (update.context) { usage.context = update.context; renderUsage(); }
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
@@ -989,7 +1003,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 </header>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
-  <div class="working" id="working" hidden aria-label="${label} is working"><i></i><i></i><i></i></div>
+  <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span><span class="doing" id="doing"></span></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
