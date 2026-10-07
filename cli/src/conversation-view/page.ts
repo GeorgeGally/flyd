@@ -4,7 +4,8 @@ import { escapeHtml } from "./markdown.js";
 // slim header. Everything is inline (see the CSP in server.ts); the page
 // fetches nothing but this server's own /api endpoints.
 
-const STYLE = `
+/** Colours, type and the slim header, shared with the taste page. */
+export const BASE_STYLE = `
 :root {
   --bg: #101113;
   --fg: #e4e2dc;
@@ -75,6 +76,9 @@ header select:hover { background-color: var(--tint); }
 header select option { color: var(--fg); background: var(--bg); }
 header button:hover { color: var(--fg); border-color: color-mix(in srgb, var(--muted) 50%, transparent); }
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+`;
+
+const STYLE = BASE_STYLE + `
 
 /* ~66 characters a line at the reading size. */
 main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh; }
@@ -318,6 +322,7 @@ const SCRIPT = `
     store("flyd-view-mode", next);
     applyMode(next);
   });
+  document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste"; });
   themeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     store("flyd-view-theme", next);
@@ -999,6 +1004,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
   <span class="when" id="when"></span>
   <button id="mode" type="button" aria-label="Switch between summaries and full replies">full</button>
+  <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
   <button id="theme" type="button" aria-label="Toggle theme">light</button>
 </header>
 <main id="stream" aria-live="polite">
