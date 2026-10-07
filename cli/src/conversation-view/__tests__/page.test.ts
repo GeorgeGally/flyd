@@ -248,11 +248,36 @@ describe("conversation page", () => {
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
   });
 
-  it("swaps a pending first-sentence summary for the model's when it arrives", async () => {
+  it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>fix the cards</p>" }]);
+    const recent = new Date().toISOString();
+    stream.emit("update", { order: ["u1"], messages: [], working: true, activity: "Recolouring the cards", lastActivity: recent });
+    expect(document.getElementById("working")!.hidden).toBe(false);
+    expect(document.getElementById("doing")!.textContent).toBe("Recolouring the cards");
+    stream.emit("update", { order: ["u1"], messages: [], working: false, lastActivity: recent });
+    expect(document.getElementById("doing")!.textContent).toBe("");
+  });
+
+  it("opens a reply with something to act on, and mutes routine ones", async () => {
+    load("");
+    await settle();
+    open("latest", [
+      { id: "r1", role: "assistant", html: "<pre><code>rule</code></pre>", summary: { html: "<p>Four rules.</p>", source: "author" }, expanded: true } as never,
+      { id: "r2", role: "assistant", html: "<p>Captain, shipshape.</p>", routine: true } as never,
+    ]);
+    const [rules, routine] = Array.from(document.querySelectorAll(".msg.assistant"));
+    expect(rules!.classList.contains("open")).toBe(true);
+    expect(rules!.querySelector(".more")!.textContent).toBe("less");
+    expect(routine!.classList.contains("routine")).toBe(true);
+  });
+
+  it("swaps a pending digest summary for the model's when it arrives", async () => {
     load("");
     await settle();
     const stream = open("latest", [
-      { id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>First sentence.</p>", source: "first-sentence", pending: true } } as never,
+      { id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>First sentence.</p>", source: "digest", pending: true } } as never,
     ]);
     expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(true);
     stream.emit("update", { order: ["r1"], messages: [{ id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>Plain English.</p>", source: "model" } }], working: false });

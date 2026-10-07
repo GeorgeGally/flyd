@@ -6,12 +6,18 @@ import {
   anthropicProvider,
   authorSummary,
   defaultProviders,
+  digestMarkdown,
+  digestReply,
   firstSentence,
+  isActionable,
+  isRoutine,
+  openaiProvider,
   ReplySummarizer,
   SUMMARY_PROMPT,
   xaiProvider,
   type SummaryProvider,
 } from "../summaries.js";
+import { ABOUT_FIXES, KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
 
 let dir: string;
 beforeEach(() => {
@@ -36,10 +42,61 @@ describe("authorSummary", () => {
   });
 });
 
+describe("SUMMARY_PROMPT", () => {
+  it("asks for every outcome, decision and ask, and for ROUTINE when there is none", () => {
+    expect(SUMMARY_PROMPT).toMatch(/every outcome/);
+    expect(SUMMARY_PROMPT).toMatch(/none may be dropped/);
+    expect(SUMMARY_PROMPT).toContain("reply exactly ROUTINE");
+  });
+});
+
 describe("firstSentence", () => {
   it("reads the first sentence of the prose, without Markdown", () => {
     expect(firstSentence("## Status\n\nCaptain, the **menu bar** now sits `10px` higher. It is committed.")).toBe("Status Captain, the menu bar now sits 10px higher.");
     expect(firstSentence("| a | b |\n|---|---|\nAll [three](https://x.y) pages pass! Next.")).toBe("All three pages pass!");
+  });
+});
+
+describe("digestReply", () => {
+  it("keeps all three outcomes of the captain's About report, in a fraction of the length", () => {
+    const digest = digestReply(ABOUT_FIXES);
+    expect(digest.routine).toBe(false);
+    expect(digest.lead).toBe("All three About fixes for phones are committed and pushed to GitHub.");
+    expect(digest.points.map((point) => point.label)).toEqual(["Why CapFive cards", "Leadership", "Board pop-up on short phones"]);
+    expect(digest.points.map((point) => point.text)).toEqual([
+      "I reverted the azure.",
+      'The eyebrow is in the normal site style: "Leadership from across the network." instead of every word capitalised.',
+      "the photo is shorter, full width and framed on the face.",
+    ]);
+    const summary = digestMarkdown(digest);
+    for (const outcome of ["Why CapFive cards", "Leadership", "Board pop-up"]) expect(summary).toContain(outcome);
+    expect(summary.length).toBeLessThan(ABOUT_FIXES.length / 2);
+  });
+
+  it("skips a bare acknowledgement to the sentence that says something", () => {
+    expect(digestReply("Captain, agreed. Today Flyd's profile of you is a list of general manners.\n\n1. **Watch:** x\n2. **Layers:** y").lead)
+      .toBe("Today Flyd's profile of you is a list of general manners.");
+  });
+});
+
+describe("isRoutine", () => {
+  it("marks acknowledgements and status pings, never outcomes or questions", () => {
+    expect(isRoutine("Captain, shipshape.")).toBe(true);
+    expect(isRoutine("Captain, still waiting on the crewmate.")).toBe(true);
+    expect(isRoutine("Nothing changed since the last check.")).toBe(true);
+    expect(isRoutine("Captain, the stats are centred and pushed.")).toBe(false);
+    expect(isRoutine("Captain, agreed. Should I push it?")).toBe(false);
+    expect(isRoutine(ABOUT_FIXES)).toBe(false);
+  });
+});
+
+describe("isActionable", () => {
+  it("finds replies that hand the captain something to paste or carry out", () => {
+    expect(isActionable(KINSTA_RULES)).toBe(true);
+    expect(isActionable(KINSTA_TABLE)).toBe(true);
+    expect(isActionable("Add these in the dialog you showed, as 301 on All domains.")).toBe(true);
+    expect(isActionable(ABOUT_FIXES)).toBe(false);
+    expect(isActionable("Captain, the `menu` bar is fixed.")).toBe(false);
   });
 });
 
@@ -85,7 +142,9 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("asks xAI first, then Anthropic, from env or the grok CLI's settings; FLYD_VIEW_SUMMARIES=0 turns both off", () => {
+  it("asks xAI first, then Anthropic, then OpenAI, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
+    expect(defaultProviders({ env: {}, home: dir, openaiKey: "o" }).map((p) => p.name)).toEqual(["openai:gpt-4o-mini"]);
+    expect(defaultProviders({ env: { OPENAI_API_KEY: "o", FLYD_VIEW_OPENAI_MODEL: "gpt-x" }, home: dir }).map((p) => p.name)).toEqual(["openai:gpt-x"]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
     expect(defaultProviders({ env: { XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
       .toEqual(["xai:grok-4-fast-non-reasoning", "anthropic:claude-haiku-4-5-20251001"]);
@@ -116,5 +175,9 @@ describe("providers", () => {
     expect(requests[1]!.url).toBe("https://api.anthropic.com/v1/messages");
     expect((requests[1]!.init.headers as Record<string, string>)["x-api-key"]).toBe("ak");
     expect(JSON.parse(String(requests[1]!.init.body))).toMatchObject({ model: "claude-haiku-4-5-20251001", system: SUMMARY_PROMPT });
+
+    expect(await openaiProvider("ok", "gpt-4o-mini", fake({ choices: [{ message: { content: "Three fixes:\n- cards\n- heading\n" } }] })).summarize("reply", signal)).toBe("Three fixes:\n- cards\n- heading");
+    expect(requests[2]!.url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(JSON.parse(String(requests[2]!.init.body))).toMatchObject({ model: "gpt-4o-mini", messages: [{ role: "system", content: SUMMARY_PROMPT }, { role: "user", content: "reply" }] });
   });
 });

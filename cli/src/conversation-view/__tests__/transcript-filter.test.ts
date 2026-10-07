@@ -148,6 +148,25 @@ describe("transcript filter", () => {
     ]);
   });
 
+  it("says in a few plain words what the assistant is doing, without tool noise", () => {
+    const conversation = new TranscriptConversation();
+    conversation.pushLine(captain("fix the About cards"));
+    expect(conversation.snapshot().activity).toBeUndefined();
+    conversation.pushLine(toolUse("Bash", { command: "git status", description: "Check the working tree" }));
+    expect(conversation.snapshot().activity).toBe("Check the working tree");
+    // Reads and searches say nothing; the last step stays.
+    conversation.pushLine(toolUse("Read", { file_path: "/x/about.css" }));
+    expect(conversation.snapshot().activity).toBe("Check the working tree");
+    conversation.pushLine(assistantText("Captain, **dispatching** a crewmate for the cards:", "tool_use"));
+    conversation.pushLine(toolUse("Bash", { command: "fm-dispatch", description: "Launch crewmate" }));
+    expect(conversation.snapshot().activity).toBe("Dispatching a crewmate for the cards");
+    conversation.pushLine(toolUse("TodoWrite", { todos: [{ content: "Recolour cards", activeForm: "Recolouring the cards", status: "in_progress" }] }));
+    expect(conversation.snapshot().activity).toBe("Recolouring the cards");
+    conversation.pushLine(assistantText("Captain, the cards are navy again."));
+    expect(conversation.snapshot()).toMatchObject({ working: false });
+    expect(conversation.snapshot().activity).toBeUndefined();
+  });
+
   it("reports working while a turn is open and settles when it ends", () => {
     const conversation = new TranscriptConversation();
     conversation.pushLine(captain("build the view"));

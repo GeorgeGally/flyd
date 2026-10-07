@@ -24,6 +24,8 @@ export interface ConversationSnapshot {
   messages: ConversationMessage[];
   /** The assistant is mid-turn: the captain has spoken and no reply has settled yet. */
   working: boolean;
+  /** While working: what the assistant is doing now, in a few plain words. */
+  activity?: string;
   /** ISO timestamp of the newest activity the source saw, if known. */
   lastActivity?: string;
   /** How full the assistant's context window is, when the source knows. */
