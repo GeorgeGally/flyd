@@ -1,6 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
 import { mergeNotes, type CaptainInbox } from "./firstmate-inbox.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
@@ -117,7 +118,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
   private readonly starts = new Map<string, string | undefined>();
 
-  constructor(options: { projectDir?: string; assistantLabel?: string; pollMs?: number; inbox?: CaptainInbox } = {}) {
+  private readonly commandRoots: { claudeHome?: string; projectDir?: string };
+  private commandCache?: { at: number; commands: SlashCommand[] };
+
+  constructor(options: {
+    projectDir?: string;
+    assistantLabel?: string;
+    pollMs?: number;
+    inbox?: CaptainInbox;
+    /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
+    commandRoots?: { claudeHome?: string; projectDir?: string };
+  } = {}) {
+    this.commandRoots = options.commandRoots ?? {};
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
     this.assistantLabel = options.assistantLabel ?? (basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
     this.pollMs = options.pollMs ?? 400;
@@ -131,7 +143,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   async send(sessionId: string, text: string, images?: ImageUpload[]): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
-    return this.inbox.send(text, images);
+    const command = matchCommand(text, await this.commands());
+    return this.inbox.send(text, images, command?.name);
+  }
+
+  /** Skills and commands, re-read at most once a minute. */
+  async commands(): Promise<SlashCommand[]> {
+    if (!this.inbox) return [];
+    const now = Date.now();
+    if (!this.commandCache || now - this.commandCache.at > 60_000) {
+      this.commandCache = { at: now, commands: discoverCommands(this.commandRoots) };
+    }
+    return this.commandCache.commands;
   }
 
   /**

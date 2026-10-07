@@ -238,6 +238,18 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .composer.listening .field, .composer.transcribing .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
 .composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
 .composer.transcribing .hint::before { content: "… writing it down   "; color: var(--accent); }
+/* "/" lists the assistant's skills and commands, like Claude Code's prompt. */
+.commands {
+  position: absolute; left: 1.875em; right: 1.875em; bottom: calc(100% + 0.4em); z-index: 6;
+  max-height: 46vh; overflow-y: auto; margin: 0 0 0 -0.75em; padding: 0.3em; list-style: none;
+  background: var(--tint); border-radius: 0.4em; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.commands[hidden] { display: none; }
+.commands li { display: flex; gap: 0.9em; align-items: baseline; padding: 0.38em 0.6em; border-radius: 0.3em; cursor: pointer; }
+.commands li.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.commands .name { font: 500 0.82em var(--mono); color: var(--fg); white-space: nowrap; }
+.commands .about { font-size: 0.66em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commands .none { font: 0.72em var(--mono); color: var(--muted); cursor: default; }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
@@ -655,8 +667,93 @@ const SCRIPT = `
     grow();
     input.setSelectionRange(text.length, text.length);
   }
+  // "/" at the start of the box: the assistant's skills and commands.
+  var commandsEl = document.getElementById("commands");
+  var commandList = null;
+  var commandMatches = [];
+  var commandIndex = 0;
+  function loadCommands() {
+    if (commandList) return Promise.resolve(commandList);
+    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (data) {
+      commandList = data.commands || [];
+      return commandList;
+    }).catch(function () { return []; });
+  }
+  function closeCommands() {
+    commandsEl.hidden = true;
+    commandMatches = [];
+  }
+  function renderCommands() {
+    commandsEl.textContent = "";
+    if (!commandMatches.length) {
+      var none = document.createElement("li");
+      none.className = "none";
+      none.textContent = "No skill or command matches " + input.value;
+      commandsEl.appendChild(none);
+      return;
+    }
+    commandMatches.forEach(function (command, index) {
+      var item = document.createElement("li");
+      item.setAttribute("role", "option");
+      item.className = index === commandIndex ? "selected" : "";
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = "/" + command.name;
+      var about = document.createElement("span");
+      about.className = "about";
+      about.textContent = command.description;
+      item.appendChild(name);
+      item.appendChild(about);
+      item.addEventListener("mousedown", function (event) { event.preventDefault(); chooseCommand(index); });
+      commandsEl.appendChild(item);
+    });
+    var selected = commandsEl.children[commandIndex];
+    if (selected && selected.scrollIntoView) selected.scrollIntoView({ block: "nearest" });
+  }
+  function updateCommands() {
+    var typed = /^\\/([\\w:.-]*)$/.exec(input.value);
+    if (!typed) { closeCommands(); return; }
+    var query = typed[1].toLowerCase();
+    loadCommands().then(function (list) {
+      if (!/^\\/([\\w:.-]*)$/.test(input.value)) return;
+      var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0; });
+      var contains = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) > 0; });
+      commandMatches = starts.concat(contains).slice(0, 50);
+      commandIndex = 0;
+      commandsEl.hidden = false;
+      renderCommands();
+    });
+  }
+  function chooseCommand(index) {
+    var command = commandMatches[index];
+    if (!command) return;
+    input.value = "/" + command.name + " ";
+    closeCommands();
+    grow();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  input.addEventListener("input", updateCommands);
+  input.addEventListener("blur", function () { setTimeout(closeCommands, 150); });
+
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
+    if (!commandsEl.hidden) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (commandMatches.length) {
+          commandIndex = (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length;
+          renderCommands();
+        }
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && commandMatches.length) {
+        event.preventDefault();
+        chooseCommand(commandIndex);
+        return;
+      }
+      if (event.key === "Escape") { event.preventDefault(); closeCommands(); return; }
+    }
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
     if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     var value = input.value;
@@ -897,6 +994,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <div class="problem" id="problem"></div>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
+    <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>

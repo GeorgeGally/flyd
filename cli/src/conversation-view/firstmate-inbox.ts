@@ -15,8 +15,18 @@ import type { ConversationMessage, ImageData, ImageUpload, SentMessage } from ".
 // named in the note as "[image: /absolute/path]" lines, so firstmate can
 // open them; the view turns those lines back into thumbnails.
 
+/**
+ * Appended to a note that starts with a slash command the captain picked,
+ * so firstmate runs it as if typed in its own Claude Code prompt (notes are
+ * otherwise read as plain words). Hidden again when the note is shown.
+ */
+export function commandMarker(name: string): string {
+  return `[Captain ran /${name} from Flyd: run it exactly as if he had typed it in Claude Code.]`;
+}
+const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
+
 export interface CaptainInbox {
-  send(text: string, images?: ImageUpload[]): Promise<SentMessage>;
+  send(text: string, images?: ImageUpload[], command?: string): Promise<SentMessage>;
   /** Every note the captain has sent, pending or already read by firstmate. */
   notes(): ConversationMessage[];
   /** A saved image a note names, by the id `notes()` gave it. */
@@ -57,6 +67,7 @@ function parseNote(file: string, imagesDir: string): ConversationMessage | null 
   const text = raw
     .slice(split + 4)
     .replace(/\n$/, "")
+    .replace(COMMAND_MARKER, "")
     .replace(/^\[image: (.+)\]$/gm, (line, path: string) => {
       const name = path.slice(imagesDir.length + 1);
       if (!path.startsWith(`${imagesDir}/`) || !IMAGE_NAME.test(name)) return line;
@@ -122,7 +133,7 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
-  send(text: string, images: ImageUpload[] = []): Promise<SentMessage> {
+  send(text: string, images: ImageUpload[] = [], command?: string): Promise<SentMessage> {
     const typed = text.trim();
     if (!typed && images.length === 0) return Promise.reject(new Error("Nothing to send"));
     if (typed.length > MAX_NOTE_CHARS) return Promise.reject(new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`));
@@ -132,7 +143,9 @@ export class FirstmateInbox implements CaptainInbox {
     } catch (error) {
       return Promise.reject(error);
     }
-    const body = [typed, paths.map((path) => `[image: ${path}]`).join("\n")].filter(Boolean).join("\n\n");
+    const body = [typed, paths.map((path) => `[image: ${path}]`).join("\n"), command ? commandMarker(command) : ""]
+      .filter(Boolean)
+      .join("\n\n");
     return new Promise((resolve, reject) => {
       const child = execFile(
         this.script,

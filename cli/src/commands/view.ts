@@ -41,7 +41,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // firstmate's conversation.
   const inbox = new FirstmateInbox();
   const wantsInbox = options.project === undefined && inbox.available();
-  const source = new ClaudeCodeTranscriptSource({ projectDir, ...(wantsInbox ? { inbox } : {}) });
+  const source = new ClaudeCodeTranscriptSource({
+    projectDir,
+    // Skills and commands: ~/.claude plus firstmate's own .claude, as Claude Code lists them.
+    ...(wantsInbox ? { inbox, commandRoots: { projectDir: inbox.home } } : {}),
+  });
   const sessions = await source.listSessions();
   if (sessions.length === 0) throw new Error(`No Claude Code sessions in ${projectDir}`);
   if (options.session && !sessions.some((session) => session.id === options.session)) {
