@@ -315,7 +315,8 @@ final class DictationPill {
             fade(island, to: 0, completion: finish)
             return
         }
-        let screen = Self.screenUnderMouse()
+        // Collapse into the notch the island grew from, even if the pointer has moved to another display.
+        let screen = panel.screen ?? Self.screenUnderMouse()
         let collapsed = Self.collapsedFrame(screen: screen.frame, notch: Self.notchRect(of: screen))
             .offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
         fade(card, to: 0, duration: 0.12)
