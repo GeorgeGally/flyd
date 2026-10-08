@@ -41,10 +41,11 @@ enum FlydPalette {
 /// Recolors per state and pulses gently while a state is "live," standing in for the
 /// generic colored-pill/glow-everywhere treatment.
 final class FlydStatusDot: NSView {
-    private let dotSize: CGFloat = 7
+    private let dotSize: CGFloat
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(x: frameRect.origin.x, y: frameRect.origin.y, width: 7, height: 7))
+    init(frame frameRect: NSRect, diameter: CGFloat = 7) {
+        dotSize = diameter
+        super.init(frame: NSRect(x: frameRect.origin.x, y: frameRect.origin.y, width: diameter, height: diameter))
         wantsLayer = true
         layer?.cornerRadius = dotSize / 2
         layer?.backgroundColor = FlydPalette.brass.cgColor
@@ -56,7 +57,7 @@ final class FlydStatusDot: NSView {
         layer?.removeAnimation(forKey: "pulse")
         layer?.backgroundColor = color.cgColor
         layer?.shadowColor = color.cgColor
-        layer?.shadowRadius = 4
+        layer?.shadowRadius = dotSize * 0.6
         layer?.shadowOpacity = 0.85
         layer?.shadowOffset = .zero
 

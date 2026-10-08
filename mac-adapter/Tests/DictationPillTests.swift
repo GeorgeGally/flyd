@@ -7,31 +7,121 @@ final class DictationPillTests: XCTestCase {
     private let notch = NSRect(x: 656, y: 950, width: 200, height: 32)
 
     func testGrowsWingsEitherSideOfTheNotch() {
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, messageWidth: nil)
-        XCTAssertEqual(frame, NSRect(x: 598, y: 950, width: 316, height: 32))
+        // Notch 200 + two 86pt wings + two 8pt shoulders.
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: nil)
+        XCTAssertEqual(frame, NSRect(x: 562, y: 950, width: 388, height: 32))
     }
 
-    func testDropsAMessageStripBelowTheNotch() {
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, messageWidth: 300)
-        XCTAssertEqual(frame, NSRect(x: 592, y: 920, width: 328, height: 62))
+    func testOpensACardBelowTheNotchForAMessage() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 500, height: 120))
+        XCTAssertEqual(frame, NSRect(x: 494, y: 830, width: 524, height: 152))
+    }
+
+    func testShortMessagesKeepTheWingsWidth() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 200, height: 90))
+        XCTAssertEqual(frame.width, 388 - 2 * 8 + 2 * 12)
+        XCTAssertEqual(frame.midX, notch.midX)
+    }
+
+    func testLongMessagesWrapRatherThanWidenPastTheCardLimit() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 2000, height: 120))
+        XCTAssertEqual(frame.width, DictationPill.maxCardWidth + 2 * DictationPill.cardShoulder)
     }
 
     func testSitsTopCentreOnScreensWithoutANotch() {
-        let frame = DictationPill.islandFrame(screen: NSRect(x: 1440, y: 0, width: 1920, height: 1080), notch: nil, messageWidth: nil)
-        XCTAssertEqual(frame, NSRect(x: 2342, y: 1048, width: 116, height: 32))
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 1440, y: 0, width: 1920, height: 1080), notch: nil, card: nil)
+        XCTAssertEqual(frame, NSRect(x: 2306, y: 1046, width: 188, height: 34))
     }
 
     func testNeverWiderThanTheScreen() {
-        let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, messageWidth: 400)
-        XCTAssertEqual(frame, NSRect(x: 0, y: 438, width: 300, height: 62))
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, card: NSSize(width: 400, height: 90))
+        XCTAssertEqual(frame, NSRect(x: 0, y: 376, width: 300, height: 124))
     }
 
-    func testShowsAQuestionOnOneLineCutAtAWord() {
-        XCTAssertEqual(DictationPill.quoted("  what time is it in London  "), "what time is it in London")
-        XCTAssertEqual(
-            DictationPill.quoted("what should I work on next given everything that is going on with CleanX and the launch this week"),
-            "what should I work on next given everything that is going on…"
+    func testCanvasHoldsTheLargestCardAndItsShadow() {
+        let canvas = DictationPill.canvasFrame(screen: macBook, notch: notch)
+        let largest = DictationPill.islandFrame(
+            screen: macBook, notch: notch,
+            card: NSSize(width: DictationPill.maxCardWidth, height: DictationPill.maxCardHeight)
         )
+        XCTAssertTrue(canvas.contains(largest))
+        XCTAssertEqual(canvas.maxY, macBook.maxY)
+        XCTAssertGreaterThan(largest.minY, canvas.minY)
+        XCTAssertEqual(canvas.midX, notch.midX)
+    }
+
+    func testCardTextIsReadableAtAGlance() {
+        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 22)
+        XCTAssertGreaterThanOrEqual(DictationPill.bodyFont.pointSize, 19)
+        XCTAssertGreaterThanOrEqual(DictationPill.metaFont.pointSize, 14)
+        XCTAssertGreaterThan(DictationPill.titleFont.pointSize, DictationPill.bodyFont.pointSize)
+    }
+
+    func testCardSizeWrapsTextInPadding() {
+        let size = DictationPill.cardSize(
+            meta: NSSize(width: 30, height: 17),
+            title: NSSize(width: 300, height: 28),
+            body: NSSize(width: 340, height: 46)
+        )
+        XCTAssertEqual(size.width, 340 + 2 * DictationPill.cardPadding)
+        XCTAssertEqual(size.height, 6 + 17 + 8 + 28 + 4 + 46 + 24)
+    }
+
+    func testCardFitsThreeTitleLines() {
+        let threeLines = 3 * DictationPill.lineHeight(DictationPill.titleFont)
+        let size = DictationPill.cardSize(meta: NSSize(width: 30, height: 17), title: NSSize(width: 400, height: threeLines), body: nil)
+        XCTAssertLessThanOrEqual(size.height, DictationPill.maxCardHeight)
+    }
+
+    func testMessagesSplitIntoTitleAndBody() {
+        XCTAssertNil(DictationPill.message(for: .listening))
+        XCTAssertNil(DictationPill.message(for: .inserted))
+        XCTAssertEqual(
+            DictationPill.message(for: .notice("Copied — paste with ⌘V")),
+            DictationPill.Message(meta: "Flyd", title: "Copied — paste with ⌘V", body: nil)
+        )
+        XCTAssertEqual(
+            DictationPill.message(for: .failed("Voice setup needs attention\nOpen Flyd settings to reconnect the microphone")),
+            DictationPill.Message(meta: "Flyd", title: "Voice setup needs attention", body: "Open Flyd settings to reconnect the microphone")
+        )
+        XCTAssertEqual(
+            DictationPill.message(for: .thinking("what time is it in London")),
+            DictationPill.Message(meta: "You asked", title: "what time is it in London", body: nil)
+        )
+    }
+
+    func testMessagesStayLongEnoughToReadButNoLonger() {
+        XCTAssertNil(DictationPill.holdDuration(for: .listening))
+        XCTAssertNil(DictationPill.holdDuration(for: .thinking("anything")))
+        XCTAssertEqual(DictationPill.holdDuration(for: .inserted), 1.4)
+        XCTAssertEqual(DictationPill.holdDuration(for: .notice("No speech")), 1.4)
+        let long = DictationPill.holdDuration(for: .failed("The microphone stopped before Flyd heard anything, so try holding the keys a little longer")) ?? 0
+        XCTAssertGreaterThan(long, 3)
+        XCTAssertEqual(DictationPill.holdDuration(for: .notice(String(repeating: "word ", count: 200))), 6)
+    }
+
+    func testIslandOutlinesShareTheirShapeSoTheySpring() {
+        let collapsed = DictationPill.islandPath(in: notch, shoulder: 0, cornerRadius: 9)
+        let card = DictationPill.islandPath(in: NSRect(x: 0, y: 0, width: 520, height: 150), shoulder: 12, cornerRadius: 30)
+        XCTAssertEqual(Self.elementCount(collapsed), Self.elementCount(card))
+        XCTAssertEqual(card.boundingBoxOfPath.maxY, 150)
+        XCTAssertEqual(card.boundingBoxOfPath.minY, 0)
+    }
+
+    private static func elementCount(_ path: CGPath) -> Int {
+        var count = 0
+        path.applyWithBlock { _ in count += 1 }
+        return count
+    }
+
+    func testShowsAQuestionCutAtAWord() {
+        XCTAssertEqual(DictationPill.quoted("  what time is it in London  "), "what time is it in London")
+        let long = "what should I work on next given everything that is going on with CleanX and the launch this week, "
+            + "and also the invoices that are still waiting on me from last month"
+        let quoted = DictationPill.quoted(long)
+        XCTAssertTrue(quoted.hasSuffix("…"))
+        XCTAssertLessThanOrEqual(quoted.count, DictationPill.questionLimit + 1)
+        XCTAssertTrue(long.hasPrefix(String(quoted.dropLast())))
     }
 
     func testCollapsesIntoTheNotch() {
