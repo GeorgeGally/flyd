@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ConversationMessage, ImageData, ImageUpload, SentMessage } from "./types.js";
+import { inFlydsVoice } from "./flyd-voice.js";
+import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
 
 // The captain's way to talk to firstmate from the view: firstmate's own
 // intake, `bin/fm-inbox.sh note`, which stores the message durably under
@@ -14,6 +15,10 @@ import type { ConversationMessage, ImageData, ImageUpload, SentMessage } from ".
 // Images the captain pastes are saved under $FM_HOME/data/inbox-images and
 // named in the note as "[image: /absolute/path]" lines, so firstmate can
 // open them; the view turns those lines back into thumbnails.
+//
+// Firstmate answers a note with `fm-inbox.sh reply <id>`, which records the
+// answer as state/inbox/.replies/<id>. That reply, and nothing else firstmate
+// says, is shown as the answer to the note, in Flyd's voice.
 
 /**
  * Appended to a note that starts with a slash command the captain picked,
@@ -27,8 +32,8 @@ const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
 
 export interface CaptainInbox {
   send(text: string, images?: ImageUpload[], command?: string): Promise<SentMessage>;
-  /** Every note the captain has sent, pending or already read by firstmate. */
-  notes(): ConversationMessage[];
+  /** Every note the captain has sent, pending or already read by firstmate, with its reply; oldest first. */
+  notes(): Exchange[];
   /** A saved image a note names, by the id `notes()` gave it. */
   image(imageId: string): ImageData | null;
 }
@@ -54,7 +59,8 @@ export function sniffImage(bytes: Buffer): { mediaType: string; ext: string } | 
 
 export const FIRSTMATE_HOME = join(homedir(), "Documents", "firstmate");
 
-function parseNote(file: string, imagesDir: string): ConversationMessage | null {
+/** A note or reply record: `key=value` header lines, a `--` line, then the body. */
+function parseRecord(file: string): { header: Map<string, string>; body: string } | null {
   const raw = readFileSync(file, "utf8");
   const split = raw.indexOf("\n--\n");
   if (split === -1) return null;
@@ -63,12 +69,16 @@ function parseNote(file: string, imagesDir: string): ConversationMessage | null 
     const eq = line.indexOf("=");
     if (eq > 0) header.set(line.slice(0, eq), line.slice(eq + 1));
   }
-  const id = header.get("id");
-  const at = header.get("at");
+  return { header, body: raw.slice(split + 4).replace(/\n$/, "") };
+}
+
+function parseNote(file: string, imagesDir: string): ConversationMessage | null {
+  const record = parseRecord(file);
+  if (!record) return null;
+  const id = record.header.get("id");
+  const at = record.header.get("at");
   const images: string[] = [];
-  const text = raw
-    .slice(split + 4)
-    .replace(/\n$/, "")
+  const text = record.body
     .replace(COMMAND_MARKER, "")
     .replace(/^\[image: (.+)\]$/gm, (line, path: string) => {
       const name = path.slice(imagesDir.length + 1);
@@ -81,15 +91,25 @@ function parseNote(file: string, imagesDir: string): ConversationMessage | null 
   return { id: `note:${id}`, role: "user", text, timestamp: at, ...(images.length ? { images } : {}) };
 }
 
+function parseReply(file: string): ConversationMessage | null {
+  const record = parseRecord(file);
+  const id = record?.header.get("id");
+  const at = record?.header.get("at");
+  if (!record || !id || !at || !record.body.trim()) return null;
+  return { id: `note-reply:${id}`, role: "assistant", text: inFlydsVoice(record.body), timestamp: at, answers: `note:${id}` };
+}
+
 export class FirstmateInbox implements CaptainInbox {
   readonly script: string;
   readonly home: string;
   /**
-   * Parsed notes by file name. A note's content never changes; firstmate only
-   * moves it into handled/ under the same name, so each is read once.
+   * Parsed notes and replies by file name. Neither ever changes: firstmate
+   * only moves a note into handled/ under the same name, and records one
+   * reply per note. So each file is read once.
    */
   private readonly parsed = new Map<string, ConversationMessage | null>();
-  private sorted: ConversationMessage[] = [];
+  private readonly parsedReplies = new Map<string, ConversationMessage | null>();
+  private sorted: Exchange[] = [];
   private listingKey = "";
 
   constructor(options: { home?: string; script?: string } = {}) {
@@ -169,14 +189,17 @@ export class FirstmateInbox implements CaptainInbox {
     });
   }
 
-  notes(): ConversationMessage[] {
+  notes(): Exchange[] {
     const inbox = join(this.home, "state", "inbox");
+    const handled = join(inbox, "handled");
+    const replies = join(inbox, ".replies");
     const present = new Map<string, string>();
-    for (const dir of [inbox, join(inbox, "handled")]) {
+    for (const dir of [inbox, handled]) {
       if (!existsSync(dir)) continue;
       for (const name of readdirSync(dir)) if (name.endsWith(".note")) present.set(name, join(dir, name));
     }
-    const key = [...present.keys()].sort().join("\n");
+    const replyNames = existsSync(replies) ? readdirSync(replies).filter((name) => !name.startsWith(".")) : [];
+    const key = [...[...present.values()].sort(), ...replyNames.sort()].join("\n");
     if (key === this.listingKey) return this.sorted;
 
     for (const name of this.parsed.keys()) if (!present.has(name)) this.parsed.delete(name);
@@ -190,39 +213,70 @@ export class FirstmateInbox implements CaptainInbox {
         unreadable = true;
       }
     }
-    this.sorted = [...this.parsed.values()]
-      .filter((note): note is ConversationMessage => note !== null)
-      .sort((a, b) => Date.parse(a.timestamp ?? "") - Date.parse(b.timestamp ?? ""));
+    for (const name of replyNames) {
+      if (this.parsedReplies.has(name)) continue;
+      try {
+        this.parsedReplies.set(name, parseReply(join(replies, name)));
+      } catch {
+        unreadable = true;
+      }
+    }
+    const replyFor = new Map<string, ConversationMessage>();
+    for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
+    this.sorted = [...this.parsed.entries()]
+      .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
+      .map(([name, question]): Exchange => {
+        const answer = replyFor.get(question.id);
+        if (answer) return { question, answer, waiting: "" };
+        return { question, waiting: present.get(name)!.startsWith(`${handled}/`) ? "firstmate is on it" : "passed to firstmate" };
+      })
+      .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;
     return this.sorted;
   }
 }
 
 /**
- * Places notes among transcript messages by time. Only notes inside the
- * session's window belong to it: from its first entry until the next
- * session started (open-ended for the newest).
+ * Firstmate's own session, as the window shows it: its lines are not
+ * conversation with him but updates Flyd relays, in Flyd's words.
+ */
+export function relayed(messages: ConversationMessage[]): ConversationMessage[] {
+  return messages.map((message) => (message.role === "assistant" ? { ...message, text: inFlydsVoice(message.text), aside: true } : message));
+}
+
+/**
+ * Places the captain's questions from the window among transcript messages
+ * by time. Only those inside the session's window belong to it: from its
+ * first entry until the next session started (open-ended for the newest).
+ *
+ * A question's answer sits directly under it, whenever it was written; until
+ * then the question says what is happening to it. Nothing else is ever shown
+ * as its answer.
  */
 export function mergeNotes(
   messages: ConversationMessage[],
-  notes: ConversationMessage[],
+  exchanges: Exchange[],
   window: { from?: string; until?: string },
 ): ConversationMessage[] {
   const time = (iso?: string): number => (iso ? Date.parse(iso) : Number.NaN);
   const from = time(window.from);
   const until = time(window.until);
-  const inWindow = notes.filter((note) => {
-    const at = time(note.timestamp);
+  const inWindow = exchanges.filter((exchange) => {
+    const at = time(exchange.question.timestamp);
     return (Number.isNaN(from) || at >= from) && (Number.isNaN(until) || at < until);
   });
   if (inWindow.length === 0) return messages;
   const merged: ConversationMessage[] = [];
+  const push = (exchange: Exchange): void => {
+    if (exchange.answer) merged.push(exchange.question, exchange.answer);
+    else merged.push({ ...exchange.question, waiting: exchange.waiting });
+  };
   let next = 0;
   for (const message of messages) {
     const at = time(message.timestamp);
-    while (next < inWindow.length && !Number.isNaN(at) && time(inWindow[next]!.timestamp) <= at) merged.push(inWindow[next++]!);
+    while (next < inWindow.length && !Number.isNaN(at) && time(inWindow[next]!.question.timestamp) <= at) push(inWindow[next++]!);
     merged.push(message);
   }
-  while (next < inWindow.length) merged.push(inWindow[next++]!);
+  while (next < inWindow.length) push(inWindow[next++]!);
   return merged;
 }

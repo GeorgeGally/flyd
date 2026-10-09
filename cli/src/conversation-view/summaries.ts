@@ -75,7 +75,7 @@ export function firstSentence(text: string): string {
   return sentence.length > 220 ? `${sentence.slice(0, 217).trimEnd()}…` : sentence;
 }
 
-const SALUTATION = /^(?:captain|george|boss)\s*[,!:—-]\s*/i;
+const SALUTATION = /^(?:captain|sir|george|boss)\s*[,!:—-]\s*/i;
 /** Opening words that only acknowledge; the reply's substance is in the next sentence. */
 const ACK_LEAD = /^(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot)|understood|noted|got it|shipshape)[.!]?$/i;
 /** A whole reply that carries no outcome, decision or ask. */
@@ -131,7 +131,7 @@ export interface ReplyDigest {
  * An imperative addressed to the captain, at the start of a sentence, line or
  * numbered step: "Add these…", "Set each to 301", "2. Paste it into…".
  */
-const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
+const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
 
 /**
  * Whether the reply hands the captain something to act on: a code block, a

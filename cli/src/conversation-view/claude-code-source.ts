@@ -2,13 +2,16 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
-import { mergeNotes, type CaptainInbox } from "./firstmate-inbox.js";
+import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
+import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
+  ConversationMessage,
   ConversationSnapshot,
   ConversationSource,
+  Exchange,
   ImageData,
   ImageUpload,
   SentMessage,
@@ -109,12 +112,19 @@ function sessionStart(path: string, size: number): string | undefined {
  * Reads Claude Code session transcripts; transcript files are never written.
  * With a CaptainInbox, the captain can also send messages, and the ones he
  * sent are shown in the session that was current when he sent them.
+ *
+ * With a FlydDesk as well, the window is Flyd's: a question that is not
+ * software work goes to Flyd's own assistant, the rest to firstmate's inbox,
+ * and firstmate's session lines become updates Flyd relays.
  */
 export class ClaudeCodeTranscriptSource implements ConversationSource {
   readonly assistantLabel: string;
   private readonly projectDir: string;
   private readonly pollMs: number;
   private readonly inbox?: CaptainInbox;
+  private readonly desk?: { desk: FlydDesk; complete: Complete };
+  /** The newest snapshot followed per session: what the router sees as recent conversation. */
+  private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
   private readonly starts = new Map<string, string | undefined>();
 
@@ -126,6 +136,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     assistantLabel?: string;
     pollMs?: number;
     inbox?: CaptainInbox;
+    /** Flyd's own answers, and the model call that decides who answers each message. */
+    desk?: { desk: FlydDesk; complete: Complete };
     /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
     commandRoots?: { claudeHome?: string; projectDir?: string };
   } = {}) {
@@ -134,6 +146,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     this.assistantLabel = options.assistantLabel ?? (basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
     this.pollMs = options.pollMs ?? 400;
     this.inbox = options.inbox;
+    this.desk = options.inbox ? options.desk : undefined;
   }
 
   get canSend(): boolean {
@@ -144,6 +157,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
     const command = matchCommand(text, await this.commands());
+    if (this.desk) {
+      const route = await routeMessage(
+        { text, images: images?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [] },
+        this.desk.complete,
+      );
+      if (route === "flyd") return this.desk.desk.ask(text);
+    }
     return this.inbox.send(text, images, command?.name);
   }
 
@@ -213,9 +233,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return { from: starts[index]!.start, ...(starts[index + 1] ? { until: starts[index + 1]!.start } : {}) };
   }
 
-  private withNotes(sessionId: string, snapshot: ConversationSnapshot, notes: ReturnType<CaptainInbox["notes"]>): ConversationSnapshot {
-    if (notes.length === 0) return snapshot;
-    return { ...snapshot, messages: mergeNotes(snapshot.messages, notes, this.noteWindow(sessionId)) };
+  /** Every question asked from the window, to firstmate or to Flyd, oldest first. */
+  private exchanges(): Exchange[] {
+    const notes = this.inbox?.notes() ?? [];
+    const asks = this.desk?.desk.exchanges() ?? [];
+    if (asks.length === 0) return notes;
+    return [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
+  }
+
+  private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[]): ConversationSnapshot {
+    const messages = this.desk ? relayed(snapshot.messages) : snapshot.messages;
+    if (exchanges.length === 0) return { ...snapshot, messages };
+    return { ...snapshot, messages: mergeNotes(messages, exchanges, this.noteWindow(sessionId)) };
   }
 
   private sessionPath(sessionId: string): string {
@@ -257,7 +286,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   async read(sessionId: string): Promise<ConversationSnapshot> {
     const conversation = new TranscriptConversation();
     new LineFollower(this.sessionPath(sessionId)).readNew((line, offset) => conversation.pushLine(line, offset));
-    return this.withNotes(sessionId, conversation.snapshot(), this.inbox?.notes() ?? []);
+    return this.withNotes(sessionId, conversation.snapshot(), this.exchanges());
   }
 
   follow(
@@ -282,12 +311,14 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
             conversation = new TranscriptConversation();
           },
         );
-        const notes = this.inbox?.notes() ?? [];
-        const key = notes.map((note) => note.id).join(",");
+        const exchanges = this.exchanges();
+        const key = exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",");
         const notesChanged = key !== noteKey;
         noteKey = key;
         if (!initial && !truncated && count === 0 && !notesChanged) return;
-        onUpdate(this.withNotes(sessionId, conversation.snapshot(), notes));
+        const snapshot = this.withNotes(sessionId, conversation.snapshot(), exchanges);
+        this.latest.set(sessionId, snapshot.messages.slice(-8));
+        onUpdate(snapshot);
       } catch (error) {
         onError?.(error instanceof Error ? error : new Error(String(error)));
       }

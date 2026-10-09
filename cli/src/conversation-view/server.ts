@@ -38,6 +38,9 @@ export interface RenderedMessage {
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
   timestamp?: string;
+  waiting?: string;
+  answers?: string;
+  aside?: boolean;
 }
 
 export interface SummaryOptions {
@@ -119,12 +122,14 @@ export class SnapshotDiffer {
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
     for (const message of snapshot.messages) {
-      order.push(message.id);
-      seen.add(message.id);
       const parts = message.role === "assistant" ? this.summarize(message, newest.has(message.id)) : { body: message.text };
       const routine = "routine" in parts && parts.routine === true;
+      // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
+      if (message.aside && routine) continue;
+      order.push(message.id);
+      seen.add(message.id);
       const expanded = "expanded" in parts && parts.expanded === true;
-      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded]);
+      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -137,6 +142,9 @@ export class SnapshotDiffer {
         ...(routine ? { routine: true } : {}),
         ...(expanded ? { expanded: true } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
+        ...(message.waiting ? { waiting: message.waiting } : {}),
+        ...(message.answers ? { answers: message.answers } : {}),
+        ...(message.aside ? { aside: true } : {}),
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);

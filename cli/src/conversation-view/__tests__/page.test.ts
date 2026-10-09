@@ -273,6 +273,34 @@ describe("conversation page", () => {
     expect(routine!.classList.contains("routine")).toBe(true);
   });
 
+  it("shows a question waiting under itself until its own answer arrives, with relayed updates set apart", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [
+      { id: "note:1", role: "user", html: "<p>whats on in bkk tonight?</p>", waiting: "passed to firstmate" } as never,
+      { id: "t1", role: "assistant", html: "<p>Sir, the island filter is still paused.</p>", aside: true } as never,
+      { id: "t2", role: "assistant", html: "<p>Sir, PR 61 is green.</p>", aside: true } as never,
+    ]);
+    const question = document.querySelector(".msg.user")!;
+    expect(question.querySelector(".queued")!.textContent).toBe("passed to firstmate");
+    const relays = Array.from(document.querySelectorAll(".msg.aside"));
+    expect(relays.map((el) => el.classList.contains("aside-first"))).toEqual([true, false]);
+    expect(relays[0]!.querySelector(".aside-label")!.textContent).toBe("firstmate update");
+
+    stream.emit("update", {
+      order: ["note:1", "note-reply:1", "t1", "t2"],
+      messages: [
+        { id: "note:1", role: "user", html: "<p>whats on in bkk tonight?</p>" },
+        { id: "note-reply:1", role: "assistant", html: "<p>Art bangkok, sir.</p>", answers: "note:1", timestamp: "2026-10-09T03:22:45Z" },
+      ],
+      working: false,
+    });
+    expect(question.querySelector(".queued")).toBeNull();
+    const shown = Array.from(document.querySelectorAll(".msg")).map((el) => el.querySelector(".body")!.textContent);
+    expect(shown).toEqual(["whats on in bkk tonight?", "Art bangkok, sir.", "Sir, the island filter is still paused.", "Sir, PR 61 is green."]);
+    expect(document.querySelector(".msg.answer")!.classList.contains("aside")).toBe(false);
+  });
+
   it("swaps a pending digest summary for the model's when it arrives", async () => {
     load("");
     await settle();
