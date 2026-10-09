@@ -7,6 +7,7 @@ import { readJournalSince, recentJournal } from "./journal.js";
 import { collectNewCaptures, readLibrarianState, runLibrarian, type LibrarianRunResult } from "./librarian.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { describeProject, liveProjects } from "./projects.js";
+import { readTaste } from "./taste.js";
 
 // A council pass: the Librarian curates what is new, then the Critic and the
 // Strategist advise on it. Runs in the background — after a burst of turns,
@@ -40,7 +41,7 @@ function acquire(path: string): boolean {
 }
 
 /** Cheap check: is there enough new material to be worth a pass? */
-export function councilPassDue(now = new Date()): boolean {
+function councilPassDueForWork(now: Date): boolean {
   const state = readLibrarianState();
   const pending = readJournalSince(state.journalCursor, undefined, PASS_EVERY_TURNS);
   const newTurns = pending.length;
@@ -51,6 +52,10 @@ export function councilPassDue(now = new Date()): boolean {
   const age = state.lastRunAt ? now.getTime() - Date.parse(state.lastRunAt) : Infinity;
   if (age < PASS_MAX_AGE_MS) return false;
   return newTurns > 0 || collectNewCaptures(state.captureCursorMs, undefined, 1).length > 0;
+}
+
+export function councilPassDue(now = new Date()): boolean {
+  return readTaste().rules.length > 0 || councilPassDueForWork(now);
 }
 
 export interface CouncilPassResult {
@@ -85,11 +90,12 @@ function readNotifyState(today: string): NotifyState {
 export async function runCouncilPass(deps: CouncilDependencies): Promise<CouncilPassResult> {
   const now = (deps.now ?? (() => new Date()))();
   if (!deps.force && !councilPassDue(now)) return { skipped: "not_due", advisories: [], notified: [] };
+  const tasteOnly = !deps.force && readTaste().rules.length > 0 && !councilPassDueForWork(now);
   const lock = lockPath();
   if (!acquire(lock)) return { skipped: "locked", advisories: [], notified: [] };
   try {
     const librarian = await runLibrarian({ complete: deps.complete, now: () => now });
-    if (librarian.skipped) return { librarian, advisories: [], notified: [] };
+    if (librarian.skipped || tasteOnly) return { librarian, advisories: [], notified: [] };
     const advisories = await runAdvisors({
       profile: readUserProfile(),
       memory: memoryPromptText(),

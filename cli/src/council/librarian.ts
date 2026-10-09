@@ -322,12 +322,12 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const finished = commitments
     ? await (deps.finishedWork ?? (process.env.VITEST ? async () => [] : collectFinishedWork))(since).catch(() => [])
     : [];
-  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects) {
+  const tasteProfile = readTaste(deps.tastePath);
+  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && tasteProfile.rules.length === 0) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
   }
   const profile = (deps.readProfile ?? readUserProfile)();
   const repos = await (deps.repos ?? (process.env.VITEST ? async () => [] : defaultRepos))().catch(() => []);
-  const tasteProfile = readTaste(deps.tastePath);
   const taste = tasteProfile.rules.length ? tasteRuleLines(tasteProfile) : undefined;
   const reply = await deps.complete(librarianPrompt({
     turns, captures, memory, stale, profile, today: localDay(now), finished, projects, repos, ...(taste ? { taste } : {}),

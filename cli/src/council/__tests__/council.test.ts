@@ -228,6 +228,17 @@ describe("muse", () => {
 });
 
 describe("council pass", () => {
+  it("curates existing taste during a quiet pass without running advisors", async () => {
+    const id = ruleId("Never hard-code an API key.");
+    writeTaste({ rules: [{ id, text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] }], vetoed: [], names: {} });
+    const complete = vi.fn(async () => JSON.stringify({ taste_ops: [{ op: "retire", id, reason: "generic" }] }));
+    const result = await runCouncilPass({ complete, now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.advisories).toEqual([]);
+    expect(result.librarian?.taste).toMatchObject({ retired: 1 });
+    expect(readTaste().retired?.map((rule) => rule.id)).toEqual([id]);
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the Librarian then both advisors, and notifies urgent advisories within the daily cap", async () => {
     appendJournalTurn({ user: "cleanx launch is 3 October, store review not submitted yet", assistant: "ok", at: at("2026-09-27T09:00:00Z") });
     const notify = vi.fn(async () => {});
