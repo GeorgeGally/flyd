@@ -60,7 +60,9 @@ const SCRIPT = `
 `;
 
 function ruleHtml(rule: TasteRule, names: Record<string, string>, vetoed: boolean): string {
-  const seen = rule.count === 0 ? "you wrote this" : `seen ${rule.count}×${rule.last ? `, last ${rule.last}` : ""}`;
+  const seen = rule.count === 0 ? "you wrote this"
+    : rule.count === 1 ? `seen once${rule.last ? `, last ${rule.last}` : ""} — tentative`
+      : `seen ${rule.count}×${rule.last ? `, last ${rule.last}` : ""}`;
   const across = rule.projects.length > 1 ? ` · in ${rule.projects.map((id) => names[id] ?? id).join(", ")}` : "";
   const why = rule.evidence.map((item) =>
     `<li><span class="q">${escapeHtml(item.quote)}</span><span class="where">${escapeHtml([item.source, item.project ? names[item.project] ?? item.project : "", item.date].filter(Boolean).join(" · "))}</span></li>`).join("");

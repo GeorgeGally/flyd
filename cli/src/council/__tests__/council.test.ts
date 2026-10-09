@@ -7,6 +7,7 @@ import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
 import { consultMuse, museCandidates, parseMuseReply } from "../muse.js";
+import { readTaste, writeTaste } from "../taste.js";
 import { runCouncilPass } from "../council.js";
 
 let home: string;
@@ -18,6 +19,7 @@ beforeEach(() => {
   process.env.FLYD_ADVISORIES_PATH = join(home, "council", "advisories.jsonl");
   process.env.FLYD_LIBRARIAN_STATE = join(home, "council", "librarian-state.json");
   process.env.FLYD_USER_PROFILE = join(home, "USER.md");
+  process.env.FLYD_TASTE_FILE = join(home, "TASTE.md");
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
@@ -97,13 +99,40 @@ describe("librarian", () => {
   });
 
   it("ignores malformed proposals and skips tiny captures", () => {
-    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [], projectOps: [] });
+    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [], projectOps: [], tasteOps: [] });
     expect(parseLibrarianProposal('{"memory_ops":[{"op":"add","text":"x"},"junk"],"profile_ops":[{"fact":""}]}').memoryOps).toHaveLength(1);
     const raw = join(home, "raw2");
     mkdirSync(raw);
     writeFileSync(join(raw, "a.md"), "---\n---\n\nok\n");
     utimesSync(join(raw, "a.md"), new Date(), new Date());
     expect(collectNewCaptures(0, raw)).toEqual([]);
+  });
+
+  it("curates his taste on the same pass: folds a near-duplicate and retires a generic rule", async () => {
+    writeTaste({
+      rules: [
+        { id: "keep0001", text: "Reuse the pattern from other pages.", scope: "personal", count: 2, projects: [], evidence: [] },
+        { id: "drop0001", text: "Use the existing page style.", scope: "personal", count: 1, projects: [], evidence: [] },
+        { id: "gen00001", text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] },
+      ],
+      vetoed: [], names: {},
+    });
+    appendJournalTurn({ user: "hi", assistant: "hello", at: at("2026-09-27T09:00:00Z") });
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return JSON.stringify({ taste_ops: [
+        { op: "fold", id: "keep0001", merge: "drop0001", reason: "same point" },
+        { op: "retire", id: "gen00001", reason: "generic truism" },
+      ] });
+    });
+    const result = await runLibrarian({ complete, rawDir: join(home, "none"), now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.taste).toMatchObject({ folded: 1, retired: 1 });
+    expect(prompts[0]).toContain("His taste");
+    expect(prompts[0]).toContain("[keep0001]");
+    const after = readTaste();
+    expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages."]);
+    expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key."]);
   });
 });
 
