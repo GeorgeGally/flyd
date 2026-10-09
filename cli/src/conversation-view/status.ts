@@ -2,7 +2,13 @@ import { authorSummary, firstSentence } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
 // A glanceable status of the conversation for Flyd's notch island: is the
-// assistant working, and what did its newest reply say (or ask)?
+// assistant working on something George said, and what did its newest reply
+// worth his attention say (or ask)?
+//
+// Firstmate also replies to its own wakes and supervision ("Captain,
+// shipshape.", "no news yet", "the worker has posted an update"). Those stay
+// in the conversation but never reach the island: only a decision, a real
+// outcome (a PR ready, something merged or shipped) or a real problem does.
 
 export interface ConversationStatus {
   working: boolean;
@@ -24,17 +30,53 @@ export function asksForDecision(text: string): boolean {
 }
 
 export function headlineOf(text: string): string {
-  const headline = (authorSummary(text)?.summary ?? firstSentence(text)).replace(/\s+/g, " ").trim();
+  const headline = plain(authorSummary(text)?.summary ?? firstSentence(text));
   if (headline.length <= HEADLINE_CHARS) return headline;
   const cut = headline.slice(0, HEADLINE_CHARS);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`;
 }
 
+/** One line, without firstmate's "Captain," salutation. */
+function plain(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim().replace(/^captain[,:!.]?\s+/i, "");
+  return line ? line[0]!.toUpperCase() + line.slice(1) : "";
+}
+
+/** Housekeeping that says nothing happened: "shipshape", "no news yet", "on it". */
+const ROUTINE_OPENING = /^(shipshape|all (quiet|clear|good|calm)|no (news|updates?|progress)\b|nothing (new|to report|yet)|still (working|waiting|running|going)|on it\b|ack(nowledged)?\b|noted\b|got it\b|standing by|will (report|update|let you know|follow up))/i;
+/** Supervision chatter about the workers rather than the work. */
+const MACHINERY = /\b(posted an update|is moving again|acknowledged (my|the|your) decision|(a|the) (worker|crewmate|supervisor) (is|has|had|will|picked|started|took)\b|is now on\b|dispatched\b)/i;
+/** Something George would want to hear without asking: a result ready for him, or a real problem. */
+const OUTCOME = /(https?:\/\/\S+\/pull\/\d+|\bready (for (your )?review|to merge)\b|\b(merged|shipped|deployed|released|is live|failed|failing|broken|blocked|stuck|overloaded|crashed)\b)/i;
+
+/**
+ * Whether a reply belongs on the island. A reply to George's own words shows
+ * unless it is routine; a reply firstmate makes on its own (to a wake or a
+ * worker's status) shows only for a decision, an outcome or a problem.
+ */
+export function worthAnnouncing(text: string, prompted: boolean): boolean {
+  if (asksForDecision(text)) return true;
+  const prose = text.replace(/```[\s\S]*?```/g, "").trim();
+  const lead = plain([authorSummary(text)?.summary ?? "", prose.split(/\n\s*\n/)[0] ?? ""].join(" "));
+  if (!lead || ROUTINE_OPENING.test(lead)) return false;
+  if (prompted) return !MACHINERY.test(lead) || OUTCOME.test(lead);
+  return OUTCOME.test(lead);
+}
+
 export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): ConversationStatus {
   const recent = snapshot.lastActivity ? now - Date.parse(snapshot.lastActivity) < WORKING_STALE_MS : false;
-  const reply = [...snapshot.messages].reverse().find((message) => message.role === "assistant");
+  const messages = snapshot.messages;
+  let reply: ConversationSnapshot["messages"][number] | undefined;
+  for (let index = messages.length - 1; index >= 0 && !reply; index -= 1) {
+    const message = messages[index]!;
+    if (message.role === "assistant" && worthAnnouncing(message.text, messages[index - 1]?.role === "user")) reply = message;
+  }
+  // Working means the open turn answers George — his message is newest, or the
+  // reply in progress follows it — not firstmate handling its own wakes.
+  const last = messages.length - 1;
+  const awaitingAnswer = messages[last]?.role === "user" || messages[last - 1]?.role === "user";
   return {
-    working: snapshot.working && recent,
+    working: snapshot.working && recent && awaitingAnswer,
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
     ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
   };
