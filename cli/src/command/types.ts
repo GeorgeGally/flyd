@@ -62,6 +62,11 @@ export interface DomainTransport {
   replyCursor?: string;
 }
 
+export interface DomainSpecialistRun {
+  role: string;
+  jobId: string;
+}
+
 export interface DomainRun {
   id: string;
   request: DomainRequest;
@@ -70,6 +75,8 @@ export interface DomainRun {
   createdAt: string;
   updatedAt: string;
   transport: DomainTransport;
+  phase?: string;
+  specialists?: DomainSpecialistRun[];
   result?: DomainResult;
   failure?: string;
   notified?: boolean;
