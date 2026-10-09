@@ -75,9 +75,9 @@ export function firstSentence(text: string): string {
   return sentence.length > 220 ? `${sentence.slice(0, 217).trimEnd()}…` : sentence;
 }
 
-const SALUTATION = /^(?:captain|george|boss)\s*[,!:—-]\s*/i;
+const SALUTATION = /^(?:captain|sir|george|boss)\s*[,!:—-]\s*/i;
 /** Opening words that only acknowledge; the reply's substance is in the next sentence. */
-const ACK_LEAD = /^(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot)|understood|noted|got it|shipshape)[.!]?$/i;
+const ACK_LEAD = /^(?:(?:yes|ok(?:ay)?),? )?(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot|point)|understood|noted|got it|shipshape|you(?:'re| are) (?:right|correct)|that's (?:right|correct|fair)|fair (?:point|enough)|correct|true|my mistake|sorry)[.!]?$/i;
 /** A whole reply that carries no outcome, decision or ask. */
 const ROUTINE_REPLY = /^(?:shipshape|aye(?: aye)?|agreed|noted|understood|got it|on it|will do|ok(?:ay)?|thanks?(?: you)?|standing by|all (?:quiet|good|clear|calm)|no change|nothing (?:new|changed|has changed|to report|needs you)|still (?:working|running|waiting|on it)|waiting (?:on|for)|no news)\b/i;
 const ROUTINE_MAX_CHARS = 160;
@@ -131,7 +131,7 @@ export interface ReplyDigest {
  * An imperative addressed to the captain, at the start of a sentence, line or
  * numbered step: "Add these…", "Set each to 301", "2. Paste it into…".
  */
-const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
+const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
 
 /**
  * Whether the reply hands the captain something to act on: a code block, a
@@ -150,6 +150,12 @@ export function isRoutine(text: string): boolean {
   const body = bodyOf(text);
   if (body.length > ROUTINE_MAX_CHARS || /\?/.test(body) || /^\s*(?:\d+[.)]|[-*+])\s/m.test(body)) return false;
   return ROUTINE_REPLY.test(body);
+}
+
+/** Whether a reply only acknowledges ("Sir, you're right."), with nothing after it. */
+export function isAcknowledgement(text: string): boolean {
+  const said = sentences(inline(bodyOf(text)));
+  return said.length > 0 && said.every((sentence) => ACK_LEAD.test(sentence));
 }
 
 /** The top-level list items of a reply, each as its bold label and first sentence. */
@@ -194,6 +200,7 @@ function paragraphPoints(paragraphs: string[]): ReplyPoint[] {
 export function digestReply(text: string): ReplyDigest {
   const body = bodyOf(text);
   const paragraphs = body.split(/\n\s*\n/).filter((block) => block.trim() && !/^\s*(?:\d+[.)]|[-*+]|#|\|)/.test(block));
+  while (paragraphs.length > 1 && isAcknowledgement(paragraphs[0]!)) paragraphs.shift();
   const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
   const lead = capitalise(clip(opening[0] ?? firstSentence(body), 220));

@@ -115,6 +115,12 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .msg.user strong, .msg.user a { color: inherit; }
 .msg.user + .msg.user { margin-top: 0.9em; }
 .msg.assistant { margin-top: 0.85em; }
+/* A question with no answer yet: its answer will appear right under it. */
+.msg.user .queued { display: block; margin-top: 0.3em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
+/* Updates relayed from firstmate's own session: set apart, never read as an answer. */
+.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
+.aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
   position: absolute; right: calc(100% + 2em); top: 0.55em; white-space: nowrap;
   font: 13px/1 var(--mono); color: var(--muted); opacity: 0; transition: opacity 140ms ease;
@@ -300,6 +306,7 @@ const SCRIPT = `
   var latestSession = null;
   var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
+  var assistant = document.title || "the assistant";
 
   function store(key, value) {
     try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) { return null; }
@@ -389,6 +396,7 @@ const SCRIPT = `
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
       })));
     }
+    pairing(el, message);
     if (message.role === "assistant") {
       el.classList.toggle("routine", !!message.routine);
       // Something to act on (rules to paste, steps) shows whole until he folds it.
@@ -396,6 +404,27 @@ const SCRIPT = `
       summarize(el, message);
     }
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
+  }
+  // A question waits for its own answer; firstmate's session lines are relayed updates.
+  function pairing(el, message) {
+    var queued = el.querySelector(":scope > .queued");
+    if (queued) queued.remove();
+    if (message.waiting) {
+      queued = document.createElement("span");
+      queued.className = "queued";
+      queued.textContent = message.waiting;
+      el.appendChild(queued);
+    }
+    el.classList.toggle("answer", !!message.answers);
+    el.classList.toggle("aside", !!message.aside);
+    var label = el.querySelector(":scope > .aside-label");
+    if (label) label.remove();
+    if (message.aside) {
+      label = document.createElement("span");
+      label.className = "aside-label";
+      label.textContent = "update";
+      el.insertBefore(label, el.querySelector(".body"));
+    }
   }
   function summarize(el, message) {
     ["summary", "compare", "more"].forEach(function (name) {
@@ -490,10 +519,14 @@ const SCRIPT = `
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
     var cursor = main.firstElementChild;
     var day = "";
+    var previous = null;
     update.order.forEach(function (id) {
       var el = nodes.get(id);
       if (el !== cursor) main.insertBefore(el, cursor); else cursor = cursor.nextElementSibling;
-      var d = el.dataset.ts ? dayOf(el.dataset.ts) : "";
+      el.classList.toggle("aside-first", el.classList.contains("aside") && !(previous && previous.classList.contains("aside")));
+      previous = el;
+      // A reply sits under its question, whenever it was written: no day marker of its own.
+      var d = el.dataset.ts && !el.classList.contains("answer") ? dayOf(el.dataset.ts) : "";
       if (d && d !== day) { el.dataset.day = d; day = d; } else { delete el.dataset.day; }
     });
     main.querySelectorAll(".msg.pending").forEach(function (el) { main.appendChild(el); });
@@ -553,6 +586,7 @@ const SCRIPT = `
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
       current = session.id;
+      assistant = session.assistantLabel;
       document.title = session.title + " · " + session.assistantLabel;
       if (picker.value !== session.id) loadSessions();
     });
@@ -959,7 +993,7 @@ const SCRIPT = `
       if (nodes.has(sent.id)) {
         el.remove();
         if (sent.warning) {
-          warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+          warnings.set(sent.id, "saved, but not passed on yet");
           showWarning(nodes.get(sent.id), warnings.get(sent.id));
         }
         return;
@@ -972,7 +1006,7 @@ const SCRIPT = `
       }
       el.dataset.wait = sent.id;
       awaiting.add(sent.id);
-      if (sent.warning) warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+      if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
       state.textContent = warnings.get(sent.id) || "delivered";
     }).catch(function (error) {
       el.classList.add("failed");

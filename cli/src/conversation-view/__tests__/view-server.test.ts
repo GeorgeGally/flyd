@@ -74,6 +74,33 @@ describe("SnapshotDiffer", () => {
   });
 });
 
+describe("SnapshotDiffer relays", () => {
+  it("drops routine relayed updates, keeps ones with an outcome, and carries the pairing to the page", () => {
+    const differ = new SnapshotDiffer();
+    const update = differ.next({
+      messages: [
+        { id: "note:1", role: "user", text: "whats on in bkk tonight?", waiting: "passed to firstmate" },
+        { id: "t1", role: "assistant", text: "Sir, standing by.", aside: true },
+        { id: "t2", role: "assistant", text: "Sir, the island filter is still paused on your call. A or B?", aside: true },
+      ],
+      working: false,
+    });
+    expect(update.order).toEqual(["note:1", "t2"]);
+    expect(update.messages.map((m) => [m.id, m.waiting, m.aside])).toEqual([["note:1", "passed to firstmate", undefined], ["t2", undefined, true]]);
+
+    const answered = differ.next({
+      messages: [
+        { id: "note:1", role: "user", text: "whats on in bkk tonight?" },
+        { id: "note-reply:1", role: "assistant", text: "Art bangkok, sir.", answers: "note:1" },
+        { id: "t2", role: "assistant", text: "Sir, the island filter is still paused on your call. A or B?", aside: true },
+      ],
+      working: false,
+    });
+    expect(answered.order).toEqual(["note:1", "note-reply:1", "t2"]);
+    expect(answered.messages.map((m) => [m.id, m.waiting, m.answers])).toEqual([["note:1", undefined, undefined], ["note-reply:1", undefined, "note:1"]]);
+  });
+});
+
 describe("SnapshotDiffer summaries", () => {
   const long = "Captain, the menu bar now sits ten pixels higher on every page, including the member login. " +
     "I checked it in the browser on desktop and mobile, and the change is committed but not pushed yet. ".repeat(2);
@@ -226,7 +253,7 @@ describe("ConversationViewServer", () => {
       return { id: message.id, timestamp: message.timestamp! };
     }
     notes() {
-      return this.sent;
+      return this.sent.map((question) => ({ question, waiting: "passed to firstmate" }));
     }
     image() {
       return null;
