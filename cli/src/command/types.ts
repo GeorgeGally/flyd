@@ -62,7 +62,7 @@ export interface DomainTransport {
   replyCursor?: string;
 }
 
-export type DomainMessageKind = "correction" | "decision" | "priority_change" | "question";
+export type DomainMessageKind = "correction" | "decision" | "priority_change" | "question" | "cancel";
 
 export interface DomainMessage {
   id: string;
