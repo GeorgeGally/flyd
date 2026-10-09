@@ -190,6 +190,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "work_model":
     case "speaking_style":
     case "background_task":
+    case "start_knowledge_task":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
     case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
@@ -224,6 +225,8 @@ function describe(name: string, input: Record<string, unknown>): string {
       const after = Array.isArray(input.after_land) ? input.after_land.map(String) : [];
       return `build "${clip(String(input.outcome ?? ""), 80)}"${after.length ? `, then ${after.join(" and ")} once you land it` : ""}`;
     }
+    case "start_knowledge_task":
+      return `research "${clip(String(input.outcome ?? ""), 80)}"`;
     default: return `use ${name}`;
   }
 }
