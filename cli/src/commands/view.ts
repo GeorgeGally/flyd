@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
-import { FlydDesk, type Answerer } from "../conversation-view/flyd-desk.js";
+import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
+import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { getKey } from "../lib/config.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
@@ -52,6 +53,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Messages go to firstmate's own inbox, so the box only appears on
   // firstmate's conversation.
   const inbox = new FirstmateInbox();
+  const complete: Complete = async (prompt) => (await import("../lib/llm.js")).query(prompt);
   const wantsInbox = options.project === undefined && inbox.available();
   const source = new ClaudeCodeTranscriptSource({
     projectDir,
@@ -61,7 +63,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     ...(wantsInbox ? {
       desk: {
         desk: new FlydDesk({ answer: answerAsFlyd }),
-        complete: async (prompt: string) => (await import("../lib/llm.js")).query(prompt),
+        complete,
       },
     } : {}),
   });
@@ -79,7 +81,9 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // The plan's usage limits, from quota-axi when it can read them without prompting.
   const plan = new PlanUsageReader();
   plan.start();
-  const server = new ConversationViewServer(source, { summarizer, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan);
+  // Firstmate's answer to each note is told by Flyd, through Flyd's own model.
+  const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan);
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

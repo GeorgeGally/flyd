@@ -9,6 +9,7 @@ import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
+import type { AnswerInterpreter } from "./interpret.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -30,7 +31,7 @@ export interface RenderedMessage {
   /** Image ids; the page loads each from /api/image. */
   images?: string[];
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
-  summary?: { html: string; source: SummarySource; pending?: boolean };
+  summary?: { html: string; source: SummarySource | "flyd"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
   compare?: { html: string; pending?: boolean };
   /** The reply hands the captain something to act on: the page never folds it behind its summary. */
@@ -44,7 +45,9 @@ export interface RenderedMessage {
 }
 
 export interface SummaryOptions {
-  summarizer: ReplySummarizer;
+  summarizer?: ReplySummarizer;
+  /** Flyd's own reading of firstmate's answer to one of his notes. */
+  interpreter?: AnswerInterpreter;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -72,7 +75,28 @@ export class SnapshotDiffer {
   /** Starts a model summary in the background; the stream re-renders when it lands. */
   private ask(text: string): void {
     const summaries = this.summaries!;
-    void summaries.summarizer.request(text).then(() => summaries.onSummary?.());
+    void summaries.summarizer!.request(text).then(() => summaries.onSummary?.());
+  }
+
+  /**
+   * Firstmate's answer to his note, as Flyd tells it: Flyd's interpretation
+   * leads, firstmate's own words wait behind "more". Until it lands, or with
+   * no model, the lead is the answer's local digest.
+   */
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+    const interpreter = this.summaries?.interpreter;
+    const cached = interpreter?.cached(message.text);
+    if (cached) return { body: message.text, summary: { html: renderMarkdown(cached), source: "flyd" } };
+    if (interpreter && newest && interpreter.wants(message.text)) {
+      const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
+      const before = at >= 0 ? at : snapshot.messages.indexOf(message);
+      const summaries = this.summaries!;
+      void interpreter
+        .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
+        .then(() => summaries.onSummary?.());
+    }
+    const pending = interpreter?.pending(message.text) ?? false;
+    return { body: message.text, summary: { html: renderMarkdown(digestMarkdown(digestReply(message.text))), source: "digest", ...(pending ? { pending: true } : {}) } };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -122,14 +146,17 @@ export class SnapshotDiffer {
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
     for (const message of snapshot.messages) {
-      // The answer to his own question shows whole: never folded behind a summary or muted as routine.
-      const parts = message.role === "assistant" && !message.answers ? this.summarize(message, newest.has(message.id)) : { body: message.text };
-      const routine = "routine" in parts && parts.routine === true;
+      // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
+      const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
+        : !message.answers ? this.summarize(message, newest.has(message.id))
+          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
+            : { body: message.text };
+      const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
       if (message.aside && routine) continue;
       order.push(message.id);
       seen.add(message.id);
-      const expanded = "expanded" in parts && parts.expanded === true;
+      const expanded = parts.expanded === true;
       const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
@@ -212,7 +239,7 @@ export class ConversationViewServer {
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer: ReplySummarizer; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
     private readonly plan?: PlanUsageReader,
   ) {}
 

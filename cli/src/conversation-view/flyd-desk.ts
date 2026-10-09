@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -86,6 +86,8 @@ export class FlydDesk {
   private readonly answerer: Answerer;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
+  /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
+  private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
   constructor(options: { answer: Answerer; dir?: string }) {
     this.answerer = options.answer;
@@ -102,17 +104,36 @@ export class FlydDesk {
 
   private records(): AskRecord[] {
     if (!existsSync(this.dir)) return [];
+    const names = new Set(readdirSync(this.dir).filter((name) => name.endsWith(".json")));
+    for (const name of this.parsed.keys()) if (!names.has(name)) this.parsed.delete(name);
     const records: AskRecord[] = [];
-    for (const name of readdirSync(this.dir)) {
-      if (!name.endsWith(".json")) continue;
-      try {
-        const record = JSON.parse(readFileSync(join(this.dir, name), "utf8")) as AskRecord;
-        if (typeof record.id === "string" && typeof record.at === "string" && typeof record.text === "string") records.push(record);
-      } catch {
-        // A torn or foreign file: not one of ours.
-      }
+    for (const name of names) {
+      const record = this.read(name);
+      if (record) records.push(record);
     }
     return records.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  }
+
+  private read(name: string): AskRecord | null {
+    const path = join(this.dir, name);
+    let stamp: string;
+    try {
+      const stat = statSync(path);
+      stamp = `${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return null;
+    }
+    const known = this.parsed.get(name);
+    if (known?.stamp === stamp) return known.record;
+    let record: AskRecord | null = null;
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as AskRecord;
+      if (typeof parsed.id === "string" && typeof parsed.at === "string" && typeof parsed.text === "string") record = parsed;
+    } catch {
+      // A torn or foreign file: not one of ours.
+    }
+    this.parsed.set(name, { stamp, record });
+    return record;
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */

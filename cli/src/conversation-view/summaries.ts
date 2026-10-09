@@ -152,6 +152,12 @@ export function isRoutine(text: string): boolean {
   return ROUTINE_REPLY.test(body);
 }
 
+/** Whether a reply only acknowledges ("Sir, you're right."), with nothing after it. */
+export function isAcknowledgement(text: string): boolean {
+  const said = sentences(inline(bodyOf(text)));
+  return said.length > 0 && said.every((sentence) => ACK_LEAD.test(sentence));
+}
+
 /** The top-level list items of a reply, each as its bold label and first sentence. */
 function pointsOf(body: string): ReplyPoint[] {
   const lines = body.split("\n");
@@ -194,6 +200,7 @@ function paragraphPoints(paragraphs: string[]): ReplyPoint[] {
 export function digestReply(text: string): ReplyDigest {
   const body = bodyOf(text);
   const paragraphs = body.split(/\n\s*\n/).filter((block) => block.trim() && !/^\s*(?:\d+[.)]|[-*+]|#|\|)/.test(block));
+  while (paragraphs.length > 1 && isAcknowledgement(paragraphs[0]!)) paragraphs.shift();
   const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
   const lead = capitalise(clip(opening[0] ?? firstSentence(body), 220));
