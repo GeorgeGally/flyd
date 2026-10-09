@@ -13,6 +13,8 @@ const dirs: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "flyd-content-")); dirs.push(dir); vi.stubEnv("FLYD_DIR", dir);
+  // The default extractor is the local baseline unless a model is configured; keep a developer's model out.
+  vi.stubEnv("FLYD_CONVERSATION_LEARN_MODEL", ""); vi.stubEnv("FLYD_DICTATE_MODEL", "");
   const store = new IntelligenceEventStore();
   return { dir, store, curator: new CognitiveCurator(store) };
 }

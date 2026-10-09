@@ -28,3 +28,5 @@ process.env.FLYD_INVESTIGATOR ??= "0";
 process.env.FLYD_SELF_IMPROVE ??= "0";
 // Belt and braces: even an opted-in launch cannot reach the real OpenCode.
 process.env.FLYD_OPENCODE_PATH = "/usr/bin/false";
+// The firstmate bridge must never run George's real fm-inbox.sh from a test.
+process.env.FLYD_FIRSTMATE_HOME ??= join(sandbox, "firstmate");
