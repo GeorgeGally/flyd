@@ -7,7 +7,7 @@ import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
 import { consultMuse, museCandidates, parseMuseReply } from "../muse.js";
-import { readTaste, writeTaste } from "../taste.js";
+import { readTaste, ruleId, writeTaste } from "../taste.js";
 import { runCouncilPass } from "../council.js";
 
 let home: string;
@@ -111,17 +111,17 @@ describe("librarian", () => {
   it("curates his taste on the same pass: folds a near-duplicate and retires a generic rule", async () => {
     writeTaste({
       rules: [
-        { id: "keep0001", text: "Reuse the pattern from other pages.", scope: "personal", count: 2, projects: [], evidence: [] },
-        { id: "drop0001", text: "Use the existing page style.", scope: "personal", count: 1, projects: [], evidence: [] },
-        { id: "gen00001", text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] },
+        { id: ruleId("Reuse the pattern from other pages."), text: "Reuse the pattern from other pages.", scope: "personal", count: 2, projects: [], evidence: [] },
+        { id: ruleId("Use the existing page style."), text: "Use the existing page style.", scope: "personal", count: 1, projects: [], evidence: [] },
+        { id: ruleId("Never hard-code an API key."), text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] },
       ],
       vetoed: [], names: {},
     });
     appendJournalTurn({ user: "hi", assistant: "hello", at: at("2026-09-27T09:00:00Z") });
     const complete = vi.fn(async () => {
       return JSON.stringify({ taste_ops: [
-        { op: "fold", id: "keep0001", merge: "drop0001", reason: "same point" },
-        { op: "retire", id: "gen00001", reason: "generic truism" },
+        { op: "fold", id: ruleId("Reuse the pattern from other pages."), merge: ruleId("Use the existing page style."), reason: "same point" },
+        { op: "retire", id: ruleId("Never hard-code an API key."), reason: "generic truism" },
       ] });
     });
     const result = await runLibrarian({ complete, rawDir: join(home, "none"), now: () => at("2026-09-27T10:00:00Z") });

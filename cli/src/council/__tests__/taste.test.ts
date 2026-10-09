@@ -155,6 +155,18 @@ describe("Librarian curation", () => {
     expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }]).rejected.join(" ")).toContain("already everywhere");
   });
 
+  it("preserves Everywhere scope when folding into a project rule", () => {
+    const profile = empty();
+    applyObservations(profile, [
+      observe("Use the existing page style.", "project", "flyd"),
+      observe("Reuse the pattern from other pages.", "personal"),
+    ]);
+    const projectRule = profile.rules.find((rule) => rule.scope === "flyd")!;
+    const personalRule = profile.rules.find((rule) => rule.scope === "personal")!;
+    expect(applyTasteOps(profile, [{ op: "fold", id: projectRule.id, merge: personalRule.id }])).toMatchObject({ folded: 1 });
+    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["flyd"] });
+  });
+
   it("retires a generic learned rule but never one George wrote or reworded himself", () => {
     const profile = empty();
     applyObservations(profile, [observe("Never hard-code an API key in the client.", "personal")]);
@@ -171,7 +183,7 @@ describe("Librarian curation", () => {
     rephrased.rule.sameAs = learned.id;
     expect(applyObservations(profile, [
       observe("Never hard-code an API key in the client.", "personal"),
-      observe("Keep credentials out of client code.", "personal"),
+      { ...observe("Keep credentials out of client code.", "personal"), rule: { ...observe("Keep credentials out of client code.", "personal").rule, sameAs: learned.id } },
       rephrased,
     ])).toMatchObject({ added: 0, ignored: 3 });
   });
