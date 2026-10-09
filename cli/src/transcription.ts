@@ -4,9 +4,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { IncomingMessage } from "node:http";
+import { conversationVocabulary, currentProjectVocabulary } from "./dictation/context.js";
+import { reviewedVocabulary, type ReviewedVocabulary } from "./dictation/corrections.js";
+import { IntelligenceEventStore } from "./intelligence/event-store.js";
+import type { DictationTarget } from "./dictation/profile.js";
 import { finishDictation } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
-import type { DictationTarget } from "./dictation/profile.js";
+import { transcriptionPurpose, type TranscriptionPurpose } from "./dictation/request.js";
+export { transcriptionPurpose } from "./dictation/request.js";
 import { removePromptEcho } from "./dictation/echo.js";
 import { openStreamingTranscriber, type StreamingTranscriber } from "./dictation/stream.js";
 import { loadReplacementRules, loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
@@ -38,24 +43,6 @@ let wss: WebSocketServer | null = null;
 let cachedVoiceSetup:
   | { checkedAt: number; result: { ok: boolean; message?: string } }
   | null = null;
-
-export type TranscriptionPurpose =
-  | { kind: "conversation" }
-  | { kind: "dictation"; target: DictationTarget };
-
-/** The adapter's `start` message says whether this is a question for Flyd or text for another app. */
-export function transcriptionPurpose(message: Record<string, unknown>): TranscriptionPurpose {
-  if (message.purpose !== "dictation") return { kind: "conversation" };
-  const app = (typeof message.app === "object" && message.app !== null ? message.app : {}) as Record<string, unknown>;
-  const windowTitle = typeof app.windowTitle === "string" && app.windowTitle.trim() ? app.windowTitle : undefined;
-  return {
-    kind: "dictation",
-    target: {
-      bundleId: typeof app.bundleId === "string" && app.bundleId ? app.bundleId : "unknown",
-      ...(windowTitle ? { windowTitle } : {}),
-    },
-  };
-}
 
 export function sendTranscriptionReady(clientWs: Pick<WebSocket, "send">): void {
   clientWs.send(JSON.stringify({ type: "ready" }));
@@ -188,6 +175,7 @@ export function startTranscriptionServer(): Promise<void> {
 
           switch (msg.type) {
           case "start":
+            if (isTranscribing) break;
             pendingAudio = [];
             closeStream();
             purpose = transcriptionPurpose(msg);
@@ -196,6 +184,7 @@ export function startTranscriptionServer(): Promise<void> {
             sendTranscriptionReady(ws);
             break;
           case "audio":
+            if (isTranscribing) break;
             if (typeof msg.audio === "string") {
               const chunk = Buffer.from(msg.audio, "base64");
               pendingAudio.push(chunk);
@@ -206,10 +195,12 @@ export function startTranscriptionServer(): Promise<void> {
             if (isTranscribing) break;
             isTranscribing = true;
             const streamed = stream;
+            const committedAudio = pendingAudio;
+            const committedPurpose = purpose;
             stream = null;
             (streamed
-              ? finishStreamedTranscription(streamed, pendingAudio, ws, purpose)
-              : transcribeBufferedAudio(pendingAudio, ws, purpose))
+              ? finishStreamedTranscription(streamed, committedAudio, ws, committedPurpose)
+              : transcribeBufferedAudio(committedAudio, ws, committedPurpose))
               .catch((error) => {
                 console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
                 sendJson(ws, { type: "error", message: "Voice transcription failed" });
@@ -253,6 +244,50 @@ function transcriptionApiKey(): string | undefined {
   return process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
 }
 
+interface LearnedVocabulary extends ReviewedVocabulary {
+  conversation: string[];
+}
+
+// Read once per utterance: the prompt at start and the cleanup at commit see the same learning.
+const learnedByTarget = new WeakMap<DictationTarget, LearnedVocabulary>();
+
+/** What Flyd has learned that bears on this dictation: approved corrections and conversation subjects. */
+function learnedVocabulary(target: DictationTarget): LearnedVocabulary {
+  const cached = learnedByTarget.get(target);
+  if (cached) return cached;
+  let learned: LearnedVocabulary = { rules: [], terms: [], conversation: [] };
+  try {
+    const store = new IntelligenceEventStore();
+    try {
+      learned = {
+        ...reviewedVocabulary(store, target.bundleId, target.windowTitle),
+        conversation: process.env.FLYD_CONVERSATION_LEARNING === "0" ? [] : conversationVocabulary(store.learnedTopicLabels()),
+      };
+    } finally { store.close(); }
+  } catch (error) {
+    console.warn(`[Flyd Core] Learned dictation vocabulary unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  learnedByTarget.set(target, learned);
+  return learned;
+}
+
+function dictationRules(target: DictationTarget) {
+  const manual = loadReplacementRules();
+  return [...learnedVocabulary(target).rules.filter(rule => !manual.some(m => m.from.toLowerCase() === rule.from.toLowerCase())), ...manual];
+}
+
+/** The spelling shortlist, most authoritative first: his approved fixes, then what he talks about, then the screen. */
+export function dictationVocabulary(target: DictationTarget): string[] {
+  const learned = learnedVocabulary(target);
+  return [...new Set([
+    "Flyd",
+    ...dictationRules(target).map(rule => rule.to),
+    ...learned.terms,
+    ...learned.conversation,
+    ...currentProjectVocabulary(target, loadVocabulary(target.windowTitle)),
+  ])].slice(0, 40);
+}
+
 function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTranscriber | null {
   const apiKey = transcriptionApiKey();
   if (!apiKey) return null;
@@ -261,7 +296,7 @@ function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTransc
       apiKey,
       model: transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL),
       prompt: purpose.kind === "dictation"
-        ? transcriptionPrompt(loadVocabulary(purpose.target.windowTitle))
+        ? transcriptionPrompt(dictationVocabulary(purpose.target))
         : TRANSCRIPTION_PROMPT,
     });
   } catch (error) {
@@ -291,14 +326,14 @@ async function finishStreamedTranscription(
     return;
   }
   if (purpose.kind === "dictation") {
-    await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, loadVocabulary(purpose.target.windowTitle));
+    await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, dictationVocabulary(purpose.target));
     return;
   }
   sendJson(clientWs, { type: "complete", text: transcript });
 }
 
 async function completeDictation(
-  clientWs: WebSocket,
+  clientWs: Pick<WebSocket, "send">,
   transcript: string,
   audioSeconds: number,
   purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>,
@@ -307,13 +342,13 @@ async function completeDictation(
   const result = await finishDictation(transcript, {
     target: purpose.target,
     audioSeconds,
-    rules: loadReplacementRules(),
+    rules: dictationRules(purpose.target),
     vocabulary,
   });
-  sendJson(clientWs, { type: "complete", text: result.text, profile: result.profile });
+  sendJson(clientWs, { type: "complete", text: result.text, rawText: transcript, profile: result.profile });
 }
 
-async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, purpose: TranscriptionPurpose): Promise<void> {
+export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<WebSocket, "send">, purpose: TranscriptionPurpose): Promise<void> {
   const pcm = Buffer.concat(chunks);
   if (pcm.length < 1600) {
     sendJson(clientWs, { type: "error", message: "No speech detected" });
@@ -328,7 +363,7 @@ async function transcribeBufferedAudio(chunks: Buffer[], clientWs: WebSocket, pu
   }
 
   const wav = pcm16ToWav(pcm);
-  const vocabulary = purpose.kind === "dictation" ? loadVocabulary(purpose.target.windowTitle) : [];
+  const vocabulary = purpose.kind === "dictation" ? dictationVocabulary(purpose.target) : [];
   const prompt = purpose.kind === "dictation" ? transcriptionPrompt(vocabulary) : TRANSCRIPTION_PROMPT;
 
   for (const model of transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL)) {

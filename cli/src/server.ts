@@ -1,4 +1,6 @@
+import { learningRequest } from "./cognition/learning-service.js";
 import { config } from "dotenv";
+import { isOpenConversationIntent } from "./conversation-view/open-intent.js";
 import { resolve as resolvePath, join } from "node:path";
 
 config({ path: resolvePath(join(process.cwd(), "..", ".env")) });
@@ -294,6 +296,21 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
 
   if (!parsed.environment || !parsed.environment.application) {
     sendJson(res, 400, { error: "Missing environment payload" });
+    return;
+  }
+
+  // "Open Flyd" / "show the conversation": open the Conversation window
+  // rather than answer about it.
+  if (isOpenConversationIntent(parsed.intent)) {
+    sendJson(res, 200, {
+      mode: "requires_surface",
+      surface: "conversation",
+      resolutionId: randomUUID(),
+      invocationId: parsed.invocation_id,
+      environmentRevision: parsed.environment_revision ?? 1,
+      rationale: "open-conversation",
+      operations: [],
+    });
     return;
   }
 
@@ -1262,6 +1279,21 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       case "/jobs/run": {
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         void handleJobsRequest(req, res, url.pathname);
+        break;
+      }
+      case "/learning":
+      case "/learning/source":
+      case "/learning/conversations":
+      case "/learning/process":
+      case "/dictation/correction":
+      case "/dictation/review": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        const process = async () => {
+          const body = req.method === "GET" ? {} : JSON.parse(await parseBody(req));
+          const result = await learningRequest(url.pathname, req.method ?? "GET", body);
+          sendJson(res, result.status, result.body);
+        };
+        void process().catch(() => sendJson(res, 400, { error: "Invalid learning request" }));
         break;
       }
       case "/foreground-feedback":

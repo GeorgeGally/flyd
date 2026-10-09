@@ -21,7 +21,7 @@ export interface AugmentOperation {
   };
 }
 
-export type ResolutionMode = "native" | "requires_augment" | "requires_compose" | "requires_execution" | "requires_task";
+export type ResolutionMode = "native" | "requires_augment" | "requires_compose" | "requires_execution" | "requires_task" | "requires_surface";
 
 export interface Resolution {
   resolutionId: string;
@@ -38,6 +38,8 @@ export interface Resolution {
   requiresConfirmation?: boolean;
   handoff?: HandoffReport;
   workSessionId?: string;
+  /** requires_surface: which native surface the adapter should open. */
+  surface?: "conversation";
 }
 
 export interface WorkIntelligenceOutcome {
@@ -78,7 +80,7 @@ export interface ResolutionError {
 }
 
 const ALLOWED_KINDS: Set<string> = new Set(["insert_text", "replace_text", "replace_selection"]);
-const ALLOWED_MODES: Set<string> = new Set(["native", "requires_augment", "requires_compose", "requires_execution", "requires_task"]);
+const ALLOWED_MODES: Set<string> = new Set(["native", "requires_augment", "requires_compose", "requires_execution", "requires_task", "requires_surface"]);
 const MAX_OPERATION_CHARS = 2000;
 
 export function validateResolution(resolution: Resolution): ResolutionError | null {

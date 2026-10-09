@@ -185,11 +185,13 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
       return "local";
     case "schedule": return input.action === "list" ? "read" : "local";
     case "todos": return input.action === "list" ? "read" : "local";
+    case "domain_work": return input.action === "ask" ? "local" : "read";
     // Building on its own branch is local; approving a push or deploy for when he lands it is not.
     case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
     case "work_model":
     case "speaking_style":
     case "background_task":
+    case "start_knowledge_task":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
     case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
@@ -224,6 +226,10 @@ function describe(name: string, input: Record<string, unknown>): string {
       const after = Array.isArray(input.after_land) ? input.after_land.map(String) : [];
       return `build "${clip(String(input.outcome ?? ""), 80)}"${after.length ? `, then ${after.join(" and ")} once you land it` : ""}`;
     }
+    case "start_knowledge_task":
+      return `research "${clip(String(input.outcome ?? ""), 80)}"`;
+    case "domain_work":
+      return input.action === "ask" ? `ask a domain boss: "${clip(String(input.question ?? ""), 80)}"` : `inspect domain work ${clip(String(input.id ?? ""), 40)}`;
     default: return `use ${name}`;
   }
 }

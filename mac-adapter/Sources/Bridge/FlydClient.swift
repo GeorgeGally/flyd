@@ -161,6 +161,8 @@ final class FlydClient {
         let taskPlan: TaskPlanResponsePayload?
         let workSessionId: String?
         let workSessionRevision: Int?
+        /// requires_surface: the native surface to open ("conversation").
+        let surface: String?
     }
 
     struct OperationPayload: Codable {
@@ -523,6 +525,26 @@ final class FlydClient {
         return await postRaw("/work-intelligence/file/write", body: jsonData).flatMap { try? JSONDecoder().decode(FileWriteResultPayload.self, from: $0) }
     }
 
+    func setCorrectionLearning(_ enabled: Bool) async -> Bool {
+        let body: [String: Any] = ["sourceId": "dictation.corrections", "action": enabled ? "enable" : "pause"]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        return await postRaw("/learning/source", body: data) != nil
+    }
+
+    func sendDictationCorrection(before: String, after: String, invocationId: String, bundleId: String, scope: String, observedAt: String) async {
+        let body: [String: Any] = ["before": before, "after": after, "invocationId": invocationId, "bundleId": bundleId, "scope": scope, "observedAt": observedAt]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        guard let response = await postRaw("/dictation/correction", body: data),
+              let result = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+              result["promoted"] as? Bool == true,
+              let spelling = result["spelling"] as? String else { return }
+        await MainActor.run {
+            if DictationController.shared.isIdle {
+                DictationPill.shared.show(.notice("Learned spelling: \(spelling)"))
+            }
+        }
+    }
+
     private func postRaw(_ path: String, body: Data) async -> Data? {
         guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
 
@@ -643,7 +665,8 @@ final class FlydClient {
             intervention: response.intervention,
             taskPlan: response.taskPlan,
             workSessionId: response.workSessionId,
-            workSessionRevision: response.workSessionRevision
+            workSessionRevision: response.workSessionRevision,
+            surface: response.surface
         )
     }
 

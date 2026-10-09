@@ -221,7 +221,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "- Sound like his friend who happens to be brilliant at getting things done — not a project manager, not a stand-up report.",
     ].join("\n"),
     "## What you do\nYou help with his life and work — questions, research, planning, reminders, memory, and hands-on coding in his repositories. You act on evidence, not guesses.",
-    "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- todos(action, …): George's confirmed to-do list\n- work_model(statement): correct Flyd's picture of what George is working on\n- speaking_style(style): change how Flyd writes\n- flyd(action): today's news edition (action=news; start there for any news question, then search only to fill gaps), Flyd's skills, Skillify, background jobs, briefing\n- consult_specialist(name, question): e.g. the coach\n- background_task(task, done_when, deliverable?): take on real work in the background (generate, draft, research, evaluate); done_when lists what done looks like and an independent check holds the result to it; the result comes back to George in the chat\n- start_coding_task(outcome, done_when, repo?): dispatch an OpenCode crewmate to build it in its own worktree, in the background; done_when lists what done looks like beyond passing tests\n- crew(action, id?): list/show crew tasks; land or discard (George approves)\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names a project (DIR, CleanX, Bloom, …), what you know about it is under His projects: answer from that. Open its code (repo=<path>) only when he asks about the code itself. Files on disk are the truth about code — your training data is not.",
+    "## Tools\n- web_search(query): current facts from the web — news, sports, prices, weather, schedules, releases, people\n- read_url(url): read a specific page\n- recall(query): search George's Flyd memory beyond what is supplied below\n- remember(text): save a durable fact, preference, or decision George states or asks you to keep\n- reminders(action, title?, due?): list or create Apple Reminders\n- calendar_events(from?, days?): read George's calendar\n- schedule(action, task?, when?, repeat?): Flyd's own agenda — do something later on its own and notify George\n- mac(action, …): open URLs/apps/files, notifications, clipboard, AppleScript to drive any Mac app\n- todos(action, …): George's confirmed to-do list\n- work_model(statement): correct Flyd's picture of what George is working on\n- speaking_style(style): change how Flyd writes\n- flyd(action): today's news edition (action=news; start there for any news question, then search only to fill gaps), Flyd's skills, Skillify, background jobs, briefing\n- consult_specialist(name, question): e.g. the coach\n- background_task(task, done_when, deliverable?): take on one-off background work that does not belong to a domain boss\n- start_knowledge_task(outcome, done_when): hand substantial retrieval/research/fact-checking/synthesis to the Librarian; its detailed report is retained for follow-up\n- start_coding_task(outcome, done_when, repo?): hand coding work to the coding boss; it routes/supervises specialists and returns a retained detailed report\n- domain_work(action, id?): inspect delegated domain work and retained detailed reports\n- crew(action, id?): compatibility coding-crew controls; land or discard (George approves)\n- read_file / grep / list_files / git_log(…, repo?): inspect code\n- edit_file / write_file / bash(…, repo?): change code and verify it\nWhen George names a project (DIR, CleanX, Bloom, …), what you know about it is under His projects: answer from that. Open its code (repo=<path>) only when he asks about the code itself. Files on disk are the truth about code — your training data is not.",
   ];
   const promptBody = `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${agenda}${situation}${memory}${weather}${presentModel}${crossRepo}${history}\nGeorge: ${input.message}\nFlyd:`;
 
@@ -288,7 +288,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Stop when the job is done. A statement or small request is finished once the right tool succeeds — reply in a line or two. Explore only when the answer depends on facts you do not have yet; never browse Flyd's own source unless George asks about Flyd's code.",
       "Never describe his files, builds, prototypes, or plans as existing unless you read or made them this turn. Before saying you can't find one of his documents, search with bash mdfind (Spotlight) and look in ~/Library/CloudStorage and ~/Library/Mobile Documents. When he catches a mistake: one sentence owning it, then the fix, no self-analysis.",
       "Never say you did, saved, noted, or changed something unless a tool call in this turn actually did it. If George tells you something that changes his to-dos, work picture, profile, or schedule, call the matching tool.",
-      "For substantial coding work (new features, multi-file changes, refactors), call start_coding_task early with a crisp, verifiable outcome and the done_when points a reviewer can check in the diff — a crewmate builds it in the background while you keep talking with George; do not spend the turn exploring first. Nothing lands until George says /land.",
+      "For substantial coding work, call start_coding_task early with a crisp, verifiable outcome and done_when; the coding boss owns project/worker routing and verification while you remain George's point of contact. For substantial research/retrieval/fact-checking/synthesis, use start_knowledge_task so the Librarian manages specialists and retains the detailed report. Do not spend a delegate turn doing the specialist work first.",
       "Length: lead with the decision or answer, then only what George needs to act — aim for under ~250 words. When he asks for a plan, brief, prep, or draft, make it complete but tight. Offer more depth in one line ('want the full breakdown?') rather than including everything you found.",
       "Research in proportion: gather enough to answer well, then answer. Do not audit everything you could read.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
@@ -777,7 +777,7 @@ export function describeToolActivity(name: string, input: Record<string, unknown
   }
 }
 
-const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_coding_task", "background_task", "remember", "reminders", "speaking_style"]);
+const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_coding_task", "start_knowledge_task", "background_task", "remember", "reminders", "speaking_style"]);
 
 /** Voice files apply to every turn; repo docs only when the turn is about code or projects. */
 const ALWAYS_CONTEXT_FILES = new Set(["SOUL.md"]);
@@ -967,6 +967,33 @@ export async function respondToConversation(
   // reading skipped. Unattended runs are the work itself and read nothing.
   const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
   const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes).catch(() => null);
+
+  // A confident correction/decision for exactly one active domain run takes a
+  // lossless fast path to the manager before Flyd composes its reply. This is
+  // deliberately narrower than ordinary routing: if ownership is ambiguous,
+  // Flyd keeps the message and resolves it instead of guessing.
+  let domainDeliveryNote = "";
+  if (!dependencies.readOnly && fast?.domain && fast.domain !== "general"
+    && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind)) {
+    try {
+      const { sendDomainMessage } = await import("../command/messages.js");
+      const outcome = await sendDomainMessage({
+        domain: fast.domain,
+        kind: fast.commandKind as "correction" | "decision" | "priority_change" | "cancel",
+        body: input.message,
+      });
+      domainDeliveryNote = outcome.delivered
+        ? `Your active-work message was delivered verbatim to the uniquely matching ${fast.domain} domain run. Do not send it again; continue as Flyd and tell George plainly that the active work has the correction/decision.`
+        : outcome.reason === "ambiguous_active_runs"
+          ? `This looks like a ${fast.commandKind} for active ${fast.domain} work, but more than one matching run is active. Do not guess or claim delivery; resolve which work George means.`
+          : outcome.reason === "no_active_run"
+            ? `This looked like a ${fast.commandKind} for ${fast.domain} work, but there is no active matching run. Treat it as George talking to Flyd; do not claim it was forwarded.`
+            : `The active-work delivery did not complete. Do not claim it was forwarded; handle the message as Flyd and surface the problem only if it matters.`;
+    } catch {
+      domainDeliveryNote = "The active-work fast path was unavailable. Do not claim the message was forwarded; handle it as Flyd.";
+    }
+  }
+
   const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)({
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   }).catch(() => null);
@@ -989,7 +1016,8 @@ export async function respondToConversation(
       plan ? planBrief(plan) : "",
       skill ? skillPromptBlock(skill) : "",
       fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
-    ].filter(Boolean).join("\n\n") } : {}),
+      domainDeliveryNote,
+    ].filter(Boolean).join("\n\n") } : domainDeliveryNote ? { plan: domainDeliveryNote } : {}),
   });
   const raisedId = room?.raise ?? (room ? null : fast?.raise ?? null);
   const raisedAdvisory = raisedId ? notes.find((note) => note.id === raisedId)?.advisoryId : undefined;
@@ -1009,6 +1037,7 @@ export async function respondToConversation(
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
     presentHypothesis: input.presentHypothesis,
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
+    userMessage: input.message,
     onCodingHandoff: input.onCodingHandoff,
   });
   // A failed attempt may only be replayed on another provider if it changed nothing.
