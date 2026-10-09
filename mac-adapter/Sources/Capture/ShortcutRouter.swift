@@ -18,6 +18,9 @@ fileprivate enum FnGesture: Equatable {
     case idle
     case armed(since: TimeInterval)
     case recording(tapUpAt: TimeInterval)
+    /// fn pressed again soon after a tap: the text bar opens on its release,
+    /// unless Control joins first (then it is Fn+Control, talking to Flyd).
+    case secondTap
     case conversation
     /// A gesture ended while keys are still held; ignore edges until everything is up.
     case draining
@@ -69,7 +72,7 @@ enum ShortcutRouter {
         switch state.gesture {
         case .armed: state.gesture = .draining
         case .recording: state.gesture = .idle
-        case .idle, .conversation, .draining: break
+        case .idle, .secondTap, .conversation, .draining: break
         }
     }
 
@@ -85,6 +88,9 @@ enum ShortcutRouter {
         case .recording where keyCode == escapeKeyCode:
             state.gesture = .idle
             return [.dictationCancel]
+        case .secondTap:
+            state.gesture = .draining
+            return []
         case .idle, .recording, .conversation, .draining:
             return []
         }
@@ -131,8 +137,26 @@ enum ShortcutRouter {
                 return [.dictationCancel, .voicePressed]
             }
             guard isFnAlone else { return [] }
+            if now - tapUpAt <= doubleTapWindow {
+                // Decide on release: Fn+Control often starts with Fn a moment early.
+                state.gesture = .secondTap
+                return [.dictationCancel]
+            }
             state.gesture = .draining
-            return now - tapUpAt <= doubleTapWindow ? [.dictationCancel, .textTapped] : [.dictationStop]
+            return [.dictationStop]
+
+        case .secondTap:
+            if isVoiceChord {
+                state.gesture = .conversation
+                return [.voicePressed]
+            }
+            if held.isEmpty {
+                state.gesture = .idle
+                return [.textTapped]
+            }
+            if isFnAlone { return [] }
+            state.gesture = .draining
+            return []
 
         case .conversation:
             if isVoiceChord { return [] }

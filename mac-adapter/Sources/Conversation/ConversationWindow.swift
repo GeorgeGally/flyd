@@ -56,6 +56,8 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     private static let lightBackground = NSColor(srgbRed: 0xf6 / 255, green: 0xf5 / 255, blue: 0xf1 / 255, alpha: 1)
 
     var isVisible: Bool { window?.isVisible ?? false }
+    /// The captain is reading the conversation right now.
+    var isKeyAndVisible: Bool { (window?.isVisible ?? false) && (window?.isKeyWindow ?? false) && NSApp.isActive }
 
     func show() {
         let window = self.window ?? makeWindow()
@@ -213,6 +215,11 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
 
     // MARK: NSWindowDelegate
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        // He is looking at the conversation; the island has nothing to add.
+        if case .status = DictationPill.shared.currentPhase { DictationPill.shared.hide() }
+    }
+
     func windowWillClose(_ notification: Notification) {
         // Back to a menu-bar presence once nothing is open.
         DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
@@ -291,6 +298,11 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         out.sendLabel = document.getElementById('send').textContent;
         const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
         if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }
+        // Pasted code in the captain's messages: one block each; show the newest.
+        const codeBlocks = Array.from(document.querySelectorAll('.msg.user pre'));
+        out.captainCodeBlocks = codeBlocks.length;
+        out.codeLineHighlights = document.querySelectorAll('.msg.user pre .hl').length;
+        if (codeBlocks.length) { codeBlocks[codeBlocks.length - 1].scrollIntoView({ block: 'center' }); await wait(300); }
         return JSON.stringify(out);
         """
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
@@ -365,9 +377,14 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
 
     // MARK: WKScriptMessageHandler
 
-    /// The page reports its theme so the title bar matches it.
+    /// The page reports its theme (so the title bar matches it) and sent messages (for the island).
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "flyd", let body = message.body as? [String: Any], let theme = body["theme"] as? String else { return }
+        guard message.name == "flyd", let body = message.body as? [String: Any] else { return }
+        if body["sent"] as? Bool == true {
+            ConversationStatus.shared.sent()
+            return
+        }
+        guard let theme = body["theme"] as? String else { return }
         let light = theme == "light"
         window?.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         window?.backgroundColor = light ? Self.lightBackground : Self.darkBackground

@@ -374,6 +374,7 @@ private struct KeyboardMonitorSnapshot: Encodable {
 
 private extension InvocationStateMachine {
     func dispatch(_ routeEvent: ShortcutRouteEvent) {
+        ShortcutLog.record("event \(routeEvent)")
         switch routeEvent {
         case .textTapped:
             isVoiceInvocation = false
