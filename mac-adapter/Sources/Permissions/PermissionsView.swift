@@ -239,7 +239,7 @@ struct PermissionsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             MicrophoneTestVisual(bands: viewModel.microphoneBands, isHeard: viewModel.microphoneHeard)
-                .frame(width: 310, height: 300)
+                .frame(width: MicrophoneTestVisual.size.width, height: MicrophoneTestVisual.size.height)
         }
         .frame(maxWidth: .infinity, minHeight: 360)
     }
@@ -566,13 +566,53 @@ private struct FirstPromptRow: View {
     }
 }
 
-private struct MiniWaveform: View {
+/// Folds the live spectrum (48 bands) into a fixed number of bars so the setup waveforms (the
+/// microphone test and the first-prompt row) keep the width their layout gave them, whatever band count VoiceCapture delivers. Keeps each group's
+/// peak so quiet speech still moves a bar.
+enum WaveformBars {
+    static func fold(_ bands: [CGFloat], into count: Int) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        guard !bands.isEmpty else { return Array(repeating: 0, count: count) }
+        return (0..<count).map { bar in
+            let start = bar * bands.count / count
+            let end = max(start + 1, (bar + 1) * bands.count / count)
+            return bands[start..<min(end, bands.count)].max() ?? 0
+        }
+    }
+
+    /// A centred meter: the spectrum's low bands (where speech lives) sit in the middle and are
+    /// mirrored out to both edges, lightly smoothed and tapered so the shape falls off evenly.
+    /// `barCount` should be odd so one bar sits on the centre line.
+    static func mirrored(_ bands: [CGFloat], barCount: Int) -> [CGFloat] {
+        guard barCount > 0 else { return [] }
+        let half = barCount / 2 + 1
+        let folded = fold(bands, into: half)
+        let side = folded.indices.map { index -> CGFloat in
+            let previous = folded[max(0, index - 1)]
+            let next = folded[min(folded.count - 1, index + 1)]
+            let smoothed = (previous + 2 * folded[index] + next) / 4
+            return min(1, max(0, smoothed) * taper(index, of: half))
+        }
+        return Array(side.dropFirst().reversed()) + side
+    }
+
+    /// 1 on the centre bar, easing down to 0.35 at the edges.
+    static func taper(_ index: Int, of half: Int) -> CGFloat {
+        let distance = CGFloat(index) / CGFloat(max(1, half - 1))
+        return 0.35 + 0.65 * cos(distance * .pi / 2)
+    }
+}
+
+struct MiniWaveform: View {
+    static let barCount = 16
+    static let maxWidth: CGFloat = CGFloat(barCount) * 5 + CGFloat(barCount - 1) * 4
+
     let bands: [CGFloat]
     let active: Bool
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(bands.enumerated()), id: \.offset) { _, value in
+            ForEach(Array(WaveformBars.fold(bands, into: Self.barCount).enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(active ? Color.accentColor : Color.secondary.opacity(0.25))
                     .frame(width: 5, height: max(0, min(1, value)) * 26 + 6)
@@ -582,7 +622,10 @@ private struct MiniWaveform: View {
     }
 }
 
-private struct MicrophoneTestVisual: View {
+struct MicrophoneTestVisual: View {
+    static let size = CGSize(width: 320, height: 248)
+    static let barCount = 21
+
     let bands: [CGFloat]
     let isHeard: Bool
 
@@ -598,7 +641,7 @@ private struct MicrophoneTestVisual: View {
                 )
                 .shadow(color: Color.black.opacity(0.07), radius: 18, x: 0, y: 10)
 
-            VStack(spacing: 22) {
+            VStack(spacing: 20) {
                 ZStack {
                     Circle()
                         .fill(isHeard ? successColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
@@ -616,20 +659,15 @@ private struct MicrophoneTestVisual: View {
                 .shadow(color: isHeard ? successColor.opacity(0.18) : .clear, radius: 8)
                 .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathe)
 
-                HStack(spacing: 7) {
-                    ForEach(Array(bands.enumerated()), id: \.offset) { _, value in
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                HStack(alignment: .center, spacing: 5) {
+                    ForEach(Array(WaveformBars.mirrored(bands, barCount: Self.barCount).enumerated()), id: \.offset) { index, value in
+                        Capsule(style: .continuous)
                             .fill(barColor(for: value))
-                            .frame(width: 9, height: barHeight(for: value))
-                            .animation(.spring(response: 0.22, dampingFraction: 0.78), value: value)
+                            .frame(width: 5, height: barHeight(for: value, at: index))
+                            .animation(.spring(response: 0.3, dampingFraction: 0.82), value: value)
                     }
                 }
-                .frame(height: 72)
-                .padding(.horizontal, 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                )
+                .frame(height: 64)
 
                 Text(isHeard ? "Voice ready" : "Listening…")
                     .font(.system(size: 13, weight: .semibold))
@@ -640,10 +678,12 @@ private struct MicrophoneTestVisual: View {
         .onAppear { breathe = true }
     }
 
-    private func barHeight(for value: CGFloat) -> CGFloat {
-        let base: CGFloat = 10
-        let dynamic = max(0, min(1, value)) * 62
-        return base + dynamic
+    /// At rest the bars still trace the meter's arc, so silence reads as a quiet waveform rather
+    /// than a row of dots.
+    private func barHeight(for value: CGFloat, at index: Int) -> CGFloat {
+        let half = Self.barCount / 2 + 1
+        let resting = 6 + 10 * WaveformBars.taper(abs(index - half + 1), of: half)
+        return min(64, resting + max(0, min(1, value)) * 48)
     }
 
     private func barColor(for value: CGFloat) -> Color {
