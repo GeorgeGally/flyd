@@ -34,7 +34,7 @@ async function defaultExec(script: string, args: string[], options: {
       maxBuffer: 4 * 1024 * 1024,
       encoding: "utf8",
     });
-    return { stdout: result.stdout, stderr: result.stderr };
+    return { stdout: String(result.stdout), stderr: String(result.stderr) };
   }
   return new Promise((resolve, reject) => {
     const child = execFile(script, args, {
@@ -49,7 +49,7 @@ async function defaultExec(script: string, args: string[], options: {
         reject(enriched);
         return;
       }
-      resolve({ stdout, stderr });
+      resolve({ stdout: String(stdout), stderr: String(stderr) });
     });
     child.stdin?.end(options.input);
   });
