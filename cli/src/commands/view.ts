@@ -5,6 +5,7 @@ import { FlydDesk, type Answerer, type Complete } from "../conversation-view/fly
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { getKey } from "../lib/config.js";
+import { readProjects } from "../council/projects.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 
@@ -83,7 +84,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   plan.start();
   // Firstmate's answer to each note is told by Flyd, through Flyd's own model.
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan);
+  // Show mode names things by his own projects.
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() });
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);
