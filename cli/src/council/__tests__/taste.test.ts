@@ -283,6 +283,12 @@ describe("parseLearned", () => {
     expect(isReusablePreference("Make this button bigger.")).toBe(false);
     expect(isReusablePreference("Don't change this button.")).toBe(false);
     expect(isReusablePreference("Please make this button bigger.")).toBe(false);
+    expect(isReusablePreference("Change the title to X.")).toBe(false);
+    expect(isReusablePreference("Please update the CTA.")).toBe(false);
+    expect(isReusablePreference("Change the heading to X.")).toBe(false);
+    expect(isReusablePreference("Reuse the pattern from other pages.")).toBe(true);
+    expect(isReusablePreference("Show data as artwork.")).toBe(true);
+    expect(isReusablePreference("Keep new pages simple.")).toBe(true);
     expect(isReusablePreference("Change the heading to X.")).toBe(false);
     expect(isReusablePreference("No eyebrow above a headline.")).toBe(true);
   });

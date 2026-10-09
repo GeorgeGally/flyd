@@ -433,12 +433,12 @@ export function mightCarryTaste(text: string): boolean {
 // screen. The model is told to skip these; this is the backstop that keeps one
 // out of the store even when it slips through.
 const ONE_OFF_VERB = /^(?:(?:please|kindly)\s+)?(?:don't|do not|make|change|set|move|add|remove|delete|drop|swap|switch|turn|put|rename|crop|resize|recolour|recolor|fix|update)\b/i;
-const DEFINITE_ELEMENT = /\b(?:this|that|these|those)\b|\bthe\s+(?:button|header|heading|card|page|section|box|banner|footer|sidebar|modal|icon|image|logo|label|link|menu|tab|row|column|grid|colour|color|text|copy|eyebrow)\b/i;
+const ONE_OFF_OBJECT = /^(?:(?:please|kindly)\s+)?(?:(?:don't|do not)\s+)?(?:make|change|set|move|add|remove|delete|drop|swap|switch|turn|put|rename|crop|resize|recolour|recolor|fix|update)\s+(?:(?:this|that|these|those|it)\b|the\s+\w+\b)/i;
 
 /** True when a learned rule reads as reusable taste, not a one-off instruction about one element. */
 export function isReusablePreference(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();
-  return !(ONE_OFF_VERB.test(clean) && DEFINITE_ELEMENT.test(clean));
+  return !(ONE_OFF_VERB.test(clean) && ONE_OFF_OBJECT.test(clean));
 }
 
 /** Turns an agent typed, not George: crewmate briefs and firstmate operations. */
