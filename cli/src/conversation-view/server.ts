@@ -249,10 +249,6 @@ function sameToken(given: string | string[] | undefined, expected: string): bool
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function cookieToken(header: string | undefined): string | undefined {
-  return header?.split(";").map((part) => part.trim()).find((part) => part.startsWith("flyd_view_token="))?.slice("flyd_view_token=".length);
-}
-
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -330,7 +326,6 @@ export class ConversationViewServer {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
-        "set-cookie": `flyd_view_token=${this.token}; Path=/; SameSite=Strict; HttpOnly`,
         // Inline page only; nothing loads from elsewhere.
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
       });
@@ -356,10 +351,8 @@ export class ConversationViewServer {
     if (url.pathname === "/api/token") {
       // Lets an open tab recover after the view process restarted with a new
       // token. Other origins cannot read this response (no CORS), and the Host
-      // check above stops DNS rebinding, so it proves the same thing the
-      // token embedded in the page does.
-      if (!this.source.canSend) sendJson(res, 404, { error: "read-only" });
-      else sendJson(res, 200, { token: this.token });
+      // check above stops DNS rebinding.
+      sendJson(res, 200, { token: this.token });
       return;
     }
     if (url.pathname === "/api/commands") {
@@ -379,7 +372,7 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/stream") {
-      if (!sameToken(req.headers["x-flyd-view-token"], this.token) && cookieToken(req.headers.cookie) !== this.token) {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
         sendJson(res, 403, { error: "missing or wrong token" });
         return;
       }

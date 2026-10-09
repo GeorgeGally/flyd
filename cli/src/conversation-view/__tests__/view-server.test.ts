@@ -201,21 +201,22 @@ describe("SnapshotDiffer summaries", () => {
 describe("ConversationViewServer", () => {
   let server: ConversationViewServer | null = null;
   let dir: string | null = null;
-  let viewCookie: string | undefined;
+  let viewToken: string | undefined;
 
   afterEach(async () => {
     await server?.close();
     if (dir) rmSync(dir, { recursive: true, force: true });
     server = null;
     dir = null;
-    viewCookie = undefined;
+    viewToken = undefined;
   });
 
   function get(port: number, path: string, host = `127.0.0.1:${port}`, authenticated = true): Promise<{ status: number; body: string; type?: string }> {
     return new Promise((resolve, reject) => {
-      const req = request({ host: "127.0.0.1", port, path, headers: { host, ...(authenticated && viewCookie ? { cookie: viewCookie } : {}) } }, (res) => {
-        const cookie = res.headers["set-cookie"]?.[0]?.split(";", 1)[0];
-        if (cookie) viewCookie = cookie;
+      const streamPath = path.startsWith("/api/stream") && authenticated && viewToken
+        ? `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(viewToken)}`
+        : path;
+      const req = request({ host: "127.0.0.1", port, path: streamPath, headers: { host } }, (res) => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
@@ -270,6 +271,7 @@ describe("ConversationViewServer", () => {
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }));
     const port = await server.listen(0);
     await get(port, "/");
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     return port;
   }
 
@@ -384,7 +386,7 @@ describe("ConversationViewServer", () => {
     const port = await start();
     const page = (await get(port, "/")).body;
     expect(tokenOf(page)).toBe("");
-    expect((await get(port, "/api/token")).status).toBe(404);
+    expect((await get(port, "/api/token")).status).toBe(200);
     expect((await post(port, JSON.stringify({ session: "s1", text: "hi" }), { "content-type": "application/json" })).status).toBe(405);
   });
 

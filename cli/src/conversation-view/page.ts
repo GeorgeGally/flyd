@@ -423,6 +423,7 @@ const SCRIPT = `
   var latestSession = null;
   var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
+  var VIEW_TOKEN = SEND_TOKEN;
   var assistant = document.title || "the assistant";
 
   function store(key, value) {
@@ -698,9 +699,11 @@ const SCRIPT = `
   }
 
   function connect(sessionId) {
+    if (!VIEW_TOKEN) return;
     if (source) source.close();
     reset();
-    source = new EventSource("/api/stream" + (sessionId ? "?session=" + encodeURIComponent(sessionId) : ""));
+    var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "");
+    source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
       current = session.id;
@@ -1317,8 +1320,13 @@ const SCRIPT = `
   }
   applyScreen(store("flyd-view-screen") === "show" ? "show" : "terminal", false);
 
-  loadSessions().catch(function () {});
-  connect(explicit);
+  (VIEW_TOKEN ? Promise.resolve({ token: VIEW_TOKEN }) : fetch("/api/token").then(function (r) { return r.json(); }))
+    .then(function (data) {
+      VIEW_TOKEN = data.token;
+      return loadSessions();
+    })
+    .then(function () { connect(explicit); })
+    .catch(function () { problem.textContent = "reconnecting…"; });
 })();
 `;
 
