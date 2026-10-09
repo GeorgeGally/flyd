@@ -31,6 +31,7 @@ export const MAX_NOTES = 10;
 
 /** How the route was decided: Jev when it's sure (~0.3s), else the LLM room reading (~10s). */
 export type TurnDomain = "coding" | "knowledge" | "creative" | "life" | "general";
+export type TurnCommandKind = "new_request" | "correction" | "decision" | "priority_change" | "question" | "cancel" | "general";
 
 export interface RouteReading {
   route: TurnRoute;
@@ -39,6 +40,8 @@ export interface RouteReading {
   /** Fast ownership hint. Null/absent means the higher-order reader decides. */
   domain?: TurnDomain | null;
   domainConfidence?: number;
+  commandKind?: TurnCommandKind | null;
+  commandKindConfidence?: number;
 }
 
 export interface TurnPlan {
@@ -161,10 +164,11 @@ export async function routeWithJev(
   const question = questionFor("chat_turn_route");
   const code = questionFor("chat_turn_needs_code");
   const domainQuestion = questionFor("chat_turn_domain");
-  // One call: turn shape, domain ownership, whether code must be opened, and which skill (if any) fits.
+  const commandKindQuestion = questionFor("chat_turn_command_kind");
+  // One call: turn shape, domain ownership, active-work relationship, whether code must be opened, and which skill (if any) fits.
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
   const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
-  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, domainQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
@@ -190,7 +194,15 @@ export async function routeWithJev(
     && domainConfidence >= predicateThreshold("chat_turn_domain")
     ? domainChoice
     : null;
-  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), domain, domainConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
+  const commandKindAnswer = result.answers[commandKindQuestion.id];
+  const commandKindChoice = commandKindAnswer?.choice as TurnCommandKind | undefined;
+  const commandKindConfidence = commandKindAnswer?.confidence ?? 0;
+  const commandKind = commandKindChoice
+    && ["new_request", "correction", "decision", "priority_change", "question", "cancel", "general"].includes(commandKindChoice)
+    && commandKindConfidence >= predicateThreshold("chat_turn_command_kind")
+    ? commandKindChoice
+    : null;
+  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), domain, domainConfidence, commandKind, commandKindConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
 }
 
 /** Tools that read or change a codebase; out of reach on a turn that isn't about code. */
