@@ -274,6 +274,19 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         document.getElementById('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: pasted, bubbles: true, cancelable: true }));
         await wait(500);
         out.pastePreview = document.querySelectorAll('.attachment img').length;
+        // A wide screenshot pasted: the preview shows the whole picture, uncropped.
+        const wide = document.createElement('canvas'); wide.width = 1916; wide.height = 336;
+        const wideBlob = await new Promise((r) => wide.toBlob(r, 'image/png'));
+        document.querySelectorAll('.attachment button').forEach((b) => b.click());
+        const widePaste = new DataTransfer(); widePaste.items.add(new File([wideBlob], 'wide.png', { type: 'image/png' }));
+        document.getElementById('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: widePaste, bubbles: true, cancelable: true }));
+        await wait(600);
+        const thumb = document.querySelector('.attachment img');
+        if (thumb) {
+          const tr = thumb.getBoundingClientRect();
+          out.wideThumb = [Math.round(tr.width), Math.round(tr.height)];
+          out.wideThumbAspectError = Math.round(Math.abs(tr.width / tr.height - thumb.naturalWidth / thumb.naturalHeight) * 100) / 100;
+        }
         document.querySelectorAll('.attachment button').forEach((b) => b.click());
         const dropped = new DataTransfer(); dropped.items.add(file);
         document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dropped, bubbles: true, cancelable: true }));
@@ -305,6 +318,13 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         });
         out.wrappedHighlights = wrapped;
         out.wrapLeftSpread = spread;
+        // Wrapped lines' highlights should touch: the largest gap between them, in px.
+        let gap = -Infinity;
+        document.querySelectorAll('.msg.user .hl').forEach((hl) => {
+          const r = Array.from(hl.getClientRects());
+          for (let i = 1; i < r.length; i++) gap = Math.max(gap, r[i].top - r[i - 1].bottom);
+        });
+        out.wrapLineGap = gap === -Infinity ? null : Math.round(gap * 10) / 10;
         out.sendLabel = document.getElementById('send').textContent;
         const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
         if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }

@@ -97,14 +97,15 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 /* Pasted code: one solid highlighted block, indentation kept, no per-line bars. */
 .msg.user pre { background: var(--sel-bg); color: var(--sel-fg); line-height: 1.6; }
 .msg.user pre code { background: none; color: inherit; }
-/* Taller lines so the padded highlights of wrapped lines do not touch. */
-.msg.user .body { line-height: 2.1; }
+/* The highlight fills the whole line box, so wrapped lines touch with no gap:
+   ~1.185em glyph box + 2 × 0.36em padding ≈ the 1.9em line. */
+.msg.user .body { line-height: 1.9; }
 /* Horizontal "padding" comes from side shadows in the same colour: WebKit
    draws them on every wrapped line, so each line's highlight starts at the
    same left edge (inline padding and margins only reach the first line
    there), and the text itself stays aligned with the replies. */
 .msg.user .hl {
-  padding: 0.35em 0;
+  padding: 0.36em 0;
   box-shadow: 0.6em 0 0 var(--sel-bg), -0.6em 0 0 var(--sel-bg);
 }
 .msg.user strong, .msg.user a { color: inherit; }
@@ -228,7 +229,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .attachments { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0 0 0.5em; }
 .attachments[hidden] { display: none; }
 .attachment { position: relative; line-height: 0; border: 1px solid var(--faint); border-radius: 6px; overflow: hidden; background: var(--tint); }
-.attachment img { display: block; height: 72px; max-width: 160px; object-fit: cover; }
+/* The whole picture, scaled to fit: cropping a wide screenshot left only a strip of it. */
+.attachment img { display: block; width: auto; height: auto; max-width: 240px; max-height: 96px; }
 .attachment button {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
