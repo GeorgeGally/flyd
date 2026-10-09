@@ -13,9 +13,7 @@ const BARE_ACK = /^(no change|received|noted|understood)\b[\w\s,']{0,20}[.!]?$/i
 /** Supervision chatter about the workers rather than the work. */
 const MACHINERY = /\b(posted an update|is moving again|acknowledged (my|the|your) decision|(a|the) (worker|crewmate|supervisor) (is|has|had|will|picked|started|took)\b|no-mistakes\b|dispatched\b|is now on\b)/i;
 const PULL_REQUEST = /https?:\/\/\S+\/pull\/\d+/i;
-/** Settled outcomes strong enough to beat an acknowledgement opening: "Got it — the fix is merged." */
-const SETTLED = /(\bready (for (your )?review|to merge)\b|\b(merged|shipped|deployed|released|failed|blocked)\b)/i;
-/** Words that mean something actually landed, so a mention of a worker doesn't hide it. */
+/** Words that mean something actually landed: "Got it — fixed and pushed", "the worker added a test". */
 const OUTCOME = /(\bready (for (your )?review|to merge)\b|\b(merged|shipped|landed|deployed|published|released|finished|completed|fixed|pushed|failed|blocked|updated|added|done)\b|\bnow (shows|works|does)\b)/i;
 
 /** The brief as George would read it: one line, no "Captain," salutation. */
@@ -24,12 +22,19 @@ export function plainBrief(text: string): string {
   return line ? line[0]!.toUpperCase() + line.slice(1) : "";
 }
 
+/** A promise of an outcome is not one: "On it — will report once it's fixed". */
+const FUTURE_CLAUSE = /(\b(will|once|when|until)\b|'ll\b)[^.;:!?—–]*/gi;
+
+function reportsOutcome(brief: string): boolean {
+  return OUTCOME.test(brief.replace(FUTURE_CLAUSE, ""));
+}
+
 export function isRoutineChatter(text: string): boolean {
   const brief = plainBrief(text);
   if (!brief) return true;
   if (PULL_REQUEST.test(brief)) return false;
-  if (ROUTINE_OPENING.test(brief) || BARE_ACK.test(brief)) return !SETTLED.test(brief);
-  return MACHINERY.test(brief) && !OUTCOME.test(brief);
+  if (ROUTINE_OPENING.test(brief) || BARE_ACK.test(brief)) return !reportsOutcome(brief);
+  return MACHINERY.test(brief) && !reportsOutcome(brief);
 }
 
 /** The notification text for a run, or null when nothing George cares about happened. */

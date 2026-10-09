@@ -126,7 +126,7 @@ L3 evidence / artifacts / raw result
 
 The stored object carries all levels together.
 
-A domain boss that returns only prose is not rejected. Flyd preserves the full raw reply and marks the result as an unstructured/high-information-loss-risk handoff so the system can improve without losing the work. A status-less reply that reads as routine chatter (acknowledgement, supervision status) keeps the run `working` rather than `completed`; only decisions, failures and real outcomes reach George as notifications (`cli/src/command/notice.ts`).
+A domain boss that returns only prose is not rejected. Flyd preserves the full raw reply and marks the result as an unstructured/high-information-loss-risk handoff so the system can improve without losing the work.
 
 ## 5. Coding domain: FirstMate
 

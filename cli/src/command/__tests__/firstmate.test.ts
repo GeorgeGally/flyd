@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FirstmateDomainTransport, firstmateRequestBody, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { DomainRequest, DomainRun } from "../types.js";
 
@@ -108,27 +109,25 @@ describe("FirstMate domain transport", () => {
     expect(changed!.result?.informationLossRisk).toBe("high");
   });
 
-  it("keeps a run open when FirstMate only acknowledges it, then settles on the real outcome", async () => {
+  it.each([
+    ["Captain, shipshape.", []],
+    ["Captain, got it — fixed the typo and pushed to main.", ["Got it — fixed the typo and pushed to main."]],
+  ])("completes the run on any reply and notifies only outcomes: %s", async (body, expected) => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
       transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
     });
-    let body = "Captain, a worker is now on the Flyd fixes: it will trace the island alerts.";
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
       pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body, cursor: "3" } }],
     }), stderr: "" });
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-    const notified: DomainRun[] = [];
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
 
-    const [acknowledged] = await syncFirstmateDomainRuns({ transport, onChanged: (run) => { notified.push(run); } });
-    expect(acknowledged!.status).toBe("working");
-    expect(await syncFirstmateDomainRuns({ transport })).toEqual([]);
-
-    body = "Captain, the island alerts are fixed and merged.";
-    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged: (run) => { notified.push(run); } });
+    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged: (run) => notifyRun(run, notify) });
     expect(settled!.status).toBe("completed");
-    expect(settled!.result?.brief).toContain("fixed and merged");
-    expect(notified.map((run) => run.status)).toEqual(["working", "completed"]);
+    expect(sent).toEqual(expected);
+    expect(listDomainRuns().find((run) => run.id === "domain-test-1")?.notified).toBe(true);
   });
 });
