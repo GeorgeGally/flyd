@@ -1009,6 +1009,7 @@ export async function respondToConversation(
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
     presentHypothesis: input.presentHypothesis,
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
+    userMessage: input.message,
     onCodingHandoff: input.onCodingHandoff,
   });
   // A failed attempt may only be replayed on another provider if it changed nothing.
