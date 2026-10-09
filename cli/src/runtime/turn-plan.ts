@@ -30,7 +30,16 @@ export interface TurnBudget { iterations: number; toolCalls: number }
 export const MAX_NOTES = 10;
 
 /** How the route was decided: Jev when it's sure (~0.3s), else the LLM room reading (~10s). */
-export interface RouteReading { route: TurnRoute; confidence: number; source: "jev" | "llm" }
+export type TurnDomain = "coding" | "knowledge" | "creative" | "life" | "general";
+
+export interface RouteReading {
+  route: TurnRoute;
+  confidence: number;
+  source: "jev" | "llm";
+  /** Fast ownership hint. Null/absent means the higher-order reader decides. */
+  domain?: TurnDomain | null;
+  domainConfidence?: number;
+}
 
 export interface TurnPlan {
   route: TurnRoute;
@@ -58,9 +67,10 @@ const HANDOFFS = ["background_task", "start_coding_task"];
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
  * work itself, so they always act.
  */
-export function planTurn(reading: Pick<RouteReading, "route" | "source"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
+export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
   if (options.unattended || reading === null) return null;
   const { route, source } = reading;
+  const domain = reading.domain ?? null;
   switch (route) {
     case "answer":
       return {
@@ -79,7 +89,7 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source"> | null,
       // repo tools, the model explores until its budget runs out and never
       // hands off. So the only tools here are the hand-offs, and one call.
       return {
-        route, source, cover, allows: new Set(), handoffs: new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
+        route, source, cover, allows: new Set(), handoffs: domain === "coding" ? new Set(["start_coding_task"]) : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
         instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path), anything else to background_task. Then tell him in a line what you started.",
       };
@@ -150,10 +160,11 @@ export async function routeWithJev(
   }).join("\n");
   const question = questionFor("chat_turn_route");
   const code = questionFor("chat_turn_needs_code");
-  // One call: the route, whether it's about code, and which skill (if any) fits.
+  const domainQuestion = questionFor("chat_turn_domain");
+  // One call: turn shape, domain ownership, whether code must be opened, and which skill (if any) fits.
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
   const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
-  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, domainQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
@@ -172,7 +183,14 @@ export async function routeWithJev(
     .map((note, index) => ({ id: note.id, p: result.answers[`note_${index}`]?.probability ?? 0 }))
     .filter((candidate) => candidate.p >= noteThreshold)
     .sort((a, b) => b.p - a.p)[0];
-  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
+  const domainAnswer = result.answers[domainQuestion.id];
+  const domainChoice = domainAnswer?.choice as TurnDomain | undefined;
+  const domainConfidence = domainAnswer?.confidence ?? 0;
+  const domain = domainChoice && ["coding", "knowledge", "creative", "life", "general"].includes(domainChoice)
+    && domainConfidence >= predicateThreshold("chat_turn_domain")
+    ? domainChoice
+    : null;
+  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), domain, domainConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
 }
 
 /** Tools that read or change a codebase; out of reach on a turn that isn't about code. */
