@@ -287,6 +287,16 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         const send = await fetch('/api/send', { method: 'POST', headers: { 'content-type': 'application/json', 'x-flyd-view-token': token }, body: JSON.stringify({ session: '../selftest', text: 'selftest' }) });
         out.sendPlumbing = send.status + ' ' + (await send.json()).error;
         out.externalLinks = document.querySelectorAll('.body a[target=_blank]').length;
+        // "/" in the box lists skills (typed, never sent).
+        const box = document.getElementById('input');
+        box.value = '/'; box.dispatchEvent(new Event('input'));
+        await wait(800);
+        out.slashMenuOpen = !document.getElementById('commands').hidden;
+        out.slashSkills = document.querySelectorAll('#commands .name').length;
+        box.value = '/design-r'; box.dispatchEvent(new Event('input'));
+        await wait(300);
+        out.slashFiltered = Array.from(document.querySelectorAll('#commands .name')).map((n) => n.textContent).slice(0, 3);
+        box.value = ''; box.dispatchEvent(new Event('input'));
         // Every wrapped line of a captain highlight should start at the same left edge.
         let wrapped = 0, spread = 0;
         document.querySelectorAll('.msg.user .hl').forEach((hl) => {

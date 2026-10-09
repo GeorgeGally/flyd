@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -94,6 +94,14 @@ describe("FirstmateInbox", () => {
     expect(inbox.image("f../../x.png")).toBeNull();
   });
 
+  it("tells firstmate to run a slash command the captain picked, and hides that note in the conversation", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    await inbox.send("/design-review the cards look flat", [], "design-review");
+    const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
+    expect(raw).toContain("/design-review the cards look flat\n\n[Captain ran /design-review from Flyd: run it exactly as if he had typed it in Claude Code.]");
+    expect(inbox.notes()[0]!.text).toBe("/design-review the cards look flat");
+  });
+
   it("reports the script's own refusal", async () => {
     const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", "#!/bin/sh\necho 'fm-inbox: firstmate was NOT woken' >&2\nexit 1\n") });
     await expect(inbox.send("hello")).rejects.toThrow("firstmate did not take the message: fm-inbox: firstmate was NOT woken");
@@ -187,6 +195,39 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
       follower.close();
     }
     expect(readFileSync(join(project, "s1.jsonl"), "utf8")).toBe(transcript);
+  });
+
+  it("marks only messages that start with a real skill or command", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "skills", "design-review"), { recursive: true });
+    writeFileSync(join(claude, "skills", "design-review", "SKILL.md"), "---\nname: design-review\ndescription: QA\n---\n");
+    const sent: Array<string | undefined> = [];
+    const inbox = { send: async (_t: string, _i?: unknown, command?: string) => (sent.push(command), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, commandRoots: { claudeHome: claude } });
+    expect((await source.commands()).map((c) => c.name)).toEqual(["design-review"]);
+    await source.send("s1", "/design-review make it nicer");
+    await source.send("s1", "/not-real please");
+    await source.send("s1", "plain words");
+    expect(sent).toEqual(["design-review", undefined, undefined]);
+  });
+
+  it("still sends when a commands folder holds a dangling symlink", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "commands"), { recursive: true });
+    writeFileSync(join(claude, "commands", "ship.md"), "Ship it.\n");
+    symlinkSync(join(dir, "missing.md"), join(claude, "commands", "gone.md"));
+    const sent: Array<string | undefined> = [];
+    const inbox = { send: async (_t: string, _i?: unknown, command?: string) => (sent.push(command), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, commandRoots: { claudeHome: claude } });
+    await source.send("s1", "/ship now");
+    await source.send("s1", "plain words");
+    expect(sent).toEqual(["ship", undefined]);
   });
 
   it("is read-only without an inbox", async () => {

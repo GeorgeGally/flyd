@@ -30,6 +30,12 @@ const SESSIONS = [
   { id: "older", title: "Older", updatedAt: "2026-10-04T20:00:00.000Z" },
 ];
 let sendResponse: Record<string, unknown>;
+const COMMANDS = [
+  { name: "caveman:caveman", description: "Terse mode" },
+  { name: "design-review", description: "Designer's eye QA" },
+  { name: "design-shotgun", description: "Five design variants" },
+  { name: "review", description: "Pre-landing PR review" },
+];
 let planResponse: unknown = null;
 let blips = 0;
 
@@ -89,7 +95,7 @@ beforeEach(() => {
   blips = 0;
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("AudioContext", FakeAudioContext);
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : url === "/api/commands" ? json({ commands: COMMANDS }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
   window.scrollTo = () => {};
 });
 
@@ -394,5 +400,60 @@ describe("conversation page", () => {
     expect(message.querySelectorAll(".hl")).toHaveLength(1);
     expect(message.querySelector("pre .hl")).toBeNull();
     expect(message.querySelector("pre code")!.textContent).toContain("    h2 {");
+  });
+
+  // Reproduction (2026-10-07): typing "/" in the message box did nothing.
+  it("lists skills when '/' is typed, filters, completes with Enter and runs on send", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>older</p>" }]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const menu = document.getElementById("commands")!;
+    const typeText = async (text: string) => {
+      input.value = text;
+      input.dispatchEvent(new Event("input"));
+      await settle();
+    };
+    const key = (name: string) => {
+      const event = new KeyboardEvent("keydown", { key: name, cancelable: true });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    await typeText("/");
+    expect(menu.hidden).toBe(false);
+    expect(Array.from(menu.querySelectorAll(".name")).map((n) => n.textContent)).toEqual(["/caveman:caveman", "/design-review", "/design-shotgun", "/review"]);
+
+    await typeText("/des");
+    expect(Array.from(menu.querySelectorAll(".name")).map((n) => n.textContent)).toEqual(["/design-review", "/design-shotgun"]);
+    expect(key("ArrowDown")).toBe(true);
+    expect(menu.querySelector(".selected .name")!.textContent).toBe("/design-shotgun");
+    expect(key("ArrowUp")).toBe(true);
+    expect(input.value).toBe("/des");
+    expect(key("Enter")).toBe(true);
+    expect(input.value).toBe("/design-review ");
+    expect(menu.hidden).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+
+    input.value = "/design-review the cards look flat";
+    key("Enter");
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ text: "/design-review the cards look flat" });
+  });
+
+  it("says when nothing matches and closes on Escape", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const menu = document.getElementById("commands")!;
+    input.value = "/zzz";
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    expect(menu.textContent).toContain("No skill or command matches /zzz");
+    const esc = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    input.dispatchEvent(esc);
+    expect(menu.hidden).toBe(true);
   });
 });
