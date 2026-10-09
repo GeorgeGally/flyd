@@ -967,6 +967,33 @@ export async function respondToConversation(
   // reading skipped. Unattended runs are the work itself and read nothing.
   const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
   const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes).catch(() => null);
+
+  // A confident correction/decision for exactly one active domain run takes a
+  // lossless fast path to the manager before Flyd composes its reply. This is
+  // deliberately narrower than ordinary routing: if ownership is ambiguous,
+  // Flyd keeps the message and resolves it instead of guessing.
+  let domainDeliveryNote = "";
+  if (!dependencies.readOnly && fast?.domain && fast.domain !== "general"
+    && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind)) {
+    try {
+      const { sendDomainMessage } = await import("../command/messages.js");
+      const outcome = await sendDomainMessage({
+        domain: fast.domain,
+        kind: fast.commandKind as "correction" | "decision" | "priority_change" | "cancel",
+        body: input.message,
+      });
+      domainDeliveryNote = outcome.delivered
+        ? `Your active-work message was delivered verbatim to the uniquely matching ${fast.domain} domain run. Do not send it again; continue as Flyd and tell George plainly that the active work has the correction/decision.`
+        : outcome.reason === "ambiguous_active_runs"
+          ? `This looks like a ${fast.commandKind} for active ${fast.domain} work, but more than one matching run is active. Do not guess or claim delivery; resolve which work George means.`
+          : outcome.reason === "no_active_run"
+            ? `This looked like a ${fast.commandKind} for ${fast.domain} work, but there is no active matching run. Treat it as George talking to Flyd; do not claim it was forwarded.`
+            : `The active-work delivery did not complete. Do not claim it was forwarded; handle the message as Flyd and surface the problem only if it matters.`;
+    } catch {
+      domainDeliveryNote = "The active-work fast path was unavailable. Do not claim the message was forwarded; handle it as Flyd.";
+    }
+  }
+
   const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)({
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   }).catch(() => null);
@@ -989,7 +1016,8 @@ export async function respondToConversation(
       plan ? planBrief(plan) : "",
       skill ? skillPromptBlock(skill) : "",
       fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
-    ].filter(Boolean).join("\n\n") } : {}),
+      domainDeliveryNote,
+    ].filter(Boolean).join("\n\n") } : domainDeliveryNote ? { plan: domainDeliveryNote } : {}),
   });
   const raisedId = room?.raise ?? (room ? null : fast?.raise ?? null);
   const raisedAdvisory = raisedId ? notes.find((note) => note.id === raisedId)?.advisoryId : undefined;
