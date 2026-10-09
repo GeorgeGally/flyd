@@ -307,9 +307,15 @@ Retriever and Researcher run in parallel through the existing durable background
 
 Documenter and Knowledge Curator remain future specialist roles. Librarian itself should continue to preserve management context rather than becoming the worker that browses every source.
 
-### Live correction routing
+### Live correction routing — implemented
 
-Correlate George's correction with active DomainRuns and deliver verbatim to the owning boss immediately while Flyd interprets it in parallel.
+Jev now classifies whether a turn is a correction, decision, priority change, question, cancellation or new request. When a correction/decision targets a domain with exactly one active run, Flyd forwards George's exact wording to that boss before composing its own answer.
+
+For coding, the message is a durable idempotent FirstMate inbox request. For knowledge, it becomes a durable message on the Librarian DomainRun and is folded into later verification/synthesis. If multiple matching runs are active, Flyd refuses to guess.
+
+### Boss interrogation — implemented
+
+Flyd can inspect the retained L0/L1/L2/L3 result with `domain_work show` and create a linked follow-up with `domain_work ask`. The follow-up is a child DomainRun carrying the parent report/evidence, so questions such as "why did you reject option B?" do not require re-running unrelated work or throwing away prior reasoning.
 
 ### Cross-domain command graph
 
