@@ -57,63 +57,31 @@ struct PermissionsView: View {
     }
 
     private var permissionsIntro: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Set up Flyd")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Color.primary)
-
-            Text("Flyd needs two Mac permissions to hear the shortcut and understand the app you are using. Screen Recording helps when app context is not enough. Microphone lets you speak to Flyd.")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.secondary)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 560, alignment: .leading)
-        }
+        SetupIntro(
+            title: "Set up Flyd",
+            subtitle: "Flyd needs two Mac permissions to hear the shortcut and understand the app you are using. Screen Recording helps when app context is not enough. Microphone lets you speak to Flyd."
+        )
     }
 
     private var shortcutIntro: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Learn the shortcut")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Color.primary)
-
-            Text("Double-tap Fn to type. Hold Fn + Control to talk.")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.secondary)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 560, alignment: .leading)
-        }
+        SetupIntro(
+            title: "Learn the shortcut",
+            subtitle: "Double-tap Fn to type. Hold Fn + Control to talk."
+        )
     }
 
     private var firstPromptIntro: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Try it for real")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Color.primary)
-
-            Text("Hold Fn + Control, say the phrase below out loud, then release.")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.secondary)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 560, alignment: .leading)
-        }
+        SetupIntro(
+            title: "Try it for real",
+            subtitle: "Hold Fn + Control, say the phrase below out loud, then release."
+        )
     }
 
     private var microphoneIntro: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Test your microphone")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Color.primary)
-
-            Text("Say a few words out loud. When Flyd can hear you, the bars will move.")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.secondary)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 560, alignment: .leading)
-        }
+        SetupIntro(
+            title: "Test your microphone",
+            subtitle: "Say a few words out loud. When Flyd can hear you, the bars will move."
+        )
     }
 
     private var permissionList: some View {
@@ -203,14 +171,7 @@ struct PermissionsView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(minHeight: 86)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(viewModel.promptSpoken ? successColor.opacity(0.45) : Color(nsColor: .separatorColor), lineWidth: 1)
-                )
-        )
+        .background(SetupCardBackground(stroke: viewModel.promptSpoken ? successColor.opacity(0.45) : Color(nsColor: .separatorColor)))
     }
 
     private var microphoneTest: some View {
@@ -425,6 +386,41 @@ struct PermissionsView: View {
     }
 }
 
+/// The large bold title and grey subtitle that open each Setup step; Settings opens the same way.
+struct SetupIntro: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(Color.primary)
+
+            Text(subtitle)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.secondary)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 560, alignment: .leading)
+        }
+    }
+}
+
+/// The white rounded card each Setup row sits on, shared with the Settings window.
+struct SetupCardBackground: View {
+    var stroke: Color = Color(nsColor: .separatorColor)
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(stroke, lineWidth: 1)
+            )
+    }
+}
+
 private enum SetupStep {
     case permissions
     case microphone
@@ -484,14 +480,7 @@ private struct PermissionSetupRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(minHeight: 86)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                )
-        )
+        .background(SetupCardBackground())
     }
 
     private var buttonTitle: String {
@@ -555,14 +544,7 @@ private struct FirstPromptRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(minHeight: 86)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                )
-        )
+        .background(SetupCardBackground())
     }
 }
 
@@ -725,14 +707,7 @@ private struct ShortcutPracticeRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(minHeight: 86)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isDetected ? successColor.opacity(0.45) : Color(nsColor: .separatorColor), lineWidth: 1)
-                )
-        )
+        .background(SetupCardBackground(stroke: isDetected ? successColor.opacity(0.45) : Color(nsColor: .separatorColor)))
     }
 }
 
@@ -760,7 +735,7 @@ private struct KeySequence: View {
     }
 }
 
-private struct PrimaryButtonStyle: ButtonStyle {
+struct PrimaryButtonStyle: ButtonStyle {
     let isEnabled: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -776,7 +751,7 @@ private struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-private struct SecondaryButtonStyle: ButtonStyle {
+struct SecondaryButtonStyle: ButtonStyle {
     var width: CGFloat = 118
 
     func makeBody(configuration: Configuration) -> some View {

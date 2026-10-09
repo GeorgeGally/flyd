@@ -33,7 +33,9 @@ export function loadFlydEnvironment(
   return environment;
 }
 
-loadFlydEnvironment();
+// Tests run on the same environment as CI: the developer's .env (real models
+// and keys) would otherwise turn hermetic tests into live provider calls.
+if (!process.env.VITEST) loadFlydEnvironment();
 
 function resolveFlydDir(): string {
   const configured = process.env.FLYD_DIR?.trim();

@@ -1,15 +1,13 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import { parseDomainResult } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-
-export const DEFAULT_FIRSTMATE_HOME = join(homedir(), "Documents", "firstmate");
 
 export interface FirstmateExecResult {
   stdout: string;
@@ -66,7 +64,7 @@ export class FirstmateDomainTransport {
   readonly script: string;
 
   constructor(options: { home?: string; script?: string; exec?: FirstmateExec } = {}) {
-    this.home = options.home ?? (process.env.FLYD_FIRSTMATE_HOME?.trim() || DEFAULT_FIRSTMATE_HOME);
+    this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
     this.exec = options.exec ?? defaultExec;
   }

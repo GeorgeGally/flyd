@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import type { ConversationMessage, ImageData, ImageUpload, SentMessage } from "./types.js";
 
 // The captain's way to talk to firstmate from the view: firstmate's own
@@ -42,8 +42,6 @@ export function sniffImage(bytes: Buffer): { mediaType: string; ext: string } | 
   return type ? { mediaType: type.mediaType, ext: type.ext } : null;
 }
 
-export const FIRSTMATE_HOME = join(homedir(), "Documents", "firstmate");
-
 function parseNote(file: string, imagesDir: string): ConversationMessage | null {
   const raw = readFileSync(file, "utf8");
   const split = raw.indexOf("\n--\n");
@@ -82,7 +80,7 @@ export class FirstmateInbox implements CaptainInbox {
   private listingKey = "";
 
   constructor(options: { home?: string; script?: string } = {}) {
-    this.home = options.home ?? FIRSTMATE_HOME;
+    this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
   }
 
