@@ -54,7 +54,7 @@ export interface ShowInputs {
   assistant?: string;
   /** Flyd's own reading of a message (its interpretation or summary), when it has one. */
   reading?: (message: ConversationMessage) => string | undefined;
-  /** A reply Flyd's model judged routine: the terminal mutes it, show mode passes it over. */
+  /** A reply Flyd's model judged routine: the terminal mutes it, artefact view passes it over. */
   muted?: (message: ConversationMessage) => boolean;
   projects?: ShowProject[];
   /** Flyd's artefact: firstmate's fleet snapshot, Flyd's memory, the news and its taste. */

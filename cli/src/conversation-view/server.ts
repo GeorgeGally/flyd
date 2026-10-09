@@ -57,7 +57,7 @@ export interface SummaryOptions {
   onSummary?: () => void;
 }
 
-/** What show mode needs beyond the conversation: who answers, his projects, and Flyd's artefact. */
+/** What artefact view needs beyond the conversation: who answers, his projects, and Flyd's artefact. */
 export interface ShowOptions {
   assistant?: string;
   projects?: () => ShowProject[];
