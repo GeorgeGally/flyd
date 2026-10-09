@@ -80,6 +80,18 @@ export const assistantTools: AgentTool[] = [
     },
   },
   {
+    name: "start_knowledge_task",
+    description: "Hand substantial research, retrieval, fact-checking or synthesis to Flyd's knowledge domain. The Librarian manages specialist work and returns a retained detailed report; George still talks only to Flyd. Returns immediately.",
+    input_schema: {
+      type: "object",
+      properties: {
+        outcome: { type: "string", description: "The knowledge outcome needed" },
+        done_when: { type: "array", items: { type: "string" }, description: "Checkable points that make the research/synthesis sufficient" },
+      },
+      required: ["outcome", "done_when"],
+    },
+  },
+  {
     name: "background_task",
     description: "Take on real work in the background while the conversation carries on: generate, draft, research, build, evaluate. Returns at once; the result comes back to George in the chat when done. Use it to act on something he cares about instead of only commenting — e.g. generate new DIR mixes and judge them. For code changes to a repo, prefer start_coding_task. Not for anything you can answer or write right now in this reply, and not for watching or monitoring: a job runs once and ends, so use schedule for a later check instead of promising to keep an eye on something.",
     input_schema: {
@@ -269,6 +281,20 @@ export async function runAssistantTool(
         const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}, as he just approved.` : "";
         return `Started in the compatibility coding crew (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
       }
+      case "start_knowledge_task": {
+        const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();
+        if (!outcome) return "Error: start_knowledge_task needs an outcome";
+        const { normalizeCriteria } = await import("./acceptance.js");
+        const doneWhen = normalizeCriteria(input.done_when);
+        if (!doneWhen.length) return "Error: start_knowledge_task needs done_when: the checkable points that mean it's done";
+        const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
+        const run = dispatchKnowledgeDomain({
+          originalMessage: context.userMessage ?? outcome,
+          intendedOutcome: outcome,
+          doneWhen,
+        });
+        return `Knowledge work accepted (run ${run.id}). Flyd remains your point of contact; the knowledge boss will use specialists, independently check the result, and retain the detailed report. Tell George only what you started, not the internal team or id.`;
+      }
       case "background_task": {
         const jobs = await import("./background-jobs.js");
         const contract = jobs.normalizeContract(input);
@@ -278,8 +304,10 @@ export async function runAssistantTool(
       }
       case "domain_work": {
         const { listDomainRuns, readDomainRun } = await import("../command/store.js");
-        const { syncFirstmateDomainRuns } = await import("../command/firstmate.js");
-        await syncFirstmateDomainRuns().catch(() => []);
+        const [{ syncFirstmateDomainRuns }, { syncLibrarianDomainRuns }] = await Promise.all([
+          import("../command/firstmate.js"), import("../command/librarian.js"),
+        ]);
+        await Promise.all([syncFirstmateDomainRuns().catch(() => []), syncLibrarianDomainRuns().catch(() => [])]);
         if (input.action === "list") {
           const runs = listDomainRuns().slice(0, 10);
           return runs.length
