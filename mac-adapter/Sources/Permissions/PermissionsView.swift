@@ -566,6 +566,21 @@ private struct FirstPromptRow: View {
     }
 }
 
+/// Folds the live spectrum (48 bands) into a fixed number of bars so the microphone test keeps
+/// the width its layout gave it, whatever band count VoiceCapture delivers. Keeps each group's
+/// peak so quiet speech still moves a bar.
+enum WaveformBars {
+    static func fold(_ bands: [CGFloat], into count: Int) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        guard !bands.isEmpty else { return Array(repeating: 0, count: count) }
+        return (0..<count).map { bar in
+            let start = bar * bands.count / count
+            let end = max(start + 1, (bar + 1) * bands.count / count)
+            return bands[start..<min(end, bands.count)].max() ?? 0
+        }
+    }
+}
+
 private struct MiniWaveform: View {
     let bands: [CGFloat]
     let active: Bool
@@ -582,7 +597,10 @@ private struct MiniWaveform: View {
     }
 }
 
-private struct MicrophoneTestVisual: View {
+struct MicrophoneTestVisual: View {
+    /// 13 bars of 9pt at 7pt spacing fill the card's 310pt column without widening it.
+    static let barCount = 13
+
     let bands: [CGFloat]
     let isHeard: Bool
 
@@ -617,7 +635,7 @@ private struct MicrophoneTestVisual: View {
                 .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathe)
 
                 HStack(spacing: 7) {
-                    ForEach(Array(bands.enumerated()), id: \.offset) { _, value in
+                    ForEach(Array(WaveformBars.fold(bands, into: Self.barCount).enumerated()), id: \.offset) { _, value in
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
                             .fill(barColor(for: value))
                             .frame(width: 9, height: barHeight(for: value))
