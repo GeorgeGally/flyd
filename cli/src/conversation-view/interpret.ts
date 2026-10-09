@@ -19,6 +19,9 @@ const MAX_ANSWER_CHARS = 8_000;
 const MAX_PROFILE_CHARS = 3_000;
 const RECENT_MESSAGES = 6;
 const TIMEOUT_MS = 60_000;
+const MAX_IN_FLIGHT = 2;
+/** Interpretations kept on disk: the newest ones, as only the newest replies are interpreted. */
+const KEEP = 20;
 
 export interface InterpretInput {
   question: string;
@@ -63,6 +66,8 @@ export class AnswerInterpreter {
   private readonly inFlight = new Map<string, Promise<string | undefined>>();
   private readonly failed = new Set<string>();
   private readonly profile: () => string | null;
+  private readonly queue: Array<() => void> = [];
+  private running = 0;
 
   constructor(private readonly options: { complete: Complete; cacheFile: string; profile?: () => string | null; timeoutMs?: number }) {
     this.profile = options.profile ?? profileOrNull;
@@ -98,7 +103,8 @@ export class AnswerInterpreter {
     if (this.failed.has(key)) return Promise.resolve(undefined);
     const existing = this.inFlight.get(key);
     if (existing) return existing;
-    const job = this.interpret(input)
+    const job = this.slot()
+      .then((release) => this.interpret(input).finally(release))
       .then((text) => {
         this.cache[key] = { text, at: new Date().toISOString() };
         this.save();
@@ -130,7 +136,22 @@ export class AnswerInterpreter {
     }
   }
 
+  private slot(): Promise<() => void> {
+    return new Promise((resolve) => {
+      const start = () => {
+        this.running += 1;
+        resolve(() => {
+          this.running -= 1;
+          this.queue.shift()?.();
+        });
+      };
+      if (this.running < MAX_IN_FLIGHT) start();
+      else this.queue.push(start);
+    });
+  }
+
   private save(): void {
+    for (const key of Object.keys(this.cache).slice(0, -KEEP)) delete this.cache[key];
     mkdirSync(dirname(this.options.cacheFile), { recursive: true });
     const tmp = `${this.options.cacheFile}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.cache), { mode: 0o600 });

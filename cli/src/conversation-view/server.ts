@@ -10,6 +10,7 @@ import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
+import { inFlydsVoice } from "./flyd-voice.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -86,7 +87,7 @@ export class SnapshotDiffer {
   private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
-    if (cached) return { body: message.text, summary: { html: renderMarkdown(cached), source: "flyd" } };
+    if (cached) return { body: message.text, summary: { html: renderMarkdown(inFlydsVoice(cached)), source: "flyd" } };
     if (interpreter && newest && interpreter.wants(message.text)) {
       const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
       const before = at >= 0 ? at : snapshot.messages.indexOf(message);
@@ -106,7 +107,7 @@ export class SnapshotDiffer {
     const modelFor = (text: string): { text?: string; pending: boolean } => {
       if (!summarizer) return { pending: false };
       const cached = summarizer.cached(text);
-      if (cached) return { text: cached, pending: false };
+      if (cached) return { text: inFlydsVoice(cached), pending: false };
       if (newest && summarizer.wants(text)) this.ask(text);
       return { pending: summarizer.pending(text) };
     };

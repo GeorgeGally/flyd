@@ -8,10 +8,10 @@ import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk
 import { inFlydsVoice } from "../flyd-voice.js";
 import { AnswerInterpreter } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
-import { headlineOf } from "../status.js";
-import { digestReply } from "../summaries.js";
+import { headlineOf, statusOf } from "../status.js";
+import { digestReply, ReplySummarizer } from "../summaries.js";
 import type { ConversationSnapshot } from "../types.js";
-import { assistantText, captain } from "./transcript-fixture.js";
+import { assistantText, captain, toolUse } from "./transcript-fixture.js";
 
 let dir: string;
 
@@ -178,6 +178,52 @@ printf 'queued %s\\n' "$id"
     return { source, home, answered };
   }
 
+  it("never lets firstmate's 'Captain' reach him: lines, narration, summaries, interpretations and the island", async () => {
+    const project = join(dir, "project");
+    const home = join(dir, "firstmate");
+    mkdirSync(project);
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    const report = "Captain, the cards are recoloured and the island filter is back on. ".repeat(4) + "\n\nThe captain must pick a colour for the dark theme before the captain's release goes out.";
+    writeFileSync(join(project, "s1.jsonl"), [
+      captain("status?"),
+      assistantText(report),
+      captain("ok?"),
+      assistantText("Captain, shipshape."),
+      captain("and the island?"),
+      assistantText("Captain, the captain's island is still paused on your call, Captain."),
+      captain("fix the cards"),
+      toolUse("TodoWrite", { todos: [{ content: "x", activeForm: "Checking the captain's cards", status: "in_progress" }] }),
+    ].join("\n") + "\n");
+    writeFileSync(join(home, "state", "inbox", "handled", "1-a.note"), "id=1-a\nat=2030-01-01T00:00:00Z\n--\nis the island hiding things?\n");
+    writeFileSync(join(home, "state", "inbox", ".replies", "1-a"), "id=1-a\nat=2030-01-01T00:01:00Z\n--\nCaptain, yes.\n\nThe captain decides: keep the filter or drop it.\n");
+    const source = new ClaudeCodeTranscriptSource({
+      projectDir: project,
+      inbox: new FirstmateInbox({ home, script: join(dir, "fm-inbox.sh") }),
+      desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer: async () => "" }), complete: async () => "FIRSTMATE" },
+    });
+    const snapshot = await source.read("s1");
+    expect(snapshot.activity).toBeTruthy();
+
+    const summarizer = new ReplySummarizer({
+      cacheFile: join(dir, "summaries.json"),
+      providers: [{ name: "fake", summarize: async (text) => { if (text.includes("dark theme")) return "The captain must pick a colour, Captain."; throw new Error("down"); } }],
+    });
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "interpretations.json"), profile: () => null, complete: () => new Promise<string>(() => {}) });
+    let landed!: () => void;
+    const arrived = new Promise<void>((resolve) => { landed = resolve; });
+    const differ = new SnapshotDiffer({ summarizer, interpreter, onSummary: () => landed() });
+    const first = differ.next(snapshot);
+    await arrived;
+    const update = differ.next(snapshot);
+    expect(update.messages.some((message) => message.summary?.source === "model")).toBe(true);
+    expect(first.messages.find((message) => message.answers === "note:1-a")?.summary?.pending).toBe(true);
+
+    const shown = JSON.stringify([first, update]);
+    expect(shown).not.toMatch(/captain/i);
+    expect(JSON.stringify(statusOf(snapshot, Date.parse(snapshot.lastActivity ?? "") || Date.now()))).not.toMatch(/captain/i);
+  });
+
   it("answers a general question itself and never sends it to firstmate", async () => {
     const { source, home, answered } = setup("FLYD");
     const updates: ConversationSnapshot[] = [];
@@ -293,6 +339,30 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(await interpreter.request({ question: "q", answer, recent: [] })).toBeUndefined();
     const failing = new AnswerInterpreter({ cacheFile: join(dir, "other.json"), profile: () => null, complete: async () => { throw new Error("no model"); } });
     expect(await failing.request({ question: "q", answer, recent: [] })).toBeUndefined();
+  });
+
+  it("asks the model two at a time and keeps only the newest 20 on disk", async () => {
+    let running = 0;
+    let most = 0;
+    const cacheFile = join(dir, "interpretations.json");
+    const interpreter = new AnswerInterpreter({
+      cacheFile,
+      profile: () => null,
+      complete: async (prompt) => {
+        running += 1;
+        most = Math.max(most, running);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        running -= 1;
+        return `Sir, outcome ${/answer (\d+)/.exec(prompt)![1]} landed and needs your call.`;
+      },
+    });
+    const answers = Array.from({ length: 25 }, (_, index) => `The answer ${index} is in.`);
+    const results = await Promise.all(answers.map((answer) => interpreter.request({ question: "q", answer, recent: [] })));
+    expect(results.every(Boolean)).toBe(true);
+    expect(most).toBe(2);
+    expect(Object.keys(JSON.parse(readFileSync(cacheFile, "utf8")) as object)).toHaveLength(20);
+    const reloaded = new AnswerInterpreter({ cacheFile, complete: async () => "" });
+    expect(reloaded.cached(answers[24]!)).toContain("outcome 24");
   });
 
   it("leaves Flyd's own answers whole", () => {
