@@ -4,6 +4,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
 import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
+import { inFlydsVoice } from "./flyd-voice.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
@@ -242,9 +243,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   }
 
   private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[]): ConversationSnapshot {
-    const messages = this.desk ? relayed(snapshot.messages) : snapshot.messages;
-    if (exchanges.length === 0) return { ...snapshot, messages };
-    return { ...snapshot, messages: mergeNotes(messages, exchanges, this.noteWindow(sessionId)) };
+    const voiced = this.desk
+      ? { ...snapshot, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
+      : snapshot;
+    if (exchanges.length === 0) return voiced;
+    return { ...voiced, messages: mergeNotes(voiced.messages, exchanges, this.noteWindow(sessionId)) };
   }
 
   private sessionPath(sessionId: string): string {
