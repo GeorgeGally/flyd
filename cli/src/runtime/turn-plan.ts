@@ -60,8 +60,8 @@ export interface TurnPlan {
 // hidden on routes that shouldn't change anything, so the model isn't
 // tempted; tools with a read action (todos list, schedule list, reminders
 // list) stay visible and the gate stops their writes.
-const CHANGE_ONLY = ["edit_file", "write_file", "remember", "work_model", "speaking_style", "background_task", "start_coding_task"];
-const HANDOFFS = ["background_task", "start_coding_task"];
+const CHANGE_ONLY = ["edit_file", "write_file", "remember", "work_model", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
+const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task"];
 
 /**
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
@@ -89,9 +89,9 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
       // repo tools, the model explores until its budget runs out and never
       // hands off. So the only tools here are the hand-offs, and one call.
       return {
-        route, source, cover, allows: new Set(), handoffs: domain === "coding" ? new Set(["start_coding_task"]) : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
+        route, source, cover, allows: new Set(), handoffs: domain === "coding" ? new Set(["start_coding_task"]) : domain === "knowledge" ? new Set(["start_knowledge_task"]) : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
-        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path), anything else to background_task. Then tell him in a line what you started.",
+        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; other one-off work goes to background_task. Then tell him in a line what you started.",
       };
     case "act":
       return {
