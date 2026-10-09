@@ -6,6 +6,7 @@ export interface CodingDispatchInput {
   originalMessage: string;
   intendedOutcome: string;
   doneWhen: string[];
+  source?: DomainRequest["source"];
   project?: { name?: string; root?: string };
   transport?: FirstmateDomainTransport;
   now?: Date;
@@ -20,6 +21,7 @@ export async function dispatchCodingDomain(input: CodingDispatchInput): Promise<
     intendedOutcome: input.intendedOutcome.trim(),
     doneWhen: input.doneWhen,
     createdAt: now.toISOString(),
+    ...(input.source ? { source: input.source } : {}),
     ...(input.project ? { project: input.project } : {}),
   };
   return (input.transport ?? new FirstmateDomainTransport()).submit(request);
