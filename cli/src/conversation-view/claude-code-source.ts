@@ -229,19 +229,27 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.starts.get(path);
   }
 
-  /** From this session's start until the next session started; open-ended for the latest. */
+  /**
+   * This session's window: its start until another session replaced it. A
+   * later-start session only ends the window if it started after this one's
+   * last write; sessions overlap (a mirror starts while the live one still
+   * runs), so a session that outlived the others stays open to now.
+   */
   private noteWindow(sessionId: string): { from?: string; until?: string } {
-    const starts = readdirSync(this.projectDir)
+    const sessions = readdirSync(this.projectDir)
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => {
         const path = join(this.projectDir, name);
-        return { id: name.slice(0, -".jsonl".length), start: this.startOf(path) };
+        const start = this.startOf(path);
+        return start === undefined ? null : { id: name.slice(0, -".jsonl".length), start, mtimeMs: statSync(path).mtimeMs };
       })
-      .filter((session): session is { id: string; start: string } => session.start !== undefined)
+      .filter((session): session is { id: string; start: string; mtimeMs: number } => session !== null)
       .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
-    const index = starts.findIndex((session) => session.id === sessionId);
+    const index = sessions.findIndex((session) => session.id === sessionId);
     if (index === -1) return {};
-    return { from: starts[index]!.start, ...(starts[index + 1] ? { until: starts[index + 1]!.start } : {}) };
+    const here = sessions[index]!;
+    const replaced = sessions.slice(index + 1).find((session) => Date.parse(session.start) > here.mtimeMs);
+    return { from: here.start, ...(replaced ? { until: replaced.start } : {}) };
   }
 
   /** Every question asked from the window, to firstmate or to Flyd, oldest first. */
