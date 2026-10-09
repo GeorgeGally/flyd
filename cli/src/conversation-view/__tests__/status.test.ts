@@ -56,6 +56,20 @@ describe("conversation status for the island", () => {
     expect(worthAnnouncing("Captain, the worker is on the banner; I'll tell you when it's pushed.", false)).toBe(false);
   });
 
+  it("keeps firstmate's talk about its crew quiet unless it carries a PR, a problem or a decision", () => {
+    for (const chatter of [
+      "Captain, the Flyd worker has finished its first pass and is now on the review step.",
+      "Captain, the crewmate updated its plan.",
+      "Captain, shipshape. The worker added the brief.",
+      "Captain, the worker fixed and pushed the banner.",
+    ]) {
+      expect(worthAnnouncing(chatter, false), chatter).toBe(false);
+    }
+    expect(worthAnnouncing("Captain, the worker finished: https://github.com/GeorgeGally/flyd/pull/70 is ready for your review.", false)).toBe(true);
+    expect(worthAnnouncing("Captain, the worker's checks failed on the banner.", false)).toBe(true);
+    expect(worthAnnouncing("Captain, the worker finished the banner. Should I merge it?", false)).toBe(true);
+  });
+
   it("announces decisions, outcomes and real problems, even unprompted", () => {
     expect(worthAnnouncing("Captain, the Flyd island redesign is ready for your review: https://github.com/GeorgeGally/flyd/pull/68", false)).toBe(true);
     expect(worthAnnouncing("Captain, your Mac is now badly overloaded: the load is about 416.", false)).toBe(true);
@@ -83,7 +97,6 @@ describe("conversation status for the island", () => {
     expect(quiet.working).toBe(false);
     expect(statusOf({ messages: [...messages, { id: "u2", role: "user", text: "fix it" }], ...active }, now).working).toBe(true);
     expect(statusOf({ messages: [...messages.slice(0, 1)], ...active }, now).working).toBe(true);
-    const wake = [messages[0]!, messages[1]!, { id: "r4", role: "assistant" as const, text: "Captain, the worker picked up the banner." }];
-    expect(statusOf({ messages: wake.slice(0, 2), ...active }, now).working).toBe(false);
+    expect(statusOf({ messages: messages.slice(0, 2), ...active }, now).working).toBe(false);
   });
 });

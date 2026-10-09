@@ -47,28 +47,35 @@ function plain(text: string): string {
 const ROUTINE_OPENING = /^(shipshape|all (quiet|clear|good|calm)|no (news|updates?|progress)\b|nothing (new|to report|yet)|still (working|waiting|running|going)|on it\b|ack(nowledged)?\b|noted\b|got it\b|standing by|will (report|update|let you know|follow up))/i;
 /** Supervision chatter about the workers rather than the work. */
 const MACHINERY = /\b(posted an update|is moving again|acknowledged (my|the|your) decision|(a|the) (worker|crewmate|supervisor) (is|has|had|will|picked|started|took)\b|is now on\b|dispatched\b)/i;
+/** Talk about firstmate's own crew and process rather than George's work. */
+const WORKER_TALK = /\b(workers?|crewmates?|supervisors?|review step|checks?|brief|plan|pass|wakes?|monitoring|lanes?|panes?)\b/i;
 const PULL_REQUEST = /https?:\/\/\S+\/pull\/\d+/i;
-/** Something George would want to hear without asking: a result ready for him, or a real problem. */
-const OUTCOME = /(\bready (for (your )?review|to merge)\b|\b(done|fixed|pushed|landed|committed|finished|completed|merged|shipped|deployed|released|updated|added|is live|failed|failing|broken|blocked|stuck|overloaded|crashed)\b|\bnow (shows|works)\b)/i;
+/** Something George would want to hear without asking: a result ready for him... */
+const OUTCOME = /(\bready (for (your )?review|to merge)\b|\b(done|fixed|pushed|landed|committed|finished|completed|merged|shipped|deployed|released|updated|added|is live)\b|\bnow (shows|works)\b)/i;
+/** ...or a real problem. */
+const PROBLEM = /\b(failed|failing|broken|blocked|stuck|overloaded|crashed)\b/i;
 /** A promise of an outcome is not one: "On it — will report once it's fixed". */
 const FUTURE_CLAUSE = /(\b(will|once|when|until|after)\b|['’]ll\b)[^,.;:!?—–]*/gi;
 
 function reportsOutcome(lead: string): boolean {
-  return PULL_REQUEST.test(lead) || OUTCOME.test(lead.replace(FUTURE_CLAUSE, ""));
+  const present = lead.replace(FUTURE_CLAUSE, "");
+  return PULL_REQUEST.test(lead) || OUTCOME.test(present) || PROBLEM.test(present);
 }
 
 /**
  * Whether a reply belongs on the island. A reply to George's own words shows
  * unless it is routine; a reply firstmate makes on its own (to a wake or a
- * worker's status) shows only for a decision, an outcome or a problem.
+ * worker's status) shows only for a decision, an outcome or a problem — and
+ * when it talks about its crew, only for a decision, a PR or a problem.
  */
 export function worthAnnouncing(text: string, prompted: boolean): boolean {
   if (asksForDecision(text)) return true;
   const prose = text.replace(/```[\s\S]*?```/g, "").trim();
   const lead = plain([authorSummary(text)?.summary ?? "", prose.split(/\n\s*\n/)[0] ?? ""].join(" "));
   if (!lead) return false;
-  if (ROUTINE_OPENING.test(lead)) return reportsOutcome(lead);
-  if (prompted) return !MACHINERY.test(lead) || reportsOutcome(lead);
+  const routine = ROUTINE_OPENING.test(lead);
+  if (prompted && !routine) return !MACHINERY.test(lead) || reportsOutcome(lead);
+  if (WORKER_TALK.test(lead)) return PULL_REQUEST.test(lead) || PROBLEM.test(lead.replace(FUTURE_CLAUSE, ""));
   return reportsOutcome(lead);
 }
 
