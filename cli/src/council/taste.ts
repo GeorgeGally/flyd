@@ -55,8 +55,6 @@ export interface TasteRule {
   projects: string[];
   first?: string;
   last?: string;
-  /** George reworded it: his own edit, never retired by the curator. */
-  edited?: boolean;
   evidence: TasteEvidence[];
 }
 
@@ -159,7 +157,6 @@ export function parseTaste(markdown: string): TasteProfile {
       projects: meta.seen ? meta.seen.split(",").filter(Boolean) : scope === PERSONAL ? [] : [scope],
       ...(meta.first ? { first: meta.first } : {}),
       ...(meta.last ? { last: meta.last } : {}),
-      ...(meta.edited ? { edited: true } : {}),
       evidence: [],
     };
     target.push(current);
@@ -184,7 +181,6 @@ function renderRule(rule: TasteRule, names: Record<string, string>): string[] {
     ...(rule.projects.length ? [`seen=${rule.projects.join(",")}`] : []),
     ...(rule.first ? [`first=${rule.first}`] : []),
     ...(rule.last ? [`last=${rule.last}`] : []),
-    ...(rule.edited ? ["edited=1"] : []),
   ].join(" ");
   return [
     `- ${rule.text} <!--taste:${rule.id} ${meta}-->`,
@@ -259,13 +255,15 @@ export function applyObservations(profile: TasteProfile, observations: Observati
   // The words that taught a vetoed rule: saying them again re-teaches it, however the rule is phrased.
   const vetoedQuotes = profile.vetoed.flatMap((rule) => rule.evidence.map((item) => normalizeRule(item.quote))).filter((quote) => quote.length >= 8);
   const retiredQuotes = (profile.retired ?? []).flatMap((rule) => rule.evidence.map((item) => normalizeRule(item.quote))).filter((quote) => quote.length >= 8);
+  const retiredWords = (profile.retired ?? []).flatMap((rule) => normalizeRule(rule.text).split(" ").filter((word) => word.length >= 4));
   for (const { rule: learned, source, date } of observations) {
     const text = learned.rule.replace(/\s+/g, " ").trim();
     const norm = normalizeRule(text);
     const quote = normalizeRule(learned.quote);
     const repeatsVeto = vetoedQuotes.some((vetoedQuote) => quote.includes(vetoedQuote) || (quote.length >= 8 && vetoedQuote.includes(quote)));
     const repeatsRetired = retiredQuotes.some((retiredQuote) => quote.includes(retiredQuote) || (quote.length >= 8 && retiredQuote.includes(quote)));
-    if (!norm || vetoed.has(norm) || retired.has(norm) || (learned.sameAs && (vetoed.has(learned.sameAs) || retired.has(learned.sameAs))) || repeatsVeto || repeatsRetired) { result.ignored += 1; continue; }
+    const sharesRetiredConcept = retiredWords.some((word) => norm.split(" ").includes(word));
+    if (!norm || vetoed.has(norm) || retired.has(norm) || (learned.sameAs && (vetoed.has(learned.sameAs) || retired.has(learned.sameAs))) || repeatsVeto || repeatsRetired || sharesRetiredConcept) { result.ignored += 1; continue; }
     const project = learned.project;
     const evidence: TasteEvidence = { quote: learned.quote.replace(/\s+/g, " ").trim(), source, ...(project ? { project } : {}), date };
     const existing = profile.rules.find((rule) => (learned.sameAs && rule.id === learned.sameAs) || normalizeRule(rule.text) === norm);
@@ -349,7 +347,7 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       const mergeIndex = profile.rules.findIndex((candidate) => candidate.id === op.merge);
       if (mergeIndex === -1) { receipt.rejected.push(`fold: unknown [${op.merge}]`); continue; }
       const duplicate = profile.rules[mergeIndex]!;
-      if (duplicate.count === 0 || duplicate.edited) { receipt.rejected.push(`fold: [${op.merge}] is George's own rule`); continue; }
+      if (isGeorgeOwned(rule) || isGeorgeOwned(duplicate)) { receipt.rejected.push(`fold: [${op.id}] or [${op.merge}] is George's own rule`); continue; }
       rule.count += duplicate.count;
       rule.first = [rule.first, duplicate.first].filter(Boolean).sort()[0];
       rule.last = [rule.last, duplicate.last].filter(Boolean).sort().at(-1);
@@ -365,13 +363,17 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       rule.scope = PERSONAL;
       receipt.promoted += 1;
     } else {
-      if (rule.count === 0 || rule.edited) { receipt.rejected.push(`retire: [${op.id}] is George's own rule`); continue; }
+      if (isGeorgeOwned(rule)) { receipt.rejected.push(`retire: [${op.id}] is George's own rule`); continue; }
       profile.rules.splice(index, 1);
       (profile.retired ??= []).push(rule);
       receipt.retired += 1;
     }
   }
   return receipt;
+}
+
+function isGeorgeOwned(rule: TasteRule): boolean {
+  return rule.count === 0 || rule.id !== ruleId(rule.text);
 }
 
 /** The learned rules, with the id, scope and strength the curator needs to reason about. */
@@ -746,7 +748,6 @@ export function rewordRule(id: string, text: string, path = tastePath()): boolea
   const rule = profile.rules.find((candidate) => candidate.id === id);
   if (!rule) return false;
   rule.text = clean;
-  rule.edited = true;
   writeTaste(profile, path);
   return true;
 }

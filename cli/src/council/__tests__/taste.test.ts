@@ -160,7 +160,7 @@ describe("Librarian curation", () => {
     applyObservations(profile, [observe("Never hard-code an API key in the client.", "personal")]);
     const learned = profile.rules[0]!;
     const own = { id: ruleId("Be kind to the reader."), text: "Be kind to the reader.", scope: "personal", count: 0, projects: [], evidence: [] };
-    const edited = { id: ruleId("Prefer quiet motion."), text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], edited: true, evidence: [] };
+    const edited = { id: "edited001", text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], evidence: [] };
     profile.rules.push(own, edited);
     const receipt = applyTasteOps(profile, [{ op: "retire", id: learned.id }, { op: "retire", id: own.id }, { op: "retire", id: edited.id }]);
     expect(receipt).toMatchObject({ retired: 1 });
@@ -171,7 +171,7 @@ describe("Librarian curation", () => {
     rephrased.rule.sameAs = learned.id;
     expect(applyObservations(profile, [
       observe("Never hard-code an API key in the client.", "personal"),
-      observe("Keep API keys out of client code.", "personal", undefined, "2026-10-07", "put the key on the server"),
+      observe("Keep credentials out of client code.", "personal"),
       rephrased,
     ])).toMatchObject({ added: 0, ignored: 3 });
   });
@@ -180,12 +180,17 @@ describe("Librarian curation", () => {
     const profile = empty();
     applyObservations(profile, [observe("Reuse the pattern from other pages.", "personal")]);
     const keep = profile.rules[0]!;
-    const own = { id: ruleId("Prefer quiet motion."), text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], edited: true, evidence: [] };
+    const own = { id: "edited001", text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], evidence: [] };
     profile.rules.push(own);
     const receipt = applyTasteOps(profile, [{ op: "fold", id: keep.id, merge: own.id }]);
     expect(receipt).toMatchObject({ folded: 0 });
     expect(receipt.rejected.join(" ")).toContain("George's own");
     expect(profile.rules).toHaveLength(2);
+    const keptOwn = { id: "edited002", text: "Prefer quiet motion too.", scope: "personal", count: 2, projects: [], evidence: [] };
+    profile.rules.push(keptOwn);
+    const reverse = applyTasteOps(profile, [{ op: "fold", id: keptOwn.id, merge: keep.id }]);
+    expect(reverse).toMatchObject({ folded: 0 });
+    expect(profile.rules).toHaveLength(3);
   });
 
   it("rejects ops whose ids do not exist, and drops them from a parsed reply", () => {
@@ -315,7 +320,8 @@ describe("using it", () => {
     expect(vetoRule(id)).toBe(true);
     expect(readFileSync(process.env.FLYD_TASTE_FILE!, "utf8")).toMatch(/## Not me\n\n- Phone gutter is exactly 36px\./);
     expect(restoreRule(id)).toBe(true);
-    expect(readTaste().rules[0]).toMatchObject({ id, scope: "capfive-client-work", text: "Phone gutter is exactly 36px.", edited: true });
+    expect(readTaste().rules[0]).toMatchObject({ id, scope: "capfive-client-work", text: "Phone gutter is exactly 36px." });
+    expect(applyTasteOps(readTaste(), [{ op: "retire", id }])).toMatchObject({ retired: 0 });
     expect(vetoRule("nope")).toBe(false);
   });
 });
