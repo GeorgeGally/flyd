@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { query } from "../lib/llm.js";
 import {
   listJobs,
+  runningJobs,
+  MAX_RUNNING_JOBS,
   runJobTurn,
   startBackgroundJob,
   verifyJobTurn,
@@ -30,6 +32,10 @@ function startSpecialist(role: "Retriever" | "Researcher" | "Fact Checker", task
 
 export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRun {
   const now = input.now ?? new Date();
+  const available = MAX_RUNNING_JOBS - runningJobs().length;
+  if (available < 2) {
+    throw new Error(`Librarian needs two specialist slots to start safely; ${available} available`);
+  }
   const request: DomainRequest = {
     id: `domain-${randomUUID()}`,
     domain: "knowledge",
