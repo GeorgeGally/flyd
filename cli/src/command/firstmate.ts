@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseDomainResult } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
-import type { DomainRequest, DomainRun } from "./types.js";
+import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -135,6 +135,30 @@ export class FirstmateDomainTransport {
     };
     saveDomainRun(run);
     return run;
+  }
+
+  async sendMessage(run: DomainRun, message: DomainMessage): Promise<{ externalId: string }> {
+    if (!this.available()) throw new Error("FirstMate inbox is not installed");
+    const body = [
+      `FLYD ${message.kind.toUpperCase()} FOR ACTIVE DOMAIN RUN ${run.id}`,
+      "This is George's wording. Treat it as new authority for the active coding outcome and route it to the work that needs it. Do not paraphrase away constraints.",
+      "",
+      message.body,
+      "",
+      `Original outcome: ${run.request.intendedOutcome}`,
+    ].join("\n");
+    let stdout = "";
+    try {
+      ({ stdout } = await this.exec(this.script, ["note", "--request-id", message.id, "--json", "-"], {
+        env: this.env(), input: body, timeout: 20_000,
+      }));
+    } catch (error) {
+      stdout = error && typeof error === "object" && "stdout" in error ? String((error as { stdout?: string }).stdout ?? "") : "";
+      if (!stdout.trim()) throw error;
+    }
+    const receipt = JSON.parse(stdout) as { id?: string; saved?: boolean };
+    if (!receipt.id || receipt.saved !== true) throw new Error("FirstMate did not durably accept the domain message");
+    return { externalId: receipt.id };
   }
 
   async receipts(): Promise<FirstmateReceipts> {
