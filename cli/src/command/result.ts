@@ -51,6 +51,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
         return {
           ...(status ? { status } : {}),
           result: {
+            format: "structured",
             brief: brief || detailedReport.split(/\n+/)[0]!.slice(0, 300),
             ...(recommendation(parsed.recommendation) ? { recommendation: recommendation(parsed.recommendation) } : {}),
             detailedReport: detailedReport || raw,
@@ -73,6 +74,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
   const brief = raw.split(/\n+/).map((line) => line.trim()).find(Boolean)?.slice(0, 300) || "Domain work returned no readable summary.";
   return {
     result: {
+      format: "raw",
       brief,
       detailedReport: raw,
       decisionsMade: [],
