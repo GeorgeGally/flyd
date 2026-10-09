@@ -447,7 +447,7 @@ const SCRIPT = `
     store("flyd-view-mode", next);
     applyMode(next);
   });
-  document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste"; });
+  document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN); });
   themeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     store("flyd-view-theme", next);

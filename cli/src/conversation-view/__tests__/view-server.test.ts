@@ -323,7 +323,10 @@ describe("ConversationViewServer", () => {
       names: {},
     });
     const port = await start();
-    const page = await get(port, "/taste");
+    const denied = await get(port, "/taste");
+    expect(denied.status).toBe(403);
+    expect(denied.body).not.toContain("No shadows on icon boxes.");
+    const page = await get(port, `/taste?token=${encodeURIComponent(viewToken!)}`);
     expect(page.status).toBe(200);
     expect(page.body).toContain("No shadows on icon boxes.");
     expect(page.body).toContain("no shadows on the icon boxes");

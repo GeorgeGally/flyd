@@ -336,6 +336,10 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/taste") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
