@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { isRoutineChatter } from "./notice.js";
 import { parseDomainResult } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
@@ -244,9 +245,10 @@ export async function syncFirstmateDomainRuns(options: {
     }
     if (note.reply?.body?.trim()) {
       const parsed = parseDomainResult(note.reply.body);
+      const status = parsed.status ?? (isRoutineChatter(parsed.result.brief) ? "working" : "completed");
       next = {
         ...next,
-        status: parsed.status ?? "completed",
+        status,
         result: parsed.result,
         updatedAt: note.reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
         transport: { ...next.transport, replyCursor: note.reply.cursor },

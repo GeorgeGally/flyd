@@ -40,6 +40,8 @@ describe("captain notices", () => {
       "Captain, a worker is now on the Flyd fixes: it will trace the island alerts.",
       "Acknowledged — dispatched a crewmate; I'll report back when it lands.",
       "On it.",
+      "Captain, noted.",
+      "Captain, no change yet.",
     ]) {
       expect(isRoutineChatter(chatter), chatter).toBe(true);
       expect(captainNotice(run(chatter)), chatter).toBeNull();
@@ -52,6 +54,12 @@ describe("captain notices", () => {
     expect(captainNotice(run("Captain, your local Flyd copy is updated with the 30 new commits.")))
       .toBe("Your local Flyd copy is updated with the 30 new commits.");
     expect(captainNotice(run("The worker finished: dark mode is merged."))).toBe("The worker finished: dark mode is merged.");
+    expect(captainNotice(run("Captain, the status line now shows plan limits.")))
+      .toBe("The status line now shows plan limits.");
+    expect(captainNotice(run("Captain, the conversation pane wraps long lines again; the worker added a test.")))
+      .toBe("The conversation pane wraps long lines again; the worker added a test.");
+    expect(captainNotice(run("Captain, no change needed — the bug was already fixed on main.")))
+      .toBe("No change needed — the bug was already fixed on main.");
   });
 
   it("always surfaces decisions and failures", () => {
