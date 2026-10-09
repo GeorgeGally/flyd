@@ -185,6 +185,9 @@ export class FirstmateInbox implements CaptainInbox {
           resolve({ id: `note:${id}`, timestamp: new Date().toISOString(), ...(error ? { warning: detail } : {}) });
         },
       );
+      // A script that refuses before reading its input closes the pipe; its
+      // exit status and stderr report why, so the write error is not the news.
+      child.stdin?.on("error", () => {});
       child.stdin?.end(body);
     });
   }
