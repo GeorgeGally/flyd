@@ -19,6 +19,7 @@ export interface DomainRequest {
   intendedOutcome: string;
   doneWhen: string[];
   createdAt: string;
+  source?: "chat" | "self-improvement" | "system";
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;
