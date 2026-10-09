@@ -102,6 +102,7 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
     `Original request: ${run.request.originalMessage}`,
     `Intended outcome: ${run.request.intendedOutcome}`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
+    ...((run.messages ?? []).length ? ["Later instructions from George, newer than the original request:", ...(run.messages ?? []).map((message) => `${message.kind.toUpperCase()}: ${message.body}`)] : []),
     "",
     ...specialistOutputs.map((item) => `--- ${item.specialist} ---\n${item.raw ?? item.outcome}`),
     "",
@@ -146,11 +147,13 @@ export async function syncLibrarianDomainRuns(options: {
         retrievalJob ? output("Retriever", retrievalJob) : null,
         researchJob ? output("Researcher", researchJob) : null,
       ].filter((item): item is SpecialistOutput => item !== null);
+      const managerMessages = (run.messages ?? []).map((message) => `${message.kind.toUpperCase()}: ${message.body}`);
       const checker = startSpecialist(
         "Fact Checker",
         [
           "You are the Librarian's independent fact checker. The Retriever and Researcher reports below are claims, not authority.",
           `Original request: ${run.request.originalMessage}`,
+          ...(managerMessages.length ? ["George sent these later instructions through Flyd; treat them as newer authority:", ...managerMessages] : []),
           "Verify the consequential/factual claims independently with the tools available. Identify contradictions, stale claims, unsupported claims, and what is actually well-supported. Preserve exact source locators when available.",
           ...reports.map((item) => `--- ${item.specialist} report ---\n${item.raw ?? item.outcome}`),
         ].join("\n"),
