@@ -151,7 +151,7 @@ describe("conversation page", () => {
 
     stream.emit("update", { order: ["note:1"], messages: [{ id: "note:1", role: "user", html: "<p>are you there?</p>" }], working: false });
     expect(pending()).toEqual([]);
-    expect(document.querySelector(".msg.user .state")?.textContent).toBe("saved, but firstmate was not woken: fm-inbox: firstmate was NOT woken");
+    expect(document.querySelector(".msg.user .state")?.textContent).toBe("saved, but not passed on yet");
   });
 
   it("previews a pasted image, sends it with the message, and shows transcript images as thumbnails", async () => {
@@ -273,6 +273,13 @@ describe("conversation page", () => {
     expect(routine!.classList.contains("routine")).toBe(true);
   });
 
+  it("asks for a message to Flyd in Flyd's window", () => {
+    document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!.replace(/<script>[\s\S]*<\/script>/, "");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect(input.placeholder).toBe("Message Flyd");
+    expect(document.body.textContent).not.toMatch(/firstmate/i);
+  });
+
   it("shows a question waiting under itself until its own answer arrives, with relayed updates set apart", async () => {
     load("");
     await settle();
@@ -285,7 +292,7 @@ describe("conversation page", () => {
     expect(question.querySelector(".queued")!.textContent).toBe("passed to firstmate");
     const relays = Array.from(document.querySelectorAll(".msg.aside"));
     expect(relays.map((el) => el.classList.contains("aside-first"))).toEqual([true, false]);
-    expect(relays[0]!.querySelector(".aside-label")!.textContent).toBe("firstmate update");
+    expect(relays[0]!.querySelector(".aside-label")!.textContent).toBe("update");
 
     stream.emit("update", {
       order: ["note:1", "note-reply:1", "t1", "t2"],

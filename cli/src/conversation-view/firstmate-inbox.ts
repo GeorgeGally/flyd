@@ -228,7 +228,7 @@ export class FirstmateInbox implements CaptainInbox {
       .map(([name, question]): Exchange => {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
-        return { question, waiting: present.get(name)!.startsWith(`${handled}/`) ? "firstmate is on it" : "passed to firstmate" };
+        return { question, waiting: present.get(name)!.startsWith(`${handled}/`) ? "Flyd is on it" : "Flyd has it queued" };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;
