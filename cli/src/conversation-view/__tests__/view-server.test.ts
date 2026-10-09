@@ -201,17 +201,21 @@ describe("SnapshotDiffer summaries", () => {
 describe("ConversationViewServer", () => {
   let server: ConversationViewServer | null = null;
   let dir: string | null = null;
+  let viewCookie: string | undefined;
 
   afterEach(async () => {
     await server?.close();
     if (dir) rmSync(dir, { recursive: true, force: true });
     server = null;
     dir = null;
+    viewCookie = undefined;
   });
 
-  function get(port: number, path: string, host = `127.0.0.1:${port}`): Promise<{ status: number; body: string; type?: string }> {
+  function get(port: number, path: string, host = `127.0.0.1:${port}`, authenticated = true): Promise<{ status: number; body: string; type?: string }> {
     return new Promise((resolve, reject) => {
-      const req = request({ host: "127.0.0.1", port, path, headers: { host } }, (res) => {
+      const req = request({ host: "127.0.0.1", port, path, headers: { host, ...(authenticated && viewCookie ? { cookie: viewCookie } : {}) } }, (res) => {
+        const cookie = res.headers["set-cookie"]?.[0]?.split(";", 1)[0];
+        if (cookie) viewCookie = cookie;
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
@@ -264,7 +268,9 @@ describe("ConversationViewServer", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
     writeFileSync(join(dir, "s1.jsonl"), lines.join("\n") + "\n");
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }));
-    return server.listen(0);
+    const port = await server.listen(0);
+    await get(port, "/");
+    return port;
   }
 
   const tokenOf = (page: string): string => /data-send-token="([0-9a-f]+)"/.exec(page)?.[1] ?? "";
@@ -282,6 +288,11 @@ describe("ConversationViewServer", () => {
     expect(stream.body).toContain("event: session");
     const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(update.messages.map((m: { html: string }) => m.html)).toEqual(["<p>hello</p>\n", "<p>Hi, <strong>Captain</strong>.</p>\n"]);
+  });
+
+  it("rejects an unauthenticated stream before exposing artefact data", async () => {
+    const port = await start();
+    expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
   it("feeds the island a compact status of the newest session", async () => {

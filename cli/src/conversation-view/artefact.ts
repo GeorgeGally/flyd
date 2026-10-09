@@ -81,22 +81,27 @@ export function parseBearings(raw: unknown): FleetArtefact {
     ...(str(data.generated) ? { generated: str(data.generated) } : {}),
     calls: rows(data.decisions_open).map((row) => ({ label: str(row.summary) || str(row.id) })).filter((row) => row.label),
     live: rows(data.in_flight)
-      .filter((row) => ["working", "paused"].includes(str(row.state)))
+      .filter((row) => str(row.state) === "working")
       .map((row) => ({ label: str(row.name) || str(row.id), detail: str(row.doing) || undefined, repo: str(row.repo) || undefined }))
       .filter((row) => row.label),
     landed: rows(data.landed).map((row) => ({ label: str(row.what) || str(row.id), url: httpUrl(row.artifact) })).filter((row) => row.label),
-    next: rows(data.gates)
+    next: [
+      ...rows(data.in_flight)
+        .filter((row) => str(row.state) === "paused")
+        .map((row) => ({ label: str(row.name) || str(row.id), detail: "paused" })),
+      ...rows(data.gates)
       .map((row) => {
         const blocked = str(row.blocked_by);
         return { label: str(row.title) || str(row.id), ...(blocked && blocked !== "-" ? { detail: `blocked by ${blocked}` } : {}) };
       })
       .filter((row) => row.label),
+    ],
   };
 }
 
 /** The one line Flyd carries from its own memory: the newest open commitment. Pure. */
 export function memoryHighlights(markdown: string): string[] {
-  const section = markdown.split(/^##\s+Commitments\s*$/m)[1];
+  const section = markdown.split(/^##\s+Commitments\s*$/m)[1]?.split(/^##\s+/m)[0];
   if (!section) return [];
   const lines = section
     .split("\n")
