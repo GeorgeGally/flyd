@@ -23,6 +23,7 @@ describe("conversation status for the island", () => {
     const messages = [
       { id: "u1", role: "user" as const, text: "hi" },
       { id: "r1", role: "assistant" as const, text: "» Pushed. Want me to merge?" },
+      { id: "u2", role: "user" as const, text: "yes" },
     ];
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:59:00Z" }, now)).toEqual({
       working: true,
@@ -40,12 +41,19 @@ describe("conversation status for the island", () => {
       "Captain, shipshape. The Flyd worker received the decision and is moving on through the remaining checks.",
       "Captain, the Flyd island worker has posted an update. I'm reading it now and will report shortly.",
       "Captain, no news yet. The Flyd worker's update just confirmed it received my decision on the screenshots.",
-      "Captain, the Flyd island work is moving again. It has passed review, tests, docs and lint, and has been pushed.",
       "Captain, I settled one review question on the Flyd island work myself.",
-      "Captain, shipshape. This alert was for the old Flyd worker; its pull request, https://github.com/GeorgeGally/flyd/pull/56 , is still waiting.",
     ]) {
       expect(worthAnnouncing(chatter, false), chatter).toBe(false);
     }
+  });
+
+  it("announces a finished result firstmate reports on its own, but not a promise of one", () => {
+    expect(worthAnnouncing("Captain, the island noise is fixed and pushed to main.", false)).toBe(true);
+    expect(worthAnnouncing("Captain, the Flyd island work is moving again. It has passed review, tests, docs and lint, and has been pushed.", false)).toBe(true);
+    expect(worthAnnouncing("Captain, shipshape. The banner fix is pushed.", false)).toBe(true);
+    expect(worthAnnouncing("Captain, shipshape. This alert was for the old Flyd worker; its pull request, https://github.com/GeorgeGally/flyd/pull/56 , is still waiting.", false)).toBe(true);
+    expect(worthAnnouncing("On it — will report once it's fixed.", false)).toBe(false);
+    expect(worthAnnouncing("Captain, the worker is on the banner; I'll tell you when it's pushed.", false)).toBe(false);
   });
 
   it("announces decisions, outcomes and real problems, even unprompted", () => {
@@ -75,5 +83,7 @@ describe("conversation status for the island", () => {
     expect(quiet.working).toBe(false);
     expect(statusOf({ messages: [...messages, { id: "u2", role: "user", text: "fix it" }], ...active }, now).working).toBe(true);
     expect(statusOf({ messages: [...messages.slice(0, 1)], ...active }, now).working).toBe(true);
+    const wake = [messages[0]!, messages[1]!, { id: "r4", role: "assistant" as const, text: "Captain, the worker picked up the banner." }];
+    expect(statusOf({ messages: wake.slice(0, 2), ...active }, now).working).toBe(false);
   });
 });

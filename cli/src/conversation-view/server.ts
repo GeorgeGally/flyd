@@ -338,6 +338,7 @@ export class ConversationViewServer {
   /**
    * A compact feed for Flyd's notch island: the newest session's status,
    * sent when it changes (and re-checked every 30s so "working" can go stale).
+   * When a newer session starts the feed ends, and the island reconnects to it.
    */
   private async statusStream(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const [session] = await this.source.listSessions();
@@ -359,15 +360,23 @@ export class ConversationViewServer {
       latest = snapshot;
       emit();
     });
-    const tick = setInterval(() => {
+    const close = () => {
+      clearInterval(tick);
+      follower.close();
+    };
+    const tick = setInterval(async () => {
+      const [newest] = await this.source.listSessions().catch(() => []);
+      if (res.destroyed) return;
+      if (newest && newest.id !== session.id) {
+        close();
+        res.end();
+        return;
+      }
       emit();
       res.write(": keep-alive\n\n");
     }, 30_000);
     tick.unref?.();
-    req.on("close", () => {
-      clearInterval(tick);
-      follower.close();
-    });
+    req.on("close", close);
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {

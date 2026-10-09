@@ -47,7 +47,7 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var baseURL: URL?
-    private var buffer = ""
+    private var buffer = Data()
     private var last: ConversationStatusPayload?
     private var working = false
     /// An announcement that arrived while dictation was using the island.
@@ -86,17 +86,17 @@ final class ConversationStatus: NSObject, URLSessionDataDelegate {
             configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
         }
-        buffer = ""
+        buffer = Data()
         task = session?.dataTask(with: url)
         task?.resume()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard dataTask === task, let text = String(data: data, encoding: .utf8) else { return }
-        buffer += text
-        while let end = buffer.range(of: "\n\n") {
-            let event = String(buffer[..<end.lowerBound])
-            buffer = String(buffer[end.upperBound...])
+        guard dataTask === task else { return }
+        buffer.append(data)
+        while let end = buffer.range(of: Data("\n\n".utf8)) {
+            let event = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
+            buffer = Data(buffer[end.upperBound...])
             guard event.contains("event: status"),
                   let line = event.split(separator: "\n").first(where: { $0.hasPrefix("data: ") }),
                   let payload = try? JSONDecoder().decode(ConversationStatusPayload.self, from: Data(line.dropFirst(6).utf8))

@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import type { CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
@@ -238,6 +238,40 @@ describe("ConversationViewServer", () => {
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
     expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
+  });
+
+  it("ends the island's feed when a newer session starts, so it reconnects to that one", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const port = await start(undefined, [captain("push it"), assistantText("» Pushed to main.")]);
+      let text = "";
+      let firstStatus!: () => void;
+      const statusSeen = new Promise<void>((resolve) => (firstStatus = resolve));
+      const ended = new Promise<void>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            text += chunk;
+            if (text.includes("event: status")) firstStatus();
+          });
+          res.on("end", resolve);
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      await statusSeen;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      while (!text.includes(": keep-alive")) await new Promise((resolve) => setTimeout(resolve, 5));
+
+      writeFileSync(join(dir!, "s2.jsonl"), [captain("new session")].join("\n") + "\n");
+      const later = new Date(Date.now() + 60_000);
+      utimesSync(join(dir!, "s2.jsonl"), later, later);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await ended;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects requests carrying a foreign Host header", async () => {

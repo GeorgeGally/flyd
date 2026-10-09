@@ -8,7 +8,8 @@ import type { ConversationSnapshot } from "./types.js";
 // Firstmate also replies to its own wakes and supervision ("Captain,
 // shipshape.", "no news yet", "the worker has posted an update"). Those stay
 // in the conversation but never reach the island: only a decision, a real
-// outcome (a PR ready, something merged or shipped) or a real problem does.
+// outcome (a PR ready, something fixed, pushed or merged) or a real problem
+// does. The outcome rule matches the one domain-run notifications use.
 
 export interface ConversationStatus {
   working: boolean;
@@ -46,8 +47,15 @@ function plain(text: string): string {
 const ROUTINE_OPENING = /^(shipshape|all (quiet|clear|good|calm)|no (news|updates?|progress)\b|nothing (new|to report|yet)|still (working|waiting|running|going)|on it\b|ack(nowledged)?\b|noted\b|got it\b|standing by|will (report|update|let you know|follow up))/i;
 /** Supervision chatter about the workers rather than the work. */
 const MACHINERY = /\b(posted an update|is moving again|acknowledged (my|the|your) decision|(a|the) (worker|crewmate|supervisor) (is|has|had|will|picked|started|took)\b|is now on\b|dispatched\b)/i;
+const PULL_REQUEST = /https?:\/\/\S+\/pull\/\d+/i;
 /** Something George would want to hear without asking: a result ready for him, or a real problem. */
-const OUTCOME = /(https?:\/\/\S+\/pull\/\d+|\bready (for (your )?review|to merge)\b|\b(merged|shipped|deployed|released|is live|failed|failing|broken|blocked|stuck|overloaded|crashed)\b)/i;
+const OUTCOME = /(\bready (for (your )?review|to merge)\b|\b(done|fixed|pushed|landed|committed|finished|completed|merged|shipped|deployed|released|updated|added|is live|failed|failing|broken|blocked|stuck|overloaded|crashed)\b|\bnow (shows|works)\b)/i;
+/** A promise of an outcome is not one: "On it — will report once it's fixed". */
+const FUTURE_CLAUSE = /(\b(will|once|when|until|after)\b|['’]ll\b)[^,.;:!?—–]*/gi;
+
+function reportsOutcome(lead: string): boolean {
+  return PULL_REQUEST.test(lead) || OUTCOME.test(lead.replace(FUTURE_CLAUSE, ""));
+}
 
 /**
  * Whether a reply belongs on the island. A reply to George's own words shows
@@ -58,9 +66,10 @@ export function worthAnnouncing(text: string, prompted: boolean): boolean {
   if (asksForDecision(text)) return true;
   const prose = text.replace(/```[\s\S]*?```/g, "").trim();
   const lead = plain([authorSummary(text)?.summary ?? "", prose.split(/\n\s*\n/)[0] ?? ""].join(" "));
-  if (!lead || ROUTINE_OPENING.test(lead)) return false;
-  if (prompted) return !MACHINERY.test(lead) || OUTCOME.test(lead);
-  return OUTCOME.test(lead);
+  if (!lead) return false;
+  if (ROUTINE_OPENING.test(lead)) return reportsOutcome(lead);
+  if (prompted) return !MACHINERY.test(lead) || reportsOutcome(lead);
+  return reportsOutcome(lead);
 }
 
 export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): ConversationStatus {
@@ -71,10 +80,9 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     const message = messages[index]!;
     if (message.role === "assistant" && worthAnnouncing(message.text, messages[index - 1]?.role === "user")) reply = message;
   }
-  // Working means the open turn answers George — his message is newest, or the
-  // reply in progress follows it — not firstmate handling its own wakes.
-  const last = messages.length - 1;
-  const awaitingAnswer = messages[last]?.role === "user" || messages[last - 1]?.role === "user";
+  // Working means the open turn answers George — his message is newest — not
+  // firstmate handling its own wakes.
+  const awaitingAnswer = messages[messages.length - 1]?.role === "user";
   return {
     working: snapshot.working && recent && awaitingAnswer,
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
