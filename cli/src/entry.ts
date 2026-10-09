@@ -33,6 +33,11 @@ function positionalArgs(args: string[], valued: Set<string>): string[] {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "accounts") {
+    const { runAccounts } = await import("./commands/accounts.js");
+    await runAccounts(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "doctor") {
     const args = process.argv.slice(3);
     if (args[0] === "repos") {

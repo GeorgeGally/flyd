@@ -8,9 +8,13 @@ import type { AgentTool } from "../lib/llm.js";
 // guessed URLs for current facts and spent a dozen tool calls grepping Flyd's
 // own source to discover how to set a reminder.
 
+import { connectorTools, CONNECTOR_TOOL_NAMES, CONNECTOR_WRITE_TOOLS, runConnectorTool } from "../connectors/tools.js";
+import type { MailDependencies } from "../connectors/mail.js";
+
 const execFileAsync = promisify(execFile);
 
 export const personalTools: AgentTool[] = [
+  ...connectorTools,
   {
     name: "web_search",
     description: "Search the web for current facts (news, prices, scores, schedules, people, docs). Returns titles, URLs, and snippets; follow up with read_url for detail.",
@@ -110,6 +114,7 @@ export const PERSONAL_TOOL_NAMES = new Set(personalTools.map((tool) => tool.name
 
 /** Tools whose effect lands outside the conversation; a retry would repeat it. */
 export function isMutatingToolCall(name: string, input: Record<string, unknown>): boolean {
+  if (CONNECTOR_WRITE_TOOLS.has(name)) return true;
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
   if (name === "schedule" || name === "todos") return input.action !== "list";
   if (name === "work_model" || name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task") return true;
@@ -121,6 +126,7 @@ export function isMutatingToolCall(name: string, input: Record<string, unknown>)
 }
 
 export interface PersonalToolDependencies {
+  connectors?: MailDependencies;
   fetchFn?: FetchLike;
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
@@ -470,6 +476,7 @@ export async function runPersonalTool(
   input: Record<string, unknown>,
   deps: PersonalToolDependencies = {},
 ): Promise<string> {
+  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, input, deps.connectors);
   const osascript = deps.runOsascript ?? defaultOsascript;
   switch (name) {
     case "web_search": {

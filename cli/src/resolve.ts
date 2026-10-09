@@ -1,3 +1,4 @@
+import { answerAccountIntent, isAccountIntent } from "./connectors/invocation.js";
 import { randomUUID } from "node:crypto";
 import type { ConversationTurn } from "./conversation-history.js";
 import { query } from "./lib/llm.js";
@@ -916,6 +917,17 @@ export async function resolve(
     modality,
     elementRole: environment.focused_element?.role ?? "unknown",
   });
+
+  if (!isDictation && isAccountIntent(intent)) {
+    const answer = await answerAccountIntent(intent, conversationTurns.map(t => `George: ${t.user}\nFlyd: ${t.assistant}`).join("\n"));
+    return {
+      resolutionId: randomUUID(), invocationId: invocation_id,
+      environmentRevision: environment_revision, mode: "requires_augment",
+      rationale: "Email/Drive request handled through account tools",
+      operations: [], augmentations: [{ kind: "explanation", content: answer, placement: "cursor" }],
+      workSessionId: resolvedSessionId, consequence: heuristicConsequence,
+    };
+  }
 
   if (!isDictation && shouldRunWorkIntelligence(intent, modality, purpose) && model && apiKey) {
     try {

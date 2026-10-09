@@ -42,7 +42,7 @@ export function resetSessionAllowances(): void {
 }
 
 /** Tools whose output is third-party content that could carry injected instructions. */
-const UNTRUSTED_OUTPUT_TOOLS = new Set(["read_url", "web_search"]);
+const UNTRUSTED_OUTPUT_TOOLS = new Set(["read_url", "web_search", "email_search", "email_read", "drive_search", "drive_read"]);
 
 export function marksTurnUntrusted(name: string): boolean {
   return UNTRUSTED_OUTPUT_TOOLS.has(name);
@@ -182,6 +182,8 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "edit_file":
     case "write_file":
     case "remember":
+    case "email_draft":
+    case "drive_compose":
       return "local";
     case "schedule": return input.action === "list" ? "read" : "local";
     case "todos": return input.action === "list" ? "read" : "local";

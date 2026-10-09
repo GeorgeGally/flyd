@@ -262,7 +262,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "background_task", "crew"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "connected_accounts", "email_search", "email_read", "email_mailboxes", "drive_search", "drive_read", "email_draft", "drive_compose", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "start_knowledge_task", "background_task", "domain_work", "crew"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({

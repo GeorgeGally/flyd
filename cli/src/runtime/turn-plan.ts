@@ -63,7 +63,7 @@ export interface TurnPlan {
 // hidden on routes that shouldn't change anything, so the model isn't
 // tempted; tools with a read action (todos list, schedule list, reminders
 // list) stay visible and the gate stops their writes.
-const CHANGE_ONLY = ["edit_file", "write_file", "remember", "work_model", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
+const CHANGE_ONLY = ["email_draft", "drive_compose", "edit_file", "write_file", "remember", "work_model", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
 const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task"];
 
 /**

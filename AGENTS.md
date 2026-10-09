@@ -118,6 +118,10 @@ Use `flyd doctor` / `flyd doctor --json` for operation-level capability health. 
 
 PRESENT remains zero-network. External evidence is not automatically written into personal memory.
 
+### Email and Drive
+
+Direct Google APIs and DreamHost IMAP live in `cli/src/connectors/`, exposed through personal tools and the explicit account-intent path in `resolve.ts` (also used by LIVE). `flyd accounts` connects/checks/disconnects accounts; setup and limits are in `docs/product/flyd-email-drive-setup.md`. Drafts and new Docs are supported; no sending/deletion/sharing tools. Credentials stay outside repositories and model tools; retrieved content is untrusted evidence and is not automatically learned into memory.
+
 ### Privacy invariants
 
 11 falsifiable constraints live in `mac-adapter/Sources/Privacy/PrivacyInvariants.swift`. Key guarantees: no screenshots in PRESENT, no environment persistence after invocation, no raw audio storage, mic only during explicit user action.
