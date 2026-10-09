@@ -168,7 +168,9 @@ export interface FirstmateReceipts {
 }
 
 export function firstmateRequestBody(request: DomainRequest): string {
-  const project = request.project?.root ? `\nProject root: ${request.project.root}` : "";
+  const project = request.project?.root
+    ? `\nFlyd project hint: ${request.project?.name ? `${request.project.name} — ` : ""}${request.project.root}. Resolve the canonical FirstMate project yourself; this is context, not permission or a binding.`
+    : "";
   return [
     "FLYD DOMAIN REQUEST",
     "Flyd is mediating this coding request for George. Own the coding outcome as the domain boss: route it to the right project/workers, supervise it, verify it, and escalate only real decisions.",
@@ -185,6 +187,7 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "RETURN CONTRACT:",
     "When this request reaches a stable outcome or needs a real decision, publish a durable reply to this inbox note using fm-inbox.sh reply.",
+    "If implementation is verified but merge, publication, deployment, or another captain-authority step remains, return status=needs_decision rather than completed.",
     "Return JSON when practical with: status (completed|needs_decision|failed), brief, recommendation {action,reasoning,confidence}, detailed_report, decisions_made, unresolved_questions, risks, evidence, artifacts, specialist_outputs, information_loss_risk.",
     "The detailed_report should retain material technical detail. Do not collapse specialist findings into only a short summary. Evidence/artifact pointers should survive so Flyd can inspect or ask follow-ups.",
   ].filter(Boolean).join("\n");
