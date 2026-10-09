@@ -432,7 +432,7 @@ export function mightCarryTaste(text: string): boolean {
 // the heading to X") is not taste: it teaches nothing that would hold on another
 // screen. The model is told to skip these; this is the backstop that keeps one
 // out of the store even when it slips through.
-const ONE_OFF_VERB = /^(?:make|change|set|move|add|remove|delete|drop|swap|switch|turn|put|rename|crop|resize|recolour|recolor|fix|update)\b/i;
+const ONE_OFF_VERB = /^(?:(?:please|kindly)\s+)?(?:don't|do not|make|change|set|move|add|remove|delete|drop|swap|switch|turn|put|rename|crop|resize|recolour|recolor|fix|update)\b/i;
 const DEFINITE_ELEMENT = /\b(?:this|that|these|those)\b|\bthe\s+(?:button|header|heading|card|page|section|box|banner|footer|sidebar|modal|icon|image|logo|label|link|menu|tab|row|column|grid|colour|color|text|copy|eyebrow)\b/i;
 
 /** True when a learned rule reads as reusable taste, not a one-off instruction about one element. */
@@ -464,7 +464,7 @@ export function learningPrompt(turns: CandidateTurn[], profile: TasteProfile, pr
     "For each of George's messages below, extract the durable rules it teaches. The assistant's reply before it is context only, to understand what he was reacting to; never take a rule from the assistant's words.",
     "Good rules generalise: \"No shadows on icon boxes.\", \"One eyebrow style everywhere.\", \"Inconsistency is the biggest red flag.\", \"Prefer lifted navy cards to azure.\", \"Headlines on one line where they fit.\", \"Avoid both big gaps and cramped edges.\"",
     "A rule is only worth keeping if it is a reusable preference: something that would still hold on a different screen, page or project. A one-off instruction about one element (\"make this button blue\", \"change the heading to X\", \"commit it\") is not a rule — emit nothing for it.",
-    "Prefer fewer, stronger rules to many weak ones: at most one rule per message, and only when the message teaches a clear, lasting preference. Skip one-off instructions, questions, moods, and anything about the content of a specific page.",
+    "Prefer fewer, stronger rules to many weak ones: usually one rule per message, and only when the message teaches a clear, lasting preference. Skip one-off instructions, questions, moods, and anything about the content of a specific page.",
     "scope: \"personal\" for taste that likely holds across his work (consistency, spacing, type, tone, process); \"project\" for rules tied to one project (exact sizes, brand colours, a site's conventions).",
     `project: the id of the project the message is about, from this list, else null: ${projects.map((project) => `${project.id} (${project.name})`).join(", ") || "(none)"}.`,
     "quote: an exact span of George's message that shows the rule. same_as: the id of an existing rule this repeats or sharpens, else null. Write the rule fresh only when it is new.",
@@ -739,7 +739,7 @@ export function rewordRule(id: string, text: string, path = tastePath()): boolea
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean || clean.length > 300) return false;
   const profile = readTaste(path);
-  const rule = profile.rules.find((candidate) => candidate.id === id);
+  const rule = [...profile.rules, ...(profile.retired ?? [])].find((candidate) => candidate.id === id);
   if (!rule) return false;
   rule.text = clean;
   writeTaste(profile, path);
@@ -749,9 +749,11 @@ export function rewordRule(id: string, text: string, path = tastePath()): boolea
 /** Undo a veto: the rule goes back to where it held. */
 export function restoreRule(id: string, path = tastePath()): boolean {
   const profile = readTaste(path);
-  const index = profile.vetoed.findIndex((rule) => rule.id === id);
-  if (index === -1) return false;
-  const [rule] = profile.vetoed.splice(index, 1);
+  const retired = profile.retired ?? [];
+  const vetoedIndex = profile.vetoed.findIndex((rule) => rule.id === id);
+  const retiredIndex = retired.findIndex((rule) => rule.id === id);
+  if (vetoedIndex === -1 && retiredIndex === -1) return false;
+  const [rule] = vetoedIndex !== -1 ? profile.vetoed.splice(vetoedIndex, 1) : retired.splice(retiredIndex, 1);
   rule!.scope = rule!.projects.length === 1 ? rule!.projects[0]! : PERSONAL;
   profile.rules.push(rule!);
   writeTaste(profile, path);

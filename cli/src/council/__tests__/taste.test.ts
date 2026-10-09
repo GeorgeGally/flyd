@@ -281,6 +281,8 @@ describe("parseLearned", () => {
     ] });
     expect(parseLearned(output, [oneOff], empty(), PROJECTS).map((item) => item.rule)).toEqual(["No eyebrow above a headline."]);
     expect(isReusablePreference("Make this button bigger.")).toBe(false);
+    expect(isReusablePreference("Don't change this button.")).toBe(false);
+    expect(isReusablePreference("Please make this button bigger.")).toBe(false);
     expect(isReusablePreference("Change the heading to X.")).toBe(false);
     expect(isReusablePreference("No eyebrow above a headline.")).toBe(true);
   });
