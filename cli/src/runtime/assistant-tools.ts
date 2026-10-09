@@ -225,7 +225,12 @@ export async function runAssistantTool(
               force: true,
               extraEvidence: feedback ? [{ id: `chat:${Date.now().toString(36)}`, kind: "pushback", at: new Date().toISOString(), text: `George said directly: "${feedback}"` }] : [],
             });
-            if (result.status === "dispatched") return `Self-improvement started: ${result.improvement!.title}. It is built and tested on its own branch and lands only when George says /land. Tell him in plain words what you're changing about yourself; no ids.`;
+            if (result.status === "dispatched") {
+              const task = result.task!;
+              return "branch" in task
+                ? `Self-improvement started: ${result.improvement!.title}. It is built and tested on its own branch and lands only when George says /land. Tell him in plain words what you're changing about yourself; no ids.`
+                : `Self-improvement started: ${result.improvement!.title}. The coding boss owns implementation and verification; Flyd will surface any real decision before authority is exceeded. Tell George in plain words what you're changing about yourself; no ids or backstage names.`;
+            }
             if (result.status === "awaiting_george") return "A self-improvement is already built and waiting for George's /land; tell him that one is ready first.";
             return `No change started (${result.status.replace(/_/g, " ")}). Tell him honestly and say what you'd need to see.`;
           }
