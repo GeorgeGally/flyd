@@ -44,6 +44,7 @@ describe("captain notices", () => {
       "Captain, no change yet.",
       "On it — will report once it's fixed.",
       "Got it; I'll let you know when it's merged.",
+      "Acknowledged; I'll let you know when it's merged.",
     ]) {
       expect(isRoutineChatter(chatter), chatter).toBe(true);
       expect(captainNotice(run(chatter)), chatter).toBeNull();
@@ -69,6 +70,8 @@ describe("captain notices", () => {
     expect(captainNotice(run("Captain, shipshape: dark mode is merged."))).toBe("Shipshape: dark mode is merged.");
     expect(captainNotice(run("Captain, got it — fixed the typo and pushed to main.")))
       .toBe("Got it — fixed the typo and pushed to main.");
+    expect(captainNotice(run("Captain, got it — once CI passed, I merged it."))).toBe("Got it — once CI passed, I merged it.");
+    expect(captainNotice(run("Got it — when I checked, it was already fixed."))).toBe("Got it — when I checked, it was already fixed.");
     expect(captainNotice(run("On it. Landed the island fix; it will ship tonight."))).toBe("On it. Landed the island fix; it will ship tonight.");
     expect(captainNotice(run("Captain, shipshape. The Flyd island checks are moving slowly."))).toBeNull();
   });

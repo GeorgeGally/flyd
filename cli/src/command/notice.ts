@@ -23,7 +23,7 @@ export function plainBrief(text: string): string {
 }
 
 /** A promise of an outcome is not one: "On it — will report once it's fixed". */
-const FUTURE_CLAUSE = /(\b(will|once|when|until)\b|'ll\b)[^.;:!?—–]*/gi;
+const FUTURE_CLAUSE = /(\b(will|once|when|until)\b|['’]ll\b)[^,.;:!?—–]*/gi;
 
 function reportsOutcome(brief: string): boolean {
   return OUTCOME.test(brief.replace(FUTURE_CLAUSE, ""));
