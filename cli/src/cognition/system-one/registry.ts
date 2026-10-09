@@ -316,6 +316,23 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
   },
 
   {
+    id: "chat_turn_command_kind", family: "chat", type: "choice",
+    instructions: "What relationship does George's current utterance have to work already in progress? Choose new_request unless the wording clearly modifies, answers, reprioritizes, questions, or cancels active work.",
+    criteria: {
+      new_request: "Starts a new piece of work or asks something unrelated to an active delegated run.",
+      correction: "Corrects, constrains, reverses, or says not to do something in work already under way.",
+      decision: "Answers a decision or grants/refuses authority requested by active work.",
+      priority_change: "Changes urgency, ordering, or what should be done first in active work.",
+      question: "Asks about details/status/reasoning of active work without changing its authority.",
+      cancel: "Explicitly asks to stop/cancel active delegated work.",
+      general: "No clear relationship to active delegated work.",
+    },
+    threshold: 0.8, use: "choice", failureMode: "fallback_llm_classifier",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "chat_turn_command_kind.v1", status: "production",
+    consumer: "runtime/conversation-responder.ts: corrections/decisions/priority changes are losslessly forwarded to a uniquely matching active domain run before the answer is composed",
+  },
+
+  {
     id: "chat_turn_domain", family: "chat", type: "choice",
     instructions: "If this turn needs delegated work, which specialist domain should own the outcome? Choose general when Flyd should handle it itself or the domain is genuinely unclear.",
     criteria: {
