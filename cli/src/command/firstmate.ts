@@ -66,7 +66,7 @@ export class FirstmateDomainTransport {
   readonly script: string;
 
   constructor(options: { home?: string; script?: string; exec?: FirstmateExec } = {}) {
-    this.home = options.home ?? process.env.FLYD_FIRSTMATE_HOME?.trim() || DEFAULT_FIRSTMATE_HOME;
+    this.home = options.home ?? (process.env.FLYD_FIRSTMATE_HOME?.trim() || DEFAULT_FIRSTMATE_HOME);
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
     this.exec = options.exec ?? defaultExec;
   }
