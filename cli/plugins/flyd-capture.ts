@@ -363,6 +363,55 @@ function drainConversation(sessionID: string): string {
   return conv;
 }
 
+// Optional structured ingress into the shared conversation-learning contract.
+// A governed source replaces legacy capture; paused/revoked sources must not
+// silently fall back to ungoverned raw files or third-party Gist/distillation.
+function conversationLearningStatus(): string | undefined {
+  try {
+    const registry = JSON.parse(readFileSync(join(FLYD_ROOT, "intelligence", "source-consents.json"), "utf8"));
+    const state = registry.states?.["conversation.import"];
+    return state?.explicitlyConfigured ? state.status : undefined;
+  } catch { return undefined; }
+}
+
+function conversationLearningAllowed(cwd: string): boolean {
+  if (conversationLearningStatus() !== "enabled") return false;
+  try {
+    const config = JSON.parse(readFileSync(join(FLYD_ROOT, "overlay", "config.json"), "utf8"));
+    if (config.incognito || config.retention === "private" || config.excludedApps?.includes("ai.opencode")) return false;
+  } catch { /* explicit source grant still governs */ }
+  return true;
+}
+
+export function buildConversationLearningPayload(ex: {
+  sessionID: string; userMessageID: string; userText: string;
+}, assistant: string, projectIds: string[] = []) {
+  return { turns: [{ sessionId: "opencode:" + ex.sessionID, messageId: ex.userMessageID,
+    user: ex.userText.slice(0, 12000), assistant: assistant.slice(0, 12000), projectIds,
+    truncated: ex.userText.length > 12000 || assistant.length > 12000 }] };
+}
+
+function linkedProjectIds(cwd: string): string[] {
+  try {
+    const projects = JSON.parse(readFileSync(join(FLYD_ROOT, "projects.json"), "utf8")).projects ?? [];
+    const matches = projects.filter((p: any) => p.repos?.includes(cwd));
+    return matches.length === 1 ? ["project:" + matches[0].id] : [];
+  } catch { return []; }
+}
+
+async function captureConversationLearning(ex: Exchange, cwd: string, assistant: string): Promise<void> {
+  if (!conversationLearningAllowed(cwd)) return;
+  try {
+    const token = readFileSync(FEEDBACK_AUTH_TOKEN_PATH, "utf8").trim();
+    if (!token) return;
+    await fetch(FLYD_CORE_URL + "/learning/conversations", {
+      method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify(buildConversationLearningPayload(ex, assistant, linkedProjectIds(cwd))),
+      signal: AbortSignal.timeout(2000),
+    });
+  } catch { /* Optional learning must never block OpenCode. */ }
+}
+
 function flushExchange(sessionID: string, cwd: string) {
   const ex = exchanges.get(sessionID);
   if (!ex) return;
@@ -373,6 +422,10 @@ function flushExchange(sessionID: string, cwd: string) {
   const ts = timestamp();
   const filename = ts.replace(/[ :]/g, "-") + ".md";
   const assistantText = [...ex.assistantParts.values()].join("\n").trim();
+  if (conversationLearningStatus() !== undefined) {
+    void captureConversationLearning(ex, cwd, assistantText);
+    return;
+  }
 
   let body = `## Question\n${ex.userText}\n`;
   if (ex.tools.length) {
@@ -524,6 +577,7 @@ function buildStartupInjection(cwd: string): string {
 // ─── session-end: save + distill ────────────────────────────
 
 async function onSessionEnd(sessionID: string, cwd: string): Promise<void> {
+  if (conversationLearningStatus() !== undefined) { drainConversation(sessionID); return; }
   const conversation = drainConversation(sessionID);
   if (!conversation || conversation.trim().length < 200) return;
 

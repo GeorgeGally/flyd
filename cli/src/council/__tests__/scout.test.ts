@@ -164,7 +164,8 @@ describe("evolution", () => {
     onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
     const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
     const complete = vi.fn(async () => '{"picks": []}');
-    const morning = at("2026-09-27T07:30:00+08:00");
+    // Scout keeps George's local clock, so the morning is 07:30 wherever the test runs.
+    const morning = new Date(2026, 8, 27, 7, 30);
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["edition: 0 items"]);
     expect(latestEdition(dir)?.items).toEqual([]);
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["watch: 0 must-know"]);

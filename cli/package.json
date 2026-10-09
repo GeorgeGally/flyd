@@ -22,29 +22,39 @@
   },
   "files": [
     "dist",
-    "agent"
+    "agent",
+    "vendor/braces"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "@tobilu/qmd": "^2.5.3",
     "better-sqlite3": "^12.10.0",
+    "braces": "file:vendor/braces",
     "commander": "^12.0.0",
     "dotenv": "^17.4.2",
+    "marked": "^16.4.2",
     "openai": "^4.0.0",
     "pg": "^8.22.0",
     "undici": "^7.30.0",
     "ws": "^8.21.1"
   },
   "overrides": {
-    "fast-uri": "3.1.6",
-    "ip-address": "10.3.1",
-    "nanoid": "5.1.16"
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "braces": "$braces",
+    "fast-uri": "3.1.8",
+    "hono": "4.13.7",
+    "ip-address": "10.7.1",
+    "nanoid": "5.1.16",
+    "proxy-addr": "2.0.8",
+    "qs": "6.16.0",
+    "simple-git": "4.0.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.18.1",
+    "happy-dom": "^20.14.5",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^4.1.10"

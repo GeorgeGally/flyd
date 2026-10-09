@@ -8,6 +8,7 @@ export type DictationProfile = "code" | "chat" | "prose";
 export interface DictationTarget {
   bundleId: string;
   windowTitle?: string;
+  context?: import("./context.js").VoiceContext;
 }
 
 const APP_PROFILES: Record<string, DictationProfile> = {

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendJournalTurn } from "../../council/journal.js";
 import { saveTask, type CrewTask } from "../crew.js";
 import { gatherEvidence, improverPrompt, parseImprovement, runSelfImprovement } from "../self-improve.js";
+import { saveDomainRun } from "../../command/store.js";
+import type { DomainRun } from "../../command/types.js";
 
 let home: string;
 const NOW = new Date("2026-09-27T09:00:00Z");
@@ -107,6 +109,34 @@ describe("runSelfImprovement", () => {
   it("does nothing once George has turned it off", async () => {
     process.env.FLYD_SELF_IMPROVE = "0";
     expect((await runSelfImprovement({ complete, flydDir: home, now: () => NOW })).status).toBe("disabled");
+  });
+});
+
+describe("domain handoffs as improvement evidence", () => {
+  it("surfaces failed and unstructured manager handoffs without losing the raw result", () => {
+    const base = {
+      id: "domain-a",
+      request: {
+        id: "domain-a", domain: "coding" as const, originalMessage: "fix it", intendedOutcome: "fix it",
+        doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "chat" as const,
+      },
+      owner: "FirstMate", createdAt: "2026-09-26T10:00:00Z", updatedAt: "2026-09-26T11:00:00Z",
+      transport: { kind: "firstmate" as const, requestId: "domain-a" },
+    };
+    saveDomainRun({ ...base, status: "failed", failure: "handoff broke" } satisfies DomainRun, join(home, "command"));
+    saveDomainRun({
+      ...base, id: "domain-b", request: { ...base.request, id: "domain-b" }, status: "completed",
+      transport: { kind: "firstmate", requestId: "domain-b" },
+      result: {
+        format: "raw", brief: "done", detailedReport: "full detail survives here", decisionsMade: [],
+        unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [],
+        raw: ["full detail survives here"], informationLossRisk: "high",
+      },
+    } satisfies DomainRun, join(home, "command"));
+
+    const evidence = gatherEvidence({ flydDir: home, now: NOW });
+    expect(evidence.find((item) => item.id === "domain:domain-a")?.text).toContain("handoff broke");
+    expect(evidence.find((item) => item.id === "domain-result:domain-b")?.text).toContain("unstructured domain handoff");
   });
 });
 

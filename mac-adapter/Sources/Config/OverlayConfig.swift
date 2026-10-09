@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct OverlayConfig: Codable {
@@ -7,6 +8,8 @@ struct OverlayConfig: Codable {
     var incognito: Bool = false
     var replyMode: ReplyMode = .text
     var foregroundFeedbackCapture: Bool = true
+    var dictationContext: Bool = true
+    var dictationCorrectionLearning: Bool = false
     var settingsVersion: Int = 1
 
     init(
@@ -16,6 +19,8 @@ struct OverlayConfig: Codable {
         incognito: Bool = false,
         replyMode: ReplyMode = .text,
         foregroundFeedbackCapture: Bool = true,
+        dictationContext: Bool = true,
+        dictationCorrectionLearning: Bool = false,
         settingsVersion: Int = 1
     ) {
         self.retention = retention
@@ -24,6 +29,8 @@ struct OverlayConfig: Codable {
         self.incognito = incognito
         self.replyMode = replyMode
         self.foregroundFeedbackCapture = foregroundFeedbackCapture
+        self.dictationContext = dictationContext
+        self.dictationCorrectionLearning = dictationCorrectionLearning
         self.settingsVersion = settingsVersion
     }
 
@@ -40,11 +47,13 @@ struct OverlayConfig: Codable {
         incognito = try container.decodeIfPresent(Bool.self, forKey: .incognito) ?? false
         replyMode = try container.decodeIfPresent(ReplyMode.self, forKey: .replyMode) ?? .text
         foregroundFeedbackCapture = try container.decodeIfPresent(Bool.self, forKey: .foregroundFeedbackCapture) ?? true
+        dictationContext = try container.decodeIfPresent(Bool.self, forKey: .dictationContext) ?? true
+        dictationCorrectionLearning = try container.decodeIfPresent(Bool.self, forKey: .dictationCorrectionLearning) ?? false
         settingsVersion = try container.decodeIfPresent(Int.self, forKey: .settingsVersion) ?? 1
     }
 
     private enum CodingKeys: String, CodingKey {
-        case retention, excludedApps, redactionRules, incognito, replyMode, foregroundFeedbackCapture, settingsVersion
+        case retention, excludedApps, redactionRules, incognito, replyMode, foregroundFeedbackCapture, dictationContext, dictationCorrectionLearning, settingsVersion
     }
 
     enum ReplyMode: String, Codable, CaseIterable {
@@ -154,6 +163,28 @@ final class ConfigManager {
     func setReplyMode(_ mode: OverlayConfig.ReplyMode) {
         config.replyMode = mode
         save()
+    }
+
+    func setDictationContext(_ enabled: Bool) {
+        config.dictationContext = enabled
+        save()
+    }
+
+    func setDictationCorrectionLearning(_ enabled: Bool) {
+        Task {
+            let changed = await FlydClient.shared.setCorrectionLearning(enabled)
+            DispatchQueue.main.async {
+                if changed { self.config.dictationCorrectionLearning = enabled }
+                self.save()
+                if !changed {
+                    let alert = NSAlert()
+                    alert.messageText = enabled ? "Couldn't turn on learning from dictation edits" : "Couldn't turn off learning from dictation edits"
+                    alert.informativeText = "Flyd Core didn't confirm the change, so the switch stays as it was. Check that Flyd Core is running and try again."
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
     }
 
     func setForegroundFeedbackCapture(_ enabled: Bool) {

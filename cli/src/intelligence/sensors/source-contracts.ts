@@ -37,6 +37,8 @@ export interface SourceContract {
 export interface SourceConsentState {
   status: SourceStatus;
   changedAt: string;
+  /** Distinguishes a default registration from an explicit source-control choice. */
+  explicitlyConfigured?: boolean;
 }
 
 const DEFAULT_SENSITIVE_SOURCES: ReadonlySet<string> = new Set([
@@ -170,7 +172,14 @@ export class SourceContractRegistry {
     if (current.status === "revoked" && status !== "revoked") {
       throw new Error(`Source ${sourceId} was revoked; re-registration required`);
     }
-    this.states.set(sourceId, { status, changedAt: new Date().toISOString() });
+    this.states.set(sourceId, { status, changedAt: new Date().toISOString(), explicitlyConfigured: true });
+    this.persist();
+  }
+
+  /** Starts a fresh, disabled generation for a revoked source; erased data stays erased. */
+  renew(sourceId: string): void {
+    if (this.states.get(sourceId)?.status !== "revoked") throw new Error(`Source ${sourceId} is not revoked`);
+    this.states.set(sourceId, { status: "disabled", changedAt: new Date().toISOString(), explicitlyConfigured: true });
     this.persist();
   }
 

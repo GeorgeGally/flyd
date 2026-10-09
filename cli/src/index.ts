@@ -29,10 +29,12 @@ import { runWorkStatus } from "./commands/tasks.js";
 import { runCompound } from "./commands/compound.js";
 import { runWikiInit } from "./commands/wiki.js";
 import { runIngest } from "./commands/ingest.js";
+import { runLearning } from "./commands/learning.js";
 import { runTransitions } from "./commands/transitions.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runAgent, runCode } from "./commands/code.js";
 import { runFix } from "./commands/fix.js";
+import { runView } from "./commands/view.js";
 import {
   runTaskComplete,
   runTaskAcceptance,
@@ -179,6 +181,15 @@ program
   .description("Repair the most recent Flyd response and add it to the regression corpus")
   .argument("[feedback...]", "what was wrong with the preceding response")
   .action((feedback: string[] = []) => runFix(feedback.join(" ")));
+
+program
+  .command("view")
+  .description("Open a calm view of firstmate's conversation (your messages and its replies only), with a box to message firstmate")
+  .option("--session <id>", "session to show (default: the most recently active, followed live)")
+  .option("--project <dir>", "Claude Code project dir name under ~/.claude/projects, or an absolute path")
+  .option("--port <n>", "loopback port (default 4818)", (value: string) => Number.parseInt(value, 10))
+  .option("--no-open", "don't open the browser")
+  .action((opts: { session?: string; project?: string; port?: number; open?: boolean }) => runView(opts));
 
 program
   .command("dashboard")
@@ -712,6 +723,21 @@ repos
   .description("Reconcile PROJECT.md with recent Git activity")
   .argument("[path]", "specific repository path (omit for all)")
   .action((path?: string) => runReposReconcile(path));
+
+program
+  .command("learning")
+  .description("Inspect and govern conversation learning and dictation vocabulary")
+  .option("--enable <source>", "Enable conversation.import or dictation.corrections")
+  .option("--pause <source>", "Pause a learning source")
+  .option("--disable <source>", "Disable a learning source")
+  .option("--erase <source>", "Revoke and erase a source and its derived content")
+  .option("--export <source>", "Export retained source evidence")
+  .option("--import <file>", "Import attributed conversation JSON")
+  .option("--approve <sequence>", "Approve a scoped vocabulary correction")
+  .option("--reject <sequence>", "Reject or deactivate a vocabulary correction")
+  .option("--process", "Process queued conversations")
+  .option("--json", "Print the review as JSON")
+  .action(runLearning);
 
 program
   .command("transitions")

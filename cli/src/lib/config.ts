@@ -33,7 +33,9 @@ export function loadFlydEnvironment(
   return environment;
 }
 
-loadFlydEnvironment();
+// Tests run on the same environment as CI: the developer's .env (real models
+// and keys) would otherwise turn hermetic tests into live provider calls.
+if (!process.env.VITEST) loadFlydEnvironment();
 
 function resolveFlydDir(): string {
   const configured = process.env.FLYD_DIR?.trim();
@@ -91,6 +93,7 @@ interface FlydConfig {
   COMMANDCODE_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   FLYD_DICTATE_MODEL?: string;
+  FLYD_CONVERSATION_LEARN_MODEL?: string;
   CMD_API_KEY?: string;
   COMMANDCODE_MODEL?: string;
   COMMANDCODE_API_KEY_MODEL?: string;
