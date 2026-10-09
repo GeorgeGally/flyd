@@ -32,6 +32,8 @@ interface Segment {
   settled: boolean;
   /** The assistant has produced anything at all in this segment. */
   started: boolean;
+  /** What the assistant is doing now, in a few plain words (see activityOf). */
+  activity?: { text: string; rank: number };
 }
 
 function isRecord(value: unknown): value is Json {
@@ -167,6 +169,43 @@ function captainMessage(id: string, said: { text: string; images: string[] }, ti
   };
 }
 
+/** One short plain line: no Markdown, no salutation, no trailing colon. */
+function activityLine(raw: string): string | null {
+  const line = raw
+    .split("\n")[0]!
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/^(?:captain|george)[,!:]\s*/i, "")
+    .replace(/[:…]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (line.length < 3) return null;
+  const text = line.charAt(0).toUpperCase() + line.slice(1);
+  return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text;
+}
+
+/**
+ * What a tool call says about the current step, ranked: the assistant's
+ * own task list (3) and delegated work (2) over a shell step's description
+ * (1). Reads, edits and searches say nothing worth showing.
+ */
+function activityOf(block: Json): { text: string; rank: number } | null {
+  const input = isRecord(block.input) ? block.input : {};
+  const name = stringField(block, "name") ?? "";
+  if (name === "TodoWrite" && Array.isArray(input.todos)) {
+    const doing = input.todos.filter(isRecord).find((todo) => todo.status === "in_progress");
+    const text = doing && (stringField(doing, "activeForm") ?? stringField(doing, "content"));
+    return text && activityLine(text) ? { text: activityLine(text)!, rank: 3 } : null;
+  }
+  const active = stringField(input, "activeForm");
+  if (active && activityLine(active)) return { text: activityLine(active)!, rank: 3 };
+  const description = stringField(input, "description");
+  if (!description || !activityLine(description)) return null;
+  if (name === "Agent" || name === "Task") return { text: activityLine(description)!, rank: 2 };
+  if (name === "Bash") return { text: activityLine(description)!, rank: 1 };
+  return null;
+}
+
 /**
  * Incrementally folds transcript entries into the visible conversation.
  * Push entries in file order; read `snapshot()` whenever needed.
@@ -268,6 +307,12 @@ export class TranscriptConversation {
     const uuid = stringField(entry, "uuid") ?? `${segment.id}-${segment.trailing.length}`;
     contentBlocks(message.content).forEach((block, index) => {
       if (block.type === "tool_use" || block.type === "server_tool_use") {
+        // Text said just before a tool call is the assistant naming its next step.
+        const said = segment.trailing.at(-1);
+        const narration = said && said.text.length < SUBSTANTIVE_CHARS ? activityLine(said.text) : null;
+        if (narration) segment.activity = { text: narration, rank: 3 };
+        const step = activityOf(block);
+        if (step && step.rank >= (segment.activity?.rank ?? 0)) segment.activity = step;
         segment.trailing = [];
         segment.settled = false;
         return;
@@ -336,6 +381,7 @@ export class TranscriptConversation {
     return {
       messages,
       working,
+      ...(working && open?.activity ? { activity: open.activity.text } : {}),
       ...(this.lastActivity ? { lastActivity: this.lastActivity } : {}),
       ...(this.context ? { context: { tokens: this.context.tokens, window: contextWindow(this.context.model, this.maxContext) } } : {}),
     };

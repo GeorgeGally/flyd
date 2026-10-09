@@ -30,6 +30,12 @@ const SESSIONS = [
   { id: "older", title: "Older", updatedAt: "2026-10-04T20:00:00.000Z" },
 ];
 let sendResponse: Record<string, unknown>;
+const COMMANDS = [
+  { name: "caveman:caveman", description: "Terse mode" },
+  { name: "design-review", description: "Designer's eye QA" },
+  { name: "design-shotgun", description: "Five design variants" },
+  { name: "review", description: "Pre-landing PR review" },
+];
 let planResponse: unknown = null;
 let blips = 0;
 
@@ -89,7 +95,7 @@ beforeEach(() => {
   blips = 0;
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("AudioContext", FakeAudioContext);
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : url === "/api/commands" ? json({ commands: COMMANDS }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
   window.scrollTo = () => {};
 });
 
@@ -145,7 +151,7 @@ describe("conversation page", () => {
 
     stream.emit("update", { order: ["note:1"], messages: [{ id: "note:1", role: "user", html: "<p>are you there?</p>" }], working: false });
     expect(pending()).toEqual([]);
-    expect(document.querySelector(".msg.user .state")?.textContent).toBe("saved, but firstmate was not woken: fm-inbox: firstmate was NOT woken");
+    expect(document.querySelector(".msg.user .state")?.textContent).toBe("saved, but not passed on yet");
   });
 
   it("previews a pasted image, sends it with the message, and shows transcript images as thumbnails", async () => {
@@ -242,11 +248,71 @@ describe("conversation page", () => {
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
   });
 
-  it("swaps a pending first-sentence summary for the model's when it arrives", async () => {
+  it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>fix the cards</p>" }]);
+    const recent = new Date().toISOString();
+    stream.emit("update", { order: ["u1"], messages: [], working: true, activity: "Recolouring the cards", lastActivity: recent });
+    expect(document.getElementById("working")!.hidden).toBe(false);
+    expect(document.getElementById("doing")!.textContent).toBe("Recolouring the cards");
+    stream.emit("update", { order: ["u1"], messages: [], working: false, lastActivity: recent });
+    expect(document.getElementById("doing")!.textContent).toBe("");
+  });
+
+  it("opens a reply with something to act on, and mutes routine ones", async () => {
+    load("");
+    await settle();
+    open("latest", [
+      { id: "r1", role: "assistant", html: "<pre><code>rule</code></pre>", summary: { html: "<p>Four rules.</p>", source: "author" }, expanded: true } as never,
+      { id: "r2", role: "assistant", html: "<p>Captain, shipshape.</p>", routine: true } as never,
+    ]);
+    const [rules, routine] = Array.from(document.querySelectorAll(".msg.assistant"));
+    expect(rules!.classList.contains("open")).toBe(true);
+    expect(rules!.querySelector(".more")!.textContent).toBe("less");
+    expect(routine!.classList.contains("routine")).toBe(true);
+  });
+
+  it("asks for a message to Flyd in Flyd's window", () => {
+    document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!.replace(/<script>[\s\S]*<\/script>/, "");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect(input.placeholder).toBe("Message Flyd");
+    expect(document.body.textContent).not.toMatch(/firstmate/i);
+  });
+
+  it("shows a question waiting under itself until its own answer arrives, with relayed updates set apart", async () => {
     load("");
     await settle();
     const stream = open("latest", [
-      { id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>First sentence.</p>", source: "first-sentence", pending: true } } as never,
+      { id: "note:1", role: "user", html: "<p>whats on in bkk tonight?</p>", waiting: "passed to firstmate" } as never,
+      { id: "t1", role: "assistant", html: "<p>Sir, the island filter is still paused.</p>", aside: true } as never,
+      { id: "t2", role: "assistant", html: "<p>Sir, PR 61 is green.</p>", aside: true } as never,
+    ]);
+    const question = document.querySelector(".msg.user")!;
+    expect(question.querySelector(".queued")!.textContent).toBe("passed to firstmate");
+    const relays = Array.from(document.querySelectorAll(".msg.aside"));
+    expect(relays.map((el) => el.classList.contains("aside-first"))).toEqual([true, false]);
+    expect(relays[0]!.querySelector(".aside-label")!.textContent).toBe("update");
+
+    stream.emit("update", {
+      order: ["note:1", "note-reply:1", "t1", "t2"],
+      messages: [
+        { id: "note:1", role: "user", html: "<p>whats on in bkk tonight?</p>" },
+        { id: "note-reply:1", role: "assistant", html: "<p>Art bangkok, sir.</p>", answers: "note:1", timestamp: "2026-10-09T03:22:45Z" },
+      ],
+      working: false,
+    });
+    expect(question.querySelector(".queued")).toBeNull();
+    const shown = Array.from(document.querySelectorAll(".msg")).map((el) => el.querySelector(".body")!.textContent);
+    expect(shown).toEqual(["whats on in bkk tonight?", "Art bangkok, sir.", "Sir, the island filter is still paused.", "Sir, PR 61 is green."]);
+    expect(document.querySelector(".msg.answer")!.classList.contains("aside")).toBe(false);
+  });
+
+  it("swaps a pending digest summary for the model's when it arrives", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [
+      { id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>First sentence.</p>", source: "digest", pending: true } } as never,
     ]);
     expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(true);
     stream.emit("update", { order: ["r1"], messages: [{ id: "r1", role: "assistant", html: "<p>Long.</p>", summary: { html: "<p>Plain English.</p>", source: "model" } }], working: false });
@@ -394,5 +460,60 @@ describe("conversation page", () => {
     expect(message.querySelectorAll(".hl")).toHaveLength(1);
     expect(message.querySelector("pre .hl")).toBeNull();
     expect(message.querySelector("pre code")!.textContent).toContain("    h2 {");
+  });
+
+  // Reproduction (2026-10-07): typing "/" in the message box did nothing.
+  it("lists skills when '/' is typed, filters, completes with Enter and runs on send", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>older</p>" }]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const menu = document.getElementById("commands")!;
+    const typeText = async (text: string) => {
+      input.value = text;
+      input.dispatchEvent(new Event("input"));
+      await settle();
+    };
+    const key = (name: string) => {
+      const event = new KeyboardEvent("keydown", { key: name, cancelable: true });
+      input.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    await typeText("/");
+    expect(menu.hidden).toBe(false);
+    expect(Array.from(menu.querySelectorAll(".name")).map((n) => n.textContent)).toEqual(["/caveman:caveman", "/design-review", "/design-shotgun", "/review"]);
+
+    await typeText("/des");
+    expect(Array.from(menu.querySelectorAll(".name")).map((n) => n.textContent)).toEqual(["/design-review", "/design-shotgun"]);
+    expect(key("ArrowDown")).toBe(true);
+    expect(menu.querySelector(".selected .name")!.textContent).toBe("/design-shotgun");
+    expect(key("ArrowUp")).toBe(true);
+    expect(input.value).toBe("/des");
+    expect(key("Enter")).toBe(true);
+    expect(input.value).toBe("/design-review ");
+    expect(menu.hidden).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+
+    input.value = "/design-review the cards look flat";
+    key("Enter");
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ text: "/design-review the cards look flat" });
+  });
+
+  it("says when nothing matches and closes on Escape", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    const menu = document.getElementById("commands")!;
+    input.value = "/zzz";
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    expect(menu.textContent).toContain("No skill or command matches /zzz");
+    const esc = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    input.dispatchEvent(esc);
+    expect(menu.hidden).toBe(true);
   });
 });

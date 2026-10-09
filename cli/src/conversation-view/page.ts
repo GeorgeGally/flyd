@@ -4,7 +4,8 @@ import { escapeHtml } from "./markdown.js";
 // slim header. Everything is inline (see the CSP in server.ts); the page
 // fetches nothing but this server's own /api endpoints.
 
-const STYLE = `
+/** Colours, type and the slim header, shared with the taste page. */
+export const BASE_STYLE = `
 :root {
   --bg: #101113;
   --fg: #e4e2dc;
@@ -75,6 +76,9 @@ header select:hover { background-color: var(--tint); }
 header select option { color: var(--fg); background: var(--bg); }
 header button:hover { color: var(--fg); border-color: color-mix(in srgb, var(--muted) 50%, transparent); }
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+`;
+
+const STYLE = BASE_STYLE + `
 
 /* ~66 characters a line at the reading size. */
 main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh; }
@@ -97,19 +101,26 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 /* Pasted code: one solid highlighted block, indentation kept, no per-line bars. */
 .msg.user pre { background: var(--sel-bg); color: var(--sel-fg); line-height: 1.6; }
 .msg.user pre code { background: none; color: inherit; }
-/* Taller lines so the padded highlights of wrapped lines do not touch. */
-.msg.user .body { line-height: 2.1; }
+/* The highlight fills the whole line box, so wrapped lines touch with no gap:
+   ~1.185em glyph box + 2 × 0.36em padding ≈ the 1.9em line. */
+.msg.user .body { line-height: 1.9; }
 /* Horizontal "padding" comes from side shadows in the same colour: WebKit
    draws them on every wrapped line, so each line's highlight starts at the
    same left edge (inline padding and margins only reach the first line
    there), and the text itself stays aligned with the replies. */
 .msg.user .hl {
-  padding: 0.35em 0;
+  padding: 0.36em 0;
   box-shadow: 0.6em 0 0 var(--sel-bg), -0.6em 0 0 var(--sel-bg);
 }
 .msg.user strong, .msg.user a { color: inherit; }
 .msg.user + .msg.user { margin-top: 0.9em; }
 .msg.assistant { margin-top: 0.85em; }
+/* A question with no answer yet: its answer will appear right under it. */
+.msg.user .queued { display: block; margin-top: 0.3em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
+/* Updates relayed from firstmate's own session: set apart, never read as an answer. */
+.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
+.aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
   position: absolute; right: calc(100% + 2em); top: 0.55em; white-space: nowrap;
   font: 13px/1 var(--mono); color: var(--muted); opacity: 0; transition: opacity 140ms ease;
@@ -140,8 +151,12 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .body th, .body td { padding: 0.45em 0.8em 0.45em 0; border-bottom: 1px solid var(--faint); vertical-align: top; }
 .pill { font: 500 0.7em var(--mono); color: var(--muted); border: 1px solid var(--faint); border-radius: 999px; padding: 0.12em 0.6em; vertical-align: 0.12em; white-space: nowrap; }
 
-.working { margin-top: 1em; height: 20px; display: flex; gap: 7px; align-items: center; }
+.working { margin-top: 1em; }
 .working[hidden] { display: none; }
+.working .dots { height: 20px; display: flex; gap: 7px; align-items: center; }
+/* What the assistant is doing now, small and quiet under the dots. */
+.working .doing { display: block; margin-top: 0.3em; font: 13px/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working .doing:empty { display: none; }
 .working i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: breathe 1.4s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: .18s; } .working i:nth-child(3) { animation-delay: .36s; }
 @keyframes breathe { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
@@ -171,6 +186,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .more:hover { color: var(--fg); }
 .msg.has-summary > .body { margin-top: 0.7em; }
+/* Routine chatter ("shipshape", "still waiting"): one quiet line. */
+.msg.routine .body, .msg.routine .summary { color: var(--muted); font-size: 0.86em; }
 :root:not([data-view="full"]) .msg.has-summary:not(.open) > .body { display: none; }
 :root[data-view="full"] .msg.has-summary .more,
 :root[data-view="full"] .msg.has-summary .compare,
@@ -228,7 +245,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .attachments { display: flex; flex-wrap: wrap; gap: 0.5em; margin: 0 0 0.5em; }
 .attachments[hidden] { display: none; }
 .attachment { position: relative; line-height: 0; border: 1px solid var(--faint); border-radius: 6px; overflow: hidden; background: var(--tint); }
-.attachment img { display: block; height: 72px; max-width: 160px; object-fit: cover; }
+/* The whole picture, scaled to fit: cropping a wide screenshot left only a strip of it. */
+.attachment img { display: block; width: auto; height: auto; max-width: 240px; max-height: 96px; }
 .attachment button {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
@@ -238,6 +256,18 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .composer.listening .field, .composer.transcribing .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
 .composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
 .composer.transcribing .hint::before { content: "… writing it down   "; color: var(--accent); }
+/* "/" lists the assistant's skills and commands, like Claude Code's prompt. */
+.commands {
+  position: absolute; left: 1.875em; right: 1.875em; bottom: calc(100% + 0.4em); z-index: 6;
+  max-height: 46vh; overflow-y: auto; margin: 0 0 0 -0.75em; padding: 0.3em; list-style: none;
+  background: var(--tint); border-radius: 0.4em; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.commands[hidden] { display: none; }
+.commands li { display: flex; gap: 0.9em; align-items: baseline; padding: 0.38em 0.6em; border-radius: 0.3em; cursor: pointer; }
+.commands li.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.commands .name { font: 500 0.82em var(--mono); color: var(--fg); white-space: nowrap; }
+.commands .about { font-size: 0.66em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commands .none { font: 0.72em var(--mono); color: var(--muted); cursor: default; }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
@@ -258,6 +288,7 @@ const SCRIPT = `
 (function () {
   var main = document.getElementById("stream");
   var working = document.getElementById("working");
+  var doing = document.getElementById("doing");
   var jump = document.getElementById("jump");
   var header = document.querySelector("header");
   var whenEl = document.getElementById("when");
@@ -275,6 +306,7 @@ const SCRIPT = `
   var latestSession = null;
   var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
+  var assistant = document.title || "the assistant";
 
   function store(key, value) {
     try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) { return null; }
@@ -297,6 +329,7 @@ const SCRIPT = `
     store("flyd-view-mode", next);
     applyMode(next);
   });
+  document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste"; });
   themeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     store("flyd-view-theme", next);
@@ -363,8 +396,35 @@ const SCRIPT = `
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
       })));
     }
-    if (message.role === "assistant") summarize(el, message);
+    pairing(el, message);
+    if (message.role === "assistant") {
+      el.classList.toggle("routine", !!message.routine);
+      // Something to act on (rules to paste, steps) shows whole until he folds it.
+      if (message.expanded && !el.dataset.folded) el.classList.add("open");
+      summarize(el, message);
+    }
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
+  }
+  // A question waits for its own answer; firstmate's session lines are relayed updates.
+  function pairing(el, message) {
+    var queued = el.querySelector(":scope > .queued");
+    if (queued) queued.remove();
+    if (message.waiting) {
+      queued = document.createElement("span");
+      queued.className = "queued";
+      queued.textContent = message.waiting;
+      el.appendChild(queued);
+    }
+    el.classList.toggle("answer", !!message.answers);
+    el.classList.toggle("aside", !!message.aside);
+    var label = el.querySelector(":scope > .aside-label");
+    if (label) label.remove();
+    if (message.aside) {
+      label = document.createElement("span");
+      label.className = "aside-label";
+      label.textContent = "update";
+      el.insertBefore(label, el.querySelector(".body"));
+    }
   }
   function summarize(el, message) {
     ["summary", "compare", "more"].forEach(function (name) {
@@ -392,6 +452,7 @@ const SCRIPT = `
     more.setAttribute("aria-expanded", el.classList.contains("open") ? "true" : "false");
     more.addEventListener("click", function () {
       var open = el.classList.toggle("open");
+      if (!open) el.dataset.folded = "1";
       more.textContent = open ? "less" : "more";
       more.setAttribute("aria-expanded", open ? "true" : "false");
     });
@@ -458,16 +519,21 @@ const SCRIPT = `
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
     var cursor = main.firstElementChild;
     var day = "";
+    var previous = null;
     update.order.forEach(function (id) {
       var el = nodes.get(id);
       if (el !== cursor) main.insertBefore(el, cursor); else cursor = cursor.nextElementSibling;
-      var d = el.dataset.ts ? dayOf(el.dataset.ts) : "";
+      el.classList.toggle("aside-first", el.classList.contains("aside") && !(previous && previous.classList.contains("aside")));
+      previous = el;
+      // A reply sits under its question, whenever it was written: no day marker of its own.
+      var d = el.dataset.ts && !el.classList.contains("answer") ? dayOf(el.dataset.ts) : "";
       if (d && d !== day) { el.dataset.day = d; day = d; } else { delete el.dataset.day; }
     });
     main.querySelectorAll(".msg.pending").forEach(function (el) { main.appendChild(el); });
     main.appendChild(working);
     document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
     isWorking = update.working;
+    doing.textContent = update.working && update.activity ? update.activity : "";
     if (update.context) { usage.context = update.context; renderUsage(); }
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
@@ -520,6 +586,7 @@ const SCRIPT = `
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
       current = session.id;
+      assistant = session.assistantLabel;
       document.title = session.title + " · " + session.assistantLabel;
       if (picker.value !== session.id) loadSessions();
     });
@@ -655,8 +722,93 @@ const SCRIPT = `
     grow();
     input.setSelectionRange(text.length, text.length);
   }
+  // "/" at the start of the box: the assistant's skills and commands.
+  var commandsEl = document.getElementById("commands");
+  var commandList = null;
+  var commandMatches = [];
+  var commandIndex = 0;
+  function loadCommands() {
+    if (commandList) return Promise.resolve(commandList);
+    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (data) {
+      commandList = data.commands || [];
+      return commandList;
+    }).catch(function () { return []; });
+  }
+  function closeCommands() {
+    commandsEl.hidden = true;
+    commandMatches = [];
+  }
+  function renderCommands() {
+    commandsEl.textContent = "";
+    if (!commandMatches.length) {
+      var none = document.createElement("li");
+      none.className = "none";
+      none.textContent = "No skill or command matches " + input.value;
+      commandsEl.appendChild(none);
+      return;
+    }
+    commandMatches.forEach(function (command, index) {
+      var item = document.createElement("li");
+      item.setAttribute("role", "option");
+      item.className = index === commandIndex ? "selected" : "";
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = "/" + command.name;
+      var about = document.createElement("span");
+      about.className = "about";
+      about.textContent = command.description;
+      item.appendChild(name);
+      item.appendChild(about);
+      item.addEventListener("mousedown", function (event) { event.preventDefault(); chooseCommand(index); });
+      commandsEl.appendChild(item);
+    });
+    var selected = commandsEl.children[commandIndex];
+    if (selected && selected.scrollIntoView) selected.scrollIntoView({ block: "nearest" });
+  }
+  function updateCommands() {
+    var typed = /^\\/([\\w:.-]*)$/.exec(input.value);
+    if (!typed) { closeCommands(); return; }
+    var query = typed[1].toLowerCase();
+    loadCommands().then(function (list) {
+      if (!/^\\/([\\w:.-]*)$/.test(input.value)) return;
+      var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0; });
+      var contains = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) > 0; });
+      commandMatches = starts.concat(contains).slice(0, 50);
+      commandIndex = 0;
+      commandsEl.hidden = false;
+      renderCommands();
+    });
+  }
+  function chooseCommand(index) {
+    var command = commandMatches[index];
+    if (!command) return;
+    input.value = "/" + command.name + " ";
+    closeCommands();
+    grow();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  input.addEventListener("input", updateCommands);
+  input.addEventListener("blur", function () { setTimeout(closeCommands, 150); });
+
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
+    if (!commandsEl.hidden) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (commandMatches.length) {
+          commandIndex = (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length;
+          renderCommands();
+        }
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && commandMatches.length) {
+        event.preventDefault();
+        chooseCommand(commandIndex);
+        return;
+      }
+      if (event.key === "Escape") { event.preventDefault(); closeCommands(); return; }
+    }
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
     if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     var value = input.value;
@@ -841,7 +993,7 @@ const SCRIPT = `
       if (nodes.has(sent.id)) {
         el.remove();
         if (sent.warning) {
-          warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+          warnings.set(sent.id, "saved, but not passed on yet");
           showWarning(nodes.get(sent.id), warnings.get(sent.id));
         }
         return;
@@ -854,7 +1006,7 @@ const SCRIPT = `
       }
       el.dataset.wait = sent.id;
       awaiting.add(sent.id);
-      if (sent.warning) warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+      if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
       state.textContent = warnings.get(sent.id) || "delivered";
     }).catch(function (error) {
       el.classList.add("failed");
@@ -886,17 +1038,19 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
   <span class="when" id="when"></span>
   <button id="mode" type="button" aria-label="Switch between summaries and full replies">full</button>
+  <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
   <button id="theme" type="button" aria-label="Toggle theme">light</button>
 </header>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
-  <div class="working" id="working" hidden aria-label="${label} is working"><i></i><i></i><i></i></div>
+  <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span><span class="doing" id="doing"></span></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
+    <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>

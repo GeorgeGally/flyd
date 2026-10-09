@@ -104,6 +104,11 @@ describe("crew", () => {
     expect(CREW_OPENCODE_CONFIG.permission.bash["git push*"]).toBe("deny");
     expect(CREW_OPENCODE_CONFIG.permission.bash["rm -rf *"]).toBe("deny");
     expect(crewBrief("x", ["npm test"], "flyd/x")).toContain("run and pass: npm test");
+    // George's learned taste rides in the brief, ahead of the rules.
+    const taste = "George's taste (learned from his own corrections…):\n\nEverywhere:\n- No shadows on icon boxes.";
+    const brief = crewBrief("x", ["npm test"], "flyd/x", [], taste);
+    expect(brief.indexOf("No shadows on icon boxes.")).toBeGreaterThan(-1);
+    expect(brief.indexOf("No shadows on icon boxes.")).toBeLessThan(brief.indexOf("Rules:"));
     expect(lastSummary(join(home, "missing.jsonl"))).toBe("");
   });
 });

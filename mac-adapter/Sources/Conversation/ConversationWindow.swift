@@ -274,6 +274,19 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         document.getElementById('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: pasted, bubbles: true, cancelable: true }));
         await wait(500);
         out.pastePreview = document.querySelectorAll('.attachment img').length;
+        // A wide screenshot pasted: the preview shows the whole picture, uncropped.
+        const wide = document.createElement('canvas'); wide.width = 1916; wide.height = 336;
+        const wideBlob = await new Promise((r) => wide.toBlob(r, 'image/png'));
+        document.querySelectorAll('.attachment button').forEach((b) => b.click());
+        const widePaste = new DataTransfer(); widePaste.items.add(new File([wideBlob], 'wide.png', { type: 'image/png' }));
+        document.getElementById('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: widePaste, bubbles: true, cancelable: true }));
+        await wait(600);
+        const thumb = document.querySelector('.attachment img');
+        if (thumb) {
+          const tr = thumb.getBoundingClientRect();
+          out.wideThumb = [Math.round(tr.width), Math.round(tr.height)];
+          out.wideThumbAspectError = Math.round(Math.abs(tr.width / tr.height - thumb.naturalWidth / thumb.naturalHeight) * 100) / 100;
+        }
         document.querySelectorAll('.attachment button').forEach((b) => b.click());
         const dropped = new DataTransfer(); dropped.items.add(file);
         document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dropped, bubbles: true, cancelable: true }));
@@ -287,6 +300,16 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         const send = await fetch('/api/send', { method: 'POST', headers: { 'content-type': 'application/json', 'x-flyd-view-token': token }, body: JSON.stringify({ session: '../selftest', text: 'selftest' }) });
         out.sendPlumbing = send.status + ' ' + (await send.json()).error;
         out.externalLinks = document.querySelectorAll('.body a[target=_blank]').length;
+        // "/" in the box lists skills (typed, never sent).
+        const box = document.getElementById('input');
+        box.value = '/'; box.dispatchEvent(new Event('input'));
+        await wait(800);
+        out.slashMenuOpen = !document.getElementById('commands').hidden;
+        out.slashSkills = document.querySelectorAll('#commands .name').length;
+        box.value = '/design-r'; box.dispatchEvent(new Event('input'));
+        await wait(300);
+        out.slashFiltered = Array.from(document.querySelectorAll('#commands .name')).map((n) => n.textContent).slice(0, 3);
+        box.value = ''; box.dispatchEvent(new Event('input'));
         // Every wrapped line of a captain highlight should start at the same left edge.
         let wrapped = 0, spread = 0;
         document.querySelectorAll('.msg.user .hl').forEach((hl) => {
@@ -295,6 +318,13 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         });
         out.wrappedHighlights = wrapped;
         out.wrapLeftSpread = spread;
+        // Wrapped lines' highlights should touch: the largest gap between them, in px.
+        let gap = -Infinity;
+        document.querySelectorAll('.msg.user .hl').forEach((hl) => {
+          const r = Array.from(hl.getClientRects());
+          for (let i = 1; i < r.length; i++) gap = Math.max(gap, r[i].top - r[i - 1].bottom);
+        });
+        out.wrapLineGap = gap === -Infinity ? null : Math.round(gap * 10) / 10;
         out.sendLabel = document.getElementById('send').textContent;
         const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
         if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }

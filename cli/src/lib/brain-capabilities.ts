@@ -18,6 +18,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "scout", integration: "runtime", description: "Personal news: ranked editions, pre-emptive must-know alerts, and sources that evolve with feedback.", mutatesArchive: false },
   { id: "council", integration: "runtime", description: "Run and inspect the council: Librarian curation, Critic and Strategist advisories, Muse.", mutatesArchive: false },
   { id: "agenda", integration: "runtime", description: "Schedule, run, and review Flyd's proactive follow-ups and recurring briefings.", mutatesArchive: false },
+  { id: "taste", integration: "targeted", description: "George's learned taste (TASTE.md): show it, print the rules for an agent before design or code work on a project, or learn from his Claude Code sessions now.", mutatesArchive: false },
   { id: "profile", integration: "targeted", description: "Show or edit George's own profile (USER.md), the highest-authority personal context.", mutatesArchive: false },
   { id: "ask", integration: "targeted", description: "Retrieve and synthesize personal evidence for a question.", mutatesArchive: false },
   { id: "search", integration: "targeted", description: "Retrieve matching raw and curated evidence without synthesis.", mutatesArchive: false },

@@ -158,7 +158,7 @@ export async function runWorkIntelligence(params: WorkInteractionParams): Promis
     ]),
     capabilities: ["work-intelligence", "memory", "git", "planning", "execution"],
   });
-  const memoryContext = formatCompiledContext(compiledContext);
+  const memoryContext = formatCompiledContext(compiledContext, { includeTaste: true });
 
   const prompt = buildWorkIntelligencePrompt({
     currentWork,

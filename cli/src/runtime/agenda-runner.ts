@@ -44,6 +44,9 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
         const { superviseCrew } = await import("../crew/crew.js");
         await superviseCrew({ notify: notifyMac });
+        // Learn George's taste from his own turns in his Claude Code sessions (council/taste.ts).
+        const { learnTaste } = await import("../council/taste.js");
+        await learnTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
         const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
         await investigate({
           complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),

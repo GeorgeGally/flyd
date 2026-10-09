@@ -76,6 +76,8 @@ export interface CompiledContext {
   interpretation: IntentInterpretation;
   user: {
     profile: string;
+    /** George's learned taste (TASTE.md): read only on design, code and work-state turns. */
+    taste?: string;
     autonomy: string[];
     communication: string[];
   };

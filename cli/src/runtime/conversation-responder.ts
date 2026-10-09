@@ -199,7 +199,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
-  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn })}\n` : "";
+  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn })}\n` : "";
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
   let projects = "";
