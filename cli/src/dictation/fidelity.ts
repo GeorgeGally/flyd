@@ -20,7 +20,7 @@ function writeSpokenExtensions(text: string): string {
 }
 
 const PROTECTED_TOKEN = new RegExp(
-  String.raw`\b(?:don't|can't|won't|isn't|wasn't|shouldn't|wouldn't|couldn't|mustn't|not|no|none|cannot|nor|neither|never|without|before|after|unless|only|if|maybe|approximately|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|hundred|thousand|million|billion)\b|\b\d+(?:[.,:/-]\d+)*%?\b|(?:--?[\w-]+)|(?:[~./][\w./-]+)|\b[\w-]+\.(?:${EXTENSION_PATTERN})\b`,
+  String.raw`\b(?:don't|can't|won't|isn't|wasn't|shouldn't|wouldn't|couldn't|mustn't|not|no|none|cannot|nor|neither|never|without|before|after|unless|only|if|maybe|approximately|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundred|thousand|million|billion)\b|\b\d+(?:[.,:/-]\d+)*%?\b|(?:--?[\w-]+)|(?:[~./][\w./-]+)|\b[\w-]+\.(?:${EXTENSION_PATTERN})\b`,
   "g",
 );
 
@@ -36,6 +36,12 @@ function words(text: string): string[] {
   return writeSpokenExtensions(text).toLowerCase().replace(/’/g, "'")
     .replace(/\byou know\b/g, "")
     .match(/[\p{L}\p{N}_]+(?:'[\p{L}]+)?/gu)?.filter(word => !/^(?:um+|uh+|erm+|er)$/.test(word)) ?? [];
+}
+
+/** Same lexical normalization as the fidelity guard, retaining exact spelling. */
+export function fidelityTokens(text: string): string[] {
+  return writeSpokenExtensions(text).replace(/’/g, "'").replace(/\byou know\b/gi, "")
+    .match(/[\p{L}\p{N}_]+(?:'[\p{L}]+)?/gu)?.filter(word => !/^(?:um+|uh+|erm+|er)$/i.test(word)) ?? [];
 }
 
 const VOWEL = /[aeiou]/;

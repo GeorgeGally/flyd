@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
 
-const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task";
+const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task" || name === "start_knowledge_task";
 
 describe("honesty check", () => {
   it("catches claimed work that no tool did", () => {
@@ -12,6 +12,9 @@ describe("honesty check", () => {
     expect(unsupportedClaims("I'm going through the mixes now and will report back.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I've taken them off the calendar.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I've started on it.", [{ name: "background_task", input: { task: "x" }, succeeded: true }], mutating, () => true)).toEqual([]);
+    const research = [{ name: "start_knowledge_task", input: { outcome: "research Jev" }, succeeded: true }];
+    expect(unsupportedClaims("I've started researching it.", research, mutating, () => true)).toEqual([]);
+    expect(unsupportedClaims("I've verified all the claims.", research, mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("Want me to start going through it?", [], mutating, () => true)).toEqual([]);
     // A handed-off job backs "started", not "drafted".
     const job = [{ name: "background_task", input: { task: "draft the GNM letter" }, succeeded: true }];

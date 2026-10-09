@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { offCode, offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnRoute } from "../turn-plan.js";
 import { contractError } from "../tool-contracts.js";
 
-const tools = ["read_file", "bash", "edit_file", "write_file", "web_search", "remember", "todos", "background_task", "start_coding_task", "speaking_style"].map((name) => ({ name }));
-const jev = (route: TurnRoute) => ({ route, source: "jev" as const });
+const tools = ["read_file", "bash", "edit_file", "write_file", "web_search", "remember", "todos", "background_task", "start_coding_task", "start_knowledge_task", "speaking_style"].map((name) => ({ name }));
+const jev = (route: TurnRoute, domain?: "coding" | "knowledge" | "creative" | "life" | "general") => ({ route, source: "jev" as const, domain });
 const names = (plan: ReturnType<typeof planTurn>) => visibleTools(tools, plan).map((tool) => tool.name);
 
 describe("turn plan", () => {
@@ -19,11 +19,20 @@ describe("turn plan", () => {
 
   it("hands work off at once: only the hand-offs are in reach, the reading is the crewmate's", () => {
     const plan = planTurn(jev("delegate"));
-    expect(names(plan)).toEqual(["background_task", "start_coding_task"]);
+    expect(names(plan)).toEqual(["background_task", "start_coding_task", "start_knowledge_task"]);
     expect(offRoute(plan, "start_coding_task", { outcome: "clock in the header" })).toBeNull();
     expect(offRoute(plan, "read_file", { path: "screen.ts" })).toMatch(/whoever takes it does the reading/);
     expect(offRoute(plan, "edit_file", { path: "screen.ts" })).toMatch(/^Skipped \(not this turn\)/);
     expect(planBudget({ iterations: 25, toolCalls: 30, answerMs: 1 }, plan)).toEqual({ iterations: 3, toolCalls: 2, answerMs: 1 });
+  });
+
+  it("narrows a confident delegated turn to its domain boss", () => {
+    const coding = planTurn(jev("delegate", "coding"));
+    const knowledge = planTurn(jev("delegate", "knowledge"));
+    expect(names(coding)).toEqual(["start_coding_task"]);
+    expect(names(knowledge)).toEqual(["start_knowledge_task"]);
+    expect(offRoute(coding, "start_knowledge_task", { outcome: "research it" })).toMatch(/^Skipped/);
+    expect(offRoute(knowledge, "start_coding_task", { outcome: "build it" })).toMatch(/^Skipped/);
   });
 
   it("asks back on an unclear request, without researching first", () => {

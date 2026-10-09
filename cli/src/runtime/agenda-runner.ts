@@ -1,4 +1,5 @@
 import type { AgendaItem } from "./agenda.js";
+import { startCommandScheduler, stopCommandScheduler } from "../command/scheduler.js";
 
 // Runs one due agenda item as an unattended agent turn. Nobody is there to
 // approve anything, so actions the policy would ask about are refused and
@@ -32,6 +33,7 @@ let agendaTimer: ReturnType<typeof setInterval> | null = null;
 /** Core-hosted agenda loop; the shared lock keeps it from racing the launchd runner. */
 export function startAgendaScheduler(options: { intervalMs?: number; onError?: (error: unknown) => void } = {}): () => void {
   stopAgendaScheduler();
+  startCommandScheduler({ onError: options.onError });
   const tick = () => {
     void import("./agenda.js")
       .then(({ runDueAgenda }) => runDueAgenda({ runTask: runAgendaTask }))
@@ -83,4 +85,5 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
 export function stopAgendaScheduler(): void {
   if (agendaTimer) clearInterval(agendaTimer);
   agendaTimer = null;
+  stopCommandScheduler();
 }

@@ -6,6 +6,8 @@ import { recentJournal } from "../council/journal.js";
 import { localDay } from "../council/memory-store.js";
 import { normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
+import { listDomainRuns } from "../command/store.js";
+import type { DomainRun } from "../command/types.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
 // evidence of where it fell short — /flyd-fix corrections, failed chat
@@ -17,7 +19,7 @@ import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 
 export interface Evidence {
   id: string;
-  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop";
+  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain";
   at: string;
   text: string;
 }
@@ -158,6 +160,26 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
     }
   }
 
+  // Domain management failures are not a second learning system. They feed the
+  // same governed improver, which decides whether the durable fix belongs in
+  // routing, transport, state, validation, or (last) a prompt.
+  for (const run of listDomainRuns(join(flydDir, "command"))) {
+    if (run.createdAt < since) continue;
+    if (run.status === "failed") {
+      evidence.push({
+        id: `domain:${run.id}`, kind: "domain", at: run.updatedAt,
+        text: `${run.request.domain} domain work failed under ${run.owner}: "${run.request.intendedOutcome.slice(0, 220)}" — ${(run.failure ?? run.result?.brief ?? "unknown").slice(0, 300)}`,
+      });
+      continue;
+    }
+    if (run.result?.format === "raw" && ["completed", "needs_decision"].includes(run.status)) {
+      evidence.push({
+        id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
+        text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,
+      });
+    }
+  }
+
   // Background jobs that ended short of their contract or were cut off.
   for (const { value: job } of readJsonFiles<{ id: string; status: string; startedAt: string; contract?: { task?: string }; checks?: Array<{ criterion: string; met: boolean; note: string; unchecked?: boolean }> }>(join(flydDir, "jobs"))) {
     if (job.startedAt < since || (job.status !== "short" && job.status !== "interrupted")) continue;
@@ -253,8 +275,11 @@ export function parseImprovement(text: string, evidence: Evidence[]): Improvemen
 
 const RUN_EVERY_MS = 24 * 60 * 60 * 1000;
 
-function awaitingGeorge(tasks: CrewTask[]): CrewTask | undefined {
-  return tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready"].includes(task.status));
+function awaitingGeorge(tasks: CrewTask[]): CrewTask | DomainRun | undefined {
+  const crew = tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready"].includes(task.status));
+  if (crew) return crew;
+  return listDomainRuns().find((run) => run.request.source === "self-improvement"
+    && ["queued", "accepted", "working", "needs_decision"].includes(run.status));
 }
 
 export interface SelfImproveDependencies {
@@ -274,7 +299,7 @@ export interface SelfImproveDependencies {
 export interface SelfImproveResult {
   status: "disabled" | "not_due" | "awaiting_george" | "no_new_evidence" | "nothing_worth_fixing" | "dispatched";
   improvement?: Improvement;
-  task?: CrewTask;
+  task?: CrewTask | DomainRun;
   evidence?: number;
 }
 
@@ -319,7 +344,26 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
   const repo = deps.repo ?? FLYD_APPLICATION_ROOT;
   const outcome = crewOutcome(improvement, evidence);
   const doneWhen = [...(improvement.doneWhen ?? []), "the diff adds or changes a test that exercises the new behaviour"];
-  const task = await (deps.dispatch ?? ((root, text, points) => dispatchCrewTask({ repo: root, outcome: text, doneWhen: points, source: "self-improvement" })))(repo, outcome, doneWhen);
+  let task: CrewTask | DomainRun;
+  if (deps.dispatch) {
+    task = await deps.dispatch(repo, outcome, doneWhen);
+  } else {
+    const { FirstmateDomainTransport } = await import("../command/firstmate.js");
+    const firstmate = new FirstmateDomainTransport();
+    if (process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
+      const { dispatchCodingDomain } = await import("../command/coding.js");
+      task = await dispatchCodingDomain({
+        originalMessage: `Flyd self-improvement: ${improvement.title}`,
+        intendedOutcome: outcome,
+        doneWhen,
+        source: "self-improvement",
+        project: { name: "Flyd", root: repo },
+        transport: firstmate,
+      });
+    } else {
+      task = await dispatchCrewTask({ repo, outcome, doneWhen, source: "self-improvement" });
+    }
+  }
   writeState({
     lastRunAt: now.toISOString(),
     // Only the evidence this fix addresses is spent; the rest stays for later nights.

@@ -272,7 +272,8 @@ function learnedVocabulary(target: DictationTarget): LearnedVocabulary {
 }
 
 function dictationRules(target: DictationTarget) {
-  return [...learnedVocabulary(target).rules, ...loadReplacementRules()];
+  const manual = loadReplacementRules();
+  return [...learnedVocabulary(target).rules.filter(rule => !manual.some(m => m.from.toLowerCase() === rule.from.toLowerCase())), ...manual];
 }
 
 /** The spelling shortlist, most authoritative first: his approved fixes, then what he talks about, then the screen. */

@@ -12,6 +12,8 @@ import { liveProjects, projectsPath, type Project } from "../council/projects.js
 export interface ReplacementRule {
   from: string;
   to: string;
+  /** Automatically learned rules require adjacent evidence; manual rules stay explicit. */
+  contexts?: Array<{ left: string[]; right: string[] }>;
 }
 
 export const TRANSCRIPTION_PROMPT_MAX_CHARS = 800;

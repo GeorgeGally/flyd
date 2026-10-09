@@ -11,7 +11,7 @@ const DONE_CLAIM = /\bI(?:'ve| have| just)?\s+(?:wrote|written|created|saved|dra
 // Work under way ("I've started", "I'm drafting") may rest on a handed-off job.
 const STARTED_CLAIM = /\bI(?:'ve| have| just)?\s+(?:started|kicked off|begun|queued)\b|\bI(?:'m| am) (?:now )?(?:already )?(?:drafting|building|going through|working (?:on|through)|writing|generating|putting together|pulling together)\b/i;
 /** Tools that start work which finishes later: they back "I've started", never "I've drafted". */
-const DELEGATIONS = new Set(["background_task", "start_coding_task"]);
+const DELEGATIONS = new Set(["background_task", "start_coding_task", "start_knowledge_task"]);
 /**
  * After a hand-off, any first-person perfect ("I've left it on", "I've made
  * sure…") describes work nobody has done yet. Matched by grammar, not a verb

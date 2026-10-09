@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { observeAllRepos } from "./git-observer.js";
+export { repositoryReadsAreStalled } from "./git-observer.js";
 import type { ProjectSnapshot } from "./repository-registry.js";
 import { getRecentCommits, type RecentCommit } from "../lib/recent-commits.js";
 

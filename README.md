@@ -62,7 +62,7 @@ Every `make install`/`make run` re-signs the binary. This app is signed with a l
 Diagnostics land in `~/.flyd/overlay/`:
 
 - `permission-diagnostic.json` — live TCC grant status, rewritten on every refresh
-- `core-launch.log` — Core's own stdout/stderr plus adapter-side launch/exit events
+- `core-launch.log` — Core's own stdout/stderr plus adapter-side launch/exit events; rotated to `core-launch.log.1` once it passes 5 MB
 - `audit/*.json` — one file per invocation, records the resolution outcome or failure reason
 
 Core can also be run standalone for backend-only work:
@@ -70,6 +70,8 @@ Core can also be run standalone for backend-only work:
 ```bash
 cd cli && npm run core
 ```
+
+If a Core is already answering on port 4815 when the app starts, the app adopts it instead of launching a second one, and launches its own only if that Core stops answering. Crashed Cores restart with exponential backoff (2s up to 5 min).
 
 A menu bar dot indicates state: grey (PRESENT), blue (INVOKED), green (LIVE), red (error).
 
