@@ -93,6 +93,18 @@ export const assistantTools: AgentTool[] = [
     },
   },
   {
+    name: "domain_work",
+    description: "Flyd's delegated domain work. action=list shows recent domain runs; show returns the retained layered report for one run, including the detailed report and specialist outputs so Flyd can answer follow-ups without re-summarizing or re-running the work.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "show"], description: "What to inspect" },
+        id: { type: "string", description: "Domain run id for show" },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "crew",
     description: "Flyd's coding crew. action=list shows tasks and their status; show gives one task's summary, diff size, checks, and the independent review of each done_when point; land merges a verified task into the branch it started from; discard deletes its worktree and branch. land and discard need George's approval.",
     input_schema: {
@@ -111,6 +123,8 @@ export const ASSISTANT_TOOL_NAMES = new Set(assistantTools.map((tool) => tool.na
 export interface AssistantToolContext {
   presentHypothesis?: string | null;
   situation?: { project?: string; projectRoot?: string } | null;
+  /** George's current message, retained verbatim for a delegated boss. */
+  userMessage?: string;
   /** Called when the model hands a job to the coding runtime. */
   onCodingHandoff?: (outcome: string) => void;
 }
@@ -221,11 +235,30 @@ export async function runAssistantTool(
         const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();
         if (!outcome) return "Error: start_coding_task needs an outcome";
         const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot || process.cwd();
-        const { dispatchCrewTask } = await import("../crew/crew.js");
         const { normalizeCriteria } = await import("./acceptance.js");
         const doneWhen = normalizeCriteria(input.done_when);
         if (!doneWhen.length) return "Error: start_coding_task needs done_when: the checkable points that mean it's done";
-        const { AFTER_LAND_STEPS, deployCommand } = await import("../crew/crew.js");
+
+        // FirstMate is the coding-domain boss when installed. Flyd keeps the
+        // original request attached and receives a durable layered reply. The
+        // old internal crew remains only as an installation-compatibility path;
+        // an installed-but-unhealthy FirstMate is never silently bypassed.
+        const { FirstmateDomainTransport } = await import("../command/firstmate.js");
+        const firstmate = new FirstmateDomainTransport();
+        if (process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
+          const { dispatchCodingDomain } = await import("../command/coding.js");
+          const run = await dispatchCodingDomain({
+            originalMessage: context.userMessage ?? outcome,
+            intendedOutcome: outcome,
+            doneWhen,
+            project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
+            transport: firstmate,
+          });
+          context.onCodingHandoff?.(outcome);
+          return `Coding work accepted (run ${run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
+        }
+
+        const { dispatchCrewTask, AFTER_LAND_STEPS, deployCommand } = await import("../crew/crew.js");
         const afterLand = normalizeCriteria(input.after_land).map((step) => step.toLowerCase())
           .filter((step): step is (typeof AFTER_LAND_STEPS)[number] => (AFTER_LAND_STEPS as readonly string[]).includes(step));
         const task = await dispatchCrewTask({ repo, outcome, doneWhen, afterLand, source: "chat" });
@@ -233,7 +266,7 @@ export async function runAssistantTool(
           ? " This repo declares no deploy command, so deploying will need one set up; tell him." : "";
         const verbs = { push: "pushes", deploy: "deploys" } as const;
         const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}, as he just approved.` : "";
-        return `Started in the background (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
+        return `Started in the compatibility coding crew (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
       }
       case "background_task": {
         const jobs = await import("./background-jobs.js");
@@ -241,6 +274,35 @@ export async function runAssistantTool(
         if (typeof contract === "string") return `Error: ${contract}`;
         const id = jobs.startBackgroundJob(contract, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn, deliver: jobs.deliverJob });
         return `Started in the background (job ${id}). The result will come back to George in the chat when it's done. Tell him in a few words what you're doing; don't mention job ids.`;
+      }
+      case "domain_work": {
+        const { listDomainRuns, readDomainRun } = await import("../command/store.js");
+        const { syncFirstmateDomainRuns } = await import("../command/firstmate.js");
+        await syncFirstmateDomainRuns().catch(() => []);
+        if (input.action === "list") {
+          const runs = listDomainRuns().slice(0, 10);
+          return runs.length
+            ? runs.map((run) => `${run.id} [${run.request.domain}/${run.status}] ${run.result?.brief ?? run.request.intendedOutcome}`).join("\n")
+            : "No delegated domain work yet.";
+        }
+        const id = String(input.id ?? "").trim();
+        if (!id) return "Error: domain_work show needs an id";
+        const run = readDomainRun(id);
+        if (!run) return `Error: no domain run ${id}`;
+        if (!run.result) return `${run.request.domain} work is ${run.status}: ${run.request.intendedOutcome}`;
+        const result = run.result;
+        return [
+          `Brief: ${result.brief}`,
+          result.recommendation ? `Recommendation: ${result.recommendation.action}${result.recommendation.reasoning ? ` — ${result.recommendation.reasoning}` : ""}` : "",
+          `Detailed report:\n${result.detailedReport}`,
+          result.decisionsMade.length ? `Decisions made:\n${result.decisionsMade.map((item) => `- ${item}`).join("\n")}` : "",
+          result.unresolvedQuestions.length ? `Unresolved questions:\n${result.unresolvedQuestions.map((item) => `- ${item}`).join("\n")}` : "",
+          result.risks.length ? `Risks:\n${result.risks.map((item) => `- ${item}`).join("\n")}` : "",
+          result.evidence.length ? `Evidence:\n${result.evidence.map((item) => `- ${item}`).join("\n")}` : "",
+          result.artifacts.length ? `Artifacts:\n${result.artifacts.map((item) => `- ${item}`).join("\n")}` : "",
+          result.specialistOutputs.length ? `Specialist outputs:\n${result.specialistOutputs.map((item) => `- ${item.specialist ?? "specialist"}: ${item.outcome}${item.raw ? `\n  Raw: ${item.raw}` : ""}`).join("\n")}` : "",
+          `Information-loss risk: ${result.informationLossRisk}`,
+        ].filter(Boolean).join("\n\n");
       }
       case "crew": {
         const crew = await import("../crew/crew.js");
