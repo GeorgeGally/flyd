@@ -62,6 +62,12 @@ describe("captain notices", () => {
       .toBe("No change needed — the bug was already fixed on main.");
   });
 
+  it("lets a settled outcome through even when it opens with an acknowledgement", () => {
+    expect(captainNotice(run("Got it — the fix is merged."))).toBe("Got it — the fix is merged.");
+    expect(captainNotice(run("Captain, shipshape: dark mode is merged."))).toBe("Shipshape: dark mode is merged.");
+    expect(captainNotice(run("Captain, shipshape. The Flyd island checks are moving slowly."))).toBeNull();
+  });
+
   it("always surfaces decisions and failures", () => {
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Captain, merge PR 68 or hold it?" }))))
       .toBe("I need your decision: Merge PR 68 or hold it?");

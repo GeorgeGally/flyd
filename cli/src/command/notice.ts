@@ -13,6 +13,8 @@ const BARE_ACK = /^(no change|received|noted|understood)\b[\w\s,']{0,20}[.!]?$/i
 /** Supervision chatter about the workers rather than the work. */
 const MACHINERY = /\b(posted an update|is moving again|acknowledged (my|the|your) decision|(a|the) (worker|crewmate|supervisor) (is|has|had|will|picked|started|took)\b|no-mistakes\b|dispatched\b|is now on\b)/i;
 const PULL_REQUEST = /https?:\/\/\S+\/pull\/\d+/i;
+/** Settled outcomes strong enough to beat an acknowledgement opening: "Got it — the fix is merged." */
+const SETTLED = /(\bready (for (your )?review|to merge)\b|\b(merged|shipped|deployed|released|failed|blocked)\b)/i;
 /** Words that mean something actually landed, so a mention of a worker doesn't hide it. */
 const OUTCOME = /(\bready (for (your )?review|to merge)\b|\b(merged|shipped|landed|deployed|published|released|finished|completed|fixed|pushed|failed|blocked|updated|added|done)\b|\bnow (shows|works|does)\b)/i;
 
@@ -26,7 +28,7 @@ export function isRoutineChatter(text: string): boolean {
   const brief = plainBrief(text);
   if (!brief) return true;
   if (PULL_REQUEST.test(brief)) return false;
-  if (ROUTINE_OPENING.test(brief) || BARE_ACK.test(brief)) return true;
+  if (ROUTINE_OPENING.test(brief) || BARE_ACK.test(brief)) return !SETTLED.test(brief);
   return MACHINERY.test(brief) && !OUTCOME.test(brief);
 }
 
