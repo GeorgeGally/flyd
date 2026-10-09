@@ -32,6 +32,7 @@ let agendaTimer: ReturnType<typeof setInterval> | null = null;
 /** Core-hosted agenda loop; the shared lock keeps it from racing the launchd runner. */
 export function startAgendaScheduler(options: { intervalMs?: number; onError?: (error: unknown) => void } = {}): () => void {
   stopAgendaScheduler();
+  void import("../command/scheduler.js").then(({ startCommandScheduler }) => startCommandScheduler({ onError: options.onError })).catch((error) => options.onError?.(error));
   const tick = () => {
     void import("./agenda.js")
       .then(({ runDueAgenda }) => runDueAgenda({ runTask: runAgendaTask }))
@@ -40,18 +41,6 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
           import("../council/council.js"), import("../lib/llm.js"), import("./agenda.js"),
         ]);
         await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
-        // Domain bosses report through durable transports. Fold their replies
-        // into Flyd's command store before supervising compatibility workers.
-        const { syncFirstmateDomainRuns } = await import("../command/firstmate.js");
-        await syncFirstmateDomainRuns({
-          onChanged: async (run) => {
-            if (!run.result || !["completed", "failed", "needs_decision"].includes(run.status) || run.notified) return;
-            const prefix = run.status === "needs_decision" ? "I need your decision: " : run.status === "failed" ? "Work hit a problem: " : "";
-            await notifyMac("Flyd", `${prefix}${run.result.brief}`);
-            const { saveDomainRun } = await import("../command/store.js");
-            saveDomainRun({ ...run, notified: true });
-          },
-        }).catch(() => []);
         const { superviseCrew } = await import("../crew/crew.js");
         await superviseCrew({ notify: notifyMac });
         const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
@@ -95,4 +84,5 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
 export function stopAgendaScheduler(): void {
   if (agendaTimer) clearInterval(agendaTimer);
   agendaTimer = null;
+  void import("../command/scheduler.js").then(({ stopCommandScheduler }) => stopCommandScheduler()).catch(() => undefined);
 }
