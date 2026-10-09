@@ -12,6 +12,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Ima
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
+import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -56,10 +57,12 @@ export interface SummaryOptions {
   onSummary?: () => void;
 }
 
-/** What show mode needs beyond the conversation: who answers, and his projects. */
+/** What artefact view needs beyond the conversation: who answers, his projects, and Flyd's artefact. */
 export interface ShowOptions {
   assistant?: string;
   projects?: () => ShowProject[];
+  /** Flyd's artefact: firstmate's fleet snapshot, Flyd's memory, the news and its taste. */
+  artefact?: () => ArtefactInputs;
 }
 
 interface StreamUpdate {
@@ -203,6 +206,7 @@ export class SnapshotDiffer {
       show: showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
         projects: this.show?.projects?.() ?? [],
+        ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
         reading: (message) => this.reading(message),
         muted: (message) => {
           const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
@@ -268,9 +272,11 @@ export class ConversationViewServer {
     private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
+    private readonly feed: ArtefactFeed = new ArtefactFeed(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
+    this.feed.start();
     const server = createServer((req, res) => {
       void this.handle(req, res).catch((error: unknown) => {
         if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -290,6 +296,7 @@ export class ConversationViewServer {
   }
 
   async close(): Promise<void> {
+    this.feed.stop();
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -329,6 +336,10 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/taste") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
@@ -344,10 +355,8 @@ export class ConversationViewServer {
     if (url.pathname === "/api/token") {
       // Lets an open tab recover after the view process restarted with a new
       // token. Other origins cannot read this response (no CORS), and the Host
-      // check above stops DNS rebinding, so it proves the same thing the
-      // token embedded in the page does.
-      if (!this.source.canSend) sendJson(res, 404, { error: "read-only" });
-      else sendJson(res, 200, { token: this.token });
+      // check above stops DNS rebinding.
+      sendJson(res, 200, { token: this.token });
       return;
     }
     if (url.pathname === "/api/commands") {
@@ -367,6 +376,10 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/stream") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
       await this.stream(req, res, url.searchParams.get("session"));
       return;
     }
@@ -522,7 +535,7 @@ export class ConversationViewServer {
             if (!closed && latest) sseEvent(res, "update", differ.next(latest));
           },
         }
-      : undefined, { assistant: this.source.assistantLabel, ...this.show });
+      : undefined, { assistant: this.source.assistantLabel, ...this.show, artefact: () => this.feed.current() });
     const follower = this.source.follow(
       session.id,
       (snapshot) => {
@@ -531,11 +544,15 @@ export class ConversationViewServer {
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
+    const stopFeed = this.feed.onRefresh(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
       closed = true;
       clearInterval(heartbeat);
+      stopFeed();
       follower.close();
     });
   }

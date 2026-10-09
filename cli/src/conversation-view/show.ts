@@ -1,6 +1,7 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, inline, isRoutine, sentences } from "./summaries.js";
+import { composeArtefact, type ArtefactInputs } from "./artefact.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Show mode: Flyd's own picture of what matters now, for the Conversation
@@ -53,12 +54,16 @@ export interface ShowInputs {
   assistant?: string;
   /** Flyd's own reading of a message (its interpretation or summary), when it has one. */
   reading?: (message: ConversationMessage) => string | undefined;
-  /** A reply Flyd's model judged routine: the terminal mutes it, show mode passes it over. */
+  /** A reply Flyd's model judged routine: the terminal mutes it, artefact view passes it over. */
   muted?: (message: ConversationMessage) => boolean;
   projects?: ShowProject[];
+  /** Flyd's artefact: firstmate's fleet snapshot, Flyd's memory, the news and its taste. */
+  artefact?: ArtefactInputs;
 }
 
 export const MAX_SHOW_ITEMS = 3;
+/** The artefact carries more than the conversation read: the fleet, memory, news. */
+export const MAX_ARTEFACT_ITEMS = 8;
 const LANDED_WITHIN_MS = 24 * 60 * 60 * 1000;
 const NEWS_WITHIN_MS = 6 * 60 * 60 * 1000;
 const HEADLINE_CHARS = 110;
@@ -222,17 +227,39 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const news = [...messages].reverse().find((message) => fresh(message, NEWS_WITHIN_MS));
   if (news) add("news", news, { headline: headline(readingOf(news)), why: `latest from ${assistant}` });
 
-  const chosen = items.slice(0, MAX_SHOW_ITEMS);
-  if (chosen.length === 0) {
-    chosen.push({ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" });
+  // Nothing outstanding: recap the last real things the fleet did — what last
+  // landed, what last ran, what is next — so the screen always carries real
+  // information rather than a bare reassurance. Honest to its age: the page
+  // shows how long ago each was.
+  let recap = false;
+  if (items.length === 0) {
+    for (let index = messages.length - 1; index >= 0 && items.length < MAX_SHOW_ITEMS; index -= 1) {
+      const message = messages[index]!;
+      if (!fromFleet(message) || used.has(message.id) || routine(message)) continue;
+      const line = landedLine(message.text);
+      if (line) add("landed", message, { headline: line, why: "last landed" });
+      else add("news", message, { headline: headline(readingOf(message)), why: `last from ${assistant}` });
+    }
+    recap = items.length > 0;
   }
-  return { title: titleOf(chosen), items: chosen, live: status.working };
+
+  // Flyd's artefact leads: firstmate's fleet snapshot, its memory, the news. The
+  // conversation read fills what is left.
+  const artefact = inputs.artefact ? composeArtefact(inputs.artefact) : [];
+  const chosen = [...artefact, ...items].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
+  if (chosen.length === 0) {
+    const taste = inputs.artefact?.taste?.[0];
+    if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });
+    else chosen.push({ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" });
+  }
+  return { title: titleOf(chosen, recap && artefact.length === 0), items: chosen, live: status.working };
 }
 
 /** Flyd's opening line: led by the most important thing on screen. */
-export function titleOf(items: ShowItem[]): string {
+export function titleOf(items: ShowItem[], quiet = false): string {
   const kinds = new Set(items.map((item) => item.kind));
   if (kinds.has("call")) return "Your move, sir.";
+  if (quiet) return "Here's where things stand, sir.";
   if (kinds.has("landed")) return "Good news, sir.";
   if (kinds.has("live")) return "Under way, sir.";
   if (kinds.has("waiting") || kinds.has("news")) return "Here's where things stand, sir.";
