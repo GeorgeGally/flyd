@@ -376,49 +376,39 @@ func startDictation() {
     dictation.start()
 }
 
+/// Fn+Control held: the captain is talking to Flyd, in the background. His
+/// words go into the Conversation's message box and are sent on release like
+/// a typed message; nothing is raised or focused, so he keeps looking at what
+/// he is talking about. The notch pill is the only cue.
 func beginVoiceInvocation() {
-    let (invocationId, revision) = state.startInvocation()
+    let (invocationId, _) = state.startInvocation()
     activeVoiceInvocationId = invocationId
-    stateMachine.setRevision(revision)
-    stateMachine.startPrewarm()
-
-    if let element = accessibilityInspector.capturedAXElement() {
-        executor.registerElement(ref: "el_01", element: element)
-    }
 
     state.transition(to: .listening)
     island.show(.listening)
+    ConversationWindow.shared.voice(.start)
 
+    var heard = ""
     let sessionId = stateMachine.nextTranscriptionSessionId()
     voiceRelay.connect(sessionId: sessionId)
-    voiceRelay.onTranscriptDelta = nil
+    voiceRelay.onTranscriptDelta = { delta in
+        DispatchQueue.main.async {
+            heard += delta
+            ConversationWindow.shared.voice(.draft(heard))
+        }
+    }
     voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
             clearVoiceTranscriptionTimeout()
             voiceCapture.stop()
             voiceRelay.disconnect()
-
-            guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
                 cleanupVoiceInvocation(message: "I didn't catch that - try again")
                 return
             }
-
-            island.show(.thinking(transcript))
-
-            stateMachine.setRevision(revision)
-            stateMachine.startPrewarm()
-            if let element = accessibilityInspector.capturedAXElement() {
-                executor.registerElement(ref: "el_01", element: element)
-            }
-            activeInvocationTask = Task {
-                await processInvocation(
-                    invocationId: invocationId,
-                    revision: revision,
-                    modality: "voice",
-                    intent: transcript,
-                    conversationId: voiceConversationId
-                )
-            }
+            ConversationWindow.shared.voice(.send(text))
+            cleanupVoiceInvocation()
         }
     }
     voiceRelay.onError = { error in
@@ -434,15 +424,12 @@ func beginVoiceInvocation() {
     voiceCapture.onAudioChunk = { chunk in
         voiceRelay.sendAudioChunk(chunk)
     }
-
     voiceCapture.onLevel = nil
-
     voiceCapture.onSpectrum = { bands in
         DispatchQueue.main.async {
             island.updateSpectrum(bands)
         }
     }
-
     voiceCapture.onError = { error in
         DispatchQueue.main.async {
             print("[Flyd] Voice capture error: \(error)")
@@ -451,7 +438,7 @@ func beginVoiceInvocation() {
     }
 
     guard voiceCapture.start() else {
-        cleanupVoiceInvocation()
+        cleanupVoiceInvocation(message: "The microphone did not start")
         return
     }
     startVoiceHoldMonitor()
@@ -466,6 +453,7 @@ func handleVoiceRelease() {
         voiceCapture.stop()
         state.transition(to: .transcribing)
         island.show(.working)
+        ConversationWindow.shared.voice(.transcribing)
         startVoiceTranscriptionTimeout()
         voiceRelay.commitAudio()
     case .ignore:
@@ -521,9 +509,13 @@ func cleanupVoiceInvocation(message: String? = nil) {
     stateMachine.cancel()
     executor.clearInvocationRefs()
 
+    // Push-to-talk lives in the Conversation window: a problem is said there,
+    // and a finished or abandoned recording leaves the message box as it was.
     if let message {
+        ConversationWindow.shared.voice(.fail(message))
         island.show(.failed(message))
     } else {
+        ConversationWindow.shared.voice(.cancel)
         island.hide()
     }
 }

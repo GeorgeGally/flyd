@@ -37,6 +37,20 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     private var webView: WKWebView?
     private var serverURL: URL?
     private var failure: String?
+    /// The page has loaded the view; scripts queued before then run on load.
+    private var pageReady = false
+    private var pendingScripts: [String] = []
+    private var voiceActive = false
+
+    /// Push-to-talk (Fn+Control) as the page sees it.
+    enum VoiceEvent {
+        case start
+        case draft(String)
+        case transcribing
+        case send(String)
+        case cancel
+        case fail(String)
+    }
 
     private static let darkBackground = NSColor(srgbRed: 0x10 / 255, green: 0x11 / 255, blue: 0x13 / 255, alpha: 1)
     private static let lightBackground = NSColor(srgbRed: 0xf6 / 255, green: 0xf5 / 255, blue: 0xf1 / 255, alpha: 1)
@@ -131,8 +145,55 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         return window
     }
 
+    /// Drives the message box from push-to-talk, in the background: the
+    /// window is never raised or focused (the captain is looking at what he
+    /// is talking about). The words go into the box as they are heard and
+    /// are sent on release; an open window shows them, a closed one has the
+    /// message waiting in the conversation.
+    func voice(_ event: VoiceEvent) {
+        switch event {
+        case .start:
+            voiceActive = true
+            _ = window ?? makeWindow()
+            run("window.flydVoice && window.flydVoice.start()")
+        case .draft(let text):
+            guard voiceActive else { return }
+            run("window.flydVoice && window.flydVoice.draft(\(Self.jsString(text)))")
+        case .transcribing:
+            guard voiceActive else { return }
+            run("window.flydVoice && window.flydVoice.transcribing()")
+        case .send(let text):
+            guard voiceActive else { return }
+            voiceActive = false
+            run("window.flydVoice && window.flydVoice.send(\(Self.jsString(text)))")
+        case .cancel:
+            guard voiceActive else { return }
+            voiceActive = false
+            run("window.flydVoice && window.flydVoice.cancel()")
+        case .fail(let message):
+            voiceActive = false
+            run("window.flydVoice && window.flydVoice.cancel(\(Self.jsString(message)))")
+        }
+    }
+
+    /// A Swift string as a JavaScript string literal.
+    static func jsString(_ text: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [text])) ?? Data("[\"\"]".utf8)
+        let array = String(data: data, encoding: .utf8) ?? "[\"\"]"
+        return String(array.dropFirst().dropLast())
+    }
+
+    private func run(_ script: String) {
+        guard let webView, pageReady else {
+            pendingScripts.append(script)
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
     private func load() {
         guard let webView else { return }
+        pageReady = false
         if let serverURL {
             webView.load(URLRequest(url: serverURL))
             return
@@ -219,6 +280,17 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         const send = await fetch('/api/send', { method: 'POST', headers: { 'content-type': 'application/json', 'x-flyd-view-token': token }, body: JSON.stringify({ session: '../selftest', text: 'selftest' }) });
         out.sendPlumbing = send.status + ' ' + (await send.json()).error;
         out.externalLinks = document.querySelectorAll('.body a[target=_blank]').length;
+        // Every wrapped line of a captain highlight should start at the same left edge.
+        let wrapped = 0, spread = 0;
+        document.querySelectorAll('.msg.user .hl').forEach((hl) => {
+          const lefts = Array.from(hl.getClientRects()).map((r) => r.left);
+          if (lefts.length > 1) { wrapped++; spread = Math.max(spread, Math.max(...lefts) - Math.min(...lefts)); }
+        });
+        out.wrappedHighlights = wrapped;
+        out.wrapLeftSpread = spread;
+        out.sendLabel = document.getElementById('send').textContent;
+        const sample = Array.from(document.querySelectorAll('.msg.user .hl')).reverse().find((hl) => hl.getClientRects().length > 1);
+        if (sample) { sample.scrollIntoView({ block: 'center' }); await wait(300); }
         return JSON.stringify(out);
         """
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
@@ -227,7 +299,30 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
                 ConversationServer.appendLog("conversation selftest: \(value ?? "nil")")
                 self.logWindowState()
                 self.saveSnapshot(webView)
+                self.voiceSelfTest(webView)
             case .failure(let error): ConversationServer.appendLog("conversation selftest failed: \(error)")
+            }
+        }
+    }
+
+    /// Push-to-talk through the same bridge the Fn+Control path uses, without
+    /// the microphone: start, words arrive, then cancel (nothing is sent).
+    private func voiceSelfTest(_ webView: WKWebView) {
+        let probe = "JSON.stringify({ value: document.getElementById('input').value, listening: document.getElementById('composer').classList.contains('listening') })"
+        // Background: with the window closed, push-to-talk must not bring it back.
+        window?.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+        voice(.start)
+        ConversationServer.appendLog("conversation voice selftest: after start windowVisible=\(window?.isVisible ?? false) dockIcon=\(NSApp.activationPolicy() == .regular)")
+        voice(.draft("selftest words"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            webView.evaluateJavaScript(probe) { during, _ in
+                self.voice(.cancel)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    webView.evaluateJavaScript(probe) { after, _ in
+                        ConversationServer.appendLog("conversation voice selftest: during=\(during ?? "nil") after=\(after ?? "nil")")
+                    }
+                }
             }
         }
     }
@@ -250,6 +345,17 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
             let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".flyd/overlay/conversation-window.png")
             try? png.write(to: url)
             ConversationServer.appendLog("conversation snapshot: \(url.path)")
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView.url?.scheme == "http" else { return }
+        pageReady = true
+        let scripts = pendingScripts
+        pendingScripts = []
+        // Give the page's own script a moment to connect before replaying.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            scripts.forEach { webView.evaluateJavaScript($0, completionHandler: nil) }
         }
     }
 
