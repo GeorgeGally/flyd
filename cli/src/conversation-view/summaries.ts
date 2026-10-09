@@ -82,7 +82,8 @@ const ACK_LEAD = /^(?:(?:yes|ok(?:ay)?),? )?(?:agreed|aye(?: aye)?|yes|done|righ
 const ROUTINE_REPLY = /^(?:shipshape|aye(?: aye)?|agreed|noted|understood|got it|on it|will do|ok(?:ay)?|thanks?(?: you)?|standing by|all (?:quiet|good|clear|calm)|no change|nothing (?:new|changed|has changed|to report|needs you)|still (?:working|running|waiting|on it)|waiting (?:on|for)|no news)\b/i;
 const ROUTINE_MAX_CHARS = 160;
 
-function inline(text: string): string {
+/** Markdown inline marks dropped and whitespace collapsed. */
+export function inline(text: string): string {
   return text
     .replace(/`([^`]*)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
@@ -92,17 +93,17 @@ function inline(text: string): string {
 }
 
 /** Sentences end at . ! or ? followed by a capital, a digit or an opening quote; "network." instead… does not. */
-function sentences(prose: string): string[] {
+export function sentences(prose: string): string[] {
   return prose.split(/(?<=[.!?]["”')\]]*)\s+(?=[A-Z0-9"“])/).map((part) => part.trim()).filter(Boolean);
 }
 
-function clip(text: string, limit: number): string {
+export function clip(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const cut = text.slice(0, limit);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), limit - 20)).trimEnd()}…`;
 }
 
-function capitalise(text: string): string {
+export function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

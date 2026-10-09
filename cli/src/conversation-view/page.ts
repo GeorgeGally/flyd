@@ -78,6 +78,177 @@ header button:hover { color: var(--fg); border-color: color-mix(in srgb, var(--m
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
+/*
+ * Show mode: Flyd's own screen. A TV that has just been switched on, showing a
+ * game's few objectives: a big title in Flyd's voice and at most three cards,
+ * each one thing he needs to see. The terminal stays loaded underneath, so
+ * flipping back is instant.
+ */
+const SHOW_STYLE = `
+:root {
+  --screen: #0a0b10;
+  --screen-hi: #161a2a;
+  --scan: rgba(255, 255, 255, 0.028);
+  --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --k-call: #ff5470;
+  --k-landed: #3fe394;
+  --k-live: #4cc3ff;
+  --k-waiting: #ffc247;
+  --k-news: #b693ff;
+  --k-clear: #3fe394;
+}
+:root[data-theme="light"] {
+  --screen: #f3f0e6;
+  --screen-hi: #fffdf6;
+  --scan: rgba(0, 0, 0, 0.035);
+  --k-call: #dc2449;
+  --k-landed: #0f8c52;
+  --k-live: #0d72c4;
+  --k-waiting: #b56b00;
+  --k-news: #6c3fd6;
+  --k-clear: #0f8c52;
+}
+
+/* The toggle: one bracketed word in the top-right corner, in both modes. */
+.flip {
+  position: fixed; top: 0; right: 16px; z-index: 8; height: 52px; padding: 0 6px;
+  display: flex; align-items: center; border: 0; background: none; cursor: pointer;
+  font: 500 14px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
+}
+.flip b { font-weight: 500; color: var(--fg); transition: color 140ms ease; }
+.flip:hover b { color: var(--accent); }
+.flip:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 8px; }
+header { padding-right: 110px; }
+:root[data-screen="show"] header, :root[data-screen="show"] main, :root[data-screen="show"] .composer,
+:root[data-screen="show"] .jump { display: none; }
+:root[data-screen="show"] .problem { z-index: 7; }
+
+.show {
+  position: fixed; inset: 0; z-index: 6; overflow-y: auto;
+  color: var(--fg);
+  background: radial-gradient(120% 85% at 50% 0%, var(--screen-hi), var(--screen) 72%);
+  transform-origin: 50% 50%;
+}
+.show[hidden] { display: none; }
+/* Scanlines and a soft vignette: the glass of the set. */
+.show::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background:
+    repeating-linear-gradient(to bottom, var(--scan) 0 1px, transparent 1px 3px),
+    radial-gradient(140% 100% at 50% 50%, transparent 60%, color-mix(in srgb, #000 22%, transparent));
+}
+:root[data-theme="light"] .show::after {
+  background:
+    repeating-linear-gradient(to bottom, var(--scan) 0 1px, transparent 1px 3px),
+    radial-gradient(140% 100% at 50% 50%, transparent 65%, color-mix(in srgb, #5a4b36 10%, transparent));
+}
+.show.power { animation: power-on 380ms cubic-bezier(.2,.75,.2,1) both; }
+.show.off { animation: power-off 170ms cubic-bezier(.6,0,.9,.4) both; }
+@keyframes power-on {
+  0% { transform: scale(0.7, 0.006); filter: brightness(3); opacity: 0.9; }
+  38% { transform: scale(1, 0.006); filter: brightness(2.4); }
+  100% { transform: none; filter: none; opacity: 1; }
+}
+@keyframes power-off {
+  0% { transform: none; filter: none; }
+  60% { transform: scale(1, 0.006); filter: brightness(2.6); }
+  100% { transform: scale(0, 0.006); filter: brightness(3); opacity: 0; }
+}
+
+.set { position: relative; min-height: 100%; display: flex; flex-direction: column; padding: 0 28px 44px; }
+.hud {
+  display: flex; align-items: center; gap: 16px; height: 52px; padding-right: 120px;
+  font: 600 13px/1 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+}
+.hud .brand { font-weight: 800; letter-spacing: 0.28em; color: var(--strong); }
+.hud .air { display: inline-flex; align-items: center; gap: 8px; }
+.hud .air::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+.hud .air.on { color: var(--k-call); }
+.hud .air.on::before { background: var(--k-call); opacity: 1; box-shadow: 0 0 10px var(--k-call); animation: blink 1.2s steps(2, jump-none) infinite; }
+.hud .clock { font-variant-numeric: tabular-nums; }
+@keyframes blink { 50% { opacity: 0.15; } }
+
+.stage { flex: 1; width: 100%; max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 3vh 0 4vh; }
+.show-title {
+  margin: 0 0 28px; font: 800 clamp(34px, 5.4vw, 62px)/1.04 var(--round); letter-spacing: -0.02em; color: var(--strong);
+  text-wrap: balance;
+}
+.show-title::after { content: "▌"; margin-left: 0.08em; color: var(--accent); animation: blink 1.1s steps(2, jump-none) infinite; }
+
+.tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.tile {
+  --k: var(--k-news);
+  position: relative; min-width: 0; display: flex; gap: 20px; align-items: flex-start;
+  padding: 22px 24px 20px; border-radius: 20px; cursor: pointer;
+  background: color-mix(in srgb, var(--k) 8%, var(--screen-hi));
+  border: 2px solid color-mix(in srgb, var(--k) 52%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset, 0 22px 48px -30px var(--k);
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease, border-color 180ms ease;
+}
+.tile:hover, .tile:focus-visible { transform: translateY(-3px); border-color: var(--k); box-shadow: 0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset, 0 26px 56px -26px var(--k); outline: 0; }
+.tile.lead { grid-column: 1 / -1; padding: 28px 30px 26px; gap: 26px; }
+/* A second card alone under the lead takes the whole row. */
+.tile:not(.lead):nth-child(2):last-child { grid-column: 1 / -1; }
+.tile.k-call { --k: var(--k-call); }
+.tile.k-landed { --k: var(--k-landed); }
+.tile.k-live { --k: var(--k-live); }
+.tile.k-waiting { --k: var(--k-waiting); }
+.tile.k-clear { --k: var(--k-clear); }
+
+.badge {
+  flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 15px;
+  font: 900 30px/1 var(--round); color: var(--screen); background: var(--k);
+  box-shadow: 0 5px 0 color-mix(in srgb, var(--k) 50%, #000);
+}
+.lead .badge { width: 88px; height: 88px; border-radius: 22px; font-size: 48px; box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000); }
+.lead.k-call .badge { animation: beacon 2.4s ease-in-out infinite; }
+.k-live .badge { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes beacon {
+  0%, 100% { box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000), 0 0 0 0 color-mix(in srgb, var(--k) 0%, transparent); }
+  50% { box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000), 0 0 34px 4px color-mix(in srgb, var(--k) 55%, transparent); }
+}
+@keyframes pulse { 50% { transform: scale(0.92); } }
+
+.copy { min-width: 0; flex: 1; }
+.kicker {
+  display: block; font: 800 13px/1 var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--k);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--k) 55%, transparent);
+}
+.headline {
+  margin: 10px 0 0; font: 700 25px/1.2 var(--round); letter-spacing: -0.01em; color: var(--strong);
+  overflow-wrap: anywhere; text-wrap: pretty;
+}
+.lead .headline { margin-top: 12px; font-size: clamp(28px, 3.9vw, 42px); line-height: 1.12; text-wrap: balance; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 14px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
+.meta .tag { font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg); }
+.meta .chip {
+  color: var(--k); text-decoration: none; border: 1.5px solid color-mix(in srgb, var(--k) 55%, transparent);
+  border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.meta .chip:hover { background: color-mix(in srgb, var(--k) 16%, transparent); }
+
+.tile.enter { animation: tile-in 560ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 90ms + 140ms); }
+@keyframes tile-in { from { opacity: 0; transform: translateY(22px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+/* A message opened from a show card says where it is. */
+.msg.spot { animation: spot 1.8s ease-out; }
+@keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
+
+@media (max-width: 720px) {
+  .set { padding: 0 16px 32px; }
+  .hud .clock { display: none; }
+  .tiles { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .tile, .tile.lead { padding: 18px; gap: 16px; }
+  .lead .badge { width: 64px; height: 64px; font-size: 36px; border-radius: 17px; }
+  .badge { width: 46px; height: 46px; font-size: 25px; border-radius: 12px; }
+  .headline { font-size: 21px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show.power, .show.off, .tile.enter, .lead.k-call .badge, .k-live .badge, .hud .air.on::before, .show-title::after, .msg.spot { animation: none; }
+  .tile { transition: none; }
+}
+`;
+
 const STYLE = BASE_STYLE + `
 
 /* ~66 characters a line at the reading size. */
@@ -282,7 +453,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   .msg.fresh, .working i { animation: none; }
   html { scroll-behavior: auto; }
 }
-`;
+` + SHOW_STYLE;
 
 const SCRIPT = `
 (function () {
@@ -540,6 +711,7 @@ const SCRIPT = `
     if (lastActivity) whenEl.textContent = dayOf(lastActivity) + "  " + clock(lastActivity);
     if (stick) { toBottom(); jump.hidden = true; } else if (added) { jump.hidden = false; }
     first = false;
+    if (update.show) renderShow(update.show);
   }
 
   // Under the message box: how full the context is, and the plan's limits.
@@ -931,6 +1103,8 @@ const SCRIPT = `
   }
   window.flydVoice = {
     start: function () {
+      // Speaking is conversation: the terminal comes back for it, this once.
+      if (onShow()) applyScreen("terminal", false);
       if (composer.hidden) return;
       voiceBase = input.value;
       composer.classList.add("listening");
@@ -1016,6 +1190,187 @@ const SCRIPT = `
     });
   });
 
+
+  // Show mode: Flyd's own screen of the few things he needs to see. The
+  // bracketed word in the corner flips between it and the terminal, and the
+  // choice is remembered. The terminal keeps streaming underneath.
+  var showEl = document.getElementById("show");
+  var tilesEl = document.getElementById("tiles");
+  var showTitle = document.getElementById("show-title");
+  var air = document.getElementById("air");
+  var showClock = document.getElementById("show-clock");
+  var flip = document.getElementById("flip");
+  var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var KINDS = {
+    call: { label: "Your move", glyph: "!" },
+    landed: { label: "Landed", glyph: "✓" },
+    live: { label: "Live", glyph: "▶" },
+    waiting: { label: "On it", glyph: "…" },
+    news: { label: "Latest", glyph: "◆" },
+    clear: { label: "All clear", glyph: "★" },
+  };
+  var tiles = new Map();
+  var shown = null;
+  // Where the terminal was: back at the bottom unless he had scrolled up.
+  var terminalAt = { y: 0, bottom: true };
+
+  function onShow() { return document.documentElement.getAttribute("data-screen") === "show"; }
+  function ago(iso) {
+    var ms = Date.now() - new Date(iso).getTime();
+    if (isNaN(ms)) return "";
+    var minutes = Math.round(ms / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return minutes + "m ago";
+    var hours = Math.round(minutes / 60);
+    return hours < 24 ? hours + "h ago" : Math.round(hours / 24) + "d ago";
+  }
+  function fillTile(el, item) {
+    var kind = KINDS[item.kind] || KINDS.news;
+    el.textContent = "";
+    var badge = document.createElement("span");
+    badge.className = "badge";
+    badge.setAttribute("aria-hidden", "true");
+    badge.textContent = kind.glyph;
+    var copy = document.createElement("div");
+    copy.className = "copy";
+    var kicker = document.createElement("span");
+    kicker.className = "kicker";
+    kicker.textContent = kind.label;
+    var headline = document.createElement("p");
+    headline.className = "headline";
+    headline.textContent = item.headline;
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    if (item.project) {
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = item.project;
+      meta.appendChild(tag);
+    }
+    var why = document.createElement("span");
+    why.textContent = item.why;
+    meta.appendChild(why);
+    if (item.at) {
+      var when = document.createElement("span");
+      when.className = "ago";
+      when.dataset.at = item.at;
+      when.textContent = ago(item.at);
+      meta.appendChild(when);
+    }
+    (item.links || []).forEach(function (link) {
+      var a = document.createElement("a");
+      a.className = "chip";
+      a.href = link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = link.label;
+      a.addEventListener("click", function (event) { event.stopPropagation(); });
+      meta.appendChild(a);
+    });
+    copy.appendChild(kicker);
+    copy.appendChild(headline);
+    copy.appendChild(meta);
+    el.appendChild(badge);
+    el.appendChild(copy);
+    el.setAttribute("aria-label", kind.label + ": " + item.headline + " (opens in the terminal)");
+    el.dataset.ref = item.ref || "";
+  }
+  function renderShow(next) {
+    shown = next;
+    showTitle.textContent = next.title;
+    air.classList.toggle("on", !!next.live);
+    air.textContent = next.live ? "on air" : "standby";
+    var keep = new Set();
+    next.items.forEach(function (item, index) {
+      keep.add(item.id);
+      var el = tiles.get(item.id);
+      var fresh = !el;
+      if (!el) {
+        el = document.createElement("li");
+        el.tabIndex = 0;
+        el.setAttribute("role", "button");
+        el.addEventListener("click", function () { openInTerminal(el.dataset.ref); });
+        el.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openInTerminal(el.dataset.ref); }
+        });
+        tiles.set(item.id, el);
+      }
+      var key = JSON.stringify(item);
+      if (el.dataset.key !== key) { fillTile(el, item); el.dataset.key = key; }
+      el.className = "tile k-" + item.kind + (index === 0 ? " lead" : "") + (fresh || el.classList.contains("enter") ? " enter" : "");
+      el.style.setProperty("--i", String(index));
+      if (tilesEl.children[index] !== el) tilesEl.insertBefore(el, tilesEl.children[index] || null);
+    });
+    tiles.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); tiles.delete(id); } });
+  }
+  // Cards come on one after another each time the set is switched on.
+  function replayTiles() {
+    tiles.forEach(function (el) { el.classList.remove("enter"); });
+    void tilesEl.offsetWidth;
+    tiles.forEach(function (el) { el.classList.add("enter"); });
+  }
+  function tickShow() {
+    showClock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    tilesEl.querySelectorAll(".ago").forEach(function (el) { el.textContent = ago(el.dataset.at); });
+  }
+  tickShow();
+  setInterval(tickShow, 30000);
+
+  function applyScreen(next, animate) {
+    var root = document.documentElement;
+    if (next === "show") {
+      if (!onShow() && root.hasAttribute("data-screen")) terminalAt = { y: window.scrollY, bottom: nearBottom() };
+      root.setAttribute("data-screen", "show");
+      showEl.hidden = false;
+      showEl.classList.remove("off");
+      if (animate && !reduced) {
+        showEl.classList.remove("power");
+        void showEl.offsetWidth;
+        showEl.classList.add("power");
+        replayTiles();
+      }
+      showEl.scrollTop = 0;
+      flip.innerHTML = "[<b>terminal</b>]";
+      flip.setAttribute("aria-label", "Switch to terminal mode");
+    } else {
+      root.setAttribute("data-screen", "terminal");
+      showEl.hidden = true;
+      showEl.classList.remove("power", "off");
+      if (terminalAt.bottom) { toBottom(); jump.hidden = true; } else window.scrollTo(0, terminalAt.y);
+      flip.innerHTML = "[<b>show</b>]";
+      flip.setAttribute("aria-label", "Switch to show mode");
+    }
+  }
+  function setScreen(next) {
+    store("flyd-view-screen", next);
+    if (next === "show") { applyScreen("show", true); return; }
+    if (reduced) { applyScreen("terminal", false); return; }
+    // The set switches off: a quick collapse to a line, then the terminal.
+    showEl.classList.add("off");
+    setTimeout(function () { if (showEl.classList.contains("off")) applyScreen("terminal", false); }, 170);
+  }
+  flip.addEventListener("click", function () {
+    if (showEl.classList.contains("off")) return;
+    setScreen(onShow() ? "terminal" : "show");
+  });
+  // A card opens its message in the terminal.
+  function openInTerminal(ref) {
+    store("flyd-view-screen", "terminal");
+    var target = ref ? nodes.get(ref) : null;
+    terminalAt = { y: 0, bottom: !target };
+    applyScreen("terminal", false);
+    if (!target) return;
+    if (target.classList.contains("has-summary") && !target.classList.contains("open")) {
+      var more = target.querySelector(":scope > .more");
+      if (more) more.click();
+    }
+    target.scrollIntoView({ block: "center" });
+    target.classList.remove("spot");
+    void target.offsetWidth;
+    target.classList.add("spot");
+  }
+  applyScreen(store("flyd-view-screen") === "show" ? "show" : "terminal", false);
+
   loadSessions().catch(function () {});
   connect(explicit);
 })();
@@ -1048,6 +1403,16 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
+<button class="flip" id="flip" type="button" aria-label="Switch to show mode">[<b>show</b>]</button>
+<section class="show" id="show" hidden aria-label="What Flyd thinks you need to see">
+  <div class="set">
+    <div class="hud"><span class="brand">Flyd</span><span class="air" id="air">standby</span><span class="clock" id="show-clock"></span></div>
+    <div class="stage">
+      <h1 class="show-title" id="show-title">Tuning in</h1>
+      <ol class="tiles" id="tiles" aria-live="polite"></ol>
+    </div>
+  </div>
+</section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>

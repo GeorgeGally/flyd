@@ -11,6 +11,7 @@ import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, is
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -55,6 +56,12 @@ export interface SummaryOptions {
   onSummary?: () => void;
 }
 
+/** What show mode needs beyond the conversation: who answers, and his projects. */
+export interface ShowOptions {
+  assistant?: string;
+  projects?: () => ShowProject[];
+}
+
 interface StreamUpdate {
   /** Every visible message id, in order; the page drops ids not listed. */
   order: string[];
@@ -65,13 +72,22 @@ interface StreamUpdate {
   activity?: string;
   lastActivity?: string;
   context?: { tokens: number; window: number };
+  /** Show mode's screen: Flyd's few things, picked from this snapshot. */
+  show: ShowScreen;
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
 
-  constructor(private readonly summaries?: SummaryOptions) {}
+  constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions) {}
+
+  /** Flyd's own reading of a message, when it has made one: its interpretation of an answer, else its summary. */
+  private reading(message: ConversationMessage): string | undefined {
+    if (message.answers?.startsWith("note:")) return this.summaries?.interpreter?.cached(message.text);
+    const model = this.summaries?.summarizer?.cached(message.text);
+    return model && !isRoutineAnswer(model) ? inFlydsVoice(model) : undefined;
+  }
 
   /** Starts a model summary in the background; the stream re-renders when it lands. */
   private ask(text: string): void {
@@ -184,6 +200,15 @@ export class SnapshotDiffer {
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
+      show: showOf(snapshot, {
+        ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
+        projects: this.show?.projects?.() ?? [],
+        reading: (message) => this.reading(message),
+        muted: (message) => {
+          const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
+          return model !== undefined && isRoutineAnswer(model) && !isActionable(message.text);
+        },
+      }),
     };
   }
 }
@@ -242,6 +267,7 @@ export class ConversationViewServer {
     private readonly source: ConversationSource,
     private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
     private readonly plan?: PlanUsageReader,
+    private readonly show?: Pick<ShowOptions, "projects">,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -496,7 +522,7 @@ export class ConversationViewServer {
             if (!closed && latest) sseEvent(res, "update", differ.next(latest));
           },
         }
-      : undefined);
+      : undefined, { assistant: this.source.assistantLabel, ...this.show });
     const follower = this.source.follow(
       session.id,
       (snapshot) => {
