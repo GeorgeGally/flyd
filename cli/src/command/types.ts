@@ -62,6 +62,17 @@ export interface DomainTransport {
   replyCursor?: string;
 }
 
+export type DomainMessageKind = "correction" | "decision" | "priority_change" | "question";
+
+export interface DomainMessage {
+  id: string;
+  kind: DomainMessageKind;
+  body: string;
+  at: string;
+  deliveredAt?: string;
+  externalId?: string;
+}
+
 export interface DomainSpecialistRun {
   role: string;
   jobId: string;
@@ -77,6 +88,7 @@ export interface DomainRun {
   transport: DomainTransport;
   phase?: string;
   specialists?: DomainSpecialistRun[];
+  messages?: DomainMessage[];
   result?: DomainResult;
   failure?: string;
   notified?: boolean;
