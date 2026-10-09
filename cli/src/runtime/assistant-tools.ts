@@ -110,8 +110,9 @@ export const assistantTools: AgentTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "show"], description: "What to inspect" },
-        id: { type: "string", description: "Domain run id for show" },
+        action: { type: "string", enum: ["list", "show", "ask"], description: "What to inspect or ask" },
+        id: { type: "string", description: "Domain run id for show/ask" },
+        question: { type: "string", description: "Follow-up question for ask" },
       },
       required: ["action"],
     },
@@ -320,7 +321,18 @@ export async function runAssistantTool(
             : "No delegated domain work yet.";
         }
         const id = String(input.id ?? "").trim();
-        if (!id) return "Error: domain_work show needs an id";
+        if (!id) return "Error: domain_work show/ask needs an id";
+        if (input.action === "ask") {
+          const question = String(input.question ?? "").trim();
+          if (!question) return "Error: domain_work ask needs a question";
+          const { dispatchDomainFollowup } = await import("../command/followup.js");
+          try {
+            const followup = await dispatchDomainFollowup({ parentRunId: id, question });
+            return `Follow-up accepted as domain run ${followup.id}. Flyd will retain the detailed answer when the domain boss returns.`;
+          } catch (error) {
+            return `Error: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
         const run = readDomainRun(id);
         if (!run) return `Error: no domain run ${id}`;
         if (!run.result) return `${run.request.domain} work is ${run.status}: ${run.request.intendedOutcome}`;
