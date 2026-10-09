@@ -316,6 +316,21 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
   },
 
   {
+    id: "chat_turn_domain", family: "chat", type: "choice",
+    instructions: "If this turn needs delegated work, which specialist domain should own the outcome? Choose general when Flyd should handle it itself or the domain is genuinely unclear.",
+    criteria: {
+      coding: "Software work: code, repositories, debugging, implementation, tests, CI, technical repo investigation, or shipping a software change.",
+      knowledge: "Knowledge work: research across sources, fact checking, retrieval, synthesis, documentation, or determining what is true.",
+      creative: "Creative work: art direction, visual design, image making, creative concepts, campaigns, or judging visual alternatives.",
+      life: "Personal operations: travel, scheduling, household, finance/admin, logistics, bookings, or other life management.",
+      general: "No specialist domain boss is needed, or there is not enough evidence to choose one.",
+    },
+    threshold: 0.72, use: "choice", failureMode: "fallback_llm_classifier",
+    projection: INTERPRET_PROJECTION, evaluatorVersion: "chat_turn_domain.v1", status: "production",
+    consumer: "runtime/turn-plan.ts routeWithJev: on confident delegated turns, narrows the visible handoff to the owning domain when a live domain boss exists",
+  },
+
+  {
     id: "skill_applies", family: "chat", type: "noul",
     instructions: "George just said `utterance` to Flyd, his personal assistant. Would Flyd's skill \"{name}\" (for: {description}) directly help it do what he is asking right now? Only yes when that is the job he is asking for, not when the topic is merely related.",
     threshold: 0.75, use: "gate", failureMode: "skip_mutation",
