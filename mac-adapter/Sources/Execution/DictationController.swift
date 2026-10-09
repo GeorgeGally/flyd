@@ -24,6 +24,7 @@ final class DictationController {
     private static let transcriptionTimeout: TimeInterval = 20
 
     private var phase: Phase = .idle
+    var isIdle: Bool { if case .idle = phase { return true }; return false }
     private let pill = DictationPill.shared
     private var timeout: DispatchWorkItem?
     private var recordingCap: DispatchWorkItem?
@@ -40,7 +41,7 @@ final class DictationController {
     func start() {
         guard case .idle = phase else { return }
         let (invocationId, _) = state.startInvocation()
-        DictationEditMonitor.shared.stop()
+        let previousCorrection = DictationEditMonitor.shared.stop(send: false)
         let app = NSWorkspace.shared.frontmostApplication
         let session = Session(
             invocationId: invocationId,
@@ -52,7 +53,11 @@ final class DictationController {
         state.transition(to: .listening)
         pill.show(.listening)
 
-        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) { session.target.startFields() }
+        relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) {
+            var fields = session.target.startFields()
+            if let previousCorrection { fields["previousCorrection"] = previousCorrection }
+            return fields
+        }
         relay.onRawTranscript = { [weak self] text in self?.lastRawText = text }
         relay.onTranscriptDelta = nil
         relay.onComplete = { [weak self] transcript in self?.transcribed(transcript) }

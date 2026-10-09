@@ -110,7 +110,7 @@ struct PrivacySettingsView: View {
                 .onChange(of: viewModel.dictationCorrectionLearning) { _, enabled in
                     ConfigManager.shared.setDictationCorrectionLearning(enabled)
                 }
-            Text("Tracks only the inserted text for up to 30 seconds in supported fields. A word you fix becomes a suggestion; approve it with `flyd learning` and later dictation spells it your way. Learned words are sent with your dictation to the transcription service as spelling hints. Disabled in Private and Incognito modes.")
+            Text("Tracks only inserted text for up to 30 seconds in supported fields. Clear spelling fixes become hints; three independent eligible fixes activate a contextual rule. Stores the changed terms and up to two neighbouring words per side. Inspect, reject or view local recurrence reports with flyd learning. Learned words go to the transcription service. Disabled in Private and Incognito modes.")
                 .font(.caption).foregroundColor(.secondary)
 
             Toggle("Learn when I reject a Flyd answer elsewhere", isOn: $viewModel.foregroundFeedbackCapture)

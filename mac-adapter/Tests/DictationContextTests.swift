@@ -26,4 +26,17 @@ final class DictationContextTests: XCTestCase {
         XCTAssertEqual(DictationEditMonitor.editedSpan(value: "你好 Flyd 🌲", prefix: "你好 ", suffix: " 🌲"), "Flyd")
         XCTAssertNil(DictationEditMonitor.editedSpan(value: String(repeating: "x", count: 8001), prefix: "", suffix: ""))
     }
+
+    func testFinalReadCapturesQuickEditsAndCancelsUndoOrSubmission() {
+        XCTAssertEqual(DictationEditMonitor.finalCorrection(original: "Ask Floyd", value: "Before Ask Flyd After",
+            prefix: "Before ", suffix: " After"), "Ask Flyd")
+        XCTAssertNil(DictationEditMonitor.finalCorrection(original: "Ask Floyd", value: "Before Ask Floyd After",
+            prefix: "Before ", suffix: " After"))
+        XCTAssertNil(DictationEditMonitor.finalCorrection(original: "Ask Floyd", value: "Before  After",
+            prefix: "Before ", suffix: " After"))
+        XCTAssertNil(DictationEditMonitor.finalCorrection(original: "Ask Floyd", value: "",
+            prefix: "Before ", suffix: " After"))
+        XCTAssertNil(DictationEditMonitor.finalCorrection(original: "Ask Floyd", value: "Changed Ask Flyd After",
+            prefix: "Before ", suffix: " After"))
+    }
 }

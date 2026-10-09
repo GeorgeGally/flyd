@@ -39,8 +39,17 @@ export async function learningRequest(path: string, method: string, body: unknow
       if (registry.status(CORRECTION_SOURCE) !== "enabled") return { status: 403, body: { error: "Correction learning is not enabled" } };
       if (["before", "after", "invocationId", "bundleId", "scope"].some(key => typeof input[key] !== "string"))
         return { status: 400, body: { error: "Missing correction attribution" } };
+      if (String(input.invocationId).length > 200 || String(input.bundleId).length > 200)
+        return { status: 400, body: { error: "Invalid correction attribution" } };
+      if (input.observedAt !== undefined && typeof input.observedAt !== "string")
+        return { status: 400, body: { error: "Invalid observation time" } };
+      const previous = correctionCandidates(store);
       const sequence = recordCorrection(input as unknown as Parameters<typeof recordCorrection>[0]);
-      return { status: 200, body: { sequence, status: sequence ? "candidate" : "ignored" } };
+      const candidate = correctionCandidates(store).find(c => c.sequence === sequence);
+      const promoted = candidate?.activation === "automatic" && !previous.some(c => c.ruleId === candidate.ruleId && c.activation === "automatic");
+      return { status: 200, body: { sequence, status: candidate?.status ?? "ignored", promoted,
+        ...(candidate ? { ruleId: candidate.ruleId, evidenceCount: candidate.evidenceCount, spelling: candidate.to,
+          reason: candidate.reason, recurrences: candidate.recurrences } : {}) } };
     }
     if (path === "/dictation/review") {
       if (registry.status(CORRECTION_SOURCE) !== "enabled") return { status: 403, body: { error: "Correction learning is not enabled" } };
