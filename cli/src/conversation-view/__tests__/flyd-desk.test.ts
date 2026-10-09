@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
-import { FirstmateInbox } from "../firstmate-inbox.js";
+import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
 import { inFlydsVoice } from "../flyd-voice.js";
+import { SnapshotDiffer } from "../server.js";
+import { headlineOf } from "../status.js";
+import { digestReply } from "../summaries.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -185,5 +188,38 @@ printf 'queued %s\\n' "$id"
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
+  });
+});
+
+describe("a firstmate answer to his note reaches him whole", () => {
+  const answer = [
+    "Captain, you're right. The Flyd chat box sends every message to me, the fleet supervisor, not to Flyd's own assistant, so I answered your Bangkok question instead of Flyd.",
+    "That is why the university question failed too: Flyd's memory of you never saw it, and a safety check stopped me reading your personal Flyd records.",
+    "The fix: Flyd answers personal and general questions itself, and shows my full answer to each note under the question.",
+  ].join("\n\n");
+
+  it("shows every paragraph of a multi-paragraph reply, in Flyd's voice, never folded to its lead line", () => {
+    const home = join(dir, "firstmate");
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    writeFileSync(join(home, "state", "inbox", "handled", "1791516800-IZG4Ol.note"), "id=1791516800-IZG4Ol\nat=2026-10-09T03:30:00Z\n--\nwhy did flyd only show 'Captain, you're right.'?\n");
+    writeFileSync(join(home, "state", "inbox", ".replies", "1791516800-IZG4Ol"), `id=1791516800-IZG4Ol\nat=2026-10-09T03:33:41Z\nseq=5\n--\n${answer}\n`);
+
+    const messages = mergeNotes(relayed([]), new FirstmateInbox({ home }).notes(), {});
+    const update = new SnapshotDiffer().next({ messages, working: false });
+    const shown = update.messages.find((message) => message.answers === "note:1791516800-IZG4Ol")!;
+    expect(shown.summary).toBeUndefined();
+    expect(shown.routine).toBeUndefined();
+    const text = shown.html.replace(/<[^>]+>/g, "").replace(/&#39;/g, "'");
+    expect(text).toContain("Sir, you're right. The Flyd chat box sends every message to me");
+    expect(text).toContain("That is why the university question failed too");
+    expect(text).toContain("The fix: Flyd answers personal and general questions itself");
+    expect(text).not.toMatch(/captain/i);
+  });
+
+  it("leads with the substance, not the acknowledgement, wherever it is cut short", () => {
+    const voiced = inFlydsVoice(answer);
+    expect(digestReply(voiced).lead).toMatch(/^The Flyd chat box sends every message to me/);
+    expect(headlineOf(voiced)).toMatch(/^The Flyd chat box sends every message/);
   });
 });

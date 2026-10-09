@@ -122,7 +122,8 @@ export class SnapshotDiffer {
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
     for (const message of snapshot.messages) {
-      const parts = message.role === "assistant" ? this.summarize(message, newest.has(message.id)) : { body: message.text };
+      // The answer to his own question shows whole: never folded behind a summary or muted as routine.
+      const parts = message.role === "assistant" && !message.answers ? this.summarize(message, newest.has(message.id)) : { body: message.text };
       const routine = "routine" in parts && parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
       if (message.aside && routine) continue;
