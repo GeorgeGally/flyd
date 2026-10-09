@@ -92,7 +92,13 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
       // repo tools, the model explores until its budget runs out and never
       // hands off. So the only tools here are the hand-offs, and one call.
       return {
-        route, source, cover, allows: new Set(), handoffs: domain === "coding" ? new Set(["start_coding_task"]) : domain === "knowledge" ? new Set(["start_knowledge_task"]) : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
+        route, source, cover, allows: new Set(), handoffs: domain === "coding"
+          ? new Set(["start_coding_task"])
+          : domain === "knowledge"
+            ? new Set(["start_knowledge_task"])
+            : domain === "creative" || domain === "life"
+              ? new Set(["background_task"])
+              : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
         instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; other one-off work goes to background_task. Then tell him in a line what you started.",
       };
@@ -123,7 +129,7 @@ export function offRoute(plan: TurnPlan | null, name: string, input: Record<stri
   const category = classifyToolCall(name, input);
   if (plan.allows.has(category)) return null;
   const why = plan.route === "delegate"
-    ? "this turn hands the work off; whoever takes it does the reading. Call start_coding_task or background_task now with an outcome and done_when points."
+    ? "this turn hands the work off; whoever takes it does the reading. Use the visible domain handoff now with an outcome and done_when points."
     : "this turn is for answering him, not changing anything. Offer it in one line; he'll say if he wants it.";
   return `Skipped (not this turn): ${why}`;
 }
