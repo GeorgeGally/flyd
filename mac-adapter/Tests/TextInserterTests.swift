@@ -15,20 +15,34 @@ final class TextInserterTests: XCTestCase {
     }
 
     func testPastesIntoTheAppThatWasFrontmostAtStop() {
-        XCTAssertEqual(TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 812), .paste)
+        XCTAssertEqual(TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 812, focus: .textInput), .paste)
     }
 
     func testCopiesInsteadWhenSecureInputIsOn() {
         XCTAssertEqual(
-            TextInserter.route(secureInputEnabled: true, targetPid: 812, frontmostPid: 812),
+            TextInserter.route(secureInputEnabled: true, targetPid: 812, frontmostPid: 812, focus: .textInput),
             .copyOnly(.secureInput)
         )
     }
 
     func testCopiesInsteadWhenGeorgeSwitchedApps() {
         XCTAssertEqual(
-            TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 97),
+            TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 97, focus: .textInput),
             .copyOnly(.targetChanged)
+        )
+    }
+
+    func testCopiesToClipboardWhenNoTextFieldIsFocused() {
+        XCTAssertEqual(
+            TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 812, focus: .noTextInput),
+            .copyOnly(.noTextField)
+        )
+    }
+
+    func testStillPastesWhenFocusCannotBeRead() {
+        XCTAssertEqual(
+            TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 812, focus: .unknown),
+            .paste
         )
     }
 

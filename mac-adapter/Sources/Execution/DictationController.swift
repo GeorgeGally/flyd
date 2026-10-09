@@ -235,6 +235,8 @@ final class DictationController {
             return .inserted
         case .copiedOnly(.secureInput):
             return .notice("Secure input is on — copied instead")
+        case .copiedOnly(.noTextField):
+            return .notice("Copied to clipboard")
         case .copiedOnly:
             return .notice("Copied — paste with ⌘V")
         }
@@ -247,6 +249,7 @@ final class DictationController {
         case .copiedOnly(.secureInput): return "copied:secure-input"
         case .copiedOnly(.targetChanged): return "copied:target-changed"
         case .copiedOnly(.pasteFailed): return "copied:paste-failed"
+        case .copiedOnly(.noTextField): return "copied:no-text-field"
         }
     }
 }

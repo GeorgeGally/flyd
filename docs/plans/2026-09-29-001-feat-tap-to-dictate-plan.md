@@ -64,7 +64,7 @@ New `TextInserter` (Swift, `Execution/`), strategy chain:
 3. **Accessibility** stays for reading the target (app, role, window title) and for undo on standard fields.
 
 Guards:
-- Target check replaces `DictationTargetPolicy`: refuse only when **Secure Input** is on (`IsSecureEventInputEnabled()` — password fields, Terminal/iTerm "Secure Keyboard Entry"); then copy to clipboard and say so.
+- Target check replaces `DictationTargetPolicy`: refuse only when **Secure Input** is on (`IsSecureEventInputEnabled()` — password fields, Terminal/iTerm "Secure Keyboard Entry") or when `FocusedTextTarget` finds no text field focused; then copy to clipboard and say so.
 - Re-verify the frontmost app pid matches the one captured at stop; if George switched apps while cleanup ran, copy instead of pasting into the wrong window.
 - Never swallow text: every failure path leaves the text on the clipboard with a message.
 

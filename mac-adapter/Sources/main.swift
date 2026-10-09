@@ -780,9 +780,26 @@ func processInvocation(
             correction: "Stale resolution — superseded by newer invocation"
         )
         await MainActor.run {
-            invocationPanel.dismiss()
-            island.hide()
+            showInvocationError(ResolutionDisplayPolicy.superseded, modality: modality)
             state.transition(to: .present)
+            executor.clearInvocationRefs()
+            stateMachine.resetCheckpoints()
+        }
+        return
+    }
+
+    if let failure = ResolutionDisplayPolicy.failure(for: resolution) {
+        print("[Flyd] Resolution \(resolution.mode) has nothing to show")
+        auditRecorder.record(
+            invocationId: invocationId,
+            contextSources: contextSources,
+            error: "Nothing to show for \(resolution.mode)"
+        )
+        await MainActor.run {
+            showInvocationError(failure, modality: modality)
+            state.transition(to: .present)
+            executor.clearInvocationRefs()
+            stateMachine.resetCheckpoints()
         }
         return
     }
@@ -834,7 +851,7 @@ func processInvocation(
             } else if results.contains(where: \.success) {
                 invocationPanel.updateState(.undoAvailable(invocationId: invocationId, preview: preview))
             } else {
-                invocationPanel.updateState(.executing(operationCount: resolution.operations.count, preview: preview))
+                invocationPanel.updateState(.error(message: preview))
             }
         }
 
@@ -926,7 +943,7 @@ func processInvocation(
         }
 
     default:
-        print("[Flyd] Unknown mode: \(resolution.mode)")
+        break
     }
 
     auditRecorder.record(

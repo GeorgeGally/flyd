@@ -11,7 +11,7 @@ final class DictationPill: NSObject {
     enum Phase: Equatable {
         case listening
         case working
-        /// A voice question on its way to Flyd: spinner in the wing, the question below the notch.
+        /// Flyd at work: spinner in the wing, the question (or what it is doing) below the notch.
         case thinking(String)
         case inserted
         case notice(String)
@@ -111,7 +111,10 @@ final class DictationPill: NSObject {
         return NSRect(x: (midX - width / 2).rounded(), y: screen.maxY - height, width: width, height: height)
     }
 
-    func show(_ phase: Phase) {
+    /// Returns a token for `hide(ifShowing:)`, so work that finishes late only clears its own
+    /// indicator and never one a newer dictation or question put up since.
+    @discardableResult
+    func show(_ phase: Phase) -> Int {
         hideWork?.cancel()
         hideWork = nil
         generation += 1
@@ -152,6 +155,13 @@ final class DictationPill: NSObject {
             hideWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
         }
+        return generation
+    }
+
+    /// Hides the island only if nothing has been shown since `token` was handed out.
+    func hide(ifShowing token: Int) {
+        guard token == generation else { return }
+        hide()
     }
 
     func updateSpectrum(_ bands: [Float]) {
