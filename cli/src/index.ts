@@ -171,6 +171,17 @@ program
   });
 
 program
+  .command("taste")
+  .description("What Flyd has learned about George's taste (TASTE.md): show | for <project|path> (rules for an agent to follow) | learn [--days N] | edit")
+  .argument("[action]", "show, for, learn or edit")
+  .argument("[args...]", "project or path for `for`; --days N for `learn`")
+  .allowUnknownOption()
+  .action(async (action?: string, args?: string[]) => {
+    const { runTaste } = await import("./commands/taste.js");
+    await runTaste(action, args ?? []);
+  });
+
+program
   .command("code")
   .description("Start or resume the continuity coding harness")
   .argument("[outcome]", "intended coding outcome")

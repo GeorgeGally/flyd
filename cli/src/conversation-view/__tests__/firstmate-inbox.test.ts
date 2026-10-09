@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
-import { FirstmateInbox, mergeNotes } from "../firstmate-inbox.js";
+import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -23,6 +23,8 @@ printf 'queued %s\\n  %s\\n' "$id" "$body"
 
 let dir: string;
 let home: string;
+
+const questions = (inbox: FirstmateInbox) => inbox.notes().map((exchange) => exchange.question);
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -56,7 +58,7 @@ describe("FirstmateInbox", () => {
     const sent = await inbox.send(`  ${text}\n`);
 
     expect(sent.id).toMatch(/^note:\d+-\d+$/);
-    const notes = inbox.notes();
+    const notes = questions(inbox);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ id: sent.id, role: "user", text });
     expect(readdirSync(dir)).not.toContain("pwned");
@@ -73,24 +75,24 @@ describe("FirstmateInbox", () => {
     const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
     expect(raw).toContain(`look at this\n\n[image: ${path}]`);
 
-    const [note] = inbox.notes();
+    const [note] = questions(inbox);
     expect(note).toMatchObject({ id: sent.id, text: "look at this", images: [`f${saved[0]}`] });
     expect(inbox.image(note!.images![0]!)).toEqual({ mediaType: "image/png", data: Buffer.from(PNG, "base64") });
 
     // An image alone is a message too.
     await inbox.send("", [{ mediaType: "image/png", data: PNG }]);
-    expect(inbox.notes()[1]).toMatchObject({ text: "", images: [expect.stringMatching(/^f.+\.png$/)] });
+    expect(questions(inbox)[1]).toMatchObject({ text: "", images: [expect.stringMatching(/^f.+\.png$/)] });
   });
 
   it("refuses files that are not images, too many images, and image names outside its folder", async () => {
     const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
     await expect(inbox.send("x", [{ mediaType: "image/png", data: Buffer.from("#!/bin/sh\nrm -rf ~").toString("base64") }])).rejects.toThrow("Only PNG, JPEG, GIF and WebP");
     await expect(inbox.send("x", Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: PNG })))).rejects.toThrow("At most 4 images");
-    expect(inbox.notes()).toEqual([]);
+    expect(questions(inbox)).toEqual([]);
 
     writeNote("", "300-c", "2026-10-05T20:00:00Z", `see\n[image: /etc/passwd]\n[image: ${join(home, "data", "inbox-images")}/../../x.png]`);
-    expect(inbox.notes()[0]).toMatchObject({ text: expect.stringContaining("[image: /etc/passwd]") });
-    expect(inbox.notes()[0]!.images).toBeUndefined();
+    expect(questions(inbox)[0]).toMatchObject({ text: expect.stringContaining("[image: /etc/passwd]") });
+    expect(questions(inbox)[0]!.images).toBeUndefined();
     expect(inbox.image("f../../x.png")).toBeNull();
   });
 
@@ -99,7 +101,7 @@ describe("FirstmateInbox", () => {
     await inbox.send("/design-review the cards look flat", [], "design-review");
     const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
     expect(raw).toContain("/design-review the cards look flat\n\n[Captain ran /design-review from Flyd: run it exactly as if he had typed it in Claude Code.]");
-    expect(inbox.notes()[0]!.text).toBe("/design-review the cards look flat");
+    expect(questions(inbox)[0]!.text).toBe("/design-review the cards look flat");
   });
 
   it("reports the script's own refusal", async () => {
@@ -115,13 +117,13 @@ describe("FirstmateInbox", () => {
     const inbox = new FirstmateInbox({ home, script });
     const sent = await inbox.send("are you there?");
     expect(sent.warning).toMatch(/^fm-inbox: note \S+ is saved but firstmate was NOT woken$/);
-    expect(inbox.notes().map((note) => [note.id, note.text])).toEqual([[sent.id, "are you there?"]]);
+    expect(questions(inbox).map((note) => [note.id, note.text])).toEqual([[sent.id, "are you there?"]]);
   });
 
   it("reads each note file once, including after firstmate moves it to handled/", () => {
     writeNote("", "100-a", "2026-10-05T20:00:00Z", "first");
     const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
-    expect(inbox.notes().map((note) => note.text)).toEqual(["first"]);
+    expect(questions(inbox).map((note) => note.text)).toEqual(["first"]);
 
     // Unreadable from here on: only a re-read would lose it.
     const pendingPath = join(home, "state", "inbox", "100-a.note");
@@ -129,10 +131,10 @@ describe("FirstmateInbox", () => {
     mkdirSync(join(home, "state", "inbox", "handled"));
     renameSync(pendingPath, join(home, "state", "inbox", "handled", "100-a.note"));
     writeNote("", "200-b", "2026-10-05T20:05:00Z", "second");
-    expect(inbox.notes().map((note) => note.text)).toEqual(["first", "second"]);
+    expect(questions(inbox).map((note) => note.text)).toEqual(["first", "second"]);
 
     rmSync(join(home, "state", "inbox", "handled", "100-a.note"));
-    expect(inbox.notes().map((note) => note.text)).toEqual(["second"]);
+    expect(questions(inbox).map((note) => note.text)).toEqual(["second"]);
   });
 
   it("reads notes both pending and already handled by firstmate, oldest first", () => {
@@ -141,7 +143,7 @@ describe("FirstmateInbox", () => {
     writeFileSync(join(home, "state", "inbox", ".staging-xyz"), "half written");
     const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
     expect(inbox.available()).toBe(false);
-    expect(inbox.notes().map((note) => [note.id, note.text])).toEqual([
+    expect(questions(inbox).map((note) => [note.id, note.text])).toEqual([
       ["note:100-a", "first\nwith two lines"],
       ["note:200-b", "second"],
     ]);
@@ -153,7 +155,7 @@ describe("mergeNotes", () => {
     { id: "u1", role: "user" as const, text: "a", timestamp: "2026-10-05T20:00:00.500Z" },
     { id: "r1", role: "assistant" as const, text: "b", timestamp: "2026-10-05T20:05:00.000Z" },
   ];
-  const note = (id: string, timestamp: string) => ({ id, role: "user" as const, text: id, timestamp });
+  const note = (id: string, timestamp: string) => ({ question: { id, role: "user" as const, text: id, timestamp }, waiting: "passed to firstmate" });
 
   it("places notes by time inside the session's window only", () => {
     const merged = mergeNotes(
@@ -166,6 +168,57 @@ describe("mergeNotes", () => {
 
   it("compares times, not strings of different precision", () => {
     expect(mergeNotes(messages, [note("same-second", "2026-10-05T20:00:00Z")], {}).map((m) => m.id)).toEqual(["same-second", "u1", "r1"]);
+  });
+});
+
+function writeReply(id: string, at: string, seq: number, body: string): void {
+  const target = join(home, "state", "inbox", ".replies");
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(target, id), `id=${id}\nat=${at}\nseq=${seq}\n--\n${body}\n`);
+}
+
+describe("firstmate's replies to notes", () => {
+  const question = "whats there to do in bkk tonight? i see there is an art festival?";
+  const unrelated = { id: "t1", role: "assistant" as const, text: "Captain, the island filter is still paused on your call.", timestamp: "2026-10-09T03:21:30.000Z" };
+
+  it("pairs a reply with its own note id, in Flyd's voice", () => {
+    writeNote("handled", "1791516064-ZGKFlI", "2026-10-09T03:21:04Z", question);
+    writeNote("handled", "1791516100-other1", "2026-10-09T03:21:40Z", "A");
+    writeReply("1791516064-ZGKFlI", "2026-10-09T03:22:45Z", 1, "Captain, tonight's the big one: art bangkok at Siam Paragon.");
+    const [bkk, other] = new FirstmateInbox({ home }).notes();
+    expect(bkk!.answer).toMatchObject({ id: "note-reply:1791516064-ZGKFlI", role: "assistant", answers: "note:1791516064-ZGKFlI", text: "Sir, tonight's the big one: art bangkok at Siam Paragon." });
+    expect(other!.answer).toBeUndefined();
+  });
+
+  it("never shows an unrelated firstmate line that arrived first as the answer", () => {
+    writeNote("handled", "1791516064-ZGKFlI", "2026-10-09T03:21:04Z", question);
+    writeReply("1791516064-ZGKFlI", "2026-10-09T03:22:45Z", 1, "Tonight: art bangkok at Siam Paragon.");
+    const merged = mergeNotes(relayed([unrelated]), new FirstmateInbox({ home }).notes(), {});
+    expect(merged.map((m) => [m.id, m.role, m.aside ?? false])).toEqual([
+      ["note:1791516064-ZGKFlI", "user", false],
+      ["note-reply:1791516064-ZGKFlI", "assistant", false],
+      ["t1", "assistant", true],
+    ]);
+    expect(merged[2]!.text).toBe("Sir, the island filter is still paused on your call.");
+  });
+
+  it("shows the question waiting until its reply arrives, then the reply under it", () => {
+    writeNote("", "1791516064-ZGKFlI", "2026-10-09T03:21:04Z", question);
+    const inbox = new FirstmateInbox({ home });
+    let merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});
+    expect(merged.map((m) => [m.id, m.waiting])).toEqual([["note:1791516064-ZGKFlI", "Flyd has it queued"], ["t1", undefined]]);
+
+    mkdirSync(join(home, "state", "inbox", "handled"));
+    renameSync(join(home, "state", "inbox", "1791516064-ZGKFlI.note"), join(home, "state", "inbox", "handled", "1791516064-ZGKFlI.note"));
+    expect(mergeNotes([], inbox.notes(), {})[0]!.waiting).toBe("Flyd is on it");
+
+    writeReply("1791516064-ZGKFlI", "2026-10-09T03:22:45Z", 1, "Tonight: art bangkok.");
+    merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});
+    expect(merged.map((m) => [m.id, m.waiting])).toEqual([
+      ["note:1791516064-ZGKFlI", undefined],
+      ["note-reply:1791516064-ZGKFlI", undefined],
+      ["t1", undefined],
+    ]);
   });
 });
 

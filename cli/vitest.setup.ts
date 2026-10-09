@@ -23,6 +23,9 @@ process.env.FLYD_MORNING_PATH ??= join(sandbox, "morning.json");
 process.env.FLYD_PROJECTS_PATH ??= join(sandbox, "projects.json");
 process.env.FLYD_SKILLS_DIR ??= join(sandbox, "skills");
 process.env.FLYD_BACKGROUND_JOBS_DIR ??= join(sandbox, "jobs");
+process.env.FLYD_TASTE_FILE ??= join(sandbox, "TASTE.md");
+process.env.FLYD_TASTE_STATE ??= join(sandbox, "taste-state.json");
+process.env.FLYD_CLAUDE_PROJECTS ??= join(sandbox, "claude-projects");
 process.env.FLYD_INVESTIGATOR ??= "0";
 // Self-improvement dispatches real crew work; tests opt in explicitly.
 process.env.FLYD_SELF_IMPROVE ??= "0";

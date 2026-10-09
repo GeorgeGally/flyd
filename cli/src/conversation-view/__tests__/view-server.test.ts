@@ -9,6 +9,8 @@ import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
+import { readTaste, writeTaste } from "../../council/taste.js";
+import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -72,6 +74,33 @@ describe("SnapshotDiffer", () => {
   });
 });
 
+describe("SnapshotDiffer relays", () => {
+  it("drops routine relayed updates, keeps ones with an outcome, and carries the pairing to the page", () => {
+    const differ = new SnapshotDiffer();
+    const update = differ.next({
+      messages: [
+        { id: "note:1", role: "user", text: "whats on in bkk tonight?", waiting: "passed to firstmate" },
+        { id: "t1", role: "assistant", text: "Sir, standing by.", aside: true },
+        { id: "t2", role: "assistant", text: "Sir, the island filter is still paused on your call. A or B?", aside: true },
+      ],
+      working: false,
+    });
+    expect(update.order).toEqual(["note:1", "t2"]);
+    expect(update.messages.map((m) => [m.id, m.waiting, m.aside])).toEqual([["note:1", "passed to firstmate", undefined], ["t2", undefined, true]]);
+
+    const answered = differ.next({
+      messages: [
+        { id: "note:1", role: "user", text: "whats on in bkk tonight?" },
+        { id: "note-reply:1", role: "assistant", text: "Art bangkok, sir.", answers: "note:1" },
+        { id: "t2", role: "assistant", text: "Sir, the island filter is still paused on your call. A or B?", aside: true },
+      ],
+      working: false,
+    });
+    expect(answered.order).toEqual(["note:1", "note-reply:1", "t2"]);
+    expect(answered.messages.map((m) => [m.id, m.waiting, m.answers])).toEqual([["note:1", undefined, undefined], ["note-reply:1", undefined, "note:1"]]);
+  });
+});
+
 describe("SnapshotDiffer summaries", () => {
   const long = "Captain, the menu bar now sits ten pixels higher on every page, including the member login. " +
     "I checked it in the browser on desktop and mobile, and the change is committed but not pushed yet. ".repeat(2);
@@ -94,15 +123,15 @@ describe("SnapshotDiffer summaries", () => {
     expect(calls).toBe(0);
   });
 
-  it("shows the first sentence while a model summary is on its way, then pushes the model's", async () => {
+  it("shows a local digest while a model summary is on its way, then pushes the model's", async () => {
     let resolve!: (summary: string) => void;
     const model = withModel(() => new Promise((r) => (resolve = r)));
     const differ = new SnapshotDiffer(model);
     const snapshot = { messages: [message("short", "Done."), message("r1", long)], working: false };
     const first = differ.next(snapshot).messages;
     expect(first[0]!.summary).toBeUndefined();
-    expect(first[1]!.summary).toMatchObject({ source: "first-sentence", pending: true });
-    expect(first[1]!.summary!.html).toContain("Captain, the menu bar now sits ten pixels higher");
+    expect(first[1]!.summary).toMatchObject({ source: "digest", pending: true });
+    expect(first[1]!.summary!.html).toContain("The menu bar now sits ten pixels higher");
 
     await new Promise((r) => setTimeout(r, 0));
     resolve("The menu bar is a little higher and saved, not yet published.");
@@ -111,6 +140,39 @@ describe("SnapshotDiffer summaries", () => {
     const second = differ.next(snapshot).messages;
     expect(second.map((m) => m.id)).toEqual(["r1"]);
     expect(second[0]!.summary).toEqual({ html: "<p>The menu bar is a little higher and saved, not yet published.</p>\n", source: "model" });
+  });
+
+  it("never folds a reply that hands the captain something to act on behind its summary", () => {
+    // The captain asked "what rules bro": the folded view showed "Kinsta won't
+    // accept #." while the four rules he had to paste sat behind "more".
+    const differ = new SnapshotDiffer();
+    const [rendered, table] = differ.next({ messages: [message("r1", KINSTA_RULES), message("r3", KINSTA_TABLE)], working: false }).messages;
+    expect(rendered).toMatchObject({ summary: { source: "digest" }, expanded: true });
+    expect(rendered!.summary!.html).toContain("Set each to 301 and All domains");
+    expect(rendered!.html).toContain("^/members-and-firms/?$");
+    expect(table).toMatchObject({ summary: { source: "digest" }, expanded: true });
+    expect(table!.html).toContain("https://capfive.com/professionals/");
+    const [authored] = new SnapshotDiffer().next({ messages: [message("r2", `» Four rules for Kinsta.\n\n${KINSTA_RULES}`)], working: false }).messages;
+    expect(authored).toMatchObject({ summary: { source: "author" }, expanded: true });
+    expect(authored!.html).toContain("https://capfive.com/$1");
+  });
+
+  it("mutes routine chatter, and a reply the model finds routine shrinks to one line", async () => {
+    const differ = new SnapshotDiffer(withModel(async () => "**ROUTINE.**"));
+    const [shipshape] = differ.next({ messages: [message("r1", "Captain, shipshape.")], working: false }).messages;
+    expect(shipshape).toMatchObject({ routine: true });
+    const snapshot = { messages: [message("r2", long)], working: false };
+    differ.next(snapshot);
+    await new Promise((r) => setTimeout(r, 0));
+    const [routine] = differ.next(snapshot).messages;
+    expect(routine).toMatchObject({ routine: true, summary: { source: "model" } });
+    expect(routine!.summary!.html).not.toContain("ROUTINE");
+  });
+
+  it("passes what the assistant is doing while it works, and nothing once it stops", () => {
+    const differ = new SnapshotDiffer();
+    expect(differ.next({ messages: [], working: true, activity: "Checking the About page on iPhone SE" }).activity).toBe("Checking the About page on iPhone SE");
+    expect(differ.next({ messages: [], working: false, activity: "stale" }).activity).toBeUndefined();
   });
 
   it("only asks the model about the newest twenty replies, two at a time", async () => {
@@ -167,9 +229,9 @@ describe("ConversationViewServer", () => {
     });
   }
 
-  function post(port: number, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  function post(port: number, body: string, headers: Record<string, string>, path = "/api/send"): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
-      const req = request({ host: "127.0.0.1", port, path: "/api/send", method: "POST", headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+      const req = request({ host: "127.0.0.1", port, path, method: "POST", headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
         let text = "";
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => (text += chunk));
@@ -191,7 +253,7 @@ describe("ConversationViewServer", () => {
       return { id: message.id, timestamp: message.timestamp! };
     }
     notes() {
-      return this.sent;
+      return this.sent.map((question) => ({ question, waiting: "passed to firstmate" }));
     }
     image() {
       return null;
@@ -238,6 +300,30 @@ describe("ConversationViewServer", () => {
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
     expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
+  });
+
+  it("shows what Flyd knows about the captain's taste, and lets only its own page reword or veto a rule", async () => {
+    writeTaste({
+      rules: [{ id: "abc12345", text: "No shadows on icon boxes.", scope: "personal", count: 2, projects: [], last: "2026-10-06",
+        evidence: [{ quote: "no shadows on the icon boxes", source: "Claude Code", date: "2026-10-06" }] }],
+      vetoed: [],
+      names: {},
+    });
+    const port = await start();
+    const page = await get(port, "/taste");
+    expect(page.status).toBe(200);
+    expect(page.body).toContain("No shadows on icon boxes.");
+    expect(page.body).toContain("no shadows on the icon boxes");
+    const token = /data-token="([0-9a-f]+)"/.exec(page.body)![1]!;
+    const json = { "content-type": "application/json" };
+    const veto = JSON.stringify({ action: "veto", id: "abc12345" });
+    expect((await post(port, veto, json, "/api/taste")).status).toBe(403);
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token, origin: "https://attacker.example" }, "/api/taste")).status).toBe(403);
+    expect((await post(port, JSON.stringify({ action: "reword", id: "abc12345", text: "Never shadows on icon boxes." }), { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste().rules[0]!.text).toBe("Never shadows on icon boxes.");
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste()).toMatchObject({ rules: [], vetoed: [{ id: "abc12345" }] });
+    expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(404);
   });
 
   it("lists no slash commands for a read-only conversation", async () => {

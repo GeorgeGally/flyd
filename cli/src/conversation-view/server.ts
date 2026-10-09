@@ -3,10 +3,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
+import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
+import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, firstSentence, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
+import type { AnswerInterpreter } from "./interpret.js";
+import { inFlydsVoice } from "./flyd-voice.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -28,14 +32,23 @@ export interface RenderedMessage {
   /** Image ids; the page loads each from /api/image. */
   images?: string[];
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
-  summary?: { html: string; source: SummarySource; pending?: boolean };
+  summary?: { html: string; source: SummarySource | "flyd"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
   compare?: { html: string; pending?: boolean };
+  /** The reply hands the captain something to act on: the page never folds it behind its summary. */
+  expanded?: boolean;
+  /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
+  routine?: boolean;
   timestamp?: string;
+  waiting?: string;
+  answers?: string;
+  aside?: boolean;
 }
 
 export interface SummaryOptions {
-  summarizer: ReplySummarizer;
+  summarizer?: ReplySummarizer;
+  /** Flyd's own reading of firstmate's answer to one of his notes. */
+  interpreter?: AnswerInterpreter;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -48,6 +61,8 @@ interface StreamUpdate {
   /** Messages that are new or whose content changed. */
   messages: RenderedMessage[];
   working: boolean;
+  /** While working: what the assistant is doing now, in a few plain words. */
+  activity?: string;
   lastActivity?: string;
   context?: { tokens: number; window: number };
 }
@@ -61,24 +76,46 @@ export class SnapshotDiffer {
   /** Starts a model summary in the background; the stream re-renders when it lands. */
   private ask(text: string): void {
     const summaries = this.summaries!;
-    void summaries.summarizer.request(text).then(() => summaries.onSummary?.());
+    void summaries.summarizer!.request(text).then(() => summaries.onSummary?.());
+  }
+
+  /**
+   * Firstmate's answer to his note, as Flyd tells it: Flyd's interpretation
+   * leads, firstmate's own words wait behind "more". Until it lands, or with
+   * no model, the lead is the answer's local digest.
+   */
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+    const interpreter = this.summaries?.interpreter;
+    const cached = interpreter?.cached(message.text);
+    if (cached) return { body: message.text, summary: { html: renderMarkdown(inFlydsVoice(cached)), source: "flyd" } };
+    if (interpreter && newest && interpreter.wants(message.text)) {
+      const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
+      const before = at >= 0 ? at : snapshot.messages.indexOf(message);
+      const summaries = this.summaries!;
+      void interpreter
+        .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
+        .then(() => summaries.onSummary?.());
+    }
+    const pending = interpreter?.pending(message.text) ?? false;
+    return { body: message.text, summary: { html: renderMarkdown(digestMarkdown(digestReply(message.text))), source: "digest", ...(pending ? { pending: true } : {}) } };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
-  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare"> & { body: string } {
+  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
     const author = authorSummary(message.text);
     const summarizer = this.summaries?.summarizer;
     const modelFor = (text: string): { text?: string; pending: boolean } => {
       if (!summarizer) return { pending: false };
       const cached = summarizer.cached(text);
-      if (cached) return { text: cached, pending: false };
+      if (cached) return { text: inFlydsVoice(cached), pending: false };
       if (newest && summarizer.wants(text)) this.ask(text);
       return { pending: summarizer.pending(text) };
     };
     if (author) {
-      const parts: Pick<RenderedMessage, "summary" | "compare"> & { body: string } = {
+      const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
         summary: { html: renderMarkdown(author.summary), source: "author" },
+        ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
         const model = modelFor(message.text);
@@ -86,13 +123,19 @@ export class SnapshotDiffer {
       }
       return parts;
     }
-    if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text };
+    if (message.text.length < SUMMARY_MIN_CHARS) return { body: message.text, ...(isRoutine(message.text) ? { routine: true } : {}) };
+    // Rules to paste, steps to carry out: the summary leads, the reply shows open under it.
+    const actionable = isActionable(message.text);
     const model = modelFor(message.text);
+    const digest = digestReply(message.text);
+    // The model found no outcome, decision or ask: one muted line.
+    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
     return {
       body: message.text,
-      summary: model.text
+      summary: model.text && !isRoutineAnswer(model.text)
         ? { html: renderMarkdown(model.text), source: "model" }
-        : { html: renderMarkdown(firstSentence(message.text)), source: "first-sentence", ...(model.pending ? { pending: true } : {}) },
+        : { html: renderMarkdown(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
+      ...(actionable ? { expanded: true } : {}),
     };
   }
 
@@ -104,10 +147,18 @@ export class SnapshotDiffer {
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
     for (const message of snapshot.messages) {
+      // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
+      const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
+        : !message.answers ? this.summarize(message, newest.has(message.id))
+          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
+            : { body: message.text };
+      const routine = parts.routine === true;
+      // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
+      if (message.aside && routine) continue;
       order.push(message.id);
       seen.add(message.id);
-      const parts = message.role === "assistant" ? this.summarize(message, newest.has(message.id)) : { body: message.text };
-      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare]);
+      const expanded = parts.expanded === true;
+      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -117,7 +168,12 @@ export class SnapshotDiffer {
         ...(message.images?.length ? { images: message.images } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
+        ...(routine ? { routine: true } : {}),
+        ...(expanded ? { expanded: true } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
+        ...(message.waiting ? { waiting: message.waiting } : {}),
+        ...(message.answers ? { answers: message.answers } : {}),
+        ...(message.aside ? { aside: true } : {}),
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
@@ -125,6 +181,7 @@ export class SnapshotDiffer {
       order,
       messages: changed,
       working: snapshot.working,
+      ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
     };
@@ -183,7 +240,7 @@ export class ConversationViewServer {
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer: ReplySummarizer; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
     private readonly plan?: PlanUsageReader,
   ) {}
 
@@ -224,6 +281,10 @@ export class ConversationViewServer {
       await this.send(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/taste") {
+      await this.editTaste(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -239,6 +300,15 @@ export class ConversationViewServer {
         assistantLabel: this.source.assistantLabel,
         ...(this.source.canSend ? { sendToken: this.token } : {}),
       }));
+      return;
+    }
+    if (url.pathname === "/taste") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+      });
+      res.end(renderTastePage(readTaste(), { token: this.token }));
       return;
     }
     if (url.pathname === "/api/sessions") {
@@ -275,6 +345,34 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  /** George rewords, vetoes or restores a learned taste rule from the taste page. */
+  private async editTaste(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) {
+      sendJson(res, 403, { error: "forbidden origin" });
+      return;
+    }
+    if (!sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "missing or wrong token" });
+      return;
+    }
+    let payload: { action?: unknown; id?: unknown; text?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 16 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    const id = typeof payload.id === "string" ? payload.id : "";
+    const done = payload.action === "veto" ? vetoRule(id)
+      : payload.action === "restore" ? restoreRule(id)
+        : payload.action === "reword" && typeof payload.text === "string" ? rewordRule(id, payload.text)
+          : null;
+    if (done === null) sendJson(res, 400, { error: "expected { action: veto|restore|reword, id, text? }" });
+    else if (!done) sendJson(res, 404, { error: "unknown rule" });
+    else sendJson(res, 200, { ok: true });
   }
 
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
