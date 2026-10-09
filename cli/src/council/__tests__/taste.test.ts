@@ -171,8 +171,9 @@ describe("Librarian curation", () => {
     rephrased.rule.sameAs = learned.id;
     expect(applyObservations(profile, [
       observe("Never hard-code an API key in the client.", "personal"),
+      observe("Keep API keys out of client code.", "personal", undefined, "2026-10-07", "put the key on the server"),
       rephrased,
-    ])).toMatchObject({ added: 0, ignored: 2 });
+    ])).toMatchObject({ added: 0, ignored: 3 });
   });
 
   it("never folds away a rule George wrote or reworded", () => {
@@ -207,6 +208,9 @@ describe("Librarian curation", () => {
     writeTaste(profile);
     const ids = profile.rules.map((rule) => rule.id);
     const complete = async () => {
+      const concurrent = readTaste();
+      concurrent.rules.push({ id: "fresh0001", text: "Fresh edits survive.", scope: "personal", count: 0, projects: [], evidence: [] });
+      writeTaste(concurrent);
       return JSON.stringify({ taste_ops: [
         { op: "fold", id: ids[0], merge: ids[1], reason: "same point" },
         { op: "retire", id: ids[2], reason: "generic truism" },
@@ -215,7 +219,7 @@ describe("Librarian curation", () => {
     const receipt = await curateTaste({ complete });
     expect(receipt).toMatchObject({ folded: 1, retired: 1 });
     const after = readTaste();
-    expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages."]);
+    expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages.", "Fresh edits survive."]);
     expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key in the client."]);
     expect(readFileSync(process.env.FLYD_TASTE_FILE!, "utf8")).toContain(`## ${RETIRED}`);
     expect(tastePromptText({ profile: after })).not.toContain("api key");
