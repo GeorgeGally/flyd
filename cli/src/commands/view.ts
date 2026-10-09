@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
+import { FlydDesk, type Answerer } from "../conversation-view/flyd-desk.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { getKey } from "../lib/config.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
@@ -26,6 +27,17 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
   }
 }
 
+/** Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions. */
+const answerAsFlyd: Answerer = async (question, history) => {
+  const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
+    import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
+  ]);
+  const situation = await loadAgentSituation().catch(() => null);
+  const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
+  const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
+  return respondToConversation({ message: question, history, memory, situation, crossRepo, onToken: () => {} });
+};
+
 function openInBrowser(url: string): void {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
   execFile(command, [url], () => {});
@@ -45,6 +57,13 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     projectDir,
     // Skills and commands: ~/.claude plus firstmate's own .claude, as Claude Code lists them.
     ...(wantsInbox ? { inbox, commandRoots: { projectDir: inbox.home } } : {}),
+    // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
+    ...(wantsInbox ? {
+      desk: {
+        desk: new FlydDesk({ answer: answerAsFlyd }),
+        complete: async (prompt: string) => (await import("../lib/llm.js")).query(prompt),
+      },
+    } : {}),
   });
   const sessions = await source.listSessions();
   if (sessions.length === 0) throw new Error(`No Claude Code sessions in ${projectDir}`);
@@ -65,7 +84,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);
   console.log(source.canSend
-    ? `Messages you type go to firstmate's inbox (${inbox.script}). Ctrl-C to stop.`
+    ? `Flyd answers what you type; software work goes to firstmate's inbox (${inbox.script}). Ctrl-C to stop.`
     : "Read-only. Ctrl-C to stop.");
   console.log(providers.length
     ? `Summaries: ${providers.map((provider) => provider.name).join(", then ")} (reply text is sent to that provider; FLYD_VIEW_SUMMARIES=0 turns it off).`

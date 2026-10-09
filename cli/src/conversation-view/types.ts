@@ -18,6 +18,20 @@ export interface ConversationMessage {
   images?: string[];
   /** ISO timestamp, when the source knows it. */
   timestamp?: string;
+  /** A captain message with no answer yet: what is happening to it, e.g. "Flyd is thinking…". */
+  waiting?: string;
+  /** An assistant message that answers the captain message with this id. */
+  answers?: string;
+  /** An assistant message relayed from the assistant's own session: not an answer to the captain message above it. */
+  aside?: boolean;
+}
+
+/** A message the captain sent from the view, and its answer once there is one. */
+export interface Exchange {
+  question: ConversationMessage;
+  answer?: ConversationMessage;
+  /** Shown under the question while there is no answer. */
+  waiting: string;
 }
 
 export interface ConversationSnapshot {
