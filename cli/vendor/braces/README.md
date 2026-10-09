@@ -10,5 +10,11 @@ brace or paren patterns under the 10,000-character cap overflowed the stack in t
 Flyd reaches braces only through `@tobilu/qmd` → `fast-glob` → `micromatch`; `cli/package.json`
 overrides it to this directory. No patched upstream release existed when this was vendored.
 
+The guard applies only to the documented install (the repo symlink into `cli/`). npm applies
+`overrides` only at the root project, so packed or published installs of `@radarboy/flyd` keep
+upstream braces 3.0.3 on qmd's glob path. Packed installs are not a supported install path today.
+The only pattern that reaches braces is Flyd's fixed `**/*.md` (`cli/src/lib/qmd.ts`), so no
+user-controlled pattern gets to it.
+
 **Drop this fork** (delete this directory and the `braces` override) once upstream ships a release
 that fixes the advisory.
