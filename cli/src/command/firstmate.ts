@@ -204,6 +204,8 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "FLYD INTERPRETATION:",
     request.intendedOutcome,
+    request.parentRequestId ? `Follow-up to prior Flyd domain run: ${request.parentRequestId}` : "",
+    request.contextRefs?.length ? `Context refs: ${request.contextRefs.join(", ")}` : "",
     project,
     "",
     "DONE WHEN:",
