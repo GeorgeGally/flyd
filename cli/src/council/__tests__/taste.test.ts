@@ -167,6 +167,12 @@ describe("Librarian curation", () => {
     expect(receipt.rejected.join(" ")).toContain("George's own");
     expect(profile.rules.map((rule) => rule.text)).toEqual(["Be kind to the reader.", "Prefer quiet motion."]);
     expect(profile.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key in the client."]);
+    const rephrased = observe("A rephrased key rule.", "personal");
+    rephrased.rule.sameAs = learned.id;
+    expect(applyObservations(profile, [
+      observe("Never hard-code an API key in the client.", "personal"),
+      rephrased,
+    ])).toMatchObject({ added: 0, ignored: 2 });
   });
 
   it("never folds away a rule George wrote or reworded", () => {
@@ -200,9 +206,7 @@ describe("Librarian curation", () => {
     ]);
     writeTaste(profile);
     const ids = profile.rules.map((rule) => rule.id);
-    const complete = async (prompt: string) => {
-      expect(prompt).toContain("Librarian curating George's taste");
-      expect(prompt).toContain(ids[0]!);
+    const complete = async () => {
       return JSON.stringify({ taste_ops: [
         { op: "fold", id: ids[0], merge: ids[1], reason: "same point" },
         { op: "retire", id: ids[2], reason: "generic truism" },

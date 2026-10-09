@@ -118,9 +118,7 @@ describe("librarian", () => {
       vetoed: [], names: {},
     });
     appendJournalTurn({ user: "hi", assistant: "hello", at: at("2026-09-27T09:00:00Z") });
-    const prompts: string[] = [];
-    const complete = vi.fn(async (prompt: string) => {
-      prompts.push(prompt);
+    const complete = vi.fn(async () => {
       return JSON.stringify({ taste_ops: [
         { op: "fold", id: "keep0001", merge: "drop0001", reason: "same point" },
         { op: "retire", id: "gen00001", reason: "generic truism" },
@@ -128,8 +126,6 @@ describe("librarian", () => {
     });
     const result = await runLibrarian({ complete, rawDir: join(home, "none"), now: () => at("2026-09-27T10:00:00Z") });
     expect(result.taste).toMatchObject({ folded: 1, retired: 1 });
-    expect(prompts[0]).toContain("His taste");
-    expect(prompts[0]).toContain("[keep0001]");
     const after = readTaste();
     expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages."]);
     expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key."]);

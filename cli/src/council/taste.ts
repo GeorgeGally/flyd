@@ -255,6 +255,7 @@ const EVIDENCE_KEPT = 3;
 export function applyObservations(profile: TasteProfile, observations: Observation[]): ApplyResult {
   const result: ApplyResult = { added: 0, strengthened: 0, promoted: 0, ignored: 0 };
   const vetoed = new Set(profile.vetoed.flatMap((rule) => [rule.id, normalizeRule(rule.text)]));
+  const retired = new Set((profile.retired ?? []).flatMap((rule) => [rule.id, normalizeRule(rule.text)]));
   // The words that taught a vetoed rule: saying them again re-teaches it, however the rule is phrased.
   const vetoedQuotes = profile.vetoed.flatMap((rule) => rule.evidence.map((item) => normalizeRule(item.quote))).filter((quote) => quote.length >= 8);
   for (const { rule: learned, source, date } of observations) {
@@ -262,7 +263,7 @@ export function applyObservations(profile: TasteProfile, observations: Observati
     const norm = normalizeRule(text);
     const quote = normalizeRule(learned.quote);
     const repeatsVeto = vetoedQuotes.some((vetoedQuote) => quote.includes(vetoedQuote) || (quote.length >= 8 && vetoedQuote.includes(quote)));
-    if (!norm || vetoed.has(norm) || (learned.sameAs && vetoed.has(learned.sameAs)) || repeatsVeto) { result.ignored += 1; continue; }
+    if (!norm || vetoed.has(norm) || retired.has(norm) || (learned.sameAs && (vetoed.has(learned.sameAs) || retired.has(learned.sameAs))) || repeatsVeto) { result.ignored += 1; continue; }
     const project = learned.project;
     const evidence: TasteEvidence = { quote: learned.quote.replace(/\s+/g, " ").trim(), source, ...(project ? { project } : {}), date };
     const existing = profile.rules.find((rule) => (learned.sameAs && rule.id === learned.sameAs) || normalizeRule(rule.text) === norm);
