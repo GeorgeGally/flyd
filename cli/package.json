@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "agent"
+    "agent",
+    "vendor/braces"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
