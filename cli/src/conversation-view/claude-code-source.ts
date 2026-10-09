@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { mergeNotes, type CaptainInbox } from "./firstmate-inbox.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
@@ -119,7 +119,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
 
   constructor(options: { projectDir?: string; assistantLabel?: string; pollMs?: number; inbox?: CaptainInbox } = {}) {
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
-    this.assistantLabel = options.assistantLabel ?? (basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
+    this.assistantLabel = options.assistantLabel ?? "Flyd";
     this.pollMs = options.pollMs ?? 400;
     this.inbox = options.inbox;
   }
