@@ -181,7 +181,7 @@ final class StatusItem {
             return
         }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 760),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
