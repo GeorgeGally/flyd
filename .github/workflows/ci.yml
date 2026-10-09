@@ -92,6 +92,13 @@ jobs:
       - name: Typecheck TypeScript Core
         working-directory: cli
         run: npm run lint
+      - name: Test command routing invariants
+        working-directory: cli
+        run: >-
+          npx vitest run
+          src/runtime/__tests__/turn-plan.test.ts
+          src/runtime/__tests__/honesty-check.test.ts
+          src/runtime/__tests__/assistant-tools.test.ts
       - name: Test active Core
         working-directory: cli
         run: |

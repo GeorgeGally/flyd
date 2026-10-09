@@ -2,7 +2,7 @@ import { getKey } from "../lib/config.js";
 import { completeText, type CompleteText } from "./http.js";
 import { dictationProfile, type DictationProfile, type DictationTarget } from "./profile.js";
 import type { ReplacementRule } from "./vocabulary.js";
-import { preservesProtectedTokens, preservesWords, SPOKEN_EXTENSIONS } from "./fidelity.js";
+import { fidelityTokens, preservesProtectedTokens, preservesWords, SPOKEN_EXTENSIONS } from "./fidelity.js";
 
 // Turns a raw transcript into the text George meant to type. Deterministic
 // cleanup always runs; a model pass runs only when FLYD_DICTATE_MODEL is set,
@@ -32,9 +32,18 @@ export function isSilenceHallucination(transcript: string, audioSeconds: number)
 
 /** Whole-word, case-insensitive; George's rules beat any model for recurring misspellings. */
 export function applyRules(text: string, rules: ReplacementRule[]): string {
-  return rules.reduce((current, { from, to }) => {
+  return rules.reduce((current, { from, to, contexts }) => {
     const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return current.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "giu"), () => to);
+    return current.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "giu"), (match, offset: number) => {
+      if (!contexts) return to;
+      const prefix = current.slice(0, offset);
+      if ((prefix.match(/["“”]/g)?.length ?? 0) % 2 || (prefix.match(/`/g)?.length ?? 0) % 2) return match;
+      const tokens = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+      const left = tokens(current.slice(0, offset)), right = tokens(current.slice(offset + match.length));
+      return contexts.some(c => (c.left.length + c.right.length > 0) &&
+        c.left.every((word, i) => left[left.length - c.left.length + i] === word) &&
+        c.right.every((word, i) => right[i] === word)) ? to : match;
+    });
   }, text);
 }
 
@@ -88,6 +97,18 @@ export function acceptCleanup(input: string, output: string, spellings: string[]
   if (text.length > input.length * 1.5 + 40) return null;
   if (text.length < input.length * 0.6) return null;
   if (!preservesProtectedTokens(input, text)) return null;
+  // An automatic rule deliberately left these occurrences alone. A model cannot
+  // bypass that contextual decision using the broader spelling shortlist.
+  for (const rule of rules.filter(r => r.contexts)) {
+    const original = fidelityTokens(input), output = fidelityTokens(text);
+    for (const phrase of [rule.from, rule.to]) {
+      const wanted = fidelityTokens(phrase).map(word => word.toLowerCase());
+      for (let i = 0; i <= original.length - wanted.length; i++) {
+        if (wanted.every((word, j) => original[i + j].toLowerCase() === word) &&
+            (original.length !== output.length || wanted.some((_, j) => original[i + j] !== output[i + j]))) return null;
+      }
+    }
+  }
   if (!preservesWords(input, text, spellings, rules)) return null;
   return text;
 }

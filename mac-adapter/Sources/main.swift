@@ -6,7 +6,7 @@ import SwiftUI
 
 // Top-level `let`s in main.swift run as sequential statements, not hoisted like normal
 // globals — this must be bound before any code path (including the early startFlyd()
-// check below) can reach launchCore(), or it's an uninitialized-global crash.
+// check below) can reach launchCore(onExit:), or it's an uninitialized-global crash.
 let coreLogFileURL = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".flyd/overlay/core-launch.log", isDirectory: false)
 
@@ -53,6 +53,23 @@ let stateMachine = InvocationStateMachine.shared
 let auditRecorder = AuditRecorder.shared
 let auth = AdapterAuth.shared
 let flydClient = FlydClient.shared
+// Bound before ensureCoreLaunched() runs below; see the note on coreLogFileURL.
+let coreSupervisorQueue = DispatchQueue(label: "flyd.core-supervisor")
+let coreSupervisor = CoreSupervisor(
+    probe: { done in
+        Task {
+            let healthy = await flydClient.healthCheck()
+            coreSupervisorQueue.async { done(healthy) }
+        }
+    },
+    launch: { onExit in
+        launchCore { status in coreSupervisorQueue.async { onExit(status) } }
+    },
+    schedule: { delay, work in
+        coreSupervisorQueue.asyncAfter(deadline: .now() + delay, execute: work)
+    },
+    log: appendCoreLog
+)
 let executor = NativeExecutor.shared
 let configManager = ConfigManager.shared
 let voiceCapture = VoiceCapture.shared
@@ -255,10 +272,11 @@ func ensureCoreLaunched() {
     guard !coreLaunched else { return }
     coreLaunched = true
     _ = auth.credential()
-    launchCore()
+    CoreLaunchLog.rotateIfNeeded(at: coreLogFileURL)
+    coreSupervisorQueue.async { coreSupervisor.start() }
 }
 
-func launchCore() {
+func launchCore(onExit: @escaping (Int32) -> Void) -> Bool {
     let process = Process()
     // GUI-launched apps don't inherit the user's shell PATH (no ~/.zshrc, no nvm/homebrew/.local/bin),
     // so `env npm` fails silently. Route through a login shell to pick up the real PATH.
@@ -267,26 +285,25 @@ func launchCore() {
     process.currentDirectoryURL = URL(fileURLWithPath: resolveCliDir())
     process.environment = ProcessInfo.processInfo.environment
 
+    CoreLaunchLog.rotateIfNeeded(at: coreLogFileURL)
     let logHandle = openCoreLogHandle()
     process.standardOutput = logHandle
     process.standardError = logHandle
     appendCoreLog("Launching Core — cwd=\(resolveCliDir())")
 
     process.terminationHandler = { proc in
-        appendCoreLog("Core exited with status \(proc.terminationStatus)")
-        if proc.terminationStatus != 0 {
-            appendCoreLog("Restarting in 2s...")
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                launchCore()
-            }
-        }
+        try? logHandle.close()
+        onExit(proc.terminationStatus)
     }
 
     do {
         try process.run()
         appendCoreLog("Core process started (pid \(process.processIdentifier))")
+        return true
     } catch {
+        try? logHandle.close()
         appendCoreLog("Could not launch Core: \(error.localizedDescription)")
+        return false
     }
 }
 
@@ -359,49 +376,39 @@ func startDictation() {
     dictation.start()
 }
 
+/// Fn+Control held: the captain is talking to Flyd, in the background. His
+/// words go into the Conversation's message box and are sent on release like
+/// a typed message; nothing is raised or focused, so he keeps looking at what
+/// he is talking about. The notch pill is the only cue.
 func beginVoiceInvocation() {
-    let (invocationId, revision) = state.startInvocation()
+    let (invocationId, _) = state.startInvocation()
     activeVoiceInvocationId = invocationId
-    stateMachine.setRevision(revision)
-    stateMachine.startPrewarm()
-
-    if let element = accessibilityInspector.capturedAXElement() {
-        executor.registerElement(ref: "el_01", element: element)
-    }
 
     state.transition(to: .listening)
     island.show(.listening)
+    ConversationWindow.shared.voice(.start)
 
+    var heard = ""
     let sessionId = stateMachine.nextTranscriptionSessionId()
     voiceRelay.connect(sessionId: sessionId)
-    voiceRelay.onTranscriptDelta = nil
+    voiceRelay.onTranscriptDelta = { delta in
+        DispatchQueue.main.async {
+            heard += delta
+            ConversationWindow.shared.voice(.draft(heard))
+        }
+    }
     voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
             clearVoiceTranscriptionTimeout()
             voiceCapture.stop()
             voiceRelay.disconnect()
-
-            guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
                 cleanupVoiceInvocation(message: "I didn't catch that - try again")
                 return
             }
-
-            island.show(.thinking(transcript))
-
-            stateMachine.setRevision(revision)
-            stateMachine.startPrewarm()
-            if let element = accessibilityInspector.capturedAXElement() {
-                executor.registerElement(ref: "el_01", element: element)
-            }
-            activeInvocationTask = Task {
-                await processInvocation(
-                    invocationId: invocationId,
-                    revision: revision,
-                    modality: "voice",
-                    intent: transcript,
-                    conversationId: voiceConversationId
-                )
-            }
+            ConversationWindow.shared.voice(.send(text))
+            cleanupVoiceInvocation()
         }
     }
     voiceRelay.onError = { error in
@@ -417,15 +424,12 @@ func beginVoiceInvocation() {
     voiceCapture.onAudioChunk = { chunk in
         voiceRelay.sendAudioChunk(chunk)
     }
-
     voiceCapture.onLevel = nil
-
     voiceCapture.onSpectrum = { bands in
         DispatchQueue.main.async {
             island.updateSpectrum(bands)
         }
     }
-
     voiceCapture.onError = { error in
         DispatchQueue.main.async {
             print("[Flyd] Voice capture error: \(error)")
@@ -434,7 +438,7 @@ func beginVoiceInvocation() {
     }
 
     guard voiceCapture.start() else {
-        cleanupVoiceInvocation()
+        cleanupVoiceInvocation(message: "The microphone did not start")
         return
     }
     startVoiceHoldMonitor()
@@ -449,6 +453,7 @@ func handleVoiceRelease() {
         voiceCapture.stop()
         state.transition(to: .transcribing)
         island.show(.working)
+        ConversationWindow.shared.voice(.transcribing)
         startVoiceTranscriptionTimeout()
         voiceRelay.commitAudio()
     case .ignore:
@@ -504,9 +509,13 @@ func cleanupVoiceInvocation(message: String? = nil) {
     stateMachine.cancel()
     executor.clearInvocationRefs()
 
+    // Push-to-talk lives in the Conversation window: a problem is said there,
+    // and a finished or abandoned recording leaves the message box as it was.
     if let message {
+        ConversationWindow.shared.voice(.fail(message))
         island.show(.failed(message))
     } else {
+        ConversationWindow.shared.voice(.cancel)
         island.hide()
     }
 }

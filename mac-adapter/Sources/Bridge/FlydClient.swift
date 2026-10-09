@@ -531,10 +531,18 @@ final class FlydClient {
         return await postRaw("/learning/source", body: data) != nil
     }
 
-    func sendDictationCorrection(before: String, after: String, invocationId: String, bundleId: String, scope: String) async {
-        let body: [String: Any] = ["before": before, "after": after, "invocationId": invocationId, "bundleId": bundleId, "scope": scope]
+    func sendDictationCorrection(before: String, after: String, invocationId: String, bundleId: String, scope: String, observedAt: String) async {
+        let body: [String: Any] = ["before": before, "after": after, "invocationId": invocationId, "bundleId": bundleId, "scope": scope, "observedAt": observedAt]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
-        _ = await postRaw("/dictation/correction", body: data)
+        guard let response = await postRaw("/dictation/correction", body: data),
+              let result = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+              result["promoted"] as? Bool == true,
+              let spelling = result["spelling"] as? String else { return }
+        await MainActor.run {
+            if DictationController.shared.isIdle {
+                DictationPill.shared.show(.notice("Learned spelling: \(spelling)"))
+            }
+        }
     }
 
     private func postRaw(_ path: String, body: Data) async -> Data? {

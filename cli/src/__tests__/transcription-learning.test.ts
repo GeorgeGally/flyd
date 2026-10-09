@@ -42,6 +42,32 @@ async function dictate(spoken: string, app: { bundleId: string; windowTitle: str
 }
 
 describe("learning reaches the next transcription request", () => {
+  it("ingests the just-finalized edit before taking the next utterance's vocabulary snapshot", async () => {
+    sandbox();
+    const app = { bundleId: "com.apple.Terminal", windowTitle: "Flyd" };
+    await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
+    const correction = { before: "Use whisperkit today", after: "Use WhisperKit today", invocationId: "s1",
+      bundleId: app.bundleId, scope: dictationScope(app.bundleId, app.windowTitle) };
+    const purpose = transcriptionPurpose({ purpose: "dictation", app, previousCorrection: correction });
+    fetched.text = "Use whisperkit today";
+    const sent: Array<Record<string, unknown>> = [];
+    await transcribeBufferedAudio([Buffer.alloc(48_000, 1)], { send: (data: string) => sent.push(JSON.parse(data)) }, purpose);
+    expect(fetched.prompts.at(-1)).toContain("WhisperKit");
+    expect(sent.at(-1)?.text).toBe("Use whisperkit today");
+  });
+  it("three independent spelling corrections reach the actual next upload and repair path", async () => {
+    sandbox();
+    const app = { bundleId: "com.apple.Terminal", windowTitle: "Flyd" };
+    await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
+    for (const invocationId of ["s1", "s2", "s3"]) await learningRequest("/dictation/correction", "POST", {
+      before: "Use whisperkit today", after: "Use WhisperKit today", invocationId,
+      bundleId: app.bundleId, scope: dictationScope(app.bundleId, app.windowTitle),
+    });
+    const result = await dictate("Use whisperkit today", app);
+    expect(result.prompt).toContain("WhisperKit");
+    expect(result.text).toBe("Use WhisperKit today");
+    expect((await dictate("Use whisperkit today", { ...app, windowTitle: "Unrelated" })).text).toBe("Use whisperkit today");
+  });
   it("an approved correction changes the next request's spelling hints and its text", async () => {
     sandbox();
     const before = await dictate("Deploy to Kinstar tonight", { bundleId: "com.mitchellh.ghostty", windowTitle: "capfive — deploy" });

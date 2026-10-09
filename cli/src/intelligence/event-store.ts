@@ -133,6 +133,11 @@ export class IntelligenceEventStore {
     this.db.close();
   }
 
+  /** Serialize read/derive/append workflows against other Core/CLI writers. */
+  transaction<T>(work: () => T): T {
+    return this.db.transaction(work).immediate();
+  }
+
   /**
    * Idempotent append. A duplicate (sourceId, idempotencyKey) returns the
    * existing event without writing. Rejected envelopes never reach this

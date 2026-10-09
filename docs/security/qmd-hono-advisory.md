@@ -2,25 +2,33 @@
 
 ## Status
 
-Accepted temporarily at **moderate** severity for the active Flyd product.
+Patched. `npm audit --omit=dev` reports no production advisories at any severity.
 
-The committed dependency graph has no high-severity production advisories. CI enforces this with:
+CI enforces the high-severity gate with:
 
 ```bash
 npm audit --omit=dev --audit-level=high
 ```
 
-Three moderate audit entries remain on one transitive chain:
+The moderate entries that remained after the high-severity fix all sat under `@tobilu/qmd` -> `@modelcontextprotocol/sdk` (overridden to 1.31.0):
 
 ```text
 @tobilu/qmd
   -> @modelcontextprotocol/sdk
-    -> @hono/node-server
+    -> hono (also via @hono/node-server)
+    -> express-rate-limit -> ip-address
+    -> express (and body-parser) -> qs
 ```
 
-The advisory affects Hono's static-file server on Windows when a request path contains an encoded backslash.
+They are cleared by pinned `overrides` in `cli/package.json`, each the smallest patched release inside the range its parents already declare:
 
-## Why the vulnerable path is not active
+| Package | Was | Now | Advisories cleared |
+|---|---|---|---|
+| `hono` | 4.12.30 | 4.13.7 | CORS and language middleware DoS, `memo()` SSR disclosure, proxy helper header handling, `toSSG()` path escape, `parseBody()` nesting DoS, query parsing after the URL fragment, `hono/jsx` XSS |
+| `ip-address` | 10.3.1 | 10.7.1 | IPv6 link-local / NAT64 classifier and cross-family subnet checks (SSRF/trust-boundary bypass), unbounded parse diagnostic; also clears the `express-rate-limit` entry |
+| `qs` | 6.15.2 | 6.16.0 | array-limit bypass, `isBuffer` DoS |
+
+## Reachability
 
 Flyd uses QMD only as an in-process local indexing library:
 
@@ -33,29 +41,15 @@ import { createStore } from "@tobilu/qmd";
 - import `@modelcontextprotocol/sdk`,
 - import `@hono/node-server`,
 - start QMD's MCP server,
-- start a Hono HTTP server,
-- serve static files through Hono,
-- run the active product on Windows.
+- start a Hono or Express HTTP server,
+- serve static files through Hono.
 
-The Mac overlay, TypeScript Core and local evidence dossier server use their own runtime paths. The dossier server is a small loopback-only Node HTTP server and does not use Hono.
-
-## Why Flyd does not force the advertised npm fix
-
-`npm audit fix --force` currently resolves the advisory by downgrading `@tobilu/qmd` from the active 2.5.x line to 2.0.1. npm marks that as a breaking change.
-
-Flyd will not trade a reviewed, unreachable moderate server advisory for an unreviewed breaking downgrade of its local memory index.
-
-A direct major-version override of `@hono/node-server` is also avoided because the transitive MCP SDK controls that compatibility boundary.
+So none of the advisories above were reachable from Flyd before the patch. The Mac overlay, TypeScript Core and local evidence dossier server use their own runtime paths; the dossier server is a small loopback-only Node HTTP server and does not use Hono.
 
 ## Guardrail
 
-CI scans active TypeScript source and fails if Flyd begins importing or invoking the currently excluded MCP/Hono server path. At that point this acceptance is invalid and the dependency must be upgraded, isolated or removed before merge.
+CI scans active TypeScript source and fails if Flyd begins importing or invoking the MCP/Hono server path. Keep that check: future advisories in this chain are only low-risk while the path stays unreached.
 
 ## Exit condition
 
-Remove this acceptance when any of the following becomes true:
-
-1. QMD or its MCP dependency updates to a non-vulnerable compatible Hono version.
-2. Flyd starts an MCP or Hono server from this dependency chain.
-3. Flyd adds Windows as an active product runtime.
-4. The advisory severity or exploitability changes.
+Remove each `hono`, `ip-address` and `qs` override once `@tobilu/qmd` / `@modelcontextprotocol/sdk` resolve to that patched version (or newer) without it. Revisit immediately if a new advisory in this chain cannot be patched within the declared ranges, or if Flyd starts an MCP or Hono server from this dependency chain.

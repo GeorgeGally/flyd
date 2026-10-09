@@ -77,3 +77,13 @@ final class ConversationSurfaceDecodingTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(FlydClient.ResolutionResponse.self, from: Data(json.utf8)).surface)
     }
 }
+
+final class ConversationVoiceBridgeTests: XCTestCase {
+    func testTranscriptsReachThePageAsSafeJavaScriptStrings() throws {
+        let tricky = "say \"hi\"\nthen </script> and \\ done — ✓"
+        let literal = ConversationWindow.jsString(tricky)
+        let decoded = try JSONSerialization.jsonObject(with: Data("[\(literal)]".utf8)) as? [String]
+        XCTAssertEqual(decoded, [tricky])
+        XCTAssertFalse(literal.contains("\n"))
+    }
+}

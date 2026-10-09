@@ -15,10 +15,18 @@ export function formatLearning(body: {
   if (status(CORRECTION_SOURCE) !== "enabled")
     lines.push("  Turn on “Learn From My Dictation Edits” in the Flyd menu bar menu, then fix a dictated word in place.");
   lines.push(`Conversation import: ${status(IMPORT_SOURCE) === "enabled" ? "on" : status(IMPORT_SOURCE)}`);
-  const row = (c: CorrectionCandidate) => `  #${c.sequence}  ${c.from} → ${c.to}  (${c.bundleId})`;
-  const pending = body.corrections.filter(c => !c.reviewed), approved = body.corrections.filter(c => c.approved);
+  const row = (c: CorrectionCandidate) => `  #${c.sequence}  ${c.from} → ${c.to}  (${c.bundleId})${c.evidenceCount ? ` — ${c.evidenceCount}/3 corrections` : ""}${c.recurrences ? `; ${c.recurrences} recurrence(s), needs investigation` : ""}`;
+  const unique = new Map<string, CorrectionCandidate>();
+  for (const c of body.corrections) unique.set(c.ruleId ?? String(c.sequence), c);
+  const rows = [...unique.values()];
+  const pending = rows.filter(c => !c.reviewed && c.status !== "active" && c.status !== "disabled"), approved = rows.filter(c => c.approved);
   if (pending.length) lines.push("", "Waiting for review (flyd learning --approve <n> | --reject <n>):", ...pending.map(row));
   if (approved.length) lines.push("", "Approved — shaping dictation:", ...approved.map(row));
+  const automatic = rows.filter(c => c.activation === "automatic");
+  if (automatic.length) lines.push("", "Learned automatically — contextual rules in this window:", ...automatic.map(row));
+  const disabled = rows.filter(c => c.status === "disabled");
+  if (disabled.length) lines.push("", "Disabled — not shaping dictation:", ...disabled.map(row));
+  for (const c of pending.filter(c => c.reason)) lines.push(`  #${c.sequence}: ${c.reason}`);
   if (!body.corrections.length) lines.push("", "No corrections learned yet.");
   return lines.join("\n");
 }
