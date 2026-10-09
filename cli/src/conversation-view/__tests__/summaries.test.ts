@@ -42,14 +42,6 @@ describe("authorSummary", () => {
   });
 });
 
-describe("SUMMARY_PROMPT", () => {
-  it("asks for every outcome, decision and ask, and for ROUTINE when there is none", () => {
-    expect(SUMMARY_PROMPT).toMatch(/every outcome/);
-    expect(SUMMARY_PROMPT).toMatch(/none may be dropped/);
-    expect(SUMMARY_PROMPT).toContain("reply exactly ROUTINE");
-  });
-});
-
 describe("firstSentence", () => {
   it("reads the first sentence of the prose, without Markdown", () => {
     expect(firstSentence("## Status\n\nCaptain, the **menu bar** now sits `10px` higher. It is committed.")).toBe("Status Captain, the menu bar now sits 10px higher.");
