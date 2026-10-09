@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
 import { inFlydsVoice } from "../flyd-voice.js";
+import { AnswerInterpreter } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
 import { headlineOf } from "../status.js";
 import { digestReply } from "../summaries.js";
@@ -123,6 +124,27 @@ describe("FlydDesk", () => {
     const restarted = new FlydDesk({ dir, answer: turn.answer });
     expect(restarted.exchanges()[1]!.waiting).toBe("Flyd was interrupted before answering; send it again");
   });
+  it("reads a stored question again only when its file changes", async () => {
+    const desk = new FlydDesk({ dir, answer: async () => "Siam Paragon, sir." });
+    const sent = desk.ask("bkk tonight?");
+    await until(() => (desk.exchanges()[0]?.answer ? true : undefined));
+    const file = join(dir, `${sent.id.slice("ask:".length)}.json`);
+    const stored = readFileSync(file, "utf8");
+    const at = new Date("2026-10-09T03:00:00Z");
+    utimesSync(file, at, at);
+    expect(desk.exchanges()[0]!.answer!.text).toBe("Siam Paragon, sir.");
+
+    // Same size and mtime: the parsed record is reused, not read again.
+    writeFileSync(file, stored.replace("Siam Paragon", "Siam Pxragon"));
+    utimesSync(file, at, at);
+    expect(desk.exchanges()[0]!.answer!.text).toBe("Siam Paragon, sir.");
+
+    writeFileSync(file, stored.replace("Siam Paragon", "Lumphini Park"));
+    expect(desk.exchanges()[0]!.answer!.text).toBe("Lumphini Park, sir.");
+
+    rmSync(file);
+    expect(desk.exchanges()).toEqual([]);
+  });
 });
 
 describe("ClaudeCodeTranscriptSource as Flyd's window", () => {
@@ -191,30 +213,98 @@ printf 'queued %s\\n' "$id"
   });
 });
 
-describe("a firstmate answer to his note reaches him whole", () => {
+describe("a firstmate answer to his note, told by Flyd", () => {
   const answer = [
     "Captain, you're right. The Flyd chat box sends every message to me, the fleet supervisor, not to Flyd's own assistant, so I answered your Bangkok question instead of Flyd.",
     "That is why the university question failed too: Flyd's memory of you never saw it, and a safety check stopped me reading your personal Flyd records.",
     "The fix: Flyd answers personal and general questions itself, and shows my full answer to each note under the question.",
   ].join("\n\n");
 
-  it("shows every paragraph of a multi-paragraph reply, in Flyd's voice, never folded to its lead line", () => {
+  const NOTE = "1791516800-IZG4Ol";
+  const decision = [
+    "Captain, you're right.",
+    "The island filter hid two real outcomes last night along with the supervision chatter.",
+    "Decide whether to keep the filter: keeping it hides real outcomes; dropping it brings back every status ping.",
+    "PR: https://github.com/GeorgeGally/flyd/pull/70",
+  ].join("\n\n");
+
+  function noteWithReply(reply: string) {
     const home = join(dir, "firstmate");
     mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
     mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
-    writeFileSync(join(home, "state", "inbox", "handled", "1791516800-IZG4Ol.note"), "id=1791516800-IZG4Ol\nat=2026-10-09T03:30:00Z\n--\nwhy did flyd only show 'Captain, you're right.'?\n");
-    writeFileSync(join(home, "state", "inbox", ".replies", "1791516800-IZG4Ol"), `id=1791516800-IZG4Ol\nat=2026-10-09T03:33:41Z\nseq=5\n--\n${answer}\n`);
+    writeFileSync(join(home, "state", "inbox", "handled", `${NOTE}.note`), `id=${NOTE}\nat=2026-10-09T03:30:00Z\n--\nis the island hiding things from me?\n`);
+    writeFileSync(join(home, "state", "inbox", ".replies", NOTE), `id=${NOTE}\nat=2026-10-09T03:33:41Z\nseq=5\n--\n${reply}\n`);
+    return mergeNotes(relayed([]), new FirstmateInbox({ home }).notes(), {});
+  }
 
-    const messages = mergeNotes(relayed([]), new FirstmateInbox({ home }).notes(), {});
-    const update = new SnapshotDiffer().next({ messages, working: false });
-    const shown = update.messages.find((message) => message.answers === "note:1791516800-IZG4Ol")!;
-    expect(shown.summary).toBeUndefined();
+  const plain = (html: string) => html.replace(/<[^>]+>/g, "").replace(/&#39;/g, "'");
+
+  it("is told by Flyd: its model's reading leads, firstmate's words wait behind it", async () => {
+    const prompts: string[] = [];
+    const interpreter = new AnswerInterpreter({
+      cacheFile: join(dir, "interpretations.json"),
+      profile: () => "George studied at the University of Cape Town.",
+      complete: async (prompt) => {
+        prompts.push(prompt);
+        return "Sir, the island hid two real outcomes last night.\n\n- **Your call:** keep the filter and real outcomes stay hidden, or drop it and every status ping comes back. Captain's choice.\n- PR: https://github.com/GeorgeGally/flyd/pull/70";
+      },
+    });
+    let landed!: () => void;
+    const arrived = new Promise<void>((resolve) => { landed = resolve; });
+    const differ = new SnapshotDiffer({ interpreter, onSummary: () => landed() });
+    const messages = noteWithReply(decision);
+
+    const first = differ.next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    expect(first.summary).toMatchObject({ source: "digest", pending: true });
+    await arrived;
+    const shown = differ.next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+
+    expect(shown.summary?.source).toBe("flyd");
+    expect(shown.summary?.pending).toBeUndefined();
     expect(shown.routine).toBeUndefined();
-    const text = shown.html.replace(/<[^>]+>/g, "").replace(/&#39;/g, "'");
-    expect(text).toContain("Sir, you're right. The Flyd chat box sends every message to me");
-    expect(text).toContain("That is why the university question failed too");
-    expect(text).toContain("The fix: Flyd answers personal and general questions itself");
-    expect(text).not.toMatch(/captain/i);
+    const lead = plain(shown.summary!.html);
+    expect(lead).toContain("keep the filter and real outcomes stay hidden");
+    expect(lead).toContain("every status ping comes back");
+    expect(lead).not.toMatch(/captain/i);
+    expect(plain(shown.html)).toContain("Decide whether to keep the filter");
+
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("is the island hiding things from me?");
+    expect(prompts[0]).toContain(inFlydsVoice(decision));
+    expect(prompts[0]).toContain("George studied at the University of Cape Town.");
+
+    const again = new AnswerInterpreter({ cacheFile: join(dir, "interpretations.json"), complete: async () => { throw new Error("asked twice"); } });
+    expect(again.cached(messages.find((message) => message.answers)!.text)).toContain("Your call");
+  });
+
+  it("leads with the decision, not the acknowledgement, while there is no interpretation", () => {
+    const shown = new SnapshotDiffer().next({ messages: noteWithReply(decision), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    expect(shown.summary).toMatchObject({ source: "digest" });
+    expect(shown.summary?.pending).toBeUndefined();
+    const lead = plain(shown.summary!.html);
+    expect(lead).toMatch(/^The island filter hid two real outcomes/);
+    expect(lead).toContain("Decide whether to keep the filter: keeping it hides real outcomes; dropping it brings back every status ping.");
+    expect(lead).not.toMatch(/captain/i);
+  });
+
+  it("falls back to the digest when the model only acknowledges or fails", async () => {
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "interpretations.json"), profile: () => null, complete: async () => "You're right." });
+    const answer = noteWithReply(decision).find((message) => message.answers)!.text;
+    expect(await interpreter.request({ question: "q", answer, recent: [] })).toBeUndefined();
+    const failing = new AnswerInterpreter({ cacheFile: join(dir, "other.json"), profile: () => null, complete: async () => { throw new Error("no model"); } });
+    expect(await failing.request({ question: "q", answer, recent: [] })).toBeUndefined();
+  });
+
+  it("leaves Flyd's own answers whole", () => {
+    const shown = new SnapshotDiffer().next({
+      messages: [
+        { id: "ask:1", role: "user", text: "where did i go to university?" },
+        { id: "answer:1", role: "assistant", text: decision.replace(/Captain/g, "Sir"), answers: "ask:1" },
+      ],
+      working: false,
+    }).messages.find((message) => message.id === "answer:1")!;
+    expect(shown.summary).toBeUndefined();
+    expect(plain(shown.html)).toContain("Sir, you're right.");
   });
 
   it("leads with the substance, not the acknowledgement, wherever it is cut short", () => {
