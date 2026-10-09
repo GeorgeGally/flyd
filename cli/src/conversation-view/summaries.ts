@@ -77,7 +77,7 @@ export function firstSentence(text: string): string {
 
 const SALUTATION = /^(?:captain|sir|george|boss)\s*[,!:—-]\s*/i;
 /** Opening words that only acknowledge; the reply's substance is in the next sentence. */
-const ACK_LEAD = /^(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot)|understood|noted|got it|shipshape)[.!]?$/i;
+const ACK_LEAD = /^(?:(?:yes|ok(?:ay)?),? )?(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot|point)|understood|noted|got it|shipshape|you(?:'re| are) (?:right|correct)|that's (?:right|correct|fair)|fair (?:point|enough)|correct|true|my mistake|sorry)[.!]?$/i;
 /** A whole reply that carries no outcome, decision or ask. */
 const ROUTINE_REPLY = /^(?:shipshape|aye(?: aye)?|agreed|noted|understood|got it|on it|will do|ok(?:ay)?|thanks?(?: you)?|standing by|all (?:quiet|good|clear|calm)|no change|nothing (?:new|changed|has changed|to report|needs you)|still (?:working|running|waiting|on it)|waiting (?:on|for)|no news)\b/i;
 const ROUTINE_MAX_CHARS = 160;

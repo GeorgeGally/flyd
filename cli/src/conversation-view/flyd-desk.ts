@@ -29,7 +29,7 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
     .join("\n");
   return [
     "George is talking to Flyd, his personal assistant, in Flyd's conversation window.",
-    "Flyd answers everything that is not software work itself: questions about life, travel, plans, places, people, facts, the news, writing, his day.",
+    "Flyd answers everything that is not software work itself, from its own memory of him and the web: questions about his own life and history (where he studied, worked or lived, people he knows, what he said or did before), his calendar and plans, travel, places, facts, the news, writing, his day.",
     "Firstmate is the engineering lead who runs his software fleet. It takes requests about code, repositories, pull requests, builds, bugs, deployments, Flyd or firstmate themselves, crew workers, and any reply to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\").",
     context ? `Recent conversation:\n${context}` : "",
     `New message from George: ${text.replace(/\s+/g, " ").slice(0, 1_000)}`,
