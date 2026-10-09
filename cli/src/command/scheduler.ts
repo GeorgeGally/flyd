@@ -1,4 +1,5 @@
 import { syncFirstmateDomainRuns } from "./firstmate.js";
+import { syncLibrarianDomainRuns } from "./librarian.js";
 import { saveDomainRun } from "./store.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -24,7 +25,10 @@ export async function commandTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    await syncFirstmateDomainRuns({ onChanged: notifyRun });
+    await Promise.all([
+      syncFirstmateDomainRuns({ onChanged: notifyRun }),
+      syncLibrarianDomainRuns({ onChanged: notifyRun }),
+    ]);
   } finally {
     running = false;
   }
