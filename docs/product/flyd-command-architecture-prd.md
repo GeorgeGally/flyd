@@ -291,19 +291,21 @@ Implemented first because it proves the architecture with a real domain boss:
 12. domain failures/unstructured returns feed the existing self-improvement evidence loop;
 13. Flyd self-improvement routes through FirstMate when available.
 
-## 12. Next slices
+## 12. Implementation state and next slices
 
-### Knowledge boss
+### Knowledge boss — initial slice implemented
 
-Promote Librarian from a curator role into an interactive domain boss with specialist roles such as:
+Librarian now acts as an interactive domain boss for substantial knowledge work. Its first manager pipeline is:
 
-- Retriever
-- Researcher
-- Fact Checker
-- Documenter
-- Knowledge Curator
+```text
+Retriever ─┐
+           ├─→ Fact Checker → Librarian synthesis → layered DomainResult
+Researcher ┘
+```
 
-Do not make Librarian itself browse every source. Its context is management context.
+Retriever and Researcher run in parallel through the existing durable background-job runtime without speaking to George directly. Fact Checker receives their reports as claims to verify independently. Librarian wakes only after specialist completion, reconciles the work, and stores both its synthesis and the raw specialist outputs.
+
+Documenter and Knowledge Curator remain future specialist roles. Librarian itself should continue to preserve management context rather than becoming the worker that browses every source.
 
 ### Live correction routing
 
