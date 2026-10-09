@@ -18,6 +18,7 @@ export interface KnowledgeDispatchInput {
   intendedOutcome: string;
   doneWhen: string[];
   contextRefs?: string[];
+  parentRequestId?: string;
   now?: Date;
 }
 
@@ -45,6 +46,7 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
     createdAt: now.toISOString(),
     source: "chat",
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
+    ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
   };
 
   const retriever = startSpecialist(
