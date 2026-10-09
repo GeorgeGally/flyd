@@ -10,15 +10,21 @@ The committed dependency graph has no high-severity production advisories. CI en
 npm audit --omit=dev --audit-level=high
 ```
 
-Three moderate audit entries remain on one transitive chain:
+Four moderate audit entries remain, all under `@tobilu/qmd` -> `@modelcontextprotocol/sdk` (overridden to 1.31.0):
 
 ```text
 @tobilu/qmd
   -> @modelcontextprotocol/sdk
-    -> @hono/node-server
+    -> hono 4.12.30 (also via @hono/node-server)
+    -> express-rate-limit -> ip-address
+    -> express (and body-parser) -> qs
 ```
 
-The advisory affects Hono's static-file server on Windows when a request path contains an encoded backslash.
+- **hono** 4.12.30: CORS and language middleware DoS, `memo()` SSR disclosure, proxy helper header handling, `toSSG()` path escape, `parseBody()` nesting DoS, query parsing after the URL fragment, `hono/jsx` XSS.
+- **ip-address** (reported for both `ip-address` and `express-rate-limit`): IPv6 classifier and subnet checks that allow SSRF/trust-boundary bypass, plus an unbounded parse diagnostic.
+- **qs**: array-limit bypass and `isBuffer` DoS.
+
+All four sit below the CI `--audit-level=high` gate. Their reachability review is pending a follow-up; the sections below were written for the earlier `@hono/node-server` static-file advisory and have not yet been re-reviewed against this set.
 
 ## Why the vulnerable path is not active
 
@@ -34,18 +40,13 @@ import { createStore } from "@tobilu/qmd";
 - import `@hono/node-server`,
 - start QMD's MCP server,
 - start a Hono HTTP server,
-- serve static files through Hono,
-- run the active product on Windows.
+- serve static files through Hono.
 
 The Mac overlay, TypeScript Core and local evidence dossier server use their own runtime paths. The dossier server is a small loopback-only Node HTTP server and does not use Hono.
 
-## Why Flyd does not force the advertised npm fix
+## npm audit fix
 
-`npm audit fix --force` currently resolves the advisory by downgrading `@tobilu/qmd` from the active 2.5.x line to 2.0.1. npm marks that as a breaking change.
-
-Flyd will not trade a reviewed, unreachable moderate server advisory for an unreviewed breaking downgrade of its local memory index.
-
-A direct major-version override of `@hono/node-server` is also avoided because the transitive MCP SDK controls that compatibility boundary.
+Whether `npm audit fix` can clear the current set without a breaking change is part of the pending review.
 
 ## Guardrail
 
@@ -55,7 +56,6 @@ CI scans active TypeScript source and fails if Flyd begins importing or invoking
 
 Remove this acceptance when any of the following becomes true:
 
-1. QMD or its MCP dependency updates to a non-vulnerable compatible Hono version.
+1. QMD or its MCP dependency updates to non-vulnerable compatible versions of the packages above.
 2. Flyd starts an MCP or Hono server from this dependency chain.
-3. Flyd adds Windows as an active product runtime.
-4. The advisory severity or exploitability changes.
+3. The advisory severity or exploitability changes.
