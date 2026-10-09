@@ -79,16 +79,14 @@ header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
 /*
- * Show mode: Flyd's own screen. A TV that has just been switched on, showing a
- * game's few objectives: a big title in Flyd's voice and at most three cards,
- * each one thing he needs to see. The terminal stays loaded underneath, so
- * flipping back is instant.
+ * Artefact view: Flyd's own flat, minimal screen. A quiet title in Flyd's
+ * voice, then a short list of plain one-line statements of what is going on and
+ * what changed. No frames, no depth, no decoration: colour alone marks each
+ * line's kind. The terminal stays loaded underneath, so flipping back is instant.
  */
 const SHOW_STYLE = `
 :root {
   --screen: #0a0b10;
-  --screen-hi: #161a2a;
-  --scan: rgba(255, 255, 255, 0.028);
   --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --k-call: #ff5470;
   --k-landed: #3fe394;
@@ -99,8 +97,6 @@ const SHOW_STYLE = `
 }
 :root[data-theme="light"] {
   --screen: #f3f0e6;
-  --screen-hi: #fffdf6;
-  --scan: rgba(0, 0, 0, 0.035);
   --k-call: #dc2449;
   --k-landed: #0f8c52;
   --k-live: #0d72c4;
@@ -125,126 +121,76 @@ header { padding-right: 110px; }
 
 .show {
   position: fixed; inset: 0; z-index: 6; overflow-y: auto;
-  color: var(--fg);
-  background: radial-gradient(120% 85% at 50% 0%, var(--screen-hi), var(--screen) 72%);
-  transform-origin: 50% 50%;
+  color: var(--fg); background: var(--screen);
 }
 .show[hidden] { display: none; }
-/* Scanlines and a soft vignette: the glass of the set. */
-.show::after {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
-  background:
-    repeating-linear-gradient(to bottom, var(--scan) 0 1px, transparent 1px 3px),
-    radial-gradient(140% 100% at 50% 50%, transparent 60%, color-mix(in srgb, #000 22%, transparent));
-}
-:root[data-theme="light"] .show::after {
-  background:
-    repeating-linear-gradient(to bottom, var(--scan) 0 1px, transparent 1px 3px),
-    radial-gradient(140% 100% at 50% 50%, transparent 65%, color-mix(in srgb, #5a4b36 10%, transparent));
-}
-.show.power { animation: power-on 380ms cubic-bezier(.2,.75,.2,1) both; }
-.show.off { animation: power-off 170ms cubic-bezier(.6,0,.9,.4) both; }
-@keyframes power-on {
-  0% { transform: scale(0.7, 0.006); filter: brightness(3); opacity: 0.9; }
-  38% { transform: scale(1, 0.006); filter: brightness(2.4); }
-  100% { transform: none; filter: none; opacity: 1; }
-}
-@keyframes power-off {
-  0% { transform: none; filter: none; }
-  60% { transform: scale(1, 0.006); filter: brightness(2.6); }
-  100% { transform: scale(0, 0.006); filter: brightness(3); opacity: 0; }
-}
+.show.power { animation: show-in 260ms ease both; }
+.show.off { animation: show-out 150ms ease both; }
+@keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
 
-.set { position: relative; min-height: 100%; display: flex; flex-direction: column; padding: 0 28px 44px; }
+.set { position: relative; min-height: 100%; display: flex; flex-direction: column; padding: 0 32px 48px; }
 .hud {
   display: flex; align-items: center; gap: 16px; height: 52px; padding-right: 120px;
   font: 600 13px/1 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
 }
 .hud .brand { font-weight: 800; letter-spacing: 0.28em; color: var(--strong); }
 .hud .air { display: inline-flex; align-items: center; gap: 8px; }
-.hud .air::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
-.hud .air.on { color: var(--k-call); }
-.hud .air.on::before { background: var(--k-call); opacity: 1; box-shadow: 0 0 10px var(--k-call); animation: blink 1.2s steps(2, jump-none) infinite; }
+.hud .air::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+.hud .air.on { color: var(--k-live); }
+.hud .air.on::before { background: var(--k-live); opacity: 1; animation: blink 1.6s steps(2, jump-none) infinite; }
 .hud .clock { font-variant-numeric: tabular-nums; }
-@keyframes blink { 50% { opacity: 0.15; } }
+@keyframes blink { 50% { opacity: 0.2; } }
 
-.stage { flex: 1; width: 100%; max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 3vh 0 4vh; }
+.stage { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 4vh 0; }
 .show-title {
-  margin: 0 0 28px; font: 800 clamp(34px, 5.4vw, 62px)/1.04 var(--round); letter-spacing: -0.02em; color: var(--strong);
+  margin: 0 0 34px; font: 800 clamp(30px, 4.6vw, 52px)/1.05 var(--round); letter-spacing: -0.02em; color: var(--strong);
   text-wrap: balance;
 }
-.show-title::after { content: "▌"; margin-left: 0.08em; color: var(--accent); animation: blink 1.1s steps(2, jump-none) infinite; }
 
-.tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.tiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .tile {
   --k: var(--k-news);
-  position: relative; min-width: 0; display: flex; gap: 20px; align-items: flex-start;
-  padding: 22px 24px 20px; border-radius: 20px; cursor: pointer;
-  background: color-mix(in srgb, var(--k) 8%, var(--screen-hi));
-  border: 2px solid color-mix(in srgb, var(--k) 52%, transparent);
-  box-shadow: 0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset, 0 22px 48px -30px var(--k);
-  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease, border-color 180ms ease;
+  position: relative; display: block; min-width: 0; padding: 18px 2px; cursor: pointer;
+  border-top: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+  transition: background 140ms ease;
 }
-.tile:hover, .tile:focus-visible { transform: translateY(-3px); border-color: var(--k); box-shadow: 0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset, 0 26px 56px -26px var(--k); outline: 0; }
-.tile.lead { grid-column: 1 / -1; padding: 28px 30px 26px; gap: 26px; }
-/* A second card alone under the lead takes the whole row. */
-.tile:not(.lead):nth-child(2):last-child { grid-column: 1 / -1; }
+.tile:first-child { border-top: 0; }
+.tile:hover, .tile:focus-visible { background: color-mix(in srgb, var(--k) 6%, transparent); outline: 0; }
+.tile.lead { padding: 22px 2px 20px; }
 .tile.k-call { --k: var(--k-call); }
 .tile.k-landed { --k: var(--k-landed); }
 .tile.k-live { --k: var(--k-live); }
 .tile.k-waiting { --k: var(--k-waiting); }
 .tile.k-clear { --k: var(--k-clear); }
 
-.badge {
-  flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 15px;
-  font: 900 30px/1 var(--round); color: var(--screen); background: var(--k);
-  box-shadow: 0 5px 0 color-mix(in srgb, var(--k) 50%, #000);
-}
-.lead .badge { width: 88px; height: 88px; border-radius: 22px; font-size: 48px; box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000); }
-.lead.k-call .badge { animation: beacon 2.4s ease-in-out infinite; }
-.k-live .badge { animation: pulse 1.6s ease-in-out infinite; }
-@keyframes beacon {
-  0%, 100% { box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000), 0 0 0 0 color-mix(in srgb, var(--k) 0%, transparent); }
-  50% { box-shadow: 0 7px 0 color-mix(in srgb, var(--k) 50%, #000), 0 0 34px 4px color-mix(in srgb, var(--k) 55%, transparent); }
-}
-@keyframes pulse { 50% { transform: scale(0.92); } }
-
-.copy { min-width: 0; flex: 1; }
-.kicker {
-  display: block; font: 800 13px/1 var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--k);
-  text-shadow: 0 0 14px color-mix(in srgb, var(--k) 55%, transparent);
-}
 .headline {
-  margin: 10px 0 0; font: 700 25px/1.2 var(--round); letter-spacing: -0.01em; color: var(--strong);
+  margin: 0; font: 700 22px/1.3 var(--round); letter-spacing: -0.01em; color: var(--strong);
   overflow-wrap: anywhere; text-wrap: pretty;
 }
-.lead .headline { margin-top: 12px; font-size: clamp(28px, 3.9vw, 42px); line-height: 1.12; text-wrap: balance; }
-.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 14px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
+.tile.lead .headline { font-size: clamp(26px, 3.2vw, 34px); line-height: 1.2; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
+.meta .kicker { color: var(--k); letter-spacing: 0.14em; text-transform: uppercase; }
 .meta .tag { font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg); }
-.meta .chip {
-  color: var(--k); text-decoration: none; border: 1.5px solid color-mix(in srgb, var(--k) 55%, transparent);
-  border-radius: 999px; padding: 4px 10px; white-space: nowrap;
-}
-.meta .chip:hover { background: color-mix(in srgb, var(--k) 16%, transparent); }
+.meta .chip { color: var(--k); text-decoration: none; }
+.meta .chip:hover { text-decoration: underline; }
 
-.tile.enter { animation: tile-in 560ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 90ms + 140ms); }
-@keyframes tile-in { from { opacity: 0; transform: translateY(22px) scale(0.96); } to { opacity: 1; transform: none; } }
+.tile.enter { animation: tile-in 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
+@keyframes tile-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
-/* A message opened from a show card says where it is. */
+/* A message opened from an artefact line says where it is. */
 .msg.spot { animation: spot 1.8s ease-out; }
 @keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
 
 @media (max-width: 720px) {
-  .set { padding: 0 16px 32px; }
+  .set { padding: 0 18px 32px; }
   .hud .clock { display: none; }
-  .tiles { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .tile, .tile.lead { padding: 18px; gap: 16px; }
-  .lead .badge { width: 64px; height: 64px; font-size: 36px; border-radius: 17px; }
-  .badge { width: 46px; height: 46px; font-size: 25px; border-radius: 12px; }
-  .headline { font-size: 21px; }
+  .show-title { margin-bottom: 26px; }
+  .tile, .tile.lead { padding: 15px 2px; }
+  .headline, .tile.lead .headline { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .tile.enter, .lead.k-call .badge, .k-live .badge, .hud .air.on::before, .show-title::after, .msg.spot { animation: none; }
+  .show.power, .show.off, .tile.enter, .hud .air.on::before, .msg.spot { animation: none; }
   .tile { transition: none; }
 }
 `;
@@ -1202,12 +1148,12 @@ const SCRIPT = `
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   var KINDS = {
-    call: { label: "Your move", glyph: "!" },
-    landed: { label: "Landed", glyph: "✓" },
-    live: { label: "Live", glyph: "▶" },
-    waiting: { label: "On it", glyph: "…" },
-    news: { label: "Latest", glyph: "◆" },
-    clear: { label: "All clear", glyph: "★" },
+    call: { label: "Your call" },
+    landed: { label: "Landed" },
+    live: { label: "Now" },
+    waiting: { label: "Waiting" },
+    news: { label: "Latest" },
+    clear: { label: "Clear" },
   };
   var tiles = new Map();
   var shown = null;
@@ -1227,20 +1173,15 @@ const SCRIPT = `
   function fillTile(el, item) {
     var kind = KINDS[item.kind] || KINDS.news;
     el.textContent = "";
-    var badge = document.createElement("span");
-    badge.className = "badge";
-    badge.setAttribute("aria-hidden", "true");
-    badge.textContent = kind.glyph;
-    var copy = document.createElement("div");
-    copy.className = "copy";
-    var kicker = document.createElement("span");
-    kicker.className = "kicker";
-    kicker.textContent = kind.label;
     var headline = document.createElement("p");
     headline.className = "headline";
     headline.textContent = item.headline;
     var meta = document.createElement("div");
     meta.className = "meta";
+    var kicker = document.createElement("span");
+    kicker.className = "kicker";
+    kicker.textContent = kind.label;
+    meta.appendChild(kicker);
     if (item.project) {
       var tag = document.createElement("span");
       tag.className = "tag";
@@ -1249,7 +1190,7 @@ const SCRIPT = `
     }
     var why = document.createElement("span");
     why.textContent = item.why;
-    meta.appendChild(why);
+    if (item.why) meta.appendChild(why);
     if (item.at) {
       var when = document.createElement("span");
       when.className = "ago";
@@ -1267,11 +1208,8 @@ const SCRIPT = `
       a.addEventListener("click", function (event) { event.stopPropagation(); });
       meta.appendChild(a);
     });
-    copy.appendChild(kicker);
-    copy.appendChild(headline);
-    copy.appendChild(meta);
-    el.appendChild(badge);
-    el.appendChild(copy);
+    el.appendChild(headline);
+    el.appendChild(meta);
     el.setAttribute("aria-label", kind.label + ": " + item.headline + " (opens in the terminal)");
     el.dataset.ref = item.ref || "";
   }
@@ -1337,8 +1275,8 @@ const SCRIPT = `
       showEl.hidden = true;
       showEl.classList.remove("power", "off");
       if (terminalAt.bottom) { toBottom(); jump.hidden = true; } else window.scrollTo(0, terminalAt.y);
-      flip.innerHTML = "[<b>show</b>]";
-      flip.setAttribute("aria-label", "Switch to show mode");
+      flip.innerHTML = "[<b>artefact</b>]";
+      flip.setAttribute("aria-label", "Switch to artefact view");
     }
   }
   function setScreen(next) {
@@ -1350,6 +1288,14 @@ const SCRIPT = `
     setTimeout(function () { if (showEl.classList.contains("off")) applyScreen("terminal", false); }, 170);
   }
   flip.addEventListener("click", function () {
+    if (showEl.classList.contains("off")) return;
+    setScreen(onShow() ? "terminal" : "show");
+  });
+  // Tab swaps between the terminal and the artefact, from anywhere. Left alone
+  // while the "/" command list is completing (it already claimed the key).
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+    event.preventDefault();
     if (showEl.classList.contains("off")) return;
     setScreen(onShow() ? "terminal" : "show");
   });
@@ -1403,8 +1349,8 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
-<button class="flip" id="flip" type="button" aria-label="Switch to show mode">[<b>show</b>]</button>
-<section class="show" id="show" hidden aria-label="What Flyd thinks you need to see">
+<button class="flip" id="flip" type="button" aria-label="Switch to artefact view">[<b>artefact</b>]</button>
+<section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
   <div class="set">
     <div class="hud"><span class="brand">Flyd</span><span class="air" id="air">standby</span><span class="clock" id="show-clock"></span></div>
     <div class="stage">

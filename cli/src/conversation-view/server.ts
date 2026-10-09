@@ -12,6 +12,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Ima
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
+import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -56,10 +57,12 @@ export interface SummaryOptions {
   onSummary?: () => void;
 }
 
-/** What show mode needs beyond the conversation: who answers, and his projects. */
+/** What show mode needs beyond the conversation: who answers, his projects, and Flyd's artefact. */
 export interface ShowOptions {
   assistant?: string;
   projects?: () => ShowProject[];
+  /** Flyd's artefact: firstmate's fleet snapshot, Flyd's memory, the news and its taste. */
+  artefact?: () => ArtefactInputs;
 }
 
 interface StreamUpdate {
@@ -203,6 +206,7 @@ export class SnapshotDiffer {
       show: showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
         projects: this.show?.projects?.() ?? [],
+        ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
         reading: (message) => this.reading(message),
         muted: (message) => {
           const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
@@ -268,9 +272,11 @@ export class ConversationViewServer {
     private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
+    private readonly feed: ArtefactFeed = new ArtefactFeed(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
+    this.feed.start();
     const server = createServer((req, res) => {
       void this.handle(req, res).catch((error: unknown) => {
         if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -290,6 +296,7 @@ export class ConversationViewServer {
   }
 
   async close(): Promise<void> {
+    this.feed.stop();
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -522,7 +529,7 @@ export class ConversationViewServer {
             if (!closed && latest) sseEvent(res, "update", differ.next(latest));
           },
         }
-      : undefined, { assistant: this.source.assistantLabel, ...this.show });
+      : undefined, { assistant: this.source.assistantLabel, ...this.show, artefact: () => this.feed.current() });
     const follower = this.source.follow(
       session.id,
       (snapshot) => {

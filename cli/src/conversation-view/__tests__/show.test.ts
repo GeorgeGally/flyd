@@ -63,13 +63,56 @@ describe("showOf", () => {
     expect(screen.items.map((item) => item.kind)).not.toContain("landed");
   });
 
-  it("lets old outcomes go and passes over routine chatter", () => {
+  it("recaps the last real activity when nothing is outstanding, passing over routine chatter", () => {
     const screen = showOf(snapshot([
       fleet("a1", "Sir, the dossier renderer shipped.", 60 * 30),
       fleet("a2", "Shipshape.", 3),
     ]), { now: NOW });
+    expect(screen.items).toEqual([{ id: "landed:a1", kind: "landed", headline: "The dossier renderer shipped.", why: "last landed", at: minutesAgo(60 * 30), ref: "a1" }]);
+    expect(screen.title).toBe("Here's where things stand, sir.");
+  });
+
+  it("recaps what last ran, newest first, when nothing is outstanding", () => {
+    const screen = showOf(snapshot([
+      fleet("a1", "Sir, the scout is evolving its sources.", 60 * 30),
+      fleet("a2", "Sir, the island fix is queued next.", 60 * 20),
+    ]), { now: NOW });
+    expect(screen.items.map((item) => [item.kind, item.why])).toEqual([
+      ["news", "last from firstmate"],
+      ["news", "last from firstmate"],
+    ]);
+    expect(screen.items.map((item) => item.ref)).toEqual(["a2", "a1"]);
+    expect(screen.title).toBe("Here's where things stand, sir.");
+  });
+
+  it("shows a bare session as all clear when there is no activity at all", () => {
+    const screen = showOf(snapshot([]), { now: NOW });
     expect(screen.items).toEqual([{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }]);
     expect(screen.title).toBe("All quiet, sir.");
+  });
+
+  it("leads the screen with Flyd's artefact, then the conversation", () => {
+    const screen = showOf(snapshot([fleet("a1", "Sir, the dossier renderer shipped.", 5)]), {
+      now: NOW,
+      artefact: {
+        fleet: { calls: [{ label: "Keep or remove the Jev log?" }], live: [], landed: [], next: [] },
+        memories: ["George wants Bloom finished."],
+        news: [{ title: "Hybrid RAG" }],
+        taste: [],
+      },
+    });
+    expect(screen.items.map((item) => [item.kind, item.headline])).toEqual([
+      ["call", "Keep or remove the Jev log?"],
+      ["news", "George wants Bloom finished."],
+      ["news", "Hybrid RAG"],
+      ["landed", "The dossier renderer shipped."],
+    ]);
+    expect(screen.title).toBe("Your move, sir.");
+  });
+
+  it("shows a taste note only when there is nothing else at all", () => {
+    const screen = showOf(snapshot([]), { now: NOW, artefact: { memories: [], news: [], taste: ["No eyebrow above a headline."] } });
+    expect(screen.items).toEqual([{ id: "taste", kind: "news", headline: "No eyebrow above a headline.", why: "what I'm learning about your taste" }]);
   });
 
   it("shows a question of his that is still waiting, in his own words", () => {
