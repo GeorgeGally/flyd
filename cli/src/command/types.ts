@@ -39,6 +39,8 @@ export interface SpecialistOutput {
 }
 
 export interface DomainResult {
+  /** Whether the domain boss honoured the layered machine handoff contract. */
+  format: "structured" | "raw";
   brief: string;
   recommendation?: DomainRecommendation;
   detailedReport: string;
