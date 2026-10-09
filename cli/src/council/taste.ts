@@ -12,15 +12,17 @@ import { readProjects, type Project } from "./projects.js";
 // corrects, rejects and approves work. Every rule keeps the words that taught
 // it, where and when; a repeat strengthens the rule instead of adding another.
 //
-// Two layers. "Everywhere" is his personal taste (consistency, minimal
-// screens, tight type); a project section holds rules for one piece of work
-// (CapFive's 36px phone gutter). A project rule seen in a second project
-// moves up to Everywhere.
+// Active rules have two scopes. "Everywhere" is his personal taste
+// (consistency, minimal screens, tight type); a project section holds rules
+// for one piece of work (CapFive's 36px phone gutter). A project rule seen in
+// a second project moves up to Everywhere. A separate Retired tier preserves
+// generic rules the Librarian dropped without injecting them into context.
 //
 // TASTE.md is the source of truth and his to edit: reword a rule, delete it,
-// or move it under "Not me" so Flyd never learns it again. Flyd's context and
-// crew briefs read it before design or code work (tastePromptText), and other
-// agents get the same text from `flyd taste for <project|path>`.
+// or move it under "Not me" so Flyd never learns it again. Retired rules stay
+// visible as provenance but are not followed. Flyd's context and crew briefs
+// read it before design or code work (tastePromptText), and other agents get
+// the same text from `flyd taste for <project|path>`.
 //
 // Sources: George's own turns in his Claude Code sessions
 // (~/.claude/projects/**/*.jsonl), never tool output, pasted text or the

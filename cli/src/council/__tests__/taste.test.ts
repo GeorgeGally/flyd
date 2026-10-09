@@ -26,6 +26,7 @@ import {
   vetoRule,
   writeTaste,
   type CandidateTurn,
+  type Observation,
   type TasteProfile,
 } from "../taste.js";
 
@@ -47,7 +48,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const empty = (): TasteProfile => ({ rules: [], vetoed: [], names: {} });
-const observe = (rule: string, scope: "personal" | "project", projectId?: string, date = "2026-10-06", quote = rule) =>
+const observe = (rule: string, scope: "personal" | "project", projectId?: string, date = "2026-10-06", quote = rule): Observation =>
   ({ rule: { rule, scope, quote, ...(projectId ? { project: projectId } : {}) }, source: "Claude Code", date });
 
 describe("TASTE.md", () => {
