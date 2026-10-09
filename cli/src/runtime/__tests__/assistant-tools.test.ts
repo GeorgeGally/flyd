@@ -35,6 +35,10 @@ describe("assistant tools", () => {
     expect(result).toBe("Error: /nonexistent/repo is not a git repository");
     expect(await runAssistantTool("background_task", { task: "new mixes", done_when: ["three exist"], deliverable: "mixes/new" }))
       .toBe("Error: background_task deliverable must be an absolute or ~/ path");
+    expect(await runAssistantTool("start_knowledge_task", { outcome: "" }))
+      .toBe("Error: start_knowledge_task needs an outcome");
+    expect(await runAssistantTool("start_knowledge_task", { outcome: "Research Jev" }))
+      .toBe("Error: start_knowledge_task needs done_when: the checkable points that mean it's done");
     expect(await runAssistantTool("crew", { action: "list" })).toBe("No crew tasks yet.");
     expect(await runAssistantTool("crew", { action: "land" })).toBe("Error: crew show/land/discard needs an id");
   });
