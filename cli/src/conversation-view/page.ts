@@ -422,7 +422,7 @@ const SCRIPT = `
     if (message.aside) {
       label = document.createElement("span");
       label.className = "aside-label";
-      label.textContent = assistant + " update";
+      label.textContent = "update";
       el.insertBefore(label, el.querySelector(".body"));
     }
   }
@@ -993,7 +993,7 @@ const SCRIPT = `
       if (nodes.has(sent.id)) {
         el.remove();
         if (sent.warning) {
-          warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+          warnings.set(sent.id, "saved, but not passed on yet");
           showWarning(nodes.get(sent.id), warnings.get(sent.id));
         }
         return;
@@ -1006,7 +1006,7 @@ const SCRIPT = `
       }
       el.dataset.wait = sent.id;
       awaiting.add(sent.id);
-      if (sent.warning) warnings.set(sent.id, "saved, but firstmate was not woken: " + sent.warning);
+      if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
       state.textContent = warnings.get(sent.id) || "delivered";
     }).catch(function (error) {
       el.classList.add("failed");

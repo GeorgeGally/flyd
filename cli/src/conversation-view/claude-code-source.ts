@@ -144,7 +144,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   } = {}) {
     this.commandRoots = options.commandRoots ?? {};
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
-    this.assistantLabel = options.assistantLabel ?? (basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
+    // With a desk the window is Flyd's: it speaks to him, firstmate stays backstage.
+    this.assistantLabel = options.assistantLabel ?? (options.inbox && options.desk ? "Flyd" : basename(this.projectDir).endsWith("firstmate") ? "firstmate" : "Claude");
     this.pollMs = options.pollMs ?? 400;
     this.inbox = options.inbox;
     this.desk = options.inbox ? options.desk : undefined;
@@ -164,6 +165,15 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         this.desk.complete,
       );
       if (route === "flyd") return this.desk.desk.ask(text);
+      try {
+        return await this.inbox.send(text, images, command?.name);
+      } catch (error) {
+        // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/firstmate|fm-inbox/i.test(message)) throw error;
+        console.warn(`[view] firstmate inbox refused a message: ${message}`);
+        throw new Error("Flyd couldn't pass this on just now; send it again");
+      }
     }
     return this.inbox.send(text, images, command?.name);
   }
@@ -243,8 +253,10 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   }
 
   private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[]): ConversationSnapshot {
+    // Firstmate's context window is its own machinery, not part of Flyd's conversation.
+    const { context: _context, ...flyds } = snapshot;
     const voiced = this.desk
-      ? { ...snapshot, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
+      ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
     if (exchanges.length === 0) return voiced;
     return { ...voiced, messages: mergeNotes(voiced.messages, exchanges, this.noteWindow(sessionId)) };

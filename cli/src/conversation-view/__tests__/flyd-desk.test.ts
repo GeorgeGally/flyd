@@ -163,7 +163,10 @@ printf 'queued %s\\n' "$id"
     const home = join(dir, "firstmate");
     mkdirSync(project);
     mkdirSync(home);
-    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), assistantText("Captain, the island filter is still paused on your call.")].join("\n") + "\n");
+    // Firstmate's line carries its context use, which is firstmate's machinery, not Flyd's.
+    const line = JSON.parse(assistantText("Captain, the island filter is still paused on your call.")) as { message: Record<string, unknown> };
+    line.message.usage = { input_tokens: 1_000, cache_read_input_tokens: 258_000 };
+    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), JSON.stringify(line)].join("\n") + "\n");
     const script = join(dir, "fm-inbox.sh");
     writeFileSync(script, FAKE_SCRIPT);
     chmodSync(script, 0o755);
@@ -252,10 +255,25 @@ printf 'queued %s\\n' "$id"
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
 
     const messages = (await source.read("s1")).messages;
-    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "passed to firstmate" });
+    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Flyd has it queued" });
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
+  });
+
+  it("is Flyd's window: named Flyd, no firstmate context meter, no firstmate in a refusal", async () => {
+    const { source } = setup("FIRSTMATE");
+    expect(source.assistantLabel).toBe("Flyd");
+    const snapshot = await source.read("s1");
+    expect(snapshot.context).toBeUndefined();
+    expect(snapshot.messages.map((message) => message.waiting ?? "").join(" ")).not.toMatch(/firstmate/i);
+
+    writeFileSync(join(dir, "fm-inbox.sh"), "#!/bin/sh\necho 'fm-inbox: firstmate was NOT woken' >&2\nexit 1\n");
+    await expect(source.send("s1", "fix the island filter")).rejects.toThrow(/^Flyd couldn't pass this on just now; send it again$/);
+  });
+
+  it("keeps the plain firstmate view as it was without a desk", () => {
+    expect(new ClaudeCodeTranscriptSource({ projectDir: join(dir, "-Users-x-Documents-firstmate") }).assistantLabel).toBe("firstmate");
   });
 });
 
