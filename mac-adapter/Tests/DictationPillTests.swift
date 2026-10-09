@@ -61,19 +61,19 @@ final class DictationPillTests: XCTestCase {
         let question = pill.show(.thinking("what time is it in London"))
 
         pill.hide(ifShowing: commands)
-        XCTAssertEqual(pill.shownPhase, .thinking("what time is it in London"))
+        XCTAssertEqual(pill.currentPhase, .thinking("what time is it in London"))
 
         pill.hide(ifShowing: question)
-        XCTAssertNil(pill.shownPhase)
+        XCTAssertNil(pill.currentPhase)
     }
 
     func testWorkClearsItsSpinnerWhenNothingReplacedIt() {
         let pill = DictationPill()
         let plan = pill.show(.thinking("Working through the plan"))
-        XCTAssertEqual(pill.shownPhase, .thinking("Working through the plan"))
+        XCTAssertEqual(pill.currentPhase, .thinking("Working through the plan"))
 
         pill.hide(ifShowing: plan)
-        XCTAssertNil(pill.shownPhase)
+        XCTAssertNil(pill.currentPhase)
     }
 
     func testDropsRecordingsThatAreTooShortOrSilent() {

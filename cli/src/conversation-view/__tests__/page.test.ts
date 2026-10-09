@@ -385,4 +385,14 @@ describe("conversation page", () => {
     const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
     expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ session: "latest", text: "Check the deals page." });
   });
+
+  it("highlights pasted code as one block, not line by line", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>change to</p>\n<pre><code>@media (max-width: 640px) {\n    h2 {\n        font-size: 10vw;\n    }\n}\n</code></pre>" }]);
+    const message = document.querySelector(".msg.user")!;
+    expect(message.querySelectorAll(".hl")).toHaveLength(1);
+    expect(message.querySelector("pre .hl")).toBeNull();
+    expect(message.querySelector("pre code")!.textContent).toContain("    h2 {");
+  });
 });

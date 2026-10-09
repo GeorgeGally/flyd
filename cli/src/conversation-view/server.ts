@@ -1,9 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { renderMarkdown } from "./markdown.js";
+import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
+import { statusOf } from "./status.js";
 import { authorSummary, firstSentence, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
 
@@ -112,7 +113,7 @@ export class SnapshotDiffer {
       changed.push({
         id: message.id,
         role: message.role,
-        html: renderMarkdown(parts.body),
+        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : renderMarkdown(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
@@ -261,6 +262,10 @@ export class ConversationViewServer {
       await this.image(res, url.searchParams.get("session"), url.searchParams.get("id"));
       return;
     }
+    if (url.pathname === "/api/status") {
+      await this.statusStream(req, res);
+      return;
+    }
     if (url.pathname === "/api/stream") {
       await this.stream(req, res, url.searchParams.get("session"));
       return;
@@ -328,6 +333,41 @@ export class ConversationViewServer {
       "cache-control": "private, max-age=86400, immutable",
     });
     res.end(image.data);
+  }
+
+  /**
+   * A compact feed for Flyd's notch island: the newest session's status,
+   * sent when it changes (and re-checked every 30s so "working" can go stale).
+   */
+  private async statusStream(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const [session] = await this.source.listSessions();
+    if (!session) {
+      sendJson(res, 404, { error: "No sessions found" });
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive" });
+    let latest: ConversationSnapshot | null = null;
+    let sent = "";
+    const emit = () => {
+      if (!latest) return;
+      const status = JSON.stringify({ session: session.id, ...statusOf(latest) });
+      if (status === sent) return;
+      sent = status;
+      res.write(`event: status\ndata: ${status}\n\n`);
+    };
+    const follower = this.source.follow(session.id, (snapshot) => {
+      latest = snapshot;
+      emit();
+    });
+    const tick = setInterval(() => {
+      emit();
+      res.write(": keep-alive\n\n");
+    }, 30_000);
+    tick.unref?.();
+    req.on("close", () => {
+      clearInterval(tick);
+      follower.close();
+    });
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
