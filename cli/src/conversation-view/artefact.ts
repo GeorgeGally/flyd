@@ -98,10 +98,11 @@ export function parseBearings(raw: unknown): FleetArtefact {
 export function memoryHighlights(markdown: string): string[] {
   const section = markdown.split(/^##\s+Commitments\s*$/m)[1];
   if (!section) return [];
-  const line = section
+  const lines = section
     .split("\n")
     .map((entry) => entry.replace(/<!--[\s\S]*?-->/g, "").trim())
-    .find((entry) => entry.startsWith("- "));
+    .filter((entry) => entry.startsWith("- "));
+  const line = lines.at(-1);
   return line ? [line.slice(2).trim()] : [];
 }
 
@@ -156,6 +157,7 @@ export class ArtefactFeed {
   private inputs: ArtefactInputs = EMPTY_ARTEFACT;
   private timer?: NodeJS.Timeout;
   private refreshing = false;
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     private readonly options: {
@@ -170,6 +172,11 @@ export class ArtefactFeed {
 
   current(): ArtefactInputs {
     return this.inputs;
+  }
+
+  onRefresh(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** Under vitest the real firstmate home and Flyd dir are never read. */
@@ -230,6 +237,7 @@ export class ArtefactFeed {
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
       };
+      for (const listener of this.listeners) listener();
     } finally {
       this.refreshing = false;
     }

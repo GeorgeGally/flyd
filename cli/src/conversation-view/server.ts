@@ -538,11 +538,15 @@ export class ConversationViewServer {
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
+    const stopFeed = this.feed.onRefresh(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
       closed = true;
       clearInterval(heartbeat);
+      stopFeed();
       follower.close();
     });
   }

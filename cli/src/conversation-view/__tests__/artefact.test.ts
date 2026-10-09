@@ -36,7 +36,7 @@ describe("parseBearings", () => {
 describe("member reads", () => {
   it("takes the newest open commitment from memory", () => {
     const md = "# Flyd memory\n\n## Commitments\n- George wants Bloom finished, not just launched. <!--p:2026-09-29-->\n- Second one.\n";
-    expect(memoryHighlights(md)).toEqual(["George wants Bloom finished, not just launched."]);
+    expect(memoryHighlights(md)).toEqual(["Second one."]);
     expect(memoryHighlights("# Flyd memory\n\n## Lately\n- something\n")).toEqual([]);
   });
 
