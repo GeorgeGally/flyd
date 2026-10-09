@@ -251,6 +251,7 @@ export async function runAssistantTool(
             originalMessage: context.userMessage ?? outcome,
             intendedOutcome: outcome,
             doneWhen,
+            source: "chat",
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
             transport: firstmate,
           });
