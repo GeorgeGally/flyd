@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -148,14 +149,29 @@ describe("FlydDesk", () => {
 });
 
 describe("ClaudeCodeTranscriptSource as Flyd's window", () => {
-  // Records `note -` calls without waking anyone.
+  // Records `note -` and `reply` calls without waking anyone, writing the same
+  // files firstmate's own bin/fm-inbox.sh writes.
   const FAKE_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
-body=$(cat)
-mkdir -p "$FM_HOME/state/inbox"
-id="$(date +%s)-$RANDOM"
-printf 'id=%s\\nat=%s\\nsource=text\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/$id.note"
-printf 'queued %s\\n' "$id"
+case "\${1:-}" in
+  note)
+    [ "\${2:-}" = "-" ] || { echo "usage" >&2; exit 2; }
+    body=$(cat)
+    mkdir -p "$FM_HOME/state/inbox"
+    id="$(date +%s)-$RANDOM"
+    printf 'id=%s\\nat=%s\\nsource=text\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/$id.note"
+    printf 'queued %s\\n' "$id"
+    ;;
+  reply)
+    id="\${2:?reply needs a note id}"
+    body="\${3:-}"
+    mkdir -p "$FM_HOME/state/inbox/.replies"
+    printf 'id=%s\\nat=%s\\nseq=1\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/.replies/$id"
+    printf 'replied %s\\n' "$id"
+    ;;
+  *)
+    echo "usage" >&2; exit 2 ;;
+esac
 `;
 
   function setup(route: string) {
@@ -259,6 +275,25 @@ printf 'queued %s\\n' "$id"
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
+  });
+
+  it("shows each note followed by firstmate's own reply, written by fm-inbox.sh reply", async () => {
+    const { source, home } = setup("FIRSTMATE");
+    const answered = await source.send("s1", "push the island redesign");
+    const pending = await source.send("s1", "and the settings screen?");
+    // Firstmate answers the first note with its own `bin/fm-inbox.sh reply <id> "<text>"`.
+    execFileSync(join(dir, "fm-inbox.sh"), ["reply", answered.id.replace(/^note:/, ""), "Captain, pushed. Want me to merge?"], {
+      env: { ...process.env, FM_HOME: home },
+    });
+
+    const messages = (await source.read("s1")).messages;
+    const question = messages.find((message) => message.id === answered.id)!;
+    // The reply sits directly under its own note, in Flyd's voice.
+    expect(messages[messages.indexOf(question) + 1]).toMatchObject({ role: "assistant", answers: answered.id, text: "Sir, pushed. Want me to merge?" });
+    // A note with no reply still renders, cleanly, saying what is happening to it.
+    const waiting = messages.find((message) => message.id === pending.id)!;
+    expect(waiting.waiting).toBeTruthy();
+    expect(messages.some((message) => message.answers === pending.id)).toBe(false);
   });
 
   it("is Flyd's window: named Flyd, no firstmate context meter, no firstmate in a refusal", async () => {
