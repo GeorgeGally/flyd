@@ -34,4 +34,11 @@ final class SetupMicrophoneLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(host.fittingSize.width, MicrophoneTestVisual.size.width)
         XCTAssertLessThanOrEqual(host.fittingSize.height, MicrophoneTestVisual.size.height)
     }
+
+    func testFirstPromptWaveformFitsItsRowWithTheLiveSpectrum() {
+        let liveBands = (0..<48).map { CGFloat($0 % 5) / 4 }
+        let host = NSHostingView(rootView: MiniWaveform(bands: liveBands, active: true))
+
+        XCTAssertLessThanOrEqual(host.fittingSize.width, MiniWaveform.maxWidth)
+    }
 }

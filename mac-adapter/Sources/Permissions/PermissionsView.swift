@@ -603,13 +603,16 @@ enum WaveformBars {
     }
 }
 
-private struct MiniWaveform: View {
+struct MiniWaveform: View {
+    static let barCount = 16
+    static let maxWidth: CGFloat = CGFloat(barCount) * 5 + CGFloat(barCount - 1) * 4
+
     let bands: [CGFloat]
     let active: Bool
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(bands.enumerated()), id: \.offset) { _, value in
+            ForEach(Array(WaveformBars.fold(bands, into: Self.barCount).enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(active ? Color.accentColor : Color.secondary.opacity(0.25))
                     .frame(width: 5, height: max(0, min(1, value)) * 26 + 6)
