@@ -566,8 +566,8 @@ private struct FirstPromptRow: View {
     }
 }
 
-/// Folds the live spectrum (48 bands) into a fixed number of bars so the microphone test keeps
-/// the width its layout gave it, whatever band count VoiceCapture delivers. Keeps each group's
+/// Folds the live spectrum (48 bands) into a fixed number of bars so the setup waveforms (the
+/// microphone test and the first-prompt row) keep the width their layout gave them, whatever band count VoiceCapture delivers. Keeps each group's
 /// peak so quiet speech still moves a bar.
 enum WaveformBars {
     static func fold(_ bands: [CGFloat], into count: Int) -> [CGFloat] {
