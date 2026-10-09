@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
 
@@ -56,8 +56,6 @@ export function sniffImage(bytes: Buffer): { mediaType: string; ext: string } | 
   const type = IMAGE_TYPES.find((candidate) => candidate.matches(bytes));
   return type ? { mediaType: type.mediaType, ext: type.ext } : null;
 }
-
-export const FIRSTMATE_HOME = join(homedir(), "Documents", "firstmate");
 
 /** A note or reply record: `key=value` header lines, a `--` line, then the body. */
 function parseRecord(file: string): { header: Map<string, string>; body: string } | null {
@@ -113,7 +111,7 @@ export class FirstmateInbox implements CaptainInbox {
   private listingKey = "";
 
   constructor(options: { home?: string; script?: string } = {}) {
-    this.home = options.home ?? FIRSTMATE_HOME;
+    this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
   }
 

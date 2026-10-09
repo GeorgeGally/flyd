@@ -1,20 +1,20 @@
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
+import { captainNotice } from "./notice.js";
 import { saveDomainRun } from "./store.js";
+import type { DomainRun } from "./types.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-async function notifyRun(run: Awaited<ReturnType<typeof syncFirstmateDomainRuns>>[number]): Promise<void> {
+type Notify = (title: string, message: string) => Promise<void>;
+
+/** Tells George about a settled run once; routine chatter is kept in the store, not shown. */
+export async function notifyRun(run: DomainRun, notify?: Notify): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
   try {
-    const { notifyMac } = await import("../runtime/agenda.js");
-    const prefix = run.status === "needs_decision"
-      ? "I need your decision: "
-      : run.status === "failed"
-        ? "Work hit a problem: "
-        : "";
-    await notifyMac("Flyd", `${prefix}${run.result.brief}`);
+    const notice = captainNotice(run);
+    if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice);
     saveDomainRun({ ...run, notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
