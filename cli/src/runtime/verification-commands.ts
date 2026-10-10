@@ -1,8 +1,16 @@
 import { access, readFile } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 
 async function exists(path: string): Promise<boolean> {
   return access(path).then(() => true, () => false);
+}
+
+export function runningNodeDirectory(): string {
+  return dirname(process.execPath);
+}
+
+export function withRunningNodeFirst(command: string): string {
+  return `export PATH=${JSON.stringify(runningNodeDirectory())}:"$PATH"; ${command}`;
 }
 
 export async function packageCommands(root: string, relativePath: string, prefix: string[] = []): Promise<string[]> {

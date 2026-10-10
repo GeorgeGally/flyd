@@ -34,7 +34,7 @@ install: bundle
 	mkdir -p "$(INSTALL_DIR)"
 	-pkill -9 -x "$(APP_NAME)" 2>/dev/null
 	@while pgrep -x "$(APP_NAME)" >/dev/null 2>&1; do sleep 0.2; done
-	-lsof -ti tcp:4815,4816,4817 | xargs -r kill -9 2>/dev/null
+	-lsof -ti tcp:4815,4816,4817,4818 | xargs -r kill -9 2>/dev/null
 	rm -rf "$(INSTALLED_APP)"
 	cp -R "$(APP_DIR)" "$(INSTALLED_APP)"
 	@echo "Installed to $(INSTALLED_APP)"

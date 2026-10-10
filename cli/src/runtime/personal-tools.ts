@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import type { AgentTool } from "../lib/llm.js";
+import { showMacNotification } from "./mac-notifications.js";
 
 // First-class personal-assistant tools for CLI chat. Without them the model
 // guessed URLs for current facts and spent a dozen tool calls grepping Flyd's
@@ -130,6 +131,7 @@ export interface PersonalToolDependencies {
   fetchFn?: FetchLike;
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
+  notify?: (title: string, message: string) => Promise<void>;
   capture?: (text: string) => Promise<string>;
   appendProfileFact?: (text: string, section?: string) => boolean;
   recall?: (query: string) => Promise<string>;
@@ -426,6 +428,7 @@ function localDateParts(date: Date): [string, string, string] {
 async function runMacAction(
   input: Record<string, unknown>,
   osascript: (script: string, args: string[]) => Promise<string>,
+  notify: (title: string, message: string) => Promise<void>,
 ): Promise<string> {
   if (process.platform !== "darwin") return "Error: Mac control is only available on macOS";
   try {
@@ -442,7 +445,7 @@ async function runMacAction(
       case "notify": {
         const text = String(input.text ?? "").trim();
         if (!text) return "Error: notify needs text";
-        await osascript("on run argv\n display notification (item 1 of argv) with title \"Flyd\"\nend run", [text.slice(0, 220)]);
+        await notify("Flyd", text);
         return "Notification shown";
       }
       case "clipboard_read": {
@@ -478,6 +481,7 @@ export async function runPersonalTool(
 ): Promise<string> {
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, input, deps.connectors);
   const osascript = deps.runOsascript ?? defaultOsascript;
+  const notify = deps.notify ?? showMacNotification;
   switch (name) {
     case "web_search": {
       const query = String(input.query ?? "").trim();
@@ -574,7 +578,7 @@ export async function runPersonalTool(
       }
     }
     case "mac":
-      return runMacAction(input, osascript);
+      return runMacAction(input, osascript, notify);
     case "calendar_events": {
       const fromText = String(input.from ?? "").trim();
       const from = fromText.match(LOCAL_DATE_TIME);

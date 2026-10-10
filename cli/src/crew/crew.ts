@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
-import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
+import { verificationCommandsForRepository, withRunningNodeFirst } from "../runtime/verification-commands.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
 // OpenCode crewmate, gives it a clean git worktree, supervises it to
@@ -337,7 +337,7 @@ const MAX_RUNTIME_MS = 2 * 60 * 60 * 1000;
 
 async function defaultRunCommand(command: string, cwd: string): Promise<{ ok: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", command], { cwd, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", withRunningNodeFirst(command)], { cwd, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024 });
     return { ok: true, output: `${stdout}${stderr}` };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message?: string };
