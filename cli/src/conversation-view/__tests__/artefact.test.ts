@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
-  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
+  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights,
 } from "../artefact.js";
 
@@ -106,6 +106,16 @@ describe("the backlog", () => {
     expect(days).toHaveLength(7);
     expect(days.at(-1)).toEqual({ day: "2026-10-10", count: 0 });
     expect(days.find((day) => day.day === "2026-10-09")).toEqual({ day: "2026-10-09", count: 1 });
+  });
+
+  it("says a captain hold's encoded reason in plain words, never the marker", () => {
+    expect(holdReason("fm-hold-v1:Q2FwdGFpbiBwaWNrcyB0aGUgQ2hyaXN0bWFz")).toBe("Captain picks the Christmas");
+    expect(holdReason("fm-hold-v1:not base64!")).toBe("");
+    expect(holdReason("fm-hold-v1://79")).toBe("");
+    expect(holdReason("waiting on the captain")).toBe("waiting on the captain");
+    const entries = parseBacklog("- [ ] gnm-lab - Christmas lab direction (hold: fm-hold-v1:Q2FwdGFpbiBwaWNrcyB0aGUgQ2hyaXN0bWFz)\n- [ ] bad - Broken hold (hold: fm-hold-v1:%%%)");
+    expect(entries.get("gnm-lab")).toEqual({ title: "Christmas lab direction", hold: "Captain picks the Christmas" });
+    expect(entries.get("bad")).toEqual({ title: "Broken hold" });
   });
 
   it("shows after shots first, then the newest", () => {
