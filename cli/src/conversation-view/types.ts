@@ -120,4 +120,6 @@ export interface ConversationSource {
   commands(): Promise<Array<{ name: string; description: string }>>;
   /** Bytes of an image named in a message's `images`, or null when unknown. */
   image(sessionId: string, imageId: string): Promise<ImageData | null>;
+  /** Every question asked from the window, to firstmate or to Flyd, for the right column. */
+  exchanges?(): Exchange[];
 }

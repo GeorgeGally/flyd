@@ -329,6 +329,71 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
   });
 
+  it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
+    const source = {
+      assistantLabel: "Flyd",
+      canSend: false,
+      listSessions: async () => [],
+      read: async () => ({ messages: [], working: false }),
+      follow: (_id: string, onUpdate: (s: { messages: never[]; working: boolean }) => void) => {
+        onUpdate({ messages: [], working: false });
+        return { close() {} };
+      },
+      commands: async () => [],
+      image: async () => null,
+    };
+    server = new ConversationViewServer(source as never);
+    const port = await server.listen(0);
+    const csp = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        resolve(String(res.headers["content-security-policy"]));
+        res.resume();
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(csp).toContain("frame-src http://127.0.0.1:*");
+    expect(csp).not.toContain("frame-src *");
+  });
+
+  it("serves a local screenshot a reply named, only from firstmate's tree or Flyd's", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-rail-image-"));
+    const shot = join(dir, "data", "task", "after.png");
+    mkdirSync(join(dir, "data", "task"), { recursive: true });
+    writeFileSync(shot, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const outside = join(mkdtempSync(join(tmpdir(), "flyd-outside-")), "secret.png");
+    writeFileSync(outside, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const prev = process.env.FLYD_FIRSTMATE_HOME;
+    process.env.FLYD_FIRSTMATE_HOME = dir;
+    try {
+      const source = {
+        assistantLabel: "Flyd",
+        canSend: false,
+        listSessions: async () => [],
+        read: async () => ({ messages: [], working: false }),
+        follow: (_id: string, onUpdate: (s: { messages: never[]; working: boolean }) => void) => {
+          onUpdate({ messages: [], working: false });
+          return { close() {} };
+        },
+        commands: async () => [],
+        image: async () => null,
+      };
+      server = new ConversationViewServer(source as never);
+      const port = await server.listen(0);
+      const token = JSON.parse((await get(port, "/api/token")).body).token as string;
+      const inside = await get(port, `/api/rail-image?path=${encodeURIComponent(shot)}&token=${token}`);
+      expect(inside.status).toBe(200);
+      expect(inside.type).toBe("image/png");
+      const blocked = await get(port, `/api/rail-image?path=${encodeURIComponent(outside)}&token=${token}`);
+      expect(blocked.status).toBe(403);
+      expect((await get(port, `/api/rail-image?path=${encodeURIComponent(shot)}`)).status).toBe(403);
+    } finally {
+      if (prev === undefined) delete process.env.FLYD_FIRSTMATE_HOME;
+      else process.env.FLYD_FIRSTMATE_HOME = prev;
+    }
+  });
+
   it("authenticates predictions, uses current conversation context and never dispatches the suggestion", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-prediction-server-"));
     let calls = 0, prompt = "";

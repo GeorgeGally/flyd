@@ -1,8 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { extname } from "node:path";
+import { extname, sep } from "node:path";
+import { FLYD_DIR } from "../lib/config.js";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
@@ -17,8 +19,10 @@ import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { renderBriefing, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
-import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
+import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
+import type { Rail } from "./rail.js";
+import { composeRail, conversationPreviews, type RailArtefact } from "./rail.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
@@ -79,6 +83,8 @@ export interface ShowOptions {
   artefact?: () => ArtefactInputs;
   /** Plan usage and weather, for the overview's boxes. */
   readings?: () => BoxReadings;
+  /** Flyd's right column: his conversations, their answers and the artefacts beside them. */
+  rail?: (snapshot: ConversationSnapshot) => Rail;
 }
 
 interface StreamUpdate {
@@ -95,6 +101,8 @@ interface StreamUpdate {
   show: ShowScreen;
   /** The overview: Flyd's screen laid out as boxes, calls first. */
   boxes: Box[];
+  /** The right column: his conversations with their answers, and artefacts beside them. */
+  rail?: Rail;
 }
 
 /**
@@ -244,6 +252,7 @@ export class SnapshotDiffer {
       ...(snapshot.context ? { context: snapshot.context } : {}),
       show,
       boxes: boxesOf(show, this.show?.readings?.() ?? {}),
+      ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
     };
   }
 }
@@ -373,8 +382,8 @@ export class ConversationViewServer {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
-        // Inline page only; nothing loads from elsewhere.
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
+        // Inline page only; the right column may frame a loopback site it previews.
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:*",
       });
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
@@ -429,6 +438,14 @@ export class ConversationViewServer {
         return;
       }
       await this.artefactShot(res, url.searchParams.get("task") ?? "", url.searchParams.get("file") ?? "");
+      return;
+    }
+    if (url.pathname === "/api/rail-image") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      await this.railImage(res, url.searchParams.get("path") ?? "");
       return;
     }
     if (url.pathname === "/api/status") {
@@ -503,6 +520,52 @@ export class ConversationViewServer {
     }
     res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" });
     res.end(data);
+  }
+
+  /** Flyd's right column: his questions with their answers, and the artefacts beside them. */
+  private rail(snapshot: ConversationSnapshot): Rail {
+    const projects = this.show?.projects?.() ?? [];
+    const project = (repo: string): string | undefined => {
+      const name = repo.toLowerCase();
+      return projects.find((entry) => entry.repos.some((path) => path.replace(/\/+$/, "").split("/").pop()!.toLowerCase() === name) || entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === name)?.name;
+    };
+    const artefacts: RailArtefact[] = composeArtefact(this.feed.current(), { project })
+      .filter((item) => item.kind !== "call")
+      .map((item) => ({
+        id: item.id,
+        title: item.headline,
+        ...(item.detail ? { line: item.detail } : {}),
+        ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
+      }));
+    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreviews(snapshot.messages));
+  }
+
+  /** A screenshot a reply named, served only from firstmate's own tree or Flyd's. */
+  private async railImage(res: ServerResponse, file: string): Promise<void> {
+    const type = SHOT_TYPES[extname(file).toLowerCase()];
+    if (!file.startsWith("/") || !type || file.includes("\0")) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    let real: string;
+    try {
+      real = await realpath(file);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    const roots = await Promise.all([firstmateHome(), FLYD_DIR].map((root) => realpath(root).catch(() => root)));
+    if (!roots.some((root) => real === root || real.startsWith(root + sep))) {
+      sendJson(res, 403, { error: "not allowed" });
+      return;
+    }
+    try {
+      const data = await readFile(real);
+      res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=60", "x-content-type-options": "nosniff" });
+      res.end(data);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+    }
   }
 
   /** George rewords, vetoes or restores a learned taste rule from the taste page. */
@@ -735,6 +798,7 @@ export class ConversationViewServer {
         ...this.show,
         artefact: () => this.feed.current(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
+        rail: (snapshot) => this.rail(snapshot),
       });
     const follower = this.source.follow(
       session.id,
