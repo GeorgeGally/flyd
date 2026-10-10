@@ -329,6 +329,34 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
   });
 
+  it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
+    const source = {
+      assistantLabel: "Flyd",
+      canSend: false,
+      listSessions: async () => [],
+      read: async () => ({ messages: [], working: false }),
+      follow: (_id: string, onUpdate: (s: { messages: never[]; working: boolean }) => void) => {
+        onUpdate({ messages: [], working: false });
+        return { close() {} };
+      },
+      commands: async () => [],
+      image: async () => null,
+    };
+    server = new ConversationViewServer(source as never);
+    const port = await server.listen(0);
+    const csp = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        resolve(String(res.headers["content-security-policy"]));
+        res.resume();
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(csp).toContain("frame-src http://127.0.0.1:*");
+    expect(csp).not.toContain("frame-src *");
+  });
+
   it("authenticates predictions, uses current conversation context and never dispatches the suggestion", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-prediction-server-"));
     let calls = 0, prompt = "";

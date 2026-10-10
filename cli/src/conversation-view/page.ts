@@ -303,6 +303,36 @@ main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 12vh; }
 body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
 
+/* The right column: his conversations with their answers, and artefacts beside them. */
+.rail {
+  position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
+  display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--faint);
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.22); font-size: 0.62em;
+}
+.rail[hidden] { display: none; }
+:root[data-rail="on"] main { margin-right: calc(min(430px, 34vw) + 1.5em); }
+:root[data-rail="on"] .composer .row { margin-right: calc(min(430px, 34vw) + 1.875em); }
+.rail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--faint);
+  font: 600 15px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+}
+.rail-head button { font: inherit; color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.rail-head button:hover { color: var(--fg); }
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
+.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.rail-talk { margin: 0 0 18px; }
+.rail-q { margin: 0; font: 500 17px/1.4 var(--sans); color: var(--strong); }
+.rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
+.rail-when { margin: 6px 0 0; font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-card { margin: 0 0 16px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
+.rail-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: 500 14px/1.3 var(--mono); color: var(--fg); }
+.rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
+.rail-card p { margin: 0; padding: 0 12px 10px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
+:root[data-screen="show"] .rail { display: none; }
+
 .msg { position: relative; overflow-wrap: anywhere; }
 .msg[data-day]::before {
   content: attr(data-day); display: block; margin: 2.4em 0 0.4em;
@@ -912,7 +942,69 @@ var __name = function (f) { return f; };
     else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
     first = false;
     if (update.show) renderShow(update.show, update.boxes);
+    renderRail(update.rail);
   }
+
+  // The right column: his conversations with their answers, and artefacts beside them.
+  var railEl = document.getElementById("rail");
+  var railBody = document.getElementById("rail-body");
+  var railSignature = null;
+  var railHidden = store("flyd-rail") === "off";
+  function railRoot() { return document.documentElement; }
+  function railOn() { return !railHidden && railEl && !railEl.hidden; }
+  function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
+  function renderRail(rail) {
+    if (!rail) { railEl.hidden = true; setRail(false); return; }
+    var signature = JSON.stringify(rail);
+    if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
+    railSignature = signature;
+    railBody.textContent = "";
+    var talks = rail.conversations || [];
+    if (talks.length) {
+      railBody.appendChild(el("div", "rail-section", "Conversations"));
+      talks.slice().reverse().forEach(function (talk) {
+        var wrap = el("div", "rail-talk");
+        wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
+        if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
+        else if (talk.waiting) wrap.appendChild(el("p", "rail-wait", talk.waiting));
+        if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
+        railBody.appendChild(wrap);
+      });
+    }
+    var cards = rail.artefacts || [];
+    if (cards.length) {
+      railBody.appendChild(el("div", "rail-section", "Artefacts"));
+      cards.forEach(function (card) {
+        var box = el("div", "rail-card");
+        var head = el("div", "rail-card-head");
+        head.appendChild(el("span", "", card.title));
+        if (card.url) {
+          var open = el("a", "", "open ↗");
+          open.href = card.url;
+          open.target = "_blank";
+          open.rel = "noopener";
+          head.appendChild(open);
+        }
+        box.appendChild(head);
+        if (card.line) box.appendChild(el("p", "", card.line));
+        if (card.preview) {
+          var frame = el("iframe", "rail-frame");
+          frame.src = card.preview;
+          frame.loading = "lazy";
+          frame.setAttribute("referrerpolicy", "no-referrer");
+          frame.setAttribute("title", "Live preview of " + card.preview);
+          frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+          box.appendChild(frame);
+        }
+        railBody.appendChild(box);
+      });
+    }
+    railEl.hidden = railHidden || (!talks.length && !cards.length);
+    setRail(railOn());
+  }
+  document.getElementById("rail-hide").addEventListener("click", function () {
+    railHidden = true; store("flyd-rail", "off"); railEl.hidden = true; setRail(false);
+  });
 
   // Under the message box: how full the context is, and the plan's limits.
   var usageEl = document.getElementById("usage");
@@ -2044,6 +2136,10 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
     <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
+<aside class="rail" id="rail" hidden aria-label="Your conversations and artefacts">
+  <div class="rail-head"><span>Your conversations</span><button id="rail-hide" type="button" aria-label="Hide the column">✕</button></div>
+  <div class="rail-body" id="rail-body"></div>
+</aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span><span class="doing" id="doing"></span></div>

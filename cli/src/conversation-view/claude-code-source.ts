@@ -304,7 +304,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   }
 
   /** Every question asked from the window, to firstmate or to Flyd, oldest first. */
-  private exchanges(): Exchange[] {
+  exchanges(): Exchange[] {
     const notes = this.inbox?.notes() ?? [];
     const asks = this.desk?.desk.exchanges() ?? [];
     if (asks.length === 0) return notes;

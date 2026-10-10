@@ -810,6 +810,37 @@ describe("header and artefact view", () => {
     main.dispatchEvent(new Event("load"));
     expect(main.classList.contains("phone")).toBe(true);
   });
+
+  it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = {
+      conversations: [
+        { id: "q1", question: "make a playlist", answer: "Nine tracks.", at: "2026-10-10T12:46:56Z" },
+        { id: "q2", question: "and tickets?", waiting: "Working on it" },
+      ],
+      artefacts: [
+        { id: "preview:http://127.0.0.1:8097/", title: "Live preview", line: "127.0.0.1:8097/", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/" },
+        { id: "landed:x", title: "Christmas Nuanu map", line: "just landed" },
+      ],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    const rail_ = document.getElementById("rail")!;
+    expect(rail_.hidden).toBe(false);
+    expect(document.documentElement.getAttribute("data-rail")).toBe("on");
+    const talks = document.querySelectorAll(".rail-talk");
+    expect(talks).toHaveLength(2);
+    expect(talks[0]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
+    expect(talks[0]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
+    expect(talks[1]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
+    const frame = document.querySelector<HTMLIFrameElement>(".rail-frame")!;
+    expect(frame.src).toBe("http://127.0.0.1:8097/");
+    document.getElementById("rail-hide")!.click();
+    expect(document.getElementById("rail")!.hidden).toBe(true);
+    expect(document.documentElement.getAttribute("data-rail")).toBe("off");
+  });
   const SHOW = {
     title: "Your move, sir.",
     summary: "1 call waits on you, 2 under way.",
