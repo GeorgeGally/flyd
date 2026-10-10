@@ -89,6 +89,8 @@ interface FlydConfig {
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
   FLYD_CHAT_FALLBACK_MODELS?: string;
+  FLYD_PREDICTIONS?: string;
+  FLYD_PREDICTION_MODEL?: string;
   FLYD_MODEL_API_KEY?: string;
   COMMANDCODE_API_KEY?: string;
   OPENROUTER_API_KEY?: string;

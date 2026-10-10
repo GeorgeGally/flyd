@@ -20,7 +20,9 @@
     "prepublishOnly": "npm run lint && npm run build",
     "evals:chat": "tsx src/evals/chat/run.ts",
     "routing": "tsx scripts/routing-learning.ts",
-    "test:routing-learning": "node --experimental-transform-types --test scripts/routing-learning.selftest.mjs"
+    "test:routing-learning": "node --experimental-transform-types --test scripts/routing-learning.selftest.mjs",
+    "test:composer-predictions": "node --experimental-transform-types --test scripts/composer-predictions.selftest.mjs",
+    "evals:composer": "tsx scripts/eval-composer-predictions.ts"
   },
   "files": [
     "dist",

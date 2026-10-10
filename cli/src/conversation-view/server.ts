@@ -20,11 +20,10 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { WeatherReader } from "./weather.js";
+import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 
-// Loopback-only HTTP server for the conversation view. It never sends
-// transcript content anywhere but the local browser that asked for it. The
-// one write it accepts is the captain's message, POST /api/send, which the
-// source delivers (for firstmate: its own inbox).
+// Loopback-only view. Explicit composer typing may request a bounded model
+// completion; predictions cannot invoke the source's send or dispatch work.
 
 export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
@@ -280,6 +279,7 @@ function sseEvent(res: ServerResponse, event: string, data: unknown): void {
 export class ConversationViewServer {
   private server: Server | null = null;
   private port = 0;
+  private readonly predictionContexts = new Map<string, { at: number; messages: ConversationMessage[] }>();
   /**
    * Proof a send came from this server's own page: other origins can POST to
    * loopback, but cannot read the page that carries this token.
@@ -293,6 +293,7 @@ export class ConversationViewServer {
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
     private readonly weather?: WeatherReader,
+    private readonly predictions = new ComposerPredictions(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -317,6 +318,8 @@ export class ConversationViewServer {
   }
 
   async close(): Promise<void> {
+    this.predictions.close();
+    this.predictionContexts.clear();
     this.feed.stop();
     this.weather?.stop();
     const server = this.server;
@@ -334,6 +337,10 @@ export class ConversationViewServer {
     const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
     if (req.method === "POST" && url.pathname === "/api/send") {
       await this.send(req, res);
+      return;
+    }
+    if (req.method === "POST" && (url.pathname === "/api/predict" || url.pathname === "/api/prediction-feedback")) {
+      await this.predict(req, res, url.pathname === "/api/prediction-feedback");
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/taste") {
@@ -385,6 +392,11 @@ export class ConversationViewServer {
       sendJson(res, 200, { commands: await this.source.commands() });
       return;
     }
+    if (url.pathname === "/api/prediction-status") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      sendJson(res, 200, this.predictions.status());
+      return;
+    }
     if (url.pathname === "/api/plan") {
       sendJson(res, 200, { plan: this.plan?.current() ?? null });
       return;
@@ -414,6 +426,46 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  /** Suggestions and feedback share the composer's origin, host and token gates. */
+  private async predict(req: IncomingMessage, res: ServerResponse, feedback: boolean): Promise<void> {
+    const origin = req.headers.origin;
+    if (!this.source.canSend || (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" }); return;
+    }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { sendJson(res, 415, { error: "expected application/json" }); return; }
+    let payload: { session?: unknown; draft?: unknown; id?: unknown; event?: unknown; characters?: unknown };
+    try { payload = JSON.parse(await readBody(req, 8192)) as typeof payload; }
+    catch { sendJson(res, 400, { error: "invalid body" }); return; }
+    if (typeof payload.session !== "string" || !payload.session || payload.session.length > 512) { sendJson(res, 400, { error: "expected session" }); return; }
+    if (feedback) {
+      if (typeof payload.id !== "string" || typeof payload.event !== "string" || (payload.characters !== undefined && (typeof payload.characters !== "number" || !Number.isFinite(payload.characters)))) { sendJson(res, 400, { error: "invalid feedback" }); return; }
+      this.predictions.feedback(payload.session, payload.id, payload.event, payload.characters as number | undefined);
+      sendJson(res, 200, { ok: true }); return;
+    }
+    if (typeof payload.draft !== "string" || payload.draft.length > 2000) { sendJson(res, 400, { error: "expected draft" }); return; }
+    if (!eligibleDraft(payload.draft)) { sendJson(res, 200, { prediction: null }); return; }
+    const local = this.predictions.localPrediction(payload.session, payload.draft);
+    if (local) { sendJson(res, 200, { prediction: local }); return; }
+    const controller = new AbortController();
+    const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once("close", disconnected);
+    try {
+      const cached = this.predictionContexts.get(payload.session);
+      const messages = cached && Date.now() - cached.at < 5 * 60_000 ? cached.messages : this.cachePredictionContext(payload.session, (await this.source.read(payload.session)).messages);
+      const prediction = await this.predictions.predict({ session: payload.session, draft: payload.draft, messages }, controller.signal);
+      if (!controller.signal.aborted) sendJson(res, 200, { prediction });
+    } catch { if (!controller.signal.aborted) sendJson(res, 200, { prediction: null }); }
+    finally { res.off("close", disconnected); }
+  }
+
+  private cachePredictionContext(session: string, messages: ConversationMessage[]): ConversationMessage[] {
+    const recent = boundedPredictionMessages(messages);
+    this.predictionContexts.delete(session);
+    if (this.predictionContexts.size >= 5) this.predictionContexts.delete(this.predictionContexts.keys().next().value!);
+    this.predictionContexts.set(session, { at: Date.now(), messages: recent });
+    return recent;
   }
 
   /** A screenshot a fleet task saved, only when the artefact listed it. */
@@ -506,7 +558,9 @@ export class ConversationViewServer {
       return;
     }
     try {
-      sendJson(res, 200, await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]));
+      const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
+      this.predictions.remember(payload.text);
+      sendJson(res, 200, sent);
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -602,6 +656,7 @@ export class ConversationViewServer {
       session.id,
       (snapshot) => {
         latest = snapshot;
+        this.cachePredictionContext(session.id, snapshot.messages);
         sseEvent(res, "update", differ.next(snapshot));
       },
       (error) => sseEvent(res, "problem", { error: error.message }),

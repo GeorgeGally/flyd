@@ -1,5 +1,6 @@
 import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmate-inbox.js";
 import { escapeHtml } from "./markdown.js";
+import { installComposerPredictions } from "./composer-predictions-client.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -431,6 +432,13 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   color: var(--fg); font: 400 1em/1.5 var(--sans); max-height: 38vh; padding: 0;
 }
 .composer textarea::placeholder { color: var(--muted); font-weight: 400; }
+.composer .typing { flex: 1; min-width: 0; position: relative; }
+.composer .typing textarea { display: block; width: 100%; box-sizing: border-box; }
+.composer .prediction-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: break-word; font: 400 1em/1.5 var(--sans); }
+.composer .prediction-prefix { visibility: hidden; }
+.composer .prediction-suffix { color: var(--muted); opacity: .65; }
+.composer .prediction-toggle { background: transparent; color: var(--muted); padding: 8px 3px; font-size: 15px; font-weight: 400; }
+.composer .prediction-toggle[aria-pressed="false"] { opacity: .4; }
 .composer button {
   font: 800 14px/1 var(--mono); letter-spacing: -0.03em; text-transform: uppercase;
   color: var(--bg); background: var(--accent); border: 0;
@@ -818,12 +826,14 @@ const SCRIPT = `
 
   function connect(sessionId) {
     if (!VIEW_TOKEN) return;
+    if (typingPredictions) typingPredictions.reset();
     if (source) source.close();
     reset();
     var streamQuery = "?token=" + encodeURIComponent(VIEW_TOKEN) + (sessionId ? "&session=" + encodeURIComponent(sessionId) : "");
     source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
+      if (current !== session.id && typingPredictions) typingPredictions.reset();
       current = session.id;
       assistant = session.assistantLabel;
       document.title = session.title + " · " + session.assistantLabel;
@@ -887,7 +897,14 @@ const SCRIPT = `
     input.style.height = input.scrollHeight + "px";
     sendBtn.disabled = !input.value.trim() && attachments.length === 0;
   }
+  var typingPredictions = (${installComposerPredictions.toString()})({
+    input: input, composer: composer, layer: document.getElementById("prediction-layer"),
+    prefix: document.getElementById("prediction-prefix"), suffix: document.getElementById("prediction-suffix"), toggle: document.getElementById("prediction-toggle"),
+    session: function () { return current; }, token: function () { return SEND_TOKEN; }, grow: grow,
+    attached: function () { return attachments.length > 0 || composer.classList.contains("listening") || composer.classList.contains("transcribing"); }
+  });
   function renderAttachments() {
+    if (typingPredictions) typingPredictions.reset();
     attachmentsEl.textContent = "";
     attachments.forEach(function (attachment, index) {
       var item = document.createElement("div");
@@ -981,6 +998,7 @@ const SCRIPT = `
     return list;
   }
   function setRecalled(text) {
+    typingPredictions.reset();
     input.value = text;
     grow();
     input.setSelectionRange(text.length, text.length);
@@ -1045,6 +1063,7 @@ const SCRIPT = `
   function chooseCommand(index) {
     var command = commandMatches[index];
     if (!command) return;
+    typingPredictions.reset();
     input.value = "/" + command.name + " ";
     closeCommands();
     grow();
@@ -1197,6 +1216,7 @@ const SCRIPT = `
   }
   window.flydVoice = {
     start: function () {
+      typingPredictions.reset();
       // Speaking is conversation: the terminal comes back for it, this once.
       if (onShow()) applyScreen("terminal", false);
       if (composer.hidden) return;
@@ -1205,11 +1225,13 @@ const SCRIPT = `
       composer.classList.remove("transcribing");
     },
     draft: function (text) {
+      typingPredictions.reset();
       if (voiceBase === null) return;
       input.value = joinVoice(text);
       grow();
     },
     transcribing: function () {
+      typingPredictions.reset();
       composer.classList.remove("listening");
       composer.classList.add("transcribing");
     },
@@ -1571,7 +1593,11 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
-      <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
+      <div class="typing">
+        <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
+        <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
+      </div>
+      <button class="prediction-toggle" id="prediction-toggle" type="button" aria-label="Toggle typing suggestions" aria-pressed="true">↹</button>
       <button id="send" type="submit" disabled aria-label="Send to ${label}">AHOY</button>
     </div>
     <div class="hint" id="usage"></div>

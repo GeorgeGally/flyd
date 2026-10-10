@@ -9,6 +9,7 @@ import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import type { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
+import { ComposerPredictions } from "../composer-predictions.js";
 import { ReplySummarizer } from "../summaries.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
@@ -268,10 +269,10 @@ describe("ConversationViewServer", () => {
     }
   }
 
-  async function start(inbox?: CaptainInbox, lines = [captain("hello"), assistantText("Hi, **Captain**.")]): Promise<number> {
+  async function start(inbox?: CaptainInbox, lines = [captain("hello"), assistantText("Hi, **Captain**.")], predictions?: ComposerPredictions): Promise<number> {
     dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
     writeFileSync(join(dir, "s1.jsonl"), lines.join("\n") + "\n");
-    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }));
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }), undefined, undefined, undefined, undefined, undefined, predictions);
     const port = await server.listen(0);
     await get(port, "/");
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
@@ -279,6 +280,27 @@ describe("ConversationViewServer", () => {
   }
 
   const tokenOf = (page: string): string => /data-send-token="([0-9a-f]+)"/.exec(page)?.[1] ?? "";
+
+  it("authenticates predictions, uses current conversation context and never dispatches the suggestion", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-prediction-server-"));
+    let calls = 0, prompt = "";
+    const predictions = new ComposerPredictions({ root, provider: async (p) => { calls++; prompt = p; return { text: " and check the tests" }; } });
+    const inbox = new MemoryInbox();
+    try {
+      const port = await start(inbox, [captain("change the composer"), assistantText("I can do that.")], predictions);
+      const body = JSON.stringify({ session: "s1", draft: "implement it" });
+      const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+      expect((await post(port, body, { "content-type": "application/json" }, "/api/predict")).status).toBe(403);
+      expect((await post(port, body, { ...headers, origin: "https://evil.example" }, "/api/predict")).status).toBe(403);
+      expect(calls).toBe(0);
+      const reply = await post(port, body, headers, "/api/predict");
+      expect(reply.status).toBe(200); expect(JSON.parse(reply.body).prediction.suffix).toBe(" and check the tests");
+      expect(prompt).toContain("change the composer"); expect(prompt).toContain("implement it"); expect(inbox.sent).toEqual([]);
+      expect((await get(port, "/api/prediction-status")).status).toBe(403);
+      expect((await get(port, "/api/prediction-status?token=" + viewToken)).status).toBe(200);
+      expect((await post(port, JSON.stringify({ session: "s1", draft: "x".repeat(2001) }), headers, "/api/predict")).status).toBe(400);
+    } finally { predictions.close(); rmSync(root, { recursive: true, force: true }); }
+  });
 
   it("serves the page, sessions and a rendered stream on loopback", async () => {
     const port = await start();

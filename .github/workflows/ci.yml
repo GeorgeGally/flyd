@@ -16,6 +16,9 @@ jobs:
       - name: Test routing learning and assumption audits without live providers
         working-directory: cli
         run: npm run test:routing-learning
+      - name: Test bounded composer predictions without live providers
+        working-directory: cli
+        run: npm run test:composer-predictions
 
   evidence:
     runs-on: ubuntu-latest
