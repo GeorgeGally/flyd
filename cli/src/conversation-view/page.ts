@@ -281,8 +281,9 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .msg.assistant { margin-top: 0.85em; }
 /* A question with no answer yet: one living line says what is happening to
    it, changing in place, until its answer appears right under it. */
-.queued { display: flex; align-items: center; gap: 0.65em; margin-top: 0.6em; font: 500 13px/1.4 var(--mono); color: var(--muted); }
-.queued::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: breathe 1.4s ease-in-out infinite; }
+/* Read at a glance: the message face, near body size, in full text colour. */
+.queued { display: flex; align-items: center; gap: 0.55em; margin-top: 0.5em; font: 400 0.82em/1.45 var(--sans); color: var(--fg); }
+.queued::before { content: ""; flex: none; width: 0.36em; height: 0.36em; border-radius: 50%; background: currentColor; animation: breathe 1.4s ease-in-out infinite; }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
@@ -409,14 +410,17 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
 
 /* Pending: the captain's message is on its way to firstmate. */
-.msg.pending { opacity: 0.72; }
+/* Only his words dim while on their way; the living line stays fully legible. */
+.msg.pending > :not(.queued) { opacity: 0.72; }
 .msg.pending .body { white-space: pre-wrap; }
 .msg.failed { opacity: 1; outline: 1px solid color-mix(in srgb, #d0574c 60%, transparent); cursor: pointer; }
 .state { display: block; margin-top: 0.3em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
 .msg.failed .state { color: #d0574c; }
 /* The optimistic copy's line is the same living line the delivered message keeps. */
-.state.queued { display: flex; margin-top: 0.6em; }
+.state.queued { display: flex; margin-top: 0.5em; font: 400 0.82em/1.45 var(--sans); color: var(--fg); }
 .msg.failed .queued::before { animation: none; background: #d0574c; }
+.msg.failed .state.queued { color: #d0574c; }
+.msg.failed.pending > * { opacity: 1; }
 .queued.still::before { animation: none; opacity: 0.5; }
 
 .composer {
