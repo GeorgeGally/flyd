@@ -34,7 +34,7 @@ interface Segment {
   started: boolean;
   /** What the assistant is doing now, in a few plain words (see activityOf). */
   activity?: { text: string; rank: number };
-  /** Started by machinery (a supervision wake, a background-task notice), not by the captain. */
+  /** Started by firstmate's supervision (a watcher wake, an operational input), not by the captain. */
   wake?: boolean;
 }
 
@@ -154,6 +154,16 @@ function captainContentOf(content: unknown, offset?: number): { text: string; im
   text = text.replace(/\[Image #\d+\]\s?/g, (marker) => (left-- > 0 ? "" : marker)).trim();
   if (!text && images.length === 0) return blocks.some((block) => block.type === "image") ? { text: "*[image]*", images } : null;
   return { text, images };
+}
+
+/** Firstmate's supervision turns: a watcher (Stop-hook) wake, or an operational input it typed itself. */
+const SUPERVISION_WAKE = /^\u2063?FIRSTMATE_OP:|firstmate watcher wake\b/;
+
+function isSupervisionWake(content: unknown): boolean {
+  const text = typeof content === "string"
+    ? content
+    : contentBlocks(content).filter((block) => block.type === "text").map((block) => stringField(block, "text") ?? "").join("\n");
+  return SUPERVISION_WAKE.test(text.trimStart());
 }
 
 function originKind(record: Json): string | undefined {
@@ -276,9 +286,11 @@ export class TranscriptConversation {
 
     const id = stringField(entry, "uuid") ?? `user-${this.finished.length}`;
     const kind = originKind(entry);
-    const machine = kind !== undefined && kind !== "human";
-    const said = entry.isCompactSummary === true || machine ? null : captainContentOf(message.content, offset);
-    this.startSegment(id, machine);
+    const wake = isSupervisionWake(message.content);
+    const said = entry.isCompactSummary === true || wake || (kind !== undefined && kind !== "human")
+      ? null
+      : captainContentOf(message.content, offset);
+    this.startSegment(id, wake);
     if (said) this.finished.push(captainMessage(id, said, timestamp));
   }
 

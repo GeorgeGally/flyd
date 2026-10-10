@@ -503,7 +503,23 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 
-  it("relays firstmate's answers to its own wakes only when they name a PR, ask his decision or report a failure", async () => {
+  it("knows a supervision session whose first prompt outgrows the head it scans", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "main.jsonl"), captain("hello", { entrypoint: "cli" }) + "\n");
+    writeFileSync(join(project, "supervision.jsonl"), [
+      captain(`MAIN DIALOG MIRROR (read-only context)\n\n${"stale: firstmate:flyd-going-silent\n".repeat(3000)}`, sdk),
+      assistantText(STALE_WAKE, "end_turn", { entrypoint: "sdk-cli" }),
+    ].join("\n") + "\n");
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(join(project, "main.jsonl"), past, past);
+
+    const view = source(project, join(dir, "firstmate"));
+    expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
+    expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
+  });
+
+  it("relays firstmate's answers to its own wakes only when they bring a PR, ask his decision or report a failure, and every background-task report", async () => {
     const project = join(dir, "project");
     mkdirSync(project);
     writeFileSync(join(project, "main.jsonl"), [
@@ -517,6 +533,10 @@ describe("supervision chatter never reaches Flyd's window", () => {
       assistantText("Captain, the Good Neighbours worker failed its build twice and stopped."),
       injection(WAKE),
       assistantText("Captain, the lab page has two layouts. Should I keep the grid or the list?"),
+      injection(WAKE),
+      assistantText(STALE_WAKE),
+      injection("<task-notification>\n<task-id>b7f2</task-id>\n<status>completed</status>\n<summary>Background command \"Deploy\" completed (exit code 0)</summary>\n</task-notification>"),
+      assistantText("Captain, deployed and all tests pass; landed on main."),
     ].join("\n") + "\n");
 
     const snapshot = await source(project, join(dir, "firstmate")).read("main");
@@ -526,6 +546,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
       "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90",
       "Sir, the Good Neighbours worker failed its build twice and stopped.",
       "Sir, the lab page has two layouts. Should I keep the grid or the list?",
+      "Sir, deployed and all tests pass; landed on main.",
     ]);
     // The island reads the same snapshot, so it names only what the window shows.
     expect(relays.map((message) => message.id)).toContain(statusOf(snapshot).reply?.id);

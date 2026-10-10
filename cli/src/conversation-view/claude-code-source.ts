@@ -113,10 +113,24 @@ function readLineAt(path: string, offset: number): string | null {
 function sessionHead(path: string, size: number): { start?: string; entrypoint?: string; settled: boolean } {
   const head = readRange(path, 0, Math.min(size, START_SCAN_BYTES));
   const start = /"timestamp":"([^"]+)"/.exec(head)?.[1];
-  const entrypoint = /"entrypoint":"([^"]+)"/.exec(head)?.[1];
-  // The first message entry carries the entrypoint (older builds wrote none); before it, a queued prompt may be all there is.
-  const settled = start !== undefined && (entrypoint !== undefined || /"type":"(?:user|assistant)"/.test(head));
-  return { ...(start ? { start } : {}), ...(entrypoint ? { entrypoint } : {}), settled };
+  if (start === undefined) return { settled: false };
+  // The first message entry carries the entrypoint after its content (older builds wrote none), so that whole line is
+  // read; before it, a queued prompt may be all there is.
+  let offset = 0;
+  for (const line of head.split("\n")) {
+    if (/"type":"(?:user|assistant)"/.test(line)) {
+      let entry: unknown;
+      try {
+        entry = JSON.parse(readLineAt(path, offset) ?? "");
+      } catch {
+        return { start, settled: false };
+      }
+      const entrypoint = typeof entry === "object" && entry !== null ? (entry as { entrypoint?: unknown }).entrypoint : undefined;
+      return { start, ...(typeof entrypoint === "string" ? { entrypoint } : {}), settled: true };
+    }
+    offset += Buffer.byteLength(line) + 1;
+  }
+  return { start, settled: false };
 }
 
 /**
