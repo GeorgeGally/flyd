@@ -296,6 +296,29 @@ esac
     expect(messages.some((message) => message.answers === pending.id)).toBe(false);
   });
 
+  it("shows a note sent now in the live session, even when a later session started while it ran", async () => {
+    const project = join(dir, "overlap");
+    const home = join(dir, "overlap-home");
+    mkdirSync(project);
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    // The live conversation started first and is still being written; a mirror
+    // session started later and has been idle since. George sends a note now.
+    writeFileSync(join(project, "live.jsonl"), [captain("status?"), assistantText("Sir, working.")].join("\n") + "\n");
+    writeFileSync(join(project, "mirror.jsonl"), [captain("mirror?"), assistantText("Sir, mirrored.")].join("\n") + "\n");
+    utimesSync(join(project, "live.jsonl"), new Date("2026-10-05T18:05:00Z"), new Date("2026-10-05T18:05:00Z"));
+    utimesSync(join(project, "mirror.jsonl"), new Date("2026-10-05T17:30:00Z"), new Date("2026-10-05T17:30:00Z"));
+    const NOTE = "1791516064-ZGKFlI";
+    writeFileSync(join(home, "state", "inbox", "handled", `${NOTE}.note`), `id=${NOTE}\nat=2026-10-05T18:00:00Z\n--\nwhat's on tonight?\n`);
+    writeFileSync(join(home, "state", "inbox", ".replies", NOTE), `id=${NOTE}\nat=2026-10-05T18:02:00Z\nseq=1\n--\nCaptain, art bangkok tonight.\n`);
+
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home }) });
+    const messages = (await source.read("live")).messages;
+    const question = messages.find((message) => message.id === `note:${NOTE}`);
+    expect(question).toBeTruthy();
+    expect(messages[messages.indexOf(question!) + 1]).toMatchObject({ answers: `note:${NOTE}`, text: "Sir, art bangkok tonight." });
+  });
+
   it("is Flyd's window: named Flyd, no firstmate context meter, no firstmate in a refusal", async () => {
     const { source } = setup("FIRSTMATE");
     expect(source.assistantLabel).toBe("Flyd");
