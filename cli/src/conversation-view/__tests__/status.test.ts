@@ -32,8 +32,8 @@ describe("conversation status for the island", () => {
       { id: "r2", role: "assistant" as const, text: "Sunny all day." },
     ];
     expect(statusOf({ messages, working: false }).waiting).toBeUndefined();
-    const pending = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Answering" }];
-    expect(statusOf({ messages: pending, working: false }).waiting).toEqual({ id: "u3", text: "Answering" });
+    const pending = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Working on it" }];
+    expect(statusOf({ messages: pending, working: false }).waiting).toEqual({ id: "u3", text: "Working on it" });
     const failed = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Flyd couldn't answer this: offline", waitingFailed: true }];
     expect(statusOf({ messages: failed, working: false }).waiting).toEqual({ id: "u3", text: "Flyd couldn't answer this: offline", failed: true });
   });
