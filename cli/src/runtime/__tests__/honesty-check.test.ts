@@ -61,3 +61,75 @@ describe("contrast framing", () => {
     expect(styleProblems("The .pptx is your latest deck. Want me to open it?")).toEqual([]);
   });
 });
+
+describe("internal narration", () => {
+  it("strips handoff, stall and tool narration and says what it took out", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("Passing this to Firstmate. The clock lands in the header tonight.")).toEqual({
+      cleaned: "The clock lands in the header tonight.",
+      removed: ["Passing this to Firstmate."],
+    });
+    expect(stripInternalNarration("I'll pass this to the crew now.\nThe fix ships today.").cleaned).toBe("The fix ships today.");
+    expect(stripInternalNarration("Handing this to the coding boss. Routing this to the right team. It's done by six.").cleaned).toBe("It's done by six.");
+    expect(stripInternalNarration("One moment please sir. Your set starts at 10.")).toEqual({
+      cleaned: "Your set starts at 10.",
+      removed: ["One moment please sir."],
+    });
+    expect(stripInternalNarration("Let me check — the venue opens at 9.").cleaned).toBe("The venue opens at 9.");
+    expect(stripInternalNarration("Give me a sec. Just checking. Loading… Sam is free at 3.").cleaned).toBe("Sam is free at 3.");
+    expect(stripInternalNarration("Calling the calendar tool. You have two meetings tomorrow.").cleaned).toBe("You have two meetings tomorrow.");
+    expect(stripInternalNarration("I ran it through my tools internally and found it. The invoice is overdue.").cleaned).toBe("The invoice is overdue.");
+    expect(stripInternalNarration("Running the tool now.\n\nThe mix is 62 minutes.").cleaned).toBe("The mix is 62 minutes.");
+    expect(stripInternalNarration("I used the calendar tool: you're free Friday at 3. Want me to book it?")).toEqual({
+      cleaned: "You're free Friday at 3. Want me to book it?",
+      removed: ["I used the calendar tool:"],
+    });
+    expect(stripInternalNarration("Let me check… the venue opens at 9.").cleaned).toBe("The venue opens at 9.");
+    expect(stripInternalNarration("Loading... done, the file is 3MB.").cleaned).toBe("Done, the file is 3MB.");
+    expect(stripInternalNarration("Just checking: passing this to Firstmate — it lands tonight.").cleaned).toBe("It lands tonight.");
+  });
+
+  it("leaves neutral answers and code alone", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    for (const answer of [
+      "Here is the mix plan for tonight.",
+      "Call Sam at 10. Your decks weren't in Documents; want me to check Drive?",
+      "The page is slow because the hero image is 8MB.",
+      "Check the loading spinner on the checkout page.",
+      "1. Warm up at 9.\n2. Peak at 11.\n\nWant the full breakdown?",
+      "\"Passing this to Firstmate\" and \"One moment please sir\" are both gone: from now on you get the outcome.",
+      "Run this:\n```\n# let me check the logs, one moment\ntail -f app.log\n```",
+      "There was one moment in the set where the floor emptied. Fix the 11pm transition.",
+      "Start by using the built-in tools in Ableton. Then bounce stems.",
+      "I'd suggest handing it to your accountant. The deadline is Friday.",
+      "I sent the clock fix to Firstmate this morning. It landed at 3pm.",
+      "Sure. Let me check with Sam tomorrow and get back to you.",
+      "Order pizza for the crew. Soundcheck is at 6.",
+      "Order pizza. That's for the crew, not the guests.",
+      "Routing it to the aux bus gives you the reverb tail. Then automate the send.",
+      "Handing it to the promoter early gives them time.",
+      "Using the clone stamp tool, paint over the logo.",
+      "I'd handle payroll internally. An agency costs more.",
+      "I'll send that to Sam once he replies.",
+      "Sending it to the label first is safer.",
+      "None of my tools can reach your bank, so log in yourself. The bill is due Monday.",
+      "I checked internally and the invoice was paid on the 3rd. Anything else?",
+      "I'll pass it on, but the deadline is Friday regardless.",
+      "One moment, the whole room was singing.",
+      "Using the clone stamp tool: paint over the logo.",
+    ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
+  });
+
+  it("keeps the original when nothing substantive would be left", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("One moment please sir.")).toEqual({ cleaned: "One moment please sir.", removed: [] });
+  });
+});
+
+describe("internal narration, George's own words", () => {
+  it("keeps hand-offs to George himself", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("I'll hand it to you straight: the gig is off.").removed).toEqual([]);
+    expect(stripInternalNarration("I'll pass this along. The draft is in your inbox.").cleaned).toBe("The draft is in your inbox.");
+  });
+});

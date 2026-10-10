@@ -780,6 +780,24 @@ describe("buildConversationPrompt", () => {
     expect(answer).toBe("general answer");
   });
 
+  it("never lets machinery narration reach George", async () => {
+    const answer = await respondToConversation(
+      {
+        message: "what is the weather today?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      },
+      {
+        persistReceipt: async () => undefined as never,
+        runAgentLoop: async () => "<final>One moment please sir. Passing this to Firstmate. Sunny, 24 degrees.</final>",
+      },
+    );
+
+    expect(answer).toBe("Sunny, 24 degrees.");
+  });
+
   it('does not hijack ordinary sentences that merely contain the word "coach"', async () => {
     for (const message of ["I coach soccer on weekends", "who is the head coach", "the coach said to try X"]) {
       const answer = await respondToConversation(
