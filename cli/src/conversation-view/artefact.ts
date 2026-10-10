@@ -209,6 +209,19 @@ export interface BacklogEntry {
   finished?: string;
 }
 
+/** Firstmate stores a hold's reason as `fm-hold-v1:<base64>`; its plain words, or nothing when it does not decode. Pure. */
+export function holdReason(value: string): string {
+  const marked = /^fm-hold-v1:([A-Za-z0-9+/]*={0,2})$/.exec(value.trim());
+  if (!marked) return value.startsWith("fm-hold-v1:") ? "" : value;
+  try {
+    const bytes = Buffer.from(marked[1]!, "base64");
+    if (bytes.toString("base64") !== marked[1]) return "";
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/\s+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
 /** Firstmate's backlog.md rows by task id: the full title bearings shortens. Pure. */
 export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
   const entries = new Map<string, BacklogEntry>();
@@ -229,9 +242,10 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
       .trim();
     if (!title) continue;
     const finished = [tags.get("merged"), tags.get("done"), tags.get("landed")].find((value) => value && /^\d{4}-\d{2}-\d{2}/.test(value));
+    const hold = holdReason(tags.get("hold") ?? "");
     entries.set(row[2]!, {
       title,
-      ...(tags.get("hold") ? { hold: tags.get("hold")! } : {}),
+      ...(hold ? { hold } : {}),
       ...(row[1] === "x" && finished ? { finished: finished.slice(0, 10) } : {}),
     });
   }

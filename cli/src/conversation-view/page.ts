@@ -146,7 +146,7 @@ const SHOW_STYLE = `
 .box.small { grid-column: span 4; }
 .box > .why { margin: 0; font: 500 12px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--k); }
 .box > .title { margin: 0; font: 700 24px/1.2 var(--display); letter-spacing: -0.01em; color: var(--strong); text-wrap: balance; overflow-wrap: anywhere; }
-.box > .line { margin: 0; max-width: 40em; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
+.box > .line { margin: 0; max-width: 40em; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .box > .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
 .box > .meta .project { color: var(--fg); }
 .box > .meta a { color: var(--link); text-decoration: none; }
