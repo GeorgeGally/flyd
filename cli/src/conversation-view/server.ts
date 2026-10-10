@@ -18,6 +18,8 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { renderBriefing, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
+import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
+import type { WeatherReader } from "./weather.js";
 
 // Loopback-only HTTP server for the conversation view. It never sends
 // transcript content anywhere but the local browser that asked for it. The
@@ -72,6 +74,8 @@ export interface ShowOptions {
   projects?: () => ShowProject[];
   /** Flyd's artefact: firstmate's fleet snapshot, Flyd's memory, the news and its taste. */
   artefact?: () => ArtefactInputs;
+  /** Plan usage and weather, for the overview's boxes. */
+  readings?: () => BoxReadings;
 }
 
 interface StreamUpdate {
@@ -86,6 +90,8 @@ interface StreamUpdate {
   context?: { tokens: number; window: number };
   /** Show mode's screen: Flyd's few things, picked from this snapshot. */
   show: ShowScreen;
+  /** The overview: Flyd's screen laid out as boxes, calls first. */
+  boxes: Box[];
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -207,14 +213,7 @@ export class SnapshotDiffer {
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
-    return {
-      order,
-      messages: changed,
-      working: snapshot.working,
-      ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
-      ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
-      ...(snapshot.context ? { context: snapshot.context } : {}),
-      show: showOf(snapshot, {
+    const show = showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
         projects: this.show?.projects?.() ?? [],
         ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
@@ -223,7 +222,16 @@ export class SnapshotDiffer {
           const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
           return model !== undefined && isRoutineAnswer(model) && !isActionable(message.text);
         },
-      }),
+      });
+    return {
+      order,
+      messages: changed,
+      working: snapshot.working,
+      ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
+      ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
+      ...(snapshot.context ? { context: snapshot.context } : {}),
+      show,
+      boxes: boxesOf(show, this.show?.readings?.() ?? {}),
     };
   }
 }
@@ -284,10 +292,12 @@ export class ConversationViewServer {
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
+    private readonly weather?: WeatherReader,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
     this.feed.start();
+    this.weather?.start();
     const server = createServer((req, res) => {
       void this.handle(req, res).catch((error: unknown) => {
         if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -308,6 +318,7 @@ export class ConversationViewServer {
 
   async close(): Promise<void> {
     this.feed.stop();
+    this.weather?.stop();
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -581,7 +592,12 @@ export class ConversationViewServer {
             if (!closed && latest) sseEvent(res, "update", differ.next(latest));
           },
         }
-      : undefined, { assistant: this.source.assistantLabel, ...this.show, artefact: () => this.feed.current() });
+      : undefined, {
+        assistant: this.source.assistantLabel,
+        ...this.show,
+        artefact: () => this.feed.current(),
+        readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
+      });
     const follower = this.source.follow(
       session.id,
       (snapshot) => {

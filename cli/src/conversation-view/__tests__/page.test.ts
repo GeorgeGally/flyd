@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { boxesOf } from "../boxes.js";
 import { renderPage } from "../page.js";
+import type { ShowScreen } from "../show.js";
 
 // Runs the real page script against a fake server: EventSource streams and
 // fetch responses are scripted by each test.
@@ -591,27 +593,29 @@ describe("header and artefact view", () => {
     expect(theme.textContent).toBe("light");
   });
 
-  it("puts Flyd's pick in the middle with its screenshot, and the fleet as an instrument", async () => {
+  it("lays out Flyd's boxes: the call leads, stories hold their screenshots, instruments are drawn", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    stream.emit("update", { order: [], messages: [], working: true, show: SHOW });
-    expect(document.getElementById("show-title")!.textContent).toBe("Your move, sir.");
-    expect(document.getElementById("situation")!.textContent).toContain("1 call waits on you, 2 under way.");
-    expect(document.getElementById("pick-head")!.textContent).toBe("Review the Jev decision log");
-    expect(document.getElementById("pick-line")!.textContent).toBe("Captain decides keep or remove.");
-    expect(document.querySelectorAll("#ticks button")).toHaveLength(2);
-    (document.querySelectorAll("#ticks button")[1] as HTMLElement).dispatchEvent(new Event("mouseenter"));
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(document.getElementById("pick-head")!.textContent).toBe("Header controls");
-    const shot = document.querySelector(".pick-shot img") as HTMLImageElement;
-    expect(shot.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
-    expect(document.querySelector("#pick-meta a")!.textContent).toBe("flyd #85");
-    const gauges = Array.from(document.querySelectorAll("#fleet .gauge span")).map((label) => label.textContent);
-    expect(gauges).toEqual(["1 need you", "2 under way", "30 landed"]);
-    expect(document.querySelectorAll("#fleet .gauge.k-landed .lines i")).toHaveLength(25);
-    expect(document.getElementById("week-label")!.textContent).toBe("3 landed in 7 days");
-    expect(document.getElementById("also")!.textContent).toContain("From your memory: Bloom gets finished.");
-    expect(document.getElementById("show-doing")!.textContent).toBe("Running the Swift tests");
+    const boxes = boxesOf(SHOW as ShowScreen, { plan: { source: "quota-axi", windows: [{ label: "weekly", percentRemaining: 40 }] } });
+    stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes });
+    const top = document.querySelector("#dash > .box")!;
+    expect(top.classList.contains("lead")).toBe(true);
+    expect(top.querySelector(".box.call .title")!.textContent).toBe("Review the Jev decision log");
+    expect(top.querySelector(".box.call .line")!.textContent).toBe("Captain decides keep or remove.");
+    const story = document.querySelector('.box.story[data-id="live:a"]')!;
+    expect(story.querySelector(".meta a")!.textContent).toBe("flyd #85");
+    expect(story.querySelector(".box.shot img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
+    expect(Array.from(document.querySelectorAll(".gauge2 b")).map((node) => node.textContent)).toEqual(["60%"]);
+    expect(document.querySelector('.box[data-id="landed-week"] .title')!.textContent).toBe("3 landed this week");
+    expect(document.querySelector("#strip .doing")!.textContent).toBe("Running the Swift tests");
+  });
+
+  it("falls back to the situation when Core sends no boxes", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
+    expect(document.querySelector("#dash .box.note .title")!.textContent).toBe("Your move, sir.");
   });
 });

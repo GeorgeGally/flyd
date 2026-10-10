@@ -9,6 +9,7 @@ import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conve
 import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
+import { WeatherReader } from "../conversation-view/weather.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 
 export interface ViewOptions {
@@ -89,7 +90,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
   const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }) });
   // Show mode names things by his own projects.
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed);
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

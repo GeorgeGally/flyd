@@ -86,12 +86,12 @@ header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
 /*
- * Artefact view: one screen, not a page. Flyd's pick fills it, one thing at a
- * time: a big headline, the sentence that says what it means for him, and a
- * screenshot of the work when there is one. The picks take turns like title
- * cards. Below sits the fleet drawn as an instrument (one line per piece of
- * work, coloured by where it stands) and what landed this week. No frames, no
- * rules: colour and type carry it. The terminal stays loaded underneath.
+ * Artefact view: Flyd's overview. One screen of boxes, laid out by Core
+ * (boxes.ts): the calls only he can make lead, then what Flyd sees coming,
+ * then the stories with their screenshots, then the instruments (weather,
+ * plan usage, the week, where the work stands). A box can hold boxes. Under it
+ * all, the terminal's last lines and the message box stay live. No frames:
+ * colour and type carry it.
  */
 const SHOW_STYLE = `
 :root {
@@ -115,7 +115,7 @@ const SHOW_STYLE = `
   --k-next: #8b8880;
   --k-news: #2b2b2e;
 }
-:root[data-screen="show"] main, :root[data-screen="show"] .composer, :root[data-screen="show"] .jump { display: none; }
+:root[data-screen="show"] main, :root[data-screen="show"] .jump { display: none; }
 :root[data-screen="show"] .problem { z-index: 7; }
 /* The header stays: the same toggles in both modes, over the screen. */
 :root[data-screen="show"] header { z-index: 7; background: color-mix(in srgb, var(--screen) 88%, transparent); }
@@ -132,130 +132,111 @@ const SHOW_STYLE = `
 @keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
 
-/* The whole scene is one block, centred, with the same room above and below. */
-.scene {
-  min-height: 100%; width: 100%; max-width: 1360px; margin: 0 auto;
-  display: flex; flex-direction: column; justify-content: center;
-  padding: 88px clamp(24px, 5vw, 72px) 52px;
+/* The overview: Flyd's boxes on one screen, the terminal as a strip under them. */
+.dash {
+  width: 100%; max-width: 1360px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 34px 48px; align-content: start;
+  padding: 76px clamp(24px, 5vw, 72px) 40px;
 }
-.situation { margin: 0; max-width: 46em; font: 400 18px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
-.situation b { font-weight: 700; color: var(--strong); }
-
-.stage { display: flex; flex-direction: column; gap: 34px; margin: clamp(36px, 6vh, 64px) 0 clamp(44px, 7vh, 76px); }
-/* One height for every pick, so nothing below jumps as they take turns. */
-.pick { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); align-items: center; min-height: clamp(240px, 34vh, 460px); }
-.pick.has-shot { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
-.pick.out .pick-text, .pick.out .pick-shot { animation: pick-out 200ms ease both; }
-.pick.in .pick-text, .pick.in .pick-shot { animation: pick-in 520ms cubic-bezier(.2,.8,.2,1) both; }
-.pick.in .pick-shot { animation-delay: 70ms; }
-@keyframes pick-out { to { opacity: 0; transform: translateY(-8px); } }
-@keyframes pick-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-
-.pick-head {
-  margin: 0; max-width: 18em; font: 800 clamp(36px, 4.8vw, 72px)/1.04 var(--display); letter-spacing: -0.028em;
-  color: var(--strong); text-wrap: balance; overflow-wrap: anywhere;
+.box { --k: var(--muted); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.box.lead, .box.wide { grid-column: 1 / -1; }
+.box.main { grid-column: span 8; }
+.box.side { grid-column: span 4; }
+.box.small { grid-column: span 4; }
+.box > .why { margin: 0; font: 500 12px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--k); }
+.box > .title { margin: 0; font: 700 24px/1.2 var(--display); letter-spacing: -0.01em; color: var(--strong); text-wrap: balance; overflow-wrap: anywhere; }
+.box > .line { margin: 0; max-width: 40em; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
+.box > .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
+.box > .meta .project { color: var(--fg); }
+.box > .meta a { color: var(--link); text-decoration: none; }
+.box > .meta a:hover { color: var(--strong); }
+.box[data-ref] > .title { cursor: pointer; }
+.box[data-ref] > .title:hover { color: color-mix(in srgb, var(--strong) 82%, var(--k)); }
+.box > .inner { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 32px; margin-top: 8px; }
+.box > .inner > .box.lead, .box > .inner > .box.wide { grid-column: 1 / -1; }
+.box > .inner > .box.small { grid-column: span 1; }
+.box.side > .inner { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+.box.side > .inner > .box.small { grid-column: 1 / -1; }
+.box.main > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.box.k-warn { --k: var(--k-waiting); }
+/* A group's own title is quiet; what is in it speaks. */
+.box.group > .title { font: 500 12px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.box.group.lead > .title { color: var(--k); font-weight: 600; }
+.box.call > .title { font-size: clamp(28px, 3vw, 46px); line-height: 1.08; letter-spacing: -0.02em; }
+.box.call.has-shots > .inner, .box.story.has-shots > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.box.alert > .title { font-size: 19px; line-height: 1.3; color: var(--k); }
+.box.small > .title { font-size: 19px; }
+.box.note > .title { font-size: clamp(30px, 3.4vw, 48px); line-height: 1.1; letter-spacing: -0.02em; }
+.box.note > .line { color: var(--muted); }
+.box.shot img { width: 100%; max-height: 44vh; object-fit: cover; object-position: top; border-radius: 6px; cursor: zoom-in; display: block; }
+.box.shot > .why, .box.shot > .title { display: none; }
+/* Instruments: drawn, not framed. */
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 52px; }
+.bars .bar { flex: 1; min-width: 6px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; }
+.bars .bar i { width: 100%; min-height: 2px; background: var(--k); border-radius: 2px; opacity: 0.9; }
+.bars .bar.none i { opacity: 0.25; }
+.bars .bar span { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; }
+.bars .bar b { font: 600 12px/1 var(--mono); color: var(--strong); }
+.gauges { display: flex; flex-direction: column; gap: 12px; }
+.gauge2 { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3em; align-items: center; gap: 10px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
+.gauge2 .track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 12%, transparent); overflow: hidden; }
+.gauge2 .track i { display: block; height: 100%; background: var(--k-live); }
+.gauge2.low .track i { background: var(--k-waiting); }
+.gauge2 b { color: var(--strong); text-align: right; }
+.hours { display: flex; align-items: flex-end; gap: 4px; height: 48px; }
+.hours .h { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; }
+.hours .h i { width: 100%; background: var(--k-news); opacity: 0.55; border-radius: 2px; }
+.hours .h.wet i { background: var(--k-live); opacity: 0.95; }
+.hours .h span { font: 500 10px/1 var(--mono); color: var(--muted); }
+/* The terminal, its last few lines, over the message box. */
+/* The dock: the terminal strip and the message box. The overview scrolls above it, never under it. */
+:root[data-screen="show"] { --dock: 244px; }
+:root[data-screen="show"] .show { bottom: var(--dock); }
+:root[data-screen="show"] .composer { padding: 10px 0 22px; background: var(--screen); }
+:root[data-screen="show"]::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: var(--dock); background: var(--screen); z-index: 5; }
+.strip {
+  position: fixed; left: 0; right: 0; bottom: 108px; z-index: 7;
+  max-width: 972px; margin: 0 auto; padding: 0 40px;
+  display: flex; flex-direction: column; gap: 6px; cursor: pointer;
+  font: 400 14px/1.45 var(--mono); color: var(--muted);
 }
-.pick-head.long { max-width: 21em; font-size: clamp(30px, 3.6vw, 52px); line-height: 1.08; }
-.pick.has-shot .pick-head { font-size: clamp(32px, 3.6vw, 56px); }
-.pick.has-shot .pick-head.long { font-size: clamp(26px, 2.7vw, 40px); }
-.pick-head[role="button"] { cursor: pointer; }
-.pick-head[role="button"]:hover { color: color-mix(in srgb, var(--strong) 82%, var(--k)); }
-.pick-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 6px; }
-.pick-line { margin: 26px 0 0; max-width: 34em; font: 400 21px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
-.pick-line:empty { display: none; }
-.pick-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 22px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
-.pick-meta .kind { color: var(--k); }
-.pick-meta .project { color: var(--fg); }
-.pick-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
-.pick-meta a:hover { color: var(--strong); }
-.pick-shot { margin: 0; min-width: 0; }
-.pick-shot .main {
-  display: block; width: 100%; aspect-ratio: 16 / 10; max-height: 58vh; object-fit: cover; object-position: top center;
-  border-radius: 12px; background: color-mix(in srgb, var(--fg) 6%, transparent);
-}
-.pick-shot .thumbs { display: flex; gap: 10px; margin-top: 10px; }
-.pick-shot .thumbs img {
-  width: 76px; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center; border-radius: 6px; cursor: pointer;
-  opacity: 0.5; transition: opacity 140ms ease;
-}
-.pick-shot .thumbs img:hover, .pick-shot .thumbs img.on { opacity: 1; }
-
-/* Which pick is up, and how long until the next: one short line each. */
-.ticks { --k: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; min-height: 14px; align-items: center; }
-.ticks button { position: relative; width: 30px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
-.ticks button::before, .ticks button::after { content: ""; position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; }
-.ticks button::before { right: 0; background: var(--k); opacity: 0.28; }
-.ticks button::after { width: 0; background: var(--k); }
-.ticks button.on::after { width: 100%; transition: width var(--dwell, 9s) linear; }
-.ticks button.on.held::after { transition: none; }
-.ticks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* The fleet as an instrument: one thin line per piece of work, grouped by
-   where it stands, with the week's landings beside it. */
-.instrument { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 24px 34px; }
-.instrument[hidden] { display: none; }
-.fleet { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 26px; }
-.gauge { --k: var(--muted); display: flex; flex-direction: column; gap: 10px; }
-.gauge .lines { display: flex; align-items: flex-end; gap: 4px; height: 40px; }
-/* White lines, like the week's; the count beside them carries the colour. */
-.gauge .lines i { width: 3px; height: 100%; background: var(--strong); opacity: 0.82; border-radius: 1px; }
-.gauge.k-next .lines i, .gauge.k-landed .lines i { opacity: 0.4; }
-.gauge .lines i.more { height: 40%; opacity: 0.45; }
-.gauge span, .week span { font: 500 13px/1.2 var(--mono); color: var(--muted); white-space: nowrap; }
-.gauge span b, .week span b { font-weight: 600; color: var(--k); }
-.week { --k: var(--strong); display: flex; flex-direction: column; gap: 10px; }
-.week .cols { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
-.week .cols i { width: 6px; min-height: 2px; background: var(--strong); opacity: 0.85; border-radius: 1px; }
-.week .cols i.none { opacity: 0.25; }
-.flick { animation: flick 900ms steps(6, jump-none) both; animation-delay: var(--d, 0ms); }
-@keyframes flick { 0% { opacity: 0; } 30% { opacity: 1; } 45% { opacity: 0.2; } 60%, 100% { opacity: 1; } }
-
+.strip:empty { display: none; }
+.strip p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip p.user { color: var(--fg); }
+.strip p.user::before { content: "› "; color: var(--accent); }
+.strip:hover p { color: var(--fg); }
+.strip .doing { margin-top: 2px; }
+:root[data-screen="show"] .composer { z-index: 7; }
 .k-call { --k: var(--k-call); } .k-live { --k: var(--k-live); } .k-ready { --k: var(--k-ready); }
 .k-landed { --k: var(--k-landed); } .k-waiting { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
 .k-news, .k-clear { --k: var(--k-news); }
-
-.foot { display: flex; flex-direction: column; gap: 10px; margin-top: 34px; }
-.also { margin: 0; max-width: 46em; font: 400 17px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
-.also:empty { display: none; }
-.also a { color: var(--link); text-decoration: none; }
-.also a:hover { color: var(--strong); }
 .doing { margin: 0; display: flex; align-items: center; gap: 10px; font: 500 13px/1.4 var(--mono); color: var(--muted); }
 .doing::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 .doing.on { color: var(--k-live); }
 .doing.on::before { background: var(--k-live); opacity: 1; animation: blink 1.6s steps(2, jump-none) infinite; }
 @keyframes blink { 50% { opacity: 0.2; } }
+.box.fresh { animation: box-in 420ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes box-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* A message opened from the artefact says where it is. */
 .msg.spot { animation: spot 1.8s ease-out; }
 @keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
 
-@media (max-width: 900px) {
-  .pick.has-shot { grid-template-columns: minmax(0, 1fr); }
-  .pick { min-height: 0; }
-  .pick-shot { order: -1; }
-  .pick-shot .main { max-height: 40vh; }
+@media (max-width: 1100px) {
+  .box.main, .box.side { grid-column: 1 / -1; }
+  .box.side > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .box.side > .inner > .box.small { grid-column: span 1; }
 }
 @media (max-width: 720px) {
-  .scene { padding: 72px 20px 32px; justify-content: flex-start; }
-  .stage { margin: 28px 0 36px; }
-  .situation { font-size: 16px; }
-  .pick-head { font-size: 32px; }
-  .pick-head.long { font-size: 26px; }
-  .pick-line { margin-top: 18px; font-size: 18px; }
-  .pick-meta { margin-top: 16px; font-size: 13px; }
-  /* A phone reads the instrument as a tidy two-column grid; the week spans it. */
-  .instrument { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
-  .fleet { display: contents; }
-  .week { grid-column: 1 / -1; }
-  .gauge .lines, .week .cols { height: 28px; gap: 3px; }
-  .gauge .lines i { width: 2px; }
-  /* The count says how many; the lines are the picture of it. */
-  .gauge .lines i:nth-child(n+11):not(.more) { display: none; }
+  .dash { padding: 68px 20px 28px; gap: 30px; }
+  .box.small { grid-column: 1 / -1; }
+  .box > .inner, .box.main > .inner, .box.side > .inner, .box.call.has-shots > .inner, .box.story.has-shots > .inner { grid-template-columns: minmax(0, 1fr); }
+  .box > .inner > .box.small, .box.side > .inner > .box.small { grid-column: 1 / -1; }
+  .box.call > .title { font-size: 30px; }
+  .box.note > .title { font-size: 28px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .pick.in .pick-text, .pick.in .pick-shot, .pick.out .pick-text, .pick.out .pick-shot,
-  .flick, .doing.on::before, .msg.spot { animation: none; }
-  .ticks button.on::after { transition: none; }
+  .show.power, .show.off, .box.fresh, .doing.on::before, .msg.spot { animation: none; }
 }
 `;
 
@@ -795,7 +776,7 @@ const SCRIPT = `
     if (lastActivity) whenEl.textContent = dayOf(lastActivity) + "  " + clock(lastActivity);
     if (stick) { toBottom(); jump.hidden = true; } else if (added) { jump.hidden = false; }
     first = false;
-    if (update.show) renderShow(update.show);
+    if (update.show) renderShow(update.show, update.boxes);
   }
 
   // Under the message box: how full the context is, and the plan's limits.
@@ -1305,50 +1286,20 @@ const SCRIPT = `
   });
 
 
-  // Show mode: Flyd's own screen. Its picks take turns in the middle, one at a
-  // time like title cards; the fleet sits under them as an instrument. The
-  // "artefact" toggle flips between it and the terminal, and the choice is
-  // remembered. The terminal keeps streaming underneath.
+  // The overview: Flyd's boxes, calls first, the terminal as a strip under
+  // them. A box can hold boxes; Core already cut the tree to the depth the
+  // screen shows. The "artefact" toggle (or Tab) flips between it and the full
+  // terminal, and the choice is remembered. The terminal keeps streaming.
   var showEl = document.getElementById("show");
-  var showTitle = document.getElementById("show-title");
-  var situationEl = document.getElementById("situation");
-  var pickEl = document.getElementById("pick");
-  var pickHead = document.getElementById("pick-head");
-  var pickLine = document.getElementById("pick-line");
-  var pickMeta = document.getElementById("pick-meta");
-  var ticksEl = document.getElementById("ticks");
-  var instrumentEl = document.getElementById("instrument");
-  var fleetEl = document.getElementById("fleet");
-  var weekEl = document.getElementById("week");
-  var weekCols = document.getElementById("week-cols");
-  var weekLabel = document.getElementById("week-label");
-  var alsoEl = document.getElementById("also");
-  var showDoing = document.getElementById("show-doing");
+  var dashEl = document.getElementById("dash");
+  var stripEl = document.getElementById("strip");
   var air = document.getElementById("air");
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  // What each kind is called on screen, and how many of each take a turn.
-  var KINDS = {
-    call: { word: "needs you", gauge: "need you", turns: 4 },
-    live: { word: "under way", gauge: "under way", turns: 2 },
-    ready: { word: "waiting to land", gauge: "to land", turns: 2 },
-    landed: { word: "landed", gauge: "landed", turns: 2 },
-    waiting: { word: "held up", gauge: "held up", turns: 1 },
-    next: { word: "up next", gauge: "queued", turns: 0 },
-    news: { word: "also", turns: 0 },
-    clear: { word: "all clear", turns: 0 },
-  };
-  var ORDER = ["call", "live", "ready", "landed", "waiting"];
-  var GAUGE_ORDER = ["call", "live", "ready", "waiting", "next", "landed"];
-  var GAUGE_LINES = 24;
-  var DWELL = 9000;
-  var shown = null;
-  var picks = [];
-  var at = 0;
-  var cycle = null;
-  var holding = false;
-  var lastGauge = "";
-  var filled = "";
+  var STRIP_LINES = 3;
+  var drawn = "";
+  var seenBoxes = new Set();
+  var lastScreen = null;
   // Where the terminal was: back at the bottom unless he had scrolled up.
   var terminalAt = { y: 0, bottom: true };
 
@@ -1371,240 +1322,143 @@ const SCRIPT = `
   function withToken(src) { return src + (src.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(VIEW_TOKEN); }
   function sentence(text) { text = String(text || "").trim(); return text && !/[.!?…:]$/.test(text) ? text + "." : text; }
 
-  // Flyd's picks: what takes a turn in the middle, most important first. With
-  // nothing to pick, the news or a memory holds the screen instead.
-  function picksOf(screen) {
-    var chosen = [];
-    ORDER.forEach(function (kind) {
-      var ofKind = screen.items.filter(function (item) { return item.kind === kind; });
-      // Work with screenshots always gets a turn (up to three of a kind); the rest fill the kind's turns.
-      var shot = ofKind.filter(function (item) { return item.shots && item.shots.length; }).slice(0, 3);
-      var plain = ofKind.filter(function (item) { return !(item.shots && item.shots.length); });
-      chosen = chosen.concat(shot, plain.slice(0, Math.max(0, KINDS[kind].turns - shot.length)));
+  function drawBars(box) {
+    var wrap = el("div", "bars");
+    var most = Math.max.apply(null, box.bars.map(function (bar) { return bar.value; }).concat([1]));
+    box.bars.forEach(function (bar) {
+      var col = el("div", "bar k-" + (bar.tone || "news") + (bar.value ? "" : " none"));
+      col.title = bar.label + ": " + bar.value;
+      col.appendChild(el("b", "", String(bar.value)));
+      var fill = el("i");
+      fill.style.height = (bar.value ? Math.max(8, Math.round((bar.value / most) * 100)) : 4) + "%";
+      col.appendChild(fill);
+      col.appendChild(el("span", "", bar.label));
+      wrap.appendChild(col);
     });
-    if (chosen.length === 0) chosen = screen.items.filter(function (item) { return item.kind === "news" || item.kind === "clear"; }).slice(0, 1);
-    return chosen;
+    return wrap;
   }
-  function lineOf(item) {
-    if (item.detail) return sentence(item.detail);
-    if (item.kind === "call") return "This one waits on you.";
-    return item.why ? sentence(item.why.charAt(0).toUpperCase() + item.why.slice(1)) : "";
+  function drawGauges(box) {
+    var wrap = el("div", "gauges");
+    box.gauges.forEach(function (gauge) {
+      var row = el("div", "gauge2" + (gauge.used >= 75 ? " low" : ""));
+      row.appendChild(el("span", "", gauge.label));
+      var track = el("span", "track");
+      var fill = el("i");
+      fill.style.width = gauge.used + "%";
+      track.appendChild(fill);
+      row.appendChild(track);
+      row.appendChild(el("b", "", gauge.used + "%"));
+      if (gauge.resetsAt) row.title = "resets " + new Date(gauge.resetsAt).toLocaleString();
+      wrap.appendChild(row);
+    });
+    return wrap;
   }
-  function fillPick(item) {
-    filled = JSON.stringify(item);
-    var kind = KINDS[item.kind] || KINDS.news;
-    pickEl.className = "pick k-" + item.kind + (item.shots && item.shots.length ? " has-shot" : "");
-    pickHead.textContent = item.headline;
-    pickHead.classList.toggle("long", item.headline.length > 90);
-    if (item.ref) {
-      pickHead.setAttribute("role", "button");
-      pickHead.tabIndex = 0;
-      pickHead.dataset.ref = item.ref;
-      pickHead.title = "Open in the terminal";
-    } else {
-      pickHead.removeAttribute("role");
-      pickHead.removeAttribute("tabindex");
-      pickHead.removeAttribute("title");
-      pickHead.dataset.ref = "";
+  function drawHours(box) {
+    var wrap = el("div", "hours");
+    var temps = box.hours.map(function (hour) { return hour.tempC; });
+    var low = Math.min.apply(null, temps), high = Math.max.apply(null, temps);
+    box.hours.forEach(function (hour, index) {
+      var col = el("div", "h" + (hour.rainChance >= 50 ? " wet" : ""));
+      col.title = hour.label + ":00 " + Math.round(hour.tempC) + "°, " + hour.rainChance + "% rain";
+      var fill = el("i");
+      fill.style.height = Math.round(30 + (high > low ? ((hour.tempC - low) / (high - low)) * 70 : 50)) + "%";
+      col.appendChild(fill);
+      col.appendChild(el("span", "", index % 3 === 0 ? hour.label : ""));
+      wrap.appendChild(col);
+    });
+    return wrap;
+  }
+  function drawBox(box) {
+    var node = el("section", "box " + box.kind + " " + box.size + " k-" + (box.tone || "news") + (box.children && box.children.some(function (child) { return child.kind === "shot"; }) ? " has-shots" : ""));
+    node.dataset.id = box.id;
+    if (!seenBoxes.has(box.id) && !reduced && drawn) node.classList.add("fresh");
+    seenBoxes.add(box.id);
+    if (box.kind === "shot") {
+      var img = el("img");
+      img.alt = box.title;
+      img.src = withToken(box.shot.src);
+      img.addEventListener("click", function () { openImage(img.src); });
+      node.appendChild(img);
+      return node;
     }
-    pickLine.textContent = lineOf(item);
-    pickMeta.textContent = "";
-    pickMeta.appendChild(el("span", "kind", kind.word));
-    if (item.project) pickMeta.appendChild(el("span", "project", item.project));
-    if (item.status && item.status !== kind.word) pickMeta.appendChild(el("span", "status", item.status));
-    (item.links || []).forEach(function (link) {
+    if (box.kind === "group") node.title = box.why;
+    else if (box.why) node.appendChild(el("p", "why", box.why));
+    var title = el(box.kind === "call" || box.kind === "note" ? "h1" : "h2", "title", box.title);
+    node.appendChild(title);
+    if (box.ref) {
+      node.dataset.ref = box.ref;
+      title.setAttribute("role", "button");
+      title.tabIndex = 0;
+      title.title = "Open in the terminal";
+      title.addEventListener("click", function () { openInTerminal(box.ref); });
+      title.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openInTerminal(box.ref); } });
+    }
+    if (box.line) node.appendChild(el("p", "line", sentence(box.line)));
+    if (box.bars) node.appendChild(drawBars(box));
+    if (box.gauges) node.appendChild(drawGauges(box));
+    if (box.hours) node.appendChild(drawHours(box));
+    var meta = el("div", "meta");
+    if (box.project) meta.appendChild(el("span", "project", box.project));
+    if (box.status) meta.appendChild(el("span", "status", box.status));
+    (box.links || []).forEach(function (link) {
       var a = el("a", "", link.label);
       a.href = link.url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      pickMeta.appendChild(a);
+      meta.appendChild(a);
     });
-    if (item.at) {
-      var when = el("span", "ago", ago(item.at));
-      when.dataset.at = item.at;
-      pickMeta.appendChild(when);
+    if (box.at && box.kind !== "weather") {
+      var when = el("span", "ago", ago(box.at));
+      when.dataset.at = box.at;
+      meta.appendChild(when);
     }
-    var old = pickEl.querySelector(".pick-shot");
-    if (old) old.remove();
-    if (item.shots && item.shots.length) {
-      var figure = el("figure", "pick-shot");
-      var main = el("img", "main");
-      main.alt = "Screenshot: " + item.headline;
-      main.src = withToken(item.shots[0].src);
-      figure.appendChild(main);
-      if (item.shots.length > 1) {
-        var thumbs = el("div", "thumbs");
-        item.shots.forEach(function (shot, index) {
-          var thumb = el("img", index === 0 ? "on" : "");
-          thumb.alt = shot.label;
-          thumb.src = withToken(shot.src);
-          // Hover shows that shot; a tap does the same on a phone.
-          function choose() {
-            main.src = thumb.src;
-            thumbs.querySelectorAll("img").forEach(function (other) { other.classList.toggle("on", other === thumb); });
-          }
-          thumb.addEventListener("mouseenter", choose);
-          thumb.addEventListener("click", choose);
-          thumbs.appendChild(thumb);
-        });
-        figure.appendChild(thumbs);
-      }
-      pickEl.appendChild(figure);
+    if (meta.childNodes.length) node.appendChild(meta);
+    if (box.children && box.children.length) {
+      var inner = el("div", "inner");
+      box.children.forEach(function (child) { inner.appendChild(drawBox(child)); });
+      node.appendChild(inner);
+    }
+    return node;
+  }
+  function renderBoxes(boxes) {
+    var key = JSON.stringify(boxes);
+    if (key === drawn) return;
+    var scroll = showEl.scrollTop;
+    dashEl.textContent = "";
+    boxes.forEach(function (box) { dashEl.appendChild(drawBox(box)); });
+    drawn = key;
+    showEl.scrollTop = scroll;
+  }
+  // The terminal's last few lines, as they are in the stream.
+  function renderStrip() {
+    stripEl.textContent = "";
+    var lines = Array.prototype.filter.call(main.querySelectorAll(".msg"), function (node) {
+      return !node.classList.contains("routine");
+    }).slice(-STRIP_LINES);
+    lines.forEach(function (node) {
+      var body = node.querySelector(".body");
+      var text = (body ? body.textContent : node.textContent || "").replace(/\\s+/g, " ").trim();
+      if (!text) return;
+      var line = el("p", node.classList.contains("user") ? "user" : "", text);
+      stripEl.appendChild(line);
+    });
+    if (lastScreen) {
+      var doing = el("p", "doing" + (lastScreen.live ? " on" : ""), lastScreen.live ? (lastScreen.doing || "Working on it") : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : ""));
+      stripEl.appendChild(doing);
     }
   }
-  function markTicks() {
-    Array.prototype.forEach.call(ticksEl.children, function (tick, index) {
-      tick.classList.remove("on");
-      tick.classList.toggle("held", holding);
-      if (index === at) {
-        void tick.offsetWidth;
-        tick.classList.add("on");
-      }
-      tick.setAttribute("aria-current", index === at ? "true" : "false");
-    });
-  }
-  function show(index, animate) {
-    if (!picks.length) return;
-    at = (index + picks.length) % picks.length;
-    var item = picks[at];
-    if (!animate || reduced || !onShow()) {
-      fillPick(item);
-      markTicks();
-      return;
-    }
-    pickEl.classList.remove("in");
-    pickEl.classList.add("out");
-    setTimeout(function () {
-      fillPick(item);
-      pickEl.classList.add("in");
-      markTicks();
-    }, 200);
-  }
-  function schedule() {
-    clearInterval(cycle);
-    cycle = null;
-    if (picks.length > 1 && !holding) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
-  }
-  function hold(on) {
-    holding = on;
-    markTicks();
-    schedule();
-  }
-  pickEl.addEventListener("mouseenter", function () { hold(true); });
-  pickEl.addEventListener("mouseleave", function () { hold(false); });
-  ticksEl.addEventListener("mouseleave", function () { hold(false); });
-  function openPick() { if (pickHead.dataset.ref) openInTerminal(pickHead.dataset.ref); }
-  pickHead.addEventListener("click", openPick);
-  pickHead.addEventListener("keydown", function (event) {
-    if (pickHead.dataset.ref && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openPick(); }
-  });
-
-  function renderTicks() {
-    ticksEl.textContent = "";
-    ticksEl.hidden = picks.length < 2;
-    picks.forEach(function (item, index) {
-      var tick = el("button", "k-" + item.kind);
-      tick.type = "button";
-      tick.setAttribute("aria-label", (KINDS[item.kind] || KINDS.news).word + ": " + item.headline);
-      tick.style.setProperty("--dwell", DWELL + "ms");
-      // Hover, not click: resting on a line brings its pick up.
-      function choose() { holding = true; if (index !== at) show(index, true); else markTicks(); schedule(); }
-      tick.addEventListener("mouseenter", choose);
-      tick.addEventListener("focus", choose);
-      tick.addEventListener("click", choose);
-      ticksEl.appendChild(tick);
-    });
-    markTicks();
-  }
-  function renderGauge(screen) {
-    var counts = screen.counts || {};
-    var key = JSON.stringify([counts, screen.landedByDay || null]);
-    if (key === lastGauge) return;
-    var first = lastGauge === "";
-    lastGauge = key;
-    fleetEl.textContent = "";
-    var any = false;
-    GAUGE_ORDER.forEach(function (kind) {
-      var count = counts[kind] || 0;
-      if (!count) return;
-      any = true;
-      var gauge = el("div", "gauge k-" + kind);
-      var lines = el("div", "lines");
-      for (var i = 0; i < Math.min(count, GAUGE_LINES); i += 1) {
-        var line = el("i");
-        if (!reduced && !first) { line.className = "flick"; line.style.setProperty("--d", Math.round(Math.random() * 420) + "ms"); }
-        lines.appendChild(line);
-      }
-      if (count > GAUGE_LINES) lines.appendChild(el("i", "more"));
-      gauge.appendChild(lines);
-      var label = el("span");
-      label.appendChild(el("b", "", String(count)));
-      label.appendChild(document.createTextNode(" " + KINDS[kind].gauge));
-      gauge.appendChild(label);
-      fleetEl.appendChild(gauge);
-    });
-    var days = screen.landedByDay || [];
-    var total = days.reduce(function (sum, day) { return sum + day.count; }, 0);
-    weekEl.hidden = days.length === 0;
-    weekCols.textContent = "";
-    var most = Math.max.apply(null, days.map(function (day) { return day.count; }).concat([1]));
-    days.forEach(function (day) {
-      var col = el("i", day.count ? "" : "none");
-      col.style.height = (day.count ? Math.max(18, Math.round((day.count / most) * 100)) : 6) + "%";
-      col.title = day.day + ": " + day.count + " landed";
-      weekCols.appendChild(col);
-    });
-    weekLabel.textContent = "";
-    weekLabel.appendChild(el("b", "", String(total)));
-    weekLabel.appendChild(document.createTextNode(" landed in 7 days"));
-    instrumentEl.hidden = !any && days.length === 0;
-  }
-  function renderAlso(screen) {
-    alsoEl.textContent = "";
-    var also = screen.items.filter(function (item) { return item.kind === "news" && picks.indexOf(item) < 0; })[0];
-    if (!also) return;
-    var lead = /^news:memory-/.test(also.id) ? "From your memory" : /^news:news-/.test(also.id) ? "In the news" : also.why ? also.why.charAt(0).toUpperCase() + also.why.slice(1) : "Also";
-    alsoEl.appendChild(document.createTextNode(lead + ": " + sentence(also.headline) + " "));
-    (also.links || []).slice(0, 1).forEach(function (link) {
-      var a = el("a", "", link.label);
-      a.href = link.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      alsoEl.appendChild(a);
-    });
-  }
-  function renderDoing(screen) {
-    showDoing.classList.toggle("on", !!screen.live);
-    if (screen.live) showDoing.textContent = screen.doing || "Working on it";
-    else showDoing.textContent = "Standby" + (screen.read ? ". Fleet read " + ago(screen.read) : "");
-  }
-  function renderShow(next) {
-    shown = next;
-    showTitle.textContent = next.title;
-    var day = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-    situationEl.textContent = day + ". " + (next.summary || "");
+  stripEl.addEventListener("click", function () { setScreen("terminal"); });
+  function renderShow(next, boxes) {
+    lastScreen = next;
     air.classList.toggle("on", !!next.live);
     air.textContent = next.live ? "on air" : "standby";
-    var current = picks[at] ? picks[at].id : null;
-    var fresh = picksOf(next);
-    var sameSet = fresh.length === picks.length && fresh.every(function (item, index) { return item.id === picks[index].id; });
-    picks = fresh;
-    if (!sameSet) {
-      var keep = picks.findIndex(function (item) { return item.id === current; });
-      at = keep >= 0 ? keep : 0;
-      renderTicks();
-      schedule();
-    }
-    if (picks.length && JSON.stringify(picks[at]) !== filled) fillPick(picks[at]);
-    renderGauge(next);
-    renderAlso(next);
-    renderDoing(next);
+    renderBoxes(boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }]);
+    renderStrip();
   }
-  function tickShow() {
-    pickMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
-    if (shown) renderDoing(shown);
-  }
-  setInterval(tickShow, 30000);
+  setInterval(function () {
+    dashEl.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
+    if (lastScreen) renderStrip();
+  }, 30000);
 
   function applyScreen(next, animate) {
     var root = document.documentElement;
@@ -1617,16 +1471,9 @@ const SCRIPT = `
         showEl.classList.remove("power");
         void showEl.offsetWidth;
         showEl.classList.add("power");
-        if (picks.length) { pickEl.classList.remove("out"); pickEl.classList.add("in"); }
-        // The instrument flickers on with the screen, each line at its own moment.
-        fleetEl.querySelectorAll(".lines i").forEach(function (line) {
-          line.classList.remove("flick");
-          line.style.setProperty("--d", Math.round(120 + Math.random() * 520) + "ms");
-          void line.offsetWidth;
-          line.classList.add("flick");
-        });
       }
       showEl.scrollTop = 0;
+      renderStrip();
       flip.setAttribute("aria-pressed", "true");
     } else {
       root.setAttribute("data-screen", "terminal");
@@ -1715,28 +1562,9 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
-<section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
-  <div class="scene">
-    <p class="situation"><b id="show-title">Tuning in.</b> <span id="situation">Reading the fleet…</span></p>
-    <div class="stage">
-      <div class="pick" id="pick" aria-live="polite">
-        <div class="pick-text">
-          <h1 class="pick-head" id="pick-head"></h1>
-          <p class="pick-line" id="pick-line"></p>
-          <div class="pick-meta" id="pick-meta"></div>
-        </div>
-      </div>
-      <div class="ticks" id="ticks" aria-label="Flyd's picks"></div>
-    </div>
-    <div class="instrument" id="instrument" hidden>
-      <div class="fleet" id="fleet" aria-label="The fleet, one line per piece of work"></div>
-      <div class="week" id="week" hidden><div class="cols" id="week-cols"></div><span id="week-label"></span></div>
-    </div>
-    <div class="foot">
-      <p class="also" id="also"></p>
-      <p class="doing" id="show-doing">standby</p>
-    </div>
-  </div>
+<section class="show" id="show" hidden aria-label="Flyd's overview: what it thinks you need to see">
+  <div class="dash" id="dash" aria-live="polite"></div>
+  <div class="strip" id="strip" role="button" aria-label="The terminal: open it"></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
