@@ -49,7 +49,7 @@ export async function runTaste(action = "show", args: string[] = []): Promise<vo
     process.stdout.write("Curating what Flyd knows about George's taste…\n");
     const receipt = await curateTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) });
     const ignored = receipt.rejected.length ? ` ${receipt.rejected.length} ignored.` : "";
-    process.stdout.write(`Curated: ${receipt.folded} folded, ${receipt.promoted} promoted to Everywhere, ${receipt.demoted} moved to one project, ${receipt.retired} retired.${ignored} ${path}\n`);
+    process.stdout.write(`Curated: ${receipt.folded} folded, ${receipt.promoted} promoted to Everywhere, ${receipt.demoted} moved to one project, ${receipt.classified} placed in a skill, ${receipt.retired} retired.${ignored} ${path}\n`);
     process.stdout.write(skillsLine(syncTasteSkills()));
     return;
   }

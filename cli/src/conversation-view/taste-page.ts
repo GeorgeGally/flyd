@@ -143,7 +143,7 @@ function restHtml(profile: TasteProfile, shown: Set<string>): string {
   const list = (rules: readonly TasteRule[], status?: Status) => rules.map((rule) => ruleHtml(rule, profile.names, { status, seen: true })).join("\n");
   return `<details class="rest">
   <summary>everything else · ${total}</summary>
-  <p class="why">Rules I've seen only once, ones past the strongest few on each list, rules about how work gets done rather than how it looks, ones I set aside as too generic, and ones you said aren't you. Agents aren't told these. Say something twice and it moves up.</p>
+  <p class="why">Rules I've seen only once, ones past the strongest few on each list, rules about how work gets done rather than how it looks or not yet placed in a skill, ones I set aside as too generic, and ones you said aren't you. Agents aren't told these. Say something twice and it moves up.</p>
   ${groups.filter(([, rules]) => rules.length).map(([title, rules]) => `<h3>${escapeHtml(title)}</h3>\n${list(rules)}`).join("\n")}
   ${retired.length ? `<h3>Set aside as too generic</h3>\n${list(retired, "retired")}` : ""}
   ${profile.vetoed.length ? `<h3>Not you</h3>\n${list(profile.vetoed, "vetoed")}` : ""}

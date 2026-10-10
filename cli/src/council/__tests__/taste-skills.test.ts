@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderTastePage } from "../../conversation-view/taste-page.js";
 import type { Project } from "../projects.js";
 import { TASTE_PRINCIPLES } from "../taste-principles.js";
-import { installTasteSkills, isDurable, planTasteSkills, renderTasteSkill, syncTasteSkills, tasteSkillKind } from "../taste-skills.js";
-import { applyTasteOps, readTaste, ruleId, vetoRule, writeTaste, type TasteProfile, type TasteRule } from "../taste.js";
+import { installTasteSkills, planTasteSkills, renderTasteSkill, syncTasteSkills } from "../taste-skills.js";
+import { applyTasteOps, isDurable, readTaste, ruleId, tastePromptText, tasteSkillKind, vetoRule, writeTaste, type TasteProfile, type TasteRule } from "../taste.js";
 
 const project = (id: string, name: string, repos: string[] = []): Project =>
   ({ id, name, repos, what: "", kind: "client", status: "active", now: "" }) as unknown as Project;
@@ -38,7 +38,7 @@ const rule = (text: string, count: number, scope = "personal", extra: Partial<Ta
 function learned(): TasteProfile {
   return {
     rules: [
-      rule("Headlines should be much bigger — large, bold headline type.", 4),
+      rule("Headlines should be much bigger — large, bold headline type.", 4, "personal", { skill: "interface" }),
       rule("Buttons need clear padding above them.", 2),
       rule("The cube should also rotate slowly.", 1),
       rule("Default to working locally rather than on branches.", 3),
@@ -97,9 +97,58 @@ describe("taste skills: generation", () => {
     expect(isDurable(rule("Seen once.", 1))).toBe(false);
     expect(isDurable(rule("Written by George.", 0))).toBe(true);
     expect(isDurable(rule("A principle.", 1, "personal", { principle: true }))).toBe(true);
-    expect(tasteSkillKind(rule("Equal side padding on both edges.", 3))).toBe("spacing");
-    expect(tasteSkillKind(rule("No shadows on icon boxes.", 3))).toBe("interface");
-    expect(tasteSkillKind(rule("Default to working locally.", 3))).toBeNull();
+  });
+
+  it("files a rule where the Librarian placed it, and an unplaced one only by plain layout words", () => {
+    const profile = learned();
+    const shadows = rule("No shadows on icon boxes.", 3);
+    const commits = rule("Keep commit text short.", 3);
+    const padding = rule("Equal side padding on both edges.", 3);
+    const tight = rule("Keep the scope tight.", 3);
+    const align = rule("Align with the existing patterns.", 3);
+    const data = rule("Don't hard-code the data.", 3);
+    profile.rules.push(shadows, commits, padding, tight, align, data);
+    // Unplaced: only padding/margin/gap/gutter/space-between words reach a skill.
+    expect(tasteSkillKind(padding)).toBe("spacing");
+    for (const item of [shadows, commits, tight, align, data]) expect(tasteSkillKind(item)).toBeNull();
+    const receipt = applyTasteOps(profile, [
+      { op: "skill", id: shadows.id, skill: "interface" },
+      { op: "skill", id: padding.id, skill: "none" },
+      { op: "skill", id: commits.id, skill: "none" },
+    ]);
+    expect(receipt).toMatchObject({ classified: 3, rejected: [] });
+    writeTaste(profile);
+    const back = readTaste();
+    expect(back.rules.find((item) => item.id === padding.id)?.skill).toBe("none");
+    const skills = planTasteSkills(back, PROJECTS);
+    const ids = (name: string) => skills.find((skill) => skill.name === name)?.rules.map((item) => item.id) ?? [];
+    expect(ids("flyd-taste-interface")).toContain(shadows.id);
+    expect([...ids("flyd-taste-interface"), ...ids("flyd-taste-spacing")]).not.toContain(padding.id);
+    expect([...ids("flyd-taste-interface"), ...ids("flyd-taste-spacing")]).not.toContain(commits.id);
+    expect([...ids("flyd-taste-interface"), ...ids("flyd-taste-spacing")]).not.toContain(tight.id);
+  });
+
+  it("never re-places a principle", () => {
+    const profile = learned();
+    const principle = rule("A screen, not a page.", 3, "personal", { principle: true, skill: "interface" });
+    profile.rules.push(principle);
+    const receipt = applyTasteOps(profile, [{ op: "skill", id: principle.id, skill: "none" }]);
+    expect(receipt.classified).toBe(0);
+    expect(receipt.rejected.join(" ")).toContain("principle");
+    expect(principle.skill).toBe("interface");
+  });
+
+  it("tells agents in prompts only what the skills carry: no rule seen once, no unplaced or non-visual rule", () => {
+    const profile = learned();
+    const text = tastePromptText({ profile, projects: ["capfive-client-work", "flyd"] })!;
+    expect(text).toContain("Headlines should be much bigger");
+    expect(text).toContain("Buttons need clear padding above them.");
+    expect(text).toContain("Mobile header ledes use line-height 1.24.");
+    expect(text).not.toContain("The cube should also rotate slowly.");
+    expect(text).not.toContain("Default to working locally");
+    expect(text).not.toContain("Our Network eyebrow");
+    // One durable Flyd rule has no skill of its own, so prompts leave it out too.
+    expect(text).not.toContain("Voice with no text box");
   });
 
   it("quotes only his words: no paraphrase is attributed to him", () => {
@@ -192,10 +241,12 @@ describe("the Librarian decides what is his and what is one project's", () => {
       { op: "demote", id: seenTwice.id, project: "capfive-client-work" },
       { op: "demote", id: principle.id, project: "flyd" },
       { op: "demote", id: ruleId("Buttons need clear padding above them."), project: "nowhere" },
+      { op: "demote", id: ruleId("Buttons need clear padding above them."), project: "toString" },
       { op: "retire", id: principle.id },
     ]);
     expect(receipt).toMatchObject({ demoted: 1, retired: 0 });
-    expect(receipt.rejected).toHaveLength(4);
+    expect(receipt.rejected).toHaveLength(5);
+    expect(receipt.rejected.join(" ")).toContain("unknown project toString");
     expect(capfiveWords).toMatchObject({ scope: "capfive-client-work", projects: ["capfive-client-work"] });
     expect(seenTwice.scope).toBe("personal");
     expect(principle.scope).toBe("personal");
@@ -203,6 +254,17 @@ describe("the Librarian decides what is his and what is one project's", () => {
     const skills = planTasteSkills(profile, PROJECTS);
     expect(skills.find((skill) => skill.name === "flyd-taste-capfive-client-work")?.rules.map((item) => item.id)).toContain(capfiveWords.id);
     expect(skills.find((skill) => skill.name === "flyd-taste-interface")?.rules.map((item) => item.id) ?? []).not.toContain(capfiveWords.id);
+  });
+
+  it("keeps a project principle in its project until a second project shows it", () => {
+    const profile = learned();
+    const gnm = rule("Every section is one full screen.", 2, "gnm-good-neighbours-market", { principle: true });
+    profile.rules.push(gnm);
+    expect(applyTasteOps(profile, [{ op: "promote", id: gnm.id }]).rejected.join(" ")).toContain("second project");
+    expect(gnm.scope).toBe("gnm-good-neighbours-market");
+    gnm.projects.push("capfive-client-work");
+    expect(applyTasteOps(profile, [{ op: "promote", id: gnm.id }])).toMatchObject({ promoted: 1 });
+    expect(gnm.scope).toBe("personal");
   });
 
   it("round-trips a principle and its skill through TASTE.md", () => {
