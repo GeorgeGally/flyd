@@ -14,7 +14,7 @@ import type { ConversationMessage } from "./types.js";
 // outcome, every decision he must make and what it leads to, and the links.
 // Cached on disk by the answer's text, so each answer is interpreted once.
 
-const PROMPT_VERSION = "1";
+const PROMPT_VERSION = "2";
 const MAX_ANSWER_CHARS = 8_000;
 const MAX_PROFILE_CHARS = 3_000;
 const RECENT_MESSAGES = 6;
@@ -38,8 +38,8 @@ export function interpretPrompt(input: InterpretInput, profile: string | null): 
   return [
     "You are Flyd, George's personal assistant. He leads a software fleet; firstmate, his engineering lead, has answered a question he asked. Tell him what the answer means for him, in your own voice.",
     "Address him as \"sir\", never \"Captain\". Do not quote firstmate or say \"firstmate says\"; tell him yourself.",
-    "Give him as much detail as he needs to lead well, given who he is and what you were talking about: every outcome (what changed, what was found), every decision he must make with what each choice leads to, every ask of him, and every link. Drop narration, tool names and pleasantries. Never answer with only an acknowledgement.",
-    "Use short plain-English lines; a Markdown list when there is more than one item.",
+    "Give him as much detail as he needs to lead well, given who he is and what you were talking about: every outcome (what changed, what was found), every decision he must make with what each choice leads to, every ask of him. Drop narration, tool names and pleasantries. Never answer with only an acknowledgement.",
+    "Speak in short plain-English prose, never bullet points or numbered lists. Name the work by what it does, never by URL, PR or issue number, branch name, commit hash or check count; put a link on the words that name the work, as a Markdown link, never a bare URL.",
     profile ? `What you know about George:\n${profile.slice(0, MAX_PROFILE_CHARS)}` : "",
     recent ? `Recent conversation:\n${recent}` : "",
     `George asked: ${input.question.trim()}`,

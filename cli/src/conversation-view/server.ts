@@ -15,6 +15,7 @@ import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, is
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { renderBriefing, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 
@@ -114,7 +115,7 @@ export class SnapshotDiffer {
   private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
-    if (cached) return { body: message.text, summary: { html: renderMarkdown(inFlydsVoice(cached)), source: "flyd" } };
+    if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached)) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
     if (interpreter && newest && interpreter.wants(message.text)) {
       const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
       const before = at >= 0 ? at : snapshot.messages.indexOf(message);
@@ -124,7 +125,7 @@ export class SnapshotDiffer {
         .then(() => summaries.onSummary?.());
     }
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: { html: renderMarkdown(digestMarkdown(digestReply(message.text))), source: "digest", ...(pending ? { pending: true } : {}) } };
+    return { body: message.text, summary: { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", ...(pending ? { pending: true } : {}) } };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -141,12 +142,12 @@ export class SnapshotDiffer {
     if (author) {
       const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
-        summary: { html: renderMarkdown(author.summary), source: "author" },
+        summary: { html: statusSummaryHtml(author.rest, author.summary) ?? renderBriefing(author.summary), source: "author" },
         ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
         const model = modelFor(message.text);
-        if (model.text || model.pending) parts.compare = { html: model.text ? renderMarkdown(model.text) : "", ...(model.pending ? { pending: true } : {}) };
+        if (model.text || model.pending) parts.compare = { html: model.text ? renderBriefing(model.text) : "", ...(model.pending ? { pending: true } : {}) };
       }
       return parts;
     }
@@ -160,8 +161,8 @@ export class SnapshotDiffer {
     return {
       body: message.text,
       summary: model.text && !isRoutineAnswer(model.text)
-        ? { html: renderMarkdown(model.text), source: "model" }
-        : { html: renderMarkdown(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
+        ? { html: statusSummaryHtml(message.text, model.text) ?? renderBriefing(model.text), source: "model" }
+        : { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
       ...(actionable ? { expanded: true } : {}),
     };
   }
@@ -191,7 +192,8 @@ export class SnapshotDiffer {
       changed.push({
         id: message.id,
         role: message.role,
-        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : renderMarkdown(parts.body),
+        // His first read is Flyd's briefing; firstmate's own words, links and all, wait behind "more".
+        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),

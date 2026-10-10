@@ -315,7 +315,7 @@ describe("ConversationViewServer", () => {
       req.end();
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
-    expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the PR?", asks: true } });
+    expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Pushed to main. Want me to merge the change?", asks: true } });
   });
 
   it("shows what Flyd knows about the captain's taste, and lets only its own page reword or veto a rule", async () => {
