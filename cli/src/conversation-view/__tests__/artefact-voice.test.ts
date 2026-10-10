@@ -33,7 +33,7 @@ describe("voicePrompt", () => {
 });
 
 describe("ArtefactVoice", () => {
-  it("says each row once, keeps it on disk, and never retries a row the model would not say", async () => {
+  it("says each row once, keeps it on disk, and does not straight away retry a row the model would not say", async () => {
     const cacheFile = join(mkdtempSync(join(tmpdir(), "artefact-voice-")), "voice.json");
     const prompts: string[] = [];
     const other: VoiceItem = { kind: "under way", title: "Flyd: drag and drop documents into the window" };
@@ -53,6 +53,31 @@ describe("ArtefactVoice", () => {
     expect(JSON.parse(readFileSync(cacheFile, "utf8"))[voiceKey(JEV)].headline).toBe("Jev's trial is up; does it stay?");
     const again = new ArtefactVoice({ cacheFile, complete: async () => "[]" });
     expect(again.said(JEV)?.headline).toBe("Jev's trial is up; does it stay?");
+  });
+
+  it("asks again for a row the model failed on only after a few minutes", async () => {
+    let clock = 0;
+    let down = true;
+    const calls: string[] = [];
+    const voice = new ArtefactVoice({
+      cacheFile: join(mkdtempSync(join(tmpdir(), "artefact-voice-")), "v.json"),
+      profile: () => null,
+      now: () => clock,
+      complete: async (prompt) => {
+        calls.push(prompt);
+        if (down) throw new Error("rate limited");
+        return JSON.stringify([{ id: voiceKey(JEV), headline: "Jev's trial is up; does it stay?", line: "Keep the rule or drop it." }]);
+      },
+    });
+    expect(await voice.request([JEV])).toBe(false);
+    down = false;
+    clock = 60_000;
+    expect(await voice.request([JEV])).toBe(false);
+    expect(calls).toHaveLength(1);
+    clock = 5 * 60_000;
+    expect(await voice.request([JEV])).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(voice.said(JEV)?.headline).toBe("Jev's trial is up; does it stay?");
   });
 
   it("fails soft when the model errors", async () => {

@@ -21,6 +21,8 @@ const HEADLINE_CHARS = 120;
 const LINE_CHARS = 240;
 /** Said rows kept on disk: the screen only ever needs the current few dozen. */
 const KEEP = 80;
+/** A row the model failed or would not say is asked for again after this long. */
+const RETRY_MS = 5 * 60_000;
 
 export interface VoiceItem {
   /** What the row is: "needs you", "under way", "waiting to land", "landed", "held up". */
@@ -108,12 +110,14 @@ function profileOrNull(): string | null {
 /** Flyd's words for the artefact's rows, asked for in batches, kept on disk. Never throws. */
 export class ArtefactVoice {
   private readonly cache: Record<string, Said & { at: string }>;
-  private readonly failed = new Set<string>();
+  private readonly failed = new Map<string, number>();
   private busy = false;
   private readonly profile: () => string | null;
+  private readonly now: () => number;
 
-  constructor(private readonly options: { complete: Complete; cacheFile: string; profile?: () => string | null; timeoutMs?: number }) {
+  constructor(private readonly options: { complete: Complete; cacheFile: string; profile?: () => string | null; timeoutMs?: number; now?: () => number }) {
     this.profile = options.profile ?? profileOrNull;
+    this.now = options.now ?? Date.now;
     try {
       this.cache = JSON.parse(readFileSync(options.cacheFile, "utf8")) as Record<string, Said & { at: string }>;
     } catch {
@@ -130,6 +134,8 @@ export class ArtefactVoice {
   async request(items: VoiceItem[]): Promise<boolean> {
     if (this.busy) return false;
     const wanted = new Map<string, VoiceItem>();
+    const now = this.now();
+    for (const [key, at] of this.failed) if (now - at >= RETRY_MS) this.failed.delete(key);
     for (const item of items) {
       const key = voiceKey(item);
       if (!this.cache[key] && !this.failed.has(key)) wanted.set(key, item);
@@ -149,12 +155,12 @@ export class ArtefactVoice {
       for (const item of batch) {
         const words = said.get(item.id);
         if (words) this.cache[item.id] = { ...words, at: new Date().toISOString() };
-        else this.failed.add(item.id);
+        else this.failed.set(item.id, now);
       }
       if (said.size) this.save();
       return said.size > 0;
     } catch {
-      for (const item of batch) this.failed.add(item.id);
+      for (const item of batch) this.failed.set(item.id, now);
       return false;
     } finally {
       if (timer) clearTimeout(timer);

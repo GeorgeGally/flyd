@@ -138,6 +138,14 @@ describe("showOf", () => {
     expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
   });
 
+  it("says all clear beside queued work, so the screen always has something to show", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: { fleet: { calls: [], live: [], ready: [], landed: [], held: [], next: [{ label: "Gate the notch island" }] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.items.map((item) => item.kind)).toEqual(["next", "clear"]);
+  });
+
   it("shows a taste note only when there is nothing else at all", () => {
     const screen = showOf(snapshot([]), { now: NOW, artefact: { memories: [], news: [], taste: ["No eyebrow above a headline."] } });
     expect(screen.items).toEqual([{ id: "taste", kind: "news", headline: "No eyebrow above a headline.", why: "what I'm learning about your taste" }]);

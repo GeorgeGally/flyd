@@ -272,7 +272,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
   const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
   const chosen = [...artefact, ...items].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
-  if (chosen.length === 0) {
+  if (chosen.every((item) => item.kind === "next")) {
     const taste = inputs.artefact?.taste?.[0];
     if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });
     else chosen.push({ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" });
