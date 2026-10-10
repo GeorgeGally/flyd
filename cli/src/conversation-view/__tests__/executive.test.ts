@@ -43,6 +43,12 @@ describe("Flyd's executive voice", () => {
     expect(withoutStubs("One test still fails.")).toBe("One test still fails.");
     expect(withoutStubs("Two tests fail on CI.")).toBe("Two tests fail on CI.");
     expect(withoutStubs("All 5 checks passed.")).toBe("Checks passed.");
+    expect(withoutStubs("3 of 5 checks passed.")).toBe("3 of 5 checks passed.");
+    expect(withoutStubs("All 5 of 5 tests pass.")).toBe("Tests pass.");
+    expect(withoutStubs("Merged into `fm/x`.")).toBe("Merged into.");
+    expect(withoutStubs("Rebased onto branch fm/x today.")).toBe("Rebased onto today.");
+    expect(withoutStubs("Reverted what 3f2a9c1 did.")).toBe("Reverted what did.");
+    expect(withoutStubs("It was 3f2a9c1 that broke it.")).toBe("It was that broke it.");
   });
 
   it("shows a multi-item status as a card grouped by what it asks of him, with every link kept behind its line", () => {

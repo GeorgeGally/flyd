@@ -17,11 +17,11 @@ const STUB_LABEL = /^\s*(?:https?:\/\/\S+|(?:[\w.-]+\/)?[\w.-]*#\d+|(?:PR|pull r
 const PR_NUMBER = /\b(?:PRs?|pull requests?)\s*#?(\d+)\b/gi;
 const BRANCH_NAME = "(?:fm|feat|feature|fix|chore|codex|claude|bugfix|hotfix|release)\\/[\\w./-]*[\\w-]";
 /** A branch is only a stub when it reads as one: in backticks, or named a branch. Paths like ~/.claude/skills stay. */
-const BRANCH = new RegExp(`\\s*(?:(?:on|in|from|to)\\s+)?(?:the\\s+)?(?:\`${BRANCH_NAME}\`(?:\\s+branch)?|branch\\s+\`?${BRANCH_NAME}\`?|(?<![\\w./~-])${BRANCH_NAME}\\s+branch\\b)`, "g");
+const BRANCH = new RegExp(`\\s*(?:\\b(?:on|in|from|to)\\s+)?(?:\\bthe\\s+)?(?:\`${BRANCH_NAME}\`(?:\\s+branch)?|branch\\s+\`?${BRANCH_NAME}\`?|(?<![\\w./~-])${BRANCH_NAME}\\s+branch\\b)`, "g");
 const HASH = /`?\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b`?/g;
 const COUNT_WORD = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
-/** "All 5 checks passed" says "checks passed"; a failing or single count is news and stays. */
-const CHECK_COUNT = new RegExp(`\\b(?:all\\s+)?${COUNT_WORD}\\s+(?:of\\s+${COUNT_WORD}\\s+)?(?:CI\\s+)?(checks|tests)\\b(?!\\s+(?:still\\s+)?(?:fail|broke|error|red))`, "gi");
+/** "All 5 checks passed" says "checks passed"; a failing, single or partial count is news and stays. */
+const CHECK_COUNT = new RegExp(`\\b(?:all\\s+)?(${COUNT_WORD})\\s+(?:of\\s+(${COUNT_WORD})\\s+)?(?:CI\\s+)?(checks|tests)\\b(?!\\s+(?:still\\s+)?(?:fail|broke|error|red))`, "gi");
 /** "1567/1567 tests", "tests: 12/12": a ratio counted in tests or checks, never a date like 10/10/2026. */
 const RATIO = /\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/]))(?=\s+(?:tests?|checks?|pass\w*)\b)|(\b(?:tests?|checks?)\b\s*:?\s*)\(?(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/])\)?/gi;
 
@@ -91,12 +91,15 @@ function stripProse(prose: string): string {
     .replace(/\bPRs\b/g, "changes")
     .replace(/\bPR\b/g, "change")
     .replace(BRANCH, "")
-    .replace(new RegExp(`\\s*(?:(?:as|at|in|onto|to|commit)\\s+)?(?:commit\\s+)?${HASH.source}`, "g"), "")
+    .replace(new RegExp(`\\s*(?:\\b(?:as|at|in|onto|to|commit)\\s+)?(?:\\bcommit\\s+)?${HASH.source}`, "g"), "")
     .replace(RATIO, (match, a?: string, b?: string, c?: string, d?: string, noun?: string, e?: string, f?: string) => {
       if (noun !== undefined) return e === f ? noun.replace(/\s*:?\s*$/, "") : match;
       return (a ?? c) === (b ?? d) ? "" : match;
     })
-    .replace(CHECK_COUNT, (match, kind: string) => (/^[A-Z]/.test(match) ? capitalise(kind.toLowerCase()) : kind.toLowerCase()));
+    .replace(CHECK_COUNT, (match, done: string, of: string | undefined, kind: string) => {
+      if (of !== undefined && done.toLowerCase() !== of.toLowerCase()) return match;
+      return /^[A-Z]/.test(match) ? capitalise(kind.toLowerCase()) : kind.toLowerCase();
+    });
   return text
     .split("\n")
     .map((line) => {
