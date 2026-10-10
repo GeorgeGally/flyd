@@ -97,11 +97,11 @@ interface StreamUpdate {
 /**
  * With no model reading coming, Flyd's briefing of the whole reply leads: the
  * engineering stubs gone and several pieces of work as a status card, but every
- * sentence kept. A local digest cut a reply to its lead and left him almost
+ * sentence kept; a reply he has to act on keeps its words as written. A local digest cut a reply to its lead and left him almost
  * nothing to read; it only stands in while a model summary is on its way.
  */
 function briefOf(text: string): NonNullable<RenderedMessage["summary"]> {
-  return { html: renderBriefing(text), source: "brief" };
+  return { html: isActionable(text) ? renderMarkdown(text) : renderBriefing(text), source: "brief" };
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -174,13 +174,10 @@ export class SnapshotDiffer {
     const digest = digestReply(message.text);
     // The model found no outcome, decision or ask: one muted line.
     if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
-    return {
-      body: message.text,
-      summary: model.text && !isRoutineAnswer(model.text)
-        ? { html: statusSummaryHtml(message.text, model.text) ?? renderBriefing(model.text), source: "model" }
-        : model.pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text),
-      ...(actionable ? { expanded: true } : {}),
-    };
+    const summary: NonNullable<RenderedMessage["summary"]> = model.text && !isRoutineAnswer(model.text)
+      ? { html: statusSummaryHtml(message.text, model.text) ?? renderBriefing(model.text), source: "model" }
+      : model.pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text);
+    return { body: message.text, summary, ...(actionable && summary.source !== "brief" ? { expanded: true } : {}) };
   }
 
   next(snapshot: ConversationSnapshot): StreamUpdate {

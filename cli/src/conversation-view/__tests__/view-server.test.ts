@@ -165,10 +165,13 @@ describe("SnapshotDiffer summaries", () => {
     // accept #." while the four rules he had to paste sat behind "more".
     const differ = new SnapshotDiffer();
     const [rendered, table] = differ.next({ messages: [message("r1", KINSTA_RULES), message("r3", KINSTA_TABLE)], working: false }).messages;
-    expect(rendered).toMatchObject({ summary: { source: "brief" }, expanded: true });
+    expect(rendered).toMatchObject({ summary: { source: "brief" } });
+    expect(rendered!.expanded).toBeUndefined();
     expect(rendered!.summary!.html).toContain("Set each to 301 and All domains");
     expect(rendered!.html).toContain("^/members-and-firms/?$");
-    expect(table).toMatchObject({ summary: { source: "brief" }, expanded: true });
+    expect(table).toMatchObject({ summary: { source: "brief" } });
+    expect(table!.expanded).toBeUndefined();
+    expect(table!.summary!.html).toContain("https://capfive.com/professionals/");
     expect(table!.html).toContain("https://capfive.com/professionals/");
     const [authored] = new SnapshotDiffer().next({ messages: [message("r2", `» Four rules for Kinsta.\n\n${KINSTA_RULES}`)], working: false }).messages;
     expect(authored).toMatchObject({ summary: { source: "author" }, expanded: true });

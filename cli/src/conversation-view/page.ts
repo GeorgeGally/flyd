@@ -322,8 +322,7 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
-/* Flyd's word on what the fleet is doing: read like any reply, marked only by its small label. */
-.msg.aside { color: var(--fg); }
+.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
@@ -545,8 +544,6 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   header button[role="switch"] { gap: 5px; font-size: 11px; letter-spacing: 0.04em; }
   /* A phone keeps the light of "on air", not its words. */
   header .air { font-size: 0; gap: 0; }
-  /* Room for the session's name: the taste page is a desk-sized read. */
-  header #taste-link { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg.fresh, .working i { animation: none; }
@@ -763,6 +760,7 @@ var __name = function (f) { return f; };
     more.textContent = el.classList.contains("open") ? "less" : word;
     more.setAttribute("aria-expanded", el.classList.contains("open") ? "true" : "false");
     more.addEventListener("click", function () {
+      pinned = false;
       var open = el.classList.toggle("open");
       if (!open) el.dataset.folded = "1";
       more.textContent = open ? "less" : word;
