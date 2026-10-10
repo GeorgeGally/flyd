@@ -84,6 +84,8 @@ describe("internal narration", () => {
       cleaned: "You're free Friday at 3. Want me to book it?",
       removed: ["I used the calendar tool:"],
     });
+    expect(stripInternalNarration("Let me check… the venue opens at 9.").cleaned).toBe("The venue opens at 9.");
+    expect(stripInternalNarration("Loading... done, the file is 3MB.").cleaned).toBe("Done, the file is 3MB.");
     expect(stripInternalNarration("Just checking: passing this to Firstmate — it lands tonight.").cleaned).toBe("It lands tonight.");
   });
 
@@ -114,6 +116,7 @@ describe("internal narration", () => {
       "I checked internally and the invoice was paid on the 3rd. Anything else?",
       "I'll pass it on, but the deadline is Friday regardless.",
       "One moment, the whole room was singing.",
+      "Using the clone stamp tool: paint over the logo.",
     ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
   });
 

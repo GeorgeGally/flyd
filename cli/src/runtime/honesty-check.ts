@@ -94,17 +94,16 @@ export function styleProblems(answer: string): string[] {
 // Handing something to George himself ("I'll pass it to you") is not routing.
 const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing)|I'?ll (?:pass|hand|route)|I will (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!your\b)(?:the )?(?:[\w-]+ )?(?:firstmate|crew|boss|team|agent|worker)s?(?: now)?)?\s*[.!…]*$|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\s*[.!…]*$/i;
 const STALL = /^(?:(?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)(?:,? (?:please|sir|now|that|this|it|for you|on that|real quick))*|(?:still )?loading(?: now| it| that| up)?)\s*[.…!]*$/i;
-const TOOL_NARRATION = /^(?:I'?m |I am |now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!…]*$|^I (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\s*[.!…]*$|^I(?:'ve)? (?:ran|run|checked|searched|looked)\b[^.!?]* (?:through|with|via) my tools\s*[.!…]*$/i;
+const TOOL_NARRATION = /^(?:I'?m|I am) (?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!…]*$|^(?:now )?(?:calling|running|invoking) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!]+$|^I (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\s*[.!…]*$|^I(?:'ve)? (?:ran|run|checked|searched|looked)\b[^.!?]* (?:through|with|via) my tools\s*[.!…]*$/i;
 // "Internally" alone is ordinary English ("I'd handle payroll internally");
 // only Flyd's own checking or running describes its machinery.
 const INTERNALLY = /^I(?:'ve|'m)? (?:checked|checking|ran|running|looked|looking|searched|searching|processed|processing|routed|routing)\b[^.!?]*\binternally(?: and found it)?\s*[.!…]*$/i;
-const OPENING_CLAUSE = /^(.+?\s*(?:—|–|-|:|;|\.\.\.|…))\s+(\S.*)$/;
+const OPENING_CLAUSE = /^(.+?)(\s*(?:—|–|-|:|;|\.\.\.|…))\s+(\S.*)$/;
 
 function isNarration(sentence: string): boolean {
   // Quoting a phrase (no more "Let me check") talks about it; it does not narrate.
   const own = sentence.replace(/"[^"]*"|“[^”]*”/g, "\"\"");
-  const clause = own.replace(/\s*(?:—|–|-|:|;|\.\.\.|…)$/, "");
-  return HANDOFF.test(clause) || STALL.test(clause) || TOOL_NARRATION.test(clause) || INTERNALLY.test(clause);
+  return HANDOFF.test(own) || STALL.test(own) || TOOL_NARRATION.test(own) || INTERNALLY.test(own);
 }
 
 /**
@@ -121,11 +120,11 @@ export function stripInternalNarration(answer: string): { cleaned: string; remov
       if (!line.trim()) return [line];
       const indent = line.match(/^\s*/)?.[0] ?? "";
       const kept: string[] = [];
-      for (const sentence of line.trim().split(/(?<=[.!?…])\s+/)) {
+      for (const sentence of line.trim().split(/(?<=[.!?…])\s+(?![a-z])/)) {
         let rest = sentence;
         for (let opening = rest.match(OPENING_CLAUSE); opening && isNarration(opening[1]); opening = rest.match(OPENING_CLAUSE)) {
-          removed.push(opening[1]);
-          rest = opening[2].charAt(0).toUpperCase() + opening[2].slice(1);
+          removed.push(opening[1] + opening[2]);
+          rest = opening[3].charAt(0).toUpperCase() + opening[3].slice(1);
         }
         if (isNarration(rest)) removed.push(rest);
         else kept.push(rest);
