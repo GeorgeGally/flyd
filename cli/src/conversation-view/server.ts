@@ -97,11 +97,11 @@ interface StreamUpdate {
 /**
  * With no model reading coming, Flyd's briefing of the whole reply leads: the
  * engineering stubs gone and several pieces of work as a status card, but every
- * sentence kept; a reply he has to act on keeps its words as written. A local digest cut a reply to its lead and left him almost
+ * sentence kept. A local digest cut a reply to its lead and left him almost
  * nothing to read; it only stands in while a model summary is on its way.
  */
 function briefOf(text: string): NonNullable<RenderedMessage["summary"]> {
-  return { html: isActionable(text) ? renderMarkdown(text) : renderBriefing(text), source: "brief" };
+  return { html: renderBriefing(text), source: "brief" };
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -193,6 +193,7 @@ export class SnapshotDiffer {
         : !message.answers ? this.summarize(message, newest.has(message.id))
           : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
             : { body: message.text };
+      if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
       if (message.aside && routine) continue;
