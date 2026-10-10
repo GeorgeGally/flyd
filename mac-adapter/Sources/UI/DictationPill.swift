@@ -772,23 +772,34 @@ private final class GradientView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
-/// A thin rotating arc: Flyd working, in the island's own hand rather than the system spinner.
+/// Bright orange spokes stepping round: Flyd working, readable at a glance on the black island.
+/// The leading spoke is at full opacity and the trail fades behind it.
 private final class IslandSpinner: NSView {
-    private let arc = CAShapeLayer()
+    private static let spokeCount = 8
+    /// How much each trailing spoke fades; the last one keeps about a third of the lead.
+    private static let trailFade: Float = 0.085
+    private let spokes = CAReplicatorLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        let inset: CGFloat = 2
-        arc.frame = bounds
-        arc.path = CGPath(ellipseIn: bounds.insetBy(dx: inset, dy: inset), transform: nil)
-        arc.fillColor = nil
-        arc.strokeColor = FlydPalette.paper.withAlphaComponent(0.85).cgColor
-        arc.lineWidth = 2.4
-        arc.lineCap = .round
-        arc.strokeStart = 0
-        arc.strokeEnd = 0.72
-        layer?.addSublayer(arc)
+        spokes.frame = bounds
+        spokes.instanceCount = Self.spokeCount
+        // Each copy one step anticlockwise and dimmer, so the brightest spoke leads clockwise.
+        spokes.instanceTransform = CATransform3DMakeRotation(2 * .pi / CGFloat(Self.spokeCount), 0, 0, 1)
+        spokes.instanceAlphaOffset = -Self.trailFade
+
+        let spoke = CAShapeLayer()
+        spoke.frame = bounds
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: bounds.midX, y: bounds.maxY - 1.5))
+        path.addLine(to: CGPoint(x: bounds.midX, y: bounds.maxY - bounds.height * 0.36))
+        spoke.path = path
+        spoke.strokeColor = FlydPalette.workingOrange.cgColor
+        spoke.lineWidth = 2.4
+        spoke.lineCap = .round
+        spokes.addSublayer(spoke)
+        layer?.addSublayer(spokes)
         isHidden = true
     }
 
@@ -796,21 +807,21 @@ private final class IslandSpinner: NSView {
 
     func start() {
         isHidden = false
-        arc.frame = bounds
-        guard arc.animation(forKey: "spin") == nil, !FlydPalette.reduceMotion else { return }
-        arc.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        arc.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-        spin.fromValue = 0
-        spin.toValue = -2 * CGFloat.pi
-        spin.duration = 0.9
+        spokes.frame = bounds
+        guard spokes.animation(forKey: "spin") == nil, !FlydPalette.reduceMotion else { return }
+        // Step a spoke at a time, like the system spinner, rather than smearing round.
+        let step = 2 * CGFloat.pi / CGFloat(Self.spokeCount)
+        let spin = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        spin.values = (0..<Self.spokeCount).map { -CGFloat($0) * step }
+        spin.calculationMode = .discrete
+        spin.duration = 0.8
         spin.repeatCount = .infinity
-        arc.add(spin, forKey: "spin")
+        spokes.add(spin, forKey: "spin")
     }
 
     func stop() {
         isHidden = true
-        arc.removeAnimation(forKey: "spin")
+        spokes.removeAnimation(forKey: "spin")
     }
 }
 

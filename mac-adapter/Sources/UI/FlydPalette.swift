@@ -18,6 +18,8 @@ enum FlydPalette {
     static let signalRust = NSColor(calibratedRed: 0.788, green: 0.376, blue: 0.239, alpha: 1)
     static let line = paper.withAlphaComponent(0.14)
     static let brassGlow = NSColor(calibratedRed: 0.890, green: 0.612, blue: 0.271, alpha: 1)
+    /// Bright, saturated orange for the island's working spinner: reads at a glance on black.
+    static let workingOrange = NSColor(calibratedRed: 1.0, green: 0.549, blue: 0.0, alpha: 1)
     static let inkDeep = NSColor(calibratedRed: 0.059, green: 0.051, blue: 0.039, alpha: 1)
 
     static func monospace(_ size: CGFloat, weight: NSFont.Weight = .semibold) -> NSFont {
