@@ -438,14 +438,17 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(again.cached(messages.find((message) => message.answers)!.text)).toContain("Your call");
   });
 
-  it("leads with the decision, not the acknowledgement, while there is no interpretation", () => {
+  it("leads with Flyd's whole reading, every sentence kept, when no interpretation is coming", () => {
+    // With no model, a local digest cut each answer to a line or two and the
+    // window looked empty; now the answer reads in full, in Flyd's voice.
     const shown = new SnapshotDiffer().next({ messages: noteWithReply(decision), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
-    expect(shown.summary).toMatchObject({ source: "digest" });
+    expect(shown.summary).toMatchObject({ source: "brief" });
     expect(shown.summary?.pending).toBeUndefined();
     const lead = plain(shown.summary!.html);
-    expect(lead).toMatch(/^The island filter hid two real outcomes/);
+    expect(lead).toContain("The island filter hid two real outcomes last night along with the supervision chatter.");
     expect(lead).toContain("Decide whether to keep the filter: keeping it hides real outcomes; dropping it brings back every status ping.");
     expect(lead).not.toMatch(/captain/i);
+    expect(lead).not.toContain("github.com");
   });
 
   it("falls back to the digest when the model only acknowledges or fails", async () => {

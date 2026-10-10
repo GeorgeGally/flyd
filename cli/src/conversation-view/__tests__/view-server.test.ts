@@ -152,15 +152,29 @@ describe("SnapshotDiffer summaries", () => {
     expect(second[0]!.summary).toEqual({ html: "<p>The menu bar is a little higher and saved, not yet published.</p>\n", source: "model" });
   });
 
+  it("leads a long reply with Flyd's whole reading, not a one-line digest, when no model summary is coming", () => {
+    const [rendered] = new SnapshotDiffer().next({ messages: [message("r1", long)], working: false }).messages;
+    expect(rendered!.summary).toMatchObject({ source: "brief" });
+    expect(rendered!.summary!.pending).toBeUndefined();
+    expect(rendered!.summary!.html).toContain("the menu bar now sits ten pixels higher on every page, including the member login");
+    expect(rendered!.summary!.html).toContain("the change is committed but not pushed yet");
+  });
+
   it("never folds a reply that hands the captain something to act on behind its summary", () => {
     // The captain asked "what rules bro": the folded view showed "Kinsta won't
     // accept #." while the four rules he had to paste sat behind "more".
     const differ = new SnapshotDiffer();
     const [rendered, table] = differ.next({ messages: [message("r1", KINSTA_RULES), message("r3", KINSTA_TABLE)], working: false }).messages;
-    expect(rendered).toMatchObject({ summary: { source: "digest" }, expanded: true });
-    expect(rendered!.summary!.html).toContain("Set each to 301 and All domains");
+    // Flyd's briefing of the rules is the reply as written: shown once, nothing behind "as written".
+    expect(rendered!.summary).toBeUndefined();
+    expect(rendered!.expanded).toBeUndefined();
+    expect(rendered!.html).toContain("Set each to 301 and All domains");
     expect(rendered!.html).toContain("^/members-and-firms/?$");
-    expect(table).toMatchObject({ summary: { source: "digest" }, expanded: true });
+    // The table's briefing differs from its words: the briefing leads, folded, the words one tap away.
+    expect(table).toMatchObject({ summary: { source: "brief" } });
+    expect(table!.expanded).toBeUndefined();
+    expect(table!.summary!.html).toContain("Add these in the dialog you showed");
+    expect(table!.summary!.html).not.toBe(table!.html);
     expect(table!.html).toContain("https://capfive.com/professionals/");
     const [authored] = new SnapshotDiffer().next({ messages: [message("r2", `» Four rules for Kinsta.\n\n${KINSTA_RULES}`)], working: false }).messages;
     expect(authored).toMatchObject({ summary: { source: "author" }, expanded: true });

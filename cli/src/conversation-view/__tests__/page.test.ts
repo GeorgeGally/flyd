@@ -351,15 +351,28 @@ describe("conversation page", () => {
     expect(more.textContent).toBe("less");
     expect(document.querySelectorAll("article.assistant")[1]!.querySelector(".summary")).toBeNull();
 
+    // One switch, FULL: off is Flyd's reading, on is everything as written.
     const mode = document.getElementById("mode") as HTMLButtonElement;
+    expect(mode.getAttribute("role")).toBe("switch");
     expect(mode.textContent).toBe("full");
+    expect(mode.getAttribute("aria-checked")).toBe("false");
     mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("full");
     expect(localStorage.getItem("flyd-view-mode")).toBe("full");
-    expect(mode.textContent).toBe("flyd");
+    expect(mode.getAttribute("aria-checked")).toBe("true");
+    expect(mode.textContent).toBe("full");
     mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
-    expect(mode.textContent).toBe("full");
+    expect(mode.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("offers firstmate's own words as written under Flyd's whole reading", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "r1", role: "assistant", html: "<p>Raw words, PR #12.</p>", summary: { html: "<p>The whole reply, briefed.</p>", source: "brief" } } as never]);
+    const reply = document.querySelector("article.assistant") as HTMLElement;
+    expect(reply.querySelector(".summary")!.textContent).toBe("The whole reply, briefed.");
+    expect(reply.querySelector(".more")!.textContent).toBe("as written");
   });
 
   it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {
@@ -648,39 +661,84 @@ describe("header and artefact view", () => {
     ],
   };
 
-  it("uses one kind of control, its state shown by colour, never brackets", async () => {
+  it("uses one kind of control: a switch whose track says on or off, never brackets", async () => {
     load("");
     await settle();
     const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
-    expect(controls).toEqual(["full", "taste", "light", "artefact"]);
+    expect(controls).toEqual(["taste", "full", "light", "artefact"]);
+    const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"]')).map((button) => button.id);
+    expect(switches).toEqual(["mode", "theme", "flip"]);
     const flip = document.getElementById("flip")!;
-    expect(flip.getAttribute("aria-pressed")).toBe("false");
+    expect(flip.getAttribute("aria-checked")).toBe("false");
     flip.click();
     expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-    expect(flip.getAttribute("aria-pressed")).toBe("true");
+    expect(flip.getAttribute("aria-checked")).toBe("true");
     expect(flip.textContent).toBe("artefact");
     const theme = document.getElementById("theme")!;
     theme.click();
-    expect(theme.getAttribute("aria-pressed")).toBe("true");
+    expect(theme.getAttribute("aria-checked")).toBe("true");
     expect(theme.textContent).toBe("light");
   });
 
-  it("lays out Flyd's boxes: the call leads, stories hold their screenshots, instruments are drawn", async () => {
+  it("plays Flyd's boxes as scenes, one at a time, calls first, with the readouts under them", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const boxes = boxesOf(SHOW as ShowScreen, { plan: { source: "quota-axi", windows: [{ label: "weekly", percentRemaining: 40 }] } });
+    const boxes = boxesOf(SHOW as ShowScreen, { plan: { source: "quota-axi", windows: [{ label: "weekly", percentRemaining: 10 }] } });
     stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes });
-    const top = document.querySelector("#dash > .box")!;
-    expect(top.classList.contains("lead")).toBe(true);
-    expect(top.querySelector(".box.call .title")!.textContent).toBe("Review the Jev decision log");
-    expect(top.querySelector(".box.call .line")!.textContent).toBe("Captain decides keep or remove.");
-    const story = document.querySelector('.box.story[data-id="live:a"]')!;
-    expect(story.querySelector(".meta a")!.textContent).toBe("flyd #85");
-    expect(story.querySelector(".box.shot img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
-    expect(Array.from(document.querySelectorAll(".gauge2 b")).map((node) => node.textContent)).toEqual(["60%"]);
-    expect(document.querySelector('.box[data-id="landed-week"] .title')!.textContent).toBe("3 landed this week");
-    expect(document.querySelector("#strip .doing")!.textContent).toBe("Running the Swift tests");
+    document.getElementById("flip")!.click();
+
+    // One scene holds the stage: the call, never every box at once.
+    expect(document.querySelectorAll("#show h1")).toHaveLength(1);
+    expect(document.getElementById("scene-head")!.textContent).toBe("Review the Jev decision log");
+    expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
+    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+    // The call, then what Flyd sees coming (the plan limit), then the stories.
+    const ticks = Array.from(document.querySelectorAll("#ticks button")).map((tick) => tick.getAttribute("aria-label"));
+    expect(ticks).toEqual([
+      "needs you: Review the Jev decision log",
+      "coming up: Claude weekly limit: 10% left.",
+      "under way: Header controls",
+      "from your memory: Bloom gets finished",
+    ]);
+
+    // The arrow brings the next scene up like a title card; the story's screenshot shows large.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
+    expect(document.querySelector("#scene-meta a")!.textContent).toBe("flyd #85");
+    expect(document.querySelector(".scene-shot .main")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
+    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(true);
+
+    // The instruments are small readouts, each label on its own line.
+    expect(Array.from(document.querySelectorAll(".ro")).map((node) => (node as HTMLElement).dataset.id)).toEqual(["plan", "landed-week", "work-state"]);
+    expect(Array.from(document.querySelectorAll(".ro-row b")).map((node) => node.textContent)).toEqual(["90%"]);
+    expect(document.querySelector('.ro[data-id="landed-week"] .ro-value')!.textContent).toBe("3 landed this week");
+    expect(Array.from(document.querySelectorAll('.ro[data-id="work-state"] .ro-legend span')).map((node) => node.textContent)).toEqual(["1 need you", "2 under way"]);
+    expect(document.getElementById("show-doing")!.textContent).toBe("Running the Swift tests");
+  });
+
+  it("goes back to the whole conversation, and typing there talks to Flyd", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "r1", role: "assistant", html: "<p>The whole reply.</p>" }]);
+    stream.emit("update", { order: ["r1"], messages: [], working: false, show: SHOW, boxes: boxesOf(SHOW as ShowScreen) });
+    const flip = document.getElementById("flip")!;
+    flip.click();
+    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
+    // The conversation is never squeezed onto the artefact screen.
+    expect(document.querySelector("#show .msg, #show .strip")).toBeNull();
+    flip.click();
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
+    expect((document.getElementById("show") as HTMLElement).hidden).toBe(true);
+    expect(localStorage.getItem("flyd-view-screen")).toBe("terminal");
+
+    flip.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
+    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
+    expect(document.activeElement).toBe(document.getElementById("input"));
   });
 
   it("falls back to the situation when Core sends no boxes", async () => {
@@ -688,6 +746,7 @@ describe("header and artefact view", () => {
     await settle();
     const stream = open("latest", []);
     stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
-    expect(document.querySelector("#dash .box.note .title")!.textContent).toBe("Your move, sir.");
+    expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
+    expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
   });
 });
