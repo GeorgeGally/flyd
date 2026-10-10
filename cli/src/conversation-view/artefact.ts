@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -25,6 +26,8 @@ export interface ArtefactRow {
   at?: string;
   /** Screenshots the task saved, as paths under its data directory. */
   shots?: string[];
+  /** Flyd's own words for it, once its model has said them. */
+  said?: Said;
 }
 
 export interface FleetArtefact {
@@ -352,6 +355,11 @@ export function tasteHighlights(markdown: string): string[] {
     .slice(0, 3);
 }
 
+/** The rows of one kind the artefact shows: work with screenshots first, then the fleet's order. Pure. */
+export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
+  return [...(list ?? [])].sort((a, b) => (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0)).slice(0, limit);
+}
+
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
 export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<ShowKind, number>> {
   if (!fleet || fleet.unavailable) return {};
@@ -396,8 +404,9 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   const fromRow = (kind: ShowKind, id: string, row: ArtefactRow): void => {
     const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
     const names = [project, row.repo].filter((name): name is string => Boolean(name));
-    add(kind, id, withoutProject(row.label, names), "", {
-      ...(row.detail ? { detail: row.detail } : {}),
+    const detail = row.said?.line || row.detail;
+    add(kind, id, row.said?.headline ?? withoutProject(row.label, names), "", {
+      ...(detail ? { detail } : {}),
       ...(row.at ? { at: row.at } : {}),
       ...(row.task && row.shots?.length
         ? { shots: row.shots.map((file) => ({ src: shotSrc(row.task!, file), label: file.split("/").pop()! })) }
@@ -408,7 +417,7 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     });
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
-    (list ?? []).slice(0, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(kind, `${kind}-${index}`, row));
+    shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(kind, `${kind}-${row.task ?? index}`, row));
   };
 
   const fleet = inputs.fleet;
@@ -422,6 +431,42 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   inputs.memories.slice(0, 1).forEach((line, index) => add("news", `memory-${index}`, line, "from your memory"));
   inputs.news.slice(0, 1).forEach((item, index) => add("news", `news-${index}`, item.title, item.why || "from the news", withLink(item.url)));
   return items;
+}
+
+const VOICED: Array<[keyof Pick<FleetArtefact, "calls" | "live" | "ready" | "landed" | "held">, keyof typeof ARTEFACT_LIMITS, string]> = [
+  ["calls", "call", "needs you"],
+  ["live", "live", "under way"],
+  ["ready", "ready", "waiting to land"],
+  ["landed", "landed", "landed"],
+  ["held", "waiting", "held up"],
+];
+
+function voiceItem(row: ArtefactRow, kind: string): VoiceItem {
+  return {
+    kind,
+    title: row.label,
+    ...(row.detail ? { detail: row.detail } : {}),
+    ...(row.status ? { status: row.status } : {}),
+    ...(row.repo ? { project: row.repo } : {}),
+  };
+}
+
+/** The rows the artefact can show, each with Flyd's words when it has them; and the rows still unsaid. */
+export function withVoice(fleet: FleetArtefact, said: (item: VoiceItem) => Said | undefined): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
+  if (fleet.unavailable) return { fleet, unsaid: [] };
+  const next: FleetArtefact = { ...fleet };
+  const unsaid: VoiceItem[] = [];
+  for (const [field, limit, kind] of VOICED) {
+    const shown = new Set(shownRows(fleet[field], ARTEFACT_LIMITS[limit]));
+    next[field] = fleet[field].map((row) => {
+      if (!shown.has(row)) return row;
+      const item = voiceItem(row, kind);
+      const words = said(item);
+      if (!words) unsaid.push(item);
+      return words ? { ...row, said: words } : row;
+    });
+  }
+  return { fleet: next, unsaid };
 }
 
 function reason(error: unknown): string {
@@ -444,6 +489,8 @@ export class ArtefactFeed {
       memoryFile?: string;
       newsFile?: string;
       tasteFile?: string;
+      /** Flyd's model, to say each row in its own words. */
+      voice?: ArtefactVoice;
       intervalMs?: number;
       timeoutMs?: number;
     } = {},
@@ -553,7 +600,9 @@ export class ArtefactFeed {
         .flat().map((row) => row.task).filter((task): task is string => Boolean(task)))];
       const extras = await this.extras(tasks);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
-      const fleet = enrichFleet(bearings, entries, extras);
+      const enriched = enrichFleet(bearings, entries, extras);
+      const voice = this.options.voice;
+      const { fleet, unsaid } = voice ? withVoice(enriched, (item) => voice.said(item)) : { fleet: enriched, unsaid: [] };
       this.inputs = {
         fleet,
         ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()) }),
@@ -562,8 +611,18 @@ export class ArtefactFeed {
         taste: tasteHighlights(tasteText),
       };
       for (const listener of this.listeners) listener();
+      if (voice && unsaid.length) void this.say(voice, enriched, unsaid);
     } finally {
       this.refreshing = false;
+    }
+  }
+
+  /** Asks Flyd's model for the rows it has not said yet, then shows its words. */
+  private async say(voice: ArtefactVoice, enriched: FleetArtefact, unsaid: VoiceItem[]): Promise<void> {
+    if (!(await voice.request(unsaid))) return;
+    if (this.inputs.fleet !== undefined && this.inputs.fleet.generated === enriched.generated) {
+      this.inputs = { ...this.inputs, fleet: withVoice(enriched, (item) => voice.said(item)).fleet };
+      for (const listener of this.listeners) listener();
     }
   }
 

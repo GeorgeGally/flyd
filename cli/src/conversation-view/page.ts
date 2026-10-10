@@ -132,17 +132,19 @@ const SHOW_STYLE = `
 @keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
 
+/* The whole scene is one block, centred, with the same room above and below. */
 .scene {
-  min-height: 100%; width: 100%; max-width: 1280px; margin: 0 auto;
-  display: flex; flex-direction: column; gap: 36px;
-  padding: 84px clamp(24px, 5vw, 72px) 36px;
+  min-height: 100%; width: 100%; max-width: 1360px; margin: 0 auto;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 88px clamp(24px, 5vw, 72px) 52px;
 }
 .situation { margin: 0; max-width: 46em; font: 400 18px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
 .situation b { font-weight: 700; color: var(--strong); }
 
-.stage { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 34px; min-height: 0; padding-bottom: 4vh; }
-.pick { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); align-items: center; }
-.pick.has-shot { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+.stage { display: flex; flex-direction: column; gap: 34px; margin: clamp(36px, 6vh, 64px) 0 clamp(44px, 7vh, 76px); }
+/* One height for every pick, so nothing below jumps as they take turns. */
+.pick { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); align-items: center; min-height: clamp(240px, 34vh, 460px); }
+.pick.has-shot { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
 .pick.out .pick-text, .pick.out .pick-shot { animation: pick-out 200ms ease both; }
 .pick.in .pick-text, .pick.in .pick-shot { animation: pick-in 520ms cubic-bezier(.2,.8,.2,1) both; }
 .pick.in .pick-shot { animation-delay: 70ms; }
@@ -168,7 +170,7 @@ const SHOW_STYLE = `
 .pick-meta a:hover { color: var(--strong); }
 .pick-shot { margin: 0; min-width: 0; }
 .pick-shot .main {
-  display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center;
+  display: block; width: 100%; aspect-ratio: 16 / 10; max-height: 58vh; object-fit: cover; object-position: top center;
   border-radius: 12px; background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 .pick-shot .thumbs { display: flex; gap: 10px; margin-top: 10px; }
@@ -177,7 +179,6 @@ const SHOW_STYLE = `
   opacity: 0.5; transition: opacity 140ms ease;
 }
 .pick-shot .thumbs img:hover, .pick-shot .thumbs img.on { opacity: 1; }
-.pick-shot figcaption { margin-top: 10px; font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 /* Which pick is up, and how long until the next: one short line each. */
 .ticks { --k: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; min-height: 14px; align-items: center; }
@@ -191,11 +192,11 @@ const SHOW_STYLE = `
 
 /* The fleet as an instrument: one thin line per piece of work, grouped by
    where it stands, with the week's landings beside it. */
-.instrument { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px 44px; }
+.instrument { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 24px 34px; }
 .instrument[hidden] { display: none; }
-.fleet { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 30px; }
+.fleet { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 26px; }
 .gauge { --k: var(--muted); display: flex; flex-direction: column; gap: 10px; }
-.gauge .lines { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
+.gauge .lines { display: flex; align-items: flex-end; gap: 4px; height: 40px; }
 /* White lines, like the week's; the count beside them carries the colour. */
 .gauge .lines i { width: 3px; height: 100%; background: var(--strong); opacity: 0.82; border-radius: 1px; }
 .gauge.k-next .lines i, .gauge.k-landed .lines i { opacity: 0.4; }
@@ -213,7 +214,7 @@ const SHOW_STYLE = `
 .k-landed { --k: var(--k-landed); } .k-waiting { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
 .k-news, .k-clear { --k: var(--k-news); }
 
-.foot { display: flex; flex-direction: column; gap: 10px; }
+.foot { display: flex; flex-direction: column; gap: 10px; margin-top: 34px; }
 .also { margin: 0; max-width: 46em; font: 400 17px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
 .also:empty { display: none; }
 .also a { color: var(--link); text-decoration: none; }
@@ -230,10 +231,13 @@ const SHOW_STYLE = `
 
 @media (max-width: 900px) {
   .pick.has-shot { grid-template-columns: minmax(0, 1fr); }
-  .pick-shot .main { max-height: 34vh; }
+  .pick { min-height: 0; }
+  .pick-shot { order: -1; }
+  .pick-shot .main { max-height: 40vh; }
 }
 @media (max-width: 720px) {
-  .scene { padding: 72px 20px 28px; gap: 28px; }
+  .scene { padding: 72px 20px 32px; justify-content: flex-start; }
+  .stage { margin: 28px 0 36px; }
   .situation { font-size: 16px; }
   .pick-head { font-size: 32px; }
   .pick-head.long { font-size: 26px; }
@@ -1335,9 +1339,10 @@ const SCRIPT = `
     var chosen = [];
     ORDER.forEach(function (kind) {
       var ofKind = screen.items.filter(function (item) { return item.kind === kind; });
-      // Work with a screenshot to show goes first within its kind.
-      ofKind.sort(function (a, b) { return (b.shots ? 1 : 0) - (a.shots ? 1 : 0); });
-      chosen = chosen.concat(ofKind.slice(0, KINDS[kind].turns));
+      // Work with screenshots always gets a turn (up to three of a kind); the rest fill the kind's turns.
+      var shot = ofKind.filter(function (item) { return item.shots && item.shots.length; }).slice(0, 3);
+      var plain = ofKind.filter(function (item) { return !(item.shots && item.shots.length); });
+      chosen = chosen.concat(shot, plain.slice(0, Math.max(0, KINDS[kind].turns - shot.length)));
     });
     if (chosen.length === 0) chosen = screen.items.filter(function (item) { return item.kind === "news" || item.kind === "clear"; }).slice(0, 1);
     return chosen;
@@ -1389,7 +1394,6 @@ const SCRIPT = `
       main.alt = "Screenshot: " + item.headline;
       main.src = withToken(item.shots[0].src);
       figure.appendChild(main);
-      var caption = el("figcaption", "", item.shots[0].label);
       if (item.shots.length > 1) {
         var thumbs = el("div", "thumbs");
         item.shots.forEach(function (shot, index) {
@@ -1399,7 +1403,6 @@ const SCRIPT = `
           // Hover shows that shot; a tap does the same on a phone.
           function choose() {
             main.src = thumb.src;
-            caption.textContent = shot.label;
             thumbs.querySelectorAll("img").forEach(function (other) { other.classList.toggle("on", other === thumb); });
           }
           thumb.addEventListener("mouseenter", choose);
@@ -1408,7 +1411,6 @@ const SCRIPT = `
         });
         figure.appendChild(thumbs);
       }
-      figure.appendChild(caption);
       pickEl.appendChild(figure);
     }
   }
