@@ -92,6 +92,12 @@ describe("internal narration", () => {
       "1. Warm up at 9.\n2. Peak at 11.\n\nWant the full breakdown?",
       "\"Passing this to Firstmate\" and \"One moment please sir\" are both gone: from now on you get the outcome.",
       "Run this:\n```\n# let me check the logs, one moment\ntail -f app.log\n```",
+      "There was one moment in the set where the floor emptied. Fix the 11pm transition.",
+      "Start by using the built-in tools in Ableton. Then bounce stems.",
+      "I'd suggest handing it to your accountant. The deadline is Friday.",
+      "I sent the clock fix to Firstmate this morning. It landed at 3pm.",
+      "Sure. Let me check with Sam tomorrow and get back to you.",
+      "Order pizza for the crew. Soundcheck is at 6.",
     ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
   });
 

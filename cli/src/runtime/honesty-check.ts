@@ -86,16 +86,21 @@ export function styleProblems(answer: string): string[] {
 // this to Firstmate", no "One moment please sir", no "Let me check". A
 // rewrite prompt can be ignored, so these sentences are cut mechanically from
 // every answer before it reaches him.
+// Each pattern matches Flyd speaking about its own machinery, so it is anchored
+// to the sentence opening or a first-person subject: advice ("I'd suggest
+// handing it to your accountant"), outcomes ("I sent the fix to Firstmate this
+// morning") and commitments ("Let me check with Sam tomorrow") stay.
 // Handing something to George himself ("I'll pass it to you") is not routing.
-const HANDOFF = /\b(?:passing|handing|routing|I'?ll (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!you\b)|\s*(?:[.!,…]|$))|\bfor the crew\b|\bto (?:the )?firstmate\b/i;
-const STALL = /\b(?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)\b|^(?:still )?loading(?: now| it| that| up)?\s*(?:[.…!]+|$)/i;
-const TOOL_NARRATION = /\b(?:calling|running|using|invoking) (?:the|my|a|an) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
+const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing|sending)|I'?ll (?:pass|hand|route|send)|I will (?:pass|hand|route|send)) (?:this|it|that)(?: along| over| on)?(?: to (?!you\b|your\b)|\s*(?:[.!,…]|$))|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\b/i;
+const STALL_PHRASE = "one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now";
+const STALL = new RegExp(`^(?:(?:${STALL_PHRASE})(?:,? (?:please|sir|now|that|this|it|for you|on that|real quick))*|(?:still )?loading(?: now| it| that| up)?)[,\\s]*(?:[.…!]+)?$`, "i");
+const TOOL_NARRATION = /^(?:I'?m |I am |now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool\b|\bI (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
 // "Internally" alone is ordinary English ("discussed internally"); only
 // first-person use describes Flyd's own machinery.
 const INTERNALLY = /\b(?:I|I'm|I've|I'll|I'd|my)\b[^.!?]*\binternally\b|\binternally\b[^.!?]*\b(?:I|my)\b/;
 // A stall that opens a real sentence ("Let me check — the venue opens at 9.")
 // loses only its opening clause.
-const LEADING_STALL = /^((?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)(?:,? please)?(?:,? sir)?\s*(?:—|–|-|,|:|\.\.\.|…))\s+(\S.*)$/i;
+const LEADING_STALL = new RegExp(`^((?:${STALL_PHRASE})(?:,? please)?(?:,? sir)?\\s*(?:—|–|-|,|:|\\.\\.\\.|…))\\s+(\\S.*)$`, "i");
 
 function isNarration(sentence: string): boolean {
   // Quoting a phrase (no more "Let me check") talks about it; it does not narrate.
