@@ -303,7 +303,7 @@ export class FirstmateInbox implements CaptainInbox {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
         const handoff = present.get(name)!.startsWith(`${handled}/`) ? "taken" : "queued";
-        return { question, handoff, waiting: handoffLine(handoff) };
+        return { question, handoff, waiting: handoffLine(handoff, { text: question.text }) };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;

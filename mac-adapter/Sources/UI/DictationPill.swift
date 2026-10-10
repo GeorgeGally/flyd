@@ -34,7 +34,7 @@ final class DictationPill: NSObject {
         case decision
         /// A message went out: check mark, briefly.
         case sent
-        /// What is happening to his message now ("Working on it"): spinner, briefly.
+        /// What is happening to his message now (its line under the message): spinner, briefly.
         case progress
 
         var holdSeconds: TimeInterval? {

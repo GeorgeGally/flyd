@@ -309,7 +309,7 @@ esac
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
 
     const messages = (await source.read("s1")).messages;
-    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Working on it" });
+    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Fixing the island filter" });
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);

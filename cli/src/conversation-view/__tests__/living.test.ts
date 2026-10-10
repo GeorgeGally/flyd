@@ -28,6 +28,33 @@ describe("the living line", () => {
     expect(handoffLine("taken", { activity: "word ".repeat(40) }).length).toBeLessThan(120);
   });
 
+  it("says what the message asks for, with the project he named, before any step is known", () => {
+    expect(handoffLine("queued", { text: "can you fix the footer on the GNM site?" })).toBe("Fixing the footer on the GNM site");
+    expect(handoffLine("queued", { text: "Please add a dark mode toggle", projects: ["Flyd", "GNM"] })).toBe("Adding a dark mode toggle");
+    expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
+    expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
+    expect(handoffLine("queued", { text: "set the timeout to 5s" })).toBe("Setting the timeout to 5s");
+    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Working on it");
+  });
+
+  it("never quotes his words back when they are not a task Flyd is doing", () => {
+    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "tell firstmate to fix the footer" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "get the crew to land it" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "/deploy staging" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "can you show me the logs" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix my site" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix what I'm seeing on the island" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix the bug I am seeing" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "check what I've changed today" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "update the copy we'll ship on our site" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "/ce-code-review fix the branch" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix it" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "ok" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);
+  });
+
   it("puts the current step on the newest taken note only, and leaves answered ones alone", () => {
     const exchanges = livened(
       [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: ANSWERING }],

@@ -5,6 +5,7 @@ import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js
 import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { readProjects } from "../council/projects.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
@@ -29,6 +30,11 @@ const START_SCAN_BYTES = 64 * 1024;
 const MAX_IMAGE_LINE_BYTES = 64 * 1024 * 1024;
 const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** His own names for his projects, read when a living line is composed. */
+function projectNames(): string[] {
+  return readProjects().map((project) => project.name);
+}
 
 export function claudeProjectsRoot(): string {
   return join(homedir(), ".claude", "projects");
@@ -197,7 +203,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       if (route === "flyd") return this.desk.desk.ask(text);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
-        return { ...sent, waiting: handoffLine("queued") };
+        return { ...sent, waiting: handoffLine("queued", { text, projects: projectNames() }) };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
         const message = error instanceof Error ? error.message : String(error);
@@ -308,7 +314,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       : snapshot;
     if (exchanges.length === 0) return voiced;
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots.
-    const live = livened(exchanges, { ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
+    const live = livened(exchanges, { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
     return { ...voiced, messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)) };
   }
 
