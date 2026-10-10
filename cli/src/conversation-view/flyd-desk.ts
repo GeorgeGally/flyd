@@ -232,10 +232,9 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      const waiting = record.error
-        ? `Flyd couldn't answer this: ${record.error}`
-        : this.inFlight.has(record.id) ? ANSWERING : "Flyd was interrupted before answering; send it again";
-      return { question, waiting };
+      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: ANSWERING };
+      const waiting = record.error ? `Flyd couldn't answer this: ${record.error}` : "Flyd was interrupted before answering; send it again";
+      return { question, waiting, waitingFailed: true };
     });
   }
 }

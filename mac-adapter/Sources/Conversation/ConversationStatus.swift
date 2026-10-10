@@ -12,6 +12,8 @@ struct ConversationStatusPayload: Decodable, Equatable {
     struct Waiting: Decodable, Equatable {
         let id: String
         let text: String
+        /// The line says the answer failed, not that work is under way.
+        let failed: Bool?
 
         /// "Firstmate is on it: run the tests" and "Firstmate is on it - GNM" are the stage "Firstmate is on it"; neither the step nor the project is news.
         var stage: String {
@@ -41,9 +43,10 @@ enum ConversationStatusDecision: Equatable {
             decisions.append(reply.asks ? .announce("Needs you: \(reply.headline)", .decision) : .announce(reply.headline, .reply))
         }
         // The window's living line, mirrored briefly: once per message and stage, never per step.
-        if !newSession, let waiting = current.waiting,
+        // A new reply is the news; its headline is never overwritten by the line.
+        if !newSession, decisions.isEmpty, let waiting = current.waiting,
            waiting.id != previous?.waiting?.id || waiting.stage != previous?.waiting?.stage {
-            decisions.append(.announce(waiting.text, .progress))
+            decisions.append(.announce(waiting.text, waiting.failed == true ? .reply : .progress))
         }
         if current.working {
             if previous?.working != true || newSession { decisions.append(.showWorking) }

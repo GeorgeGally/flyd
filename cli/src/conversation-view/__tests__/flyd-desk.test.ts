@@ -121,10 +121,15 @@ describe("FlydDesk", () => {
     turn.reject(new Error("model unavailable"));
     await until(() => (desk.exchanges()[0]?.waiting.startsWith("Flyd couldn't") ? true : undefined));
     expect(desk.exchanges()[0]!.waiting).toBe("Flyd couldn't answer this: model unavailable");
+    expect(desk.exchanges()[0]!.waitingFailed).toBe(true);
 
     desk.ask("still there?");
+    expect(desk.exchanges()[1]!.waitingFailed).toBeUndefined();
     const restarted = new FlydDesk({ dir, answer: turn.answer });
     expect(restarted.exchanges()[1]!.waiting).toBe("Flyd was interrupted before answering; send it again");
+    expect(restarted.exchanges()[1]!.waitingFailed).toBe(true);
+    const messages = mergeNotes([], restarted.exchanges(), {});
+    expect(statusOf({ messages, working: false }).waiting).toEqual({ id: messages[1]!.id, text: "Flyd was interrupted before answering; send it again", failed: true });
   });
   it("reads a stored question again only when its file changes", async () => {
     const desk = new FlydDesk({ dir, answer: async () => "Siam Paragon, sir." });

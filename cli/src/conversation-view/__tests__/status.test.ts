@@ -34,6 +34,8 @@ describe("conversation status for the island", () => {
     expect(statusOf({ messages, working: false }).waiting).toBeUndefined();
     const pending = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Answering" }];
     expect(statusOf({ messages: pending, working: false }).waiting).toEqual({ id: "u3", text: "Answering" });
+    const failed = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Flyd couldn't answer this: offline", waitingFailed: true }];
+    expect(statusOf({ messages: failed, working: false }).waiting).toEqual({ id: "u3", text: "Flyd couldn't answer this: offline", failed: true });
   });
 
   it("names what the assistant is doing only while it works", () => {
