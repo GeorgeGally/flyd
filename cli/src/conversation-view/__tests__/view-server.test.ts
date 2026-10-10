@@ -101,6 +101,14 @@ describe("SnapshotDiffer relays", () => {
     expect(answered.order).toEqual(["note:1", "note-reply:1", "t2"]);
     expect(answered.messages.map((m) => [m.id, m.waiting, m.answers])).toEqual([["note:1", undefined, undefined], ["note-reply:1", undefined, "note:1"]]);
   });
+
+  it("tells the page when a question's line says its answer failed", () => {
+    const differ = new SnapshotDiffer();
+    const asking = differ.next({ messages: [{ id: "ask:1", role: "user", text: "weather?", waiting: "Answering" }], working: false });
+    expect(asking.messages[0]!.waitingFailed).toBeUndefined();
+    const failed = differ.next({ messages: [{ id: "ask:1", role: "user", text: "weather?", waiting: "Flyd couldn't answer this: offline", waitingFailed: true }], working: false });
+    expect(failed.messages.map((m) => [m.waiting, m.waitingFailed])).toEqual([["Flyd couldn't answer this: offline", true]]);
+  });
 });
 
 describe("SnapshotDiffer summaries", () => {

@@ -159,6 +159,25 @@ describe("conversation page", () => {
     expect(lines()).toEqual([]);
   });
 
+  it("stills a line that says the answer failed, and keeps the working dots", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const question = { id: "ask:1", role: "user", html: "<p>what's the weather?</p>" };
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    const line = document.querySelector(".queued")!;
+    expect(line.classList.contains("still")).toBe(false);
+    expect(document.getElementById("working")!.hidden).toBe(true);
+
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Flyd couldn't answer this: offline", waitingFailed: true }], working: true, lastActivity: new Date().toISOString() });
+    expect(document.querySelector(".queued")).toBe(line);
+    expect(line.classList.contains("still")).toBe(true);
+    expect(document.getElementById("working")!.hidden).toBe(false);
+
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    expect(line.classList.contains("still")).toBe(false);
+  });
+
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
     await settle();

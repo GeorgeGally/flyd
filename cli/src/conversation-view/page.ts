@@ -658,6 +658,7 @@ var __name = function (f) { return f; };
       el.appendChild(queued);
       living(queued, message.waiting);
     } else living(queued, message.waiting);
+    if (queued && message.waiting) queued.classList.toggle("still", !!message.waitingFailed);
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
     var label = el.querySelector(":scope > .aside-label");
@@ -774,7 +775,7 @@ var __name = function (f) { return f; };
     // While his newest message's own line says what is happening, the dots would only repeat it.
     var shown = main.querySelectorAll(".msg");
     var last = shown[shown.length - 1];
-    var speaking = !!(last && last.querySelector(":scope > .queued"));
+    var speaking = !!(last && last.querySelector(":scope > .queued:not(.still)"));
     working.hidden = !(isWorking && recent) || speaking;
   }
   setInterval(refreshWorking, 15000);
