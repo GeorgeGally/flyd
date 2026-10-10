@@ -30,6 +30,13 @@ describe("voicePrompt", () => {
     expect(prompt).toContain("George designs and codes.");
     expect(prompt).toContain("JSON array");
   });
+
+  it("says the crew does the work, never George", () => {
+    // "It is under way, and you are working on it now." put a worker's job on him.
+    const prompt = voicePrompt([{ id: "k1", kind: "under way", title: "Flyd: TV artefact" }], null);
+    expect(prompt).toContain("The work is done by the crew, never by George");
+    expect(prompt).toContain("Never say he is doing, building or working on something");
+  });
 });
 
 describe("ArtefactVoice", () => {
