@@ -4,10 +4,10 @@ import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { runAdvisors, type Advisory } from "./advisors.js";
 import { readJournalSince, recentJournal } from "./journal.js";
-import { collectNewCaptures, readLibrarianState, runLibrarian, type LibrarianRunResult } from "./librarian.js";
+import { collectNewCaptures, readLibrarianState, runLibrarian, tasteCurationDue, type LibrarianRunResult } from "./librarian.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { describeProject, liveProjects } from "./projects.js";
-import { readTaste } from "./taste.js";
+import { syncTasteSkills } from "./taste-skills.js";
 
 // A council pass: the Librarian curates what is new, then the Critic and the
 // Strategist advise on it. Runs in the background — after a burst of turns,
@@ -55,7 +55,7 @@ function councilPassDueForWork(now: Date): boolean {
 }
 
 export function councilPassDue(now = new Date()): boolean {
-  return readTaste().rules.length > 0 || councilPassDueForWork(now);
+  return tasteCurationDue() || councilPassDueForWork(now);
 }
 
 export interface CouncilPassResult {
@@ -90,11 +90,13 @@ function readNotifyState(today: string): NotifyState {
 export async function runCouncilPass(deps: CouncilDependencies): Promise<CouncilPassResult> {
   const now = (deps.now ?? (() => new Date()))();
   if (!deps.force && !councilPassDue(now)) return { skipped: "not_due", advisories: [], notified: [] };
-  const tasteOnly = !deps.force && readTaste().rules.length > 0 && !councilPassDueForWork(now);
+  const tasteOnly = !deps.force && !councilPassDueForWork(now);
   const lock = lockPath();
   if (!acquire(lock)) return { skipped: "locked", advisories: [], notified: [] };
   try {
     const librarian = await runLibrarian({ complete: deps.complete, now: () => now });
+    // What the Librarian just curated reaches every agent as skills.
+    try { syncTasteSkills(); } catch { /* next pass */ }
     if (librarian.skipped || tasteOnly) return { librarian, advisories: [], notified: [] };
     const advisories = await runAdvisors({
       profile: readUserProfile(),

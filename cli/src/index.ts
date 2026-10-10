@@ -172,8 +172,8 @@ program
 
 program
   .command("taste")
-  .description("What Flyd has learned about George's taste (TASTE.md): show | for <project|path> (rules for an agent to follow) | learn [--days N] | curate (Librarian folds near-duplicates, promotes, retires generic rules) | edit")
-  .argument("[action]", "show, for, learn, curate or edit")
+  .description("What Flyd has learned about George's taste (TASTE.md): show | for <project|path> (rules for an agent to follow) | learn [--days N] | curate (Librarian folds near-duplicates, promotes, moves one project's rules to it, retires generic rules) | skills (compile TASTE.md into the skills agents load for UI work) | edit")
+  .argument("[action]", "show, for, learn, curate, skills or edit")
   .argument("[args...]", "project or path for `for`; --days N for `learn`")
   .allowUnknownOption()
   .action(async (action?: string, args?: string[]) => {
