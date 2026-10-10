@@ -277,11 +277,15 @@ describe("conversation page", () => {
     expect(more.textContent).toBe("less");
     expect(document.querySelectorAll("article.assistant")[1]!.querySelector(".summary")).toBeNull();
 
-    (document.getElementById("mode") as HTMLButtonElement).click();
+    const mode = document.getElementById("mode") as HTMLButtonElement;
+    expect(mode.textContent).toBe("full");
+    mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("full");
     expect(localStorage.getItem("flyd-view-mode")).toBe("full");
-    (document.getElementById("mode") as HTMLButtonElement).click();
+    expect(mode.textContent).toBe("flyd");
+    mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
+    expect(mode.textContent).toBe("full");
   });
 
   it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {

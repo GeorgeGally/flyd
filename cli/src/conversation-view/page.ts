@@ -515,7 +515,9 @@ const SCRIPT = `
   var modeBtn = document.getElementById("mode");
   function applyMode(mode) {
     document.documentElement.setAttribute("data-view", mode);
-    modeBtn.setAttribute("aria-pressed", String(mode === "full"));
+    // He reads it as "full / flyd": the word names the view a click switches to.
+    modeBtn.textContent = mode === "full" ? "flyd" : "full";
+    modeBtn.setAttribute("aria-label", mode === "full" ? "Show Flyd's summaries" : "Show full replies");
   }
   applyMode(store("flyd-view-mode") === "full" ? "full" : "summary");
   modeBtn.addEventListener("click", function () {
@@ -1667,7 +1669,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="air" id="air">standby</span>
   <span class="when" id="when"></span>
   <span class="controls">
-    <button id="mode" type="button" aria-pressed="false" aria-label="Full replies">full</button>
+    <button id="mode" type="button" aria-label="Show full replies">full</button>
     <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
     <button id="theme" type="button" aria-pressed="false" aria-label="Light theme">light</button>
     <button id="flip" type="button" aria-pressed="false" aria-label="Artefact view">artefact</button>
