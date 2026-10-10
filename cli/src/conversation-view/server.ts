@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { extname, sep } from "node:path";
+import { extname, join, sep } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
@@ -22,7 +22,8 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, spoken, type RailArtefact } from "./rail.js";
+import { composeRail, conversationPreviews, normalizeLoopback, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { Workshop } from "./workshop.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -35,6 +36,22 @@ export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
 
 const SHOT_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+/** What a fleet deliverable or review board page may load from firstmate's data tree. */
+const RAIL_FILE_TYPES: Record<string, string> = {
+  ...SHOT_TYPES,
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+};
 const HEARTBEAT_MS = 15_000;
 /** Text plus up to four attachments (screenshots or documents), base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
@@ -308,6 +325,8 @@ export class ConversationViewServer {
    * loopback, but cannot read the page that carries this token.
    */
   private readonly token = randomBytes(24).toString("hex");
+  /** Review boards and finished deliverables the fleet left in firstmate's data tree. */
+  private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
 
   constructor(
     private readonly source: ConversationSource,
@@ -386,7 +405,7 @@ export class ConversationViewServer {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         // Inline page only; the right column may frame a loopback site it previews.
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:*",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-src 'self' http://127.0.0.1:* http://localhost:*",
       });
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
@@ -441,6 +460,22 @@ export class ConversationViewServer {
         return;
       }
       await this.artefactShot(res, url.searchParams.get("task") ?? "", url.searchParams.get("file") ?? "");
+      return;
+    }
+    if (url.pathname.startsWith("/rail-file/")) {
+      const [, , token = "", ...rest] = url.pathname.split("/");
+      if (!sameToken(token, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      let path: string;
+      try {
+        path = `/${rest.map((part) => decodeURIComponent(part)).join("/")}`;
+      } catch {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      await this.railFile(res, path);
       return;
     }
     if (url.pathname === "/api/rail-image") {
@@ -541,14 +576,77 @@ export class ConversationViewServer {
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
       }));
     const interpreter = this.summaries?.interpreter;
-    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreviews(snapshot.messages), {
+    const { boards, deliverables } = this.workshop.current();
+    // A Lavish board refuses to be framed; the column frames the page it reviews instead and links the board.
+    const board = new Map<string, RailPreview>(boards.map((entry) => {
+      const url = normalizeLoopback(entry.url) ?? entry.url;
+      return [url, { id: `live:${url}`, kind: "live", url, title: `Review board: ${entry.title}`, line: entry.task ?? entry.title, frame: this.railFileSrc(entry.file) }];
+    }));
+    const workshop: RailPreview[] = [
+      // A board whose server stopped is gone, not "not running".
+      ...[...board.values()].filter((preview) => this.previews.state(preview.url) !== "down"),
+      ...deliverables.map((entry): RailPreview => ({
+        id: entry.id,
+        kind: "file",
+        url: this.railFileSrc(entry.open),
+        title: entry.title,
+        line: `${entry.task} · ${entry.kinds.map((kind) => kind.toUpperCase()).join(" + ")}`,
+        ...(entry.html ? { frame: this.railFileSrc(entry.html) } : {}),
+        at: new Date(entry.mtimeMs).toISOString(),
+      })),
+    ];
+    return composeRail(this.source.exchanges?.() ?? [], artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
+      known: (preview) => board.get(preview.url) ?? preview,
       // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.
       voice: (answer) => {
         const reading = answer.answers?.startsWith("note:") ? interpreter?.cached(answer.text) : undefined;
         return renderBriefing(reading ? inFlydsVoice(reading) : spoken(answer.text));
       },
     });
+  }
+
+  /** The same-origin src of a file in firstmate's data tree; its relative assets resolve under the same prefix. */
+  private railFileSrc(path: string): string {
+    return `/rail-file/${this.token}${path.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+  }
+
+  /**
+   * A deliverable or review board page, served only from firstmate's data
+   * tree. HTML runs sandboxed in an opaque origin, so a page the fleet made
+   * can never reach this window's token or its API.
+   */
+  private async railFile(res: ServerResponse, file: string): Promise<void> {
+    const type = RAIL_FILE_TYPES[extname(file).toLowerCase()];
+    if (!file.startsWith("/") || !type || file.includes("\0")) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    let real: string;
+    let root: string;
+    try {
+      real = await realpath(file);
+      root = await realpath(join(firstmateHome(), "data"));
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    if (!real.startsWith(root + sep)) {
+      sendJson(res, 403, { error: "not allowed" });
+      return;
+    }
+    try {
+      const data = await readFile(real);
+      res.writeHead(200, {
+        "content-type": type,
+        "cache-control": "private, max-age=30",
+        "x-content-type-options": "nosniff",
+        ...(type.startsWith("application/pdf") ? {} : { "content-security-policy": "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox" }),
+      });
+      res.end(data);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+    }
   }
 
   /** A screenshot a reply named, served only from firstmate's own tree or Flyd's. */

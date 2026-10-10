@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { PreviewProbe } from "../preview-probe.js";
+import { PreviewProbe, refusesFraming } from "../preview-probe.js";
 
 describe("PreviewProbe", () => {
   let probe: PreviewProbe | undefined;
@@ -39,5 +39,16 @@ describe("PreviewProbe", () => {
     expect(probe.state("http://127.0.0.1:8097/")).toBe("up");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toBe(2);
+  });
+
+  it("marks a page that refuses framing blocked, never a blank frame", async () => {
+    const headers = (entries: Record<string, string>) => ({ get: (name: string) => entries[name] ?? null });
+    probe = new PreviewProbe(async () => ({ status: 200, headers: headers({ "x-frame-options": "DENY" }) }));
+    probe.state("http://127.0.0.1:4387/session/ea82");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(probe.state("http://127.0.0.1:4387/session/ea82")).toBe("blocked");
+    expect(refusesFraming(headers({ "content-security-policy": "default-src 'self'; frame-ancestors 'none'" }))).toBe(true);
+    expect(refusesFraming(headers({ "content-security-policy": "frame-ancestors *" }))).toBe(false);
+    expect(refusesFraming(headers({ "content-security-policy": "default-src 'self'" }))).toBe(false);
   });
 });
