@@ -22,7 +22,8 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, type RailArtefact } from "./rail.js";
+import { composeRail, conversationPreviews, spoken, type RailArtefact } from "./rail.js";
+import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
@@ -317,6 +318,7 @@ export class ConversationViewServer {
     private readonly weather?: WeatherReader,
     private readonly predictions = new ComposerPredictions(),
     private readonly drafts = new ComposerDrafts(),
+    private readonly previews = new PreviewProbe(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -342,6 +344,7 @@ export class ConversationViewServer {
 
   async close(): Promise<void> {
     this.predictions.close();
+    this.previews.close();
     this.predictionContexts.clear();
     this.feed.stop();
     this.weather?.stop();
@@ -537,7 +540,15 @@ export class ConversationViewServer {
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
       }));
-    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreviews(snapshot.messages));
+    const interpreter = this.summaries?.interpreter;
+    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreviews(snapshot.messages), {
+      live: (url) => this.previews.state(url),
+      // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.
+      voice: (answer) => {
+        const reading = answer.answers?.startsWith("note:") ? interpreter?.cached(answer.text) : undefined;
+        return renderBriefing(reading ? inFlydsVoice(reading) : spoken(answer.text));
+      },
+    });
   }
 
   /** A screenshot a reply named, served only from firstmate's own tree or Flyd's. */
@@ -812,12 +823,17 @@ export class ConversationViewServer {
     const stopFeed = this.feed.onRefresh(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
+    // A previewed page came up or went down: the column's card changes.
+    const stopPreviews = this.previews.onChange(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
       closed = true;
       clearInterval(heartbeat);
       stopFeed();
+      stopPreviews();
       follower.close();
     });
   }

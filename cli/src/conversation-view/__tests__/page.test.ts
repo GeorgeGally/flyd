@@ -845,6 +845,27 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
   });
 
+  it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = {
+      conversations: [{ id: "q1", question: "swap the copy", answer: "Copy swap dispatched.", answerHtml: "<p>The copy swap is <strong>under way</strong>, sir.</p>" }],
+      artefacts: [
+        { id: "live:http://127.0.0.1:8088/", title: "Preview not running", line: "127.0.0.1:8088/", url: "http://127.0.0.1:8088/", down: true },
+        { id: "live:http://127.0.0.1:9000/", title: "Live preview", line: "127.0.0.1:9000/", url: "http://127.0.0.1:9000/", checking: true },
+      ],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    expect(document.querySelector(".rail-a")!.innerHTML).toBe("<p>The copy swap is <strong>under way</strong>, sir.</p>");
+    expect(document.querySelector(".rail-frame")).toBeNull();
+    const down = document.querySelector(".rail-card--down")!;
+    expect(down.textContent).toContain("Preview not running");
+    expect(down.textContent).toContain("127.0.0.1:8088/");
+    expect(document.querySelectorAll(".rail-card-note")).toHaveLength(2);
+  });
+
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
     sendResponse = { id: "note:7", timestamp: "2026-10-05T20:02:00.000Z" };
     load("");

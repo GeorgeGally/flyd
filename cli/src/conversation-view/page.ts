@@ -330,6 +330,12 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: 500 14px/1.3 var(--mono); color: var(--fg); }
 .rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
 .rail-card p { margin: 0; padding: 0 12px 10px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.rail-a-md { white-space: normal; }
+.rail-a-md p { margin: 0 0 8px; padding: 0; font: inherit; color: inherit; }
+.rail-a-md p:last-child { margin-bottom: 0; }
+.rail-a-md a { color: var(--link); }
+.rail-card-note { font-style: italic; }
+.rail-card--down .rail-card-head span { color: var(--muted); }
 .rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
 :root[data-screen="show"] .rail { display: none; }
@@ -963,7 +969,7 @@ var __name = function (f) { return f; };
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
   function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
   function railCard(card) {
-    var box = el("div", "rail-card");
+    var box = el("div", "rail-card" + (card.down ? " rail-card--down" : ""));
     var head = el("div", "rail-card-head");
     head.appendChild(el("span", "", card.title));
     if (card.url) {
@@ -975,6 +981,8 @@ var __name = function (f) { return f; };
     }
     box.appendChild(head);
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (card.down) box.appendChild(el("p", "rail-card-note", "Nothing answers at this address yet."));
+    else if (card.checking) box.appendChild(el("p", "rail-card-note", "Checking the page answers…"));
     if (card.image) {
       var shot = el("img", "rail-shot");
       shot.src = withToken(card.image);
@@ -1005,7 +1013,11 @@ var __name = function (f) { return f; };
       talks.slice().reverse().forEach(function (talk) {
         var wrap = el("div", "rail-talk");
         wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
-        if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
+        if (talk.answerHtml) {
+          var answer = el("div", "rail-a rail-a-md");
+          answer.innerHTML = talk.answerHtml;
+          wrap.appendChild(answer);
+        } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
         else if (talk.waiting) wrap.appendChild(el("p", "rail-wait", talk.waiting));
         (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
         if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
