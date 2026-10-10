@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cleanCaptainText, conversationFromLines, TranscriptConversation } from "../transcript-filter.js";
+import { cleanCaptainText, conversationFromLines, noteIdsIn, TranscriptConversation } from "../transcript-filter.js";
 import {
   apiError,
   assistantText,
@@ -219,5 +219,28 @@ describe("transcript filter", () => {
 
   it("ignores malformed and torn lines", () => {
     expect(visible(['{"type":"user","message":', "not json", captain("still here")])).toEqual([["user", "still here"]]);
+  });
+});
+
+describe("inbox notes a turn handled", () => {
+  it("tags the reply of the turn whose tool lines named a note", () => {
+    const conversation = new TranscriptConversation();
+    for (const line of [
+      injection("firstmate watcher wake - one supervision event needs a handler"),
+      toolResult("1791660389\t2719\tcheck\tinbox:1791660389-520khJ\tcheck: captain inbox note 1791660389-520khJ - sidebar answers"),
+      toolUse("Bash", { command: "sed -n '/^--$/,$p' /fm/state/inbox/1791660389-520khJ.note" }),
+      assistantText("Captain, you're right. The sidebar will show my latest reply under each question."),
+      captain("thanks"),
+      assistantText("Captain, any time, and that reply stands on its own."),
+    ]) conversation.pushLine(line);
+    const replies = conversation.snapshot().messages.filter((message) => message.role === "assistant");
+    expect(replies[0]!.notes).toEqual(["1791660389-520khJ"]);
+    expect(replies[1]!.notes).toBeUndefined();
+  });
+
+  it("reads note ids only from inbox lines, and never from a listing of many", () => {
+    expect(noteIdsIn("acked 1791660389-520khJ")).toEqual(["1791660389-520khJ"]);
+    expect(noteIdsIn("built 1791660389-520khJ")).toEqual([]);
+    expect(noteIdsIn("inbox 1791660001-ENeVDK 1791660002-ENeVDK 1791660003-ENeVDK")).toEqual([]);
   });
 });

@@ -24,6 +24,7 @@ import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
 import { composeRail, conversationPreviews, normalizeLoopback, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
+import { withFollowUps } from "./follow-ups.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -595,7 +596,8 @@ export class ConversationViewServer {
         at: new Date(entry.mtimeMs).toISOString(),
       })),
     ];
-    return composeRail(this.source.exchanges?.() ?? [], artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
+    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {});
+    return composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       known: (preview) => board.get(preview.url) ?? preview,
       // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.

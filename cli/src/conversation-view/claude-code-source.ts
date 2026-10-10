@@ -4,6 +4,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
 import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
+import { followUps } from "./follow-ups.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { readProjects } from "../council/projects.js";
 import { handoffLine, livened } from "./living.js";
@@ -320,7 +321,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     if (exchanges.length === 0) return voiced;
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots.
     const live = livened(exchanges, { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
-    return { ...voiced, messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)) };
+    // Firstmate's answers in its own chat, read before its supervision replies are filtered out, for the right column.
+    const answered = followUps(exchanges, snapshot.messages);
+    return {
+      ...voiced,
+      messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),
+      ...(Object.keys(answered).length ? { followUps: answered } : {}),
+    };
   }
 
   private sessionPath(sessionId: string): string {

@@ -37,6 +37,20 @@ interface Segment {
   activity?: { text: string; rank: number };
   /** Started by firstmate's supervision (a watcher wake, an operational input), not by the captain. */
   wake?: boolean;
+  /** Inbox notes this turn handled: note ids its tool lines named. */
+  notes?: Set<string>;
+}
+
+/** An inbox note id, as fm-inbox.sh names it: "<epoch>-<6 chars>". */
+const NOTE_ID = /\b(1\d{9}-[A-Za-z0-9]{6})\b/g;
+/** A line naming more notes than this is a listing, not the handling of one. */
+const MAX_NOTES_PER_LINE = 2;
+
+/** The note ids a tool line names, when it is about the inbox. */
+export function noteIdsIn(line: string): string[] {
+  if (!/inbox|acked/.test(line)) return [];
+  const ids = [...new Set([...line.matchAll(NOTE_ID)].map((match) => match[1]!))];
+  return ids.length <= MAX_NOTES_PER_LINE ? ids : [];
 }
 
 function isRecord(value: unknown): value is Json {
@@ -254,6 +268,7 @@ export class TranscriptConversation {
     // entry carrying a tool result is never a captain message.
     if (line.includes('"type":"tool_result"')) {
       this.touch(line);
+      this.noteHandled(noteIdsIn(line));
       return;
     }
     let entry: unknown;
@@ -263,6 +278,12 @@ export class TranscriptConversation {
       return;
     }
     if (isRecord(entry)) this.push(entry, offset);
+  }
+
+  private noteHandled(ids: string[]): void {
+    if (!this.segment || ids.length === 0) return;
+    this.segment.notes ??= new Set();
+    for (const id of ids) this.segment.notes.add(id);
   }
 
   private touch(line: string): void {
@@ -339,6 +360,7 @@ export class TranscriptConversation {
         const said = segment.trailing.at(-1);
         const narration = said && said.text.length < SUBSTANTIVE_CHARS ? narrationLine(said.text) : null;
         if (narration) segment.activity = { text: narration, rank: 3 };
+        this.noteHandled(noteIdsIn(JSON.stringify(block.input ?? "")));
         const step = activityOf(block);
         if (step && step.rank >= (segment.activity?.rank ?? 0)) segment.activity = step;
         segment.trailing = [];
@@ -397,6 +419,7 @@ export class TranscriptConversation {
       text: pieces.map((piece) => piece.text).join("\n\n"),
       ...(last.timestamp ? { timestamp: last.timestamp } : {}),
       ...(segment.wake ? { wake: true } : {}),
+      ...(segment.notes?.size ? { notes: [...segment.notes] } : {}),
     };
   }
 
