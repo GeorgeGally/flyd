@@ -1024,6 +1024,7 @@ var __name = function (f) { return f; };
   var DRAFT_KEY = explicit || "latest";
   var DRAFT_STORE = "flyd-view-draft:" + DRAFT_KEY;
   var draftTimer = null;
+  var restoring = false;
   var sendsInFlight = 0;
   function draftState() {
     // Paging through earlier messages shows them in the box; the draft is what he had typed.
@@ -1042,7 +1043,7 @@ var __name = function (f) { return f; };
   function saveDraftNow(keepalive) {
     clearTimeout(draftTimer);
     draftTimer = null;
-    if (!SEND_TOKEN) return;
+    if (!SEND_TOKEN || restoring) return;
     // A message on its way keeps its draft until it has landed.
     if (sendsInFlight > 0 && !input.value && !attachments.length) return;
     var state = draftState();
@@ -1091,15 +1092,20 @@ var __name = function (f) { return f; };
     if (!SEND_TOKEN) return;
     var local = null;
     try { local = JSON.parse(store(DRAFT_STORE) || "null"); } catch (e) { local = null; }
+    restoring = true;
     authed("/api/draft?key=" + encodeURIComponent(DRAFT_KEY), { method: "GET" }, true)
       .then(function (response) { return response.ok ? response.json() : {}; })
       .catch(function () { return {}; })
       .then(function (data) {
+        restoring = false;
+        // Whatever he has started since the window opened wins.
+        if (input.value || attachments.length || voiceBase !== null) {
+          if (input.value || attachments.length) saveDraftNow();
+          return;
+        }
         var kept = data && data.draft && typeof data.draft.text === "string" ? data.draft : null;
         var newer = local && typeof local.text === "string" && (!kept || local.savedAt > kept.savedAt) ? local : kept;
         if (!newer) return;
-        // Whatever he has started since the window opened wins.
-        if (input.value || attachments.length || voiceBase !== null) return;
         var ids = (newer.attachments || []).map(function (a) { return a.id; });
         var restored = (kept ? kept.attachments : []).filter(function (a) { return ids.indexOf(a.id) !== -1; }).map(function (a) {
           return a.name
@@ -1399,28 +1405,12 @@ var __name = function (f) { return f; };
     } catch (e) { /* sound is a nicety */ }
   }
 
-  function post(payload) {
-    return fetch("/api/send", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-flyd-view-token": SEND_TOKEN },
-      body: payload,
-    }).then(function (response) {
-      return response.json().then(function (data) { return { response: response, data: data }; });
-    });
-  }
-  // After the view restarts, its token changes; an open tab fetches the new
-  // one and tries once more.
-  function deliver(payload, retry) {
-    return post(payload).then(function (result) {
-      if (result.response.status === 403 && retry) {
-        return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
-          if (!data.token) throw new Error(result.data.error || "not sent");
-          SEND_TOKEN = data.token;
-          return deliver(payload, false);
-        });
-      }
-      if (!result.response.ok) throw new Error(result.data.error || "not sent");
-      return result.data;
+  function deliver(payload) {
+    return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || "not sent");
+        return data;
+      });
     });
   }
 
@@ -1499,7 +1489,7 @@ var __name = function (f) { return f; };
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
-    deliver(payload, true).then(function (sent) {
+    deliver(payload).then(function (sent) {
       sendsInFlight -= 1;
       // Landed: the draft it came from goes, unless he has started another.
       if (!input.value && !attachments.length) saveDraftNow();

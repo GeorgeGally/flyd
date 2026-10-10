@@ -376,6 +376,32 @@ describe("conversation page", () => {
     expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("older and newer");
   });
 
+  it("never overwrites Core's draft before it has been read back", async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Earlier tests' pages finish their own pending saves first.
+    await wait(350);
+    localStorage.clear();
+    const posts: Array<Record<string, unknown>> = [];
+    let answer: ((response: Response) => void) | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") { posts.push((JSON.parse(String(init!.body)) as { draft: Record<string, unknown> }).draft); return json({ ok: true }); }
+      if (url.startsWith("/api/draft?")) return new Promise<Response>((resolve) => { answer = resolve; });
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    // He clicks into the box while the stored draft is still on its way back.
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.focus();
+    document.dispatchEvent(new Event("selectionchange"));
+    await wait(350);
+    expect(posts).toEqual([]);
+    answer!(json({ draft: { text: "the long note", selectionStart: 13, selectionEnd: 13, attachments: [], savedAt: 1 } }));
+    for (let i = 0; i < 10 && !input.value; i += 1) await settle();
+    expect(input.value).toBe("the long note");
+    expect(posts.every((draft) => draft.text === "the long note")).toBe(true);
+  });
+
   it("blips once for a message that went out, and stays quiet when it did not", async () => {
     load("");
     await settle();
