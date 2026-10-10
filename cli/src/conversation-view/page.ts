@@ -1509,6 +1509,7 @@ var __name = function (f) { return f; };
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
     sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "");
+    if (sceneEl.dataset.id !== box.id) sceneEl.parentElement.scrollTop = 0;
     sceneEl.dataset.id = box.id;
     sceneHead.textContent = box.title;
     sceneHead.classList.toggle("long", box.title.length > 80);
