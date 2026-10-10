@@ -290,6 +290,18 @@ describe("the Librarian decides what is his and what is one project's", () => {
     expect(after.rules.some((item) => item.text === "Each section's content block is centred on its screen.")).toBe(false);
   });
 
+  it("seeds no replacement for an old GNM 100vh principle George deleted", () => {
+    const old = "Every section is one full screen (100vh), with its content block centred.";
+    writeTaste(learned());
+    writeFileSync(join(dir, "taste-seeded.json"), JSON.stringify(TASTE_PRINCIPLES.map((seed) => ruleId(seed.text)).concat(ruleId(old))
+      .filter((id) => id !== ruleId("Every section is one full screen (100vh): one screen per section, never a long scroll.") && id !== ruleId("Each section's content block is centred on its screen."))));
+    expect(syncTasteSkills({ roots, projects: PROJECTS }).seeded).toBe(0);
+    const after = readTaste();
+    expect(after.rules.some((item) => item.text.startsWith("Every section is one full screen"))).toBe(false);
+    expect(after.rules.some((item) => item.text === "Each section's content block is centred on its screen.")).toBe(false);
+    expect(syncTasteSkills({ roots, projects: PROJECTS }).seeded).toBe(0);
+  });
+
   it("promotes on the same idea in another project, judged by meaning, or on a principle it expresses; never bare", () => {
     const profile = learned();
     const capfive = rule("Sections are 100vh tall.", 2, "capfive-client-work");

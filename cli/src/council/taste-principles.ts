@@ -228,23 +228,25 @@ function readSeeded(): Set<string> {
  * Add the principles TASTE.md has never had. A principle already there (in any
  * tier, or reworded under its id), or seeded before and since deleted by
  * George, is left alone. A seed that replaces an earlier one takes its place:
- * the earlier principle is removed, unless George reworded, vetoed or retired
- * it: then it is his, it stays as it is and the replacement is not seeded. Returns how many rules
- * were added or removed; the caller writes TASTE.md and then calls
+ * an earlier principle still there with its seeded words is removed. Once
+ * George has acted on the earlier one (reworded, vetoed, retired or deleted
+ * it), that is his choice: it stays as it is and the replacement is not
+ * seeded. Returns how many rules were added or removed; the caller writes TASTE.md and then calls
  * markPrinciplesSeeded, so a failed write never loses one.
  */
 export function seedPrinciples(profile: TasteProfile, seeds: Seed[] = TASTE_PRINCIPLES): number {
   const seeded = readSeeded();
   const replaced = new Set(seeds.flatMap((seed) => (seed.replaces ? [ruleId(seed.replaces)] : [])));
-  const kept = profile.rules.filter((rule) => !(rule.principle && replaced.has(rule.id) && rule.id === ruleId(rule.text)));
-  const removed = profile.rules.length - kept.length;
-  profile.rules = kept;
+  const migrated = new Set(profile.rules.filter((rule) => rule.principle && replaced.has(rule.id) && rule.id === ruleId(rule.text)).map((rule) => rule.id));
+  const removed = migrated.size;
+  profile.rules = profile.rules.filter((rule) => !(rule.principle && migrated.has(rule.id)));
   const present = new Set([...profile.rules, ...profile.vetoed, ...(profile.retired ?? [])].map((rule) => rule.id));
   let added = 0;
   for (const seed of seeds) {
     const id = ruleId(seed.text);
     if (present.has(id) || seeded.has(id)) continue;
-    if (seed.replaces && present.has(ruleId(seed.replaces))) continue;
+    const earlier = seed.replaces ? ruleId(seed.replaces) : undefined;
+    if (earlier && !migrated.has(earlier) && (present.has(earlier) || seeded.has(earlier))) continue;
     const dates = seed.evidence.map((item) => item.date).sort();
     const projects = [...new Set(seed.evidence.flatMap((item) => (item.project ? [item.project] : [])))];
     const rule: TasteRule = {
