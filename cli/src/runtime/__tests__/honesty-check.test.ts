@@ -61,3 +61,50 @@ describe("contrast framing", () => {
     expect(styleProblems("The .pptx is your latest deck. Want me to open it?")).toEqual([]);
   });
 });
+
+describe("internal narration", () => {
+  it("strips handoff, stall and tool narration and says what it took out", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("Passing this to Firstmate. The clock lands in the header tonight.")).toEqual({
+      cleaned: "The clock lands in the header tonight.",
+      removed: ["Passing this to Firstmate."],
+    });
+    expect(stripInternalNarration("I'll pass this to the crew now.\nThe fix ships today.").cleaned).toBe("The fix ships today.");
+    expect(stripInternalNarration("Handing this to the coding boss. Routing this to the right team. It's done by six.").cleaned).toBe("It's done by six.");
+    expect(stripInternalNarration("One moment please sir. Your set starts at 10.")).toEqual({
+      cleaned: "Your set starts at 10.",
+      removed: ["One moment please sir."],
+    });
+    expect(stripInternalNarration("Let me check — the venue opens at 9.").cleaned).toBe("The venue opens at 9.");
+    expect(stripInternalNarration("Give me a sec. Just checking. Loading… Sam is free at 3.").cleaned).toBe("Sam is free at 3.");
+    expect(stripInternalNarration("Calling the calendar tool. You have two meetings tomorrow.").cleaned).toBe("You have two meetings tomorrow.");
+    expect(stripInternalNarration("I ran it through my tools internally and found it. The invoice is overdue.").cleaned).toBe("The invoice is overdue.");
+    expect(stripInternalNarration("Running the tool now.\n\nThe mix is 62 minutes.").cleaned).toBe("The mix is 62 minutes.");
+  });
+
+  it("leaves neutral answers and code alone", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    for (const answer of [
+      "Here is the mix plan for tonight.",
+      "Call Sam at 10. Your decks weren't in Documents; want me to check Drive?",
+      "The page is slow because the hero image is 8MB.",
+      "Check the loading spinner on the checkout page.",
+      "1. Warm up at 9.\n2. Peak at 11.\n\nWant the full breakdown?",
+      "\"Passing this to Firstmate\" and \"One moment please sir\" are both gone: from now on you get the outcome.",
+      "Run this:\n```\n# let me check the logs, one moment\ntail -f app.log\n```",
+    ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
+  });
+
+  it("keeps the original when nothing substantive would be left", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("One moment please sir.")).toEqual({ cleaned: "One moment please sir.", removed: [] });
+  });
+});
+
+describe("internal narration, George's own words", () => {
+  it("keeps hand-offs to George himself", async () => {
+    const { stripInternalNarration } = await import("../honesty-check.js");
+    expect(stripInternalNarration("I'll hand it to you straight: the gig is off.").removed).toEqual([]);
+    expect(stripInternalNarration("I'll pass this along. The draft is in your inbox.").cleaned).toBe("The draft is in your inbox.");
+  });
+});

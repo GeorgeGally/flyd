@@ -13,7 +13,7 @@ import { readSoul } from "../lib/soul.js";
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
-import { honestyRewritePrompt, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { honestyRewritePrompt, stripInternalNarration, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -1145,6 +1145,8 @@ export async function respondToConversation(
       const fixed = await rewrite(honestyRewritePrompt(final, problems)).catch(() => "");
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
+    // After any rewrite, so a rewritten answer can't bring the narration back.
+    final = stripInternalNarration(final).cleaned;
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }

@@ -81,3 +81,58 @@ export function styleProblems(answer: string): string[] {
   if (contrast) problems.push(`It uses "not X, it's Y" contrast framing ("${contrast[0].slice(0, 60)}"). He dislikes it; state the point directly.`);
   return problems;
 }
+
+// George wants the outcome or nothing (AGENTS.md "One voice"): no "Passing
+// this to Firstmate", no "One moment please sir", no "Let me check". A
+// rewrite prompt can be ignored, so these sentences are cut mechanically from
+// every answer before it reaches him.
+// Handing something to George himself ("I'll pass it to you") is not routing.
+const HANDOFF = /\b(?:passing|handing|routing|I'?ll (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!you\b)|\s*(?:[.!,…]|$))|\bfor the crew\b|\bto (?:the )?firstmate\b/i;
+const STALL = /\b(?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)\b|^(?:still )?loading(?: now| it| that| up)?\s*(?:[.…!]+|$)/i;
+const TOOL_NARRATION = /\b(?:calling|running|using|invoking) (?:the|my|a|an) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
+// "Internally" alone is ordinary English ("discussed internally"); only
+// first-person use describes Flyd's own machinery.
+const INTERNALLY = /\b(?:I|I'm|I've|I'll|I'd|my)\b[^.!?]*\binternally\b|\binternally\b[^.!?]*\b(?:I|my)\b/;
+// A stall that opens a real sentence ("Let me check — the venue opens at 9.")
+// loses only its opening clause.
+const LEADING_STALL = /^((?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)(?:,? please)?(?:,? sir)?\s*(?:—|–|-|,|:|\.\.\.|…))\s+(\S.*)$/i;
+
+function isNarration(sentence: string): boolean {
+  // Quoting a phrase (no more "Let me check") talks about it; it does not narrate.
+  const own = sentence.replace(/"[^"]*"|“[^”]*”/g, "\"\"");
+  return HANDOFF.test(own) || STALL.test(own) || TOOL_NARRATION.test(own) || INTERNALLY.test(own);
+}
+
+/**
+ * Cuts sentences that narrate Flyd's own routing, stalling or tools. Code
+ * blocks are left alone. When nothing substantive would be left, the original
+ * stands and nothing is reported removed.
+ */
+export function stripInternalNarration(answer: string): { cleaned: string; removed: string[] } {
+  const removed: string[] = [];
+  const parts = answer.split(/(```[\s\S]*?```)/);
+  const cleanedParts = parts.map((part, index) => {
+    if (index % 2 === 1) return part;
+    return part.split("\n").flatMap((line) => {
+      if (!line.trim()) return [line];
+      const indent = line.match(/^\s*/)?.[0] ?? "";
+      const kept: string[] = [];
+      for (const sentence of line.trim().split(/(?<=[.!?…])\s+/)) {
+        const leading = sentence.match(LEADING_STALL);
+        if (leading && !isNarration(leading[2])) {
+          removed.push(leading[1]);
+          kept.push(leading[2].charAt(0).toUpperCase() + leading[2].slice(1));
+        } else if (isNarration(sentence)) {
+          removed.push(sentence);
+        } else {
+          kept.push(sentence);
+        }
+      }
+      return kept.length ? [indent + kept.join(" ")] : [];
+    }).join("\n");
+  });
+  if (!removed.length) return { cleaned: answer, removed };
+  const cleaned = cleanedParts.join("").replace(/\n{3,}/g, "\n\n").trim();
+  if (!/[\p{L}\p{N}]{2,}/u.test(cleaned)) return { cleaned: answer, removed: [] };
+  return { cleaned, removed };
+}
