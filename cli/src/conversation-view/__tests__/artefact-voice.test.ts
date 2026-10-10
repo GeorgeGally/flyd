@@ -100,4 +100,16 @@ describe("withVoice", () => {
     expect(items[0]).toMatchObject({ kind: "call", headline: "Jev's trial is up; does it stay?", detail: "Keep it or drop it." });
     expect(items[1]).toMatchObject({ kind: "live", headline: "Drag and drop documents into the window", detail: "Working on it now" });
   });
+
+  it("shows a task's last words while new ones are asked for, only while it stays in the same section", () => {
+    const last = (kind: string, task: string) =>
+      kind === "needs you" && task === "jev" ? { headline: "Decide whether the Jev log stays.", line: "Keep it or drop it." } : undefined;
+    const asCall = withVoice(parseBearings({ decisions_open: [{ id: "jev", summary: JEV.title }] }), () => undefined, last);
+    expect(asCall.fleet.calls[0]!.said?.headline).toBe("Decide whether the Jev log stays.");
+    expect(asCall.unsaid).toHaveLength(1);
+    const asLanded = withVoice(parseBearings({ landed: [{ id: "jev", what: "Jev decision log reviewed" }] }), () => undefined, last);
+    expect(asLanded.fleet.landed[0]).toMatchObject({ task: "jev" });
+    expect(asLanded.fleet.landed[0]!.said).toBeUndefined();
+    expect(asLanded.unsaid).toHaveLength(1);
+  });
 });

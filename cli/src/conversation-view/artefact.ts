@@ -455,7 +455,7 @@ function voiceItem(row: ArtefactRow, kind: string): VoiceItem {
 export function withVoice(
   fleet: FleetArtefact,
   said: (item: VoiceItem) => Said | undefined,
-  lastSaid: (task: string) => Said | undefined = () => undefined,
+  lastSaid: (kind: string, task: string) => Said | undefined = () => undefined,
 ): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
   if (fleet.unavailable) return { fleet, unsaid: [] };
   const next: FleetArtefact = { ...fleet };
@@ -467,7 +467,7 @@ export function withVoice(
       const item = voiceItem(row, kind);
       const words = said(item);
       if (!words) unsaid.push(item);
-      const showing = words ?? (row.task ? lastSaid(row.task) : undefined);
+      const showing = words ?? (row.task ? lastSaid(kind, row.task) : undefined);
       return showing ? { ...row, said: showing } : row;
     });
   }
@@ -636,10 +636,9 @@ export class ArtefactFeed {
   }
 
   private voiced(voice: ArtefactVoice, enriched: FleetArtefact): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
-    const result = withVoice(enriched, (item) => voice.said(item), (task) => this.lastSaid.get(task));
-    const { calls, live, ready, landed, held } = result.fleet;
-    this.lastSaid = new Map([calls, live, ready, landed, held].flat()
-      .flatMap((row) => (row.task && row.said ? [[row.task, row.said] as [string, Said]] : [])));
+    const result = withVoice(enriched, (item) => voice.said(item), (kind, task) => this.lastSaid.get(`${kind}:${task}`));
+    this.lastSaid = new Map(VOICED.flatMap(([field, , kind]) => result.fleet[field]
+      .flatMap((row) => (row.task && row.said ? [[`${kind}:${row.task}`, row.said] as [string, Said]] : []))));
     return result;
   }
 
