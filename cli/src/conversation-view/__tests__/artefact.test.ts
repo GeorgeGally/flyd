@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights,
@@ -215,5 +216,44 @@ describe("ArtefactFeed", () => {
     expect(feed.shotPath("a", "notes.md")).toBeNull();
     expect(feed.shotPath("a", "../../state/a.status")).toBeNull();
     expect(feed.shotPath("b", "shots/after.png")).toBeNull();
+  });
+
+  it("keeps a task's last words while new ones are asked for, and never lets a slow answer bring back an older read", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-voiced-"));
+    mkdirSync(join(home, "bin"));
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const read = (name: string, doing: string) => writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "a", state: "working", repo: "flyd", name, doing }] }));
+    const answers: Array<(raw: string) => void> = [];
+    const asked: string[] = [];
+    const voice = new ArtefactVoice({
+      cacheFile: join(home, "voice.json"),
+      profile: () => null,
+      complete: (prompt) => {
+        asked.push(prompt);
+        return new Promise((resolve) => answers.push(resolve));
+      },
+    });
+    const feed = new ArtefactFeed({ home, voice, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+    read("Drag and drop documents", "harness busy");
+    await feed.refresh();
+    const first = { kind: "under way", title: "Drag and drop documents", detail: "Working on it now", project: "flyd" };
+    answers.shift()!(JSON.stringify([{ id: voiceKey(first), headline: "Documents will drop straight into the window.", line: "Nothing for you yet." }]));
+    await settle();
+    expect(feed.current().fleet!.live[0]!.said?.headline).toBe("Documents will drop straight into the window.");
+
+    read("Drag and drop documents, take two", "harness busy");
+    await feed.refresh();
+    expect(feed.current().fleet!.live[0]).toMatchObject({ label: "Drag and drop documents, take two", said: { headline: "Documents will drop straight into the window." } });
+
+    read("Drag and drop documents, take three", "harness busy");
+    await feed.refresh();
+    const second = { ...first, title: "Drag and drop documents, take two" };
+    answers.shift()!(JSON.stringify([{ id: voiceKey(second), headline: "Second try at dropping documents.", line: "Still nothing for you." }]));
+    await settle();
+    expect(feed.current().fleet!.live[0]!.label).toBe("Drag and drop documents, take three");
+    expect(asked).toHaveLength(2);
   });
 });

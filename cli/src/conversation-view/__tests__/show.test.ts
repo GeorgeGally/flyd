@@ -109,7 +109,31 @@ describe("showOf", () => {
     ]);
     expect(screen.title).toBe("Your move, sir.");
     expect(screen.summary).toBe("1 call waits on you.");
-    expect(screen.counts).toMatchObject({ call: 1, landed: 1 });
+    expect(screen.counts).toMatchObject({ call: 1, landed: 0 });
+  });
+
+  it("counts each piece of work once: from the fleet when it can be read, never his own question as held up", () => {
+    const messages = [
+      captain("u1", "can you check the notch island?", 10, { waiting: "passed to firstmate" }),
+      fleet("a1", "Sir, keep or remove the Jev log? A or B?", 5, { aside: true }),
+    ];
+    const working = { working: true, activity: "Reading the island code", lastActivity: minutesAgo(1) };
+    const read = showOf(snapshot(messages, working), {
+      now: NOW,
+      artefact: {
+        fleet: { calls: [{ label: "Keep or remove the Jev log?" }], live: [], ready: [], landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+      },
+    });
+    expect(read.items.map((item) => item.kind)).toContain("waiting");
+    expect(read.summary).toBe("1 call waits on you.");
+    expect(read.counts).toMatchObject({ call: 1, live: 0, waiting: 0 });
+
+    const unread = showOf(snapshot(messages, working), { now: NOW });
+    expect(unread.summary).toBe("1 call waits on you, 1 under way.");
+    expect(unread.counts.waiting).toBeUndefined();
   });
 
   it("sums up the whole fleet, counting past what the screen shows", () => {

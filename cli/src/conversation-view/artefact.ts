@@ -452,7 +452,11 @@ function voiceItem(row: ArtefactRow, kind: string): VoiceItem {
 }
 
 /** The rows the artefact can show, each with Flyd's words when it has them; and the rows still unsaid. */
-export function withVoice(fleet: FleetArtefact, said: (item: VoiceItem) => Said | undefined): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
+export function withVoice(
+  fleet: FleetArtefact,
+  said: (item: VoiceItem) => Said | undefined,
+  lastSaid: (task: string) => Said | undefined = () => undefined,
+): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
   if (fleet.unavailable) return { fleet, unsaid: [] };
   const next: FleetArtefact = { ...fleet };
   const unsaid: VoiceItem[] = [];
@@ -463,7 +467,8 @@ export function withVoice(fleet: FleetArtefact, said: (item: VoiceItem) => Said 
       const item = voiceItem(row, kind);
       const words = said(item);
       if (!words) unsaid.push(item);
-      return words ? { ...row, said: words } : row;
+      const showing = words ?? (row.task ? lastSaid(row.task) : undefined);
+      return showing ? { ...row, said: showing } : row;
     });
   }
   return { fleet: next, unsaid };
@@ -481,6 +486,9 @@ export class ArtefactFeed {
   private shots = new Map<string, Set<string>>();
   private timer?: NodeJS.Timeout;
   private refreshing = false;
+  private generation = 0;
+  /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
+  private lastSaid = new Map<string, Said>();
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -602,7 +610,8 @@ export class ArtefactFeed {
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
       const enriched = enrichFleet(bearings, entries, extras);
       const voice = this.options.voice;
-      const { fleet, unsaid } = voice ? withVoice(enriched, (item) => voice.said(item)) : { fleet: enriched, unsaid: [] };
+      const generation = ++this.generation;
+      const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
       this.inputs = {
         fleet,
         ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()) }),
@@ -611,19 +620,27 @@ export class ArtefactFeed {
         taste: tasteHighlights(tasteText),
       };
       for (const listener of this.listeners) listener();
-      if (voice && unsaid.length) void this.say(voice, enriched, unsaid);
+      if (voice && unsaid.length) void this.say(voice, enriched, unsaid, generation);
     } finally {
       this.refreshing = false;
     }
   }
 
   /** Asks Flyd's model for the rows it has not said yet, then shows its words. */
-  private async say(voice: ArtefactVoice, enriched: FleetArtefact, unsaid: VoiceItem[]): Promise<void> {
+  private async say(voice: ArtefactVoice, enriched: FleetArtefact, unsaid: VoiceItem[], generation: number): Promise<void> {
     if (!(await voice.request(unsaid))) return;
-    if (this.inputs.fleet !== undefined && this.inputs.fleet.generated === enriched.generated) {
-      this.inputs = { ...this.inputs, fleet: withVoice(enriched, (item) => voice.said(item)).fleet };
+    if (generation === this.generation) {
+      this.inputs = { ...this.inputs, fleet: this.voiced(voice, enriched).fleet };
       for (const listener of this.listeners) listener();
     }
+  }
+
+  private voiced(voice: ArtefactVoice, enriched: FleetArtefact): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
+    const result = withVoice(enriched, (item) => voice.said(item), (task) => this.lastSaid.get(task));
+    const { calls, live, ready, landed, held } = result.fleet;
+    this.lastSaid = new Map([calls, live, ready, landed, held].flat()
+      .flatMap((row) => (row.task && row.said ? [[row.task, row.said] as [string, Said]] : [])));
+    return result;
   }
 
   /** Start the background refresh; a no-op under vitest. */

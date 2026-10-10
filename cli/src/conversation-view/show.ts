@@ -279,7 +279,9 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   }
   const fleet = inputs.artefact?.fleet;
   const counts: Partial<Record<ShowKind, number>> = { ...fleetCounts(fleet) };
-  for (const item of items) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+  if (!fleet || fleet.unavailable) {
+    for (const item of items) if (item.kind !== "waiting") counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+  }
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
