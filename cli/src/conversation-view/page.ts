@@ -243,7 +243,10 @@ const SHOW_STYLE = `
   .pick-head.long { font-size: 26px; }
   .pick-line { margin-top: 18px; font-size: 18px; }
   .pick-meta { margin-top: 16px; font-size: 13px; }
-  .instrument, .fleet { gap: 16px 22px; }
+  /* A phone reads the instrument as a tidy two-column grid; the week spans it. */
+  .instrument { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+  .fleet { display: contents; }
+  .week { grid-column: 1 / -1; }
   .gauge .lines, .week .cols { height: 28px; gap: 3px; }
   .gauge .lines i { width: 2px; }
   /* The count says how many; the lines are the picture of it. */
