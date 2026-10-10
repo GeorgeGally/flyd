@@ -80,6 +80,11 @@ describe("internal narration", () => {
     expect(stripInternalNarration("Calling the calendar tool. You have two meetings tomorrow.").cleaned).toBe("You have two meetings tomorrow.");
     expect(stripInternalNarration("I ran it through my tools internally and found it. The invoice is overdue.").cleaned).toBe("The invoice is overdue.");
     expect(stripInternalNarration("Running the tool now.\n\nThe mix is 62 minutes.").cleaned).toBe("The mix is 62 minutes.");
+    expect(stripInternalNarration("I used the calendar tool: you're free Friday at 3. Want me to book it?")).toEqual({
+      cleaned: "You're free Friday at 3. Want me to book it?",
+      removed: ["I used the calendar tool:"],
+    });
+    expect(stripInternalNarration("Just checking: passing this to Firstmate — it lands tonight.").cleaned).toBe("It lands tonight.");
   });
 
   it("leaves neutral answers and code alone", async () => {
@@ -105,6 +110,10 @@ describe("internal narration", () => {
       "I'd handle payroll internally. An agency costs more.",
       "I'll send that to Sam once he replies.",
       "Sending it to the label first is safer.",
+      "None of my tools can reach your bank, so log in yourself. The bill is due Monday.",
+      "I checked internally and the invoice was paid on the 3rd. Anything else?",
+      "I'll pass it on, but the deadline is Friday regardless.",
+      "One moment, the whole room was singing.",
     ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
   });
 

@@ -86,26 +86,25 @@ export function styleProblems(answer: string): string[] {
 // this to Firstmate", no "One moment please sir", no "Let me check". A
 // rewrite prompt can be ignored, so these sentences are cut mechanically from
 // every answer before it reaches him.
-// Each pattern matches Flyd speaking about its own machinery, so it is anchored
-// to the sentence opening or a first-person subject: advice ("I'd suggest
-// handing it to your accountant"), outcomes ("I sent the fix to Firstmate this
-// morning") and commitments ("Let me check with Sam tomorrow") stay.
+// Each pattern must cover a whole sentence, or a whole opening clause before
+// ":", ";", a dash or an ellipsis, so the outcome that follows always stays:
+// advice ("I'd suggest handing it to your accountant"), outcomes ("I sent the
+// fix to Firstmate this morning") and commitments ("Let me check with Sam
+// tomorrow") are never cut.
 // Handing something to George himself ("I'll pass it to you") is not routing.
-const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing)|I'?ll (?:pass|hand|route)|I will (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!your\b)(?:the )?(?:[\w-]+ )?(?:firstmate|crew|boss|team|agent|worker)s?\b|\s*(?:[.!,…]|$))|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\s*[.!…]*$/i;
-const STALL_PHRASE = "one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now";
-const STALL = new RegExp(`^(?:(?:${STALL_PHRASE})(?:,? (?:please|sir|now|that|this|it|for you|on that|real quick))*|(?:still )?loading(?: now| it| that| up)?)[,\\s]*(?:[.…!]+)?$`, "i");
-const TOOL_NARRATION = /^(?:I'?m|I am) (?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool\b|^(?:now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!…]*$|\bI (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
+const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing)|I'?ll (?:pass|hand|route)|I will (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!your\b)(?:the )?(?:[\w-]+ )?(?:firstmate|crew|boss|team|agent|worker)s?(?: now)?)?\s*[.!…]*$|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\s*[.!…]*$/i;
+const STALL = /^(?:(?:one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now)(?:,? (?:please|sir|now|that|this|it|for you|on that|real quick))*|(?:still )?loading(?: now| it| that| up)?)\s*[.…!]*$/i;
+const TOOL_NARRATION = /^(?:I'?m |I am |now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!…]*$|^I (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\s*[.!…]*$|^I(?:'ve)? (?:ran|run|checked|searched|looked)\b[^.!?]* (?:through|with|via) my tools\s*[.!…]*$/i;
 // "Internally" alone is ordinary English ("I'd handle payroll internally");
 // only Flyd's own checking or running describes its machinery.
-const INTERNALLY = /\bI(?:'ve|'m)? (?:checked|checking|ran|running|looked|looking|searched|searching|processed|processing|routed|routing)\b[^.!?]*\binternally\b/i;
-// A stall that opens a real sentence ("Let me check — the venue opens at 9.")
-// loses only its opening clause.
-const LEADING_STALL = new RegExp(`^((?:${STALL_PHRASE})(?:,? please)?(?:,? sir)?\\s*(?:—|–|-|,|:|\\.\\.\\.|…))\\s+(\\S.*)$`, "i");
+const INTERNALLY = /^I(?:'ve|'m)? (?:checked|checking|ran|running|looked|looking|searched|searching|processed|processing|routed|routing)\b[^.!?]*\binternally(?: and found it)?\s*[.!…]*$/i;
+const OPENING_CLAUSE = /^(.+?\s*(?:—|–|-|:|;|\.\.\.|…))\s+(\S.*)$/;
 
 function isNarration(sentence: string): boolean {
   // Quoting a phrase (no more "Let me check") talks about it; it does not narrate.
   const own = sentence.replace(/"[^"]*"|“[^”]*”/g, "\"\"");
-  return HANDOFF.test(own) || STALL.test(own) || TOOL_NARRATION.test(own) || INTERNALLY.test(own);
+  const clause = own.replace(/\s*(?:—|–|-|:|;|\.\.\.|…)$/, "");
+  return HANDOFF.test(clause) || STALL.test(clause) || TOOL_NARRATION.test(clause) || INTERNALLY.test(clause);
 }
 
 /**
@@ -123,15 +122,13 @@ export function stripInternalNarration(answer: string): { cleaned: string; remov
       const indent = line.match(/^\s*/)?.[0] ?? "";
       const kept: string[] = [];
       for (const sentence of line.trim().split(/(?<=[.!?…])\s+/)) {
-        const leading = sentence.match(LEADING_STALL);
-        if (leading && !isNarration(leading[2])) {
-          removed.push(leading[1]);
-          kept.push(leading[2].charAt(0).toUpperCase() + leading[2].slice(1));
-        } else if (isNarration(sentence)) {
-          removed.push(sentence);
-        } else {
-          kept.push(sentence);
+        let rest = sentence;
+        for (let opening = rest.match(OPENING_CLAUSE); opening && isNarration(opening[1]); opening = rest.match(OPENING_CLAUSE)) {
+          removed.push(opening[1]);
+          rest = opening[2].charAt(0).toUpperCase() + opening[2].slice(1);
         }
+        if (isNarration(rest)) removed.push(rest);
+        else kept.push(rest);
       }
       return kept.length ? [indent + kept.join(" ")] : [];
     }).join("\n");
