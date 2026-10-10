@@ -33,8 +33,6 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "Please add a dark mode toggle", projects: ["Flyd", "GNM"] })).toBe("Adding a dark mode toggle");
     expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
     expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
-    expect(handoffLine("queued", { text: "can you show me the logs" })).toBe("Showing you the logs");
-    expect(handoffLine("queued", { text: "fix my site" })).toBe("Fixing your site");
     expect(handoffLine("queued", { text: "set the timeout to 5s" })).toBe("Setting the timeout to 5s");
     expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Working on it");
   });
@@ -45,6 +43,12 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "tell firstmate to fix the footer" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "get the crew to land it" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "/deploy staging" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "can you show me the logs" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix my site" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix what I'm seeing on the island" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix the bug I am seeing" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "check what I've changed today" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "update the copy we'll ship on our site" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "/ce-code-review fix the branch" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "fix it" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "ok" })).toBe(WORKING);

@@ -28,7 +28,7 @@ const GERUND: Record<string, string> = {
   deploy: "Deploying", open: "Opening", read: "Reading", draft: "Drafting", research: "Researching", sort: "Sorting",
 };
 const BACKSTAGE = /\b(?:firstmate|first mate|crew|crewmates?|workers?|helpers?|help|agents?|claude|opencode|codex|staff|team)\b/i;
-const SECOND_PERSON: Record<string, string> = { me: "you", my: "your", mine: "yours", myself: "yourself", i: "you" };
+const FIRST_PERSON = /\b(?:i|me|my|mine|myself|we|us|our|ours|ourselves)\b/i;
 const POLITE = /^(?:(?:hey|hi|ok|okay|so|and|also|now|then|please|pls|can you|could you|would you|will you|i(?:'d| would) like you to|i want you to|i need you to|let's|lets|go ahead and|just)\s+)+/i;
 
 /** The concrete thing in his message, in Flyd's words: "fix the footer on GNM" → "Fixing the footer on GNM". */
@@ -39,8 +39,8 @@ function subjectOf(text: string): string {
   const [verb = "", ...rest] = stripped.split(" ");
   const gerund = GERUND[verb.toLowerCase()];
   const object = rest.join(" ");
-  if (!gerund || !object || /^(?:it|this|that|them|these|those)$/i.test(object) || BACKSTAGE.test(object)) return "";
-  return clip(`${gerund} ${object.replace(/\b(?:me|my|mine|myself|i)\b/gi, (word) => SECOND_PERSON[word.toLowerCase()]!)}`);
+  if (!gerund || !object || /^(?:it|this|that|them|these|those)$/i.test(object) || BACKSTAGE.test(object) || FIRST_PERSON.test(object)) return "";
+  return clip(`${gerund} ${object}`);
 }
 
 /** The project his message names, by his own name for it. */
