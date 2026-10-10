@@ -20,10 +20,10 @@ const BRANCH_NAME = "(?:fm|feat|feature|fix|chore|codex|claude|bugfix|hotfix|rel
 const BRANCH = new RegExp(`\\s*(?:\\b(?:on|in|from|to)\\s+)?(?:\\bthe\\s+)?(?:\`${BRANCH_NAME}\`(?:\\s+branch)?|branch\\s+\`?${BRANCH_NAME}\`?|(?<![\\w./~-])${BRANCH_NAME}\\s+branch\\b)`, "g");
 const HASH = /`?\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b`?/g;
 const COUNT_WORD = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
-/** "All 5 checks passed" says "checks passed"; a failing, single or partial count is news and stays. */
-const CHECK_COUNT = new RegExp(`\\b(?:all\\s+)?(${COUNT_WORD})\\s+(?:of\\s+(${COUNT_WORD})\\s+)?(?:CI\\s+)?(checks|tests)\\b(?!\\s+(?:still\\s+)?(?:fail|broke|error|red))`, "gi");
+/** "All 5 checks passed" says "checks passed"; any count that does not say everything passed is news and stays. */
+const CHECK_COUNT = new RegExp(`\\b(?:(all)\\s+)?(${COUNT_WORD})\\s+(?:of\\s+(${COUNT_WORD})\\s+)?(?:CI\\s+)?(checks|tests)\\b(?=\\s+(?:(?:are|have|all)\\s+)?(?:pass|passed|passing|green)\\b)`, "gi");
 /** "1567/1567 tests", "tests: 12/12": a ratio counted in tests or checks, never a date like 10/10/2026. */
-const RATIO = /\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/]))(?=\s+(?:tests?|checks?|pass\w*)\b)|(\b(?:tests?|checks?)\b\s*:?\s*)\(?(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/])\)?/gi;
+const RATIO = /\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/]))(\s+(?:tests?|checks?|pass\w*)\b)|(\b(?:tests?|checks?)\b\s*:?\s*)\(?(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/])\)?/gi;
 
 /** A placeholder for a stub that was a link: the sentence around it carries the link instead. */
 const TOKEN = "⁣";
@@ -73,6 +73,10 @@ function relink(stretch: string, urls: string[]): string {
   return `${lead}[${end[1]}](${own[0]})${end[2]}`;
 }
 
+function opensSentence(before: string): boolean {
+  return /(?:^\s*|[.!?]\s*|^\s*(?:[-*+]|\d+[.)])\s+)$/.test(before);
+}
+
 function stripProse(prose: string): string {
   const urls: string[] = [];
   const token = (url: string) => `${TOKEN}${urls.push(url) - 1}${TOKEN}`;
@@ -92,13 +96,14 @@ function stripProse(prose: string): string {
     .replace(/\bPR\b/g, "change")
     .replace(BRANCH, "")
     .replace(new RegExp(`\\s*(?:\\b(?:as|at|in|onto|to|commit)\\s+)?(?:\\bcommit\\s+)?${HASH.source}`, "g"), "")
-    .replace(RATIO, (match, a?: string, b?: string, c?: string, d?: string, noun?: string, e?: string, f?: string) => {
+    .replace(RATIO, (match, a?: string, b?: string, c?: string, d?: string, counted?: string, noun?: string, e?: string, f?: string, offset?: number, whole?: string) => {
       if (noun !== undefined) return e === f ? noun.replace(/\s*:?\s*$/, "") : match;
-      return (a ?? c) === (b ?? d) ? "" : match;
+      if ((a ?? c) !== (b ?? d)) return match;
+      return opensSentence(whole!.slice(0, offset)) ? capitalise(counted!.trimStart()) : counted!;
     })
-    .replace(CHECK_COUNT, (match, done: string, of: string | undefined, kind: string) => {
-      if (of !== undefined && done.toLowerCase() !== of.toLowerCase()) return match;
-      return /^[A-Z]/.test(match) ? capitalise(kind.toLowerCase()) : kind.toLowerCase();
+    .replace(CHECK_COUNT, (match, all: string | undefined, done: string, of: string | undefined, kind: string, offset: number, whole: string) => {
+      if (!(all || (of !== undefined && done.toLowerCase() === of.toLowerCase()))) return match;
+      return /^[A-Z]/.test(match) || opensSentence(whole.slice(0, offset)) ? capitalise(kind.toLowerCase()) : kind.toLowerCase();
     });
   return text
     .split("\n")
