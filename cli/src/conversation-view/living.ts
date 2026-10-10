@@ -1,4 +1,3 @@
-import { readProjects } from "../council/projects.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -15,11 +14,6 @@ export const RECEIVED = WORKING;
 /** Flyd is answering it itself. */
 export const ANSWERING = WORKING;
 const ACTIVITY_CHARS = 90;
-
-/** His own names for his projects, read when a line is composed. */
-export function projectNames(): string[] {
-  return readProjects().map((project) => project.name);
-}
 
 /** Where a note to firstmate stands: written to its inbox, or read by firstmate. */
 export type Handoff = "queued" | "taken";

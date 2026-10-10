@@ -2,10 +2,10 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
-import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
+import { mergeNotes, projectNames, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { handoffLine, livened, projectNames } from "./living.js";
+import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {

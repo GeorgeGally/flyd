@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { handoffLine, projectNames } from "./living.js";
+import { readProjects } from "../council/projects.js";
+import { handoffLine } from "./living.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
@@ -364,4 +365,9 @@ export function mergeNotes(
   }
   while (next < inWindow.length) push(inWindow[next++]!);
   return merged;
+}
+
+/** His own names for his projects, read when a living line is composed. */
+export function projectNames(): string[] {
+  return readProjects().map((project) => project.name);
 }
