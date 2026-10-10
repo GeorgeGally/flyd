@@ -13,6 +13,9 @@ import type { ShowItem, ShowKind } from "./show.js";
 // inventing a feed. Everything here is bounded, cached and fails soft.
 
 export interface ArtefactRow {
+  choices?: string[];
+  references?: Array<{ label: string; url: string }>;
+  context?: string;
   label: string;
   /** The plain-language next step or state, whole. */
   detail?: string;
@@ -153,6 +156,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
     const url = recorded.get(str(row.id)) ?? doing.match(PR_URL)?.[0];
     return {
       state: str(row.state),
+      kind: str(row.kind),
       doing,
       row: {
         label: str(row.name) || str(row.id),
@@ -164,7 +168,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
     };
   }).filter((entry) => entry.row.label);
   const inState = (...states: string[]) => flight.filter((entry) => states.includes(entry.state));
-  const finished = inState("done").map((entry) => ({ ...entry.row, status: readyStatus(entry.doing) }));
+  const finished = inState("done").map((entry) => ({ ...entry.row, status: entry.kind === "scout" ? "report available" : readyStatus(entry.doing) }));
   const HELD: Record<string, string> = { failed: "failed", unknown: "no word", paused: "paused" };
   return {
     ...(str(data.generated) ? { generated: str(data.generated) } : {}),
@@ -203,6 +207,8 @@ export function parseBearings(raw: unknown): FleetArtefact {
 
 export interface BacklogEntry {
   title: string;
+  repo?: string;
+  notes?: string;
   /** Why a hold is open: for a captain hold, the concrete ask. */
   hold?: string;
   /** The day it finished, for done items. */
@@ -225,9 +231,14 @@ export function holdReason(value: string): string {
 /** Firstmate's backlog.md rows by task id: the full title bearings shortens. Pure. */
 export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
   const entries = new Map<string, BacklogEntry>();
+  let current: BacklogEntry | undefined;
   for (const line of markdown.split("\n")) {
     const row = /^- \[([ x])\] ([\w.-]+) - (.+)$/.exec(line.trim());
-    if (!row) continue;
+    if (!row) {
+      if (current && /^\s+\S/.test(line)) current.notes = ((current.notes ?? "") + " " + line.trim()).trim().slice(0, 2000);
+      else if (/^#/.test(line)) current = undefined;
+      continue;
+    }
     let rest = row[3]!;
     const tags = new Map<string, string>();
     for (let tag = /\s*\(([\w-]+):? ([^()]*)\)\s*$/.exec(rest); tag; tag = /\s*\(([\w-]+):? ([^()]*)\)\s*$/.exec(rest)) {
@@ -243,11 +254,13 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
     if (!title) continue;
     const finished = [tags.get("merged"), tags.get("done"), tags.get("landed")].find((value) => value && /^\d{4}-\d{2}-\d{2}/.test(value));
     const hold = holdReason(tags.get("hold") ?? "");
-    entries.set(row[2]!, {
+    current = {
       title,
+      ...(tags.get("repo") ? { repo: tags.get("repo") } : {}),
       ...(hold ? { hold } : {}),
       ...(row[1] === "x" && finished ? { finished: finished.slice(0, 10) } : {}),
-    });
+    };
+    entries.set(row[2]!, current);
   }
   return entries;
 }
@@ -291,6 +304,15 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     let next: ArtefactRow = { ...row };
     if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold } : {}) };
     else if (entry) next = { ...next, label: wholeLabel(row.label, entry.title) };
+    if (entry?.repo) next.repo = entry.repo;
+    if (call && entry?.hold) {
+      next.choices = decisionChoices(entry.hold);
+      next.references = [...new Set(entry.hold.match(/https?:\/\/[^\s,)]+/g) ?? [])].map((url) => ({ label: /\/session\//.test(url) ? "Open design review" : "Open reference", url }));
+    }
+    if (next.repo) {
+      const related = [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo);
+      next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
+    }
     if (extra?.at) next.at = extra.at;
     if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) next.shots = extra.shots;
@@ -306,6 +328,12 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     held: fleet.held.map((row) => enrich(row)),
     next: fleet.next.map((row) => enrich(row)),
   };
+}
+
+export function decisionChoices(question: string): string[] {
+  const choices = [...question.matchAll(/(?:^|:\s*|,\s*)(\d+)\s+(.+?)(?=,\s*\d+\s+|,?\s+or a mix\b|$)/g)]
+    .map((match) => match[2]!.replace(/\s*\([^)]*\)/g, "").replace(/[.,;]+$/, "").trim());
+  return choices.length >= 2 && choices.length <= 8 ? choices : [];
 }
 
 /** How much landed on each of the last seven days, from the backlog's finish dates. Pure. */
@@ -380,7 +408,7 @@ export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<Sh
   return {
     call: fleet.calls.length,
     live: fleet.live.length,
-    ready: fleet.ready.length,
+    ready: fleet.ready.filter((row) => row.status !== "report available").length,
     landed: fleet.landed.length,
     waiting: fleet.held.length,
     next: fleet.next.length,
@@ -419,7 +447,9 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
     const names = [project, row.repo].filter((name): name is string => Boolean(name));
     const detail = row.said?.line || row.detail;
-    add(kind, id, row.said?.headline ?? withoutProject(row.label, names), "", {
+    const sourceHeadline = withoutProject(row.label, names);
+    add(kind, id, row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline), "", {
+      ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [] } } : {}),
       ...(detail ? { detail } : {}),
       ...(row.at ? { at: row.at } : {}),
       ...(row.task && row.shots?.length
@@ -428,10 +458,11 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
       ...(row.status ? { status: row.status } : {}),
       ...(project ? { project } : {}),
       ...withLink(row.url),
+      ...(row.references?.length ? { links: [...(row.url ? [{ label: linkLabel(row.url), url: row.url }] : []), ...row.references] } : {}),
     });
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
-    shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(kind, `${kind}-${row.task ?? index}`, row));
+    shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
   };
 
   const fleet = inputs.fleet;
@@ -457,11 +488,12 @@ const VOICED: Array<[keyof Pick<FleetArtefact, "calls" | "live" | "ready" | "lan
 
 function voiceItem(row: ArtefactRow, kind: string): VoiceItem {
   return {
-    kind,
+    kind: row.status === "report available" ? "report available" : kind,
     title: row.label,
     ...(row.detail ? { detail: row.detail } : {}),
     ...(row.status ? { status: row.status } : {}),
     ...(row.repo ? { project: row.repo } : {}),
+    ...(row.context ? { context: row.context } : {}),
   };
 }
 
@@ -481,7 +513,7 @@ export function withVoice(
       const item = voiceItem(row, kind);
       const words = said(item);
       if (!words) unsaid.push(item);
-      const showing = words ?? (row.task ? lastSaid(kind, row.task) : undefined);
+      const showing = words ?? (row.task ? lastSaid(item.kind, row.task) : undefined);
       return showing ? { ...row, said: showing } : row;
     });
   }
@@ -652,7 +684,7 @@ export class ArtefactFeed {
   private voiced(voice: ArtefactVoice, enriched: FleetArtefact): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
     const result = withVoice(enriched, (item) => voice.said(item), (kind, task) => this.lastSaid.get(`${kind}:${task}`));
     this.lastSaid = new Map(VOICED.flatMap(([field, , kind]) => result.fleet[field]
-      .flatMap((row) => (row.task && row.said ? [[`${kind}:${row.task}`, row.said] as [string, Said]] : []))));
+      .flatMap((row) => (row.task && row.said ? [[`${voiceItem(row, kind).kind}:${row.task}`, row.said] as [string, Said]] : []))));
     return result;
   }
 

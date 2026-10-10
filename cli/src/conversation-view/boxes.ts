@@ -37,6 +37,7 @@ export interface BoxHour {
 }
 
 export interface Box {
+  decision?: ShowItem["decision"];
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: BoxKind;
@@ -98,6 +99,7 @@ function fromItem(item: ShowItem, kind: "call" | "story", size: BoxSize): Box {
     kind,
     size,
     title: item.headline,
+    ...(item.decision ? { decision: item.decision } : {}),
     ...(item.detail ? { line: item.detail } : {}),
     why: item.why,
     tone: item.kind,

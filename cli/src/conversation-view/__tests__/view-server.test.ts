@@ -1,13 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
-import type { CaptainInbox } from "../firstmate-inbox.js";
+import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
-import type { ArtefactFeed } from "../artefact.js";
+import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
@@ -303,6 +303,31 @@ describe("ConversationViewServer", () => {
   }
 
   const tokenOf = (page: string): string => /data-send-token="([0-9a-f]+)"/.exec(page)?.[1] ?? "";
+
+  it("delivers an artefact decision to the durable inbox without a Claude session and never closes the hold", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-decision-server-"));
+    mkdirSync(join(dir, "bin"));
+    mkdirSync(join(dir, "data"));
+    writeFileSync(join(dir, "data", "backlog.md"), "- [ ] visuals - Pick a Christmas look (repo: good_neighbours) (hold: Choose Evergreen or a mix)\n");
+    writeFileSync(join(dir, "bin", "fm-bearings-snapshot.sh"), '#!/bin/sh\nprintf \'%s\' \'{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}\'\n', { mode: 0o755 });
+    writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/decision-note"\nprintf "queued decision-note\\n"\n', { mode: 0o755 });
+    const feed = new ArtefactFeed({ home: dir, memoryFile: join(dir, "none"), newsFile: join(dir, "none"), tasteFile: join(dir, "none") });
+    await feed.refresh();
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const body = JSON.stringify({ decision: "visuals", text: "Evergreen luxe" });
+    expect((await post(port, body, { "content-type": "application/json" })).status).toBe(403);
+    expect((await post(port, body, { "content-type": "application/json", "x-flyd-view-token": viewToken!, origin: "https://evil.example" })).status).toBe(403);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const sent = await post(port, body, headers);
+    expect(sent.status).toBe(200);
+    expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Answer received. Waiting for acknowledgement; the decision remains open." });
+    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
+    expect(feed.current().fleet!.calls).toHaveLength(1);
+    expect((await post(port, JSON.stringify({ decision: "unknown", text: "Yes" }), headers)).status).toBe(409);
+    expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
+  });
 
   it("authenticates predictions, uses current conversation context and never dispatches the suggestion", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-prediction-server-"));

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
-  pickShots, plainStep, readyStatus, statusNote, tasteHighlights,
+  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, withVoice,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -64,6 +64,30 @@ describe("parseBearings", () => {
 });
 
 describe("the backlog", () => {
+  it("keeps the earlier design question answerable beside active Christmas work, without turning a scout report into a new design awaiting landing", () => {
+    const question = "Picks the direction (board http://127.0.0.1:4387/session/review): 1 Evergreen luxe (recommended after round 1: green plus luxury), 2 Fairy-light night, 3 Red letter day, 4 Christmas in the tropics, 5 Christmas card, or a mix.";
+    const entries = parseBacklog([
+      `- [ ] visuals - Choose a Christmas look (repo: good_neighbours) (hold: fm-hold-v1:${Buffer.from(question).toString("base64")})`,
+      "- [ ] preview - Find the new Good Neighbours design (repo: good_neighbours) (kind: scout)",
+      "- [ ] edits - Good Neighbours Christmas: live edits (repo: good_neighbours)",
+      "  Christmas market at Block42, Nuanu, christmas-2026. Preview http://127.0.0.1:8097/ has local edits newer than merged work.",
+      "- [x] interface - Christmas site interface (repo: good_neighbours) (merged 2026-10-10)",
+    ].join("\n"));
+    const fleet = enrichFleet(parseBearings({ decisions_open: [{ id: "visuals", summary: "Pick a look" }], in_flight: [{ id: "preview", name: "Find the new Good Neighbours design", repo: "good_neighbours", kind: "scout", state: "done", doing: "new design is draft PR" }] }), entries);
+    expect(fleet.calls).toHaveLength(1);
+    expect(fleet.calls[0]!.context).toContain("Block42, Nuanu");
+    const busy = enrichFleet(parseBearings({ decisions_open: [{ id: "visuals", summary: "Pick a look" }] }), entries, new Map([["edits", { note: "Recolouring the header" }]]));
+    expect(busy.calls[0]!.context).toBe(fleet.calls[0]!.context);
+    expect(fleet.ready[0]!.status).toBe("report available");
+    expect(fleetCounts(fleet).ready).toBe(0);
+    const { unsaid } = withVoice(fleet, () => undefined);
+    expect(unsaid.find((row) => row.kind === "report available")!.context).toContain("newer than merged work");
+    const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
+    expect(items[0]!.decision).toEqual({ task: "visuals", question, choices: ["Evergreen luxe", "Fairy-light night", "Red letter day", "Christmas in the tropics", "Christmas card"] });
+    expect(items[0]!.links).toEqual([{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }]);
+    expect(items[1]!.kind).toBe("news");
+    expect(decisionChoices("Choose one of five directions")).toEqual([]);
+  });
   const BACKLOG = [
     "## In flight",
     "- [ ] jev - Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove the rule (kind: task) (since 2026-09-25) (hold: Review after ~20 real decisions; captain decides keep or remove) (hold-kind: captain)",
@@ -79,7 +103,7 @@ describe("the backlog", () => {
       title: "Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove the rule",
       hold: "Review after ~20 real decisions; captain decides keep or remove",
     });
-    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", finished: "2026-10-09" });
+    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", repo: "flyd", finished: "2026-10-09" });
   });
 
   it("says bearings' shortened lines whole and puts the ask under a call", () => {
@@ -228,7 +252,7 @@ describe("ArtefactFeed", () => {
     expect(feed.shotPath("b", "shots/after.png")).toBeNull();
   });
 
-  it("keeps a task's last words while new ones are asked for, and never lets a slow answer bring back an older read", async () => {
+  it("keeps the last words on screen while new ones are asked for, and never lets a slow answer bring back an older read", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-voiced-"));
     mkdirSync(join(home, "bin"));
     const snapshot = join(home, "bearings.json");
