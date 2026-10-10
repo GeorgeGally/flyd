@@ -330,6 +330,39 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .body table { border-collapse: collapse; width: 100%; margin: 0.4em 0 1.1em; font-size: 0.8em; display: block; overflow-x: auto; }
 .body th { text-align: left; font: 500 0.82em var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .body th, .body td { padding: 0.45em 0.8em 0.45em 0; border-bottom: 1px solid var(--faint); vertical-align: top; }
+/* A reply on several pieces of work, as Flyd shows it: grouped by what each
+   asks of him, a coloured light per piece, the line itself opens the work.
+   Flat, the artefact's colours; nothing framed. */
+.status-card { margin: 1.3em 0 1.4em; display: flex; flex-direction: column; gap: 1.3em; }
+.status-card:last-child { margin-bottom: 0; }
+/* A rail: the state on the left, its work on the right, like a title card. */
+.sc-group { --k: var(--k-news); display: grid; grid-template-columns: 7.2em minmax(0, 1fr); column-gap: 1.2em; align-items: baseline; }
+.sc-group.k-call { --k: var(--k-call); }
+.sc-group.k-live { --k: var(--k-live); }
+.sc-group.k-landed { --k: var(--k-landed); }
+.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--k); }
+.sc-count { color: var(--muted); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.sc-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55em; }
+.sc-row {
+  display: flex; align-items: baseline; gap: 0.75em; margin: 0; padding: 0; line-height: 1.4;
+  animation: sc-in 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms);
+}
+.sc-what { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6em; }
+.sc-led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--k); transform: translateY(-0.12em); }
+.sc-what .sc-led { align-self: center; transform: none; opacity: 0.5; transition: opacity 140ms ease; }
+.sc-what .sc-led:hover, .sc-what .sc-led:focus-visible { opacity: 1; outline: 0; }
+.sc-group.k-call .sc-row > .sc-led { box-shadow: 0 0 0 4px color-mix(in srgb, var(--k) 20%, transparent); animation: sc-pulse 2.4s ease-in-out infinite; }
+.sc-text { color: var(--strong); text-decoration: none; transition: color 140ms ease; }
+a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
+.sc-group.k-landed .sc-text { color: var(--fg); }
+.sc-detail { flex-basis: 100%; margin-top: 0.1em; font-size: 0.86em; line-height: 1.4; color: var(--muted); }
+.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+@keyframes sc-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes sc-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--k) 8%, transparent); } }
+@media (max-width: 560px) {
+  .sc-group { grid-template-columns: minmax(0, 1fr); row-gap: 0.45em; }
+}
+@media (prefers-reduced-motion: reduce) { .sc-row, .sc-group.k-call .sc-row > .sc-led { animation: none; } }
 .pill { font: 500 0.7em var(--mono); color: var(--muted); border: 1px solid var(--faint); border-radius: 999px; padding: 0.12em 0.6em; vertical-align: 0.12em; white-space: nowrap; }
 
 .working { margin-top: 1em; }

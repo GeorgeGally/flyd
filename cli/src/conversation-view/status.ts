@@ -1,3 +1,4 @@
+import { brief, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -24,7 +25,7 @@ export function asksForDecision(text: string): boolean {
   const last = prose.split(/\n\s*\n/).filter((block) => block.trim()).pop() ?? "";
   const summary = authorSummary(text)?.summary ?? "";
   const asking = /\b(do you want|would you like|should i|shall i|want me to|which (one|option|do you)|your call|your decision|needs? your (decision|call|ok|approval)|ok to|okay to|approve)\b|\bsay ["“]\w+/i;
-  return /\?/.test(last) || /\?/.test(summary) || asking.test(last) || asking.test(summary);
+  return /\?/.test(last) || /\?/.test(summary) || asking.test(last) || asking.test(summary) || brief(text).items.some((item) => item.state === "needs");
 }
 
 /**
@@ -33,8 +34,12 @@ export function asksForDecision(text: string): boolean {
  * sentence without the salutation.
  */
 export function headlineOf(text: string): string {
-  const own = authorSummary(text)?.summary;
-  const digest = own ? null : digestReply(text);
+  // A report on several pieces of work reads as where they stand.
+  const { items } = brief(text);
+  if (items.length >= 2) return statusHeadline(items);
+  const said = withoutStubs(text);
+  const own = authorSummary(said)?.summary;
+  const digest = own ? null : digestReply(said);
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label)) ?? [];
   const headline = (own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)).replace(/\s+/g, " ").trim();
   if (headline.length <= HEADLINE_CHARS) return headline;

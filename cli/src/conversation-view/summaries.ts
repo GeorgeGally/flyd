@@ -32,12 +32,13 @@ export function isRoutineAnswer(text: string): boolean {
 export const SUMMARY_PROMPT =
   "You condense an engineering assistant's report for its boss, who reads it at a glance. " +
   "Keep every outcome (what changed, what was found), every decision taken and every question or ask for the boss: none may be dropped. " +
-  "Lead with the overall result in a few words, then one short plain-English line per item as a Markdown list when there is more than one. " +
-  "No jargon, file names, code or tool names; drop process narration, greetings and sign-offs. " +
+  "Lead with the overall result in a few words, then say the rest in a few short plain-English sentences of prose, never a list. " +
+  "No jargon, file names, code or tool names, and no URLs, PR or issue numbers, branch names, commit hashes or check counts: name the work by what it does. " +
+  "Drop process narration, greetings and sign-offs. " +
   `If the message has no outcome, decision or ask (an acknowledgement, a status ping, "nothing changed", "still waiting"), reply exactly ${ROUTINE}. ` +
   "Reply with the summary only.";
 /** Bumped when SUMMARY_PROMPT changes, so cached summaries from an older prompt are asked again. */
-const PROMPT_VERSION = "2";
+const PROMPT_VERSION = "3";
 
 /** Replies shorter than this are already a summary; they show in full. */
 export const SUMMARY_MIN_CHARS = 240;
