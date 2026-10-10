@@ -95,6 +95,7 @@ async function type(text: string): Promise<void> {
 const pending = (): string[] => Array.from(document.querySelectorAll(".msg.pending")).map((el) => el.textContent ?? "");
 
 beforeEach(() => {
+  localStorage.clear();
   FakeEventSource.instances = [];
   sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z" };
   blips = 0;
@@ -291,6 +292,88 @@ describe("conversation page", () => {
       files: [{ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }, { name: "notes.md", data: btoa("# notes") }],
     });
     expect(Array.from(document.querySelectorAll(".msg.pending .doc .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf", "notes.md"]);
+  });
+
+  it("keeps what he was typing and attaching through a restart, caret and chips included, until it is sent", async () => {
+    // Core's draft record; the page's own storage is lost too, as when the view comes back on another port.
+    let kept: Record<string, unknown> | null = null;
+    const stored = new Map<string, Record<string, unknown>>();
+    let release: ((response: Response) => void) | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft/attachment") {
+        const id = String(stored.size + 1).padStart(24, "0");
+        const body = JSON.parse(String(init!.body)) as Record<string, unknown>;
+        stored.set(id, { id, ...body });
+        const { data: _data, ...meta } = stored.get(id)!;
+        return json(meta);
+      }
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: Array<{ id: string }> } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) {
+        return json({ draft: kept && { ...kept, attachments: (kept.attachments as Array<{ id: string }>).map((a) => stored.get(a.id)) } });
+      }
+      if (url === "/api/send") return new Promise<Response>((resolve) => { release = resolve; });
+      return json({ sessions: SESSIONS });
+    }));
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    load("");
+    await settle();
+    open("latest", []);
+
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    // A screenshot and a document pasted together (earlier tests' pages still listen for drops on the document).
+    const pdf = new File(["%PDF-1.3 hello"], "Q3 report.pdf", { type: "application/pdf" });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }, { kind: "file", getAsFile: () => pdf }] } });
+    document.getElementById("input")!.dispatchEvent(paste);
+    for (let i = 0; i < 20 && stored.size < 2; i += 1) await settle();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "make the hero calmer and the footer wider";
+    input.setSelectionRange(9, 14);
+    input.dispatchEvent(new Event("input"));
+    await wait(350);
+    expect(kept).toMatchObject({ text: "make the hero calmer and the footer wider", selectionStart: 9, selectionEnd: 14 });
+    expect((kept!.attachments as unknown[])).toHaveLength(2);
+
+    // Flyd is reinstalled: a new page, nothing in its own storage, the draft from Core.
+    localStorage.clear();
+    load("");
+    await settle();
+    open("latest", []);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    const back = document.getElementById("input") as HTMLTextAreaElement;
+    expect(back.value).toBe("make the hero calmer and the footer wider");
+    expect([back.selectionStart, back.selectionEnd]).toEqual([9, 14]);
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+    expect(Array.from(document.querySelectorAll(".attachment.file .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf"]);
+    expect(document.getElementById("usage")!.getAttribute("data-note")).toBe("your draft is safe");
+
+    // On its way: still kept, in case the window goes before it lands.
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await wait(350);
+    expect(kept).toMatchObject({ text: "make the hero calmer and the footer wider" });
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ text: "make the hero calmer and the footer wider", images: [{ mediaType: "image/png" }], files: [{ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }] });
+
+    // Landed: gone, and a later restart brings back an empty box.
+    release!(json(sendResponse));
+    await settle();
+    expect(kept).toBeNull();
+    load("");
+    await settle();
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("");
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
+  });
+
+  it("brings back what was typed from the page's own copy when Core missed the last change", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.startsWith("/api/draft?") ? json({ draft: { text: "older", selectionStart: 5, selectionEnd: 5, attachments: [], savedAt: 1 } }) : json({ sessions: SESSIONS }))));
+    localStorage.setItem("flyd-view-draft:latest", JSON.stringify({ text: "older and newer", selectionStart: 3, selectionEnd: 3, attachments: [], savedAt: 2 }));
+    load("");
+    await settle();
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("older and newer");
   });
 
   it("blips once for a message that went out, and stays quiet when it did not", async () => {

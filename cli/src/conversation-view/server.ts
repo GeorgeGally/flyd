@@ -21,6 +21,7 @@ import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
+import { ComposerDrafts, draftKey } from "./drafts.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -32,6 +33,8 @@ const SHOT_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image
 const HEARTBEAT_MS = 15_000;
 /** Text plus up to four attachments (screenshots or documents), base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
+/** One attachment, base64-encoded, as it is added to the box. */
+const MAX_DRAFT_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
 
@@ -304,6 +307,7 @@ export class ConversationViewServer {
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
     private readonly weather?: WeatherReader,
     private readonly predictions = new ComposerPredictions(),
+    private readonly drafts = new ComposerDrafts(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -351,6 +355,10 @@ export class ConversationViewServer {
     }
     if (req.method === "POST" && (url.pathname === "/api/predict" || url.pathname === "/api/prediction-feedback")) {
       await this.predict(req, res, url.pathname === "/api/prediction-feedback");
+      return;
+    }
+    if (url.pathname === "/api/draft" || url.pathname === "/api/draft/attachment") {
+      await this.draft(req, res, url);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/taste") {
@@ -527,6 +535,54 @@ export class ConversationViewServer {
       try { syncTasteSkills(); } catch { /* the next council pass catches up */ }
       sendJson(res, 200, { ok: true });
     }
+  }
+
+  /**
+   * The message box's draft: read back when the page loads, kept on every
+   * change, and its attachments stored once as they are added.
+   */
+  private async draft(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (!this.source.canSend) {
+      sendJson(res, 405, { error: "read-only" });
+      return;
+    }
+    const origin = req.headers.origin;
+    if (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) {
+      sendJson(res, 403, { error: "forbidden origin" });
+      return;
+    }
+    if (!sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "missing or wrong token" });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/draft") {
+      sendJson(res, 200, { draft: this.drafts.load(draftKey(url.searchParams.get("key"))) });
+      return;
+    }
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "method not allowed" });
+      return;
+    }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+      sendJson(res, 415, { error: "expected application/json" });
+      return;
+    }
+    const attachment = url.pathname === "/api/draft/attachment";
+    let payload: { key?: unknown; draft?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, attachment ? MAX_DRAFT_ATTACHMENT_BYTES : 1024 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (attachment) {
+      const stored = this.drafts.attach(payload);
+      if (stored) sendJson(res, 200, stored);
+      else sendJson(res, 400, { error: "expected { name, data } or { mediaType, data }" });
+      return;
+    }
+    if (this.drafts.save(draftKey(payload.key), payload.draft)) sendJson(res, 200, { ok: true });
+    else sendJson(res, 400, { error: "expected { key, draft: { text, selectionStart, selectionEnd, attachments } }" });
   }
 
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
