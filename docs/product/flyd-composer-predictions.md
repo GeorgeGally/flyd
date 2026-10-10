@@ -16,7 +16,9 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
   suggestion without another request.
 - A local cache reuses exact prefixes of wording George has submitted at least
   twice. It survives restart in `FLYD_DIR/view/composer/phrases.json`, bounded
-  to 500 entries. Unsent drafts are not saved. Submitted wording is a completion
+  to 500 entries. Unsent drafts never enter it (the message box keeps its own
+  restart-surviving draft in `FLYD_DIR/view/drafts`, cleared on send; see
+  `cli/src/conversation-view/drafts.ts`). Submitted wording is a completion
   hint, never a fact, memory claim, permission or reviewed routing label.
 - The model sees the draft plus at most six recent human conversation messages,
   each capped at 400 characters. No retrieval, profile, clipboard, screens,

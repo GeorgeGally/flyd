@@ -10,6 +10,7 @@ import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../mark
 import type { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ComposerPredictions } from "../composer-predictions.js";
+import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
@@ -291,10 +292,10 @@ describe("ConversationViewServer", () => {
     }
   }
 
-  async function start(inbox?: CaptainInbox, lines = [captain("hello"), assistantText("Hi, **Captain**.")], predictions?: ComposerPredictions): Promise<number> {
-    dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+  async function start(inbox?: CaptainInbox, lines = [captain("hello"), assistantText("Hi, **Captain**.")], predictions?: ComposerPredictions, drafts?: ComposerDrafts): Promise<number> {
+    dir ??= mkdtempSync(join(tmpdir(), "flyd-view-server-"));
     writeFileSync(join(dir, "s1.jsonl"), lines.join("\n") + "\n");
-    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }), undefined, undefined, undefined, undefined, undefined, predictions);
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", ...(inbox ? { inbox } : {}) }), undefined, undefined, undefined, undefined, undefined, predictions, drafts ?? new ComposerDrafts({ root: join(dir, "drafts") }));
     const port = await server.listen(0);
     await get(port, "/");
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
@@ -439,6 +440,49 @@ describe("ConversationViewServer", () => {
     const token = tokenOf((await get(port, "/")).body);
     expect(JSON.parse((await get(port, "/api/token")).body)).toEqual({ token });
     expect((await get(port, "/api/token", "attacker.example")).status).toBe(403);
+  });
+
+  it("keeps the message box's draft and attachments through a restart of the view, behind its token", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-drafts-"));
+    const inbox = new MemoryInbox();
+    let port = await start(inbox, undefined, undefined, new ComposerDrafts({ root }));
+    let token = tokenOf((await get(port, "/")).body);
+    const json = { "content-type": "application/json" };
+    const draftOf = (p: number, t: string) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port: p, path: "/api/draft?key=latest", headers: { host: `127.0.0.1:${p}`, "x-flyd-view-token": t } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => (text += chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+
+    const picture = JSON.stringify({ mediaType: "image/png", data: PNG });
+    expect((await post(port, picture, json, "/api/draft/attachment")).status).toBe(403);
+    expect((await post(port, picture, { ...json, "x-flyd-view-token": token, origin: "https://attacker.example" }, "/api/draft/attachment")).status).toBe(403);
+    expect((await post(port, JSON.stringify({ mediaType: "text/html", data: PNG }), { ...json, "x-flyd-view-token": token }, "/api/draft/attachment")).status).toBe(400);
+    const image = JSON.parse((await post(port, picture, { ...json, "x-flyd-view-token": token }, "/api/draft/attachment")).body) as { id: string };
+    const doc = JSON.parse((await post(port, JSON.stringify({ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }), { ...json, "x-flyd-view-token": token }, "/api/draft/attachment")).body) as { id: string };
+    const draft = { text: "half a thought about the hero", selectionStart: 6, selectionEnd: 12, savedAt: 1, attachments: [{ id: image.id, mediaType: "image/png" }, { id: doc.id, name: "Q3 report.pdf" }] };
+    expect((await post(port, JSON.stringify({ key: "latest", draft }), { ...json, "x-flyd-view-token": token }, "/api/draft")).status).toBe(200);
+    expect((await draftOf(port, "0".repeat(48))).status).toBe(403);
+
+    // A new view process: new token, same draft.
+    await server!.close();
+    port = await start(inbox, undefined, undefined, new ComposerDrafts({ root }));
+    token = tokenOf((await get(port, "/")).body);
+    expect(JSON.parse((await draftOf(port, token)).body).draft).toEqual({
+      ...draft,
+      attachments: [{ id: image.id, mediaType: "image/png", data: PNG }, { id: doc.id, name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }],
+    });
+
+    // Sent: the box is empty and the draft goes.
+    expect((await post(port, JSON.stringify({ key: "latest", draft: { text: "", selectionStart: 0, selectionEnd: 0, attachments: [] } }), { ...json, "x-flyd-view-token": token }, "/api/draft")).status).toBe(200);
+    expect(JSON.parse((await draftOf(port, token)).body)).toEqual({ draft: null });
+    expect(inbox.sent).toEqual([]);
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("offers no message box and refuses sends when the source is read-only", async () => {

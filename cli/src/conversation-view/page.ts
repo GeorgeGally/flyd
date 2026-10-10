@@ -518,6 +518,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .doc { display: inline-flex; align-items: center; gap: 0.45em; max-width: 100%; padding: 4px 8px; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); font: 500 13px/1.3 var(--mono); color: var(--fg); }
 .doc .kind { font-weight: 800; color: var(--accent); }
 .doc .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* After a restart: the box came back as he left it. */
+.composer .hint[data-note]::before { content: attr(data-note) "   "; color: var(--accent); }
 .composer.dropping .field { background: color-mix(in srgb, var(--accent) 16%, var(--tint)); }
 .composer.dropping .hint::before { content: "drop to attach   "; color: var(--accent); }
 /* Push-to-talk (Fn+Control in Flyd.app): the box shows it is listening. */
@@ -1013,6 +1015,110 @@ var __name = function (f) { return f; };
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
     sendBtn.disabled = !input.value.trim() && attachments.length === 0;
+    saveDraft();
+  }
+  // The box is never lost: its words, caret and attachments are kept on every
+  // change, in this page's storage and in Core, and come back when the window
+  // does (an update, a reinstall, a restarted view). Only sending it or
+  // emptying the box clears it.
+  var DRAFT_KEY = explicit || "latest";
+  var DRAFT_STORE = "flyd-view-draft:" + DRAFT_KEY;
+  var draftTimer = null;
+  var restoring = false;
+  var sendsInFlight = 0;
+  function draftState() {
+    // Paging through earlier messages shows them in the box; the draft is what he had typed.
+    var recalling = recall.index !== -1;
+    var text = recalling ? recall.draft : input.value;
+    return {
+      text: text,
+      selectionStart: recalling ? text.length : input.selectionStart,
+      selectionEnd: recalling ? text.length : input.selectionEnd,
+      attachments: attachments.filter(function (a) { return a.draftId; }).map(function (a) {
+        return a.name ? { id: a.draftId, name: a.name } : { id: a.draftId, mediaType: a.mediaType };
+      }),
+      savedAt: Date.now(),
+    };
+  }
+  function saveDraftNow(keepalive) {
+    clearTimeout(draftTimer);
+    draftTimer = null;
+    if (!SEND_TOKEN || restoring) return;
+    // A message on its way keeps its draft until it has landed.
+    if (sendsInFlight > 0 && !input.value && !attachments.length) return;
+    var state = draftState();
+    store(DRAFT_STORE, JSON.stringify(state));
+    authed("/api/draft", { method: "POST", keepalive: !!keepalive, headers: { "content-type": "application/json" }, body: JSON.stringify({ key: DRAFT_KEY, draft: state }) }, true)
+      .catch(function () { /* the page's own copy holds it until the next change */ });
+  }
+  function saveDraft() {
+    if (!SEND_TOKEN || draftTimer) return;
+    draftTimer = setTimeout(saveDraftNow, 300);
+  }
+  document.addEventListener("selectionchange", function () { if (document.activeElement === input) saveDraft(); });
+  window.addEventListener("pagehide", function () { if (draftTimer) saveDraftNow(true); });
+  // A token from before the view restarted is swapped for the current one, once.
+  function authed(path, init, retry) {
+    var headers = Object.assign({}, init.headers || {}, { "x-flyd-view-token": SEND_TOKEN });
+    return fetch(path, Object.assign({}, init, { headers: headers })).then(function (response) {
+      if (response.status !== 403 || !retry) return response;
+      return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
+        if (!data.token) return response;
+        SEND_TOKEN = data.token;
+        return authed(path, init, false);
+      });
+    });
+  }
+  // Each attachment's bytes go to Core once, as it is added; the draft names it.
+  function keepAttachment(attachment) {
+    var body = attachment.name ? { name: attachment.name, data: attachment.data } : { mediaType: attachment.mediaType, data: attachment.data };
+    authed("/api/draft/attachment", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (stored) {
+        if (!stored || !stored.id || attachments.indexOf(attachment) === -1) return;
+        attachment.draftId = stored.id;
+        saveDraft();
+      })
+      .catch(function () { /* kept in the box; only a restart would lose it */ });
+  }
+  function draftNote(text) {
+    var hint = document.getElementById("usage");
+    function clear() { hint.removeAttribute("data-note"); input.removeEventListener("input", clear); }
+    hint.setAttribute("data-note", text);
+    input.addEventListener("input", clear);
+    setTimeout(clear, 15000);
+  }
+  function restoreDraft() {
+    if (!SEND_TOKEN) return;
+    var local = null;
+    try { local = JSON.parse(store(DRAFT_STORE) || "null"); } catch (e) { local = null; }
+    restoring = true;
+    authed("/api/draft?key=" + encodeURIComponent(DRAFT_KEY), { method: "GET" }, true)
+      .then(function (response) { return response.ok ? response.json() : {}; })
+      .catch(function () { return {}; })
+      .then(function (data) {
+        restoring = false;
+        // Whatever he has started since the window opened wins.
+        if (input.value || attachments.length || voiceBase !== null) {
+          if (input.value || attachments.length) saveDraftNow();
+          return;
+        }
+        var kept = data && data.draft && typeof data.draft.text === "string" ? data.draft : null;
+        var newer = local && typeof local.text === "string" && (!kept || local.savedAt > kept.savedAt) ? local : kept;
+        if (!newer) return;
+        var ids = (newer.attachments || []).map(function (a) { return a.id; });
+        var restored = (kept ? kept.attachments : []).filter(function (a) { return ids.indexOf(a.id) !== -1; }).map(function (a) {
+          return a.name
+            ? { name: a.name, data: a.data, draftId: a.id }
+            : { url: "data:" + a.mediaType + ";base64," + a.data, mediaType: a.mediaType, data: a.data, draftId: a.id };
+        }).slice(0, MAX_ATTACHMENTS);
+        if (!newer.text && !restored.length) return;
+        input.value = newer.text;
+        attachments = restored;
+        renderAttachments();
+        try { input.setSelectionRange(newer.selectionStart, newer.selectionEnd); } catch (e) { /* caret at the end */ }
+        draftNote("your draft is safe");
+      });
   }
   var typingPredictions = (${installComposerPredictions.toString()})({
     input: input, composer: composer, layer: document.getElementById("prediction-layer"),
@@ -1072,8 +1178,10 @@ var __name = function (f) { return f; };
         var url = String(reader.result);
         if (attachments.length >= MAX_ATTACHMENTS) return;
         var data = url.slice(url.indexOf(",") + 1);
-        attachments.push(image ? { url: url, mediaType: file.type, data: data } : { name: file.name, data: data });
+        var attachment = image ? { url: url, mediaType: file.type, data: data } : { name: file.name, data: data };
+        attachments.push(attachment);
         renderAttachments();
+        keepAttachment(attachment);
       };
       reader.readAsDataURL(file);
     });
@@ -1297,28 +1405,12 @@ var __name = function (f) { return f; };
     } catch (e) { /* sound is a nicety */ }
   }
 
-  function post(payload) {
-    return fetch("/api/send", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-flyd-view-token": SEND_TOKEN },
-      body: payload,
-    }).then(function (response) {
-      return response.json().then(function (data) { return { response: response, data: data }; });
-    });
-  }
-  // After the view restarts, its token changes; an open tab fetches the new
-  // one and tries once more.
-  function deliver(payload, retry) {
-    return post(payload).then(function (result) {
-      if (result.response.status === 403 && retry) {
-        return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
-          if (!data.token) throw new Error(result.data.error || "not sent");
-          SEND_TOKEN = data.token;
-          return deliver(payload, false);
-        });
-      }
-      if (!result.response.ok) throw new Error(result.data.error || "not sent");
-      return result.data;
+  function deliver(payload) {
+    return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || "not sent");
+        return data;
+      });
     });
   }
 
@@ -1386,6 +1478,7 @@ var __name = function (f) { return f; };
     wakeAudio();
     var el = pendingMessage(text, sending);
     refreshWorking();
+    sendsInFlight += 1;
     input.value = "";
     attachments = [];
     renderAttachments();
@@ -1396,7 +1489,10 @@ var __name = function (f) { return f; };
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
-    deliver(payload, true).then(function (sent) {
+    deliver(payload).then(function (sent) {
+      sendsInFlight -= 1;
+      // Landed: the draft it came from goes, unless he has started another.
+      if (!input.value && !attachments.length) saveDraftNow();
       blip();
       // Inside Flyd.app the notch island says "sent".
       try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
@@ -1422,12 +1518,14 @@ var __name = function (f) { return f; };
       living(state, warnings.get(sent.id) || sent.waiting || "Sent");
       carried.set(sent.id, state.textContent);
     }).catch(function (error) {
+      sendsInFlight -= 1;
       el.classList.add("failed");
       el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
       el.addEventListener("click", function () { el.remove(); });
       if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
     });
   });
+  restoreDraft();
 
 
   // Artefact view: Flyd on TV. Core's boxes become scenes that take turns,
