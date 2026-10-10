@@ -156,11 +156,7 @@ export class FirstmateInbox implements CaptainInbox {
   private sorted: Exchange[] = [];
   private listingKey = "";
 
-  /** His own names for his projects, for the living line. */
-  private readonly projectNames: () => string[];
-
-  constructor(options: { home?: string; script?: string; projects?: () => string[] } = {}) {
-    this.projectNames = options.projects ?? (() => []);
+  constructor(options: { home?: string; script?: string } = {}) {
     this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
   }
@@ -301,14 +297,13 @@ export class FirstmateInbox implements CaptainInbox {
     }
     const replyFor = new Map<string, ConversationMessage>();
     for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
-    const projects = this.projectNames();
     this.sorted = [...this.parsed.entries()]
       .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
       .map(([name, question]): Exchange => {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
         const handoff = present.get(name)!.startsWith(`${handled}/`) ? "taken" : "queued";
-        return { question, handoff, waiting: handoffLine(handoff, { text: question.text, projects }) };
+        return { question, handoff, waiting: handoffLine(handoff, { text: question.text }) };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;

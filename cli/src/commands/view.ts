@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
-import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, projectNames, resolveProjectDir } from "../conversation-view/claude-code-source.js";
+import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
@@ -56,7 +56,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const projectDir = resolveProjectDir(options.project ?? FIRSTMATE_PROJECT_DIR);
   // Messages go to firstmate's own inbox, so the box only appears on
   // firstmate's conversation.
-  const inbox = new FirstmateInbox({ projects: projectNames });
+  const inbox = new FirstmateInbox();
   const complete: Complete = async (prompt) => (await import("../lib/llm.js")).query(prompt);
   const wantsInbox = options.project === undefined && inbox.available();
   const source = new ClaudeCodeTranscriptSource({

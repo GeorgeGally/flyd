@@ -33,7 +33,19 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "Please add a dark mode toggle", projects: ["Flyd", "GNM"] })).toBe("Adding a dark mode toggle");
     expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
     expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
-    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe("Looking into what is the notch island doing wrong");
+    expect(handoffLine("queued", { text: "can you show me the logs" })).toBe("Showing you the logs");
+    expect(handoffLine("queued", { text: "fix my site" })).toBe("Fixing your site");
+    expect(handoffLine("queued", { text: "set the timeout to 5s" })).toBe("Setting the timeout to 5s");
+    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Working on it");
+  });
+
+  it("never quotes his words back when they are not a task Flyd is doing", () => {
+    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "tell firstmate to fix the footer" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "get the crew to land it" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "/deploy staging" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "/ce-code-review fix the branch" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "fix it" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "ok" })).toBe(WORKING);
     expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);

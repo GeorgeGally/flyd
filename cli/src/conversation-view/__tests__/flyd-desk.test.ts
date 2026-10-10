@@ -219,9 +219,9 @@ esac
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Looking into the good neighbours market hero is too tall");
+    expect(sent.waiting).toBe("Working on it");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Looking into the good neighbours market hero is too tall");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
 
     // Firstmate reads the note and starts work: the step rides on the note's own line.
     const inbox = join(home, "state", "inbox");
@@ -539,7 +539,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
-    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Looking into what's the fleet doing" });
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Working on it" });
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 

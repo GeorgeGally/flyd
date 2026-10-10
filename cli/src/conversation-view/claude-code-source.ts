@@ -7,11 +7,6 @@ import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { readProjects } from "../council/projects.js";
 import { handoffLine, livened } from "./living.js";
-
-/** His own names for his projects, read when a living line is composed. */
-export function projectNames(): string[] {
-  return readProjects().map((project) => project.name);
-}
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
@@ -35,6 +30,11 @@ const START_SCAN_BYTES = 64 * 1024;
 const MAX_IMAGE_LINE_BYTES = 64 * 1024 * 1024;
 const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** His own names for his projects, read when a living line is composed. */
+function projectNames(): string[] {
+  return readProjects().map((project) => project.name);
+}
 
 export function claudeProjectsRoot(): string {
   return join(homedir(), ".claude", "projects");
