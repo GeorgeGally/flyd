@@ -5,7 +5,7 @@ import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js
 import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { handoffLine, livened, projectNamed } from "./living.js";
+import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
@@ -155,8 +155,6 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
 
   private readonly commandRoots: { claudeHome?: string; projectDir?: string };
-  private readonly projects: () => ReadonlyArray<{ name: string }>;
-  private projectCache?: { at: number; projects: ReadonlyArray<{ name: string }> };
   private commandCache?: { at: number; commands: SlashCommand[] };
 
   constructor(options: {
@@ -168,10 +166,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     desk?: { desk: FlydDesk; complete: Complete };
     /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
     commandRoots?: { claudeHome?: string; projectDir?: string };
-    /** His projects, so a note's line can say which one it is about (none by default). */
-    projects?: () => ReadonlyArray<{ name: string }>;
   } = {}) {
-    this.projects = options.projects ?? (() => []);
     this.commandRoots = options.commandRoots ?? {};
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
     // With a desk the window is Flyd's: it speaks to him, firstmate stays backstage.
@@ -202,8 +197,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       if (route === "flyd") return this.desk.desk.ask(text);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
-        const project = this.projectOf(text);
-        return { ...sent, waiting: handoffLine("queued", project ? { project } : {}) };
+        return { ...sent, waiting: handoffLine("queued") };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
         const message = error instanceof Error ? error.message : String(error);
@@ -298,21 +292,6 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return { from: here.start, ...(replaced ? { until: replaced.start } : {}) };
   }
 
-  /** The one project his message names, from a list re-read at most every half minute. */
-  private projectOf(text: string): string | undefined {
-    const now = Date.now();
-    if (!this.projectCache || now - this.projectCache.at > 30_000) {
-      let projects: ReadonlyArray<{ name: string }>;
-      try {
-        projects = this.projects();
-      } catch {
-        projects = this.projectCache?.projects ?? [];
-      }
-      this.projectCache = { at: now, projects };
-    }
-    return projectNamed(text, this.projectCache.projects);
-  }
-
   /** Every question asked from the window, to firstmate or to Flyd, oldest first. */
   private exchanges(): Exchange[] {
     const notes = this.inbox?.notes() ?? [];
@@ -329,7 +308,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       : snapshot;
     if (exchanges.length === 0) return voiced;
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots.
-    const live = livened(exchanges, { ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), projectOf: (text) => this.projectOf(text) });
+    const live = livened(exchanges, { ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
     return { ...voiced, messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)) };
   }
 

@@ -139,18 +139,18 @@ describe("conversation page", () => {
     expect(lines()).toEqual([RECEIVED]);
     expect(dots()).toBe(true);
 
-    release(json({ id: "note:9", timestamp: "2026-10-05T20:01:00.000Z", waiting: "Passing this to firstmate - Good Neighbours" }));
+    release(json({ id: "note:9", timestamp: "2026-10-05T20:01:00.000Z", waiting: "Working on it - Good Neighbours" }));
     await settle();
-    expect(lines()).toEqual(["Passing this to firstmate - Good Neighbours"]);
+    expect(lines()).toEqual(["Working on it - Good Neighbours"]);
 
     // The delivered note takes over the same line, then firstmate picks it up and works.
     const question = { id: "note:9", role: "user", html: "<p>fix the good neighbours site</p>" };
-    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Passing this to firstmate - Good Neighbours" }], working: true, lastActivity: new Date().toISOString() });
+    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Working on it - Good Neighbours" }], working: true, lastActivity: new Date().toISOString() });
     expect(pending()).toEqual([]);
     const line = document.querySelector(".queued")!;
     expect(line.classList.contains("swap")).toBe(false);
-    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Firstmate is on it: running the site's tests" }], working: true, lastActivity: new Date().toISOString() });
-    expect(lines()).toEqual(["Firstmate is on it: running the site's tests"]);
+    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Running the site's tests" }], working: true, lastActivity: new Date().toISOString() });
+    expect(lines()).toEqual(["Running the site's tests"]);
     expect(document.querySelector(".queued")).toBe(line);
     expect(line.classList.contains("swap")).toBe(true);
     expect(dots()).toBe(true);
@@ -165,7 +165,7 @@ describe("conversation page", () => {
     await settle();
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     const question = { id: "ask:1", role: "user", html: "<p>what's the weather?</p>" };
-    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Working on it" }], working: true, lastActivity: new Date().toISOString() });
     const line = document.querySelector(".queued")!;
     expect(line.classList.contains("still")).toBe(false);
     expect(document.getElementById("working")!.hidden).toBe(true);
@@ -175,7 +175,7 @@ describe("conversation page", () => {
     expect(line.classList.contains("still")).toBe(true);
     expect(document.getElementById("working")!.hidden).toBe(false);
 
-    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Working on it" }], working: true, lastActivity: new Date().toISOString() });
     expect(line.classList.contains("still")).toBe(false);
   });
 

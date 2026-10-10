@@ -100,7 +100,7 @@ describe("FlydDesk", () => {
     const turn = deferred();
     const desk = new FlydDesk({ dir, answer: turn.answer });
     const sent = desk.ask("  whats there to do in bkk tonight?  ");
-    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Answering" }]);
+    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Working on it" }]);
 
     turn.resolve("Tonight, sir: art bangkok at Siam Paragon.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
@@ -203,7 +203,7 @@ esac
     return { source, home, answered };
   }
 
-  it("keeps one living line on a note: passed on, then what firstmate is doing, on the window and the island", async () => {
+  it("keeps one quiet living line on a note: working, then the step itself, never the handoff", async () => {
     const project = join(dir, "project");
     const home = join(dir, "firstmate");
     mkdirSync(project);
@@ -216,13 +216,12 @@ esac
       projectDir: project,
       inbox: new FirstmateInbox({ home, script }),
       desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer: async () => "unused" }), complete: async () => "FIRSTMATE" },
-      projects: () => [{ name: "GNM (Good Neighbours Market)" }, { name: "Flyd" }],
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Passing this to firstmate - Good Neighbours Market");
+    expect(sent.waiting).toBe("Working on it");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Passing this to firstmate - Good Neighbours Market");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
 
     // Firstmate reads the note and starts work: the step rides on the note's own line.
     const inbox = join(home, "state", "inbox");
@@ -232,8 +231,8 @@ esac
     rmSync(join(inbox, name));
     writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: "npm test", description: "Run the site's tests" })].join("\n") + "\n");
     snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Firstmate is on it: run the site's tests");
-    expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Firstmate is on it: run the site's tests" });
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Run the site's tests");
+    expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Run the site's tests" });
   });
 
   it("never lets firstmate's 'Captain' reach him: lines, narration, summaries, interpretations and the island", async () => {
@@ -310,7 +309,7 @@ esac
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
 
     const messages = (await source.read("s1")).messages;
-    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Passing this to firstmate" });
+    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Working on it" });
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
@@ -540,7 +539,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
-    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Firstmate is on it" });
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Working on it" });
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 

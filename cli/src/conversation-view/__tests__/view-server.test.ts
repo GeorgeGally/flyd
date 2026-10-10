@@ -105,7 +105,7 @@ describe("SnapshotDiffer relays", () => {
 
   it("tells the page when a question's line says its answer failed", () => {
     const differ = new SnapshotDiffer();
-    const asking = differ.next({ messages: [{ id: "ask:1", role: "user", text: "weather?", waiting: "Answering" }], working: false });
+    const asking = differ.next({ messages: [{ id: "ask:1", role: "user", text: "weather?", waiting: "Working on it" }], working: false });
     expect(asking.messages[0]!.waitingFailed).toBeUndefined();
     const failed = differ.next({ messages: [{ id: "ask:1", role: "user", text: "weather?", waiting: "Flyd couldn't answer this: offline", waitingFailed: true }], working: false });
     expect(failed.messages.map((m) => [m.waiting, m.waitingFailed])).toEqual([["Flyd couldn't answer this: offline", true]]);
