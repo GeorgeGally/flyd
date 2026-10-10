@@ -66,12 +66,13 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
  * work request is never dropped on the floor.
  */
 export async function routeMessage(
-  input: { text: string; images: number; command?: string; recent: ConversationMessage[]; sessionId?: string },
+  input: { text: string; images: number; files?: number; command?: string; recent: ConversationMessage[]; sessionId?: string },
   complete: Complete,
   timeoutMs = ROUTE_TIMEOUT_MS,
   options: DeskRoutingOptions = {},
 ): Promise<Route> {
-  if (input.command || input.images > 0 || !input.text.trim()) return "firstmate";
+  // Attachments are read by firstmate; Flyd's own turn only sees words.
+  if (input.command || input.images > 0 || (input.files ?? 0) > 0 || !input.text.trim()) return "firstmate";
   const started = Date.now();
   const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");
   const fast = mode === "off" ? null : await (options.predict ?? defaultDeskPrediction)(input.text, input.recent).catch(() => null);

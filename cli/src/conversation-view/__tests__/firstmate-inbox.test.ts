@@ -96,6 +96,42 @@ describe("FirstmateInbox", () => {
     expect(inbox.image("f../../x.png")).toBeNull();
   });
 
+  it("saves dropped documents under their own names in data/inbox-files and names them in the note for firstmate", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    const pdf = Buffer.from("%PDF-1.3\nhello\n%%EOF\n");
+    const sent = await inbox.send("read this", [], undefined, [
+      { name: "Q3 report (final).pdf", data: pdf.toString("base64") },
+      { name: "../../notes.md", data: Buffer.from("# notes").toString("base64") },
+    ]);
+
+    const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
+    const paths = Array.from(raw.matchAll(/^\[file: (.+)\]$/gm), (match) => match[1]!);
+    expect(paths.map((path) => path.split("/").pop())).toEqual(["Q3 report (final).pdf", "notes.md"]);
+    for (const path of paths) expect(path.startsWith(join(home, "data", "inbox-files") + "/")).toBe(true);
+    expect(readFileSync(paths[0]!)).toEqual(pdf);
+    expect(raw).toContain(`read this\n\n[file: ${paths[0]}]\n[file: ${paths[1]}]`);
+
+    expect(questions(inbox)[0]).toMatchObject({ id: sent.id, text: "read this", files: ["Q3 report (final).pdf", "notes.md"] });
+
+    // A document alone is a message too.
+    await inbox.send("", [], undefined, [{ name: "brief.docx", data: Buffer.from("PK\x03\x04rest").toString("base64") }]);
+    expect(questions(inbox)[1]).toMatchObject({ text: "", files: ["brief.docx"] });
+  });
+
+  it("refuses documents it cannot pass on, and file names outside its folder", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    const doc = (name: string, body: string) => ({ name, data: Buffer.from(body).toString("base64") });
+    await expect(inbox.send("x", [], undefined, [doc("setup.exe", "MZ")])).rejects.toThrow("setup.exe: only PDFs");
+    await expect(inbox.send("x", [], undefined, [doc("fake.pdf", "#!/bin/sh")])).rejects.toThrow("fake.pdf is not a PDF file");
+    await expect(inbox.send("x", [], undefined, [doc("blob.txt", "a\u0000b")])).rejects.toThrow("not a TXT file");
+    await expect(inbox.send("x", [], undefined, Array.from({ length: 5 }, () => doc("a.md", "a")))).rejects.toThrow("At most 4 documents");
+    expect(questions(inbox)).toEqual([]);
+
+    writeNote("", "300-c", "2026-10-05T20:00:00Z", `see\n[file: /etc/passwd]\n[file: ${join(home, "data", "inbox-files")}/1-ab/../x.pdf]`);
+    expect(questions(inbox)[0]).toMatchObject({ text: expect.stringContaining("[file: /etc/passwd]") });
+    expect(questions(inbox)[0]!.files).toBeUndefined();
+  });
+
   it("tells firstmate to run a slash command the captain picked, and hides that note in the conversation", async () => {
     const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
     await inbox.send("/design-review the cards look flat", [], "design-review");

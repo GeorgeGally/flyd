@@ -13,6 +13,7 @@ import type {
   ConversationSnapshot,
   ConversationSource,
   Exchange,
+  FileUpload,
   ImageData,
   ImageUpload,
   SentMessage,
@@ -155,13 +156,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox !== undefined;
   }
 
-  async send(sessionId: string, text: string, images?: ImageUpload[]): Promise<SentMessage> {
+  async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[]): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
     const command = matchCommand(text, await this.commands());
     if (this.desk) {
       const route = await routeMessage(
-        { text, images: images?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId },
+        { text, images: images?.length ?? 0, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
             const { query } = await import("../lib/llm.js");
@@ -171,7 +172,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       );
       if (route === "flyd") return this.desk.desk.ask(text);
       try {
-        return await this.inbox.send(text, images, command?.name);
+        return await this.inbox.send(text, images, command?.name, files);
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
         const message = error instanceof Error ? error.message : String(error);
@@ -180,7 +181,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         throw new Error("Flyd couldn't pass this on just now; send it again");
       }
     }
-    return this.inbox.send(text, images, command?.name);
+    return this.inbox.send(text, images, command?.name, files);
   }
 
   /** Skills and commands, re-read at most once a minute. */

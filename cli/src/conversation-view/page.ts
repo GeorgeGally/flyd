@@ -1,3 +1,4 @@
+import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmate-inbox.js";
 import { escapeHtml } from "./markdown.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
@@ -368,7 +369,17 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
   font: 600 13px/22px var(--mono); color: var(--fg); background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
+/* A dropped document: its kind and name, removable like a picture. */
+.attachment.file { display: flex; align-items: center; gap: 0.5em; line-height: 1.2; padding: 8px 34px 8px 10px; max-width: 280px; }
+.attachment.file .kind { font: 800 11px/1 var(--mono); color: var(--bg); background: var(--accent); border-radius: 3px; padding: 3px 4px; }
+.attachment.file .name { font: 500 13px/1.3 var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.attachment.file button { top: 50%; transform: translateY(-50%); }
+.docs { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.45em; }
+.doc { display: inline-flex; align-items: center; gap: 0.45em; max-width: 100%; padding: 4px 8px; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); font: 500 13px/1.3 var(--mono); color: var(--fg); }
+.doc .kind { font-weight: 800; color: var(--accent); }
+.doc .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .composer.dropping .field { background: color-mix(in srgb, var(--accent) 16%, var(--tint)); }
+.composer.dropping .hint::before { content: "drop to attach   "; color: var(--accent); }
 /* Push-to-talk (Fn+Control in Flyd.app): the box shows it is listening. */
 .composer.listening .field, .composer.transcribing .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
 .composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
@@ -509,6 +520,9 @@ const SCRIPT = `
     if (message.role === "user") highlight(body);
     var old = el.querySelector(".shots");
     if (old) old.remove();
+    var oldDocs = el.querySelector(".docs");
+    if (oldDocs) oldDocs.remove();
+    if (message.files && message.files.length) body.after(docs(message.files));
     if (message.images && message.images.length) {
       body.after(shots(message.images.map(function (id) {
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
@@ -591,6 +605,29 @@ const SCRIPT = `
       button.appendChild(img);
       button.addEventListener("click", function () { openImage(url); });
       row.appendChild(button);
+    });
+    return row;
+  }
+  function fileKind(name) {
+    var dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1).toUpperCase() : "FILE";
+  }
+  function docs(names) {
+    var row = document.createElement("div");
+    row.className = "docs";
+    names.forEach(function (name) {
+      var chip = document.createElement("span");
+      chip.className = "doc";
+      chip.title = name;
+      var kind = document.createElement("span");
+      kind.className = "kind";
+      kind.textContent = fileKind(name);
+      var label = document.createElement("span");
+      label.className = "name";
+      label.textContent = name;
+      chip.appendChild(kind);
+      chip.appendChild(label);
+      row.appendChild(chip);
     });
     return row;
   }
@@ -774,15 +811,27 @@ const SCRIPT = `
     attachmentsEl.textContent = "";
     attachments.forEach(function (attachment, index) {
       var item = document.createElement("div");
-      item.className = "attachment";
-      var img = document.createElement("img");
-      img.src = attachment.url;
-      img.alt = "";
-      item.appendChild(img);
+      item.className = attachment.name ? "attachment file" : "attachment";
+      if (attachment.name) {
+        item.title = attachment.name;
+        var kind = document.createElement("span");
+        kind.className = "kind";
+        kind.textContent = fileKind(attachment.name);
+        var label = document.createElement("span");
+        label.className = "name";
+        label.textContent = attachment.name;
+        item.appendChild(kind);
+        item.appendChild(label);
+      } else {
+        var img = document.createElement("img");
+        img.src = attachment.url;
+        img.alt = "";
+        item.appendChild(img);
+      }
       var remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "×";
-      remove.setAttribute("aria-label", "Remove image");
+      remove.setAttribute("aria-label", attachment.name ? "Remove " + attachment.name : "Remove image");
       remove.addEventListener("click", function () { attachments.splice(index, 1); renderAttachments(); });
       item.appendChild(remove);
       attachmentsEl.appendChild(item);
@@ -790,28 +839,41 @@ const SCRIPT = `
     attachmentsEl.hidden = attachments.length === 0;
     grow();
   }
-  function addImages(files) {
+  // Screenshots go as images; documents (a PDF, a Word file, notes) as files under their own names.
+  var DOCUMENTS = ${JSON.stringify(DOCUMENT_EXTENSIONS)};
+  var MAX_IMAGE_BYTES = ${MAX_IMAGE_BYTES};
+  var MAX_FILE_BYTES = ${MAX_FILE_BYTES};
+  var IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  function addFiles(files) {
+    var refused = [];
     Array.prototype.forEach.call(files, function (file) {
-      if (!file || file.type.indexOf("image/") !== 0 || attachments.length >= MAX_ATTACHMENTS) return;
+      if (!file) return;
+      var image = IMAGE_TYPES.indexOf(file.type) !== -1;
+      var ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+      if (!image && (file.name.indexOf(".") === -1 || DOCUMENTS.indexOf(ext) === -1)) { refused.push(file.name + ": not a document Flyd can pass on"); return; }
+      if (file.size > (image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES)) { refused.push(file.name + ": over " + Math.round((image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES) / 1048576) + "MB"); return; }
+      if (attachments.length >= MAX_ATTACHMENTS) { refused.push(file.name + ": " + MAX_ATTACHMENTS + " attachments at most"); return; }
       var reader = new FileReader();
       reader.onload = function () {
         var url = String(reader.result);
         if (attachments.length >= MAX_ATTACHMENTS) return;
-        attachments.push({ url: url, mediaType: file.type, data: url.slice(url.indexOf(",") + 1) });
+        var data = url.slice(url.indexOf(",") + 1);
+        attachments.push(image ? { url: url, mediaType: file.type, data: data } : { name: file.name, data: data });
         renderAttachments();
       };
       reader.readAsDataURL(file);
     });
+    if (refused.length) problem.textContent = refused.join(" · ");
   }
   input.addEventListener("paste", function (event) {
     var files = Array.prototype.map.call((event.clipboardData && event.clipboardData.items) || [], function (item) {
       return item.kind === "file" ? item.getAsFile() : null;
-    }).filter(function (file) { return file && file.type.indexOf("image/") === 0; });
+    }).filter(Boolean);
     if (!files.length) return;
     event.preventDefault();
-    addImages(files);
+    addFiles(files);
   });
-  // Images can be dropped anywhere on the page; a stray drop never navigates away.
+  // Images and documents can be dropped anywhere on the page; a stray drop never navigates away.
   document.addEventListener("dragover", function (event) {
     if (composer.hidden) return;
     event.preventDefault();
@@ -824,7 +886,7 @@ const SCRIPT = `
     if (composer.hidden) return;
     event.preventDefault();
     composer.classList.remove("dropping");
-    if (event.dataTransfer) addImages(event.dataTransfer.files);
+    if (event.dataTransfer) addFiles(event.dataTransfer.files);
   });
   input.addEventListener("input", grow);
   // Terminal-style history: Up on the first line recalls earlier messages,
@@ -963,7 +1025,7 @@ const SCRIPT = `
   // Editing a recalled message makes it the draft.
   input.addEventListener("input", function () { recall.index = -1; });
 
-  function pendingMessage(text, images) {
+  function pendingMessage(text, sending) {
     var el = document.createElement("article");
     el.className = "msg user pending fresh";
     var time = document.createElement("span");
@@ -976,7 +1038,10 @@ const SCRIPT = `
     hl.textContent = text;
     if (text) body.appendChild(hl);
     el.appendChild(body);
+    var images = sending.filter(function (attachment) { return !attachment.name; });
+    var names = sending.filter(function (attachment) { return attachment.name; }).map(function (attachment) { return attachment.name; });
     if (images.length) el.appendChild(shots(images.map(function (image) { return image.url; })));
+    if (names.length) el.appendChild(docs(names));
     var state = document.createElement("span");
     state.className = "state";
     state.textContent = "sending…";
@@ -1093,12 +1158,12 @@ const SCRIPT = `
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
     var text = input.value.trim();
-    var images = attachments.slice();
-    if ((!text && !images.length) || !current) return;
+    var sending = attachments.slice();
+    if ((!text && !sending.length) || !current) return;
     recall.index = -1;
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
-    var el = pendingMessage(text, images);
+    var el = pendingMessage(text, sending);
     input.value = "";
     attachments = [];
     renderAttachments();
@@ -1106,7 +1171,8 @@ const SCRIPT = `
     var payload = JSON.stringify({
       session: current,
       text: text,
-      images: images.map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
+      images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
+      files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
     deliver(payload, true).then(function (sent) {
       blip();
@@ -1135,7 +1201,7 @@ const SCRIPT = `
       el.classList.add("failed");
       el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
       el.addEventListener("click", function () { el.remove(); });
-      if (!input.value && !attachments.length) { input.value = text; attachments = images; renderAttachments(); }
+      if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
     });
   });
 
