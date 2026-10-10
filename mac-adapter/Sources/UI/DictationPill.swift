@@ -1,13 +1,14 @@
 import AppKit
 
 /// Dictation status grown out of the MacBook notch: a black island flush with the notch
-/// whose wings carry the live dot and level bars, growing out to the right of the notch, at
-/// notch height, for messages. Screens without a notch get the same island at the top centre.
+/// whose wings carry the live dot and level bars. For a message it grows out to the right of
+/// the notch and hangs below the menu bar there, so the message can be set large.
+/// Screens without a notch get the same island at the top centre.
 /// It never takes focus, so the app George is dictating into stays frontmost and receives the paste.
 ///
 /// The panel is a fixed transparent canvas around the notch; the island itself is a shape
 /// path (flared shoulders into the menu bar, continuous corners) that springs between the
-/// notch, the compact wings and the message strip.
+/// notch, the compact wings and the message strip beside the notch.
 final class DictationPill: NSObject {
     /// One island for dictation and voice questions, so they never draw over each other.
     static let shared = DictationPill()
@@ -66,17 +67,31 @@ final class DictationPill: NSObject {
     static let notchCornerRadius: CGFloat = 9
     static let opticalLift: CGFloat = 2
 
-    /// Message strip: grows out to the right of the notch at notch height, with type sized to
-    /// read at a glance from a normal sitting distance.
-    static let stripPadding: CGFloat = 18
-    static let maxStripWidth: CGFloat = 640
-    static let metaGap: CGFloat = 12
-    static let titleBodyGap: CGFloat = 10
-    static let metaFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-    static let titleFont = NSFont.systemFont(ofSize: 19, weight: .semibold)
-    static let bodyFont = NSFont.systemFont(ofSize: 19, weight: .regular)
-    private static let metaDotSize: CGFloat = 9
-    private static let metaDotGap: CGFloat = 8
+    /// Message strip: grows out to the right of the notch and hangs below the menu bar, a
+    /// small state label over the message set large in Flyd's display face, so it reads at a
+    /// glance from a normal sitting distance. Every message gets the same strip and the same
+    /// type size; a longer one truncates rather than resizing either.
+    static let stripInset: CGFloat = 26
+    static let stripTopPadding: CGFloat = 18
+    /// A little more than the top: the last line's descenders leave room the eye counts as space.
+    static let stripBottomPadding: CGFloat = 20
+    static let stripCornerRadius: CGFloat = 22
+    /// Wider than this and a line gets too long to take in at once.
+    static let stripWidth: CGFloat = 620
+    /// The strip never runs into the screen's edge.
+    static let screenMargin: CGFloat = 16
+    static let labelRowHeight: CGFloat = 16
+    /// Tight: the label belongs to the message under it.
+    static let labelGap: CGFloat = 2
+    static let bodyGap: CGFloat = 6
+    /// The state label: monospaced caps, tracked out, like the rest of Flyd's state readouts.
+    static let labelFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
+    /// The message, on up to two lines; with a body under it, the title takes one and the body the other.
+    static let titleFont = displayFont(28)
+    static let bodyFont = NSFont(name: "HelveticaNeue", size: 18) ?? .systemFont(ofSize: 18)
+    static let titleLines = 2
+    private static let metaDotSize: CGFloat = 8
+    private static let metaDotGap: CGFloat = 9
 
     private static let dotSize: CGFloat = 11
     /// The level bars read low beside the dot, so they sit a little higher than it.
@@ -102,7 +117,10 @@ final class DictationPill: NSObject {
     private var check: IslandCheck?
     private var strip: NSView?
     private var metaDot: FlydStatusDot?
-    private var textLabel: NSTextField?
+    private var metaLabel: IslandText?
+    private var titleText: IslandText?
+    private var bodyText: IslandText?
+    private var stripLayout: StripLayout?
     private var hideWork: DispatchWorkItem?
     /// Bumped on every show, so a collapse that finishes after a newer show never hides it.
     private var generation = 0
@@ -110,10 +128,10 @@ final class DictationPill: NSObject {
     private var wingHeight: CGFloat = fallbackHeight
     /// The island's outline in screen coordinates while a status is clickable. The canvas is
     /// mostly transparent, so the panel takes the mouse only while the pointer is over it.
-    private var clickArea: NSRect?
+    private var clickArea: [NSRect] = []
     private var mouseMonitors: [Any] = []
 
-    /// What the strip says, on one line: a small meta label, a bold title, and an optional body.
+    /// What the strip says: a small meta label, the message's title, and an optional body under it.
     struct Message: Equatable {
         var meta: String
         var title: String
@@ -133,10 +151,11 @@ final class DictationPill: NSObject {
         (notch?.width ?? 0) + 2 * wingWidth
     }
 
-    /// Flush with the top edge at notch height. Compact: centred on the notch, wings either
-    /// side. With a message: anchored at the notch's left edge, growing out to the right by
-    /// `strip` (the strip's width, padding included). The frame includes the shoulders.
-    static func islandFrame(screen: NSRect, notch: NSRect?, strip: CGFloat?) -> NSRect {
+    /// Flush with the top edge. Compact: centred on the notch at notch height, wings either
+    /// side. With a message: anchored at the notch's left edge, growing out to the right by the
+    /// strip's width and down to its height (padding included); the part over the notch stays
+    /// notch height (see `islandPath`). The frame includes the shoulders.
+    static func islandFrame(screen: NSRect, notch: NSRect?, strip: NSSize?) -> NSRect {
         let height = notch?.height ?? fallbackHeight
         let shoulder = compactShoulder
         guard let strip else {
@@ -147,8 +166,9 @@ final class DictationPill: NSObject {
         }
         let notchFrame = collapsedFrame(screen: screen, notch: notch)
         let x = max(notchFrame.minX - shoulder, screen.minX)
-        let width = min(notchFrame.maxX + min(strip, maxStripWidth) + shoulder, screen.maxX) - x
-        return NSRect(x: x, y: screen.maxY - height, width: width, height: height)
+        let width = min(notchFrame.maxX + strip.width + shoulder, screen.maxX) - x
+        let stripHeight = max(height, strip.height)
+        return NSRect(x: x, y: screen.maxY - stripHeight, width: width, height: stripHeight)
     }
 
     /// Collapsed into the notch itself: where the island grows from and shrinks back to.
@@ -159,42 +179,132 @@ final class DictationPill: NSObject {
         return NSRect(x: (midX - width / 2).rounded(), y: screen.maxY - height, width: width, height: height)
     }
 
-    /// The transparent panel the island draws in: room for the compact wings and the widest
+    /// The transparent panel the island draws in: room for the compact wings and the message
     /// strip plus its shadow, so the island can change shape without the window moving under it.
     static func canvasFrame(screen: NSRect, notch: NSRect?) -> NSRect {
         let compact = islandFrame(screen: screen, notch: notch, strip: nil)
-        let widest = islandFrame(screen: screen, notch: notch, strip: maxStripWidth)
-        let minX = max(min(compact.minX, widest.minX) - shadowMargin, screen.minX)
-        let maxX = min(max(compact.maxX, widest.maxX) + shadowMargin, screen.maxX)
-        let height = (notch?.height ?? fallbackHeight) + shadowMargin
+        let strip = islandFrame(screen: screen, notch: notch, strip: NSSize(width: stripWidth, height: stripHeight))
+        let minX = max(min(compact.minX, strip.minX) - shadowMargin, screen.minX)
+        let maxX = min(max(compact.maxX, strip.maxX) + shadowMargin, screen.maxX)
+        let height = max(compact.height, strip.height) + shadowMargin
         return NSRect(x: minX, y: screen.maxY - height, width: maxX - minX, height: height)
     }
 
-    /// The widest the strip's line of text can be before it truncates.
-    static var maxTextWidth: CGFloat { maxStripWidth - 2 * stripPadding - metaDotSize - metaDotGap }
-
-    /// The strip's width for a line of text this wide, padding and meta dot included.
-    static func stripWidth(text: CGFloat) -> CGFloat {
-        ceil(2 * stripPadding + metaDotSize + metaDotGap + min(text, maxTextWidth))
+    /// How a message sits in the fixed strip: the title's and body's boxes, the height of the
+    /// label and text together (centred in the strip), and the strip's size with its padding.
+    struct StripLayout: Equatable {
+        var title: Block
+        var body: Block?
+        var content: CGFloat
+        var size: NSSize
     }
 
-    /// The strip's line: meta label, then title, then the body in a quieter weight.
-    static func line(for message: Message, meta: NSColor) -> NSAttributedString {
-        let line = NSMutableAttributedString(attributedString: FlydPalette.tracked(message.meta, font: metaFont, color: meta, tracking: 0.3))
-        line.append(NSAttributedString(string: " ", attributes: [.font: metaFont, .kern: metaGap - 4]))
-        line.append(NSAttributedString(string: message.title, attributes: [.font: titleFont, .foregroundColor: FlydPalette.paper]))
-        if let body = message.body {
-            line.append(NSAttributedString(string: " ", attributes: [.font: bodyFont, .kern: titleBodyGap - 5]))
-            line.append(NSAttributedString(string: body, attributes: [.font: bodyFont, .foregroundColor: FlydPalette.paper.withAlphaComponent(0.7)]))
+    /// Text cut to fit its lines, and the box it sets in.
+    struct Block: Equatable {
+        var text: NSAttributedString
+        var size: NSSize
+    }
+
+    /// The strip's one height: the label over two lines of the message, in padding.
+    static var stripHeight: CGFloat {
+        ceil(stripTopPadding + labelRowHeight + labelGap + CGFloat(titleLines) * lineHeight(titleFont) + stripBottomPadding)
+    }
+
+    /// Lays out a message in the strip, which is `stripWidth` wide unless the screen has less
+    /// room than that. The title truncates past two lines at a word and breaks into even
+    /// lines, so a second line never holds a single word; a body takes the title's second line.
+    static func stripLayout(for message: Message, maxWidth: CGFloat) -> StripLayout {
+        let width = max(0, min(maxWidth, stripWidth))
+        let textWidth = max(0, width - 2 * stripInset)
+        let title = block(title(message.title), width: textWidth, maxLines: message.body == nil ? titleLines : 1)
+        let body = message.body.map { block(Self.body($0), width: textWidth, maxLines: 1) }
+        var content = labelRowHeight + labelGap + title.size.height
+        if let body { content += bodyGap + body.size.height }
+        return StripLayout(title: title, body: body, content: content, size: NSSize(width: width, height: stripHeight))
+    }
+
+    /// `text` set in at most `maxLines` at `width`: cut at a word with an ellipsis when it runs
+    /// longer, then balanced so every line is about as long as the longest.
+    static func block(_ text: NSAttributedString, width: CGFloat, maxLines: Int) -> Block {
+        let lineHeight = (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.maximumLineHeight ?? 0
+        func measure(_ text: NSAttributedString, _ width: CGFloat) -> NSRect {
+            text.boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin])
         }
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byTruncatingTail
-        line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
-        return line
+        func lines(_ text: NSAttributedString, _ width: CGFloat) -> Int {
+            max(1, Int((measure(text, width).height / max(lineHeight, 1)).rounded()))
+        }
+        let fitted = lines(text, width) > maxLines ? cut(text, toFit: { lines($0, width) <= maxLines }) : text
+        let count = min(lines(fitted, width), maxLines)
+        guard count > 1 else {
+            return Block(text: fitted, size: NSSize(width: min(width, ceil(measure(fitted, width).width) + 1), height: lineHeight))
+        }
+        // The narrowest width that still sets it in as many lines.
+        var low = width / CGFloat(count), high = width
+        while high - low > 1 {
+            let mid = (low + high) / 2
+            if lines(fitted, mid) <= count { high = mid } else { low = mid }
+        }
+        return Block(text: fitted, size: NSSize(width: ceil(high), height: lineHeight * CGFloat(count)))
     }
 
+    /// The most of `text`, cut after a whole word, that fits with an ellipsis; `text` itself if
+    /// not even its first word does, so the drawing truncates it instead.
+    static func cut(_ text: NSAttributedString, toFit fits: (NSAttributedString) -> Bool) -> NSAttributedString {
+        let string = text.string as NSString
+        var ends: [Int] = []
+        string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byWords) { _, range, _, _ in
+            ends.append(range.location + range.length)
+        }
+        func candidate(_ end: Int) -> NSAttributedString {
+            let cut = NSMutableAttributedString(attributedString: text.attributedSubstring(from: NSRange(location: 0, length: end)))
+            cut.append(NSAttributedString(string: "…", attributes: text.attributes(at: max(0, end - 1), effectiveRange: nil)))
+            return cut
+        }
+        var best: NSAttributedString?
+        var low = 0, high = ends.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let attempt = candidate(ends[mid])
+            if fits(attempt) { best = attempt; low = mid + 1 } else { high = mid - 1 }
+        }
+        return best ?? text
+    }
+
+    static func displayFont(_ size: CGFloat) -> NSFont {
+        NSFont(name: "HelveticaNeue-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+    }
+
+    /// Fixed line heights, so measured and drawn text agree and lines sit on an even rhythm.
     static func lineHeight(_ font: NSFont) -> CGFloat {
-        ceil(NSLayoutManager().defaultLineHeight(for: font))
+        font.pointSize >= 20 ? (font.pointSize * 1.22).rounded() : (font.pointSize * 1.28).rounded()
+    }
+
+    private static func paragraph(_ font: NSFont) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = lineHeight(font)
+        style.maximumLineHeight = lineHeight(font)
+        style.lineBreakMode = .byWordWrapping
+        return style
+    }
+
+    /// The state label, in tracked-out caps.
+    static func label(_ text: String, color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: text.uppercased(), attributes: [
+            .font: labelFont, .foregroundColor: color, .kern: 1.6, .paragraphStyle: paragraph(labelFont)
+        ])
+    }
+
+    /// The message, tracked in a touch as display type wants at this size.
+    static func title(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: titleFont, .foregroundColor: FlydPalette.paper, .kern: -0.018 * titleFont.pointSize, .paragraphStyle: paragraph(titleFont)
+        ])
+    }
+
+    static func body(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: bodyFont, .foregroundColor: FlydPalette.paper.withAlphaComponent(0.66), .kern: -0.1, .paragraphStyle: paragraph(bodyFont)
+        ])
     }
 
     /// What the strip says for a phase, or nil when the island stays compact. A message with a
@@ -237,27 +347,57 @@ final class DictationPill: NSObject {
 
     /// The island's outline in a bottom-left-origin space whose top edge is `rect.maxY` (the
     /// screen's top). Shoulders flare out into the menu bar; bottom corners are continuous.
-    /// Every outline has the same elements, so one springs smoothly into another.
-    static func islandPath(in rect: NSRect, shoulder: CGFloat, cornerRadius: CGFloat, closed: Bool = true) -> CGPath {
+    /// `step` is where the part over the notch meets the strip beside it: left of `step.x` the
+    /// island ends at `step.y` (notch height), right of it the strip hangs down to `rect.minY`,
+    /// joined by a rounded inner corner. When `step.y` is at the bottom the island is one height
+    /// and the step folds flat into the bottom edge at `step.x`, so every outline has the same
+    /// elements and one springs smoothly into another, the strip unfolding from that point.
+    static func islandPath(in rect: NSRect, shoulder: CGFloat, cornerRadius: CGFloat, step: CGPoint? = nil, closed: Bool = true) -> CGPath {
         let s = max(0, min(shoulder, rect.width / 4, rect.height / 2))
-        let r = max(0, min(cornerRadius, (rect.width - 2 * s) / 2, rect.height - s))
-        // A squircle-ish corner: the curve starts earlier and eases in, like a continuous corner.
-        let reach = min(r * 1.28, (rect.width - 2 * s) / 2, rect.height - s)
-        let ease: CGFloat = 0.36
         let left = rect.minX + s, right = rect.maxX - s
         let top = rect.maxY, bottom = rect.minY
-
+        // A squircle-ish corner: the curve starts earlier and eases in, like a continuous corner.
+        func reach(_ radius: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
+            max(0, min(radius * 1.28, width / 2, height))
+        }
+        let ease: CGFloat = 0.36
         let path = CGMutablePath()
+        /// A continuous corner from `start` round the corner point to `end`.
+        func corner(to end: CGPoint, from start: CGPoint, horizontalFirst: Bool) {
+            let vertex = horizontalFirst ? CGPoint(x: end.x, y: start.y) : CGPoint(x: start.x, y: end.y)
+            path.addCurve(to: end,
+                          control1: CGPoint(x: vertex.x + (start.x - vertex.x) * ease, y: vertex.y + (start.y - vertex.y) * ease),
+                          control2: CGPoint(x: vertex.x + (end.x - vertex.x) * ease, y: vertex.y + (end.y - vertex.y) * ease))
+        }
+
         path.move(to: CGPoint(x: rect.minX, y: top))
         path.addQuadCurve(to: CGPoint(x: left, y: top - s), control: CGPoint(x: left, y: top))
-        path.addLine(to: CGPoint(x: left, y: bottom + reach))
-        path.addCurve(to: CGPoint(x: left + reach, y: bottom),
-                      control1: CGPoint(x: left, y: bottom + reach * ease),
-                      control2: CGPoint(x: left + reach * ease, y: bottom))
-        path.addLine(to: CGPoint(x: right - reach, y: bottom))
-        path.addCurve(to: CGPoint(x: right, y: bottom + reach),
-                      control1: CGPoint(x: right - reach * ease, y: bottom),
-                      control2: CGPoint(x: right, y: bottom + reach * ease))
+        if let step, step.y > bottom + 1, step.x > left, step.x < right {
+            let ledge = min(step.y, top - s)
+            let inner = max(0, min(10, (ledge - bottom) / 2, (right - step.x) / 2))
+            let a = reach(min(cornerRadius, compactCornerRadius), width: step.x - inner - left, height: top - s - ledge)
+            let b = reach(cornerRadius, width: (right - step.x) / 2, height: ledge - inner - bottom)
+            let r = reach(cornerRadius, width: (right - step.x) / 2, height: top - s - bottom)
+            path.addLine(to: CGPoint(x: left, y: ledge + a))
+            corner(to: CGPoint(x: left + a, y: ledge), from: CGPoint(x: left, y: ledge + a), horizontalFirst: false)
+            path.addLine(to: CGPoint(x: step.x - inner, y: ledge))
+            path.addQuadCurve(to: CGPoint(x: step.x, y: ledge - inner), control: CGPoint(x: step.x, y: ledge))
+            path.addLine(to: CGPoint(x: step.x, y: bottom + b))
+            corner(to: CGPoint(x: step.x + b, y: bottom), from: CGPoint(x: step.x, y: bottom + b), horizontalFirst: false)
+            path.addLine(to: CGPoint(x: right - r, y: bottom))
+            corner(to: CGPoint(x: right, y: bottom + r), from: CGPoint(x: right - r, y: bottom), horizontalFirst: true)
+        } else {
+            let r = reach(cornerRadius, width: right - left, height: top - s - bottom)
+            let fold = CGPoint(x: min(max(step?.x ?? (left + right) / 2, left + r), right - r), y: bottom)
+            path.addLine(to: CGPoint(x: left, y: bottom + r))
+            corner(to: CGPoint(x: left + r, y: bottom), from: CGPoint(x: left, y: bottom + r), horizontalFirst: false)
+            path.addLine(to: fold)
+            path.addQuadCurve(to: fold, control: fold)
+            path.addLine(to: fold)
+            path.addCurve(to: fold, control1: fold, control2: fold)
+            path.addLine(to: CGPoint(x: right - r, y: bottom))
+            corner(to: CGPoint(x: right, y: bottom + r), from: CGPoint(x: right - r, y: bottom), horizontalFirst: true)
+        }
         path.addLine(to: CGPoint(x: right, y: top - s))
         path.addQuadCurve(to: CGPoint(x: rect.maxX, y: top), control: CGPoint(x: right, y: top))
         if closed { path.closeSubpath() }
@@ -276,44 +416,47 @@ final class DictationPill: NSObject {
         // Same screen and already up: change shape in place; otherwise grow out of the notch.
         let growing = !(panel.isVisible && panel.frame == canvas)
 
-        let stripWidth = configure(for: phase)
-        let target = Self.islandFrame(screen: screen.frame, notch: notch, strip: stripWidth)
+        let notchFrame = Self.collapsedFrame(screen: screen.frame, notch: notch)
+        let room = screen.frame.maxX - notchFrame.maxX - Self.compactShoulder - Self.screenMargin
+        let stripSize = configure(for: phase, maxWidth: room)
+        let target = Self.islandFrame(screen: screen.frame, notch: notch, strip: stripSize)
         let local = target.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
+        let collapsed = notchFrame.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
+        let step = CGPoint(x: collapsed.maxX, y: collapsed.minY)
         let shoulder = Self.compactShoulder
-        let radius = Self.compactCornerRadius
+        let radius = stripSize == nil ? Self.compactCornerRadius : Self.stripCornerRadius
         layoutContent(in: local, notch: notch)
 
         if growing {
             panel.setFrame(canvas, display: false)
-            let collapsed = Self.collapsedFrame(screen: screen.frame, notch: notch)
-                .offsetBy(dx: -canvas.minX, dy: -canvas.minY)
-            setShape(in: collapsed, shoulder: 0, radius: Self.notchCornerRadius, animated: false)
+            setShape(in: collapsed, shoulder: 0, radius: Self.notchCornerRadius, step: step, animated: false)
             panel.orderFrontRegardless()
         }
         // A reduced-motion hide may be mid-fade; a new phase always shows in full.
         island?.alphaValue = 1
 
         if FlydPalette.reduceMotion {
-            setShape(in: local, shoulder: shoulder, radius: radius, animated: false)
+            setShape(in: local, shoulder: shoulder, radius: radius, step: step, animated: false)
             if growing {
                 island?.alphaValue = 0
                 fade(island, to: 1)
             }
             self.strip?.alphaValue = 1
         } else {
-            setShape(in: local, shoulder: shoulder, radius: radius, animated: true)
-            if let stripView = self.strip, stripWidth != nil {
-                stripView.alphaValue = 0
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, generation] in
-                    guard let self, self.generation == generation else { return }
-                    self.fade(stripView, to: 1, duration: 0.24)
-                }
-            }
+            setShape(in: local, shoulder: shoulder, radius: radius, step: step, animated: true)
+            if stripSize != nil { revealStrip() }
         }
         if phase == .inserted || Self.isSent(phase) {
             check?.draw(animated: !FlydPalette.reduceMotion)
         }
-        if case .status = phase { setClickArea(target) } else { setClickArea(nil) }
+        if case .status = phase {
+            // The island's own outline: the notch part and the strip beside it, not the empty corner under the notch.
+            let notchPart = NSRect(x: target.minX, y: notchFrame.minY, width: notchFrame.maxX - target.minX, height: notchFrame.height)
+            let stripPart = NSRect(x: notchFrame.maxX, y: target.minY, width: target.maxX - notchFrame.maxX, height: target.height)
+            setClickArea(stripSize == nil ? [target] : [notchPart, stripPart])
+        } else {
+            setClickArea([])
+        }
 
         if let hold = Self.holdDuration(for: phase) {
             let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -343,7 +486,7 @@ final class DictationPill: NSObject {
         hideWork?.cancel()
         hideWork = nil
         currentPhase = nil
-        setClickArea(nil)
+        setClickArea([])
         guard let panel, panel.isVisible else { return }
         let hiding = generation
         let finish = { [weak self] in
@@ -365,7 +508,8 @@ final class DictationPill: NSObject {
         hideContent(keepStrip: true)
         CATransaction.begin()
         CATransaction.setCompletionBlock(finish)
-        setShape(in: collapsed, shoulder: 0, radius: Self.notchCornerRadius, animated: true, collapsing: true)
+        setShape(in: collapsed, shoulder: 0, radius: Self.notchCornerRadius, step: CGPoint(x: collapsed.maxX, y: collapsed.minY),
+                 animated: true, collapsing: true)
         CATransaction.commit()
     }
 
@@ -377,8 +521,8 @@ final class DictationPill: NSObject {
         if !keepStrip { strip?.isHidden = true }
     }
 
-    /// Shows the views this phase needs; returns the strip's width, if the phase has a message.
-    private func configure(for phase: Phase) -> CGFloat? {
+    /// Shows the views this phase needs; returns the strip's size, if the phase has a message.
+    private func configure(for phase: Phase, maxWidth: CGFloat) -> NSSize? {
         let spinning: Bool
         switch phase {
         case .working, .thinking, .status(_, .working): spinning = true
@@ -404,14 +548,15 @@ final class DictationPill: NSObject {
             strip?.isHidden = true
             return nil
         }
-        let quiet = FlydPalette.paper.withAlphaComponent(0.55)
+        let quiet = FlydPalette.paper.withAlphaComponent(0.5)
+        let layout = Self.stripLayout(for: message, maxWidth: maxWidth)
         switch phase {
-        case .failed: return setMessage(message, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
-        case .notice: return setMessage(message, dot: FlydPalette.brassGlow, meta: quiet)
-        case .status(_, .decision): return setMessage(message, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
-        case .status: return setMessage(message, dot: FlydPalette.signalGreen, meta: quiet)
+        case .failed: return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
+        case .notice: return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: quiet)
+        case .status(_, .decision): return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
+        case .status: return setMessage(message, layout, dot: FlydPalette.signalGreen, meta: FlydPalette.signalGreen)
         // A voice question keeps its spinner where the dot would be.
-        default: return setMessage(message, dot: nil, meta: quiet)
+        default: return setMessage(message, layout, dot: nil, meta: quiet)
         }
     }
 
@@ -420,13 +565,45 @@ final class DictationPill: NSObject {
         return false
     }
 
-    private func setMessage(_ message: Message, dot: NSColor?, meta: NSColor, pulsing: Bool = false) -> CGFloat? {
-        guard let strip, let textLabel, let metaDot else { return nil }
+    private func setMessage(_ message: Message, _ layout: StripLayout, dot: NSColor?, meta: NSColor, pulsing: Bool = false) -> NSSize? {
+        guard let strip, let metaDot, let metaLabel, let titleText, let bodyText else { return nil }
         strip.isHidden = false
         metaDot.isHidden = dot == nil
         if let dot { metaDot.set(color: dot, pulsing: pulsing) }
-        textLabel.attributedStringValue = Self.line(for: message, meta: meta)
-        return Self.stripWidth(text: ceil(textLabel.attributedStringValue.size().width))
+        metaLabel.text = Self.label(message.meta, color: meta)
+        titleText.text = layout.title.text
+        bodyText.text = layout.body?.text
+        bodyText.isHidden = message.body == nil
+        stripLayout = layout
+        return layout.size
+    }
+
+    /// The message slides out of the notch as the island opens, label first, then the message.
+    private func revealStrip() {
+        guard let strip else { return }
+        strip.alphaValue = 1
+        let parts = [metaDot, metaLabel, titleText, bodyText].compactMap { $0 }.filter { !$0.isHidden }
+        let start = CACurrentMediaTime() + 0.05
+        for (index, part) in parts.enumerated() {
+            guard let layer = part.layer else { continue }
+            let begin = start + 0.04 * Double(index)
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.26
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            let slide = CASpringAnimation(keyPath: "transform.translation.x")
+            slide.fromValue = -18
+            slide.toValue = 0
+            slide.stiffness = 260
+            slide.damping = 26
+            slide.duration = slide.settlingDuration
+            for animation in [fade, slide] as [CABasicAnimation] {
+                animation.beginTime = begin
+                animation.fillMode = .backwards
+                layer.add(animation, forKey: animation.keyPath)
+            }
+        }
     }
 
     /// Positions content for the island's final outline, in canvas (bottom-left origin) coordinates.
@@ -459,29 +636,40 @@ final class DictationPill: NSObject {
             )
         }
 
-        guard let strip, !strip.isHidden, let textLabel, let metaDot else { return }
+        guard let strip, !strip.isHidden, let layout = stripLayout,
+              let metaDot, let metaLabel, let titleText, let bodyText else { return }
         // The strip starts where the notch ends: the left of the island is the notch itself.
         let stripX = rect.minX + shoulder + (notch?.width ?? 2 * Self.compactCornerRadius)
         strip.frame = NSRect(x: stripX, y: rect.minY, width: max(0, rect.maxX - shoulder - stripX), height: rect.height)
-        let stripMidY = midY - rect.minY
-        let slotMidX = Self.stripPadding + Self.metaDotSize / 2
-        metaDot.frame.origin = NSPoint(x: (slotMidX - Self.metaDotSize / 2).rounded(), y: (stripMidY - Self.metaDotSize / 2).rounded())
+        let inset = Self.stripInset
+        // Laid out from the top down, the label and message centred between the paddings.
+        let room = strip.frame.height - Self.stripTopPadding - Self.stripBottomPadding
+        var top = strip.frame.height - Self.stripTopPadding - max(0, (room - layout.content) / 2).rounded()
+        let rowMidY = top - Self.labelRowHeight / 2
         // A voice question's spinner moves out of the (now hidden) left wing into the dot's place.
+        let slot = metaDot.isHidden ? Self.glyphSize : Self.metaDotSize
+        metaDot.frame.origin = NSPoint(x: inset, y: (rowMidY - Self.metaDotSize / 2).rounded())
         if metaDot.isHidden {
-            spinner?.frame.origin = NSPoint(x: (stripX + slotMidX - Self.glyphSize / 2).rounded(),
-                                            y: (midY - Self.glyphSize / 2).rounded())
+            spinner?.frame.origin = NSPoint(x: stripX + inset, y: (rect.minY + rowMidY - Self.glyphSize / 2).rounded())
         }
-        // Text fields inset their text by 2pt; pull the field out so the text sits on the padding.
-        let textX = Self.stripPadding + Self.metaDotSize + Self.metaDotGap - 2
-        let textHeight = Self.lineHeight(Self.titleFont)
-        textLabel.frame = NSRect(x: textX, y: (stripMidY - textHeight / 2).rounded(),
-                                 width: max(0, strip.frame.width - textX - Self.stripPadding + 4), height: textHeight)
+        let labelHeight = Self.lineHeight(Self.labelFont)
+        let labelX = inset + slot + Self.metaDotGap
+        metaLabel.frame = NSRect(x: labelX, y: (rowMidY - labelHeight / 2).rounded(),
+                                 width: max(0, strip.frame.width - labelX - inset), height: labelHeight)
+        top -= Self.labelRowHeight + Self.labelGap
+        let title = layout.title.size
+        titleText.frame = NSRect(x: inset, y: top - title.height, width: title.width, height: title.height)
+        top -= title.height
+        if let body = layout.body?.size {
+            top -= Self.bodyGap
+            bodyText.frame = NSRect(x: inset, y: top - body.height, width: body.width, height: body.height)
+        }
     }
 
     /// Moves every layer that traces the island to a new outline, springing there unless told not to.
-    private func setShape(in rect: NSRect, shoulder: CGFloat, radius: CGFloat, animated: Bool, collapsing: Bool = false) {
-        let filled = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius)
-        let outline = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, closed: false)
+    private func setShape(in rect: NSRect, shoulder: CGFloat, radius: CGFloat, step: CGPoint, animated: Bool, collapsing: Bool = false) {
+        let filled = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step)
+        let outline = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step, closed: false)
         for layer in shapeLayers {
             let path = layer.fillColor == nil ? outline : filled
             if animated {
@@ -631,17 +819,16 @@ final class DictationPill: NSObject {
         island.addSubview(check)
 
         let strip = NSView()
+        strip.wantsLayer = true
         strip.isHidden = true
         island.addSubview(strip)
 
         let metaDot = FlydStatusDot(frame: .zero, diameter: Self.metaDotSize)
         strip.addSubview(metaDot)
-
-        let textLabel = NSTextField(labelWithString: "")
-        textLabel.maximumNumberOfLines = 1
-        textLabel.lineBreakMode = .byTruncatingTail
-        textLabel.cell?.truncatesLastVisibleLine = true
-        strip.addSubview(textLabel)
+        let metaLabel = IslandText()
+        let titleText = IslandText()
+        let bodyText = IslandText()
+        [metaLabel, titleText, bodyText].forEach(strip.addSubview)
 
         self.panel = panel
         self.island = island
@@ -650,7 +837,9 @@ final class DictationPill: NSObject {
         self.check = check
         self.strip = strip
         self.metaDot = metaDot
-        self.textLabel = textLabel
+        self.metaLabel = metaLabel
+        self.titleText = titleText
+        self.bodyText = bodyText
         island.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(islandClicked)))
         hideContent()
         return panel
@@ -663,10 +852,10 @@ final class DictationPill: NSObject {
     }
 
     /// Lets a status take clicks on the island only; everywhere else on the canvas the
-    /// pointer passes through to whatever is under it. nil makes the panel ignore the mouse.
-    private func setClickArea(_ area: NSRect?) {
+    /// pointer passes through to whatever is under it. No area makes the panel ignore the mouse.
+    private func setClickArea(_ area: [NSRect]) {
         clickArea = area
-        guard area != nil else {
+        guard !area.isEmpty else {
             mouseMonitors.forEach(NSEvent.removeMonitor)
             mouseMonitors = []
             panel?.ignoresMouseEvents = true
@@ -689,7 +878,7 @@ final class DictationPill: NSObject {
     }
 
     private func trackPointer() {
-        let over = clickArea.map { NSMouseInRect(NSEvent.mouseLocation, $0, false) } ?? false
+        let over = clickArea.contains { NSMouseInRect(NSEvent.mouseLocation, $0, false) }
         if panel?.ignoresMouseEvents == over { panel?.ignoresMouseEvents = !over }
     }
 
@@ -719,6 +908,20 @@ private final class GradientView: NSView {
     override func makeBackingLayer() -> CALayer { gradient }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+/// Draws a block of text exactly as `DictationPill.block(_:width:maxLines:)` measured it: wrapped to the view's
+/// width from its top edge, the last line that fits truncating.
+private final class IslandText: NSView {
+    var text: NSAttributedString? {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        text?.draw(with: bounds, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
 }
 
 /// Bright orange spokes stepping round: Flyd working, readable at a glance on the black island.
