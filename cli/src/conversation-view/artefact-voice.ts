@@ -11,7 +11,8 @@ import { inFlydsVoice } from "./flyd-voice.js";
 // model turns each into what it would tell George: a headline saying what it
 // is and what it means for him, and a line saying what is asked of him or
 // what happens next. One batched call per refresh for the rows it has not
-// said yet; cached on disk by the row's own words, so each is said once.
+// said yet; cached on disk by the row's own words and its project's related
+// backlog work, so each is said once.
 
 const PROMPT_VERSION = "3";
 const TIMEOUT_MS = 60_000;
