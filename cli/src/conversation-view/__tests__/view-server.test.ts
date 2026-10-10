@@ -316,7 +316,7 @@ describe("ConversationViewServer", () => {
     expect(page.status).toBe(200);
     expect(page.body).toContain("No shadows on icon boxes.");
     expect(page.body).toContain("no shadows on the icon boxes");
-    expect(page.body).toContain("Retired");
+    expect(page.body).toContain("Set aside as too generic");
     expect(page.body).toContain("Never hard-code an API key.");
     expect(page.body).toContain("put the key on the server");
     const token = /data-token="([0-9a-f]+)"/.exec(page.body)![1]!;

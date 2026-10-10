@@ -6,7 +6,7 @@ import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { addUserProfileFact, PROFILE_SECTIONS, readUserProfile } from "../lib/user-profile.js";
 import { readJournalSince, type JournalTurn } from "./journal.js";
-import { applyTasteOps, normalizeTasteOps, readTaste, tasteRuleLines, TASTE_CURATION_RULES, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
+import { applyTasteOps, normalizeTasteOps, readTaste, tasteChanged, tasteRuleLines, TASTE_CURATION_RULES, TASTE_OPS_FORMAT, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
 import { applyProjectOps, describeProject, PROJECT_KINDS, PROJECT_STATUSES, readProjects, type Project, type ProjectApplyReceipt, type ProjectOp } from "./projects.js";
 import {
   applyMemoryOps, localDay, MEMORY_SECTIONS, memoryPaths, readMemoryEntries, staleEntries,
@@ -190,7 +190,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- Cite sources with the [j:…] / [cap:…] ids you were shown. Do not invent ids.",
     "- For each STALE entry: reinforce it if today's evidence confirms it, archive it if superseded or done, otherwise leave it.",
     "- Keep his projects current. A project is anything he is making, running, or owed, with or without code (a product launch, a client job, an artwork, money owed, the glasses venture). Add one when it first comes up; update its now/next/due/status/people from what he said or what got done; mark it done when it is finished. Keep its facts: the specifics Flyd found or he said that he'd otherwise have to dig for again (amounts, invoice numbers, dates, who pays, contacts, decisions and why, links). Send the project's whole current facts list, newest first, at most 8, dropping ones that are no longer true. Link code only from the repo list below, and only when that repo is the project's code. Projects stay out of memory_ops: they live here.",
-    "- Keep his taste list (below) small and personal too: fold a near-duplicate into the stronger rule, promote a project rule that is really his personal taste to Everywhere, and retire a generic truism that is not about him — never retire a rule with n=0, those are his own.",
+    `- Keep his taste list (below) small and personal too, and decide what is his and what is one project's:\n  - ${TASTE_CURATION_RULES.replace(/\n- /g, "\n  - ")}`,
     input.projects?.length ? "" : "- He has no project list yet: build it now from his profile, memory, the repos, and the conversation. Only real, current projects; skip one-off tasks.",
     "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
@@ -201,7 +201,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     '{"memory_ops": [ {"op":"add","section":"...","text":"...","tier":"aging|perishable","sources":["j:..."]} | {"op":"update","id":"...","text":"...","sources":[...]} | {"op":"reinforce","id":"...","sources":[...]} | {"op":"archive","id":"...","reason":"..."} | {"op":"daily_note","text":"...","sources":[...]} ],',
     ' "profile_ops": [ {"section":"...","fact":"..."} ],',
     ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"],"facts":["..."]} | {"op":"archive","id":"...","reason":"..."} ],`,
-    ...(input.taste ? [' "taste_ops": [ {"op":"fold","id":"keep","merge":"drop","reason":"..."} | {"op":"promote","id":"...","reason":"..."} | {"op":"retire","id":"...","reason":"..."} ],'] : []),
+    ...(input.taste ? [` "taste_ops": [ ${TASTE_OPS_FORMAT} ],`] : []),
     ' "observations": ["<up to 5 short notes for George\'s advisors about what stands out: risks, patterns, momentum, loose ends>"] }',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
@@ -297,7 +297,7 @@ function applyProposal(
   // Read fresh so a reword or veto George makes while the model reads is not lost.
   const tasteProfile = readTaste(options.deps.tastePath);
   const taste = applyTasteOps(tasteProfile, proposal.tasteOps);
-  if (taste.folded || taste.promoted || taste.retired) writeTaste(tasteProfile, options.deps.tastePath);
+  if (tasteChanged(taste)) writeTaste(tasteProfile, options.deps.tastePath);
   const addProfile = options.deps.addProfileFact
     ?? ((fact: string, section: string) => addUserProfileFact(fact, {
       section: PROFILE_SECTIONS.find((name) => name.toLowerCase() === section.toLowerCase()) ?? "Learned in conversation",

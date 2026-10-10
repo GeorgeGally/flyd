@@ -1,13 +1,22 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { curateTaste, learnTaste, readTaste, renderTaste, resolveTasteProject, tastePath, tastePromptText, writeTaste } from "../council/taste.js";
+import { syncTasteSkills, type TasteSkillSync } from "../council/taste-skills.js";
 
-const USAGE = "flyd taste [show|for <project|path>|learn [--days N]|curate|edit]";
+const USAGE = "flyd taste [show|for <project|path>|learn [--days N]|curate|skills|edit]";
+
+function skillsLine(sync: TasteSkillSync): string {
+  if (sync.skipped) return sync.skipped === "disabled" ? "Taste skills are off (FLYD_TASTE_SKILLS=0).\n" : "";
+  const changed = sync.written.length + sync.removed.length;
+  const refused = sync.refused.length ? ` Left alone (not Flyd's): ${sync.refused.join(", ")}.` : "";
+  return `Skills: ${sync.skills.join(", ") || "none yet"} — ${changed ? `${sync.written.length} written, ${sync.removed.length} removed` : "already up to date"}.${refused}\n`;
+}
 
 /**
  * `flyd taste`: what Flyd has learned about George's taste. `for` prints the
  * rules an agent should follow before design or code work on a project or
- * repo; `learn` runs a learning pass over his Claude Code sessions now.
+ * repo; `learn` runs a learning pass over his Claude Code sessions now;
+ * `skills` compiles TASTE.md into the skills every agent loads for UI work.
  */
 export async function runTaste(action = "show", args: string[] = []): Promise<void> {
   const path = tastePath();
@@ -32,6 +41,7 @@ export async function runTaste(action = "show", args: string[] = []): Promise<vo
       return;
     }
     process.stdout.write(`Read ${result.turns} turn${result.turns === 1 ? "" : "s"}: ${result.added} new rule${result.added === 1 ? "" : "s"}, ${result.strengthened} strengthened, ${result.promoted} moved to Everywhere. ${path}\n`);
+    process.stdout.write(skillsLine(syncTasteSkills()));
     return;
   }
   if (action === "curate") {
@@ -39,7 +49,15 @@ export async function runTaste(action = "show", args: string[] = []): Promise<vo
     process.stdout.write("Curating what Flyd knows about George's taste…\n");
     const receipt = await curateTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) });
     const ignored = receipt.rejected.length ? ` ${receipt.rejected.length} ignored.` : "";
-    process.stdout.write(`Curated: ${receipt.folded} folded, ${receipt.promoted} promoted to Everywhere, ${receipt.retired} retired.${ignored} ${path}\n`);
+    process.stdout.write(`Curated: ${receipt.folded} folded, ${receipt.promoted} promoted to Everywhere, ${receipt.demoted} moved to one project, ${receipt.retired} retired.${ignored} ${path}\n`);
+    process.stdout.write(skillsLine(syncTasteSkills()));
+    return;
+  }
+  if (action === "skills") {
+    const sync = syncTasteSkills();
+    if (sync.seeded) process.stdout.write(`Seeded ${sync.seeded} of George's principles into ${path}.\n`);
+    process.stdout.write(skillsLine(sync));
+    for (const file of sync.written) process.stdout.write(`  ${file}\n`);
     return;
   }
   if (action === "edit") {

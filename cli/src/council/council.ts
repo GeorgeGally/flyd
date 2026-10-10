@@ -8,6 +8,7 @@ import { collectNewCaptures, readLibrarianState, runLibrarian, type LibrarianRun
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { describeProject, liveProjects } from "./projects.js";
 import { readTaste } from "./taste.js";
+import { syncTasteSkills } from "./taste-skills.js";
 
 // A council pass: the Librarian curates what is new, then the Critic and the
 // Strategist advise on it. Runs in the background — after a burst of turns,
@@ -95,6 +96,8 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
   if (!acquire(lock)) return { skipped: "locked", advisories: [], notified: [] };
   try {
     const librarian = await runLibrarian({ complete: deps.complete, now: () => now });
+    // What the Librarian just curated reaches every agent as skills.
+    try { syncTasteSkills(); } catch { /* next pass */ }
     if (librarian.skipped || tasteOnly) return { librarian, advisories: [], notified: [] };
     const advisories = await runAdvisors({
       profile: readUserProfile(),

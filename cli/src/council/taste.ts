@@ -58,7 +58,18 @@ export interface TasteRule {
   first?: string;
   last?: string;
   evidence: TasteEvidence[];
+  /**
+   * One of his durable principles, seeded from his recorded words rather than
+   * learned from one correction (taste-principles.ts). Like a rule he wrote,
+   * it is never retired, folded away or moved to a project by the Librarian.
+   */
+  principle?: boolean;
+  /** Which generated skill carries it, when the words alone would not say. */
+  skill?: TasteSkillKind;
 }
+
+/** The George-wide skills a rule can land in (taste-skills.ts). */
+export type TasteSkillKind = "interface" | "spacing";
 
 export interface TasteProfile {
   rules: TasteRule[];
@@ -160,6 +171,8 @@ export function parseTaste(markdown: string): TasteProfile {
       ...(meta.first ? { first: meta.first } : {}),
       ...(meta.last ? { last: meta.last } : {}),
       evidence: [],
+      ...(meta.kind === "principle" ? { principle: true } : {}),
+      ...(meta.skill === "interface" || meta.skill === "spacing" ? { skill: meta.skill } : {}),
     };
     target.push(current);
   }
@@ -183,6 +196,8 @@ function renderRule(rule: TasteRule, names: Record<string, string>): string[] {
     ...(rule.projects.length ? [`seen=${rule.projects.join(",")}`] : []),
     ...(rule.first ? [`first=${rule.first}`] : []),
     ...(rule.last ? [`last=${rule.last}`] : []),
+    ...(rule.principle ? ["kind=principle"] : []),
+    ...(rule.skill ? [`skill=${rule.skill}`] : []),
   ].join(" ");
   return [
     `- ${rule.text} <!--taste:${rule.id} ${meta}-->`,
@@ -298,14 +313,28 @@ export function applyObservations(profile: TasteProfile, observations: Observati
 export type TasteOp =
   | { op: "fold"; id: string; merge: string; reason?: string }
   | { op: "promote"; id: string; reason?: string }
+  | { op: "demote"; id: string; project: string; reason?: string }
   | { op: "retire"; id: string; reason?: string };
 
 export interface TasteApplyReceipt {
   folded: number;
   promoted: number;
+  demoted: number;
   retired: number;
   rejected: string[];
 }
+
+export function emptyTasteReceipt(): TasteApplyReceipt {
+  return { folded: 0, promoted: 0, demoted: 0, retired: 0, rejected: [] };
+}
+
+/** Did a curation pass change anything worth writing? */
+export function tasteChanged(receipt: TasteApplyReceipt): boolean {
+  return receipt.folded + receipt.promoted + receipt.demoted + receipt.retired > 0;
+}
+
+/** The JSON shape both curation prompts ask the model for. */
+export const TASTE_OPS_FORMAT = '{"op":"fold","id":"keep","merge":"drop","reason":"..."} | {"op":"promote","id":"...","reason":"..."} | {"op":"demote","id":"...","project":"<project id>","reason":"..."} | {"op":"retire","id":"...","reason":"..."}';
 
 /** Keep only well-formed ops; whether their ids exist is decided at apply time. */
 export function normalizeTasteOps(raw: unknown): TasteOp[] {
@@ -317,6 +346,7 @@ export function normalizeTasteOps(raw: unknown): TasteOp[] {
     const reason = typeof op.reason === "string" ? op.reason.replace(/\s+/g, " ").slice(0, 200) : undefined;
     if (op.op === "fold" && typeof op.merge === "string" && op.merge && op.merge !== op.id) return [{ op: "fold", id: op.id, merge: op.merge, ...(reason ? { reason } : {}) }];
     if (op.op === "promote") return [{ op: "promote", id: op.id, ...(reason ? { reason } : {}) }];
+    if (op.op === "demote" && typeof op.project === "string" && op.project) return [{ op: "demote", id: op.id, project: op.project, ...(reason ? { reason } : {}) }];
     if (op.op === "retire") return [{ op: "retire", id: op.id, ...(reason ? { reason } : {}) }];
     return [];
   });
@@ -330,13 +360,15 @@ export function parseTasteOps(output: string, ids: Set<string>): TasteOp[] {
 }
 
 /**
- * Fold, promote and retire rules in place. A fold merges the `merge` rule into
- * `id` — counts, evidence and projects unite — and the merged rule disappears.
- * A retire moves a learned rule to the retired tier. A rule George wrote (n=0)
- * or reworded is his own: it is never retired, and never folded away.
+ * Fold, promote, demote and retire rules in place. A fold merges the `merge`
+ * rule into `id` — counts, evidence and projects unite — and the merged rule
+ * disappears. A demote moves an Everywhere rule to the one project its words
+ * and evidence belong to; a rule seen in another project stays his. A retire
+ * moves a learned rule to the retired tier. A rule George wrote (n=0) or
+ * reworded, and a seeded principle, are never retired, folded away or demoted.
  */
 export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApplyReceipt {
-  const receipt: TasteApplyReceipt = { folded: 0, promoted: 0, retired: 0, rejected: [] };
+  const receipt = emptyTasteReceipt();
   for (const op of ops) {
     const index = profile.rules.findIndex((rule) => rule.id === op.id);
     if (index === -1) { receipt.rejected.push(`${op.op}: unknown [${op.id}]`); continue; }
@@ -345,7 +377,7 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       const mergeIndex = profile.rules.findIndex((candidate) => candidate.id === op.merge);
       if (mergeIndex === -1) { receipt.rejected.push(`fold: unknown [${op.merge}]`); continue; }
       const duplicate = profile.rules[mergeIndex]!;
-      if (isGeorgeOwned(rule) || isGeorgeOwned(duplicate)) { receipt.rejected.push(`fold: [${op.id}] or [${op.merge}] is George's own rule`); continue; }
+      if (isGeorgeOwned(rule) || isProtected(duplicate)) { receipt.rejected.push(`fold: [${op.id}] or [${op.merge}] is George's own rule or a principle`); continue; }
       rule.count += duplicate.count;
       rule.first = [rule.first, duplicate.first].filter(Boolean).sort()[0];
       rule.last = [rule.last, duplicate.last].filter(Boolean).sort().at(-1);
@@ -360,8 +392,17 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       if (!rule.projects.includes(rule.scope)) rule.projects.push(rule.scope);
       rule.scope = PERSONAL;
       receipt.promoted += 1;
+    } else if (op.op === "demote") {
+      if (rule.scope !== PERSONAL) { receipt.rejected.push(`demote: [${op.id}] already holds for one project`); continue; }
+      if (isProtected(rule)) { receipt.rejected.push(`demote: [${op.id}] is George's own rule or a principle`); continue; }
+      if (!(op.project in profile.names)) { receipt.rejected.push(`demote: unknown project ${op.project}`); continue; }
+      // Evidence decides: a rule seen in another project is not one project's.
+      if (rule.projects.some((project) => project !== op.project)) { receipt.rejected.push(`demote: [${op.id}] was seen in another project`); continue; }
+      rule.scope = op.project;
+      if (!rule.projects.includes(op.project)) rule.projects.push(op.project);
+      receipt.demoted += 1;
     } else {
-      if (isGeorgeOwned(rule)) { receipt.rejected.push(`retire: [${op.id}] is George's own rule`); continue; }
+      if (isProtected(rule)) { receipt.rejected.push(`retire: [${op.id}] is George's own rule or a principle`); continue; }
       profile.rules.splice(index, 1);
       (profile.retired ??= []).push(rule);
       receipt.retired += 1;
@@ -370,23 +411,39 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
   return receipt;
 }
 
-function isGeorgeOwned(rule: TasteRule): boolean {
+/** A rule George wrote (n=0) or reworded himself. */
+export function isGeorgeOwned(rule: TasteRule): boolean {
   return rule.count === 0 || rule.id !== ruleId(rule.text);
 }
 
-/** The learned rules, with the id, scope and strength the curator needs to reason about. */
+/** His own rules and his seeded principles: the Librarian may not move or drop them. */
+export function isProtected(rule: TasteRule): boolean {
+  return isGeorgeOwned(rule) || rule.principle === true;
+}
+
+/**
+ * The learned rules, with the id, scope, strength and the projects each was
+ * seen in: the evidence the curator needs to decide what is his and what is
+ * one project's. Ends with the project ids a rule can be demoted to.
+ */
 export function tasteRuleLines(profile: TasteProfile): string {
-  return profile.rules.map((rule) => {
-    const scope = rule.scope === PERSONAL ? "everywhere" : profile.names[rule.scope] ?? rule.scope;
-    return `- [${rule.id}] (${scope}, seen ${rule.count}×) ${rule.text}`;
-  }).join("\n") || "(none)";
+  const lines = profile.rules.map((rule) => {
+    const scope = rule.scope === PERSONAL ? "everywhere" : rule.scope;
+    const seenIn = rule.projects.length ? `, seen in ${rule.projects.join(", ")}` : "";
+    const fixed = rule.principle ? ", principle" : isGeorgeOwned(rule) ? ", his own" : "";
+    return `- [${rule.id}] (${scope}, seen ${rule.count}×${seenIn}${fixed}) ${rule.text}`;
+  });
+  if (!lines.length) return "(none)";
+  const projects = Object.entries(profile.names).map(([id, name]) => `${id} (${name})`).join(", ");
+  return [...lines, ...(projects ? [`Projects: ${projects}`] : [])].join("\n");
 }
 
 /** Instructions the curator follows, shared by the taste-only pass. */
 export const TASTE_CURATION_RULES = [
   "fold two rules that make the same point in different words into one; the stronger id keeps and the weaker disappears. Never fold rules that make different points.",
   "promote a rule learned for one project to Everywhere when it is really his personal taste and would hold anywhere.",
-  "retire a rule that is a generic engineering or product truism ('never hard-code an API key', 'keep pages simple') rather than something specific to George. Be conservative: keep anything that could be his own taste. Never retire a rule with n=0; those are his.",
+  "demote an Everywhere rule to the one project it belongs to when its words are specific to that project (its pages, sections, brand colours, exact sizes, its content) and it was not seen in any other project. Taste that would hold on any of his work stays Everywhere. Never demote a principle or a rule of his own.",
+  "retire a rule that is a generic engineering or product truism ('never hard-code an API key', 'keep pages simple') rather than something specific to George. Be conservative: keep anything that could be his own taste. Never retire a principle or a rule of his own.",
 ].join("\n- ");
 
 export function tasteCurationPrompt(profile: TasteProfile): string {
@@ -396,7 +453,7 @@ export function tasteCurationPrompt(profile: TasteProfile): string {
     `- ${TASTE_CURATION_RULES}`,
     "Each rule keeps the words, place and date that taught it; you only propose, the store applies.",
     `Rules:\n${tasteRuleLines(profile)}`,
-    'Reply with JSON only: {"taste_ops": [{"op":"fold","id":"keep","merge":"drop","reason":"..."} | {"op":"promote","id":"...","reason":"..."} | {"op":"retire","id":"...","reason":"..."}]}. Empty list when nothing needs changing.',
+    `Reply with JSON only: {"taste_ops": [${TASTE_OPS_FORMAT}]}. Empty list when nothing needs changing.`,
   ].join("\n\n");
 }
 
@@ -408,12 +465,12 @@ export function tasteCurationPrompt(profile: TasteProfile): string {
 export async function curateTaste(options: { complete(prompt: string): Promise<string>; path?: string }): Promise<TasteApplyReceipt> {
   const path = options.path ?? tastePath();
   const profile = readTaste(path);
-  if (!profile.rules.length) return { folded: 0, promoted: 0, retired: 0, rejected: [] };
+  if (!profile.rules.length) return emptyTasteReceipt();
   const ids = new Set(profile.rules.map((rule) => rule.id));
   const ops = parseTasteOps(await options.complete(tasteCurationPrompt(profile)), ids);
   const freshProfile = readTaste(path);
   const receipt = applyTasteOps(freshProfile, ops);
-  if (receipt.folded || receipt.promoted || receipt.retired) writeTaste(freshProfile, path);
+  if (tasteChanged(receipt)) writeTaste(freshProfile, path);
   return receipt;
 }
 
@@ -708,7 +765,7 @@ export function tastePromptText(options: { projects?: string[]; profile?: TasteP
   const profile = options.profile ?? readTaste();
   const byStrength = (a: TasteRule, b: TasteRule) => b.count - a.count || (b.last ?? "").localeCompare(a.last ?? "");
   // A rule seen once reads as tentative, not settled; a repeat earns its place.
-  const line = (rule: TasteRule) => `- ${rule.text}${rule.count === 1 ? " (seen once — tentative)" : ""}`;
+  const line = (rule: TasteRule) => `- ${rule.text}${rule.count === 1 && !rule.principle ? " (seen once — tentative)" : ""}`;
   const personal = profile.rules.filter((rule) => rule.scope === PERSONAL).sort(byStrength);
   const sections = [
     personal.length ? `Everywhere:\n${personal.map(line).join("\n")}` : "",
