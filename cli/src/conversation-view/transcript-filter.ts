@@ -34,6 +34,8 @@ interface Segment {
   started: boolean;
   /** What the assistant is doing now, in a few plain words (see activityOf). */
   activity?: { text: string; rank: number };
+  /** Started by firstmate's supervision (a watcher wake, an operational input), not by the captain. */
+  wake?: boolean;
 }
 
 function isRecord(value: unknown): value is Json {
@@ -152,6 +154,19 @@ function captainContentOf(content: unknown, offset?: number): { text: string; im
   text = text.replace(/\[Image #\d+\]\s?/g, (marker) => (left-- > 0 ? "" : marker)).trim();
   if (!text && images.length === 0) return blocks.some((block) => block.type === "image") ? { text: "*[image]*", images } : null;
   return { text, images };
+}
+
+/** An operational input firstmate typed itself. */
+const OPERATIONAL_INPUT = /^\u2063?FIRSTMATE_OP:/;
+/** A watcher (Stop-hook) wake, which only machinery injects. */
+const WATCHER_WAKE = /firstmate watcher wake\b/;
+
+/** Firstmate's supervision turns: a watcher wake from machinery, or an operational input. */
+function isSupervisionWake(content: unknown, machine: boolean): boolean {
+  const text = typeof content === "string"
+    ? content
+    : contentBlocks(content).filter((block) => block.type === "text").map((block) => stringField(block, "text") ?? "").join("\n");
+  return OPERATIONAL_INPUT.test(text.trimStart()) || (machine && WATCHER_WAKE.test(text));
 }
 
 function originKind(record: Json): string | undefined {
@@ -274,10 +289,12 @@ export class TranscriptConversation {
 
     const id = stringField(entry, "uuid") ?? `user-${this.finished.length}`;
     const kind = originKind(entry);
-    const said = entry.isCompactSummary === true || (kind !== undefined && kind !== "human")
+    const machine = kind !== undefined && kind !== "human";
+    const wake = isSupervisionWake(message.content, machine);
+    const said = entry.isCompactSummary === true || wake || machine
       ? null
       : captainContentOf(message.content, offset);
-    this.startSegment(id);
+    this.startSegment(id, wake);
     if (said) this.finished.push(captainMessage(id, said, timestamp));
   }
 
@@ -338,10 +355,10 @@ export class TranscriptConversation {
     this.maxContext = Math.max(this.maxContext, tokens);
   }
 
-  private startSegment(id: string): void {
+  private startSegment(id: string, wake = false): void {
     this.closeSegment();
     this.segmentCount += 1;
-    this.segment = { id: `${id}#${this.segmentCount}`, trailing: [], settled: false, started: false };
+    this.segment = { id: `${id}#${this.segmentCount}`, trailing: [], settled: false, started: false, ...(wake ? { wake } : {}) };
   }
 
   private closeSegment(): void {
@@ -368,6 +385,7 @@ export class TranscriptConversation {
       role: "assistant",
       text: pieces.map((piece) => piece.text).join("\n\n"),
       ...(last.timestamp ? { timestamp: last.timestamp } : {}),
+      ...(segment.wake ? { wake: true } : {}),
     };
   }
 
