@@ -15,11 +15,15 @@ const GITHUB_PULL = /^https?:\/\/github\.com\/[\w.-]+\/([\w.-]+)\/(?:pull|issues
 /** A link label that is itself a stub: a URL, "#83", "PR 83", "flyd#83". */
 const STUB_LABEL = /^\s*(?:https?:\/\/\S+|(?:[\w.-]+\/)?[\w.-]*#\d+|(?:PR|pull request|issue)\s*#?\d+)\s*$/i;
 const PR_NUMBER = /\b(?:PRs?|pull requests?)\s*#?(\d+)\b/gi;
-const BRANCH = /`?\b(?:fm|feat|feature|fix|chore|codex|claude|bugfix|hotfix|release)\/[\w./-]*[\w-]`?/g;
+const BRANCH_NAME = "(?:fm|feat|feature|fix|chore|codex|claude|bugfix|hotfix|release)\\/[\\w./-]*[\\w-]";
+/** A branch is only a stub when it reads as one: in backticks, or named a branch. Paths like ~/.claude/skills stay. */
+const BRANCH = new RegExp(`\\s*(?:(?:on|in|from|to)\\s+)?(?:the\\s+)?(?:\`${BRANCH_NAME}\`(?:\\s+branch)?|branch\\s+\`?${BRANCH_NAME}\`?|(?<![\\w./~-])${BRANCH_NAME}\\s+branch\\b)`, "g");
 const HASH = /`?\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b`?/g;
 const COUNT_WORD = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
-const CHECK_COUNT = new RegExp(`\\b(?:all\\s+)?${COUNT_WORD}\\s+(?:of\\s+${COUNT_WORD}\\s+)?(?:CI\\s+)?(checks?|tests?)\\b`, "gi");
-const RATIO = /\s*\(?\b(\d+)\s*\/\s*(\d+)\b\)?(?=(\s+(?:tests?|checks?|pass\w*))?)/g;
+/** "All 5 checks passed" says "checks passed"; a failing or single count is news and stays. */
+const CHECK_COUNT = new RegExp(`\\b(?:all\\s+)?${COUNT_WORD}\\s+(?:of\\s+${COUNT_WORD}\\s+)?(?:CI\\s+)?(checks|tests)\\b(?!\\s+(?:still\\s+)?(?:fail|broke|error|red))`, "gi");
+/** "1567/1567 tests", "tests: 12/12": a ratio counted in tests or checks, never a date like 10/10/2026. */
+const RATIO = /\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/]))(?=\s+(?:tests?|checks?|pass\w*)\b)|(\b(?:tests?|checks?)\b\s*:?\s*)\(?(?<![\d/])(\d+)\s*\/\s*(\d+)(?![\d/])\)?/gi;
 
 /** A placeholder for a stub that was a link: the sentence around it carries the link instead. */
 const TOKEN = "⁣";
@@ -86,10 +90,13 @@ function stripProse(prose: string): string {
     .replace(PR_NUMBER, (_match, _number: string, offset: number, whole: string) => (/(?:^|[.!?]\s+|^\s*(?:[-*+]|\d+[.)])\s+)$/.test(whole.slice(0, offset)) ? "The change" : "the change"))
     .replace(/\bPRs\b/g, "changes")
     .replace(/\bPR\b/g, "change")
-    .replace(new RegExp(`\\s*(?:(?:on|in|from|to)\\s+)?(?:the\\s+)?(?:branch\\s+)?${BRANCH.source}(?:\\s+branch)?`, "g"), "")
+    .replace(BRANCH, "")
     .replace(new RegExp(`\\s*(?:(?:as|at|in|onto|to|commit)\\s+)?(?:commit\\s+)?${HASH.source}`, "g"), "")
-    .replace(RATIO, (match, a: string, b: string, counted?: string) => (a === b || counted ? "" : match))
-    .replace(CHECK_COUNT, (_match, kind: string) => (kind.toLowerCase().startsWith("check") ? "checks" : "tests"));
+    .replace(RATIO, (match, a?: string, b?: string, c?: string, d?: string, noun?: string, e?: string, f?: string) => {
+      if (noun !== undefined) return e === f ? noun.replace(/\s*:?\s*$/, "") : match;
+      return (a ?? c) === (b ?? d) ? "" : match;
+    })
+    .replace(CHECK_COUNT, (match, kind: string) => (/^[A-Z]/.test(match) ? capitalise(kind.toLowerCase()) : kind.toLowerCase()));
   return text
     .split("\n")
     .map((line) => {
@@ -190,9 +197,10 @@ const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2 };
 function listAsProse(lead: string | undefined, items: string[]): string[] {
   const clean = items.map((item) => item.trim().replace(/[,;]$/, "").replace(/\.$/, ""));
   const fragments = clean.every((item) => item.length < 90 && !/[.!?]\s/.test(item));
-  if (fragments && clean.length > 1) {
-    const series = `${clean.slice(0, -1).join(", ")} and ${clean[clean.length - 1]}`;
-    if (lead !== undefined && /:\s*(?:\*\*|__)?\s*$/.test(lead)) return [`${lead.replace(/\s*$/, "")} ${series}.`];
+  const colon = lead !== undefined && /:\s*(?:\*\*|__)?\s*$/.test(lead);
+  if (fragments && (clean.length > 1 || colon)) {
+    const series = clean.length > 1 ? `${clean.slice(0, -1).join(", ")} and ${clean[clean.length - 1]}` : clean[0]!;
+    if (colon) return [`${lead!.replace(/\s*$/, "")} ${series}.`];
     return [...(lead !== undefined ? [lead] : []), `${capitalise(series)}.`];
   }
   const said = clean.map((item) => capitalise(/[.!?)]$/.test(item) ? item : `${item}.`)).join(" ");
@@ -205,6 +213,13 @@ function listAsProse(lead: string | undefined, items: string[]): string[] {
  * least two of them; every other list reads as prose.
  */
 export function briefing(text: string): Briefing {
+  const lifted = scan(text, true);
+  // A card under two items is no card: the lone status stays in the prose, said as written.
+  if (lifted.items.length < 2) return { prose: scan(text, false).prose, items: [] };
+  return { prose: lifted.prose, items: [...merge(lifted.items)].sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
+}
+
+function scan(text: string, lift: boolean): Briefing {
   const parts = text.split(FENCED);
   const items: StatusItem[] = [];
   const out = parts.map((part, index) => {
@@ -238,7 +253,7 @@ export function briefing(text: string): Briefing {
       const context = lead ? stateOf(lead) : null;
       const states = run.map((item) => stateOf(inline(item)) ?? context);
       const known = states.filter(Boolean).length;
-      if (known >= 2 || (known >= 1 && run.length >= 1 && context !== null)) {
+      if (lift && (known >= 2 || (known >= 1 && context !== null))) {
         const leftovers: string[] = [];
         run.forEach((item, at) => (states[at] ? items.push(itemOf(item, states[at]!)) : leftovers.push(item)));
         // A lead-in that only labelled the list ("**Flyd (merged):**") goes with it.
@@ -252,8 +267,7 @@ export function briefing(text: string): Briefing {
     }
     return result.join("\n").replace(/\n{3,}/g, "\n\n");
   });
-  const merged = merge(items);
-  return { prose: out.join("").trim(), items: items.length >= 2 ? [...merged].sort((a, b) => ORDER[a.state] - ORDER[b.state]) : [] };
+  return { prose: out.join("").trim(), items };
 }
 
 const GROUP: Record<WorkState, { title: string; kind: string }> = {

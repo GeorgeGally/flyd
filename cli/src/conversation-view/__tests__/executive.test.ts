@@ -24,6 +24,27 @@ describe("Flyd's executive voice", () => {
     expect(withoutStubs("```\ngit push origin fm/x\n```")).toBe("```\ngit push origin fm/x\n```");
   });
 
+  it("keeps a lone status item in the prose rather than dropping it", () => {
+    const waiting = brief("Done.\n\nWaiting on your word for:\n- The checkout rework");
+    expect(waiting.items).toEqual([]);
+    expect(waiting.prose).toContain("The checkout rework");
+    expect(renderBriefing("Done.\n\nWaiting on your word for:\n- The checkout rework")).toContain("The checkout rework");
+    expect(brief("**Merged:**\n- The dark mode toggle").prose).toContain("The dark mode toggle");
+  });
+
+  it("leaves paths, ordinary slashes, dates and failing counts alone", () => {
+    expect(withoutStubs("Installed into ~/.claude/skills and ~/.agents/skills.")).toBe("Installed into ~/.claude/skills and ~/.agents/skills.");
+    expect(withoutStubs("Try the fix/rollback first.")).toBe("Try the fix/rollback first.");
+    expect(withoutStubs("Pushed on the fm/island branch.")).toBe("Pushed.");
+    expect(withoutStubs("Pushed to branch fix/hat-tilt.")).toBe("Pushed.");
+    expect(withoutStubs("The launch is scheduled for 10/10.")).toBe("The launch is scheduled for 10/10.");
+    expect(withoutStubs("It ships 10/10/2026.")).toBe("It ships 10/10/2026.");
+    expect(withoutStubs("Green, tests: 12/12.")).toBe("Green, tests.");
+    expect(withoutStubs("One test still fails.")).toBe("One test still fails.");
+    expect(withoutStubs("Two tests fail on CI.")).toBe("Two tests fail on CI.");
+    expect(withoutStubs("All 5 checks passed.")).toBe("Checks passed.");
+  });
+
   it("shows a multi-item status as a card grouped by what it asks of him, with every link kept behind its line", () => {
     const html = renderBriefing(inFlydsVoice(WHERE_EVERYTHING_STANDS));
     expect(shown(html)).not.toMatch(STUB);
