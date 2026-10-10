@@ -28,8 +28,8 @@ export function asksForDecision(text: string): boolean {
 }
 
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\b/g;
-/** Firstmate's own states for work that went wrong or stopped for him; "isn't blocked" is not one. */
-const FAILURE_STATE = /(?<!\b(?:not|no|never|no longer|\w+n['’]t)\s+)\b(?:failed|blocked|needs-decision)\b/i;
+/** Firstmate's own states for work that went wrong or stopped for him; "isn't blocked" or "no checks failed" is not one. */
+const FAILURE_STATE = /(?<!\b(?:not|no|never|nothing|none|without|\w+n['’]t)(?:\s+[\w'’-]+){0,2}\s+)\b(?:failed|blocked|needs-decision)\b/i;
 
 /** The pull requests a message names, by URL. */
 export function pullRequestsIn(text: string): string[] {
