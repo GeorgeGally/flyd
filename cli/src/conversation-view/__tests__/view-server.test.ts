@@ -353,7 +353,7 @@ describe("ConversationViewServer", () => {
       req.on("error", reject);
       req.end();
     });
-    expect(csp).toContain("frame-src http://127.0.0.1:*");
+    expect(csp).toContain("frame-src 'self' http://127.0.0.1:*");
     expect(csp).not.toContain("frame-src *");
   });
 
@@ -388,6 +388,48 @@ describe("ConversationViewServer", () => {
       const blocked = await get(port, `/api/rail-image?path=${encodeURIComponent(outside)}&token=${token}`);
       expect(blocked.status).toBe(403);
       expect((await get(port, `/api/rail-image?path=${encodeURIComponent(shot)}`)).status).toBe(403);
+    } finally {
+      if (prev === undefined) delete process.env.FLYD_FIRSTMATE_HOME;
+      else process.env.FLYD_FIRSTMATE_HOME = prev;
+    }
+  });
+
+  it("serves a deliverable or review board page from firstmate's data tree, sandboxed, behind the token in its path", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-rail-file-"));
+    mkdirSync(join(dir, "data", "gnm-decks", "review"), { recursive: true });
+    writeFileSync(join(dir, "data", "gnm-decks", "review.html"), "<title>GNM Sponsor Decks</title><img src=\"review/a.png\">");
+    writeFileSync(join(dir, "data", "gnm-decks", "review", "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(dir, "data", "gnm-decks", "deck.pdf"), "%PDF-1.4");
+    writeFileSync(join(dir, "secret.html"), "<p>not data</p>");
+    const prev = process.env.FLYD_FIRSTMATE_HOME;
+    process.env.FLYD_FIRSTMATE_HOME = dir;
+    try {
+      const source = {
+        assistantLabel: "Flyd",
+        canSend: false,
+        listSessions: async () => [],
+        read: async () => ({ messages: [], working: false }),
+        follow: (_id: string, onUpdate: (s: { messages: never[]; working: boolean }) => void) => {
+          onUpdate({ messages: [], working: false });
+          return { close() {} };
+        },
+        commands: async () => [],
+        image: async () => null,
+      };
+      server = new ConversationViewServer(source as never);
+      const port = await server.listen(0);
+      const token = JSON.parse((await get(port, "/api/token")).body).token as string;
+      const base = `http://127.0.0.1:${port}/rail-file/${token}`;
+      const page = await fetch(`${base}${dir}/data/gnm-decks/review.html`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+      expect(page.headers.get("content-security-policy")).not.toContain("allow-same-origin");
+      expect((await fetch(`${base}${dir}/data/gnm-decks/review/a.png`)).headers.get("content-type")).toBe("image/png");
+      const pdf = await fetch(`${base}${dir}/data/gnm-decks/deck.pdf`);
+      expect(pdf.headers.get("content-type")).toBe("application/pdf");
+      expect((await fetch(`${base}${dir}/secret.html`)).status).toBe(403);
+      expect((await fetch(`${base}${dir}/data/gnm-decks/../../secret.html`)).status).toBe(403);
+      expect((await fetch(`http://127.0.0.1:${port}/rail-file/wrong${dir}/data/gnm-decks/review.html`)).status).toBe(403);
     } finally {
       if (prev === undefined) delete process.env.FLYD_FIRSTMATE_HOME;
       else process.env.FLYD_FIRSTMATE_HOME = prev;

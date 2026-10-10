@@ -11,7 +11,19 @@ const RECHECK_MS = 10_000;
 /** A page the column stopped naming is forgotten after this long. */
 const FORGET_MS = 5 * 60_000;
 
-type Fetch = (url: string, init: { method: string; redirect: "manual"; signal: AbortSignal }) => Promise<{ status: number; body?: { cancel(): Promise<void> } | null }>;
+type Fetch = (url: string, init: { method: string; redirect: "manual"; signal: AbortSignal }) => Promise<{
+  status: number;
+  headers?: { get(name: string): string | null };
+  body?: { cancel(): Promise<void> } | null;
+}>;
+
+/** A page that says it may not be framed by another site: X-Frame-Options, or frame-ancestors without a wildcard. */
+export function refusesFraming(headers: { get(name: string): string | null } | undefined): boolean {
+  if (!headers) return false;
+  if (/\b(?:deny|sameorigin)\b/i.test(headers.get("x-frame-options") ?? "")) return true;
+  const ancestors = /(?:^|;)\s*frame-ancestors\s+([^;]*)/i.exec(headers.get("content-security-policy") ?? "")?.[1];
+  return ancestors !== undefined && !/(?:^|\s)(?:\*|https?:\/\/(?:127\.0\.0\.1|localhost):\*)(?:\s|$)/.test(ancestors);
+}
 
 interface Entry {
   state: PreviewState;
@@ -52,7 +64,7 @@ export class PreviewProbe {
     this.timer = undefined;
   }
 
-  /** Any HTTP answer below 500 is a page to show; refused, timed out or a server error is not. */
+  /** Any HTTP answer below 500 is a page to show, unless it refuses framing; refused, timed out or a server error is not. */
   async check(url: string, entry = this.entries.get(url)): Promise<PreviewState> {
     if (!entry) return "checking";
     entry.inFlight = true;
@@ -62,7 +74,7 @@ export class PreviewProbe {
     try {
       const response = await this.fetchFn(url, { method: "GET", redirect: "manual", signal: controller.signal });
       void response.body?.cancel().catch(() => undefined);
-      state = response.status < 500 ? "up" : "down";
+      state = response.status >= 500 ? "down" : refusesFraming(response.headers) ? "blocked" : "up";
     } catch {
       state = "down";
     } finally {

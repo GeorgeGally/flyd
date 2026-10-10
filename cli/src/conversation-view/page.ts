@@ -983,6 +983,7 @@ var __name = function (f) { return f; };
     if (card.line) box.appendChild(el("p", "", card.line));
     if (card.down) box.appendChild(el("p", "rail-card-note", "Nothing answers at this address yet."));
     else if (card.checking) box.appendChild(el("p", "rail-card-note", "Checking the page answers…"));
+    else if (card.blocked) box.appendChild(el("p", "rail-card-note", "This page won't show inside Flyd; open it to see it."));
     if (card.image) {
       var shot = el("img", "rail-shot");
       shot.src = withToken(card.image);

@@ -30,6 +30,8 @@ export interface ConversationMessage {
   aside?: boolean;
   /** An assistant reply to firstmate's supervision (a watcher wake, an operational input) rather than to anything the captain said. */
   wake?: boolean;
+  /** Inbox notes (by note id) the turn behind this reply handled, read from firstmate's own tool lines. */
+  notes?: string[];
 }
 
 /** A message the captain sent from the view, and its answer once there is one. */
@@ -46,6 +48,8 @@ export interface Exchange {
 
 export interface ConversationSnapshot {
   messages: ConversationMessage[];
+  /** Firstmate's latest chat reply about each note, by the note's question id, in Flyd's voice. */
+  followUps?: Record<string, ConversationMessage>;
   /** The assistant is mid-turn: the captain has spoken and no reply has settled yet. */
   working: boolean;
   /** While working: what the assistant is doing now, in a few plain words. */

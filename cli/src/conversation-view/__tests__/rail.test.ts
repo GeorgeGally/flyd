@@ -140,6 +140,24 @@ describe("composeRail", () => {
     expect(asked).toEqual(["http://127.0.0.1:8097/", "http://127.0.0.1:8088/"]);
   });
 
+  it("shows a review board through its own page, and a reply naming the board gets the same card", () => {
+    const board = { id: "live:http://127.0.0.1:4387/session/ea82", kind: "live" as const, url: "http://127.0.0.1:4387/session/ea82", title: "Review board: GNM Sponsor Decks", line: "gnm-decks", frame: "/rail-file/t/data/gnm-decks/review.html" };
+    const deck = { id: "file:/d/deck", kind: "file" as const, url: "/rail-file/t/d/deck.pdf", title: "Sponsor deck", line: "gnm-decks · PDF + HTML", frame: "/rail-file/t/d/deck.html" };
+    const options = { live: () => "blocked" as const, known: (preview: { url: string }) => (preview.url === board.url ? board : preview) as never };
+    const alone = composeRail([], [], [board, deck], options);
+    expect(alone.artefacts[0]).toMatchObject({ title: "Review board: GNM Sponsor Decks", url: board.url, preview: board.frame });
+    expect(alone.artefacts[1]).toMatchObject({ title: "Sponsor deck", url: deck.url, preview: deck.frame });
+    const named = composeRail([{ question: user("q", "decks?"), answer: assistant("a", "Board is at http://127.0.0.1:4387/session/ea82.", "q") }], [], [board, deck], options);
+    expect(named.conversations[0]!.previews![0]).toMatchObject({ title: "Review board: GNM Sponsor Decks", preview: board.frame });
+    expect(named.artefacts.map((card) => card.id)).toEqual([deck.id]);
+  });
+
+  it("links a live page that refuses framing instead of framing it blank", () => {
+    const card = previewCard({ id: "live:u", kind: "live", url: "http://127.0.0.1:4387/session/x" }, "blocked");
+    expect(card).toMatchObject({ blocked: true, url: "http://127.0.0.1:4387/session/x" });
+    expect(card.preview).toBeUndefined();
+  });
+
   it("drops conversation rows with no words", () => {
     const rail = composeRail([{ question: user("q", "   ") }], []);
     expect(rail.conversations).toEqual([]);

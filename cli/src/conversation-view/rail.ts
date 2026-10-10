@@ -6,15 +6,21 @@ import type { ConversationMessage } from "./types.js";
 // the reply it came from. Pure: the same conversations and clock always give
 // the same column.
 
-export type RailPreviewKind = "live" | "image";
-/** Whether a live page answered when the server last asked it. */
-export type PreviewState = "up" | "down" | "checking";
+export type RailPreviewKind = "live" | "image" | "file";
+/** Whether a live page answered when the server last asked it, and whether it lets itself be framed. */
+export type PreviewState = "up" | "down" | "checking" | "blocked";
 
 export interface RailPreview {
   id: string;
   kind: RailPreviewKind;
-  /** A loopback URL to frame live, or an absolute local image path to show. */
+  /** A loopback URL to frame live, an absolute local image path to show, or a deliverable's open link. */
   url: string;
+  /** What the card is called, when the server knows better than "Live preview". */
+  title?: string;
+  line?: string;
+  /** A same-origin src to frame in place of the URL: a review board's own page, a deck's HTML. */
+  frame?: string;
+  at?: string;
 }
 
 export interface RailConversation {
@@ -45,6 +51,8 @@ export interface RailArtefact {
   down?: boolean;
   /** A live page not yet checked: no frame until it answers. */
   checking?: boolean;
+  /** A live page that refuses to be framed: linked, never a blank frame. */
+  blocked?: boolean;
   at?: string;
 }
 
@@ -56,7 +64,7 @@ export interface Rail {
 /** How far back a named preview still counts as what we are talking about. */
 export const PREVIEW_SCAN = 12;
 export const MAX_RAIL_CONVERSATIONS = 40;
-export const MAX_RAIL_ARTEFACTS = 8;
+export const MAX_RAIL_ARTEFACTS = 10;
 export const MAX_RAIL_PREVIEWS = 4;
 
 /** A loopback URL he named: the site we are looking at, never a remote page. */
@@ -148,16 +156,24 @@ export function railImageSrc(path: string): string {
   return `/api/rail-image?path=${encodeURIComponent(path)}`;
 }
 
-/** One artefact card for a preview: a live page framed once it answers, or a screenshot shown. Pure. */
+/** One artefact card for a preview: a live page framed once it answers, a screenshot, or a finished file. Pure. */
 export function previewCard(preview: RailPreview, state: PreviewState = "up"): RailArtefact {
+  const at = preview.at ? { at: preview.at } : {};
   if (preview.kind === "image") {
     const name = preview.url.split("/").pop() ?? preview.url;
-    return { id: preview.id, title: "Screenshot", line: name, image: railImageSrc(preview.url), url: railImageSrc(preview.url) };
+    return { id: preview.id, title: preview.title ?? "Screenshot", line: preview.line ?? name, image: railImageSrc(preview.url), url: railImageSrc(preview.url), ...at };
   }
-  const line = preview.url.replace(/^https?:\/\//, "");
-  if (state === "down") return { id: preview.id, title: "Preview not running", line, url: preview.url, down: true };
-  if (state === "checking") return { id: preview.id, title: "Live preview", line, url: preview.url, checking: true };
-  return { id: preview.id, title: "Live preview", line, url: preview.url, preview: preview.url };
+  if (preview.kind === "file") {
+    return { id: preview.id, title: preview.title ?? preview.url.split("/").pop() ?? preview.url, ...(preview.line ? { line: preview.line } : {}), url: preview.url, ...(preview.frame ? { preview: preview.frame } : {}), ...at };
+  }
+  const line = preview.line ?? preview.url.replace(/^https?:\/\//, "");
+  const title = preview.title ?? "Live preview";
+  if (state === "down") return { id: preview.id, title: "Preview not running", line, url: preview.url, down: true, ...at };
+  // A page that refuses to be framed is shown through its own file when the server has one, else only linked.
+  if (preview.frame) return { id: preview.id, title, line, url: preview.url, preview: preview.frame, ...at };
+  if (state === "checking") return { id: preview.id, title, line, url: preview.url, checking: true, ...at };
+  if (state === "blocked") return { id: preview.id, title, line, url: preview.url, blocked: true, ...at };
+  return { id: preview.id, title, line, url: preview.url, preview: preview.url, ...at };
 }
 
 /** Machine status a reply opened with ("status=needs_decision: …"): never his to read. */
@@ -174,6 +190,8 @@ export interface RailOptions {
   live?: (url: string) => PreviewState;
   /** The answer as Flyd tells it, rendered; without it the column shows the answer's words. */
   voice?: (answer: ConversationMessage) => string | undefined;
+  /** What the server knows about a page a reply named: a review board's title and own file. */
+  known?: (preview: RailPreview) => RailPreview;
 }
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
@@ -183,7 +201,10 @@ export function composeRail(
   previews: RailPreview[] = [],
   options: RailOptions = {},
 ): Rail {
-  const card = (preview: RailPreview): RailArtefact => previewCard(preview, preview.kind === "live" && options.live ? options.live(preview.url) : "up");
+  const card = (named: RailPreview): RailArtefact => {
+    const preview = options.known?.(named) ?? named;
+    return previewCard(preview, preview.kind === "live" && options.live ? options.live(preview.url) : "up");
+  };
   const conversations: RailConversation[] = exchanges
     .filter((exchange) => exchange.question.text.trim())
     .slice(-MAX_RAIL_CONVERSATIONS)
@@ -205,9 +226,7 @@ export function composeRail(
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
   const cards = [...artefacts];
-  for (const preview of [...previews].reverse()) {
-    if (attached.has(preview.id)) continue;
-    cards.unshift(card(preview));
-  }
+  const own = previews.filter((preview) => !attached.has(preview.id) && (attached.add(preview.id), true));
+  cards.unshift(...own.map(card));
   return { conversations, artefacts: cards.slice(0, MAX_RAIL_ARTEFACTS) };
 }
