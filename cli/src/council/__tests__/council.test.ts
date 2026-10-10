@@ -7,6 +7,7 @@ import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
 import { consultMuse, museCandidates, parseMuseReply } from "../muse.js";
+import { readTaste, ruleId, writeTaste } from "../taste.js";
 import { runCouncilPass } from "../council.js";
 
 let home: string;
@@ -18,6 +19,7 @@ beforeEach(() => {
   process.env.FLYD_ADVISORIES_PATH = join(home, "council", "advisories.jsonl");
   process.env.FLYD_LIBRARIAN_STATE = join(home, "council", "librarian-state.json");
   process.env.FLYD_USER_PROFILE = join(home, "USER.md");
+  process.env.FLYD_TASTE_FILE = join(home, "TASTE.md");
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
@@ -97,13 +99,36 @@ describe("librarian", () => {
   });
 
   it("ignores malformed proposals and skips tiny captures", () => {
-    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [], projectOps: [] });
+    expect(parseLibrarianProposal("no json")).toEqual({ memoryOps: [], profileOps: [], observations: [], projectOps: [], tasteOps: [] });
     expect(parseLibrarianProposal('{"memory_ops":[{"op":"add","text":"x"},"junk"],"profile_ops":[{"fact":""}]}').memoryOps).toHaveLength(1);
     const raw = join(home, "raw2");
     mkdirSync(raw);
     writeFileSync(join(raw, "a.md"), "---\n---\n\nok\n");
     utimesSync(join(raw, "a.md"), new Date(), new Date());
     expect(collectNewCaptures(0, raw)).toEqual([]);
+  });
+
+  it("curates his taste on the same pass: folds a near-duplicate and retires a generic rule", async () => {
+    writeTaste({
+      rules: [
+        { id: ruleId("Reuse the pattern from other pages."), text: "Reuse the pattern from other pages.", scope: "personal", count: 2, projects: [], evidence: [] },
+        { id: ruleId("Use the existing page style."), text: "Use the existing page style.", scope: "personal", count: 1, projects: [], evidence: [] },
+        { id: ruleId("Never hard-code an API key."), text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] },
+      ],
+      vetoed: [], names: {},
+    });
+    appendJournalTurn({ user: "hi", assistant: "hello", at: at("2026-09-27T09:00:00Z") });
+    const complete = vi.fn(async () => {
+      return JSON.stringify({ taste_ops: [
+        { op: "fold", id: ruleId("Reuse the pattern from other pages."), merge: ruleId("Use the existing page style."), reason: "same point" },
+        { op: "retire", id: ruleId("Never hard-code an API key."), reason: "generic truism" },
+      ] });
+    });
+    const result = await runLibrarian({ complete, rawDir: join(home, "none"), now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.taste).toMatchObject({ folded: 1, retired: 1 });
+    const after = readTaste();
+    expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages."]);
+    expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key."]);
   });
 });
 
@@ -203,6 +228,17 @@ describe("muse", () => {
 });
 
 describe("council pass", () => {
+  it("curates existing taste during a quiet pass without running advisors", async () => {
+    const id = ruleId("Never hard-code an API key.");
+    writeTaste({ rules: [{ id, text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] }], vetoed: [], names: {} });
+    const complete = vi.fn(async () => JSON.stringify({ taste_ops: [{ op: "retire", id, reason: "generic" }] }));
+    const result = await runCouncilPass({ complete, now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.advisories).toEqual([]);
+    expect(result.librarian?.taste).toMatchObject({ retired: 1 });
+    expect(readTaste().retired?.map((rule) => rule.id)).toEqual([id]);
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the Librarian then both advisors, and notifies urgent advisories within the daily cap", async () => {
     appendJournalTurn({ user: "cleanx launch is 3 October, store review not submitted yet", assistant: "ok", at: at("2026-09-27T09:00:00Z") });
     const notify = vi.fn(async () => {});

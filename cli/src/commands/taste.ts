@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { learnTaste, readTaste, renderTaste, resolveTasteProject, tastePath, tastePromptText, writeTaste } from "../council/taste.js";
+import { curateTaste, learnTaste, readTaste, renderTaste, resolveTasteProject, tastePath, tastePromptText, writeTaste } from "../council/taste.js";
 
-const USAGE = "flyd taste [show|for <project|path>|learn [--days N]|edit]";
+const USAGE = "flyd taste [show|for <project|path>|learn [--days N]|curate|edit]";
 
 /**
  * `flyd taste`: what Flyd has learned about George's taste. `for` prints the
@@ -32,6 +32,14 @@ export async function runTaste(action = "show", args: string[] = []): Promise<vo
       return;
     }
     process.stdout.write(`Read ${result.turns} turn${result.turns === 1 ? "" : "s"}: ${result.added} new rule${result.added === 1 ? "" : "s"}, ${result.strengthened} strengthened, ${result.promoted} moved to Everywhere. ${path}\n`);
+    return;
+  }
+  if (action === "curate") {
+    const { query } = await import("../lib/llm.js");
+    process.stdout.write("Curating what Flyd knows about George's taste…\n");
+    const receipt = await curateTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) });
+    const ignored = receipt.rejected.length ? ` ${receipt.rejected.length} ignored.` : "";
+    process.stdout.write(`Curated: ${receipt.folded} folded, ${receipt.promoted} promoted to Everywhere, ${receipt.retired} retired.${ignored} ${path}\n`);
     return;
   }
   if (action === "edit") {

@@ -5,22 +5,28 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Project } from "../projects.js";
 import {
   applyObservations,
+  applyTasteOps,
+  curateTaste,
   isAgentSessionDir,
+  isReusablePreference,
   learningPrompt,
   learnTaste,
   parseLearned,
   parseTaste,
+  parseTasteOps,
   readSessionTurns,
   readTaste,
   renderTaste,
   resolveTasteProject,
   restoreRule,
+  RETIRED,
   rewordRule,
   ruleId,
   tastePromptText,
   vetoRule,
   writeTaste,
   type CandidateTurn,
+  type Observation,
   type TasteProfile,
 } from "../taste.js";
 
@@ -42,7 +48,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const empty = (): TasteProfile => ({ rules: [], vetoed: [], names: {} });
-const observe = (rule: string, scope: "personal" | "project", projectId?: string, date = "2026-10-06", quote = rule) =>
+const observe = (rule: string, scope: "personal" | "project", projectId?: string, date = "2026-10-06", quote = rule): Observation =>
   ({ rule: { rule, scope, quote, ...(projectId ? { project: projectId } : {}) }, source: "Claude Code", date });
 
 describe("TASTE.md", () => {
@@ -63,6 +69,12 @@ describe("TASTE.md", () => {
     const edited = `${markdown.replace("## Capfive client work", "- Headlines on one line where they fit.\n\n## Capfive client work")}`;
     const parsed = parseTaste(edited);
     expect(parsed.rules.find((rule) => rule.text === "Headlines on one line where they fit.")).toMatchObject({ scope: "personal", count: 0, id: ruleId("Headlines on one line where they fit.") });
+
+    // A retired rule round-trips under its own heading, provenance intact.
+    const withRetired: TasteProfile = { ...profile, retired: [{ id: "cafe0000", text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [{ quote: "put the key on the server", source: "Claude Code", date: "2026-10-04" }] }] };
+    const round = parseTaste(renderTaste(withRetired));
+    expect(round.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key."]);
+    expect(round.retired?.[0]!.evidence[0]).toMatchObject({ quote: "put the key on the server", date: "2026-10-04" });
   });
 });
 
@@ -116,6 +128,122 @@ describe("applyObservations", () => {
   });
 });
 
+describe("Librarian curation", () => {
+  it("folds a near-duplicate into the stronger rule, uniting count, evidence and projects", () => {
+    const profile = empty();
+    applyObservations(profile, [
+      observe("Reuse the pattern from other pages.", "project", "capfive-client-work", "2026-10-02", "same style as leadership cards"),
+      observe("Reuse the pattern from other pages.", "project", "capfive-client-work", "2026-10-03", "same as about page"),
+    ]);
+    applyObservations(profile, [observe("Use the existing page style.", "project", "flyd", "2026-10-04", "same style as leadership")]);
+    expect(profile.rules).toHaveLength(2);
+    const keep = profile.rules[0]!;
+    const drop = profile.rules[1]!;
+    const receipt = applyTasteOps(profile, [{ op: "fold", id: keep.id, merge: drop.id, reason: "same point" }]);
+    expect(receipt).toMatchObject({ folded: 1, rejected: [] });
+    expect(profile.rules).toHaveLength(1);
+    // Two projects seen → the folded rule is now personal taste.
+    expect(profile.rules[0]).toMatchObject({ id: keep.id, count: 3, scope: "personal" });
+    expect(profile.rules[0]!.projects).toEqual(["capfive-client-work", "flyd"]);
+    expect(profile.rules[0]!.evidence.map((item) => item.quote)).toContain("same style as leadership");
+  });
+
+  it("promotes a project rule to Everywhere, and rejects a promote already there", () => {
+    const profile = empty();
+    applyObservations(profile, [observe("Bold words turn blue.", "project", "capfive-client-work")]);
+    expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }])).toMatchObject({ promoted: 1 });
+    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["capfive-client-work"] });
+    expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }]).rejected.join(" ")).toContain("already everywhere");
+  });
+
+  it("preserves Everywhere scope when folding into a project rule", () => {
+    const profile = empty();
+    applyObservations(profile, [
+      observe("Use the existing page style.", "project", "flyd"),
+      observe("Reuse the pattern from other pages.", "personal"),
+    ]);
+    const projectRule = profile.rules.find((rule) => rule.scope === "flyd")!;
+    const personalRule = profile.rules.find((rule) => rule.scope === "personal")!;
+    expect(applyTasteOps(profile, [{ op: "fold", id: projectRule.id, merge: personalRule.id }])).toMatchObject({ folded: 1 });
+    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["flyd"] });
+  });
+
+  it("retires a generic learned rule but never one George wrote or reworded himself", () => {
+    const profile = empty();
+    applyObservations(profile, [observe("Never hard-code an API key in the client.", "personal")]);
+    const learned = profile.rules[0]!;
+    const own = { id: ruleId("Be kind to the reader."), text: "Be kind to the reader.", scope: "personal", count: 0, projects: [], evidence: [] };
+    const edited = { id: "edited001", text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], evidence: [] };
+    profile.rules.push(own, edited);
+    const receipt = applyTasteOps(profile, [{ op: "retire", id: learned.id }, { op: "retire", id: own.id }, { op: "retire", id: edited.id }]);
+    expect(receipt).toMatchObject({ retired: 1 });
+    expect(receipt.rejected.join(" ")).toContain("George's own");
+    expect(profile.rules.map((rule) => rule.text)).toEqual(["Be kind to the reader.", "Prefer quiet motion."]);
+    expect(profile.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key in the client."]);
+    const rephrased = observe("A rephrased key rule.", "personal");
+    rephrased.rule.sameAs = learned.id;
+    expect(applyObservations(profile, [
+      observe("Never hard-code an API key in the client.", "personal"),
+      { ...observe("Keep credentials out of client code.", "personal"), rule: { ...observe("Keep credentials out of client code.", "personal").rule, sameAs: learned.id } },
+      rephrased,
+    ])).toMatchObject({ added: 0, ignored: 3 });
+  });
+
+  it("never folds away a rule George wrote or reworded", () => {
+    const profile = empty();
+    applyObservations(profile, [observe("Reuse the pattern from other pages.", "personal")]);
+    const keep = profile.rules[0]!;
+    const own = { id: "edited001", text: "Prefer quiet motion.", scope: "personal", count: 2, projects: [], evidence: [] };
+    profile.rules.push(own);
+    const receipt = applyTasteOps(profile, [{ op: "fold", id: keep.id, merge: own.id }]);
+    expect(receipt).toMatchObject({ folded: 0 });
+    expect(receipt.rejected.join(" ")).toContain("George's own");
+    expect(profile.rules).toHaveLength(2);
+    const keptOwn = { id: "edited002", text: "Prefer quiet motion too.", scope: "personal", count: 2, projects: [], evidence: [] };
+    profile.rules.push(keptOwn);
+    const reverse = applyTasteOps(profile, [{ op: "fold", id: keptOwn.id, merge: keep.id }]);
+    expect(reverse).toMatchObject({ folded: 0 });
+    expect(profile.rules).toHaveLength(3);
+  });
+
+  it("rejects ops whose ids do not exist, and drops them from a parsed reply", () => {
+    const profile = empty();
+    applyObservations(profile, [observe("Minimal screens.", "personal")]);
+    const id = profile.rules[0]!.id;
+    expect(applyTasteOps(profile, [{ op: "retire", id: "ghost" }])).toMatchObject({ retired: 0 });
+    expect(applyTasteOps(profile, [{ op: "retire", id: "ghost" }]).rejected.join(" ")).toContain("unknown [ghost]");
+    const ops = parseTasteOps(JSON.stringify({ taste_ops: [{ op: "retire", id }, { op: "retire", id: "ghost" }] }), new Set([id]));
+    expect(ops.map((op) => op.id)).toEqual([id]);
+  });
+
+  it("curates the file from the model's ops and keeps retired rules out of prompts", async () => {
+    const profile = empty();
+    applyObservations(profile, [
+      observe("Reuse the pattern from other pages.", "personal", undefined, "2026-10-02", "same style as leadership"),
+      observe("Use the existing page style.", "personal", undefined, "2026-10-03", "same style again"),
+      observe("Never hard-code an API key in the client.", "personal", undefined, "2026-10-04", "put the key on the server"),
+    ]);
+    writeTaste(profile);
+    const ids = profile.rules.map((rule) => rule.id);
+    const complete = async () => {
+      const concurrent = readTaste();
+      concurrent.rules.push({ id: "fresh0001", text: "Fresh edits survive.", scope: "personal", count: 0, projects: [], evidence: [] });
+      writeTaste(concurrent);
+      return JSON.stringify({ taste_ops: [
+        { op: "fold", id: ids[0], merge: ids[1], reason: "same point" },
+        { op: "retire", id: ids[2], reason: "generic truism" },
+      ] });
+    };
+    const receipt = await curateTaste({ complete });
+    expect(receipt).toMatchObject({ folded: 1, retired: 1 });
+    const after = readTaste();
+    expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages.", "Fresh edits survive."]);
+    expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key in the client."]);
+    expect(readFileSync(process.env.FLYD_TASTE_FILE!, "utf8")).toContain(`## ${RETIRED}`);
+    expect(tastePromptText({ profile: after })).not.toContain("api key");
+  });
+});
+
 describe("parseLearned", () => {
   const turn: CandidateTurn = {
     id: "u1",
@@ -145,6 +273,26 @@ describe("parseLearned", () => {
     const output = JSON.stringify({ rules: [{ turn: 1, rule: "Navy cards.", scope: "project", project: null, quote: "lifted navy is better" }] });
     expect(parseLearned(output, [loose], empty(), PROJECTS)).toEqual([]);
   });
+
+  it("drops a one-off instruction about one element, keeps a reusable preference", () => {
+    const oneOff: CandidateTurn = { id: "u2", text: "make this button bigger and no eyebrow above headlines", context: "", date: "2026-10-06" };
+    const output = JSON.stringify({ rules: [
+      { turn: 1, rule: "Make this button bigger.", scope: "personal", quote: "make this button bigger" },
+      { turn: 1, rule: "No eyebrow above a headline.", scope: "personal", quote: "no eyebrow above headlines" },
+    ] });
+    expect(parseLearned(output, [oneOff], empty(), PROJECTS).map((item) => item.rule)).toEqual(["No eyebrow above a headline."]);
+    expect(isReusablePreference("Make this button bigger.")).toBe(false);
+    expect(isReusablePreference("Don't change this button.")).toBe(false);
+    expect(isReusablePreference("Please make this button bigger.")).toBe(false);
+    expect(isReusablePreference("Change the title to X.")).toBe(false);
+    expect(isReusablePreference("Please update the CTA.")).toBe(false);
+    expect(isReusablePreference("Change the heading to X.")).toBe(false);
+    expect(isReusablePreference("Reuse the pattern from other pages.")).toBe(true);
+    expect(isReusablePreference("Show data as artwork.")).toBe(true);
+    expect(isReusablePreference("Keep new pages simple.")).toBe(true);
+    expect(isReusablePreference("Change the heading to X.")).toBe(false);
+    expect(isReusablePreference("No eyebrow above a headline.")).toBe(true);
+  });
 });
 
 describe("using it", () => {
@@ -165,6 +313,18 @@ describe("using it", () => {
     expect(tastePromptText({ profile: empty() })).toBeNull();
   });
 
+  it("marks a rule seen once as tentative and a repeat as settled", () => {
+    const profile = empty();
+    applyObservations(profile, [
+      observe("Inconsistency is the biggest red flag.", "personal"),
+      observe("Inconsistency is the biggest red flag.", "personal"),
+      observe("Minimal screens.", "personal"),
+    ]);
+    const text = tastePromptText({ profile })!;
+    expect(text).toContain("- Inconsistency is the biggest red flag.\n");
+    expect(text).toContain("- Minimal screens. (seen once — tentative)");
+  });
+
   it("finds the project from a repo path, an id or a name", () => {
     expect(resolveTasteProject("/Users/george/Documents/cap5/wp-content/themes", PROJECTS)).toBe("capfive-client-work");
     expect(resolveTasteProject("project:capfive", PROJECTS)).toBe("capfive-client-work");
@@ -182,6 +342,7 @@ describe("using it", () => {
     expect(readFileSync(process.env.FLYD_TASTE_FILE!, "utf8")).toMatch(/## Not me\n\n- Phone gutter is exactly 36px\./);
     expect(restoreRule(id)).toBe(true);
     expect(readTaste().rules[0]).toMatchObject({ id, scope: "capfive-client-work", text: "Phone gutter is exactly 36px." });
+    expect(applyTasteOps(readTaste(), [{ op: "retire", id }])).toMatchObject({ retired: 0 });
     expect(vetoRule("nope")).toBe(false);
   });
 });

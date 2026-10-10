@@ -23,6 +23,7 @@ h2 { font: 500 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: upper
 .rule button { font: 500 12.5px/1.4 var(--mono); color: var(--muted); background: none; border: 0; padding: 2px 0; cursor: pointer; }
 .rule button:hover { color: var(--fg); }
 .vetoed .text { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+.retired { opacity: 0.72; }
 .none { color: var(--muted); font-size: 0.9em; }
 `;
 
@@ -59,30 +60,34 @@ const SCRIPT = `
 })();
 `;
 
-function ruleHtml(rule: TasteRule, names: Record<string, string>, vetoed: boolean): string {
-  const seen = rule.count === 0 ? "you wrote this" : `seen ${rule.count}×${rule.last ? `, last ${rule.last}` : ""}`;
+function ruleHtml(rule: TasteRule, names: Record<string, string>, status: "active" | "vetoed" | "retired"): string {
+  const seen = rule.count === 0 ? "you wrote this"
+    : rule.count === 1 ? `seen once${rule.last ? `, last ${rule.last}` : ""} — tentative`
+      : `seen ${rule.count}×${rule.last ? `, last ${rule.last}` : ""}`;
   const across = rule.projects.length > 1 ? ` · in ${rule.projects.map((id) => names[id] ?? id).join(", ")}` : "";
   const why = rule.evidence.map((item) =>
     `<li><span class="q">${escapeHtml(item.quote)}</span><span class="where">${escapeHtml([item.source, item.project ? names[item.project] ?? item.project : "", item.date].filter(Boolean).join(" · "))}</span></li>`).join("");
-  const actions = vetoed
+  const actions = status === "vetoed" || status === "retired"
     ? `<button type="button" data-action="restore">it is me</button>`
     : `<button type="button" data-action="edit">reword</button><button type="button" data-action="veto">not me</button>`;
-  return `<div class="rule${vetoed ? " vetoed" : ""}" data-id="${escapeHtml(rule.id)}">
+  const reword = status === "retired" ? `<button type="button" data-action="edit">reword</button>` : "";
+  return `<div class="rule${status === "vetoed" ? " vetoed" : status === "retired" ? " retired" : ""}" data-id="${escapeHtml(rule.id)}">
   <div class="text">${escapeHtml(rule.text)}</div>
   <div class="meta">${escapeHtml(seen + across)}</div>
   ${why ? `<ul class="why">${why}</ul>` : ""}
-  <div class="actions">${actions}</div>
+  <div class="actions">${reword}${actions}</div>
 </div>`;
 }
 
 export function renderTastePage(profile: TasteProfile, options: { token: string }): string {
-  const section = (title: string, rules: TasteRule[], vetoed = false) =>
-    rules.length ? `<h2>${escapeHtml(title)}</h2>\n${rules.map((rule) => ruleHtml(rule, profile.names, vetoed)).join("\n")}` : "";
+  const section = (title: string, rules: TasteRule[], status: "active" | "vetoed" | "retired" = "active") =>
+    rules.length ? `<h2>${escapeHtml(title)}</h2>\n${rules.map((rule) => ruleHtml(rule, profile.names, status)).join("\n")}` : "";
   const projects = [...new Set(profile.rules.filter((rule) => rule.scope !== "personal").map((rule) => rule.scope))];
   const body = [
     section("Everywhere", profile.rules.filter((rule) => rule.scope === "personal")),
     ...projects.map((id) => section(profile.names[id] ?? id, profile.rules.filter((rule) => rule.scope === id))),
-    section("Not me", profile.vetoed, true),
+    section("Retired", profile.retired ?? [], "retired"),
+    section("Not me", profile.vetoed, "vetoed"),
   ].filter(Boolean).join("\n");
   return `<!doctype html>
 <html lang="en" data-theme="dark">

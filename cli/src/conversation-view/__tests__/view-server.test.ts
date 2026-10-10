@@ -320,6 +320,8 @@ describe("ConversationViewServer", () => {
       rules: [{ id: "abc12345", text: "No shadows on icon boxes.", scope: "personal", count: 2, projects: [], last: "2026-10-06",
         evidence: [{ quote: "no shadows on the icon boxes", source: "Claude Code", date: "2026-10-06" }] }],
       vetoed: [],
+      retired: [{ id: "retired01", text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [],
+        evidence: [{ quote: "put the key on the server", source: "Claude Code", date: "2026-10-06" }] }],
       names: {},
     });
     const port = await start();
@@ -330,6 +332,9 @@ describe("ConversationViewServer", () => {
     expect(page.status).toBe(200);
     expect(page.body).toContain("No shadows on icon boxes.");
     expect(page.body).toContain("no shadows on the icon boxes");
+    expect(page.body).toContain("Retired");
+    expect(page.body).toContain("Never hard-code an API key.");
+    expect(page.body).toContain("put the key on the server");
     const token = /data-token="([0-9a-f]+)"/.exec(page.body)![1]!;
     const json = { "content-type": "application/json" };
     const veto = JSON.stringify({ action: "veto", id: "abc12345" });
@@ -340,6 +345,10 @@ describe("ConversationViewServer", () => {
     expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
     expect(readTaste()).toMatchObject({ rules: [], vetoed: [{ id: "abc12345" }] });
     expect((await post(port, veto, { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(404);
+    expect((await post(port, JSON.stringify({ action: "reword", id: "retired01", text: "Keep keys on the server." }), { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste().retired?.[0]!.text).toBe("Keep keys on the server.");
+    expect((await post(port, JSON.stringify({ action: "restore", id: "retired01" }), { ...json, "x-flyd-view-token": token }, "/api/taste")).status).toBe(200);
+    expect(readTaste().rules.map((rule) => rule.id)).toContain("retired01");
   });
 
   it("lists no slash commands for a read-only conversation", async () => {
