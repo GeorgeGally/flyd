@@ -7,6 +7,7 @@ import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import type { CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
+import type { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { ReplySummarizer } from "../summaries.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
@@ -416,6 +417,22 @@ describe("ConversationViewServer", () => {
     expect(image.type).toBe("image/png");
     expect((await get(port, "/api/image?session=s1&id=t1.9")).status).toBe(404);
     expect((await get(port, `/api/image?session=..%2Fx&id=${encodeURIComponent(id)}`)).status).toBe(404);
+  });
+
+  it("serves a fleet task's screenshot only with the token and only when the artefact listed it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello")].join("\n") + "\n");
+    const shot = join(dir, "after.png");
+    writeFileSync(shot, Buffer.from(PNG, "base64"));
+    const feed = { start() {}, stop() {}, current: () => ({ memories: [], news: [], taste: [] }), onRefresh: () => () => {}, shotPath: (task: string, file: string) => (task === "a" && file === "after.png" ? shot : null) };
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate" }), undefined, undefined, undefined, feed as unknown as ArtefactFeed);
+    const port = await server.listen(0);
+    const token = JSON.parse((await get(port, "/api/token")).body).token;
+    expect((await get(port, "/api/artefact-shot?task=a&file=after.png")).status).toBe(403);
+    const image = await get(port, `/api/artefact-shot?task=a&file=after.png&token=${token}`);
+    expect(image.status).toBe(200);
+    expect(image.type).toBe("image/png");
+    expect((await get(port, `/api/artefact-shot?task=a&file=..%2Fs1.jsonl&token=${token}`)).status).toBe(404);
   });
 
   it("passes pasted images through to the inbox, and accepts an image with no text", async () => {

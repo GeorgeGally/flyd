@@ -1,6 +1,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { readFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { extname } from "node:path";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
@@ -21,6 +23,8 @@ import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 
 export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
+
+const SHOT_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
 const HEARTBEAT_MS = 15_000;
 /** Text plus up to four attachments (screenshots or documents), base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
@@ -374,6 +378,14 @@ export class ConversationViewServer {
       await this.image(res, url.searchParams.get("session"), url.searchParams.get("id"));
       return;
     }
+    if (url.pathname === "/api/artefact-shot") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      await this.artefactShot(res, url.searchParams.get("task") ?? "", url.searchParams.get("file") ?? "");
+      return;
+    }
     if (url.pathname === "/api/status") {
       await this.statusStream(req, res);
       return;
@@ -387,6 +399,25 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  /** A screenshot a fleet task saved, only when the artefact listed it. */
+  private async artefactShot(res: ServerResponse, task: string, file: string): Promise<void> {
+    const path = this.feed.shotPath(task, file);
+    const type = SHOT_TYPES[extname(file).toLowerCase()];
+    if (!path || !type) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    let data: Buffer;
+    try {
+      data = await readFile(path);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" });
+    res.end(data);
   }
 
   /** George rewords, vetoes or restores a learned taste rule from the taste page. */

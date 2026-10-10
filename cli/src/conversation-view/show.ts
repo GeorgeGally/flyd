@@ -1,7 +1,7 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, inline, isRoutine, sentences } from "./summaries.js";
-import { composeArtefact, type ArtefactInputs } from "./artefact.js";
+import { composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Show mode: Flyd's own picture of what matters now, for the Conversation
@@ -11,11 +11,18 @@ import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 // latest word from the fleet), each one headline in Flyd's words. Pure: the
 // same snapshot, clock, readings and projects always pick the same things.
 
-export type ShowKind = "call" | "landed" | "live" | "waiting" | "news" | "clear";
+/** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued. */
+export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "news" | "clear";
 
 export interface ShowLink {
   label: string;
   url: string;
+}
+
+export interface ShowShot {
+  /** Same-origin path the page loads it from (it adds its token). */
+  src: string;
+  label: string;
 }
 
 export interface ShowItem {
@@ -26,6 +33,12 @@ export interface ShowItem {
   headline: string;
   /** Why Flyd shows it, in a few words. */
   why: string;
+  /** The next step or the concrete ask, whole. */
+  detail?: string;
+  /** A word or two for its state: "merged", "checks green", "paused". */
+  status?: string;
+  /** Screenshots of the work, newest "after" shots first. */
+  shots?: ShowShot[];
   at?: string;
   /** Pull requests it names. */
   links?: ShowLink[];
@@ -38,9 +51,19 @@ export interface ShowItem {
 export interface ShowScreen {
   /** Flyd's opening line, to him. */
   title: string;
+  /** One line on the whole situation: what waits on him, what is moving. */
+  summary: string;
   items: ShowItem[];
+  /** How many of each kind exist, including those past the screen's limits. */
+  counts: Partial<Record<ShowKind, number>>;
+  /** Work landed on each of the last seven days, oldest first. */
+  landedByDay?: DayCount[];
+  /** When firstmate's fleet snapshot was read. */
+  read?: string;
   /** The assistant is working right now. */
   live: boolean;
+  /** What it is doing, when it is working. */
+  doing?: string;
 }
 
 export interface ShowProject {
@@ -63,10 +86,10 @@ export interface ShowInputs {
 
 export const MAX_SHOW_ITEMS = 3;
 /** The artefact carries more than the conversation read: the fleet, memory, news. */
-export const MAX_ARTEFACT_ITEMS = 8;
+export const MAX_ARTEFACT_ITEMS = 28;
 const LANDED_WITHIN_MS = 24 * 60 * 60 * 1000;
 const NEWS_WITHIN_MS = 6 * 60 * 60 * 1000;
-const HEADLINE_CHARS = 110;
+const HEADLINE_CHARS = 200;
 const MAX_LINKS = 2;
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\b/g;
@@ -245,14 +268,40 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
 
   // Flyd's artefact leads: firstmate's fleet snapshot, its memory, the news. The
   // conversation read fills what is left.
-  const artefact = inputs.artefact ? composeArtefact(inputs.artefact) : [];
+  const projectOfRepo = (repo: string): string | undefined =>
+    projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
+  const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
   const chosen = [...artefact, ...items].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
   if (chosen.length === 0) {
     const taste = inputs.artefact?.taste?.[0];
     if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });
     else chosen.push({ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" });
   }
-  return { title: titleOf(chosen, recap && artefact.length === 0), items: chosen, live: status.working };
+  const fleet = inputs.artefact?.fleet;
+  const counts: Partial<Record<ShowKind, number>> = { ...fleetCounts(fleet) };
+  for (const item of items) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+  return {
+    title: titleOf(chosen, recap && artefact.length === 0),
+    summary: situationOf(counts, fleet?.unavailable),
+    items: chosen,
+    counts,
+    ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
+    ...(fleet?.generated ? { read: fleet.generated } : {}),
+    live: status.working,
+    ...(status.working && status.activity ? { doing: tidy(status.activity) } : {}),
+  };
+}
+
+/** One line on the whole situation, every figure in it named. Pure. */
+export function situationOf(counts: Partial<Record<ShowKind, number>>, unavailable?: string): string {
+  if (unavailable) return `I couldn't read firstmate's fleet just now (${unavailable}).`;
+  const count = (kind: ShowKind) => counts[kind] ?? 0;
+  const calls = count("call");
+  const parts = [calls ? `${calls} ${calls === 1 ? "call waits" : "calls wait"} on you` : "nothing waits on you"];
+  if (count("live")) parts.push(`${count("live")} under way`);
+  if (count("ready")) parts.push(`${count("ready")} waiting to land`);
+  if (count("waiting")) parts.push(`${count("waiting")} held up`);
+  return `${capitalise(parts.join(", "))}.`;
 }
 
 /** Flyd's opening line: led by the most important thing on screen. */

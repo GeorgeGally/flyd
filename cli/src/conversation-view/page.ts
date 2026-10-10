@@ -48,8 +48,8 @@ body {
 
 header {
   position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; gap: 14px;
-  height: 52px; padding: 0 22px;
+  display: flex; align-items: center; gap: 16px;
+  height: 52px; padding: 0 24px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid transparent;
@@ -59,10 +59,18 @@ header {
 header.scrolled { border-bottom-color: var(--faint); }
 .who { color: var(--accent); white-space: nowrap; }
 .when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* One kind of control: a small text toggle. No borders; colour alone says
+   which are on. */
+header .controls { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
 header button {
-  font: inherit; color: var(--muted); background: transparent;
-  border: 1px solid var(--faint); border-radius: 6px; height: 28px; padding: 0 9px; cursor: pointer;
+  font: inherit; color: var(--muted); background: transparent; border: 0; border-radius: 6px;
+  height: 28px; padding: 0 8px; cursor: pointer; white-space: nowrap; transition: color 140ms ease;
 }
+header button[aria-pressed="true"] { color: var(--accent); }
+header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 0; white-space: nowrap; }
+header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+header .air.on { color: var(--k-live, var(--accent)); }
+header .air.on::before { background: currentColor; opacity: 1; }
 /* The session picker doubles as the title. */
 header .picker { flex: 1; min-width: 0; display: flex; }
 header select {
@@ -75,50 +83,47 @@ header select {
 }
 header select:hover { background-color: var(--tint); }
 header select option { color: var(--fg); background: var(--bg); }
-header button:hover { color: var(--fg); border-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+header button:hover { color: var(--fg); }
+header button[aria-pressed="true"]:hover { color: color-mix(in srgb, var(--accent) 80%, var(--strong)); }
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
 /*
- * Artefact view: Flyd's own flat, minimal screen. A quiet title in Flyd's
- * voice, then a short list of plain one-line statements of what is going on and
- * what changed. No frames, no depth, no decoration: colour alone marks each
- * line's kind. The terminal stays loaded underneath, so flipping back is instant.
+ * Artefact view: one screen, not a page. Flyd's pick fills it, one thing at a
+ * time: a big headline, the sentence that says what it means for him, and a
+ * screenshot of the work when there is one. The picks take turns like title
+ * cards. Below sits the fleet drawn as an instrument (one line per piece of
+ * work, coloured by where it stands) and what landed this week. No frames, no
+ * rules: colour and type carry it. The terminal stays loaded underneath.
  */
 const SHOW_STYLE = `
 :root {
   --screen: #0a0b10;
-  --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --display: "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
   --k-call: #ff5470;
-  --k-landed: #3fe394;
   --k-live: #4cc3ff;
+  --k-ready: #b693ff;
+  --k-landed: #3fe394;
   --k-waiting: #ffc247;
-  --k-news: #b693ff;
-  --k-clear: #3fe394;
+  --k-next: #7c7f86;
+  --k-news: #e4e2dc;
 }
 :root[data-theme="light"] {
   --screen: #f3f0e6;
   --k-call: #dc2449;
-  --k-landed: #0f8c52;
   --k-live: #0d72c4;
+  --k-ready: #6c3fd6;
+  --k-landed: #0f8c52;
   --k-waiting: #b56b00;
-  --k-news: #6c3fd6;
-  --k-clear: #0f8c52;
+  --k-next: #8b8880;
+  --k-news: #2b2b2e;
 }
-
-/* The toggle: one bracketed word in the top-right corner, in both modes. */
-.flip {
-  position: fixed; top: 0; right: 16px; z-index: 8; height: 52px; padding: 0 6px;
-  display: flex; align-items: center; border: 0; background: none; cursor: pointer;
-  font: 500 14px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
-}
-.flip b { font-weight: 500; color: var(--fg); transition: color 140ms ease; }
-.flip:hover b { color: var(--accent); }
-.flip:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 8px; }
-header { padding-right: 110px; }
-:root[data-screen="show"] header, :root[data-screen="show"] main, :root[data-screen="show"] .composer,
-:root[data-screen="show"] .jump { display: none; }
+:root[data-screen="show"] main, :root[data-screen="show"] .composer, :root[data-screen="show"] .jump { display: none; }
 :root[data-screen="show"] .problem { z-index: 7; }
+/* The header stays: the same toggles in both modes, over the screen. */
+:root[data-screen="show"] header { z-index: 7; background: color-mix(in srgb, var(--screen) 88%, transparent); }
+:root[data-screen="show"] header .picker, :root[data-screen="show"] header #mode { display: none; }
+:root[data-screen="show"] header .air { display: inline-flex; }
 
 .show {
   position: fixed; inset: 0; z-index: 6; overflow-y: auto;
@@ -130,69 +135,121 @@ header { padding-right: 110px; }
 @keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
 
-.set { position: relative; min-height: 100%; display: flex; flex-direction: column; padding: 0 32px 48px; }
-.hud {
-  display: flex; align-items: center; gap: 16px; height: 52px; padding-right: 120px;
-  font: 600 13px/1 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+.scene {
+  min-height: 100%; width: 100%; max-width: 1280px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 36px;
+  padding: 84px clamp(24px, 5vw, 72px) 36px;
 }
-.hud .brand { font-weight: 800; letter-spacing: 0.28em; color: var(--strong); }
-.hud .air { display: inline-flex; align-items: center; gap: 8px; }
-.hud .air::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
-.hud .air.on { color: var(--k-live); }
-.hud .air.on::before { background: var(--k-live); opacity: 1; animation: blink 1.6s steps(2, jump-none) infinite; }
-.hud .clock { font-variant-numeric: tabular-nums; }
+.situation { margin: 0; max-width: 46em; font: 400 18px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
+.situation b { font-weight: 700; color: var(--strong); }
+
+.stage { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 34px; min-height: 0; padding-bottom: 4vh; }
+.pick { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); align-items: center; }
+.pick.has-shot { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+.pick.out .pick-text, .pick.out .pick-shot { animation: pick-out 200ms ease both; }
+.pick.in .pick-text, .pick.in .pick-shot { animation: pick-in 520ms cubic-bezier(.2,.8,.2,1) both; }
+.pick.in .pick-shot { animation-delay: 70ms; }
+@keyframes pick-out { to { opacity: 0; transform: translateY(-8px); } }
+@keyframes pick-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.pick-head {
+  margin: 0; max-width: 18em; font: 800 clamp(36px, 4.8vw, 72px)/1.04 var(--display); letter-spacing: -0.028em;
+  color: var(--strong); text-wrap: balance; overflow-wrap: anywhere;
+}
+.pick-head.long { max-width: 21em; font-size: clamp(30px, 3.6vw, 52px); line-height: 1.08; }
+.pick.has-shot .pick-head { font-size: clamp(32px, 3.6vw, 56px); }
+.pick.has-shot .pick-head.long { font-size: clamp(26px, 2.7vw, 40px); }
+.pick-head[role="button"] { cursor: pointer; }
+.pick-head[role="button"]:hover { color: color-mix(in srgb, var(--strong) 82%, var(--k)); }
+.pick-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 6px; }
+.pick-line { margin: 26px 0 0; max-width: 34em; font: 400 21px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+.pick-line:empty { display: none; }
+.pick-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 22px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
+.pick-meta .kind { color: var(--k); }
+.pick-meta .project { color: var(--fg); }
+.pick-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
+.pick-meta a:hover { color: var(--strong); }
+.pick-shot { margin: 0; min-width: 0; }
+.pick-shot .main {
+  display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center;
+  border-radius: 12px; background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.pick-shot .thumbs { display: flex; gap: 10px; margin-top: 10px; }
+.pick-shot .thumbs img {
+  width: 76px; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center; border-radius: 6px; cursor: pointer;
+  opacity: 0.5; transition: opacity 140ms ease;
+}
+.pick-shot .thumbs img:hover, .pick-shot .thumbs img.on { opacity: 1; }
+.pick-shot figcaption { margin-top: 10px; font: 500 12px/1.3 var(--mono); color: var(--muted); }
+
+/* Which pick is up, and how long until the next: one short line each. */
+.ticks { --k: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; min-height: 14px; align-items: center; }
+.ticks button { position: relative; width: 30px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
+.ticks button::before, .ticks button::after { content: ""; position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; }
+.ticks button::before { right: 0; background: var(--k); opacity: 0.28; }
+.ticks button::after { width: 0; background: var(--k); }
+.ticks button.on::after { width: 100%; transition: width var(--dwell, 9s) linear; }
+.ticks button.on.held::after { transition: none; }
+.ticks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The fleet as an instrument: one thin line per piece of work, grouped by
+   where it stands, with the week's landings beside it. */
+.instrument { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px 44px; }
+.instrument[hidden] { display: none; }
+.fleet { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 30px; }
+.gauge { --k: var(--muted); display: flex; flex-direction: column; gap: 10px; }
+.gauge .lines { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
+.gauge .lines i { width: 3px; height: 100%; background: var(--k); border-radius: 1px; }
+.gauge .lines i.more { height: 40%; opacity: 0.45; }
+.gauge span, .week span { font: 500 13px/1.2 var(--mono); color: var(--muted); white-space: nowrap; }
+.gauge span b, .week span b { font-weight: 600; color: var(--k); }
+.week { --k: var(--strong); display: flex; flex-direction: column; gap: 10px; }
+.week .cols { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
+.week .cols i { width: 6px; min-height: 2px; background: var(--strong); opacity: 0.85; border-radius: 1px; }
+.week .cols i.none { opacity: 0.25; }
+.flick { animation: flick 900ms steps(6, jump-none) both; animation-delay: var(--d, 0ms); }
+@keyframes flick { 0% { opacity: 0; } 30% { opacity: 1; } 45% { opacity: 0.2; } 60%, 100% { opacity: 1; } }
+
+.k-call { --k: var(--k-call); } .k-live { --k: var(--k-live); } .k-ready { --k: var(--k-ready); }
+.k-landed { --k: var(--k-landed); } .k-waiting { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
+.k-news, .k-clear { --k: var(--k-news); }
+
+.foot { display: flex; flex-direction: column; gap: 10px; }
+.also { margin: 0; max-width: 46em; font: 400 17px/1.55 var(--sans); color: var(--muted); text-wrap: pretty; }
+.also:empty { display: none; }
+.also a { color: var(--link); text-decoration: none; }
+.also a:hover { color: var(--strong); }
+.doing { margin: 0; display: flex; align-items: center; gap: 10px; font: 500 13px/1.4 var(--mono); color: var(--muted); }
+.doing::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+.doing.on { color: var(--k-live); }
+.doing.on::before { background: var(--k-live); opacity: 1; animation: blink 1.6s steps(2, jump-none) infinite; }
 @keyframes blink { 50% { opacity: 0.2; } }
 
-.stage { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; padding: 4vh 0; }
-.show-title {
-  margin: 0 0 34px; font: 800 clamp(30px, 4.6vw, 52px)/1.05 var(--round); letter-spacing: -0.02em; color: var(--strong);
-  text-wrap: balance;
-}
-
-.tiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.tile {
-  --k: var(--k-news);
-  position: relative; display: block; min-width: 0; padding: 18px 2px; cursor: pointer;
-  border-top: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
-  transition: background 140ms ease;
-}
-.tile:first-child { border-top: 0; }
-.tile:hover, .tile:focus-visible { background: color-mix(in srgb, var(--k) 6%, transparent); outline: 0; }
-.tile.lead { padding: 22px 2px 20px; }
-.tile.k-call { --k: var(--k-call); }
-.tile.k-landed { --k: var(--k-landed); }
-.tile.k-live { --k: var(--k-live); }
-.tile.k-waiting { --k: var(--k-waiting); }
-.tile.k-clear { --k: var(--k-clear); }
-
-.headline {
-  margin: 0; font: 700 22px/1.3 var(--round); letter-spacing: -0.01em; color: var(--strong);
-  overflow-wrap: anywhere; text-wrap: pretty;
-}
-.tile.lead .headline { font-size: clamp(26px, 3.2vw, 34px); line-height: 1.2; }
-.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
-.meta .kicker { color: var(--k); letter-spacing: 0.14em; text-transform: uppercase; }
-.meta .tag { font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg); }
-.meta .chip { color: var(--k); text-decoration: none; }
-.meta .chip:hover { text-decoration: underline; }
-
-.tile.enter { animation: tile-in 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
-@keyframes tile-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-/* A message opened from an artefact line says where it is. */
+/* A message opened from the artefact says where it is. */
 .msg.spot { animation: spot 1.8s ease-out; }
 @keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
 
+@media (max-width: 900px) {
+  .pick.has-shot { grid-template-columns: minmax(0, 1fr); }
+  .pick-shot .main { max-height: 34vh; }
+}
 @media (max-width: 720px) {
-  .set { padding: 0 18px 32px; }
-  .hud .clock { display: none; }
-  .show-title { margin-bottom: 26px; }
-  .tile, .tile.lead { padding: 15px 2px; }
-  .headline, .tile.lead .headline { font-size: 20px; }
+  .scene { padding: 72px 20px 28px; gap: 28px; }
+  .situation { font-size: 16px; }
+  .pick-head { font-size: 32px; }
+  .pick-head.long { font-size: 26px; }
+  .pick-line { margin-top: 18px; font-size: 18px; }
+  .pick-meta { margin-top: 16px; font-size: 13px; }
+  .instrument, .fleet { gap: 16px 22px; }
+  .gauge .lines, .week .cols { height: 28px; gap: 3px; }
+  .gauge .lines i { width: 2px; }
+  /* The count says how many; the lines are the picture of it. */
+  .gauge .lines i:nth-child(n+11):not(.more) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .tile.enter, .hud .air.on::before, .msg.spot { animation: none; }
-  .tile { transition: none; }
+  .show.power, .show.off, .pick.in .pick-text, .pick.in .pick-shot, .pick.out .pick-text, .pick.out .pick-shot,
+  .flick, .doing.on::before, .msg.spot { animation: none; }
+  .ticks button.on::after { transition: none; }
 }
 `;
 
@@ -405,6 +462,9 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   .composer .hint { display: none; }
   .time { display: none; }
   header .when { display: none; }
+  header { gap: 10px; padding: 0 16px; }
+  header .controls { margin-left: 0; gap: 0; }
+  header button { padding: 0 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg.fresh, .working i { animation: none; }
@@ -442,7 +502,7 @@ const SCRIPT = `
   }
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
-    themeBtn.textContent = theme === "light" ? "dark" : "light";
+    themeBtn.setAttribute("aria-pressed", String(theme === "light"));
     // Inside Flyd.app the window's title bar follows the page.
     try { window.webkit.messageHandlers.flyd.postMessage({ theme: theme }); } catch (e) { /* in a browser */ }
   }
@@ -450,7 +510,7 @@ const SCRIPT = `
   var modeBtn = document.getElementById("mode");
   function applyMode(mode) {
     document.documentElement.setAttribute("data-view", mode);
-    modeBtn.textContent = mode === "full" ? "summary" : "full";
+    modeBtn.setAttribute("aria-pressed", String(mode === "full"));
   }
   applyMode(store("flyd-view-mode") === "full" ? "full" : "summary");
   modeBtn.addEventListener("click", function () {
@@ -1206,26 +1266,50 @@ const SCRIPT = `
   });
 
 
-  // Show mode: Flyd's own screen of the few things he needs to see. The
-  // bracketed word in the corner flips between it and the terminal, and the
-  // choice is remembered. The terminal keeps streaming underneath.
+  // Show mode: Flyd's own screen. Its picks take turns in the middle, one at a
+  // time like title cards; the fleet sits under them as an instrument. The
+  // "artefact" toggle flips between it and the terminal, and the choice is
+  // remembered. The terminal keeps streaming underneath.
   var showEl = document.getElementById("show");
-  var tilesEl = document.getElementById("tiles");
   var showTitle = document.getElementById("show-title");
+  var situationEl = document.getElementById("situation");
+  var pickEl = document.getElementById("pick");
+  var pickHead = document.getElementById("pick-head");
+  var pickLine = document.getElementById("pick-line");
+  var pickMeta = document.getElementById("pick-meta");
+  var ticksEl = document.getElementById("ticks");
+  var instrumentEl = document.getElementById("instrument");
+  var fleetEl = document.getElementById("fleet");
+  var weekEl = document.getElementById("week");
+  var weekCols = document.getElementById("week-cols");
+  var weekLabel = document.getElementById("week-label");
+  var alsoEl = document.getElementById("also");
+  var showDoing = document.getElementById("show-doing");
   var air = document.getElementById("air");
-  var showClock = document.getElementById("show-clock");
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // What each kind is called on screen, and how many of each take a turn.
   var KINDS = {
-    call: { label: "Your call" },
-    landed: { label: "Landed" },
-    live: { label: "Now" },
-    waiting: { label: "Waiting" },
-    news: { label: "Latest" },
-    clear: { label: "Clear" },
+    call: { word: "needs you", gauge: "need you", turns: 4 },
+    live: { word: "under way", gauge: "under way", turns: 2 },
+    ready: { word: "waiting to land", gauge: "to land", turns: 2 },
+    landed: { word: "landed", gauge: "landed", turns: 2 },
+    waiting: { word: "held up", gauge: "held up", turns: 1 },
+    next: { word: "up next", gauge: "queued", turns: 0 },
+    news: { word: "also", turns: 0 },
+    clear: { word: "all clear", turns: 0 },
   };
-  var tiles = new Map();
+  var ORDER = ["call", "live", "ready", "landed", "waiting"];
+  var GAUGE_ORDER = ["call", "live", "ready", "waiting", "next", "landed"];
+  var GAUGE_LINES = 24;
+  var DWELL = 9000;
   var shown = null;
+  var picks = [];
+  var at = 0;
+  var cycle = null;
+  var holding = false;
+  var lastGauge = "";
+  var filled = "";
   // Where the terminal was: back at the bottom unless he had scrolled up.
   var terminalAt = { y: 0, bottom: true };
 
@@ -1239,89 +1323,252 @@ const SCRIPT = `
     var hours = Math.round(minutes / 60);
     return hours < 24 ? hours + "h ago" : Math.round(hours / 24) + "d ago";
   }
-  function fillTile(el, item) {
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function withToken(src) { return src + (src.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(VIEW_TOKEN); }
+  function sentence(text) { text = String(text || "").trim(); return text && !/[.!?…:]$/.test(text) ? text + "." : text; }
+
+  // Flyd's picks: what takes a turn in the middle, most important first. With
+  // nothing to pick, the news or a memory holds the screen instead.
+  function picksOf(screen) {
+    var chosen = [];
+    ORDER.forEach(function (kind) {
+      var ofKind = screen.items.filter(function (item) { return item.kind === kind; });
+      // Work with a screenshot to show goes first within its kind.
+      ofKind.sort(function (a, b) { return (b.shots ? 1 : 0) - (a.shots ? 1 : 0); });
+      chosen = chosen.concat(ofKind.slice(0, KINDS[kind].turns));
+    });
+    if (chosen.length === 0) chosen = screen.items.filter(function (item) { return item.kind === "news" || item.kind === "clear"; }).slice(0, 1);
+    return chosen;
+  }
+  function lineOf(item) {
+    if (item.detail) return sentence(item.detail);
+    if (item.kind === "call") return "This one waits on you.";
+    return item.why ? sentence(item.why.charAt(0).toUpperCase() + item.why.slice(1)) : "";
+  }
+  function fillPick(item) {
+    filled = JSON.stringify(item);
     var kind = KINDS[item.kind] || KINDS.news;
-    el.textContent = "";
-    var headline = document.createElement("p");
-    headline.className = "headline";
-    headline.textContent = item.headline;
-    var meta = document.createElement("div");
-    meta.className = "meta";
-    var kicker = document.createElement("span");
-    kicker.className = "kicker";
-    kicker.textContent = kind.label;
-    meta.appendChild(kicker);
-    if (item.project) {
-      var tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = item.project;
-      meta.appendChild(tag);
+    pickEl.className = "pick k-" + item.kind + (item.shots && item.shots.length ? " has-shot" : "");
+    pickHead.textContent = item.headline;
+    pickHead.classList.toggle("long", item.headline.length > 90);
+    if (item.ref) {
+      pickHead.setAttribute("role", "button");
+      pickHead.tabIndex = 0;
+      pickHead.dataset.ref = item.ref;
+      pickHead.title = "Open in the terminal";
+    } else {
+      pickHead.removeAttribute("role");
+      pickHead.removeAttribute("tabindex");
+      pickHead.removeAttribute("title");
+      pickHead.dataset.ref = "";
     }
-    var why = document.createElement("span");
-    why.textContent = item.why;
-    if (item.why) meta.appendChild(why);
-    if (item.at) {
-      var when = document.createElement("span");
-      when.className = "ago";
-      when.dataset.at = item.at;
-      when.textContent = ago(item.at);
-      meta.appendChild(when);
-    }
+    pickLine.textContent = lineOf(item);
+    pickMeta.textContent = "";
+    pickMeta.appendChild(el("span", "kind", kind.word));
+    if (item.project) pickMeta.appendChild(el("span", "project", item.project));
+    if (item.status && item.status !== kind.word) pickMeta.appendChild(el("span", "status", item.status));
     (item.links || []).forEach(function (link) {
-      var a = document.createElement("a");
-      a.className = "chip";
+      var a = el("a", "", link.label);
       a.href = link.url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      a.textContent = link.label;
-      a.addEventListener("click", function (event) { event.stopPropagation(); });
-      meta.appendChild(a);
+      pickMeta.appendChild(a);
     });
-    el.appendChild(headline);
-    el.appendChild(meta);
-    el.setAttribute("aria-label", kind.label + ": " + item.headline + " (opens in the terminal)");
-    el.dataset.ref = item.ref || "";
+    if (item.at) {
+      var when = el("span", "ago", ago(item.at));
+      when.dataset.at = item.at;
+      pickMeta.appendChild(when);
+    }
+    var old = pickEl.querySelector(".pick-shot");
+    if (old) old.remove();
+    if (item.shots && item.shots.length) {
+      var figure = el("figure", "pick-shot");
+      var main = el("img", "main");
+      main.alt = "Screenshot: " + item.headline;
+      main.src = withToken(item.shots[0].src);
+      figure.appendChild(main);
+      var caption = el("figcaption", "", item.shots[0].label);
+      if (item.shots.length > 1) {
+        var thumbs = el("div", "thumbs");
+        item.shots.forEach(function (shot, index) {
+          var thumb = el("img", index === 0 ? "on" : "");
+          thumb.alt = shot.label;
+          thumb.src = withToken(shot.src);
+          // Hover shows that shot; a tap does the same on a phone.
+          function choose() {
+            main.src = thumb.src;
+            caption.textContent = shot.label;
+            thumbs.querySelectorAll("img").forEach(function (other) { other.classList.toggle("on", other === thumb); });
+          }
+          thumb.addEventListener("mouseenter", choose);
+          thumb.addEventListener("click", choose);
+          thumbs.appendChild(thumb);
+        });
+        figure.appendChild(thumbs);
+      }
+      figure.appendChild(caption);
+      pickEl.appendChild(figure);
+    }
+  }
+  function markTicks() {
+    Array.prototype.forEach.call(ticksEl.children, function (tick, index) {
+      tick.classList.remove("on");
+      tick.classList.toggle("held", holding);
+      if (index === at) {
+        void tick.offsetWidth;
+        tick.classList.add("on");
+      }
+      tick.setAttribute("aria-current", index === at ? "true" : "false");
+    });
+  }
+  function show(index, animate) {
+    if (!picks.length) return;
+    at = (index + picks.length) % picks.length;
+    var item = picks[at];
+    if (!animate || reduced || !onShow()) {
+      fillPick(item);
+      markTicks();
+      return;
+    }
+    pickEl.classList.remove("in");
+    pickEl.classList.add("out");
+    setTimeout(function () {
+      fillPick(item);
+      pickEl.classList.add("in");
+      markTicks();
+    }, 200);
+  }
+  function schedule() {
+    clearInterval(cycle);
+    cycle = null;
+    if (picks.length > 1 && !holding) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+  }
+  function hold(on) {
+    holding = on;
+    markTicks();
+    schedule();
+  }
+  pickEl.addEventListener("mouseenter", function () { hold(true); });
+  pickEl.addEventListener("mouseleave", function () { hold(false); });
+  ticksEl.addEventListener("mouseleave", function () { hold(false); });
+  function openPick() { if (pickHead.dataset.ref) openInTerminal(pickHead.dataset.ref); }
+  pickHead.addEventListener("click", openPick);
+  pickHead.addEventListener("keydown", function (event) {
+    if (pickHead.dataset.ref && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openPick(); }
+  });
+
+  function renderTicks() {
+    ticksEl.textContent = "";
+    ticksEl.hidden = picks.length < 2;
+    picks.forEach(function (item, index) {
+      var tick = el("button", "k-" + item.kind);
+      tick.type = "button";
+      tick.setAttribute("aria-label", (KINDS[item.kind] || KINDS.news).word + ": " + item.headline);
+      tick.style.setProperty("--dwell", DWELL + "ms");
+      // Hover, not click: resting on a line brings its pick up.
+      function choose() { holding = true; if (index !== at) show(index, true); else markTicks(); schedule(); }
+      tick.addEventListener("mouseenter", choose);
+      tick.addEventListener("focus", choose);
+      tick.addEventListener("click", choose);
+      ticksEl.appendChild(tick);
+    });
+    markTicks();
+  }
+  function renderGauge(screen) {
+    var counts = screen.counts || {};
+    var key = JSON.stringify([counts, screen.landedByDay || null]);
+    if (key === lastGauge) return;
+    var first = lastGauge === "";
+    lastGauge = key;
+    fleetEl.textContent = "";
+    var any = false;
+    GAUGE_ORDER.forEach(function (kind) {
+      var count = counts[kind] || 0;
+      if (!count) return;
+      any = true;
+      var gauge = el("div", "gauge k-" + kind);
+      var lines = el("div", "lines");
+      for (var i = 0; i < Math.min(count, GAUGE_LINES); i += 1) {
+        var line = el("i");
+        if (!reduced && !first) { line.className = "flick"; line.style.setProperty("--d", Math.round(Math.random() * 420) + "ms"); }
+        lines.appendChild(line);
+      }
+      if (count > GAUGE_LINES) lines.appendChild(el("i", "more"));
+      gauge.appendChild(lines);
+      var label = el("span");
+      label.appendChild(el("b", "", String(count)));
+      label.appendChild(document.createTextNode(" " + KINDS[kind].gauge));
+      gauge.appendChild(label);
+      fleetEl.appendChild(gauge);
+    });
+    var days = screen.landedByDay || [];
+    var total = days.reduce(function (sum, day) { return sum + day.count; }, 0);
+    weekEl.hidden = days.length === 0;
+    weekCols.textContent = "";
+    var most = Math.max.apply(null, days.map(function (day) { return day.count; }).concat([1]));
+    days.forEach(function (day) {
+      var col = el("i", day.count ? "" : "none");
+      col.style.height = (day.count ? Math.max(18, Math.round((day.count / most) * 100)) : 6) + "%";
+      col.title = day.day + ": " + day.count + " landed";
+      weekCols.appendChild(col);
+    });
+    weekLabel.textContent = "";
+    weekLabel.appendChild(el("b", "", String(total)));
+    weekLabel.appendChild(document.createTextNode(" landed in 7 days"));
+    instrumentEl.hidden = !any && days.length === 0;
+  }
+  function renderAlso(screen) {
+    alsoEl.textContent = "";
+    var also = screen.items.filter(function (item) { return item.kind === "news" && picks.indexOf(item) < 0; })[0];
+    if (!also) return;
+    var lead = /^news:memory-/.test(also.id) ? "From your memory" : /^news:news-/.test(also.id) ? "In the news" : also.why ? also.why.charAt(0).toUpperCase() + also.why.slice(1) : "Also";
+    alsoEl.appendChild(document.createTextNode(lead + ": " + sentence(also.headline) + " "));
+    (also.links || []).slice(0, 1).forEach(function (link) {
+      var a = el("a", "", link.label);
+      a.href = link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      alsoEl.appendChild(a);
+    });
+  }
+  function renderDoing(screen) {
+    showDoing.classList.toggle("on", !!screen.live);
+    if (screen.live) showDoing.textContent = screen.doing || "Working on it";
+    else showDoing.textContent = "Standby" + (screen.read ? ". Fleet read " + ago(screen.read) : "");
   }
   function renderShow(next) {
     shown = next;
     showTitle.textContent = next.title;
+    var day = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    situationEl.textContent = day + ". " + (next.summary || "");
     air.classList.toggle("on", !!next.live);
     air.textContent = next.live ? "on air" : "standby";
-    var keep = new Set();
-    next.items.forEach(function (item, index) {
-      keep.add(item.id);
-      var el = tiles.get(item.id);
-      var fresh = !el;
-      if (!el) {
-        el = document.createElement("li");
-        el.tabIndex = 0;
-        el.setAttribute("role", "button");
-        el.addEventListener("click", function () { openInTerminal(el.dataset.ref); });
-        el.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openInTerminal(el.dataset.ref); }
-        });
-        tiles.set(item.id, el);
-      }
-      var key = JSON.stringify(item);
-      if (el.dataset.key !== key) { fillTile(el, item); el.dataset.key = key; }
-      el.className = "tile k-" + item.kind + (index === 0 ? " lead" : "") + (fresh || el.classList.contains("enter") ? " enter" : "");
-      el.style.setProperty("--i", String(index));
-      if (tilesEl.children[index] !== el) tilesEl.insertBefore(el, tilesEl.children[index] || null);
-    });
-    tiles.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); tiles.delete(id); } });
-  }
-  // Cards come on one after another each time the set is switched on.
-  function replayTiles() {
-    tiles.forEach(function (el) { el.classList.remove("enter"); });
-    void tilesEl.offsetWidth;
-    tiles.forEach(function (el) { el.classList.add("enter"); });
+    var current = picks[at] ? picks[at].id : null;
+    var fresh = picksOf(next);
+    var sameSet = fresh.length === picks.length && fresh.every(function (item, index) { return item.id === picks[index].id; });
+    picks = fresh;
+    if (!sameSet) {
+      var keep = picks.findIndex(function (item) { return item.id === current; });
+      at = keep >= 0 ? keep : 0;
+      renderTicks();
+      schedule();
+    }
+    if (picks.length && JSON.stringify(picks[at]) !== filled) fillPick(picks[at]);
+    renderGauge(next);
+    renderAlso(next);
+    renderDoing(next);
   }
   function tickShow() {
-    showClock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    tilesEl.querySelectorAll(".ago").forEach(function (el) { el.textContent = ago(el.dataset.at); });
+    pickMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
+    if (shown) renderDoing(shown);
   }
-  tickShow();
   setInterval(tickShow, 30000);
+  showEl.addEventListener("scroll", function () { header.classList.toggle("scrolled", showEl.scrollTop > 4); });
 
   function applyScreen(next, animate) {
     var root = document.documentElement;
@@ -1334,18 +1581,23 @@ const SCRIPT = `
         showEl.classList.remove("power");
         void showEl.offsetWidth;
         showEl.classList.add("power");
-        replayTiles();
+        if (picks.length) { pickEl.classList.remove("out"); pickEl.classList.add("in"); }
+        // The instrument flickers on with the screen, each line at its own moment.
+        fleetEl.querySelectorAll(".lines i").forEach(function (line) {
+          line.classList.remove("flick");
+          line.style.setProperty("--d", Math.round(120 + Math.random() * 520) + "ms");
+          void line.offsetWidth;
+          line.classList.add("flick");
+        });
       }
       showEl.scrollTop = 0;
-      flip.innerHTML = "[<b>terminal</b>]";
-      flip.setAttribute("aria-label", "Switch to terminal mode");
+      flip.setAttribute("aria-pressed", "true");
     } else {
       root.setAttribute("data-screen", "terminal");
       showEl.hidden = true;
       showEl.classList.remove("power", "off");
       if (terminalAt.bottom) { toBottom(); jump.hidden = true; } else window.scrollTo(0, terminalAt.y);
-      flip.innerHTML = "[<b>artefact</b>]";
-      flip.setAttribute("aria-label", "Switch to artefact view");
+      flip.setAttribute("aria-pressed", "false");
     }
   }
   function setScreen(next) {
@@ -1411,10 +1663,14 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <header>
   <span class="who">${label}</span>
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
+  <span class="air" id="air">standby</span>
   <span class="when" id="when"></span>
-  <button id="mode" type="button" aria-label="Switch between summaries and full replies">full</button>
-  <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
-  <button id="theme" type="button" aria-label="Toggle theme">light</button>
+  <span class="controls">
+    <button id="mode" type="button" aria-pressed="false" aria-label="Full replies">full</button>
+    <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
+    <button id="theme" type="button" aria-pressed="false" aria-label="Light theme">light</button>
+    <button id="flip" type="button" aria-pressed="false" aria-label="Artefact view">artefact</button>
+  </span>
 </header>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
@@ -1423,13 +1679,26 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
-<button class="flip" id="flip" type="button" aria-label="Switch to artefact view">[<b>artefact</b>]</button>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
-  <div class="set">
-    <div class="hud"><span class="brand">Flyd</span><span class="air" id="air">standby</span><span class="clock" id="show-clock"></span></div>
+  <div class="scene">
+    <p class="situation"><b id="show-title">Tuning in.</b> <span id="situation">Reading the fleet…</span></p>
     <div class="stage">
-      <h1 class="show-title" id="show-title">Tuning in</h1>
-      <ol class="tiles" id="tiles" aria-live="polite"></ol>
+      <div class="pick" id="pick" aria-live="polite">
+        <div class="pick-text">
+          <h1 class="pick-head" id="pick-head"></h1>
+          <p class="pick-line" id="pick-line"></p>
+          <div class="pick-meta" id="pick-meta"></div>
+        </div>
+      </div>
+      <div class="ticks" id="ticks" aria-label="Flyd's picks"></div>
+    </div>
+    <div class="instrument" id="instrument" hidden>
+      <div class="fleet" id="fleet" aria-label="The fleet, one line per piece of work"></div>
+      <div class="week" id="week" hidden><div class="cols" id="week-cols"></div><span id="week-label"></span></div>
+    </div>
+    <div class="foot">
+      <p class="also" id="also"></p>
+      <p class="doing" id="show-doing">standby</p>
     </div>
   </div>
 </section>
