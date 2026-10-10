@@ -22,7 +22,11 @@ interface Seed {
   scope: string;
   skill?: TasteSkillKind;
   evidence: TasteEvidence[];
+  /** The text of an earlier seed this one takes over from: seeded installs move to it. */
+  replaces?: string;
 }
+
+const OLD_GNM_FULL_SCREEN = "Every section is one full screen (100vh), with its content block centred.";
 
 const CAPFIVE = "capfive-client-work";
 const GNM = "gnm-good-neighbours-market";
@@ -158,12 +162,24 @@ export const TASTE_PRINCIPLES: Seed[] = [
     ],
   },
 
-  // ── Good Neighbours: the Christmas market site ──────────────────────────
   {
-    text: "Every section is one full screen (100vh), with its content block centred.",
-    scope: GNM,
+    text: "Every section is one full screen (100vh): one screen per section, never a long scroll.",
+    scope: "personal",
+    skill: "interface",
+    replaces: OLD_GNM_FULL_SCREEN,
     evidence: [
       said("every section should be 100vh", "Claude Code", "2026-10-09", GNM),
+      said("100vh i had in capfive also, and it also fits my flash/tv interface ideas", "Flyd window", "2026-10-10", CAPFIVE),
+      said("It feels like it's a full-screen interface.", "Claude Code", "2026-10-04", CAPFIVE),
+    ],
+  },
+
+  // ── Good Neighbours: the Christmas market site ──────────────────────────
+  {
+    text: "Each section's content block is centred on its screen.",
+    scope: GNM,
+    replaces: OLD_GNM_FULL_SCREEN,
+    evidence: [
       said("the whole content block should be centred", "Claude Code", "2026-10-09", GNM),
     ],
   },
@@ -211,16 +227,21 @@ function readSeeded(): Set<string> {
 /**
  * Add the principles TASTE.md has never had. A principle already there (in any
  * tier, or reworded under its id), or seeded before and since deleted by
- * George, is left alone. Returns how many were added; the caller writes
- * TASTE.md and then calls markPrinciplesSeeded, so a failed write never loses one.
+ * George, is left alone. A seed that replaces an earlier one takes its place:
+ * the earlier principle, unless George reworded it, is removed, and when he
+ * vetoed or retired it the replacement is not seeded. Returns how many rules
+ * were added or removed; the caller writes TASTE.md and then calls
+ * markPrinciplesSeeded, so a failed write never loses one.
  */
 export function seedPrinciples(profile: TasteProfile, seeds: Seed[] = TASTE_PRINCIPLES): number {
   const seeded = readSeeded();
   const present = new Set([...profile.rules, ...profile.vetoed, ...(profile.retired ?? [])].map((rule) => rule.id));
+  const setAside = new Set([...profile.vetoed, ...(profile.retired ?? [])].map((rule) => rule.id));
   let added = 0;
   for (const seed of seeds) {
     const id = ruleId(seed.text);
     if (present.has(id) || seeded.has(id)) continue;
+    if (seed.replaces && setAside.has(ruleId(seed.replaces))) continue;
     const dates = seed.evidence.map((item) => item.date).sort();
     const projects = [...new Set(seed.evidence.flatMap((item) => (item.project ? [item.project] : [])))];
     const rule: TasteRule = {
@@ -238,7 +259,11 @@ export function seedPrinciples(profile: TasteProfile, seeds: Seed[] = TASTE_PRIN
     profile.rules.push(rule);
     added += 1;
   }
-  return added;
+  const replaced = new Set(seeds.flatMap((seed) => (seed.replaces ? [ruleId(seed.replaces)] : [])));
+  const kept = profile.rules.filter((rule) => !(rule.principle && replaced.has(rule.id) && rule.id === ruleId(rule.text)));
+  const removed = profile.rules.length - kept.length;
+  profile.rules = kept;
+  return added + removed;
 }
 
 /** Remember every principle TASTE.md now holds, so deleting one later forgets it for good. */

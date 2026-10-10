@@ -334,6 +334,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   const finished = commitments
     ? await (deps.finishedWork ?? (process.env.VITEST ? async () => [] : collectFinishedWork))(since).catch(() => [])
     : [];
+  const tasteSeen = tasteFingerprint(deps.tastePath);
   const tasteProfile = readTaste(deps.tastePath);
   if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && !tasteCurationDue(state, deps.tastePath)) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
@@ -347,6 +348,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
   // An unparseable reply must not consume the slice: keep the cursors and retry next pass.
   if (!/\{[\s\S]*\}/.test(reply)) throw new Error("Librarian returned no JSON proposal; cursors kept for retry");
   const proposal = parseLibrarianProposal(reply);
+  const tasteUntouched = tasteFingerprint(deps.tastePath) === tasteSeen;
   const { memory: receipt, projects: projectReceipt, taste: tasteReceipt, profileAdded } = applyProposal(proposal, { now, paths, repos, deps });
   // Advance cursors only after a successful pass so a failed one is retried.
   writeLibrarianState({
@@ -355,7 +357,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     lastRunAt: now.toISOString(),
     runs: state.runs + 1,
     ...(seedProjects ? { projectsSeededOn: localDay(now) } : state.projectsSeededOn ? { projectsSeededOn: state.projectsSeededOn } : {}),
-    tasteCuratedHash: tasteFingerprint(deps.tastePath),
+    tasteCuratedHash: tasteUntouched ? tasteFingerprint(deps.tastePath) : tasteSeen,
   }, deps.statePath);
   return { turns: turns.length, captures: captures.length, memory: receipt, projects: projectReceipt, taste: tasteReceipt, profileAdded, observations: proposal.observations };
 }

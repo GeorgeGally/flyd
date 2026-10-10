@@ -188,7 +188,7 @@ export function installTasteSkills(skills: Array<{ name: string; content: string
 
 export interface TasteSkillSync extends TasteSkillInstall {
   skipped?: "disabled" | "test";
-  /** Principles newly seeded into TASTE.md. */
+  /** Principles newly seeded into, or replaced in, TASTE.md. */
   seeded: number;
   skills: string[];
 }
