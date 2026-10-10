@@ -13,6 +13,8 @@ export interface ConversationStatus {
   activity?: string;
   lastActivity?: string;
   reply?: { id: string; headline: string; asks: boolean };
+  /** His newest message still waiting for its answer, and the line saying what is happening to it. */
+  waiting?: { id: string; text: string };
 }
 
 /** Working only counts while there was activity recently; a stalled turn is not "working". */
@@ -71,10 +73,12 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
   const recent = snapshot.lastActivity ? now - Date.parse(snapshot.lastActivity) < WORKING_STALE_MS : false;
   const reply = [...snapshot.messages].reverse().find((message) => message.role === "assistant" && !isRoutine(message.text));
   const working = snapshot.working && recent;
+  const waiting = [...snapshot.messages].reverse().find((message) => message.role === "user" && message.waiting);
   return {
     working,
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
     ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
+    ...(waiting ? { waiting: { id: waiting.id, text: waiting.waiting! } } : {}),
   };
 }

@@ -36,6 +36,8 @@ export interface Exchange {
   answer?: ConversationMessage;
   /** Shown under the question while there is no answer. */
   waiting: string;
+  /** A note to firstmate: still in its inbox, or taken (read) by firstmate. */
+  handoff?: "queued" | "taken";
 }
 
 export interface ConversationSnapshot {
@@ -81,6 +83,8 @@ export interface SentMessage {
   timestamp: string;
   /** Delivered, but something after delivery went wrong (e.g. the recipient was not woken). */
   warning?: string;
+  /** What is happening to it now, in Flyd's words, until the conversation itself says. */
+  waiting?: string;
 }
 
 export interface ConversationFollower {

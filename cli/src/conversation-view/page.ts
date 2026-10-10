@@ -1,6 +1,7 @@
 import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmate-inbox.js";
 import { escapeHtml } from "./markdown.js";
 import { installComposerPredictions } from "./composer-predictions-client.js";
+import { RECEIVED } from "./living.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -278,8 +279,13 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 .msg.user strong, .msg.user a { color: inherit; }
 .msg.user + .msg.user { margin-top: 0.9em; }
 .msg.assistant { margin-top: 0.85em; }
-/* A question with no answer yet: its answer will appear right under it. */
-.msg.user .queued { display: block; margin-top: 0.3em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
+/* A question with no answer yet: one living line says what is happening to
+   it, changing in place, until its answer appears right under it. */
+.queued { display: flex; align-items: center; gap: 0.65em; margin-top: 0.6em; font: 500 13px/1.4 var(--mono); color: var(--muted); }
+.queued::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: breathe 1.4s ease-in-out infinite; }
+.queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
+@keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
 .msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -408,6 +414,10 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .msg.failed { opacity: 1; outline: 1px solid color-mix(in srgb, #d0574c 60%, transparent); cursor: pointer; }
 .state { display: block; margin-top: 0.3em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
 .msg.failed .state { color: #d0574c; }
+/* The optimistic copy's line is the same living line the delivered message keeps. */
+.state.queued { display: flex; margin-top: 0.6em; }
+.msg.failed .queued::before { animation: none; background: #d0574c; }
+.queued.still::before { animation: none; opacity: 0.5; }
 
 .composer {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
@@ -633,13 +643,17 @@ var __name = function (f) { return f; };
   // A question waits for its own answer; firstmate's session lines are relayed updates.
   function pairing(el, message) {
     var queued = el.querySelector(":scope > .queued");
-    if (queued) queued.remove();
-    if (message.waiting) {
+    if (!message.waiting) { if (queued) queued.remove(); }
+    else if (!queued) {
       queued = document.createElement("span");
       queued.className = "queued";
-      queued.textContent = message.waiting;
+      queued.setAttribute("role", "status");
+      // Picks up where the optimistic copy's line left off: no jump.
+      queued.textContent = carried.get(message.id) || message.waiting;
+      carried.delete(message.id);
       el.appendChild(queued);
-    }
+      living(queued, message.waiting);
+    } else living(queued, message.waiting);
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
     var label = el.querySelector(":scope > .aside-label");
@@ -741,9 +755,23 @@ var __name = function (f) { return f; };
     el.appendChild(state);
   }
 
+  // The one line under his newest message changes in place, with a calm
+  // swap, never growing into a log.
+  var carried = new Map();
+  function living(line, text) {
+    if (line.textContent === text) return;
+    line.textContent = text;
+    line.classList.remove("swap");
+    void line.offsetWidth;
+    line.classList.add("swap");
+  }
   function refreshWorking() {
     var recent = lastActivity && Date.now() - new Date(lastActivity).getTime() < 10 * 60 * 1000;
-    working.hidden = !(isWorking && recent);
+    // While his newest message's own line says what is happening, the dots would only repeat it.
+    var shown = main.querySelectorAll(".msg");
+    var last = shown[shown.length - 1];
+    var speaking = !!(last && last.querySelector(":scope > .queued"));
+    working.hidden = !(isWorking && recent) || speaking;
   }
   setInterval(refreshWorking, 15000);
 
@@ -824,6 +852,7 @@ var __name = function (f) { return f; };
     // Optimistic copies belong to the session they were sent from.
     main.querySelectorAll(".msg.pending").forEach(function (el) { el.remove(); });
     awaiting.clear();
+    carried.clear();
     first = true;
     jump.hidden = true;
   }
@@ -1145,9 +1174,11 @@ var __name = function (f) { return f; };
     var names = sending.filter(function (attachment) { return attachment.name; }).map(function (attachment) { return attachment.name; });
     if (images.length) el.appendChild(shots(images.map(function (image) { return image.url; })));
     if (names.length) el.appendChild(docs(names));
+    // Said the moment he sends: Flyd has it, before anything else is known.
     var state = document.createElement("span");
-    state.className = "state";
-    state.textContent = "sending…";
+    state.className = "queued state";
+    state.setAttribute("role", "status");
+    state.textContent = ${JSON.stringify(RECEIVED)};
     el.appendChild(state);
     main.insertBefore(el, working);
     document.getElementById("empty").hidden = true;
@@ -1270,6 +1301,7 @@ var __name = function (f) { return f; };
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, sending);
+    refreshWorking();
     input.value = "";
     attachments = [];
     renderAttachments();
@@ -1296,13 +1328,15 @@ var __name = function (f) { return f; };
       var state = el.querySelector(".state");
       if (latestSession && current !== latestSession) {
         // Firstmate answers in its live session; the note is shown there.
-        state.textContent = "delivered · shows in the latest session";
+        state.classList.add("still");
+        living(state, "Sent. It shows in the latest session");
         return;
       }
       el.dataset.wait = sent.id;
       awaiting.add(sent.id);
       if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
-      state.textContent = warnings.get(sent.id) || "delivered";
+      living(state, warnings.get(sent.id) || sent.waiting || "Sent");
+      carried.set(sent.id, state.textContent);
     }).catch(function (error) {
       el.classList.add("failed");
       el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";

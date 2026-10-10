@@ -8,9 +8,18 @@ struct ConversationStatusPayload: Decodable, Equatable {
         let headline: String
         let asks: Bool
     }
+    /// His newest message still waiting for its answer, and the line the window shows under it.
+    struct Waiting: Decodable, Equatable {
+        let id: String
+        let text: String
+
+        /// "Firstmate is on it: run the tests" is the stage "Firstmate is on it"; each new step is not news.
+        var stage: String { text.components(separatedBy: ": ").first ?? text }
+    }
     let session: String
     let working: Bool
     let reply: Reply?
+    let waiting: Waiting?
 }
 
 /// What the island should do for a status change. Pure, so it is testable.
@@ -28,6 +37,11 @@ enum ConversationStatusDecision: Equatable {
         if !newSession, let reply = current.reply, reply.id != previous?.reply?.id {
             decisions.append(reply.asks ? .announce("Needs you: \(reply.headline)", .decision) : .announce(reply.headline, .reply))
         }
+        // The window's living line, mirrored briefly: once per message and stage, never per step.
+        if !newSession, let waiting = current.waiting,
+           waiting.id != previous?.waiting?.id || waiting.stage != previous?.waiting?.stage {
+            decisions.append(.announce(waiting.text, .progress))
+        }
         if current.working {
             if previous?.working != true || newSession { decisions.append(.showWorking) }
         } else if previous?.working == true {
@@ -38,7 +52,7 @@ enum ConversationStatusDecision: Equatable {
 }
 
 /// The firstmate conversation at a glance in the notch island: working,
-/// sent, reply ready, needs your decision. Never takes focus; a click opens
+/// sent, what is happening to his message, reply ready, needs your decision. Never takes focus; a click opens
 /// the Conversation window. Dictation and voice keep priority over it.
 final class ConversationStatus: NSObject, URLSessionDataDelegate {
     static let shared = ConversationStatus()
