@@ -246,6 +246,27 @@ describe("council pass", () => {
     expect(complete).toHaveBeenCalledTimes(1);
   });
 
+  it("curates next pass the rules learned while the model was reading", async () => {
+    quiet();
+    writeTaste({ rules: [{ id: ruleId("Equal gaps between the cards."), text: "Equal gaps between the cards.", scope: "personal", count: 2, projects: [], evidence: [] }], vetoed: [], names: {} });
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        const learnedMeanwhile = readTaste();
+        learnedMeanwhile.rules.push({ id: ruleId("Big white type."), text: "Big white type.", scope: "personal", count: 2, projects: [], evidence: [] });
+        writeTaste(learnedMeanwhile);
+      }
+      return JSON.stringify({ taste_ops: [] });
+    });
+    await runCouncilPass({ complete, now: () => at("2026-09-27T10:00:00Z") });
+    expect(prompts[0]).not.toContain("Big white type.");
+    await runCouncilPass({ complete, now: () => at("2026-09-27T10:05:00Z") });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(prompts[1]).toContain("Big white type.");
+    expect(await runCouncilPass({ complete, now: () => at("2026-09-27T10:10:00Z") })).toMatchObject({ skipped: "not_due" });
+  });
+
   it("does not call the model on a quiet pass when his taste is unchanged since it was last curated", async () => {
     quiet();
     const keep = ruleId("Equal gaps between the cards.");

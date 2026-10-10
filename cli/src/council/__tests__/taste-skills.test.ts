@@ -80,8 +80,11 @@ describe("taste skills: generation", () => {
     expect(capfive).toContain("Use only when the working directory is inside /Users/george/Documents/cap5; do not load it anywhere else");
     expect(capfive).toContain("Mobile header ledes use line-height 1.24.");
     const gnm = read(roots[0]!, "flyd-taste-gnm-good-neighbours-market");
-    expect(gnm).toContain("every section should be 100vh");
+    expect(gnm).toContain("the whole content block should be centred");
     expect(gnm).not.toContain("line-height 1.24");
+    // One screen per section is his everywhere, not GNM's alone.
+    expect(ui).toContain("every section should be 100vh");
+    expect(gnm).not.toContain("100vh");
     expect(capfive).not.toContain("100vh");
   });
 
@@ -254,6 +257,58 @@ describe("the Librarian decides what is his and what is one project's", () => {
     const skills = planTasteSkills(profile, PROJECTS);
     expect(skills.find((skill) => skill.name === "flyd-taste-capfive-client-work")?.rules.map((item) => item.id)).toContain(capfiveWords.id);
     expect(skills.find((skill) => skill.name === "flyd-taste-interface")?.rules.map((item) => item.id) ?? []).not.toContain(capfiveWords.id);
+  });
+
+  it("moves an install seeded with the old GNM-only 100vh principle to the George-wide one", () => {
+    const old = "Every section is one full screen (100vh), with its content block centred.";
+    const profile = learned();
+    profile.rules.push(rule(old, 2, "gnm-good-neighbours-market", { principle: true }));
+    writeTaste(profile);
+    writeFileSync(join(dir, "taste-seeded.json"), JSON.stringify(TASTE_PRINCIPLES.map((seed) => ruleId(seed.text)).concat(ruleId(old))
+      .filter((id) => id !== ruleId("Every section is one full screen (100vh): one screen per section, never a long scroll.") && id !== ruleId("Each section's content block is centred on its screen."))));
+    const sync = syncTasteSkills({ roots, projects: PROJECTS });
+    expect(sync.seeded).toBe(3);
+    const after = readTaste();
+    expect(after.rules.find((item) => item.text === old)).toBeUndefined();
+    expect(after.rules.find((item) => item.text.startsWith("Every section is one full screen (100vh): one screen"))).toMatchObject({ scope: "personal", skill: "interface", principle: true });
+    expect(after.rules.find((item) => item.text === "Each section's content block is centred on its screen.")).toMatchObject({ scope: "gnm-good-neighbours-market" });
+    expect(read(roots[0]!, "flyd-taste-interface")).toContain("100vh");
+    expect(syncTasteSkills({ roots, projects: PROJECTS }).seeded).toBe(0);
+  });
+
+  it("promotes on the same idea in another project, judged by meaning, or on a principle it expresses; never bare", () => {
+    const profile = learned();
+    const capfive = rule("Sections are 100vh tall.", 2, "capfive-client-work");
+    const gnm = rule("Each section fills exactly one screen.", 2, "gnm-good-neighbours-market");
+    const pills = rule("Nav buttons are pills.", 2, "gnm-good-neighbours-market");
+    const sameProject = rule("Sections stretch to the viewport.", 2, "capfive-client-work");
+    const screen = rule("A screen, not a page.", 3, "personal", { principle: true, skill: "interface" });
+    const notPrinciple = rule("Headlines are big.", 3, "personal");
+    profile.rules.push(capfive, gnm, pills, sameProject, screen, notPrinciple);
+    const refused = applyTasteOps(profile, [
+      { op: "promote", id: pills.id },
+      { op: "promote", id: pills.id, evidence: ["missing0", pills.id] },
+      { op: "promote", id: sameProject.id, evidence: [capfive.id] },
+      { op: "promote", id: pills.id, principle: notPrinciple.id },
+    ]);
+    expect(refused).toMatchObject({ promoted: 0 });
+    expect(refused.rejected).toHaveLength(4);
+    expect([pills.scope, sameProject.scope]).toEqual(["gnm-good-neighbours-market", "capfive-client-work"]);
+    expect(applyTasteOps(profile, [{ op: "promote", id: capfive.id, evidence: [gnm.id], reason: "same idea as the GNM 100vh rule" }])).toMatchObject({ promoted: 1 });
+    expect(capfive.scope).toBe("personal");
+    expect(applyTasteOps(profile, [{ op: "promote", id: gnm.id, principle: screen.id, reason: "expresses a screen, not a page" }])).toMatchObject({ promoted: 1 });
+    expect(gnm.scope).toBe("personal");
+  });
+
+  it("folds a project rule into an Everywhere one only with cited evidence from another project", () => {
+    const profile = learned();
+    const keep = rule("Sections are 100vh tall.", 2, "capfive-client-work");
+    const drop = rule("One screen per section.", 2, "personal");
+    const elsewhere = rule("Each section fills exactly one screen.", 2, "gnm-good-neighbours-market");
+    profile.rules.push(keep, drop, elsewhere);
+    expect(applyTasteOps(profile, [{ op: "fold", id: keep.id, merge: drop.id }])).toMatchObject({ folded: 0 });
+    expect(applyTasteOps(profile, [{ op: "fold", id: keep.id, merge: drop.id, evidence: [elsewhere.id] }])).toMatchObject({ folded: 1 });
+    expect(keep.scope).toBe("personal");
   });
 
   it("keeps a project principle in its project until a second project shows it", () => {

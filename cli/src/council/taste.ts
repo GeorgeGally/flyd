@@ -311,8 +311,8 @@ export function applyObservations(profile: TasteProfile, observations: Observati
 // never retired or folded away.
 
 export type TasteOp =
-  | { op: "fold"; id: string; merge: string; reason?: string }
-  | { op: "promote"; id: string; reason?: string }
+  | { op: "fold"; id: string; merge: string; evidence?: string[]; reason?: string }
+  | { op: "promote"; id: string; evidence?: string[]; principle?: string; reason?: string }
   | { op: "demote"; id: string; project: string; reason?: string }
   | { op: "retire"; id: string; reason?: string }
   | { op: "skill"; id: string; skill: TasteSkillKind | "none"; reason?: string };
@@ -336,7 +336,7 @@ export function tasteChanged(receipt: TasteApplyReceipt): boolean {
 }
 
 /** The JSON shape both curation prompts ask the model for. */
-export const TASTE_OPS_FORMAT = '{"op":"fold","id":"keep","merge":"drop","reason":"..."} | {"op":"promote","id":"...","reason":"..."} | {"op":"demote","id":"...","project":"<project id>","reason":"..."} | {"op":"retire","id":"...","reason":"..."} | {"op":"skill","id":"...","skill":"interface|spacing|none","reason":"..."}';
+export const TASTE_OPS_FORMAT = '{"op":"fold","id":"keep","merge":"drop","evidence":["<ids of the same idea in other projects>"],"reason":"..."} | {"op":"promote","id":"...","evidence":["<ids of the same idea in other projects>"],"principle":"<id of the George-wide principle it expresses>","reason":"..."} | {"op":"demote","id":"...","project":"<project id>","reason":"..."} | {"op":"retire","id":"...","reason":"..."} | {"op":"skill","id":"...","skill":"interface|spacing|none","reason":"..."}';
 
 /** Keep only well-formed ops; whether their ids exist is decided at apply time. */
 export function normalizeTasteOps(raw: unknown): TasteOp[] {
@@ -346,8 +346,10 @@ export function normalizeTasteOps(raw: unknown): TasteOp[] {
     const op = entry as Record<string, unknown>;
     if (typeof op.id !== "string" || !op.id) return [];
     const reason = typeof op.reason === "string" ? op.reason.replace(/\s+/g, " ").slice(0, 200) : undefined;
-    if (op.op === "fold" && typeof op.merge === "string" && op.merge && op.merge !== op.id) return [{ op: "fold", id: op.id, merge: op.merge, ...(reason ? { reason } : {}) }];
-    if (op.op === "promote") return [{ op: "promote", id: op.id, ...(reason ? { reason } : {}) }];
+    const cited = Array.isArray(op.evidence) ? op.evidence.filter((item): item is string => typeof item === "string" && Boolean(item)).slice(0, 10) : [];
+    const evidence = cited.length ? { evidence: cited } : {};
+    if (op.op === "fold" && typeof op.merge === "string" && op.merge && op.merge !== op.id) return [{ op: "fold", id: op.id, merge: op.merge, ...evidence, ...(reason ? { reason } : {}) }];
+    if (op.op === "promote") return [{ op: "promote", id: op.id, ...evidence, ...(typeof op.principle === "string" && op.principle ? { principle: op.principle } : {}), ...(reason ? { reason } : {}) }];
     if (op.op === "demote" && typeof op.project === "string" && op.project) return [{ op: "demote", id: op.id, project: op.project, ...(reason ? { reason } : {}) }];
     if (op.op === "retire") return [{ op: "retire", id: op.id, ...(reason ? { reason } : {}) }];
     if (op.op === "skill" && (op.skill === "interface" || op.skill === "spacing" || op.skill === "none")) return [{ op: "skill", id: op.id, skill: op.skill, ...(reason ? { reason } : {}) }];
@@ -370,8 +372,10 @@ function projectsSeen(...rules: TasteRule[]): Set<string> {
 /**
  * Fold, promote, demote, retire and place rules in place. A fold merges the
  * `merge` rule into `id` — counts, evidence and projects unite — and the merged
- * rule disappears. A project rule becomes his, by promote or by fold, only once
- * it has been seen in two or more projects. A demote moves an Everywhere rule to the one project its words
+ * rule disappears. A project rule becomes his, by promote or by fold, only on
+ * evidence: it, the rule folded in and the rules the op cites as the same idea
+ * span two or more projects, or (for a promote) the op names the George-wide
+ * principle it expresses. A demote moves an Everywhere rule to the one project its words
  * and evidence belong to; a rule seen in another project stays his. A retire
  * moves a learned rule to the retired tier. A skill op places a rule in the
  * skill agents load for it, or in none. A rule George wrote (n=0) or reworded,
@@ -389,7 +393,7 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       if (mergeIndex === -1) { receipt.rejected.push(`fold: unknown [${op.merge}]`); continue; }
       const duplicate = profile.rules[mergeIndex]!;
       if (isGeorgeOwned(rule) || isProtected(duplicate)) { receipt.rejected.push(`fold: [${op.id}] or [${op.merge}] is George's own rule or a principle`); continue; }
-      const everywhere = rule.scope === PERSONAL || projectsSeen(rule, duplicate).size >= 2;
+      const everywhere = rule.scope === PERSONAL || projectsSeen(rule, duplicate, ...citedRules(profile, op)).size >= 2;
       if (!everywhere && duplicate.scope === PERSONAL) { receipt.rejected.push(`fold: [${op.id}] holds for one project and was not seen in another`); continue; }
       rule.count += duplicate.count;
       rule.first = [rule.first, duplicate.first].filter(Boolean).sort()[0];
@@ -402,7 +406,8 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
       receipt.folded += 1;
     } else if (op.op === "promote") {
       if (rule.scope === PERSONAL) { receipt.rejected.push(`promote: [${op.id}] already everywhere`); continue; }
-      if (projectsSeen(rule).size < 2) { receipt.rejected.push(`promote: [${op.id}] was not seen in a second project`); continue; }
+      const principle = profile.rules.find((candidate) => candidate.id === op.principle && candidate.principle && candidate.scope === PERSONAL);
+      if (projectsSeen(rule, ...citedRules(profile, op)).size < 2 && !principle) { receipt.rejected.push(`promote: [${op.id}] was not seen in a second project and names no principle of his`); continue; }
       if (!rule.projects.includes(rule.scope)) rule.projects.push(rule.scope);
       rule.scope = PERSONAL;
       receipt.promoted += 1;
@@ -428,6 +433,11 @@ export function applyTasteOps(profile: TasteProfile, ops: TasteOp[]): TasteApply
     }
   }
   return receipt;
+}
+
+/** The existing rules an op cites as the same idea seen elsewhere. */
+function citedRules(profile: TasteProfile, op: { id: string; evidence?: string[] }): TasteRule[] {
+  return profile.rules.filter((rule) => rule.id !== op.id && op.evidence?.includes(rule.id));
 }
 
 /** A rule George wrote (n=0) or reworded himself. */
@@ -461,7 +471,7 @@ export function tasteRuleLines(profile: TasteProfile): string {
 /** Instructions the curator follows, shared by the taste-only pass. */
 export const TASTE_CURATION_RULES = [
   "fold two rules that make the same point in different words into one; the stronger id keeps and the weaker disappears. Never fold rules that make different points.",
-  "promote a rule learned for one project to Everywhere only when it was seen in two or more projects and is really his personal taste; a rule seen in one project stays there.",
+  "promote a rule learned for one project to Everywhere only on evidence: judge by meaning, not wording, and cite in evidence the ids of rules in other projects that make the same point (the rule and those must span two or more projects); or, when it clearly expresses one of his George-wide principles, name that principle's id in principle and say so in reason. A bare promote is refused. A fold that would make a project rule Everywhere needs the same cited evidence.",
   "demote an Everywhere rule to the one project it belongs to when its words are specific to that project (its pages, sections, brand colours, exact sizes, its content) and it was not seen in any other project. Taste that would hold on any of his work stays Everywhere. Never demote a principle or a rule of his own.",
   "retire a rule that is a generic engineering or product truism ('never hard-code an API key', 'keep pages simple') rather than something specific to George. Be conservative: keep anything that could be his own taste. Never retire a principle or a rule of his own.",
   "skill: place each unplaced rule in the skill agents load for it: \"spacing\" for padding, margins, gaps, alignment and the balance between elements; \"interface\" for how screens look, move and read (type, colour, motion, layout, on-screen copy); \"none\" for anything not about how things look (process, code, tools, how he is spoken to). Change a placement only when it is clearly wrong. Never place a principle.",
