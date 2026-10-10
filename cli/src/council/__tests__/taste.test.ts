@@ -148,15 +148,18 @@ describe("Librarian curation", () => {
     expect(profile.rules[0]!.evidence.map((item) => item.quote)).toContain("same style as leadership");
   });
 
-  it("promotes a project rule to Everywhere, and rejects a promote already there", () => {
+  it("promotes a project rule to Everywhere only once a second project shows it, and rejects a promote already there", () => {
     const profile = empty();
     applyObservations(profile, [observe("Bold words turn blue.", "project", "capfive-client-work")]);
+    expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }]).rejected.join(" ")).toContain("second project");
+    expect(profile.rules[0]).toMatchObject({ scope: "capfive-client-work" });
+    profile.rules[0]!.projects.push("flyd");
     expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }])).toMatchObject({ promoted: 1 });
-    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["capfive-client-work"] });
+    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["capfive-client-work", "flyd"] });
     expect(applyTasteOps(profile, [{ op: "promote", id: profile.rules[0]!.id }]).rejected.join(" ")).toContain("already everywhere");
   });
 
-  it("preserves Everywhere scope when folding into a project rule", () => {
+  it("folds an Everywhere rule into a project rule only when a second project shows it", () => {
     const profile = empty();
     applyObservations(profile, [
       observe("Use the existing page style.", "project", "flyd"),
@@ -164,8 +167,13 @@ describe("Librarian curation", () => {
     ]);
     const projectRule = profile.rules.find((rule) => rule.scope === "flyd")!;
     const personalRule = profile.rules.find((rule) => rule.scope === "personal")!;
+    const refused = applyTasteOps(profile, [{ op: "fold", id: projectRule.id, merge: personalRule.id }]);
+    expect(refused).toMatchObject({ folded: 0 });
+    expect(refused.rejected.join(" ")).toContain("not seen in another");
+    expect(profile.rules).toHaveLength(2);
+    personalRule.projects.push("capfive-client-work");
     expect(applyTasteOps(profile, [{ op: "fold", id: projectRule.id, merge: personalRule.id }])).toMatchObject({ folded: 1 });
-    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["flyd"] });
+    expect(profile.rules[0]).toMatchObject({ scope: "personal", projects: ["flyd", "capfive-client-work"] });
   });
 
   it("retires a generic learned rule but never one George wrote or reworded himself", () => {
@@ -240,7 +248,7 @@ describe("Librarian curation", () => {
     expect(after.rules.map((rule) => rule.text)).toEqual(["Reuse the pattern from other pages.", "Fresh edits survive."]);
     expect(after.retired?.map((rule) => rule.text)).toEqual(["Never hard-code an API key in the client."]);
     expect(readFileSync(process.env.FLYD_TASTE_FILE!, "utf8")).toContain(`## ${RETIRED}`);
-    expect(tastePromptText({ profile: after })).not.toContain("api key");
+    expect(tastePromptText({ profile: after }) ?? "").not.toContain("api key");
   });
 });
 
@@ -296,33 +304,27 @@ describe("parseLearned", () => {
 });
 
 describe("using it", () => {
-  it("gives agents personal taste plus the rules of the project in play, strongest first", () => {
+  it("gives agents his placed, repeated taste plus the rules of the project in play, strongest first", () => {
     const profile = empty();
+    const twice = (text: string, scope: "personal" | "project", project?: string) => [observe(text, scope, project), observe(text, scope, project)];
     applyObservations(profile, [
-      observe("Inconsistency is the biggest red flag.", "personal"),
-      observe("Inconsistency is the biggest red flag.", "personal"),
+      ...twice("Inconsistency is the biggest red flag.", "personal"),
+      ...twice("Equal gaps between the cards.", "personal"),
       observe("Minimal screens.", "personal"),
-      observe("Phone gutter is 36px.", "project", "capfive-client-work"),
-      observe("Use the Flyd voice.", "project", "flyd"),
+      ...twice("Phone gutter is 36px.", "project", "capfive-client-work"),
+      ...twice("Mobile ledes use line-height 1.24.", "project", "capfive-client-work"),
+      ...twice("Use the Flyd voice.", "project", "flyd"),
+      ...twice("Voice notes go to the clipboard.", "project", "flyd"),
     ]);
+    const red = profile.rules.find((rule) => rule.text.startsWith("Inconsistency"))!;
+    expect(applyTasteOps(profile, [{ op: "skill", id: red.id, skill: "interface" }])).toMatchObject({ classified: 1 });
     profile.names["capfive-client-work"] = "Capfive client work";
     const text = tastePromptText({ profile, projects: ["capfive-client-work"] })!;
-    expect(text).toContain("Everywhere:\n- Inconsistency is the biggest red flag.\n- Minimal screens.");
+    expect(text).toContain("Everywhere:\n- Inconsistency is the biggest red flag.\n- Equal gaps between the cards.");
+    expect(text).not.toContain("Minimal screens.");
     expect(text).toContain("Capfive client work:\n- Phone gutter is 36px.");
     expect(text).not.toContain("Flyd voice");
     expect(tastePromptText({ profile: empty() })).toBeNull();
-  });
-
-  it("marks a rule seen once as tentative and a repeat as settled", () => {
-    const profile = empty();
-    applyObservations(profile, [
-      observe("Inconsistency is the biggest red flag.", "personal"),
-      observe("Inconsistency is the biggest red flag.", "personal"),
-      observe("Minimal screens.", "personal"),
-    ]);
-    const text = tastePromptText({ profile })!;
-    expect(text).toContain("- Inconsistency is the biggest red flag.\n");
-    expect(text).toContain("- Minimal screens. (seen once — tentative)");
   });
 
   it("finds the project from a repo path, an id or a name", () => {

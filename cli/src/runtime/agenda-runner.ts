@@ -47,6 +47,9 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         // Learn George's taste from his own turns in his Claude Code sessions (council/taste.ts).
         const { learnTaste } = await import("../council/taste.js");
         await learnTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
+        // …and carry it to every agent as skills (council/taste-skills.ts).
+        const { syncTasteSkills } = await import("../council/taste-skills.js");
+        try { syncTasteSkills(); } catch { /* next tick */ }
         const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
         await investigate({
           complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
