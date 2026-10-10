@@ -52,11 +52,8 @@ header {
   height: 52px; padding: 0 24px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid transparent;
   font: 500 14px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
-  transition: border-color 160ms ease;
 }
-header.scrolled { border-bottom-color: var(--faint); }
 .who { color: var(--accent); white-space: nowrap; }
 .when { white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* One kind of control: a small text toggle. No borders; colour alone says
@@ -199,7 +196,9 @@ const SHOW_STYLE = `
 .fleet { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 30px; }
 .gauge { --k: var(--muted); display: flex; flex-direction: column; gap: 10px; }
 .gauge .lines { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
-.gauge .lines i { width: 3px; height: 100%; background: var(--k); border-radius: 1px; }
+/* White lines, like the week's; the count beside them carries the colour. */
+.gauge .lines i { width: 3px; height: 100%; background: var(--strong); opacity: 0.82; border-radius: 1px; }
+.gauge.k-next .lines i, .gauge.k-landed .lines i { opacity: 0.4; }
 .gauge .lines i.more { height: 40%; opacity: 0.45; }
 .gauge span, .week span { font: 500 13px/1.2 var(--mono); color: var(--muted); white-space: nowrap; }
 .gauge span b, .week span b { font-weight: 600; color: var(--k); }
@@ -478,7 +477,6 @@ const SCRIPT = `
   var working = document.getElementById("working");
   var doing = document.getElementById("doing");
   var jump = document.getElementById("jump");
-  var header = document.querySelector("header");
   var whenEl = document.getElementById("when");
   var picker = document.getElementById("picker");
   var themeBtn = document.getElementById("theme");
@@ -846,7 +844,6 @@ const SCRIPT = `
   }, 5000);
 
   window.addEventListener("scroll", function () {
-    header.classList.toggle("scrolled", window.scrollY > 4);
     if (nearBottom()) jump.hidden = true;
   }, { passive: true });
   jump.addEventListener("click", function () { toBottom(); jump.hidden = true; });
@@ -1568,7 +1565,6 @@ const SCRIPT = `
     if (shown) renderDoing(shown);
   }
   setInterval(tickShow, 30000);
-  showEl.addEventListener("scroll", function () { header.classList.toggle("scrolled", showEl.scrollTop > 4); });
 
   function applyScreen(next, animate) {
     var root = document.documentElement;
