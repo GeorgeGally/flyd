@@ -276,6 +276,20 @@ describe("the Librarian decides what is his and what is one project's", () => {
     expect(syncTasteSkills({ roots, projects: PROJECTS }).seeded).toBe(0);
   });
 
+  it("keeps an old GNM 100vh principle George reworded as his own, and seeds no replacement for it", () => {
+    const old = "Every section is one full screen (100vh), with its content block centred.";
+    const profile = learned();
+    profile.rules.push(rule(old, 2, "gnm-good-neighbours-market", { principle: true, text: "Every GNM section fills the screen, content centred." }));
+    writeTaste(profile);
+    writeFileSync(join(dir, "taste-seeded.json"), JSON.stringify(TASTE_PRINCIPLES.map((seed) => ruleId(seed.text)).concat(ruleId(old))
+      .filter((id) => id !== ruleId("Every section is one full screen (100vh): one screen per section, never a long scroll.") && id !== ruleId("Each section's content block is centred on its screen."))));
+    expect(syncTasteSkills({ roots, projects: PROJECTS }).seeded).toBe(0);
+    const after = readTaste();
+    expect(after.rules.find((item) => item.id === ruleId(old))).toMatchObject({ text: "Every GNM section fills the screen, content centred.", scope: "gnm-good-neighbours-market" });
+    expect(after.rules.some((item) => item.text.startsWith("Every section is one full screen (100vh): one screen"))).toBe(false);
+    expect(after.rules.some((item) => item.text === "Each section's content block is centred on its screen.")).toBe(false);
+  });
+
   it("promotes on the same idea in another project, judged by meaning, or on a principle it expresses; never bare", () => {
     const profile = learned();
     const capfive = rule("Sections are 100vh tall.", 2, "capfive-client-work");
