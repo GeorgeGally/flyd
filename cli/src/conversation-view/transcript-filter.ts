@@ -34,6 +34,8 @@ interface Segment {
   started: boolean;
   /** What the assistant is doing now, in a few plain words (see activityOf). */
   activity?: { text: string; rank: number };
+  /** Started by machinery (a supervision wake, a background-task notice), not by the captain. */
+  wake?: boolean;
 }
 
 function isRecord(value: unknown): value is Json {
@@ -274,10 +276,9 @@ export class TranscriptConversation {
 
     const id = stringField(entry, "uuid") ?? `user-${this.finished.length}`;
     const kind = originKind(entry);
-    const said = entry.isCompactSummary === true || (kind !== undefined && kind !== "human")
-      ? null
-      : captainContentOf(message.content, offset);
-    this.startSegment(id);
+    const machine = kind !== undefined && kind !== "human";
+    const said = entry.isCompactSummary === true || machine ? null : captainContentOf(message.content, offset);
+    this.startSegment(id, machine);
     if (said) this.finished.push(captainMessage(id, said, timestamp));
   }
 
@@ -338,10 +339,10 @@ export class TranscriptConversation {
     this.maxContext = Math.max(this.maxContext, tokens);
   }
 
-  private startSegment(id: string): void {
+  private startSegment(id: string, wake = false): void {
     this.closeSegment();
     this.segmentCount += 1;
-    this.segment = { id: `${id}#${this.segmentCount}`, trailing: [], settled: false, started: false };
+    this.segment = { id: `${id}#${this.segmentCount}`, trailing: [], settled: false, started: false, ...(wake ? { wake } : {}) };
   }
 
   private closeSegment(): void {
@@ -368,6 +369,7 @@ export class TranscriptConversation {
       role: "assistant",
       text: pieces.map((piece) => piece.text).join("\n\n"),
       ...(last.timestamp ? { timestamp: last.timestamp } : {}),
+      ...(segment.wake ? { wake: true } : {}),
     };
   }
 

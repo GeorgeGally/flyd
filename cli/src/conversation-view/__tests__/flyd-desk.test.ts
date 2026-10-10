@@ -12,7 +12,7 @@ import { SnapshotDiffer } from "../server.js";
 import { headlineOf, statusOf } from "../status.js";
 import { digestReply, ReplySummarizer } from "../summaries.js";
 import type { ConversationSnapshot } from "../types.js";
-import { assistantText, captain, toolUse } from "./transcript-fixture.js";
+import { assistantText, captain, injection, toolUse } from "./transcript-fixture.js";
 
 let dir: string;
 
@@ -458,5 +458,76 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     const voiced = inFlydsVoice(answer);
     expect(digestReply(voiced).lead).toMatch(/^The Flyd chat box sends every message to me/);
     expect(headlineOf(voiced)).toMatch(/^The Flyd chat box sends every message/);
+  });
+});
+
+describe("supervision chatter never reaches Flyd's window", () => {
+  // Firstmate's own words from its supervision session, exactly as the captain saw them relayed as an update.
+  const STALE_WAKE = "The stale wake for the Flyd going-silent worker needed no action. The worker is idle because it's finished, and PR 84 (https://github.com/GeorgeGally/flyd/pull/84) is still waiting on the captain's merge. The PR hasn't landed, so I didn't tear anything down.\n\nI reported it as a silent routine outcome, since I already reported this same situation to MAIN as a captain-level item. The wake is acknowledged.";
+  const WAKE = "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>\nStop hook blocking error from command \"Stop\": firstmate watcher wake - one supervision event needs a handling turn now.\n</system-reminder>";
+  const sdk = { origin: undefined, entrypoint: "sdk-cli", promptSource: "sdk", userType: "external" };
+
+  function source(project: string, home: string) {
+    return new ClaudeCodeTranscriptSource({
+      projectDir: project,
+      inbox: new FirstmateInbox({ home, script: join(dir, "fm-inbox.sh") }),
+      desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer: async () => "" }), complete: async () => "FIRSTMATE" },
+    });
+  }
+
+  it("leaves firstmate's SDK supervision session out of the window, the island and a note's placement", async () => {
+    const project = join(dir, "project");
+    const home = join(dir, "firstmate");
+    mkdirSync(project);
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    writeFileSync(join(project, "main.jsonl"), [
+      captain("is the going-silent fix ready?", { entrypoint: "cli" }),
+      assistantText("Captain, the going-silent fix is ready: https://github.com/GeorgeGally/flyd/pull/84", "end_turn", { entrypoint: "cli" }),
+    ].join("\n") + "\n");
+    writeFileSync(join(project, "supervision.jsonl"), [
+      JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: "2026-10-05T18:00:00.000Z", content: "MAIN DIALOG MIRROR" }),
+      captain("MAIN DIALOG MIRROR (read-only context)\n\nstale: firstmate:flyd-going-silent", sdk),
+      assistantText(STALE_WAKE, "end_turn", { entrypoint: "sdk-cli" }),
+    ].join("\n") + "\n");
+    // The supervision session is the newest transcript, as it was when he saw the update.
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(join(project, "main.jsonl"), past, past);
+    // He asked after the supervision session started: the note still belongs to his conversation.
+    writeFileSync(join(home, "state", "inbox", "handled", "1791600000-abc.note"), "id=1791600000-abc\nat=2026-10-05T19:00:00Z\n--\nwhat's the fleet doing?\n");
+
+    const view = source(project, home);
+    expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
+    const snapshot = await view.read("main");
+    expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Flyd is on it" });
+    expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
+  });
+
+  it("relays firstmate's answers to its own wakes only when they name a PR, ask his decision or report a failure", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "main.jsonl"), [
+      captain("how's the island?"),
+      assistantText("Captain, the island filter is back on and working."),
+      injection(WAKE),
+      assistantText("The stale wake for the Good Neighbours site worker was a false alarm. The worker isn't wedged.\n\nI took no action and reported it to MAIN as a silent routine outcome. The wake is acknowledged."),
+      injection(WAKE),
+      assistantText("Captain, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90"),
+      injection(WAKE),
+      assistantText("Captain, the Good Neighbours worker failed its build twice and stopped."),
+      injection(WAKE),
+      assistantText("Captain, the lab page has two layouts. Should I keep the grid or the list?"),
+    ].join("\n") + "\n");
+
+    const snapshot = await source(project, join(dir, "firstmate")).read("main");
+    const relays = snapshot.messages.filter((message) => message.role === "assistant");
+    expect(relays.map((message) => message.text)).toEqual([
+      "Sir, the island filter is back on and working.",
+      "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90",
+      "Sir, the Good Neighbours worker failed its build twice and stopped.",
+      "Sir, the lab page has two layouts. Should I keep the grid or the list?",
+    ]);
+    // The island reads the same snapshot, so it names only what the window shows.
+    expect(relays.map((message) => message.id)).toContain(statusOf(snapshot).reply?.id);
   });
 });

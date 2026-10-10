@@ -26,6 +26,8 @@ export interface ConversationMessage {
   answers?: string;
   /** An assistant message relayed from the assistant's own session: not an answer to the captain message above it. */
   aside?: boolean;
+  /** An assistant reply to machinery (a supervision wake, a background-task notice) rather than to anything the captain said. */
+  wake?: boolean;
 }
 
 /** A message the captain sent from the view, and its answer once there is one. */

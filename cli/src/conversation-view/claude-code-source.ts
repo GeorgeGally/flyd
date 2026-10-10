@@ -105,9 +105,18 @@ function readLineAt(path: string, offset: number): string | null {
   }
 }
 
-/** Timestamp of a transcript's first timed entry: when the session started. */
-function sessionStart(path: string, size: number): string | undefined {
-  return /"timestamp":"([^"]+)"/.exec(readRange(path, 0, Math.min(size, START_SCAN_BYTES)))?.[1];
+/**
+ * When the session started (its first timed entry), and whether the Agent SDK
+ * drove it rather than a person at Claude Code's prompt: firstmate's
+ * supervision sessions run that way, beside the captain's own conversation.
+ */
+function sessionHead(path: string, size: number): { start?: string; entrypoint?: string; settled: boolean } {
+  const head = readRange(path, 0, Math.min(size, START_SCAN_BYTES));
+  const start = /"timestamp":"([^"]+)"/.exec(head)?.[1];
+  const entrypoint = /"entrypoint":"([^"]+)"/.exec(head)?.[1];
+  // The first message entry carries the entrypoint (older builds wrote none); before it, a queued prompt may be all there is.
+  const settled = start !== undefined && (entrypoint !== undefined || /"type":"(?:user|assistant)"/.test(head));
+  return { ...(start ? { start } : {}), ...(entrypoint ? { entrypoint } : {}), settled };
 }
 
 /**
@@ -128,7 +137,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
-  private readonly starts = new Map<string, string | undefined>();
+  private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
 
   private readonly commandRoots: { claudeHome?: string; projectDir?: string };
   private commandCache?: { at: number; commands: SlashCommand[] };
@@ -225,14 +234,22 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return { mediaType: image.mediaType, data: Buffer.from(image.data, "base64") };
   }
 
-  /** Cached: a session's first entry never changes. An empty file is retried later. */
-  private startOf(path: string): string | undefined {
-    if (!this.starts.has(path)) {
-      const start = sessionStart(path, statSync(path).size);
-      if (start === undefined) return undefined;
-      this.starts.set(path, start);
-    }
-    return this.starts.get(path);
+  /** Cached once its first message is written: a session's first entries never change. */
+  private headOf(path: string): { start?: string; entrypoint?: string } {
+    const cached = this.heads.get(path);
+    if (cached) return cached;
+    const head = sessionHead(path, statSync(path).size);
+    if (head.settled) this.heads.set(path, head);
+    return head;
+  }
+
+  /**
+   * A session the Agent SDK drove (firstmate's supervision) is machinery, not
+   * a conversation with him: its stale wakes and routine outcomes never
+   * reach the window, the island, or a note's placement.
+   */
+  private isSupervision(path: string): boolean {
+    return this.headOf(path).entrypoint === "sdk-cli";
   }
 
   /**
@@ -246,7 +263,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => {
         const path = join(this.projectDir, name);
-        const start = this.startOf(path);
+        if (this.isSupervision(path)) return null;
+        const start = this.headOf(path).start;
         return start === undefined ? null : { id: name.slice(0, -".jsonl".length), start, mtimeMs: statSync(path).mtimeMs };
       })
       .filter((session): session is { id: string; start: string; mtimeMs: number } => session !== null)
@@ -292,7 +310,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         const stat = statSync(path);
         return { id: name.slice(0, -".jsonl".length), path, size: stat.size, mtime: stat.mtime };
       })
-      .filter((session) => session.size > 0 && SESSION_ID.test(session.id))
+      .filter((session) => session.size > 0 && SESSION_ID.test(session.id) && !this.isSupervision(session.path))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
     const listed = new Set(sessions.map((session) => session.path));
     for (const path of this.titles.keys()) if (!listed.has(path)) this.titles.delete(path);

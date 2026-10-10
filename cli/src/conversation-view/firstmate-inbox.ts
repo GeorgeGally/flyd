@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { forCaptain } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
 // The captain's way to talk to firstmate from the view: firstmate's own
@@ -310,10 +311,14 @@ export class FirstmateInbox implements CaptainInbox {
 
 /**
  * Firstmate's own session, as the window shows it: its lines are not
- * conversation with him but updates Flyd relays, in Flyd's words.
+ * conversation with him but updates Flyd relays, in Flyd's words. Its
+ * answers to its own supervision wakes are relayed only when they are for
+ * him (see forCaptain).
  */
 export function relayed(messages: ConversationMessage[]): ConversationMessage[] {
-  return messages.map((message) => (message.role === "assistant" ? { ...message, text: inFlydsVoice(message.text), aside: true } : message));
+  return messages
+    .filter((message) => !message.wake || forCaptain(message.text))
+    .map((message) => (message.role === "assistant" ? { ...message, text: inFlydsVoice(message.text), aside: true } : message));
 }
 
 /**

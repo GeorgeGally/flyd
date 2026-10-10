@@ -27,6 +27,21 @@ export function asksForDecision(text: string): boolean {
   return /\?/.test(last) || /\?/.test(summary) || asking.test(last) || asking.test(summary);
 }
 
+const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\b/;
+/** Firstmate's own states for work that went wrong or stopped for him. */
+const FAILURE_STATE = /\b(?:failed|blocked|needs-decision)\b/i;
+
+/**
+ * Whether a reply firstmate gave to its own machinery (a supervision wake)
+ * is for the captain: it names a pull request, asks for his decision, or
+ * reports a failure. Anything else (a stale wake that needed nothing, an
+ * outcome already reported) is supervision chatter. The window and the
+ * island both see only what passes this.
+ */
+export function forCaptain(text: string): boolean {
+  return PR_LINK.test(text) || asksForDecision(text) || FAILURE_STATE.test(text);
+}
+
 /**
  * A few words for the island. The reply's own » summary, else the labels of
  * its numbered points (so a three-part report names all three), else its lead
