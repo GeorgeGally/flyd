@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { boxesOf } from "../boxes.js";
 import { renderPage } from "../page.js";
@@ -64,9 +67,8 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function load(search: string): void {
+function load(search: string, html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) })): void {
   window.history.replaceState(null, "", `/${search}`);
-  const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
   const body = /<body([^>]*)>([\s\S]*)<\/body>/.exec(html)!;
   document.body.setAttribute("data-send-token", /data-send-token="([^"]+)"/.exec(body[1]!)![1]!);
   document.body.innerHTML = body[2]!.replace(/<script>[\s\S]*<\/script>/, "");
@@ -106,6 +108,18 @@ afterEach(() => {
 });
 
 describe("conversation page", () => {
+  it("runs the page Core serves under tsx, where inlined functions carry __name", async () => {
+    const page = join(dirname(fileURLToPath(import.meta.url)), "..", "page.ts");
+    const render = `import { renderPage } from ${JSON.stringify(page)}; process.stdout.write(renderPage({ assistantLabel: "firstmate", sendToken: "${"a".repeat(48)}" }));`;
+    const html = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", render], { encoding: "utf8" });
+    expect(html).toContain("__name(");
+    load("", html);
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    expect(document.querySelectorAll(".msg")).toHaveLength(1);
+    expect(document.getElementById("prediction-toggle")!.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
     await settle();

@@ -500,7 +500,11 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 ` + SHOW_STYLE;
 
+// Core runs under tsx/esbuild with keepNames, so a function inlined with
+// toString() can carry __name(...) calls; without this shim they throw and
+// take the whole page script down.
 const SCRIPT = `
+var __name = function (f) { return f; };
 (function () {
   var main = document.getElementById("stream");
   var working = document.getElementById("working");
