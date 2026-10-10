@@ -228,7 +228,14 @@ describe("muse", () => {
 });
 
 describe("council pass", () => {
+  // A recent pass and no new captures: nothing but taste could make a pass due.
+  const quiet = () => {
+    mkdirSync(join(home, "council"), { recursive: true });
+    writeFileSync(process.env.FLYD_LIBRARIAN_STATE!, JSON.stringify({ journalCursor: null, captureCursorMs: Number.MAX_SAFE_INTEGER, lastRunAt: "2026-09-27T09:59:00Z", runs: 1 }));
+  };
+
   it("curates existing taste during a quiet pass without running advisors", async () => {
+    quiet();
     const id = ruleId("Never hard-code an API key.");
     writeTaste({ rules: [{ id, text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] }], vetoed: [], names: {} });
     const complete = vi.fn(async () => JSON.stringify({ taste_ops: [{ op: "retire", id, reason: "generic" }] }));
@@ -237,6 +244,23 @@ describe("council pass", () => {
     expect(result.librarian?.taste).toMatchObject({ retired: 1 });
     expect(readTaste().retired?.map((rule) => rule.id)).toEqual([id]);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the model on a quiet pass when his taste is unchanged since it was last curated", async () => {
+    quiet();
+    const keep = ruleId("Equal gaps between the cards.");
+    writeTaste({ rules: [{ id: keep, text: "Equal gaps between the cards.", scope: "personal", count: 2, projects: [], evidence: [] }], vetoed: [], names: {} });
+    const complete = vi.fn(async () => JSON.stringify({ taste_ops: [] }));
+    await runCouncilPass({ complete, now: () => at("2026-09-27T10:00:00Z") });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(await runCouncilPass({ complete, now: () => at("2026-09-27T10:05:00Z") })).toMatchObject({ skipped: "not_due" });
+    expect(complete).toHaveBeenCalledTimes(1);
+    // A change to TASTE.md (a learning pass, an edit) makes it due again.
+    const profile = readTaste();
+    profile.rules[0]!.count = 3;
+    writeTaste(profile);
+    await runCouncilPass({ complete, now: () => at("2026-09-27T10:10:00Z") });
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it("runs the Librarian then both advisors, and notifies urgent advisories within the daily cap", async () => {

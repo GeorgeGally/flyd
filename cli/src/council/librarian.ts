@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -6,7 +7,7 @@ import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { addUserProfileFact, PROFILE_SECTIONS, readUserProfile } from "../lib/user-profile.js";
 import { readJournalSince, type JournalTurn } from "./journal.js";
-import { applyTasteOps, normalizeTasteOps, readTaste, tasteChanged, tasteRuleLines, TASTE_CURATION_RULES, TASTE_OPS_FORMAT, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
+import { applyTasteOps, normalizeTasteOps, readTaste, tasteChanged, tastePath, tasteRuleLines, TASTE_CURATION_RULES, TASTE_OPS_FORMAT, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
 import { applyProjectOps, describeProject, PROJECT_KINDS, PROJECT_STATUSES, readProjects, type Project, type ProjectApplyReceipt, type ProjectOp } from "./projects.js";
 import {
   applyMemoryOps, localDay, MEMORY_SECTIONS, memoryPaths, readMemoryEntries, staleEntries,
@@ -32,6 +33,8 @@ export interface LibrarianState {
   runs: number;
   /** Local day the Librarian last tried to build an empty project list; once a day at most. */
   projectsSeededOn?: string;
+  /** TASTE.md as the Librarian last saw it, so unchanged taste is not curated again. */
+  tasteCuratedHash?: string;
 }
 
 export function librarianStatePath(): string {
@@ -49,6 +52,15 @@ export function readLibrarianState(path = librarianStatePath()): LibrarianState 
 function writeLibrarianState(state: LibrarianState, path = librarianStatePath()): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function tasteFingerprint(path = tastePath()): string {
+  try { return createHash("sha1").update(readFileSync(path)).digest("hex"); } catch { return ""; }
+}
+
+/** Has TASTE.md changed since the Librarian last curated it? */
+export function tasteCurationDue(state = readLibrarianState(), path?: string): boolean {
+  return readTaste(path).rules.length > 0 && tasteFingerprint(path) !== state.tasteCuratedHash;
 }
 
 export interface CaptureNote {
@@ -323,7 +335,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     ? await (deps.finishedWork ?? (process.env.VITEST ? async () => [] : collectFinishedWork))(since).catch(() => [])
     : [];
   const tasteProfile = readTaste(deps.tastePath);
-  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && tasteProfile.rules.length === 0) {
+  if (turns.length === 0 && captures.length === 0 && stale.length === 0 && finished.length === 0 && !seedProjects && !tasteCurationDue(state, deps.tastePath)) {
     return { skipped: "nothing_new", turns: 0, captures: 0, profileAdded: 0, observations: [] };
   }
   const profile = (deps.readProfile ?? readUserProfile)();
@@ -343,6 +355,7 @@ export async function runLibrarian(deps: LibrarianDependencies): Promise<Librari
     lastRunAt: now.toISOString(),
     runs: state.runs + 1,
     ...(seedProjects ? { projectsSeededOn: localDay(now) } : state.projectsSeededOn ? { projectsSeededOn: state.projectsSeededOn } : {}),
+    tasteCuratedHash: tasteFingerprint(deps.tastePath),
   }, deps.statePath);
   return { turns: turns.length, captures: captures.length, memory: receipt, projects: projectReceipt, taste: tasteReceipt, profileAdded, observations: proposal.observations };
 }

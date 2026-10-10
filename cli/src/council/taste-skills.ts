@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { readProjects, type Project } from "./projects.js";
 import { markPrinciplesSeeded, seedPrinciples } from "./taste-principles.js";
-import { isGeorgeOwned, readTaste, tastePath, writeTaste, type TasteProfile, type TasteRule, type TasteSkillKind } from "./taste.js";
+import { carriedTaste, readTaste, tastePath, writeTaste, type TasteProfile, type TasteRule, type TasteSkillKind } from "./taste.js";
 
 // George's taste, carried into every agent's work as skills. TASTE.md is the
 // source of truth; from it Flyd compiles standard SKILL.md files that agents
@@ -16,6 +16,7 @@ import { isGeorgeOwned, readTaste, tastePath, writeTaste, type TasteProfile, typ
 // it holds only in that project's repo so one client's rules never leak into
 // another's. Only durable rules make the cut: a principle, a rule of his own,
 // or one seen at least twice. Rules seen once stay in TASTE.md until repeated.
+// Which skill a rule lands in is the Librarian's call (carriedTaste in taste.ts).
 //
 // The files are generated: each carries a marker and is rewritten atomically
 // when taste changes. A skill without the marker is someone else's and is
@@ -25,9 +26,6 @@ import { isGeorgeOwned, readTaste, tastePath, writeTaste, type TasteProfile, typ
 
 export const SKILL_PREFIX = "flyd-taste-";
 const MARKER = "<!-- flyd-taste-skill:";
-const LEARNED_KEPT = 24;
-const PROJECT_KEPT = 30;
-const PROJECT_MIN = 2;
 
 export interface TasteSkill {
   name: string;
@@ -42,38 +40,17 @@ export interface TasteSkill {
   rules: TasteRule[];
 }
 
-/** A rule worth carrying into other agents' work: never one-off trivia. */
-export function isDurable(rule: TasteRule): boolean {
-  return rule.principle === true || isGeorgeOwned(rule) || rule.count >= 2;
-}
-
-const SPACING = /\b(?:padding|x-padding|spacing|spaced|gaps?|gutters?|margins?|whitespace|breathing room|balanc\w*|align\w*|inset|line-height|cramped|tight|space (?:above|below|between|around))\b/i;
-const DESIGN = /\b(?:headlines?|headings?|type|typography|fonts?|helvetica|text|copy|colou?rs?|palette|white|bold|animat\w*|fades?|motion|hover\w*|roll ?over|tap|click|screens?|cards?|buttons?|layouts?|design\w*|pages?|sites?|sections?|mobile|ipad|desktop|responsive|eyebrows?|borders?|shadows?|interfaces?|ui|data|graphs?|charts?|icons?|images?|menus?|nav\w*|scroll\w*|logos?|visual\w*|styles?|lines?|corners?|stats?|labels?)\b/i;
-
-/** Which George-wide skill carries a rule, or null when it is not about how things look. */
-export function tasteSkillKind(rule: TasteRule): TasteSkillKind | null {
-  if (rule.skill) return rule.skill;
-  if (SPACING.test(rule.text)) return "spacing";
-  return DESIGN.test(rule.text) ? "interface" : null;
-}
-
-const byStrength = (a: TasteRule, b: TasteRule) => b.count - a.count || (b.last ?? "").localeCompare(a.last ?? "");
-
-function split(rules: TasteRule[], kept: number): { principles: TasteRule[]; rules: TasteRule[] } {
-  return {
-    principles: rules.filter((rule) => rule.principle),
-    rules: rules.filter((rule) => !rule.principle).sort(byStrength).slice(0, kept),
-  };
+function split(rules: TasteRule[]): { principles: TasteRule[]; rules: TasteRule[] } {
+  return { principles: rules.filter((rule) => rule.principle), rules: rules.filter((rule) => !rule.principle) };
 }
 
 const UI_WORK = "UI, layout, visual, CSS, front-end or design work";
 
 /** The skills his taste compiles to right now, in the order the taste page shows them. */
 export function planTasteSkills(profile: TasteProfile, projects: Project[] = []): TasteSkill[] {
-  const durable = profile.rules.filter(isDurable);
-  const personal = durable.filter((rule) => rule.scope === "personal");
+  const carried = carriedTaste(profile);
   const skills: TasteSkill[] = [];
-  const interfaceRules = split(personal.filter((rule) => tasteSkillKind(rule) === "interface"), LEARNED_KEPT);
+  const interfaceRules = split(carried.interface);
   if (interfaceRules.principles.length + interfaceRules.rules.length) {
     skills.push({
       name: `${SKILL_PREFIX}interface`,
@@ -84,7 +61,7 @@ export function planTasteSkills(profile: TasteProfile, projects: Project[] = [])
       ...interfaceRules,
     });
   }
-  const spacingRules = split(personal.filter((rule) => tasteSkillKind(rule) === "spacing"), LEARNED_KEPT);
+  const spacingRules = split(carried.spacing);
   if (spacingRules.principles.length + spacingRules.rules.length) {
     skills.push({
       name: `${SKILL_PREFIX}spacing`,
@@ -95,10 +72,7 @@ export function planTasteSkills(profile: TasteProfile, projects: Project[] = [])
       ...spacingRules,
     });
   }
-  const projectIds = [...new Set(durable.filter((rule) => rule.scope !== "personal").map((rule) => rule.scope))].sort();
-  for (const id of projectIds) {
-    const rules = durable.filter((rule) => rule.scope === id);
-    if (rules.length < PROJECT_MIN) continue;
+  for (const { id, rules } of carried.projects) {
     const name = profile.names[id] ?? id;
     const repos = projects.find((project) => project.id === id)?.repos ?? [];
     // The repo is the trigger: similar-looking work elsewhere must not pull a client's rules in.
@@ -112,7 +86,7 @@ export function planTasteSkills(profile: TasteProfile, projects: Project[] = [])
       title: `George's taste for ${name}`,
       description: `George's taste for the ${name} project alone, in his own words, compiled by Flyd. ${where} There, check any ${UI_WORK} against it before reporting done.`,
       when: repos.length ? `Loads only when working in ${repos.map((repo) => repo.replace(homedir(), "~")).join(" or ")}.` : `Loads only when working on ${name}.`,
-      ...split(rules, PROJECT_KEPT),
+      ...split(rules),
     });
   }
   return skills;
