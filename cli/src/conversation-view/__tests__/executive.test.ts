@@ -48,6 +48,8 @@ describe("Flyd's executive voice", () => {
     expect(withoutStubs("5 of 5 tests pass.")).toBe("Tests pass.");
     expect(withoutStubs("Green: all five checks passing.")).toBe("Green: checks passing.");
     expect(withoutStubs("5/5 checks green.")).toBe("Checks green.");
+    expect(withoutStubs("Done. 5/5 tests passed.")).toBe("Done. Tests passed.");
+    expect(withoutStubs("Merged it. 1567/1567 tests pass now.")).toBe("Merged it. Tests pass now.");
     expect(withoutStubs("5 tests are failing.")).toBe("5 tests are failing.");
     expect(withoutStubs("Three checks have failed.")).toBe("Three checks have failed.");
     expect(withoutStubs("2 tests now fail.")).toBe("2 tests now fail.");

@@ -99,7 +99,7 @@ function stripProse(prose: string): string {
     .replace(RATIO, (match, a?: string, b?: string, c?: string, d?: string, counted?: string, noun?: string, e?: string, f?: string, offset?: number, whole?: string) => {
       if (noun !== undefined) return e === f ? noun.replace(/\s*:?\s*$/, "") : match;
       if ((a ?? c) !== (b ?? d)) return match;
-      return opensSentence(whole!.slice(0, offset)) ? capitalise(counted!.trimStart()) : counted!;
+      return opensSentence(whole!.slice(0, offset)) ? `${/^\s*/.exec(match)![0]}${capitalise(counted!.trimStart())}` : counted!;
     })
     .replace(CHECK_COUNT, (match, all: string | undefined, done: string, of: string | undefined, kind: string, offset: number, whole: string) => {
       if (!(all || (of !== undefined && done.toLowerCase() === of.toLowerCase()))) return match;
