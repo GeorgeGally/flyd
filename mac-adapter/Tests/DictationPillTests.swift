@@ -8,69 +8,52 @@ final class DictationPillTests: XCTestCase {
 
     func testGrowsWingsEitherSideOfTheNotch() {
         // Notch 200 + two 86pt wings + two 8pt shoulders.
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: nil)
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, strip: nil)
         XCTAssertEqual(frame, NSRect(x: 562, y: 950, width: 388, height: 32))
     }
 
-    func testOpensACardBelowTheNotchForAMessage() {
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 500, height: 120))
-        XCTAssertEqual(frame, NSRect(x: 494, y: 830, width: 524, height: 152))
+    func testGrowsOutToTheRightOfTheNotchForAMessage() {
+        // Anchored at the notch's left edge (less its shoulder), notch height, 400pt strip beyond the notch.
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, strip: 400)
+        XCTAssertEqual(frame, NSRect(x: 648, y: 950, width: 200 + 400 + 2 * 8, height: 32))
     }
 
-    func testShortMessagesKeepTheWingsWidth() {
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 200, height: 90))
-        XCTAssertEqual(frame.width, 388 - 2 * 8 + 2 * 12)
-        XCTAssertEqual(frame.midX, notch.midX)
-    }
-
-    func testLongMessagesWrapRatherThanWidenPastTheCardLimit() {
-        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, card: NSSize(width: 2000, height: 120))
-        XCTAssertEqual(frame.width, DictationPill.maxCardWidth + 2 * DictationPill.cardShoulder)
+    func testLongMessagesTruncateRatherThanWidenPastTheStripLimit() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, strip: 2000)
+        XCTAssertEqual(frame.width, notch.width + DictationPill.maxStripWidth + 2 * DictationPill.compactShoulder)
+        XCTAssertEqual(frame.height, notch.height)
     }
 
     func testSitsTopCentreOnScreensWithoutANotch() {
-        let frame = DictationPill.islandFrame(screen: NSRect(x: 1440, y: 0, width: 1920, height: 1080), notch: nil, card: nil)
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 1440, y: 0, width: 1920, height: 1080), notch: nil, strip: nil)
         XCTAssertEqual(frame, NSRect(x: 2306, y: 1046, width: 188, height: 34))
     }
 
     func testNeverWiderThanTheScreen() {
-        let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, card: NSSize(width: 400, height: 90))
-        XCTAssertEqual(frame, NSRect(x: 0, y: 376, width: 300, height: 124))
+        let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, strip: 400)
+        XCTAssertEqual(frame, NSRect(x: 127, y: 466, width: 173, height: 34))
     }
 
-    func testCanvasHoldsTheLargestCardAndItsShadow() {
+    func testCanvasHoldsTheWingsTheWidestStripAndItsShadow() {
         let canvas = DictationPill.canvasFrame(screen: macBook, notch: notch)
-        let largest = DictationPill.islandFrame(
-            screen: macBook, notch: notch,
-            card: NSSize(width: DictationPill.maxCardWidth, height: DictationPill.maxCardHeight)
-        )
-        XCTAssertTrue(canvas.contains(largest))
+        let compact = DictationPill.islandFrame(screen: macBook, notch: notch, strip: nil)
+        let widest = DictationPill.islandFrame(screen: macBook, notch: notch, strip: DictationPill.maxStripWidth)
+        XCTAssertTrue(canvas.contains(compact))
+        XCTAssertTrue(canvas.contains(widest))
         XCTAssertEqual(canvas.maxY, macBook.maxY)
-        XCTAssertGreaterThan(largest.minY, canvas.minY)
-        XCTAssertEqual(canvas.midX, notch.midX)
+        XCTAssertGreaterThan(widest.minY, canvas.minY)
     }
 
-    func testCardTextIsReadableAtAGlance() {
-        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 22)
+    func testStripTextIsReadableAtAGlanceAndFitsTheNotchHeight() {
+        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 19)
         XCTAssertGreaterThanOrEqual(DictationPill.bodyFont.pointSize, 19)
         XCTAssertGreaterThanOrEqual(DictationPill.metaFont.pointSize, 14)
-        XCTAssertGreaterThan(DictationPill.titleFont.pointSize, DictationPill.bodyFont.pointSize)
+        XCTAssertLessThanOrEqual(DictationPill.lineHeight(DictationPill.titleFont), notch.height)
     }
 
-    func testCardSizeWrapsTextInPadding() {
-        let size = DictationPill.cardSize(
-            meta: NSSize(width: 30, height: 17),
-            title: NSSize(width: 300, height: 28),
-            body: NSSize(width: 340, height: 46)
-        )
-        XCTAssertEqual(size.width, 340 + 2 * DictationPill.cardPadding)
-        XCTAssertEqual(size.height, 6 + 17 + 8 + 28 + 4 + 46 + 24)
-    }
-
-    func testCardFitsThreeTitleLines() {
-        let threeLines = 3 * DictationPill.lineHeight(DictationPill.titleFont)
-        let size = DictationPill.cardSize(meta: NSSize(width: 30, height: 17), title: NSSize(width: 400, height: threeLines), body: nil)
-        XCTAssertLessThanOrEqual(size.height, DictationPill.maxCardHeight)
+    func testStripWidthWrapsTheLineInPadding() {
+        XCTAssertEqual(DictationPill.stripWidth(text: 300), 300 + 2 * DictationPill.stripPadding + 9 + 8)
+        XCTAssertEqual(DictationPill.stripWidth(text: 5000), DictationPill.maxStripWidth)
     }
 
     func testMessagesSplitIntoTitleAndBody() {
@@ -102,10 +85,10 @@ final class DictationPillTests: XCTestCase {
 
     func testIslandOutlinesShareTheirShapeSoTheySpring() {
         let collapsed = DictationPill.islandPath(in: notch, shoulder: 0, cornerRadius: 9)
-        let card = DictationPill.islandPath(in: NSRect(x: 0, y: 0, width: 520, height: 150), shoulder: 12, cornerRadius: 30)
-        XCTAssertEqual(Self.elementCount(collapsed), Self.elementCount(card))
-        XCTAssertEqual(card.boundingBoxOfPath.maxY, 150)
-        XCTAssertEqual(card.boundingBoxOfPath.minY, 0)
+        let strip = DictationPill.islandPath(in: NSRect(x: 0, y: 0, width: 616, height: 32), shoulder: 8, cornerRadius: 15)
+        XCTAssertEqual(Self.elementCount(collapsed), Self.elementCount(strip))
+        XCTAssertEqual(strip.boundingBoxOfPath.maxY, 32)
+        XCTAssertEqual(strip.boundingBoxOfPath.minY, 0)
     }
 
     private static func elementCount(_ path: CGPath) -> Int {

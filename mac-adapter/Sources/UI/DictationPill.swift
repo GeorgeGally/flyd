@@ -1,13 +1,13 @@
 import AppKit
 
 /// Dictation status grown out of the MacBook notch: a black island flush with the notch
-/// whose wings carry the live dot and level bars, opening into a card below the notch for
-/// messages. Screens without a notch get the same island at the top centre. It never
-/// takes focus, so the app George is dictating into stays frontmost and receives the paste.
+/// whose wings carry the live dot and level bars, growing out to the right of the notch, at
+/// notch height, for messages. Screens without a notch get the same island at the top centre.
+/// It never takes focus, so the app George is dictating into stays frontmost and receives the paste.
 ///
 /// The panel is a fixed transparent canvas around the notch; the island itself is a shape
 /// path (flared shoulders into the menu bar, continuous corners) that springs between the
-/// notch, the compact wings and the message card.
+/// notch, the compact wings and the message strip.
 final class DictationPill: NSObject {
     /// One island for dictation and voice questions, so they never draw over each other.
     static let shared = DictationPill()
@@ -15,7 +15,7 @@ final class DictationPill: NSObject {
     enum Phase: Equatable {
         case listening
         case working
-        /// A voice question on its way to Flyd: spinner in the wing, the question below the notch.
+        /// A voice question on its way to Flyd: spinner and the question beside the notch.
         case thinking(String)
         case inserted
         case notice(String)
@@ -61,25 +61,19 @@ final class DictationPill: NSObject {
     static let wingWidth: CGFloat = 86
     /// Concave flare where the island meets the menu bar, so it reads as the notch growing.
     static let compactShoulder: CGFloat = 8
-    static let cardShoulder: CGFloat = 12
     static let compactCornerRadius: CGFloat = 15
-    static let cardCornerRadius: CGFloat = 30
     /// The notch's own bottom corners, for the collapsed shape.
     static let notchCornerRadius: CGFloat = 9
     static let opticalLift: CGFloat = 2
 
-    /// Message card: sized to read at a glance from a normal sitting distance.
-    static let cardPadding: CGFloat = 28
-    static let cardTopGap: CGFloat = 6
-    static let cardBottomPadding: CGFloat = 24
-    static let metaGap: CGFloat = 8
-    static let titleBodyGap: CGFloat = 4
-    static let maxCardWidth: CGFloat = 620
-    static let maxTitleLines = 3
-    static let maxTitleLinesWithBody = 2
-    static let maxBodyLines = 3
+    /// Message strip: grows out to the right of the notch at notch height, with type sized to
+    /// read at a glance from a normal sitting distance.
+    static let stripPadding: CGFloat = 18
+    static let maxStripWidth: CGFloat = 640
+    static let metaGap: CGFloat = 12
+    static let titleBodyGap: CGFloat = 10
     static let metaFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-    static let titleFont = NSFont.systemFont(ofSize: 23, weight: .semibold)
+    static let titleFont = NSFont.systemFont(ofSize: 19, weight: .semibold)
     static let bodyFont = NSFont.systemFont(ofSize: 19, weight: .regular)
     private static let metaDotSize: CGFloat = 9
     private static let metaDotGap: CGFloat = 8
@@ -106,11 +100,9 @@ final class DictationPill: NSObject {
     private var bars: [NSView] = []
     private var spinner: IslandSpinner?
     private var check: IslandCheck?
-    private var card: NSView?
+    private var strip: NSView?
     private var metaDot: FlydStatusDot?
-    private var metaLabel: NSTextField?
-    private var titleLabel: NSTextField?
-    private var bodyLabel: NSTextField?
+    private var textLabel: NSTextField?
     private var hideWork: DispatchWorkItem?
     /// Bumped on every show, so a collapse that finishes after a newer show never hides it.
     private var generation = 0
@@ -121,7 +113,7 @@ final class DictationPill: NSObject {
     private var clickArea: NSRect?
     private var mouseMonitors: [Any] = []
 
-    /// What the card says: a small meta line, a bold title, and an optional body.
+    /// What the strip says, on one line: a small meta label, a bold title, and an optional body.
     struct Message: Equatable {
         var meta: String
         var title: String
@@ -141,22 +133,22 @@ final class DictationPill: NSObject {
         (notch?.width ?? 0) + 2 * wingWidth
     }
 
-    /// Flush with the top edge, centred on the notch: wings either side, opening into a card
-    /// below the notch when there is a message. `card` is the card's size below the notch,
-    /// padding included. The frame includes the shoulders.
-    static func islandFrame(screen: NSRect, notch: NSRect?, card: NSSize?) -> NSRect {
-        let midX = notch?.midX ?? screen.midX
-        var bodyWidth = compactBodyWidth(notch: notch)
-        var height = notch?.height ?? fallbackHeight
-        var shoulder = compactShoulder
-        if let card {
-            bodyWidth = max(bodyWidth, min(card.width, maxCardWidth))
-            height += card.height
-            shoulder = cardShoulder
+    /// Flush with the top edge at notch height. Compact: centred on the notch, wings either
+    /// side. With a message: anchored at the notch's left edge, growing out to the right by
+    /// `strip` (the strip's width, padding included). The frame includes the shoulders.
+    static func islandFrame(screen: NSRect, notch: NSRect?, strip: CGFloat?) -> NSRect {
+        let height = notch?.height ?? fallbackHeight
+        let shoulder = compactShoulder
+        guard let strip else {
+            let midX = notch?.midX ?? screen.midX
+            let width = min(compactBodyWidth(notch: notch) + 2 * shoulder, screen.width)
+            let x = min(max(midX - width / 2, screen.minX), screen.maxX - width)
+            return NSRect(x: x.rounded(), y: screen.maxY - height, width: width, height: height)
         }
-        let width = min(bodyWidth + 2 * shoulder, screen.width)
-        let x = min(max(midX - width / 2, screen.minX), screen.maxX - width)
-        return NSRect(x: x.rounded(), y: screen.maxY - height, width: width, height: height)
+        let notchFrame = collapsedFrame(screen: screen, notch: notch)
+        let x = max(notchFrame.minX - shoulder, screen.minX)
+        let width = min(notchFrame.maxX + min(strip, maxStripWidth) + shoulder, screen.maxX) - x
+        return NSRect(x: x, y: screen.maxY - height, width: width, height: height)
     }
 
     /// Collapsed into the notch itself: where the island grows from and shrinks back to.
@@ -167,48 +159,45 @@ final class DictationPill: NSObject {
         return NSRect(x: (midX - width / 2).rounded(), y: screen.maxY - height, width: width, height: height)
     }
 
-    /// The transparent panel the island draws in: room for the widest, tallest card plus its
-    /// shadow, so the island can change shape without the window moving under it.
+    /// The transparent panel the island draws in: room for the compact wings and the widest
+    /// strip plus its shadow, so the island can change shape without the window moving under it.
     static func canvasFrame(screen: NSRect, notch: NSRect?) -> NSRect {
-        let midX = notch?.midX ?? screen.midX
-        let islandWidth = max(compactBodyWidth(notch: notch) + 2 * compactShoulder, maxCardWidth + 2 * cardShoulder)
-        let width = min(islandWidth + 2 * shadowMargin, screen.width)
-        let height = (notch?.height ?? fallbackHeight) + maxCardHeight + shadowMargin
-        let x = min(max(midX - width / 2, screen.minX), screen.maxX - width)
-        return NSRect(x: x.rounded(), y: screen.maxY - height, width: width, height: height)
+        let compact = islandFrame(screen: screen, notch: notch, strip: nil)
+        let widest = islandFrame(screen: screen, notch: notch, strip: maxStripWidth)
+        let minX = max(min(compact.minX, widest.minX) - shadowMargin, screen.minX)
+        let maxX = min(max(compact.maxX, widest.maxX) + shadowMargin, screen.maxX)
+        let height = (notch?.height ?? fallbackHeight) + shadowMargin
+        return NSRect(x: minX, y: screen.maxY - height, width: maxX - minX, height: height)
     }
 
-    /// The card's size for text blocks of the given sizes, padding included.
-    static func cardSize(meta: NSSize, title: NSSize, body: NSSize?) -> NSSize {
-        let metaWidth = metaDotSize + metaDotGap + meta.width
-        let textWidth = max(metaWidth, title.width, body?.width ?? 0)
-        var height = cardTopGap + max(meta.height, metaDotSize) + metaGap + title.height + cardBottomPadding
-        if let body { height += titleBodyGap + body.height }
-        return NSSize(width: ceil(textWidth + 2 * cardPadding), height: ceil(height))
+    /// The widest the strip's line of text can be before it truncates.
+    static var maxTextWidth: CGFloat { maxStripWidth - 2 * stripPadding - metaDotSize - metaDotGap }
+
+    /// The strip's width for a line of text this wide, padding and meta dot included.
+    static func stripWidth(text: CGFloat) -> CGFloat {
+        ceil(2 * stripPadding + metaDotSize + metaDotGap + min(text, maxTextWidth))
     }
 
-    static var maxTextWidth: CGFloat { maxCardWidth - 2 * cardPadding }
-
-    /// The tallest card any message can make: two title lines and a full body.
-    static var maxCardHeight: CGFloat {
-        let tallestWithBody = cardSize(
-            meta: NSSize(width: 0, height: lineHeight(metaFont)),
-            title: NSSize(width: 0, height: CGFloat(maxTitleLinesWithBody) * lineHeight(titleFont)),
-            body: NSSize(width: 0, height: CGFloat(maxBodyLines) * lineHeight(bodyFont))
-        ).height
-        let tallestTitle = cardSize(
-            meta: NSSize(width: 0, height: lineHeight(metaFont)),
-            title: NSSize(width: 0, height: CGFloat(maxTitleLines) * lineHeight(titleFont)),
-            body: nil
-        ).height
-        return max(tallestWithBody, tallestTitle)
+    /// The strip's line: meta label, then title, then the body in a quieter weight.
+    static func line(for message: Message, meta: NSColor) -> NSAttributedString {
+        let line = NSMutableAttributedString(attributedString: FlydPalette.tracked(message.meta, font: metaFont, color: meta, tracking: 0.3))
+        line.append(NSAttributedString(string: " ", attributes: [.font: metaFont, .kern: metaGap - 4]))
+        line.append(NSAttributedString(string: message.title, attributes: [.font: titleFont, .foregroundColor: FlydPalette.paper]))
+        if let body = message.body {
+            line.append(NSAttributedString(string: " ", attributes: [.font: bodyFont, .kern: titleBodyGap - 5]))
+            line.append(NSAttributedString(string: body, attributes: [.font: bodyFont, .foregroundColor: FlydPalette.paper.withAlphaComponent(0.7)]))
+        }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
+        return line
     }
 
     static func lineHeight(_ font: NSFont) -> CGFloat {
         ceil(NSLayoutManager().defaultLineHeight(for: font))
     }
 
-    /// What the card says for a phase, or nil when the island stays compact. A message with a
+    /// What the strip says for a phase, or nil when the island stays compact. A message with a
     /// line break shows its first line as the title and the rest as the body.
     static func message(for phase: Phase) -> Message? {
         switch phase {
@@ -287,12 +276,12 @@ final class DictationPill: NSObject {
         // Same screen and already up: change shape in place; otherwise grow out of the notch.
         let growing = !(panel.isVisible && panel.frame == canvas)
 
-        let card = configure(for: phase)
-        let target = Self.islandFrame(screen: screen.frame, notch: notch, card: card)
+        let stripWidth = configure(for: phase)
+        let target = Self.islandFrame(screen: screen.frame, notch: notch, strip: stripWidth)
         let local = target.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
-        let shoulder = card == nil ? Self.compactShoulder : Self.cardShoulder
-        let radius = card == nil ? Self.compactCornerRadius : Self.cardCornerRadius
-        layoutContent(in: local, shoulder: shoulder, notch: notch)
+        let shoulder = Self.compactShoulder
+        let radius = Self.compactCornerRadius
+        layoutContent(in: local, notch: notch)
 
         if growing {
             panel.setFrame(canvas, display: false)
@@ -310,14 +299,14 @@ final class DictationPill: NSObject {
                 island?.alphaValue = 0
                 fade(island, to: 1)
             }
-            self.card?.alphaValue = 1
+            self.strip?.alphaValue = 1
         } else {
             setShape(in: local, shoulder: shoulder, radius: radius, animated: true)
-            if let cardView = self.card, card != nil {
-                cardView.alphaValue = 0
+            if let stripView = self.strip, stripWidth != nil {
+                stripView.alphaValue = 0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, generation] in
                     guard let self, self.generation == generation else { return }
-                    self.fade(cardView, to: 1, duration: 0.24)
+                    self.fade(stripView, to: 1, duration: 0.24)
                 }
             }
         }
@@ -372,24 +361,24 @@ final class DictationPill: NSObject {
         let screen = panel.screen ?? Self.screenUnderMouse()
         let collapsed = Self.collapsedFrame(screen: screen.frame, notch: Self.notchRect(of: screen))
             .offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
-        fade(card, to: 0, duration: 0.12)
-        hideContent(keepCard: true)
+        fade(strip, to: 0, duration: 0.12)
+        hideContent(keepStrip: true)
         CATransaction.begin()
         CATransaction.setCompletionBlock(finish)
         setShape(in: collapsed, shoulder: 0, radius: Self.notchCornerRadius, animated: true, collapsing: true)
         CATransaction.commit()
     }
 
-    private func hideContent(keepCard: Bool = false) {
+    private func hideContent(keepStrip: Bool = false) {
         dot?.isHidden = true
         bars.forEach { $0.isHidden = true }
         spinner?.stop()
         check?.isHidden = true
-        if !keepCard { card?.isHidden = true }
+        if !keepStrip { strip?.isHidden = true }
     }
 
-    /// Shows the views this phase needs; returns the card's size, if the phase has a message.
-    private func configure(for phase: Phase) -> NSSize? {
+    /// Shows the views this phase needs; returns the strip's width, if the phase has a message.
+    private func configure(for phase: Phase) -> CGFloat? {
         let spinning: Bool
         switch phase {
         case .working, .thinking, .status(_, .working): spinning = true
@@ -412,7 +401,7 @@ final class DictationPill: NSObject {
         }
 
         guard let message = Self.message(for: phase) else {
-            card?.isHidden = true
+            strip?.isHidden = true
             return nil
         }
         let quiet = FlydPalette.paper.withAlphaComponent(0.55)
@@ -421,7 +410,8 @@ final class DictationPill: NSObject {
         case .notice: return setMessage(message, dot: FlydPalette.brassGlow, meta: quiet)
         case .status(_, .decision): return setMessage(message, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
         case .status: return setMessage(message, dot: FlydPalette.signalGreen, meta: quiet)
-        default: return setMessage(message, dot: quiet, meta: quiet)
+        // A voice question keeps its spinner where the dot would be.
+        default: return setMessage(message, dot: nil, meta: quiet)
         }
     }
 
@@ -430,36 +420,18 @@ final class DictationPill: NSObject {
         return false
     }
 
-    private func setMessage(_ message: Message, dot: NSColor, meta: NSColor, pulsing: Bool = false) -> NSSize? {
-        guard let card, let metaLabel, let titleLabel, let bodyLabel, let metaDot else { return nil }
-        card.isHidden = false
-        metaDot.set(color: dot, pulsing: pulsing)
-        metaLabel.attributedStringValue = FlydPalette.tracked(message.meta, font: Self.metaFont, color: meta, tracking: 0.3)
-        titleLabel.stringValue = message.title
-        titleLabel.maximumNumberOfLines = message.body == nil ? Self.maxTitleLines : Self.maxTitleLinesWithBody
-        bodyLabel.stringValue = message.body ?? ""
-        bodyLabel.isHidden = message.body == nil
-
-        let meta = Self.measure(metaLabel.attributedStringValue, maxLines: 1)
-        let title = Self.measure(titleLabel.attributedStringValue, maxLines: titleLabel.maximumNumberOfLines)
-        let body = message.body.map { _ in Self.measure(bodyLabel.attributedStringValue, maxLines: Self.maxBodyLines) }
-        return Self.cardSize(meta: meta, title: title, body: body)
-    }
-
-    /// Text size wrapped to the card's width, capped at `maxLines` lines.
-    private static func measure(_ text: NSAttributedString, maxLines: Int) -> NSSize {
-        guard text.length > 0 else { return .zero }
-        let font = text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? bodyFont
-        let bounds = text.boundingRect(
-            with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let height = min(ceil(bounds.height), CGFloat(maxLines) * lineHeight(font))
-        return NSSize(width: min(ceil(bounds.width), maxTextWidth), height: height)
+    private func setMessage(_ message: Message, dot: NSColor?, meta: NSColor, pulsing: Bool = false) -> CGFloat? {
+        guard let strip, let textLabel, let metaDot else { return nil }
+        strip.isHidden = false
+        metaDot.isHidden = dot == nil
+        if let dot { metaDot.set(color: dot, pulsing: pulsing) }
+        textLabel.attributedStringValue = Self.line(for: message, meta: meta)
+        return Self.stripWidth(text: ceil(textLabel.attributedStringValue.size().width))
     }
 
     /// Positions content for the island's final outline, in canvas (bottom-left origin) coordinates.
-    private func layoutContent(in rect: NSRect, shoulder: CGFloat, notch: NSRect?) {
+    private func layoutContent(in rect: NSRect, notch: NSRect?) {
+        let shoulder = Self.compactShoulder
         let topHeight = notch?.height ?? Self.fallbackHeight
         let notchWidth = notch?.width ?? 0
         // The rounded bottom corners pull the island's visual centre up; centring on the
@@ -487,30 +459,23 @@ final class DictationPill: NSObject {
             )
         }
 
-        guard let card, !card.isHidden, let metaLabel, let titleLabel, let bodyLabel, let metaDot else { return }
-        let cardTop = rect.maxY - topHeight
-        card.frame = NSRect(x: rect.minX + shoulder, y: rect.minY, width: rect.width - 2 * shoulder, height: cardTop - rect.minY)
-        // Text fields inset their text by 2pt; pull them out so the text sits on the padding,
-        // and give them slack below so the last line never drops to a truncated one.
-        let x = Self.cardPadding - 2
-        let slack: CGFloat = 4
-        var top = card.frame.height - Self.cardTopGap
-
-        let meta = Self.measure(metaLabel.attributedStringValue, maxLines: 1)
-        let metaRow = max(meta.height, Self.metaDotSize)
-        metaDot.frame.origin = NSPoint(x: Self.cardPadding, y: (top - metaRow / 2 - Self.metaDotSize / 2).rounded())
-        metaLabel.frame = NSRect(x: x + Self.metaDotSize + Self.metaDotGap, y: top - metaRow / 2 - meta.height / 2,
-                                 width: meta.width + 4, height: meta.height)
-        top -= metaRow + Self.metaGap
-
-        let title = Self.measure(titleLabel.attributedStringValue, maxLines: titleLabel.maximumNumberOfLines)
-        titleLabel.frame = NSRect(x: x, y: top - title.height - slack, width: Self.maxTextWidth + 4, height: title.height + slack)
-        top -= title.height + Self.titleBodyGap
-
-        if !bodyLabel.isHidden {
-            let body = Self.measure(bodyLabel.attributedStringValue, maxLines: Self.maxBodyLines)
-            bodyLabel.frame = NSRect(x: x, y: top - body.height - slack, width: Self.maxTextWidth + 4, height: body.height + slack)
+        guard let strip, !strip.isHidden, let textLabel, let metaDot else { return }
+        // The strip starts where the notch ends: the left of the island is the notch itself.
+        let stripX = rect.minX + shoulder + (notch?.width ?? 2 * Self.compactCornerRadius)
+        strip.frame = NSRect(x: stripX, y: rect.minY, width: max(0, rect.maxX - shoulder - stripX), height: rect.height)
+        let stripMidY = midY - rect.minY
+        let slotMidX = Self.stripPadding + Self.metaDotSize / 2
+        metaDot.frame.origin = NSPoint(x: (slotMidX - Self.metaDotSize / 2).rounded(), y: (stripMidY - Self.metaDotSize / 2).rounded())
+        // A voice question's spinner moves out of the (now hidden) left wing into the dot's place.
+        if metaDot.isHidden {
+            spinner?.frame.origin = NSPoint(x: (stripX + slotMidX - Self.glyphSize / 2).rounded(),
+                                            y: (midY - Self.glyphSize / 2).rounded())
         }
+        // Text fields inset their text by 2pt; pull the field out so the text sits on the padding.
+        let textX = Self.stripPadding + Self.metaDotSize + Self.metaDotGap - 2
+        let textHeight = Self.lineHeight(Self.titleFont)
+        textLabel.frame = NSRect(x: textX, y: (stripMidY - textHeight / 2).rounded(),
+                                 width: max(0, strip.frame.width - textX - Self.stripPadding + 4), height: textHeight)
     }
 
     /// Moves every layer that traces the island to a new outline, springing there unless told not to.
@@ -566,10 +531,10 @@ final class DictationPill: NSObject {
     static let questionLimit = 140
     /// Conversation status stays glanceable: a headline, not the reply.
     static let statusLimit = 100
-    /// How ConversationStatus marks a reply that asks for a decision; the card says it in its meta line.
+    /// How ConversationStatus marks a reply that asks for a decision; the strip says it in its meta label.
     static let decisionPrefix = "Needs you:"
 
-    /// The question as George said it, cut on a word boundary so it fits the card's title.
+    /// The question as George said it, cut on a word boundary so it fits the strip.
     static func quoted(_ question: String, limit: Int = questionLimit) -> String {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count > limit else { return text }
@@ -599,7 +564,7 @@ final class DictationPill: NSObject {
         guard let content = panel.contentView else { return panel }
         content.wantsLayer = true
 
-        // A soft shadow under the card, drawn by its own layer so the island can stay masked.
+        // A soft shadow under the island, drawn by its own layer so the island can stay masked.
         let shadow = CAShapeLayer()
         shadow.fillColor = NSColor.clear.cgColor
         shadow.shadowColor = NSColor.black.cgColor
@@ -618,7 +583,7 @@ final class DictationPill: NSObject {
         content.addSubview(island)
 
         // Dark material under a black-to-ink wash: pure black at the top so the island reads
-        // as the notch itself growing, a little depth lower down where the card opens.
+        // as the notch itself growing, a little depth lower down.
         let material = NSVisualEffectView(frame: island.bounds)
         material.autoresizingMask = [.width, .height]
         material.appearance = NSAppearance(named: .darkAqua)
@@ -665,34 +630,27 @@ final class DictationPill: NSObject {
         let check = IslandCheck(frame: NSRect(x: 0, y: 0, width: Self.glyphSize, height: Self.glyphSize))
         island.addSubview(check)
 
-        let card = NSView()
-        card.isHidden = true
-        island.addSubview(card)
+        let strip = NSView()
+        strip.isHidden = true
+        island.addSubview(strip)
 
         let metaDot = FlydStatusDot(frame: .zero, diameter: Self.metaDotSize)
-        card.addSubview(metaDot)
+        strip.addSubview(metaDot)
 
-        let metaLabel = NSTextField(labelWithString: "")
-        metaLabel.font = Self.metaFont
-        card.addSubview(metaLabel)
-
-        let titleLabel = Self.wrappingLabel(font: Self.titleFont, color: FlydPalette.paper)
-        card.addSubview(titleLabel)
-
-        let bodyLabel = Self.wrappingLabel(font: Self.bodyFont, color: FlydPalette.paper.withAlphaComponent(0.74))
-        bodyLabel.maximumNumberOfLines = Self.maxBodyLines
-        card.addSubview(bodyLabel)
+        let textLabel = NSTextField(labelWithString: "")
+        textLabel.maximumNumberOfLines = 1
+        textLabel.lineBreakMode = .byTruncatingTail
+        textLabel.cell?.truncatesLastVisibleLine = true
+        strip.addSubview(textLabel)
 
         self.panel = panel
         self.island = island
         self.dot = dot
         self.spinner = spinner
         self.check = check
-        self.card = card
+        self.strip = strip
         self.metaDot = metaDot
-        self.metaLabel = metaLabel
-        self.titleLabel = titleLabel
-        self.bodyLabel = bodyLabel
+        self.textLabel = textLabel
         island.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(islandClicked)))
         hideContent()
         return panel
@@ -733,15 +691,6 @@ final class DictationPill: NSObject {
     private func trackPointer() {
         let over = clickArea.map { NSMouseInRect(NSEvent.mouseLocation, $0, false) } ?? false
         if panel?.ignoresMouseEvents == over { panel?.ignoresMouseEvents = !over }
-    }
-
-    private static func wrappingLabel(font: NSFont, color: NSColor) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: "")
-        label.font = font
-        label.textColor = color
-        label.lineBreakMode = .byWordWrapping
-        label.cell?.truncatesLastVisibleLine = true
-        return label
     }
 
     private static func screenUnderMouse() -> NSScreen {
