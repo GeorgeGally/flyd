@@ -96,11 +96,11 @@ describe("FlydDesk", () => {
     return { answer, resolve: (text) => resolve(text), reject: (error) => reject(error), history };
   }
 
-  it("shows Flyd thinking, then its own answer under the question", async () => {
+  it("says Flyd is answering, then shows its own answer under the question", async () => {
     const turn = deferred();
     const desk = new FlydDesk({ dir, answer: turn.answer });
     const sent = desk.ask("  whats there to do in bkk tonight?  ");
-    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Flyd is thinking…" }]);
+    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Answering" }]);
 
     turn.resolve("Tonight, sir: art bangkok at Siam Paragon.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
@@ -121,10 +121,15 @@ describe("FlydDesk", () => {
     turn.reject(new Error("model unavailable"));
     await until(() => (desk.exchanges()[0]?.waiting.startsWith("Flyd couldn't") ? true : undefined));
     expect(desk.exchanges()[0]!.waiting).toBe("Flyd couldn't answer this: model unavailable");
+    expect(desk.exchanges()[0]!.waitingFailed).toBe(true);
 
     desk.ask("still there?");
+    expect(desk.exchanges()[1]!.waitingFailed).toBeUndefined();
     const restarted = new FlydDesk({ dir, answer: turn.answer });
     expect(restarted.exchanges()[1]!.waiting).toBe("Flyd was interrupted before answering; send it again");
+    expect(restarted.exchanges()[1]!.waitingFailed).toBe(true);
+    const messages = mergeNotes([], restarted.exchanges(), {});
+    expect(statusOf({ messages, working: false }).waiting).toEqual({ id: messages[1]!.id, text: "Flyd was interrupted before answering; send it again", failed: true });
   });
   it("reads a stored question again only when its file changes", async () => {
     const desk = new FlydDesk({ dir, answer: async () => "Siam Paragon, sir." });
@@ -197,6 +202,39 @@ esac
     });
     return { source, home, answered };
   }
+
+  it("keeps one living line on a note: passed on, then what firstmate is doing, on the window and the island", async () => {
+    const project = join(dir, "project");
+    const home = join(dir, "firstmate");
+    mkdirSync(project);
+    mkdirSync(home);
+    writeFileSync(join(project, "s1.jsonl"), captain("status?") + "\n");
+    const script = join(dir, "fm-inbox.sh");
+    writeFileSync(script, FAKE_SCRIPT);
+    chmodSync(script, 0o755);
+    const source = new ClaudeCodeTranscriptSource({
+      projectDir: project,
+      inbox: new FirstmateInbox({ home, script }),
+      desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer: async () => "unused" }), complete: async () => "FIRSTMATE" },
+      projects: () => [{ name: "GNM (Good Neighbours Market)" }, { name: "Flyd" }],
+      pollMs: 15,
+    });
+    const sent = await source.send("s1", "the good neighbours market hero is too tall");
+    expect(sent.waiting).toBe("Passing this to firstmate - Good Neighbours Market");
+    let snapshot = await source.read("s1");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Passing this to firstmate - Good Neighbours Market");
+
+    // Firstmate reads the note and starts work: the step rides on the note's own line.
+    const inbox = join(home, "state", "inbox");
+    const name = readdirSync(inbox).find((file) => file.endsWith(".note"))!;
+    mkdirSync(join(inbox, "handled"));
+    writeFileSync(join(inbox, "handled", name), readFileSync(join(inbox, name)));
+    rmSync(join(inbox, name));
+    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: "npm test", description: "Run the site's tests" })].join("\n") + "\n");
+    snapshot = await source.read("s1");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Firstmate is on it: run the site's tests");
+    expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Firstmate is on it: run the site's tests" });
+  });
 
   it("never lets firstmate's 'Captain' reach him: lines, narration, summaries, interpretations and the island", async () => {
     const project = join(dir, "project");
@@ -272,7 +310,7 @@ esac
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
 
     const messages = (await source.read("s1")).messages;
-    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Flyd has it queued" });
+    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Passing this to firstmate" });
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
@@ -499,7 +537,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
-    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Flyd is on it" });
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Firstmate is on it" });
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 

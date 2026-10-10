@@ -69,6 +69,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         desk: new FlydDesk({ answer: answerAsFlyd }),
         complete,
       },
+      // A note's line names the project his message names.
+      projects: () => readProjects(),
     } : {}),
   });
   const sessions = await source.listSessions();

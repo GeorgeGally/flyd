@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { boxesOf } from "../boxes.js";
+import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
 import type { ShowScreen } from "../show.js";
 
@@ -120,13 +121,70 @@ describe("conversation page", () => {
     expect(document.getElementById("prediction-toggle")!.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("says at once what it is doing, then updates that one line in place until the answer replaces it", async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn((url: string) => (url === "/api/send"
+      ? new Promise<Response>((resolve) => { release = resolve; })
+      : Promise.resolve(url === "/api/plan" ? json({ plan: null }) : url === "/api/commands" ? json({ commands: [] }) : json({ sessions: SESSIONS })))));
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    stream.emit("update", { order: ["u1"], messages: [], working: true, activity: "Reading the inbox", lastActivity: new Date().toISOString() });
+    const lines = () => Array.from(document.querySelectorAll(".queued")).map((el) => el.textContent);
+    const dots = () => document.getElementById("working")!.hidden;
+
+    // Before the server has answered: Flyd already says it has it.
+    await type("fix the good neighbours site");
+    expect(lines()).toEqual([RECEIVED]);
+    expect(dots()).toBe(true);
+
+    release(json({ id: "note:9", timestamp: "2026-10-05T20:01:00.000Z", waiting: "Passing this to firstmate - Good Neighbours" }));
+    await settle();
+    expect(lines()).toEqual(["Passing this to firstmate - Good Neighbours"]);
+
+    // The delivered note takes over the same line, then firstmate picks it up and works.
+    const question = { id: "note:9", role: "user", html: "<p>fix the good neighbours site</p>" };
+    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Passing this to firstmate - Good Neighbours" }], working: true, lastActivity: new Date().toISOString() });
+    expect(pending()).toEqual([]);
+    const line = document.querySelector(".queued")!;
+    expect(line.classList.contains("swap")).toBe(false);
+    stream.emit("update", { order: ["u1", "note:9"], messages: [{ ...question, waiting: "Firstmate is on it: running the site's tests" }], working: true, lastActivity: new Date().toISOString() });
+    expect(lines()).toEqual(["Firstmate is on it: running the site's tests"]);
+    expect(document.querySelector(".queued")).toBe(line);
+    expect(line.classList.contains("swap")).toBe(true);
+    expect(dots()).toBe(true);
+
+    // The answer replaces the line.
+    stream.emit("update", { order: ["u1", "note:9", "r9"], messages: [{ ...question }, { id: "r9", role: "assistant", html: "<p>Fixed, sir.</p>", answers: "note:9" }], working: false });
+    expect(lines()).toEqual([]);
+  });
+
+  it("stills a line that says the answer failed, and keeps the working dots", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const question = { id: "ask:1", role: "user", html: "<p>what's the weather?</p>" };
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    const line = document.querySelector(".queued")!;
+    expect(line.classList.contains("still")).toBe(false);
+    expect(document.getElementById("working")!.hidden).toBe(true);
+
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Flyd couldn't answer this: offline", waitingFailed: true }], working: true, lastActivity: new Date().toISOString() });
+    expect(document.querySelector(".queued")).toBe(line);
+    expect(line.classList.contains("still")).toBe(true);
+    expect(document.getElementById("working")!.hidden).toBe(false);
+
+    stream.emit("update", { order: ["u1", "ask:1"], messages: [{ ...question, waiting: "Answering" }], working: true, lastActivity: new Date().toISOString() });
+    expect(line.classList.contains("still")).toBe(false);
+  });
+
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
     await settle();
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     await type("run the flyd viewer");
     expect(pending()).toEqual([expect.stringContaining("run the flyd viewer")]);
-    expect(pending()[0]).toContain("delivered");
+    expect(pending()[0]).toContain("Sent");
 
     stream.emit("update", { order: ["u1", "note:1"], messages: [{ id: "note:1", role: "user", html: "<p>run the flyd viewer</p>" }], working: true });
     expect(pending()).toEqual([]);
@@ -265,7 +323,7 @@ describe("conversation page", () => {
     open("latest", []);
     await type("still there?");
     expect(sends).toEqual(["a".repeat(48), fresh]);
-    expect(pending()[0]).toContain("delivered");
+    expect(pending()[0]).toContain("Sent");
 
     // The new token sticks; and a token that keeps failing gives up after one retry.
     await type("again");

@@ -34,6 +34,8 @@ final class DictationPill: NSObject {
         case decision
         /// A message went out: check mark, briefly.
         case sent
+        /// What is happening to his message now ("Passing this to firstmate"): spinner, briefly.
+        case progress
 
         var holdSeconds: TimeInterval? {
             switch self {
@@ -41,6 +43,7 @@ final class DictationPill: NSObject {
             case .reply: return 6
             case .decision: return 10
             case .sent: return 2
+            case .progress: return 3.5
             }
         }
     }
@@ -315,6 +318,9 @@ final class DictationPill: NSObject {
             return nil
         case .thinking(let question):
             return Message(meta: "You asked", title: quoted(question), body: nil)
+        case .status(let text, .progress):
+            let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty ? nil : Message(meta: "Flyd", title: quoted(title, limit: statusLimit), body: nil)
         case .status(let text, let tone):
             var title = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if tone == .decision, title.hasPrefix(decisionPrefix) {
@@ -525,7 +531,7 @@ final class DictationPill: NSObject {
     private func configure(for phase: Phase, maxWidth: CGFloat) -> NSSize? {
         let spinning: Bool
         switch phase {
-        case .working, .thinking, .status(_, .working): spinning = true
+        case .working, .thinking, .status(_, .working), .status(_, .progress): spinning = true
         default: spinning = false
         }
         bars.forEach { $0.isHidden = phase != .listening }
@@ -554,6 +560,8 @@ final class DictationPill: NSObject {
         case .failed: return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
         case .notice: return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: quiet)
         case .status(_, .decision): return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
+        // The spinner already says it is under way.
+        case .status(_, .progress): return setMessage(message, layout, dot: nil, meta: quiet)
         case .status: return setMessage(message, layout, dot: FlydPalette.signalGreen, meta: FlydPalette.signalGreen)
         // A voice question keeps its spinner where the dot would be.
         default: return setMessage(message, layout, dot: nil, meta: quiet)

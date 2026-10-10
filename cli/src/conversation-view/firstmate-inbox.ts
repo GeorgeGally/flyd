@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { handoffLine } from "./living.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
@@ -301,7 +302,8 @@ export class FirstmateInbox implements CaptainInbox {
       .map(([name, question]): Exchange => {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
-        return { question, waiting: present.get(name)!.startsWith(`${handled}/`) ? "Flyd is on it" : "Flyd has it queued" };
+        const handoff = present.get(name)!.startsWith(`${handled}/`) ? "taken" : "queued";
+        return { question, handoff, waiting: handoffLine(handoff) };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;
@@ -351,7 +353,7 @@ export function mergeNotes(
   const merged: ConversationMessage[] = [];
   const push = (exchange: Exchange): void => {
     if (exchange.answer) merged.push(exchange.question, exchange.answer);
-    else merged.push({ ...exchange.question, waiting: exchange.waiting });
+    else merged.push({ ...exchange.question, waiting: exchange.waiting, ...(exchange.waitingFailed ? { waitingFailed: true } : {}) });
   };
   let next = 0;
   for (const message of messages) {

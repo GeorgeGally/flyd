@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { ANSWERING } from "./living.js";
 import type { ConversationMessage, Exchange, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
@@ -218,7 +219,7 @@ export class FlydDesk {
         this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
       })
       .finally(() => this.inFlight.delete(record.id));
-    return { id: `ask:${record.id}`, timestamp: record.at };
+    return { id: `ask:${record.id}`, timestamp: record.at, waiting: ANSWERING };
   }
 
   exchanges(): Exchange[] {
@@ -231,10 +232,9 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      const waiting = record.error
-        ? `Flyd couldn't answer this: ${record.error}`
-        : this.inFlight.has(record.id) ? "Flyd is thinking…" : "Flyd was interrupted before answering; send it again";
-      return { question, waiting };
+      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: ANSWERING };
+      const waiting = record.error ? `Flyd couldn't answer this: ${record.error}` : "Flyd was interrupted before answering; send it again";
+      return { question, waiting, waitingFailed: true };
     });
   }
 }

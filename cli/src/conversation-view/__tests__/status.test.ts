@@ -25,6 +25,19 @@ describe("conversation status for the island", () => {
     expect(statusOf({ messages, working: false })?.reply?.id).toBe("r1");
   });
 
+  it("says what is happening only to his newest message, never an older one left waiting", () => {
+    const messages = [
+      { id: "u1", role: "user" as const, text: "check the deploy", waiting: "Flyd was interrupted before answering; send it again" },
+      { id: "u2", role: "user" as const, text: "what's the weather?" },
+      { id: "r2", role: "assistant" as const, text: "Sunny all day." },
+    ];
+    expect(statusOf({ messages, working: false }).waiting).toBeUndefined();
+    const pending = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Answering" }];
+    expect(statusOf({ messages: pending, working: false }).waiting).toEqual({ id: "u3", text: "Answering" });
+    const failed = [...messages, { id: "u3", role: "user" as const, text: "and tomorrow?", waiting: "Flyd couldn't answer this: offline", waitingFailed: true }];
+    expect(statusOf({ messages: failed, working: false }).waiting).toEqual({ id: "u3", text: "Flyd couldn't answer this: offline", failed: true });
+  });
+
   it("names what the assistant is doing only while it works", () => {
     const now = Date.parse("2026-10-06T03:00:00Z");
     const snapshot = { messages: [], working: true, activity: "Dispatching a crewmate", lastActivity: "2026-10-06T02:59:00Z" };

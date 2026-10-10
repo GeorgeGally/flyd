@@ -118,8 +118,39 @@ final class ConversationStatusDecisionTests: XCTestCase {
         XCTAssertEqual(ConversationStatusDecision.decide(previous: before, current: status("s2", reply: ("r9", "Other.", false))), [.none])
     }
 
+    func testTheLivingLineIsMirroredOncePerStageNotPerStep() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
+        let quiet = try decode(#"{"session":"s1","working":false}"#)
+        let passed = try decode(#"{"session":"s1","working":false,"waiting":{"id":"note:1","text":"Passing this to firstmate - GNM"}}"#)
+        let taken = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Firstmate is on it: run the tests"}}"#)
+        let nextStep = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Firstmate is on it: push the branch"}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: quiet, current: passed), [.announce("Passing this to firstmate - GNM", .progress)])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: passed, current: taken), [.announce("Firstmate is on it: run the tests", .progress), .showWorking])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: taken, current: nextStep), [.none])
+        let idle = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Firstmate is on it - GNM"}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: taken, current: idle), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: idle, current: nextStep), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: taken), [.showWorking])
+    }
+
+    func testAFailedLineIsSaidOnceWithoutASpinner() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
+        let answering = try decode(#"{"session":"s1","working":false,"waiting":{"id":"ask:1","text":"Answering"}}"#)
+        let failed = try decode(#"{"session":"s1","working":false,"waiting":{"id":"ask:1","text":"Flyd couldn't answer this: offline","failed":true}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: answering, current: failed), [.announce("Flyd couldn't answer this: offline", .reply)])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: failed, current: failed), [.none])
+    }
+
+    func testANewReplyIsNeverOverwrittenByTheLivingLine() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
+        let before = try decode(#"{"session":"s1","working":false,"reply":{"id":"r1","headline":"Old.","asks":false},"waiting":{"id":"note:2","text":"Passing this to firstmate"}}"#)
+        let both = try decode(#"{"session":"s1","working":false,"reply":{"id":"r2","headline":"Merge it?","asks":true},"waiting":{"id":"note:2","text":"Firstmate is on it: run the tests"}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: before, current: both), [.announce("Needs you: Merge it?", .decision)])
+    }
+
     func testStatusPhasesHoldForTheirTone() {
         XCTAssertNil(DictationPill.StatusTone.working.holdSeconds)
+        XCTAssertEqual(DictationPill.StatusTone.progress.holdSeconds, 3.5)
         XCTAssertEqual(DictationPill.StatusTone.sent.holdSeconds, 2)
         XCTAssertEqual(DictationPill.StatusTone.reply.holdSeconds, 6)
         XCTAssertEqual(DictationPill.StatusTone.decision.holdSeconds, 10)
