@@ -311,7 +311,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     }
     if (next.repo) {
       const related = [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo);
-      next.context = related.slice(-6).map(([task, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""} ${extras.get(task)?.note ?? ""}`).join("\n").slice(0, 2400);
+      next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
     if (extra?.at) next.at = extra.at;
     if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
@@ -501,6 +501,7 @@ function voiceItem(row: ArtefactRow, kind: string): VoiceItem {
 export function withVoice(
   fleet: FleetArtefact,
   said: (item: VoiceItem) => Said | undefined,
+  lastSaid: (kind: string, task: string) => Said | undefined = () => undefined,
 ): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
   if (fleet.unavailable) return { fleet, unsaid: [] };
   const next: FleetArtefact = { ...fleet };
@@ -512,7 +513,7 @@ export function withVoice(
       const item = voiceItem(row, kind);
       const words = said(item);
       if (!words) unsaid.push(item);
-      const showing = words;
+      const showing = words ?? (row.task ? lastSaid(item.kind, row.task) : undefined);
       return showing ? { ...row, said: showing } : row;
     });
   }
@@ -532,6 +533,8 @@ export class ArtefactFeed {
   private timer?: NodeJS.Timeout;
   private refreshing = false;
   private generation = 0;
+  /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
+  private lastSaid = new Map<string, Said>();
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -679,7 +682,10 @@ export class ArtefactFeed {
   }
 
   private voiced(voice: ArtefactVoice, enriched: FleetArtefact): { fleet: FleetArtefact; unsaid: VoiceItem[] } {
-    return withVoice(enriched, (item) => voice.said(item));
+    const result = withVoice(enriched, (item) => voice.said(item), (kind, task) => this.lastSaid.get(`${kind}:${task}`));
+    this.lastSaid = new Map(VOICED.flatMap(([field, , kind]) => result.fleet[field]
+      .flatMap((row) => (row.task && row.said ? [[`${voiceItem(row, kind).kind}:${row.task}`, row.said] as [string, Said]] : []))));
+    return result;
   }
 
   /** Start the background refresh; a no-op under vitest. */

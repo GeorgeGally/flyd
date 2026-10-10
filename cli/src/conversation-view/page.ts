@@ -1638,14 +1638,16 @@ var __name = function (f) { return f; };
     }
     sceneLine.textContent = box.line ? sentence(capital(box.line)) : "";
     var oldAnswer = sceneEl.querySelector(".scene-answer");
-    if (oldAnswer) oldAnswer.remove();
-    if (box.decision && VIEW_TOKEN) {
+    var decisionKey = box.decision && VIEW_TOKEN ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "";
+    if (oldAnswer && oldAnswer.dataset.key !== decisionKey) oldAnswer.remove();
+    if (decisionKey && !(oldAnswer && oldAnswer.isConnected)) {
       var decision = box.decision;
-      var key = "flyd-decision:" + decision.task + ":" + decision.question;
+      var key = decisionKey;
       var state = {};
       try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
       var form = el("form", "scene-answer");
       form.setAttribute("aria-label", "Answer this question");
+      form.dataset.key = key;
       var label = el("label", "", "Your answer");
       label.htmlFor = "decision-answer";
       var answer = el("textarea");
@@ -1778,7 +1780,7 @@ var __name = function (f) { return f; };
   function schedule() {
     clearInterval(cycle);
     cycle = null;
-    if (scenes.length > 1 && !holding && !sceneEl.contains(document.activeElement)) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-answer"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
   }
   function hold(on) {
     holding = on;
@@ -1964,7 +1966,7 @@ var __name = function (f) { return f; };
   });
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-answer, .scene-shot, #ticks, #scene-meta, #flip")) return;
+    if (event.target instanceof Element && event.target.closest(".scene-answer")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {

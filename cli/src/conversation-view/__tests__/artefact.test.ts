@@ -76,6 +76,8 @@ describe("the backlog", () => {
     const fleet = enrichFleet(parseBearings({ decisions_open: [{ id: "visuals", summary: "Pick a look" }], in_flight: [{ id: "preview", name: "Find the new Good Neighbours design", repo: "good_neighbours", kind: "scout", state: "done", doing: "new design is draft PR" }] }), entries);
     expect(fleet.calls).toHaveLength(1);
     expect(fleet.calls[0]!.context).toContain("Block42, Nuanu");
+    const busy = enrichFleet(parseBearings({ decisions_open: [{ id: "visuals", summary: "Pick a look" }] }), entries, new Map([["edits", { note: "Recolouring the header" }]]));
+    expect(busy.calls[0]!.context).toBe(fleet.calls[0]!.context);
     expect(fleet.ready[0]!.status).toBe("report available");
     expect(fleetCounts(fleet).ready).toBe(0);
     const { unsaid } = withVoice(fleet, () => undefined);
@@ -250,7 +252,7 @@ describe("ArtefactFeed", () => {
     expect(feed.shotPath("b", "shots/after.png")).toBeNull();
   });
 
-  it("does not reuse stale words when evidence changes or let a slow answer bring back an older read", async () => {
+  it("keeps the last words on screen while new ones are asked for, and never lets a slow answer bring back an older read", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-voiced-"));
     mkdirSync(join(home, "bin"));
     const snapshot = join(home, "bearings.json");
@@ -278,8 +280,7 @@ describe("ArtefactFeed", () => {
 
     read("Drag and drop documents, take two", "harness busy");
     await feed.refresh();
-    expect(feed.current().fleet!.live[0]).toMatchObject({ label: "Drag and drop documents, take two" });
-    expect(feed.current().fleet!.live[0]!.said).toBeUndefined();
+    expect(feed.current().fleet!.live[0]).toMatchObject({ label: "Drag and drop documents, take two", said: { headline: "Documents will drop straight into the window." } });
 
     read("Drag and drop documents, take three", "harness busy");
     await feed.refresh();
