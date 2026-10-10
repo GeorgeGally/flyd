@@ -6,6 +6,17 @@ on:
     branches: [ main ]
 
 jobs:
+  routing-learning:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test routing learning and assumption audits without live providers
+        working-directory: cli
+        run: npm run test:routing-learning
+
   evidence:
     runs-on: ubuntu-latest
     steps:
@@ -97,6 +108,8 @@ jobs:
         run: >-
           npx vitest run
           src/runtime/__tests__/turn-plan.test.ts
+          src/runtime/__tests__/read-the-room.test.ts
+          src/runtime/__tests__/turn-receipt.test.ts
           src/runtime/__tests__/honesty-check.test.ts
           src/runtime/__tests__/assistant-tools.test.ts
       - name: Test active Core

@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import type { MemoryEvidence } from "./types.js";
+import { collectRoutingCase, type RoutingTrace } from "./routing-learning.js";
 
 export interface TurnToolCall {
   name: string;
@@ -28,6 +29,7 @@ export interface TurnReceipt {
   error?: string;
   /** The turn's plan (turn-plan.ts), or "unplanned" when no room reading came back in time. */
   plan?: { route: string; source?: "jev" | "llm"; cover: string[]; skill?: string };
+  routing?: RoutingTrace;
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;
@@ -69,6 +71,10 @@ export async function persistTurnReceipt(
   await atomicWrite(join(flydDir, "turn-receipts", sessionId, filename), serialized);
   await atomicWrite(join(flydDir, "turn-receipts", sessionId, "latest.json"), serialized);
   await atomicWrite(join(flydDir, "turn-receipts", "latest.json"), serialized);
+  // Evidence capture never turns a successful conversation into a failure.
+  if (receipt.routing && process.env.FLYD_ROUTING_LEARNING !== "0") {
+    try { collectRoutingCase(flydDir, receipt.id, receipt.routing); } catch { /* best effort; importer can retry */ }
+  }
   return receipt;
 }
 

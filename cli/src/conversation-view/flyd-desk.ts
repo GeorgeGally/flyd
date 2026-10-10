@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import type { ConversationMessage, Exchange, SentMessage } from "./types.js";
+import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
+import type { RouteReading } from "../runtime/turn-plan.js";
 
 // Flyd is the voice of the conversation window. A question that is not
 // software or fleet work (what to do in Bangkok tonight) is Flyd's to answer,
@@ -16,6 +18,27 @@ export type Route = "flyd" | "firstmate";
 
 /** One model call: the prompt in, the model's text out. */
 export type Complete = (prompt: string) => Promise<string>;
+export type DeskPrediction = RouteReading & { decided: boolean; needsCode: boolean | null };
+export interface DeskRoutingOptions {
+  mode?: "off" | "shadow" | "live";
+  predict?: (text: string, recent: ConversationMessage[]) => Promise<DeskPrediction | null>;
+  collect?: (trace: RoutingTrace) => void | Promise<void>;
+}
+/** Ownership follows intent and code access, not the occurrence of a repo name. */
+export function deskOwnerFor(prediction: DeskPrediction | null): Route | null {
+  if (!prediction?.decided) return null;
+  if (prediction.needsCode === true) return "firstmate";
+  if (prediction.route === "delegate") return prediction.domain === "coding" ? "firstmate"
+    : prediction.domain && prediction.domain !== "general" ? "flyd" : null;
+  return prediction.needsCode === false ? "flyd" : null;
+}
+async function defaultDeskPrediction(text: string, recent: ConversationMessage[]): Promise<DeskPrediction | null> {
+  if (process.env.VITEST) return null;
+  const { routeWithJev } = await import("../runtime/turn-plan.js");
+  return routeWithJev(text, recent.map((message) => ({
+    role: message.role, content: (message.aside ? "Firstmate update: " : "") + message.text,
+  })));
+}
 
 const ROUTE_TIMEOUT_MS = 8_000;
 const RECENT_FOR_ROUTE = 4;
@@ -30,7 +53,7 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
   return [
     "George is talking to Flyd, his personal assistant, in Flyd's conversation window.",
     "Flyd answers everything that is not software work itself, from its own memory of him and the web: questions about his own life and history (where he studied, worked or lived, people he knows, what he said or did before), his calendar and plans, travel, places, facts, the news, writing, his day.",
-    "Firstmate is the engineering lead who runs his software fleet. It takes requests about code, repositories, pull requests, builds, bugs, deployments, Flyd or firstmate themselves, crew workers, and any reply to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\").",
+    "Firstmate is the engineering lead who runs his software fleet. It takes requests that require inspecting or changing code, repositories, pull requests, builds, bugs, deployments or crew work, and replies to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\"). Mere discussion of software, Flyd or firstmate is Flyd's unless inspecting the code or work state is needed. Planning-only requests keep their no-implementation constraint.",
     context ? `Recent conversation:\n${context}` : "",
     `New message from George: ${text.replace(/\s+/g, " ").slice(0, 1_000)}`,
     "Who should handle it? Answer with exactly one word: FLYD or FIRSTMATE.",
@@ -43,22 +66,59 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
  * work request is never dropped on the floor.
  */
 export async function routeMessage(
-  input: { text: string; images: number; command?: string; recent: ConversationMessage[] },
+  input: { text: string; images: number; command?: string; recent: ConversationMessage[]; sessionId?: string },
   complete: Complete,
   timeoutMs = ROUTE_TIMEOUT_MS,
+  options: DeskRoutingOptions = {},
 ): Promise<Route> {
   if (input.command || input.images > 0 || !input.text.trim()) return "firstmate";
+  const started = Date.now();
+  const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");
+  const fast = mode === "off" ? null : await (options.predict ?? defaultDeskPrediction)(input.text, input.recent).catch(() => null);
+  const candidate = deskOwnerFor(fast);
+  const prompt = routePrompt(input.text, input.recent);
+  const record = (owner: Route, source: string, fallbackReason?: string): void => {
+    if (process.env.FLYD_ROUTING_LEARNING === "0") return;
+    const trace: RoutingTrace = {
+      version: 1, surface: "desk", at: new Date().toISOString(),
+      sessionId: input.sessionId ?? "desk-unknown",
+      input: safeRoutingValue({ text: input.text, fallbackPrompt: prompt,
+        ...(fast?.evidence?.input ?? { conversation_recap: input.recent.slice(-4) }),
+      }) as Record<string, unknown>,
+      contextComplete: true, policyVersion: routingHash(["desk.routing.v2", fast?.evidence?.policyVersion, mode]),
+      observed: { owner }, source, latencyMs: Date.now() - started,
+      ...(fast ? { confidence: fast.confidence, model: fast.evidence?.model, judgments: fast.evidence?.judgments } : {}),
+      models: { ...(fast?.evidence?.model ? { jev: fast.evidence.model } : {}), ...(source !== "jev" ? { fallback: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "incumbent-desk-classifier" } : {}) },
+      ...(candidate ? { candidate: { owner: candidate } } : {}),
+      ...(fallbackReason ? { fallbackReason } : {}),
+    };
+    // Detached, bounded local capture: never delays dispatch or turns a send
+    // into an error; an injected collector is also isolated.
+    void Promise.resolve().then(async () => {
+      if (options.collect) await options.collect(trace);
+      else if (!process.env.VITEST) {
+        const { FLYD_DIR } = await import("../lib/config.js");
+        collectRoutingCase(FLYD_DIR, randomBytes(16).toString("hex"), trace);
+      }
+    }).catch(() => undefined);
+  };
+  if (mode === "live" && candidate) { record(candidate, "jev"); return candidate; }
   let timer: NodeJS.Timeout | undefined;
   try {
     const answer = await Promise.race([
-      complete(routePrompt(input.text, input.recent)),
+      complete(prompt),
       new Promise<string>((resolve) => {
         timer = setTimeout(() => resolve(""), timeoutMs);
       }),
     ]);
-    return /^\W*flyd\b/i.test(answer.trim()) ? "flyd" : "firstmate";
+    const valid = /^(?:FLYD|FIRSTMATE)[.!]?$/i.test(answer.trim());
+    const owner = valid ? /^flyd/i.test(answer.trim()) ? "flyd" : "firstmate" : mode === "live" ? "flyd" : "firstmate";
+    record(owner, valid ? "llm" : "incumbent_failure", !valid ? "fallback_failed" : candidate && mode === "shadow" ? "shadow_only" : fast ? "uncertain_route_or_domain" : "jev_unavailable");
+    return owner;
   } catch {
-    return "firstmate";
+    const owner = mode === "live" ? "flyd" : "firstmate";
+    record(owner, "incumbent_failure", "fallback_failed");
+    return owner;
   } finally {
     if (timer) clearTimeout(timer);
   }

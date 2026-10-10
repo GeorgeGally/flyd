@@ -9,6 +9,7 @@ import { TURN_ROUTES, type TurnRoute } from "./turn-plan.js";
 // here as private notes; Flyd decides whether any belongs in this moment.
 
 export type RoomNeed = "vent" | "think" | "decide" | "do" | "ask" | "chat";
+export const ROOM_RUBRIC_VERSION = "room-read.v2";
 
 export interface RoomRead {
   need: RoomNeed;
@@ -94,8 +95,8 @@ export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "no
       use: Array.isArray(raw.use) ? raw.use.map(String).filter((id) => known.has(id)).slice(0, 4) : [],
       raise: typeof raw.raise === "string" && noteIds.has(raw.raise) ? raw.raise : null,
       act: typeof raw.act === "string" && raw.act.trim() ? clip(raw.act.trim(), 300) : null,
-      // A reading without a route falls back to the need: only "do" acts.
-      route: TURN_ROUTES.includes(raw.route as TurnRoute) ? raw.route as TurnRoute : raw.need === "do" ? "act" : "answer",
+      // A malformed action reading cannot establish authority to mutate.
+      route: TURN_ROUTES.includes(raw.route as TurnRoute) ? raw.route as TurnRoute : raw.need === "do" ? "clarify" : "answer",
       cover: Array.isArray(raw.cover) ? raw.cover.map((item) => clip(String(item ?? "").trim(), 160)).filter(Boolean).slice(0, 3) : [],
     };
   } catch {

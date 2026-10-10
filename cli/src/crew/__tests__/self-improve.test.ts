@@ -71,6 +71,14 @@ describe("parseImprovement", () => {
 });
 
 describe("runSelfImprovement", () => {
+  it("audits routing even when there are no fresh complaints", async () => {
+    const routingAudit = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => JSON.stringify({ improvement: null }));
+    const result = await runSelfImprovement({ complete, routingAudit, flydDir: home, now: () => NOW });
+    expect(result.status).toBe("no_new_evidence");
+    expect(routingAudit).toHaveBeenCalledTimes(1);
+    expect(complete).not.toHaveBeenCalled();
+  });
   const complete = vi.fn(async () => JSON.stringify({ improvement: {
     title: "Check the calendar for day questions", outcome: "Add a prompt rule and test", why: "George had to ask twice", evidence: ["fix:f1"],
   } }));

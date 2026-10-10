@@ -18,7 +18,9 @@
     "evals": "vitest run --config vitest.evals.config.ts",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run build",
-    "evals:chat": "tsx src/evals/chat/run.ts"
+    "evals:chat": "tsx src/evals/chat/run.ts",
+    "routing": "tsx scripts/routing-learning.ts",
+    "test:routing-learning": "node --experimental-transform-types --test scripts/routing-learning.selftest.mjs"
   },
   "files": [
     "dist",

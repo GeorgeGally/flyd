@@ -161,8 +161,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const command = matchCommand(text, await this.commands());
     if (this.desk) {
       const route = await routeMessage(
-        { text, images: images?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [] },
-        this.desk.complete,
+        { text, images: images?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId },
+        process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
+          ? async (prompt) => {
+            const { query } = await import("../lib/llm.js");
+            return query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL);
+          }
+          : this.desk.complete,
       );
       if (route === "flyd") return this.desk.desk.ask(text);
       try {

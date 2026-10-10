@@ -2,6 +2,21 @@ import { gatherEvidence, runSelfImprovement, selfImproveStatus } from "../crew/s
 
 export async function runImproveCommand(action = "status", options: { force?: boolean } = {}): Promise<void> {
   switch (action) {
+    case "routing-import": {
+      const [{ FLYD_DIR }, { importRoutingReceipts }] = await Promise.all([import("../lib/config.js"), import("../runtime/routing-learning.js")]);
+      process.stdout.write(JSON.stringify(importRoutingReceipts(FLYD_DIR)) + "\n");
+      return;
+    }
+    case "routing-audit": {
+      const { auditRouting } = await import("../runtime/routing-audit-runner.js");
+      process.stdout.write(JSON.stringify(await auditRouting(undefined, true), null, 2) + "\n");
+      return;
+    }
+    case "routing-evaluate": {
+      const [{ FLYD_DIR }, { evaluateRouting }] = await Promise.all([import("../lib/config.js"), import("../runtime/routing-learning.js")]);
+      process.stdout.write(JSON.stringify({ incumbent: evaluateRouting(FLYD_DIR), candidate: evaluateRouting(FLYD_DIR, "candidate") }, null, 2) + "\n");
+      return;
+    }
     case "status": {
       const { lastRunAt, attempts } = selfImproveStatus();
       const [{ listTasks, describeTask }, { listDomainRuns }] = await Promise.all([

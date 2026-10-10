@@ -1,5 +1,6 @@
-import { evaluatePredicates, JEV_PINNED_MODEL } from "../cognition/system-one/jev.js";
-import { familyEgress, predicateThreshold, questionFor } from "../cognition/system-one/registry.js";
+import { evaluatePredicates, JEV_PINNED_MODEL, projectJevState } from "../cognition/system-one/jev.js";
+import { familyEgress, predicateThreshold, questionFor, questionFingerprint } from "../cognition/system-one/registry.js";
+import type { RoutingTrace } from "./routing-learning.js";
 import { classifyToolCall, type ActionCategory } from "./tool-policy.js";
 
 // What kind of turn this is, decided once before the loop and enforced by
@@ -42,6 +43,7 @@ export interface RouteReading {
   domainConfidence?: number;
   commandKind?: TurnCommandKind | null;
   commandKindConfidence?: number;
+  evidence?: Pick<RoutingTrace, "input" | "judgments" | "model" | "latencyMs" | "policyVersion">;
 }
 
 export interface TurnPlan {
@@ -174,10 +176,16 @@ export async function routeWithJev(
   // One call: turn shape, domain ownership, active-work relationship, whether code must be opened, and which skill (if any) fits.
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
   const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
-  const result = await evaluatePredicates({ utterance: message, conversation_recap: recap }, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const state = projectJevState({ utterance: message, conversation_recap: recap });
+  const result = await evaluatePredicates(state, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
-  if (!result.ok || !route || !TURN_ROUTES.includes(route)) return null;
+  if (!result.ok || !route || !TURN_ROUTES.includes(route)) return {
+    route: "clarify", confidence: 0, source: "jev", decided: false,
+    needsCode: null, skill: null, raise: null,
+    evidence: { input: state, judgments: { answers: result.answers, error: result.error ?? "invalid_route" },
+      model: result.model, latencyMs: result.latencyMs, policyVersion: questionFingerprint("chat_turn_route") },
+  };
   // Does the turn need his code opened? Yes/no only when Jev is sure; unsure is null.
   const codeThreshold = predicateThreshold("chat_turn_needs_code");
   const p = result.answers[code.id]?.probability;
@@ -208,7 +216,13 @@ export async function routeWithJev(
     && commandKindConfidence >= predicateThreshold("chat_turn_command_kind")
     ? commandKindChoice
     : null;
-  return { route, confidence: answer.confidence, source: "jev", decided: answer.confidence >= predicateThreshold("chat_turn_route"), domain, domainConfidence, commandKind, commandKindConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null };
+  return { route, confidence: answer.confidence, source: "jev",
+    // A confident route cannot establish an uncertain delegation owner.
+    decided: answer.confidence >= predicateThreshold("chat_turn_route") && (route !== "delegate" || (domain !== null && domain !== "general")),
+    domain, domainConfidence, commandKind, commandKindConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null,
+    evidence: { input: state, judgments: result.answers, model: result.model, latencyMs: result.latencyMs,
+      policyVersion: [questionFingerprint("chat_turn_route"), questionFingerprint("chat_turn_domain"), questionFingerprint("chat_turn_command_kind")].join(":") },
+  };
 }
 
 /** Tools that read or change a codebase; out of reach on a turn that isn't about code. */

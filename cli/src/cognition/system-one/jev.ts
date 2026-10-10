@@ -64,6 +64,11 @@ function boundedState(state: Record<string, unknown>): Record<string, unknown> {
   return boundValue(state) as Record<string, unknown>;
 }
 
+/** Expose exactly the redacted projection for private routing replay. */
+export function projectJevState(state: Record<string, unknown>): Record<string, unknown> {
+  return boundedState(state);
+}
+
 /** SHA-256 of the bounded, redacted state exactly as it would leave the machine. */
 export function stateProjectionHash(state: Record<string, unknown>): string {
   return hash(boundedState(state));

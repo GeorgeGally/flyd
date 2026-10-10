@@ -8,6 +8,7 @@ import { normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 import { listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
+import { routingFailureEvidence } from "../runtime/routing-learning.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
 // evidence of where it fell short — /flyd-fix corrections, failed chat
@@ -101,6 +102,9 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   const now = sources.now ?? new Date();
   const since = sources.since ?? new Date(now.getTime() - 14 * 86_400_000).toISOString();
   const evidence: Evidence[] = [];
+  // Provisional judge disagreements never become facts. Reviewed routing
+  // errors and current-policy revalidation failures share this evidence loop.
+  evidence.push(...routingFailureEvidence(flydDir).filter((item) => item.at >= since));
 
   const recorded = new Map(readJsonFiles<{ id: string; recordedAt: string }>(join(flydDir, "fixes")).map(({ value }) => [value.id, value.recordedAt]));
   for (const { value } of readJsonFiles<{ incidentId: string; prompt?: string; rejectedAnswer?: string; expected?: { feedback?: string; failureClasses?: string[] } }>(join(flydDir, "evals", "incidents"))) {
@@ -284,6 +288,8 @@ function awaitingGeorge(tasks: CrewTask[]): CrewTask | DomainRun | undefined {
 
 export interface SelfImproveDependencies {
   complete(prompt: string): Promise<string>;
+  /** Test seam for the read-only audit; production uses its own daily cadence. */
+  routingAudit?: () => Promise<unknown>;
   now?: () => Date;
   dir?: string;
   flydDir?: string;
@@ -319,6 +325,17 @@ export function crewOutcome(improvement: Improvement, evidence: Evidence[]): str
 export async function runSelfImprovement(deps: SelfImproveDependencies): Promise<SelfImproveResult> {
   if (process.env.FLYD_SELF_IMPROVE === "0") return { status: "disabled" };
   const now = (deps.now ?? (() => new Date()))();
+  // Audit on its own cadence even when an improvement is awaiting review or
+  // there are no fresh complaints. Failure must not stop the existing loop.
+  if (process.env.FLYD_ROUTING_LEARNING !== "0") {
+    try {
+      if (deps.routingAudit) await deps.routingAudit();
+      else if (!process.env.VITEST) {
+        const { auditRouting } = await import("../runtime/routing-audit-runner.js");
+        await auditRouting(deps.flydDir ?? FLYD_DIR);
+      }
+    } catch { /* evidence capture is best effort */ }
+  }
   const dir = deps.dir ?? selfImproveDir();
   const state = readState(dir);
   if (!deps.force && state.lastRunAt && now.getTime() - Date.parse(state.lastRunAt) < RUN_EVERY_MS) return { status: "not_due" };

@@ -10,7 +10,8 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
-import { readTheRoom, roomBrief, type RoomInput, type RoomRead } from "./read-the-room.js";
+import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
+import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
 import { honestyRewritePrompt, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
@@ -91,7 +92,7 @@ async function defaultRouteTurn(message: string, history: ConversationInput["his
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
   if (process.env.FLYD_ROOM === "0" || process.env.VITEST) return null;
   const { query } = await import("../lib/llm.js");
-  return readTheRoom(input, (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
+  return readTheRoom(input, (prompt) => query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL, undefined, undefined, undefined, { json: true }));
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
@@ -881,6 +882,7 @@ export async function respondToConversation(
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
   let turnPlan: TurnPlan | null = null;
   let turnSkill: string | null = null;
+  let routingTrace: RoutingTrace | undefined;
   const record = async (
     connection: Pick<ModelConnection, "model" | "providerIdentity">,
     toolCalls: TurnToolCall[],
@@ -929,6 +931,7 @@ export async function respondToConversation(
       toolCalls,
       answer,
       status,
+      ...(routingTrace ? { routing: routingTrace } : {}),
       ...(error ? { error } : {}),
       plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
     });
@@ -994,10 +997,33 @@ export async function respondToConversation(
     }
   }
 
-  const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)({
+  const roomInput: RoomInput = {
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
-  }).catch(() => null);
-  const reading = room ? { route: room.route, source: "llm" as const } : fast;
+  };
+  const fallbackStarted = Date.now();
+  const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)(roomInput).catch(() => null);
+  // An uncertain Jev prediction does not gain authority when the fallback fails.
+  const reading = room ? { route: room.route, source: "llm" as const }
+    : fast?.decided ? fast : unattended ? null : { route: "clarify" as const, source: "llm" as const };
+  if (!unattended && process.env.FLYD_ROUTING_LEARNING !== "0") {
+    const prompt = roomPrompt(roomInput);
+    routingTrace = {
+      version: 1, surface: "runtime", at: roomNow.toISOString(), sessionId: txSession,
+      input: safeRoutingValue({ ...(fast?.evidence?.input ?? {}),
+        message: input.message,
+        ...(!fast?.decided ? { fallbackPrompt: prompt } : { conversation_recap: fast?.evidence?.input.conversation_recap ?? input.history.slice(-4) }),
+      }) as Record<string, unknown>,
+      contextComplete: true, policyVersion: [fast?.evidence?.policyVersion ?? "jev-unavailable", ROOM_RUBRIC_VERSION].join(":"),
+      observed: { route: reading!.route, ...(fast?.decided && fast.domain ? { domain: fast.domain } : {}) },
+      source: room ? "llm" : fast?.decided ? "jev" : "clarify_after_failure",
+      ...(fast ? { confidence: fast.confidence, judgments: fast.evidence?.judgments, model: fast.evidence?.model } : {}),
+      ...(room ? { model: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}),
+      models: { ...(fast?.evidence?.model ? { jev: fast.evidence.model } : {}), ...(!fast?.decided ? { fallback: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}) },
+      ...(fast && fast.confidence > 0 ? { candidate: { route: fast.route, ...(fast.domain ? { domain: fast.domain } : {}) } } : {}),
+      latencyMs: (fast?.evidence?.latencyMs ?? 0) + (room || !fast?.decided ? Date.now() - fallbackStarted : 0),
+      ...(!fast?.decided ? { fallbackReason: fast ? "uncertain_route_or_domain" : "jev_unavailable" } : {}),
+    };
+  }
   const plan = planTurn(reading, room?.cover ?? [], { unattended });
   turnPlan = plan;
   // The one skill that fits this turn, if any: its know-how rides in this turn only.
