@@ -100,7 +100,7 @@ const TOOL_NARRATION = /^(?:I'?m|I am) (?:calling|running|invoking|using) (?:the
 const INTERNALLY = /^I(?:'ve|'m)? (?:checked|checking|ran|running|looked|looking|searched|searching|processed|processing|routed|routing)\b[^.!?]*\binternally(?: and found it)?\s*[.!…]*$/i;
 const OPENING_CLAUSE = /^(.+?)(\s*(?:—|–|-|:|;|\.\.\.|…))\s+(\S.*)$/;
 
-function isNarration(sentence: string): boolean {
+export function isNarration(sentence: string): boolean {
   // Quoting a phrase (no more "Let me check") talks about it; it does not narrate.
   const own = sentence.replace(/"[^"]*"|“[^”]*”/g, "\"\"");
   return HANDOFF.test(own) || STALL.test(own) || TOOL_NARRATION.test(own) || INTERNALLY.test(own);

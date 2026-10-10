@@ -1,4 +1,4 @@
-import { stripInternalNarration } from "../runtime/honesty-check.js";
+import { isNarration, stripInternalNarration } from "../runtime/honesty-check.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Reduces a Claude Code session transcript (one JSON object per line) to the
@@ -206,7 +206,7 @@ const FIRST_PERSON = /^(?:let me|let's|I'?ll|I will|I'?m going to|one moment|pas
 /** The assistant's own words before a tool call, unless they only narrate itself. */
 function narrationLine(raw: string): string | null {
   const line = activityLine(raw);
-  if (!line || FIRST_PERSON.test(line) || stripInternalNarration(line).removed.length) return null;
+  if (!line || FIRST_PERSON.test(line) || isNarration(line) || stripInternalNarration(line).removed.length) return null;
   return line;
 }
 
