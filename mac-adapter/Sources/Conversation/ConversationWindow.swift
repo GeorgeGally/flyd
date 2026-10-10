@@ -341,10 +341,44 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
                 ConversationServer.appendLog("conversation selftest: \(value ?? "nil")")
                 self.logWindowState()
                 self.saveSnapshot(webView)
-                self.voiceSelfTest(webView)
+                self.dropSelfTest(webView) { self.voiceSelfTest(webView) }
             case .failure(let error): ConversationServer.appendLog("conversation selftest failed: \(error)")
             }
         }
+    }
+
+    /// A document dragged in from Finder, through WebKit's own native drop
+    /// path (the pasteboard a Finder drag carries): it should become a chip
+    /// in the message box. Removes it again; nothing is sent.
+    private func dropSelfTest(_ webView: WKWebView, then next: @escaping () -> Void) {
+        let folder = FileManager.default.temporaryDirectory
+        let pdf = folder.appendingPathComponent("flyd-drop-selftest.pdf")
+        try? Data("%PDF-1.3\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n".utf8).write(to: pdf)
+        let png = folder.appendingPathComponent("flyd-drop-selftest.png")
+        try? Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")?.write(to: png)
+        let target = NSPoint(x: webView.bounds.midX, y: 60)
+        let drag = FileDragInfo(files: [pdf, png], at: webView.convert(target, to: nil), window: window)
+        let entered = webView.draggingEntered(drag)
+        var steps = 0
+        func update() {
+            let operation = webView.draggingUpdated(drag)
+            steps += 1
+            // WebKit answers a drag asynchronously; ask again until the page has.
+            guard operation.isEmpty, steps < 10 else {
+                let accepted = !operation.isEmpty && webView.prepareForDragOperation(drag) && webView.performDragOperation(drag)
+                webView.concludeDragOperation(drag)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    let probe = "JSON.stringify({ chips: Array.from(document.querySelectorAll('.attachment')).map((a) => a.querySelector('img') ? 'image' : a.textContent.replace('×', '').trim()), dropping: document.getElementById('composer').classList.contains('dropping') })"
+                    webView.evaluateJavaScript(probe) { result, _ in
+                        ConversationServer.appendLog("conversation drop selftest: entered=\(entered.rawValue) operation=\(operation.rawValue) accepted=\(accepted) page=\(result ?? "nil")")
+                        webView.evaluateJavaScript("document.querySelectorAll('.attachment button').forEach((b) => b.click())") { _, _ in next() }
+                    }
+                }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: update)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: update)
     }
 
     /// Push-to-talk through the same bridge the Fn+Control path uses, without
@@ -459,4 +493,34 @@ enum ConversationMenu {
         NSApp.mainMenu = main
         NSApp.windowsMenu = windowMenu
     }
+}
+
+/// What a Finder drag of files looks like to a drop target: their file URLs
+/// on a private pasteboard. Only the drop selftest uses it.
+private final class FileDragInfo: NSObject, NSDraggingInfo {
+    let draggingPasteboard: NSPasteboard
+    let draggingLocation: NSPoint
+    let draggingDestinationWindow: NSWindow?
+    let draggingSequenceNumber = Int.random(in: 1...Int(Int32.max))
+    var draggingFormation: NSDraggingFormation = .default
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop: Int
+    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+
+    init(files: [URL], at location: NSPoint, window: NSWindow?) {
+        draggingPasteboard = NSPasteboard(name: NSPasteboard.Name("flyd-drop-selftest-\(UUID().uuidString)"))
+        draggingPasteboard.clearContents()
+        draggingPasteboard.writeObjects(files.map { $0 as NSURL })
+        numberOfValidItemsForDrop = files.count
+        draggingLocation = location
+        draggingDestinationWindow = window
+    }
+
+    var draggingSourceOperationMask: NSDragOperation { .copy }
+    var draggedImageLocation: NSPoint { draggingLocation }
+    var draggedImage: NSImage? { nil }
+    var draggingSource: Any? { nil }
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+    func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:], using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+    func resetSpringLoading() {}
 }

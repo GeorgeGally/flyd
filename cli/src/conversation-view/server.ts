@@ -8,7 +8,7 @@ import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource, ImageUpload } from "./types.js";
+import type { ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
@@ -22,7 +22,7 @@ import { ArtefactFeed, type ArtefactInputs } from "./artefact.js";
 export const VIEW_HOST = "127.0.0.1";
 export const DEFAULT_VIEW_PORT = 4818;
 const HEARTBEAT_MS = 15_000;
-/** Text plus up to four pasted screenshots, base64-encoded. */
+/** Text plus up to four attachments (screenshots or documents), base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
@@ -33,6 +33,8 @@ export interface RenderedMessage {
   html: string;
   /** Image ids; the page loads each from /api/image. */
   images?: string[];
+  /** Names of documents attached to the message. */
+  files?: string[];
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
   summary?: { html: string; source: SummarySource | "flyd"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
@@ -177,7 +179,7 @@ export class SnapshotDiffer {
       order.push(message.id);
       seen.add(message.id);
       const expanded = parts.expanded === true;
-      const key = JSON.stringify([message.text, message.images ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.answers, message.aside]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -185,6 +187,7 @@ export class SnapshotDiffer {
         role: message.role,
         html: message.role === "user" ? renderCaptainMarkdown(parts.body) : renderMarkdown(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
+        ...(message.files?.length ? { files: message.files } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
         ...(routine ? { routine: true } : {}),
@@ -432,7 +435,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -443,13 +446,17 @@ export class ConversationViewServer {
     const validImages = Array.isArray(images) && images.every((image) =>
       typeof image === "object" && image !== null &&
       typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
-    if (typeof payload.session !== "string" || typeof payload.text !== "string" || !validImages ||
-        (!payload.text.trim() && (images as ImageUpload[]).length === 0)) {
-      sendJson(res, 400, { error: "expected { session, text, images? }" });
+    const files = payload.files ?? [];
+    const validFiles = Array.isArray(files) && files.every((file) =>
+      typeof file === "object" && file !== null &&
+      typeof (file as FileUpload).name === "string" && typeof (file as FileUpload).data === "string");
+    if (typeof payload.session !== "string" || typeof payload.text !== "string" || !validImages || !validFiles ||
+        (!payload.text.trim() && (images as ImageUpload[]).length === 0 && (files as FileUpload[]).length === 0)) {
+      sendJson(res, 400, { error: "expected { session, text, images?, files? }" });
       return;
     }
     try {
-      sendJson(res, 200, await this.source.send(payload.session, payload.text, images as ImageUpload[]));
+      sendJson(res, 200, await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]));
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }

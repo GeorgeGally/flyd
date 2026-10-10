@@ -63,9 +63,10 @@ describe("routeMessage", () => {
     expect(await routeMessage({ ...input, text: "fix the island filter" }, ask("FIRSTMATE"))).toBe("firstmate");
   });
 
-  it("keeps slash commands, screenshots and anything unsure with firstmate", async () => {
+  it("keeps slash commands, screenshots, documents and anything unsure with firstmate", async () => {
     expect(await routeMessage({ ...input, command: "review" }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, images: 1 }, ask("FLYD"))).toBe("firstmate");
+    expect(await routeMessage({ ...input, files: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage(input, ask(new Error("no key")))).toBe("firstmate");
     expect(await routeMessage(input, ask("maybe"))).toBe("firstmate");
     expect(await routeMessage(input, () => new Promise<string>(() => {}), 20)).toBe("firstmate");

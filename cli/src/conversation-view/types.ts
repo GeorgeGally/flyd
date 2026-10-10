@@ -16,6 +16,8 @@ export interface ConversationMessage {
   text: string;
   /** Opaque ids of images in the message; fetch them with ConversationSource.image. */
   images?: string[];
+  /** Names of documents attached to the message (a PDF, a Word file, notes). */
+  files?: string[];
   /** ISO timestamp, when the source knows it. */
   timestamp?: string;
   /** A captain message with no answer yet: what is happening to it, e.g. "Flyd is thinking…". */
@@ -59,6 +61,12 @@ export interface ImageUpload {
   data: string;
 }
 
+/** A document the captain attaches in the view: its file name and base64 bytes. */
+export interface FileUpload {
+  name: string;
+  data: string;
+}
+
 export interface ImageData {
   mediaType: string;
   data: Buffer;
@@ -96,7 +104,7 @@ export interface ConversationSource {
    * snapshot once the source can read the message back, so the page can
    * swap its optimistic copy for the real one.
    */
-  send(sessionId: string, text: string, images?: ImageUpload[]): Promise<SentMessage>;
+  send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[]): Promise<SentMessage>;
   /** Skills and slash commands the captain can run by typing "/" (empty when the source has none). */
   commands(): Promise<Array<{ name: string; description: string }>>;
   /** Bytes of an image named in a message's `images`, or null when unknown. */

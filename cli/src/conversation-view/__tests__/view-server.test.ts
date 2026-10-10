@@ -251,8 +251,10 @@ describe("ConversationViewServer", () => {
   class MemoryInbox implements CaptainInbox {
     readonly sent: ConversationMessage[] = [];
     readonly uploads: unknown[] = [];
-    async send(text: string, images: unknown[] = []) {
+    readonly documents: unknown[] = [];
+    async send(text: string, images: unknown[] = [], _command?: string, files: unknown[] = []) {
       this.uploads.push(...images);
+      this.documents.push(...files);
       const message = { id: `note:${this.sent.length + 1}`, role: "user" as const, text, timestamp: new Date().toISOString() };
       this.sent.push(message);
       return { id: message.id, timestamp: message.timestamp! };
@@ -417,5 +419,17 @@ describe("ConversationViewServer", () => {
     expect(inbox.uploads).toEqual(images);
     expect((await post(port, JSON.stringify({ session: "s1", text: "", images: [{ mediaType: 1 }] }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ session: "s1", text: "  ", images: [] }), headers)).status).toBe(400);
+  });
+
+  it("passes dropped documents through to the inbox, and accepts a document with no text", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const token = tokenOf((await get(port, "/")).body);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": token };
+    const files = [{ name: "brief.pdf", data: Buffer.from("%PDF-1.3").toString("base64") }];
+    expect((await post(port, JSON.stringify({ session: "s1", text: "", files }), headers)).status).toBe(200);
+    expect(inbox.documents).toEqual(files);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "", files: [{ name: 1, data: "" }] }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", text: " ", files: [] }), headers)).status).toBe(400);
   });
 });

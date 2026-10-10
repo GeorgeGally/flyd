@@ -177,10 +177,46 @@ describe("conversation page", () => {
 
     await type("");
     const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "", images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }] });
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "", images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }], files: [] });
     expect(document.querySelectorAll(".attachment")).toHaveLength(0);
     expect(document.querySelectorAll(".msg.pending .shot img")).toHaveLength(1);
     void stream;
+  });
+
+  it("attaches a document dropped from Finder as a removable chip and sends it under its own name", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>the brief</p>", files: ["Brief v2.pdf"] } as never]);
+    expect(document.querySelector(".msg.user .doc")?.textContent).toBe("PDFBrief v2.pdf");
+
+    const drop = (files: File[]): void => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { files } });
+      document.body.dispatchEvent(event);
+    };
+    const pdf = new File(["%PDF-1.3 hello"], "Q3 report.pdf", { type: "application/pdf" });
+    const notes = new File(["# notes"], "notes.md", { type: "" });
+    drop([pdf, new File(["MZ"], "setup.exe", { type: "application/x-msdownload" })]);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    expect(Array.from(document.querySelectorAll(".attachment.file .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf"]);
+    expect(document.getElementById("problem")!.textContent).toContain("setup.exe");
+    expect((document.getElementById("send") as HTMLButtonElement).disabled).toBe(false);
+
+    (document.querySelector(".attachment.file button") as HTMLButtonElement).click();
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
+    expect((document.getElementById("send") as HTMLButtonElement).disabled).toBe(true);
+
+    drop([pdf, notes]);
+    for (let i = 0; i < 20 && document.querySelectorAll(".attachment.file").length < 2; i += 1) await settle();
+    await type("read these");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
+      session: "latest",
+      text: "read these",
+      images: [],
+      files: [{ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }, { name: "notes.md", data: btoa("# notes") }],
+    });
+    expect(Array.from(document.querySelectorAll(".msg.pending .doc .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf", "notes.md"]);
   });
 
   it("blips once for a message that went out, and stays quiet when it did not", async () => {

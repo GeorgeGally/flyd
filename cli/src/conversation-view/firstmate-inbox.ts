@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
+import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
 // The captain's way to talk to firstmate from the view: firstmate's own
 // intake, `bin/fm-inbox.sh note`, which stores the message durably under
@@ -14,7 +14,9 @@ import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage
 //
 // Images the captain pastes are saved under $FM_HOME/data/inbox-images and
 // named in the note as "[image: /absolute/path]" lines, so firstmate can
-// open them; the view turns those lines back into thumbnails.
+// open them; the view turns those lines back into thumbnails. Documents
+// (a PDF, a Word file, notes) go the same way: saved under
+// $FM_HOME/data/inbox-files/<stamp>/<their own name>, named as "[file: /path]".
 //
 // Firstmate answers a note with `fm-inbox.sh reply <id>`, which records the
 // answer as state/inbox/.replies/<id>. That reply, and nothing else firstmate
@@ -31,7 +33,7 @@ export function commandMarker(name: string): string {
 const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
 
 export interface CaptainInbox {
-  send(text: string, images?: ImageUpload[], command?: string): Promise<SentMessage>;
+  send(text: string, images?: ImageUpload[], command?: string, files?: FileUpload[]): Promise<SentMessage>;
   /** Every note the captain has sent, pending or already read by firstmate, with its reply; oldest first. */
   notes(): Exchange[];
   /** A saved image a note names, by the id `notes()` gave it. */
@@ -43,6 +45,41 @@ export const MAX_NOTE_CHARS = 8_000;
 export const MAX_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpg|gif|webp)$/;
+export const MAX_FILES = 4;
+export const MAX_FILE_BYTES = 12 * 1024 * 1024;
+/** A saved document's place under the files folder: "<stamp>/<name>". */
+const FILE_PLACE = /^\d+-[0-9a-f]+\/[^/.][^/]*$/;
+
+/** Documents firstmate can read, by extension; each checked by its bytes where the format has a signature. */
+const ZIP = (b: Buffer): boolean => b.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+const OLE = (b: Buffer): boolean => b.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+const TEXT = (b: Buffer): boolean => !b.includes(0);
+const DOCUMENT_TYPES: Record<string, (b: Buffer) => boolean> = {
+  pdf: (b) => b.subarray(0, 5).toString("latin1") === "%PDF-",
+  docx: ZIP, xlsx: ZIP, pptx: ZIP, odt: ZIP, ods: ZIP, odp: ZIP,
+  doc: OLE, xls: OLE, ppt: OLE,
+  rtf: (b) => b.subarray(0, 5).toString("latin1") === "{\\rtf",
+  txt: TEXT, md: TEXT, markdown: TEXT, csv: TEXT, tsv: TEXT, json: TEXT, yaml: TEXT, yml: TEXT, xml: TEXT, html: TEXT, htm: TEXT, log: TEXT,
+};
+
+/** The documents the view lets him attach, by extension. */
+export const DOCUMENT_EXTENSIONS = Object.keys(DOCUMENT_TYPES);
+
+/** The extension a document is accepted under, or null. */
+export function documentExtension(name: string): string | null {
+  const ext = extname(name).slice(1).toLowerCase();
+  return Object.hasOwn(DOCUMENT_TYPES, ext) ? ext : null;
+}
+
+/** A dropped file's own name, made safe to save: no folders, no control or path characters. */
+function safeFileName(name: string, ext: string): string {
+  const stem = basename(name.replace(/\\/g, "/"), extname(name))
+    .replace(/[^\p{L}\p{N} ._()+-]/gu, "_")
+    .replace(/^[.\s]+/, "")
+    .trim()
+    .slice(0, 100);
+  return `${stem || "document"}.${ext}`;
+}
 
 /** Accepted image types, recognised by their bytes rather than the claimed type. */
 const IMAGE_TYPES: Array<{ mediaType: string; ext: string; matches: (b: Buffer) => boolean }> = [
@@ -70,12 +107,13 @@ function parseRecord(file: string): { header: Map<string, string>; body: string 
   return { header, body: raw.slice(split + 4).replace(/\n$/, "") };
 }
 
-function parseNote(file: string, imagesDir: string): ConversationMessage | null {
+function parseNote(file: string, imagesDir: string, filesDir: string): ConversationMessage | null {
   const record = parseRecord(file);
   if (!record) return null;
   const id = record.header.get("id");
   const at = record.header.get("at");
   const images: string[] = [];
+  const files: string[] = [];
   const text = record.body
     .replace(COMMAND_MARKER, "")
     .replace(/^\[image: (.+)\]$/gm, (line, path: string) => {
@@ -84,9 +122,15 @@ function parseNote(file: string, imagesDir: string): ConversationMessage | null 
       images.push(`f${name}`);
       return "";
     })
+    .replace(/^\[file: (.+)\]$/gm, (line, path: string) => {
+      const place = path.slice(filesDir.length + 1);
+      if (!path.startsWith(`${filesDir}/`) || !FILE_PLACE.test(place)) return line;
+      files.push(basename(place));
+      return "";
+    })
     .trim();
-  if (!id || !at || (!text && images.length === 0)) return null;
-  return { id: `note:${id}`, role: "user", text, timestamp: at, ...(images.length ? { images } : {}) };
+  if (!id || !at || (!text && images.length === 0 && files.length === 0)) return null;
+  return { id: `note:${id}`, role: "user", text, timestamp: at, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) };
 }
 
 function parseReply(file: string): ConversationMessage | null {
@@ -142,6 +186,30 @@ export class FirstmateInbox implements CaptainInbox {
     });
   }
 
+  get filesDir(): string {
+    return join(this.home, "data", "inbox-files");
+  }
+
+  /** Checks and saves dropped documents under their own names; returns their absolute paths. */
+  private saveFiles(files: FileUpload[]): string[] {
+    if (files.length > MAX_FILES) throw new Error(`At most ${MAX_FILES} documents per message`);
+    const decoded = files.map((file) => {
+      const ext = documentExtension(file.name);
+      if (!ext) throw new Error(`${file.name}: only PDFs, text, Markdown, Word, Excel and PowerPoint files can be sent`);
+      const bytes = Buffer.from(file.data, "base64");
+      if (bytes.length === 0 || bytes.length > MAX_FILE_BYTES) throw new Error(`Documents must be under ${MAX_FILE_BYTES / (1024 * 1024)}MB`);
+      if (!DOCUMENT_TYPES[ext]!(bytes)) throw new Error(`${file.name} is not a ${ext.toUpperCase()} file`);
+      return { bytes, name: safeFileName(file.name, ext) };
+    });
+    return decoded.map(({ bytes, name }) => {
+      const folder = join(this.filesDir, `${Date.now()}-${randomBytes(4).toString("hex")}`);
+      mkdirSync(folder, { recursive: true, mode: 0o700 });
+      const path = join(folder, name);
+      writeFileSync(path, bytes, { mode: 0o600, flag: "wx" });
+      return path;
+    });
+  }
+
   image(imageId: string): ImageData | null {
     const name = imageId.startsWith("f") ? imageId.slice(1) : "";
     if (!IMAGE_NAME.test(name)) return null;
@@ -153,17 +221,20 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
-  send(text: string, images: ImageUpload[] = [], command?: string): Promise<SentMessage> {
+  send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = []): Promise<SentMessage> {
     const typed = text.trim();
-    if (!typed && images.length === 0) return Promise.reject(new Error("Nothing to send"));
+    if (!typed && images.length === 0 && files.length === 0) return Promise.reject(new Error("Nothing to send"));
     if (typed.length > MAX_NOTE_CHARS) return Promise.reject(new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`));
     let paths: string[];
+    let filePaths: string[];
     try {
       paths = this.saveImages(images);
+      filePaths = this.saveFiles(files);
     } catch (error) {
       return Promise.reject(error);
     }
-    const body = [typed, paths.map((path) => `[image: ${path}]`).join("\n"), command ? commandMarker(command) : ""]
+    const attached = [...paths.map((path) => `[image: ${path}]`), ...filePaths.map((path) => `[file: ${path}]`)].join("\n");
+    const body = [typed, attached, command ? commandMarker(command) : ""]
       .filter(Boolean)
       .join("\n\n");
     return new Promise((resolve, reject) => {
@@ -208,7 +279,7 @@ export class FirstmateInbox implements CaptainInbox {
     for (const [name, path] of present) {
       if (this.parsed.has(name)) continue;
       try {
-        this.parsed.set(name, parseNote(path, this.imagesDir));
+        this.parsed.set(name, parseNote(path, this.imagesDir, this.filesDir));
       } catch {
         // Moved to handled/ between listing and reading; read it next time.
         unreadable = true;
