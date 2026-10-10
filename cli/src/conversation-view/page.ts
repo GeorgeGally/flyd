@@ -66,6 +66,19 @@ header button {
   height: 28px; padding: 0 8px; cursor: pointer; white-space: nowrap; transition: color 140ms ease;
 }
 header button[aria-pressed="true"] { color: var(--accent); }
+/* A switch: its word, then a small track whose knob and fill say on or off at a glance. */
+header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+header button[role="switch"] .track {
+  position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px;
+  background: color-mix(in srgb, var(--muted) 34%, transparent); transition: background-color 180ms ease;
+}
+header button[role="switch"] .track::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); transition: transform 220ms cubic-bezier(.3,1.4,.5,1), background-color 180ms ease;
+}
+header button[role="switch"][aria-checked="true"] { color: var(--strong); }
+header button[role="switch"][aria-checked="true"] .track { background: var(--accent); }
+header button[role="switch"][aria-checked="true"] .track::after { transform: translateX(12px); background: var(--bg); }
 header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 0; white-space: nowrap; }
 header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 header .air.on { color: var(--k-live, var(--accent)); }
@@ -84,16 +97,18 @@ header select:hover { background-color: var(--tint); }
 header select option { color: var(--fg); background: var(--bg); }
 header button:hover { color: var(--fg); }
 header button[aria-pressed="true"]:hover { color: color-mix(in srgb, var(--accent) 80%, var(--strong)); }
+header button[role="switch"][aria-checked="true"]:hover { color: var(--strong); }
 header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 `;
 
 /*
- * Artefact view: Flyd's overview. One screen of boxes, laid out by Core
- * (boxes.ts): the calls only he can make lead, then what Flyd sees coming,
- * then the stories with their screenshots, then the instruments (weather,
- * plan usage, the week, where the work stands). A box can hold boxes. Under it
- * all, the terminal's last lines and the message box stay live. No frames:
- * colour and type carry it.
+ * Artefact view: Flyd on TV. One scene holds the screen at a time: a big
+ * headline in Flyd's words, the sentence that says what it means for him, and
+ * the work's screenshot large beside it. The scenes take turns like title
+ * cards, the calls only he can make first. Under them a row of small readouts
+ * (weather, plan, the week, where the work stands) flickers in. Nothing framed:
+ * colour, type and motion carry it. The conversation stays live underneath,
+ * one switch away.
  */
 const SHOW_STYLE = `
 :root {
@@ -117,136 +132,155 @@ const SHOW_STYLE = `
   --k-next: #8b8880;
   --k-news: #2b2b2e;
 }
-:root[data-screen="show"] main, :root[data-screen="show"] .jump { display: none; }
+:root[data-screen="show"] main, :root[data-screen="show"] .jump, :root[data-screen="show"] .composer { display: none; }
 :root[data-screen="show"] .problem { z-index: 7; }
-/* The header stays: the same toggles in both modes, over the screen. */
-:root[data-screen="show"] header { z-index: 7; background: color-mix(in srgb, var(--screen) 88%, transparent); }
+/* The header stays: the same switches in both modes, over the screen. */
+:root[data-screen="show"] header { z-index: 7; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 :root[data-screen="show"] header .picker, :root[data-screen="show"] header #mode { display: none; }
 :root[data-screen="show"] header .air { display: inline-flex; }
 
 .show {
-  position: fixed; inset: 0; z-index: 6; overflow-y: auto;
+  position: fixed; inset: 0; z-index: 6; overflow: hidden;
+  display: flex; flex-direction: column;
+  padding: 52px clamp(28px, 6vw, 104px) 0;
   color: var(--fg); background: var(--screen);
 }
 .show[hidden] { display: none; }
-.show.power { animation: show-in 260ms ease both; }
-.show.off { animation: show-out 150ms ease both; }
+.show.power { animation: show-in 320ms ease both; }
+.show.off { animation: show-out 160ms ease both; }
 @keyframes show-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
+.show > * { width: 100%; max-width: 1480px; margin-left: auto; margin-right: auto; }
 
-/* The overview: Flyd's boxes on one screen, the terminal as a strip under them. */
-.dash {
-  width: 100%; max-width: 1360px; margin: 0 auto;
-  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 34px 48px; align-content: start;
-  padding: 76px clamp(24px, 5vw, 72px) 40px;
+/* The stage: one scene, centred, the same room above and below it. */
+.tv { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: clamp(20px, 5vh, 64px) 0; }
+.scene { --k: var(--k-news); display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: clamp(36px, 4.5vw, 88px); }
+.scene.has-shot { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); }
+.scene-text { min-width: 0; }
+.scene-head {
+  margin: 0; max-width: 14em; font: 800 clamp(40px, 5.6vw, 96px)/1.02 var(--display); letter-spacing: -0.032em;
+  color: var(--strong); text-wrap: balance; overflow-wrap: anywhere;
 }
-.box { --k: var(--muted); min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.box.lead, .box.wide { grid-column: 1 / -1; }
-.box.main { grid-column: span 8; }
-.box.side { grid-column: span 4; }
-.box.small { grid-column: span 4; }
-.box > .why { margin: 0; font: 500 12px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--k); }
-.box > .title { margin: 0; font: 700 24px/1.2 var(--display); letter-spacing: -0.01em; color: var(--strong); text-wrap: balance; overflow-wrap: anywhere; }
-.box > .line { margin: 0; max-width: 40em; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
-.box > .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
-.box > .meta .project { color: var(--fg); }
-.box > .meta a { color: var(--link); text-decoration: none; }
-.box > .meta a:hover { color: var(--strong); }
-.box[data-ref] > .title { cursor: pointer; }
-.box[data-ref] > .title:hover { color: color-mix(in srgb, var(--strong) 82%, var(--k)); }
-.box > .inner { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 32px; margin-top: 8px; }
-.box > .inner > .box.lead, .box > .inner > .box.wide { grid-column: 1 / -1; }
-.box > .inner > .box.small { grid-column: span 1; }
-.box.side > .inner { grid-template-columns: minmax(0, 1fr); gap: 30px; }
-.box.side > .inner > .box.small { grid-column: 1 / -1; }
-.box.main > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.box.k-warn { --k: var(--k-waiting); }
-/* A group's own title is quiet; what is in it speaks. */
-.box.group > .title { font: 500 12px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.box.group.lead > .title { color: var(--k); font-weight: 600; }
-.box.call > .title { font-size: clamp(28px, 3vw, 46px); line-height: 1.08; letter-spacing: -0.02em; }
-.box.call.has-shots > .inner, .box.story.has-shots > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.box.alert > .title { font-size: 19px; line-height: 1.3; color: var(--k); }
-.box.small > .title { font-size: 19px; }
-.box.note > .title { font-size: clamp(30px, 3.4vw, 48px); line-height: 1.1; letter-spacing: -0.02em; }
-.box.note > .line { color: var(--muted); }
-.box.shot img { width: 100%; max-height: 44vh; object-fit: cover; object-position: top; border-radius: 6px; cursor: zoom-in; display: block; }
-.box.shot > .why, .box.shot > .title { display: none; }
-/* Instruments: drawn, not framed. */
-.bars { display: flex; align-items: flex-end; gap: 8px; height: 52px; }
-.bars .bar { flex: 1; min-width: 6px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; }
-.bars .bar i { width: 100%; min-height: 2px; background: var(--k); border-radius: 2px; opacity: 0.9; }
-.bars .bar.none i { opacity: 0.25; }
-.bars .bar span { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; }
-.bars .bar b { font: 600 12px/1 var(--mono); color: var(--strong); }
-.gauges { display: flex; flex-direction: column; gap: 12px; }
-.gauge2 { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3em; align-items: center; gap: 10px; font: 500 13px/1.2 var(--mono); color: var(--muted); }
-.gauge2 .track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 12%, transparent); overflow: hidden; }
-.gauge2 .track i { display: block; height: 100%; background: var(--k-live); }
-.gauge2.low .track i { background: var(--k-waiting); }
-.gauge2 b { color: var(--strong); text-align: right; }
-.hours { display: flex; align-items: flex-end; gap: 4px; height: 48px; }
-.hours .h { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; }
-.hours .h i { width: 100%; background: var(--k-news); opacity: 0.55; border-radius: 2px; }
-.hours .h.wet i { background: var(--k-live); opacity: 0.95; }
-.hours .h span { font: 500 10px/1 var(--mono); color: var(--muted); }
-/* The terminal, its last few lines, over the message box. */
-/* The dock: the terminal strip and the message box. The overview scrolls above it, never under it. */
-:root[data-screen="show"] { --dock: 244px; }
-:root[data-screen="show"] .show { bottom: var(--dock); }
-:root[data-screen="show"] .composer { padding: 10px 0 22px; background: var(--screen); }
-:root[data-screen="show"]::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: var(--dock); background: var(--screen); z-index: 5; }
-.strip {
-  position: fixed; left: 0; right: 0; bottom: 108px; z-index: 7;
-  max-width: 972px; margin: 0 auto; padding: 0 40px;
-  display: flex; flex-direction: column; gap: 6px; cursor: pointer;
-  font: 400 14px/1.45 var(--mono); color: var(--muted);
+.scene-head.long { max-width: 18em; font-size: clamp(32px, 4vw, 64px); line-height: 1.06; letter-spacing: -0.026em; }
+.scene.has-shot .scene-head { font-size: clamp(34px, 3.9vw, 66px); }
+.scene.has-shot .scene-head.long { font-size: clamp(28px, 2.9vw, 46px); }
+.scene-head[role="button"] { cursor: pointer; }
+.scene-head[role="button"]:hover { color: color-mix(in srgb, var(--strong) 80%, var(--k)); }
+.scene-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 8px; border-radius: 6px; }
+.scene-line { margin: 30px 0 0; max-width: 31em; font: 400 clamp(18px, 1.45vw, 23px)/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+.scene-line:empty { display: none; }
+.scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
+.scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--k); }
+.scene-meta .project { color: var(--fg); }
+.scene-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
+.scene-meta a:hover { color: var(--strong); }
+/* The screenshot at its own shape, as large as the stage allows: never cropped. */
+.scene-shot { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.scene-shot .main {
+  display: block; width: auto; height: auto; max-width: 100%; max-height: min(58vh, calc(100vh - 420px));
+  min-height: 120px; object-fit: contain; border-radius: 10px; cursor: zoom-in;
 }
-.strip:empty { display: none; }
-.strip p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.strip p.user { color: var(--fg); }
-.strip p.user::before { content: "› "; color: var(--accent); }
-.strip:hover p { color: var(--fg); }
-.strip .doing { margin-top: 2px; }
-:root[data-screen="show"] .composer { z-index: 7; }
+.scene-shot .thumbs { display: flex; gap: 10px; }
+.scene-shot .thumbs img {
+  width: 72px; height: 46px; object-fit: contain; border-radius: 5px; cursor: pointer;
+  opacity: 0.45; transition: opacity 140ms ease;
+}
+.scene-shot .thumbs img:hover, .scene-shot .thumbs img.on { opacity: 1; }
+
+/* Title-card motion: the old scene lifts away, the new one rises in, headline first. */
+.scene.out > * { animation: scene-out 220ms ease both; }
+.scene.in .scene-head { animation: scene-in 620ms cubic-bezier(.16,1,.3,1) both; }
+.scene.in .scene-line { animation: scene-in 620ms cubic-bezier(.16,1,.3,1) 90ms both; }
+.scene.in .scene-meta { animation: scene-fade 520ms ease 180ms both; }
+.scene.in .scene-shot { animation: shot-in 700ms cubic-bezier(.16,1,.3,1) 60ms both; }
+@keyframes scene-out { to { opacity: 0; transform: translateY(-12px); } }
+@keyframes scene-in { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shot-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Which scene is up, and how long until the next: one short line each. */
+.ticks { display: flex; flex-wrap: wrap; gap: 10px; min-height: 14px; margin-bottom: clamp(28px, 5vh, 48px); }
+.ticks[hidden] { display: none; }
+.ticks button { position: relative; width: 30px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
+.ticks button::before, .ticks button::after { content: ""; position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; }
+.ticks button::before { right: 0; background: var(--k); opacity: 0.3; }
+.ticks button::after { width: 0; background: var(--k); }
+.ticks button.on::after { width: 100%; transition: width var(--dwell, 9s) linear; }
+.ticks button.on.held::after { transition: none; }
+.ticks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The readouts: small, white, drawn rather than framed; each flickers in. */
+.readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 300px)); gap: 28px clamp(40px, 5vw, 80px); padding-bottom: 26px; }
+.readouts:empty { display: none; }
+.ro { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.ro-label { font: 500 11px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.ro-value { font: 600 17px/1.25 var(--display); color: var(--strong); overflow-wrap: anywhere; }
+.ro-cols { display: flex; align-items: flex-end; gap: 4px; height: 30px; }
+.ro-cols { justify-content: space-between; }
+.ro-cols i { flex: 0 1 6px; min-width: 2px; background: var(--strong); opacity: 0.85; border-radius: 1px; }
+.ro-cols i.none { opacity: 0.18; }
+.ro-cols i.wet { background: var(--k-live); opacity: 1; }
+.ro-axis { display: flex; justify-content: space-between; gap: 4px; margin-top: -3px; font: 500 10px/1 var(--mono); color: var(--muted); }
+.ro-axis span { flex: 0 1 6px; min-width: 0; display: flex; justify-content: center; white-space: nowrap; }
+.ro-rows { display: flex; flex-direction: column; gap: 9px; }
+.ro-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; font: 500 12px/1.2 var(--mono); color: var(--muted); }
+.ro-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-row b { font-weight: 600; color: var(--strong); font-variant-numeric: tabular-nums; }
+.ro-row .track { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 14%, transparent); overflow: hidden; }
+.ro-row .track i { display: block; height: 100%; background: var(--strong); }
+.ro-row.low .track i { background: var(--k-waiting); }
+.ro-split { display: flex; gap: 3px; height: 4px; }
+.ro-split i { min-width: 3px; border-radius: 2px; background: var(--k); }
+.ro-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 12px/1.4 var(--mono); color: var(--muted); }
+.ro-legend b { font-weight: 600; color: var(--k); }
+.ro.flick { animation: flick 900ms steps(6, jump-none) both; animation-delay: var(--d, 0ms); }
+@keyframes flick { 0% { opacity: 0; } 30% { opacity: 1; } 45% { opacity: 0.15; } 60%, 100% { opacity: 1; } }
+
+/* The foot: what Flyd is doing, and how to talk to it. */
+.foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
+.foot .hint { font: 500 12px/1.4 var(--mono); color: var(--muted); }
 .k-call { --k: var(--k-call); } .k-live { --k: var(--k-live); } .k-ready { --k: var(--k-ready); }
-.k-landed { --k: var(--k-landed); } .k-waiting { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
+.k-landed { --k: var(--k-landed); } .k-waiting, .k-warn { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
 .k-news, .k-clear { --k: var(--k-news); }
 .doing { margin: 0; display: flex; align-items: center; gap: 10px; font: 500 13px/1.4 var(--mono); color: var(--muted); }
 .doing::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 .doing.on { color: var(--k-live); }
 .doing.on::before { background: var(--k-live); opacity: 1; animation: blink 1.6s steps(2, jump-none) infinite; }
 @keyframes blink { 50% { opacity: 0.2; } }
-.box.fresh { animation: box-in 420ms cubic-bezier(.2,.8,.2,1) both; }
-@keyframes box-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* A message opened from the artefact says where it is. */
 .msg.spot { animation: spot 1.8s ease-out; }
 @keyframes spot { 0%, 35% { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 0.4em color-mix(in srgb, var(--accent) 16%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 0.4em transparent; } }
 
-@media (max-width: 1100px) {
-  .box.main, .box.side { grid-column: 1 / -1; }
-  .box.side > .inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .box.side > .inner > .box.small { grid-column: span 1; }
+@media (max-width: 900px) {
+  .scene.has-shot { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .scene-shot { order: -1; }
+  .scene-shot .main { max-height: 38vh; }
 }
 @media (max-width: 720px) {
-  .dash { padding: 68px 20px 28px; gap: 30px; }
-  .box.small { grid-column: 1 / -1; }
-  .box > .inner, .box.main > .inner, .box.side > .inner, .box.call.has-shots > .inner, .box.story.has-shots > .inner { grid-template-columns: minmax(0, 1fr); }
-  .box > .inner > .box.small, .box.side > .inner > .box.small { grid-column: 1 / -1; }
-  .box.call > .title { font-size: 30px; }
-  .box.note > .title { font-size: 28px; }
+  .show { overflow-y: auto; padding: 52px 20px 0; }
+  .tv { flex: none; min-height: calc(100vh - 220px); padding: 28px 0 36px; }
+  .scene-head, .scene.has-shot .scene-head { font-size: 34px; }
+  .scene-head.long, .scene.has-shot .scene-head.long { font-size: 27px; }
+  .scene-line { margin-top: 20px; font-size: 18px; }
+  .scene-meta { margin-top: 20px; font-size: 13px; }
+  .ticks { margin-bottom: 32px; }
+  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .box.fresh, .doing.on::before, .msg.spot { animation: none; }
+  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-shot,
+  .scene.out > *, .ro.flick, .doing.on::before, .msg.spot { animation: none; }
+  .ticks button.on::after { transition: none; }
 }
 `;
 
 const STYLE = BASE_STYLE + `
 
 /* ~66 characters a line at the reading size. */
-main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 30vh; }
-body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
+/* The latest message sits just clear of the message box, never stranded above a sea of space. */
+main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 12vh; }
+body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -288,7 +322,8 @@ body.can-send main { padding-bottom: calc(30vh + 6em + max(72px, 9vh)); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
-.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
+/* Flyd's word on what the fleet is doing: read like any reply, marked only by its small label. */
+.msg.aside { color: var(--fg); }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
@@ -499,7 +534,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 
 @media (max-width: 720px) {
   body { font-size: 20px; }
-  main { padding: 1em 1em 30vh; }
+  main { padding: 1em 1em 12vh; }
   .composer .row { padding: 0 1.25em; }
   .composer .hint { display: none; }
   .time { display: none; }
@@ -507,6 +542,11 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   header { gap: 10px; padding: 0 16px; }
   header .controls { margin-left: 0; gap: 0; }
   header button { padding: 0 6px; }
+  header button[role="switch"] { gap: 5px; font-size: 11px; letter-spacing: 0.04em; }
+  /* A phone keeps the light of "on air", not its words. */
+  header .air { font-size: 0; gap: 0; }
+  /* Room for the session's name: the taste page is a desk-sized read. */
+  header #taste-link { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg.fresh, .working i { animation: none; }
@@ -547,23 +587,23 @@ var __name = function (f) { return f; };
   }
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
-    themeBtn.setAttribute("aria-pressed", String(theme === "light"));
+    themeBtn.setAttribute("aria-checked", String(theme === "light"));
     // Inside Flyd.app the window's title bar follows the page.
     try { window.webkit.messageHandlers.flyd.postMessage({ theme: theme }); } catch (e) { /* in a browser */ }
   }
   applyTheme(store("flyd-view-theme") === "light" ? "light" : "dark");
   var modeBtn = document.getElementById("mode");
+  // One switch, FULL: off is Flyd's reading of every reply, on is everything as it was written.
   function applyMode(mode) {
     document.documentElement.setAttribute("data-view", mode);
-    // He reads it as "full / flyd": the word names the view a click switches to.
-    modeBtn.textContent = mode === "full" ? "flyd" : "full";
-    modeBtn.setAttribute("aria-label", mode === "full" ? "Show Flyd's summaries" : "Show full replies");
+    modeBtn.setAttribute("aria-checked", String(mode === "full"));
   }
   applyMode(store("flyd-view-mode") === "full" ? "full" : "summary");
   modeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-view") === "full" ? "summary" : "full";
     store("flyd-view-mode", next);
-    applyMode(next);
+    // The heights change everywhere: stay on the latest message, or on the one he was reading.
+    keepPlace(function () { applyMode(next); });
   });
   document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN); });
   themeBtn.addEventListener("click", function () {
@@ -583,7 +623,33 @@ var __name = function (f) { return f; };
   function nearBottom() {
     return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 160;
   }
-  function toBottom() { window.scrollTo(0, document.documentElement.scrollHeight); }
+  // Pinned: he is reading the latest message, so whatever changes keeps him
+  // there. Only his own scrolling up unpins it.
+  var pinned = true;
+  function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show"; }
+  function toBottom() { pinned = true; window.scrollTo(0, document.documentElement.scrollHeight); }
+  // The message at the top of the window and where it sits, so a change above
+  // it cannot move what he is reading (WebKit has no scroll anchoring).
+  function anchor() {
+    var list = main.querySelectorAll(".msg");
+    for (var i = 0; i < list.length; i += 1) {
+      var box = list[i].getBoundingClientRect();
+      if (box.height > 0 && box.bottom > 64) return { node: list[i], top: box.top };
+    }
+    return null;
+  }
+  function restore(at) {
+    if (!at || !at.node.isConnected) return;
+    var box = at.node.getBoundingClientRect();
+    if (box.height > 0) window.scrollBy(0, box.top - at.top);
+  }
+  function keepPlace(change) {
+    if (!onConversation()) { change(); return; }
+    var wasPinned = pinned;
+    var at = wasPinned ? null : anchor();
+    change();
+    if (wasPinned) toBottom(); else restore(at);
+  }
 
   function build(message) {
     var el = document.createElement("article");
@@ -690,14 +756,16 @@ var __name = function (f) { return f; };
       el.insertBefore(compare, body);
     }
     var more = document.createElement("button");
+    // Flyd's whole reading already leads; what waits behind it is the reply as firstmate wrote it.
+    var word = message.summary.source === "brief" ? "as written" : "more";
     more.type = "button";
     more.className = "more";
-    more.textContent = el.classList.contains("open") ? "less" : "more";
+    more.textContent = el.classList.contains("open") ? "less" : word;
     more.setAttribute("aria-expanded", el.classList.contains("open") ? "true" : "false");
     more.addEventListener("click", function () {
       var open = el.classList.toggle("open");
       if (!open) el.dataset.folded = "1";
-      more.textContent = open ? "less" : "more";
+      more.textContent = open ? "less" : word;
       more.setAttribute("aria-expanded", open ? "true" : "false");
     });
     el.insertBefore(more, body);
@@ -781,7 +849,8 @@ var __name = function (f) { return f; };
   setInterval(refreshWorking, 15000);
 
   function apply(update) {
-    var stick = first || nearBottom();
+    var stick = first || pinned;
+    var at = stick || !onConversation() ? null : anchor();
     var added = false;
     update.messages.forEach(function (message) {
       var el = nodes.get(message.id);
@@ -819,7 +888,8 @@ var __name = function (f) { return f; };
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
     if (lastActivity) whenEl.textContent = dayOf(lastActivity) + "  " + clock(lastActivity);
-    if (stick) { toBottom(); jump.hidden = true; } else if (added) { jump.hidden = false; }
+    if (!onConversation()) { /* the terminal is hidden; it finds its place when it comes back */ }
+    else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
     first = false;
     if (update.show) renderShow(update.show, update.boxes);
   }
@@ -915,8 +985,12 @@ var __name = function (f) { return f; };
   }, 5000);
 
   window.addEventListener("scroll", function () {
-    if (nearBottom()) jump.hidden = true;
+    if (!onConversation()) return;
+    pinned = nearBottom();
+    if (pinned) jump.hidden = true;
   }, { passive: true });
+  // A picture loading or a summary landing grows the page: a pinned reader stays on the latest.
+  if (window.ResizeObserver) new ResizeObserver(function () { if (pinned && onConversation()) toBottom(); }).observe(main);
   jump.addEventListener("click", function () { toBottom(); jump.hidden = true; });
 
   // Composer: shown only when the server can deliver the captain's words.
@@ -1351,22 +1425,36 @@ var __name = function (f) { return f; };
   });
 
 
-  // The overview: Flyd's boxes, calls first, the terminal as a strip under
-  // them. A box can hold boxes; Core already cut the tree to the depth the
-  // screen shows. The "artefact" toggle (or Tab) flips between it and the full
-  // terminal, and the choice is remembered. The terminal keeps streaming.
+  // Artefact view: Flyd on TV. Core's boxes become scenes that take turns,
+  // one at a time like title cards: the calls only he can make, then what
+  // Flyd sees coming, then the stories, each with its screenshot large. The
+  // instruments become a row of small readouts under the stage. The
+  // "artefact" switch (or Tab) flips between it and the conversation, and the
+  // choice is remembered; the conversation keeps streaming underneath.
   var showEl = document.getElementById("show");
-  var dashEl = document.getElementById("dash");
-  var stripEl = document.getElementById("strip");
+  var sceneEl = document.getElementById("scene");
+  var sceneHead = document.getElementById("scene-head");
+  var sceneLine = document.getElementById("scene-line");
+  var sceneMeta = document.getElementById("scene-meta");
+  var ticksEl = document.getElementById("ticks");
+  var readoutsEl = document.getElementById("readouts");
+  var showDoing = document.getElementById("show-doing");
   var air = document.getElementById("air");
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  var STRIP_LINES = 3;
-  var drawn = "";
-  var seenBoxes = new Set();
+  // What each kind is called on screen.
+  var WORDS = { call: "needs you", live: "under way", ready: "waiting to land", landed: "landed", waiting: "held up", next: "up next", news: "also", clear: "all clear", warn: "coming up" };
+  var RANK = { call: 0, note: 1, alert: 2, story: 3 };
+  var DWELL = 9000;
+  var scenes = [];
+  var at = 0;
+  var cycle = null;
+  var holding = false;
+  var filled = "";
+  var drawnReadouts = "";
   var lastScreen = null;
-  // Where the terminal was: back at the bottom unless he had scrolled up.
-  var terminalAt = { y: 0, bottom: true };
+  // Where the conversation was: the latest message unless he had scrolled up.
+  var terminalAt = { pinned: true, anchor: null };
 
   function onShow() { return document.documentElement.getAttribute("data-screen") === "show"; }
   function ago(iso) {
@@ -1386,149 +1474,279 @@ var __name = function (f) { return f; };
   }
   function withToken(src) { return src + (src.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(VIEW_TOKEN); }
   function sentence(text) { text = String(text || "").trim(); return text && !/[.!?…:]$/.test(text) ? text + "." : text; }
+  function capital(text) { text = String(text || ""); return text.charAt(0).toUpperCase() + text.slice(1); }
 
-  function drawBars(box) {
-    var wrap = el("div", "bars");
-    var most = Math.max.apply(null, box.bars.map(function (bar) { return bar.value; }).concat([1]));
-    box.bars.forEach(function (bar) {
-      var col = el("div", "bar k-" + (bar.tone || "news") + (bar.value ? "" : " none"));
-      col.title = bar.label + ": " + bar.value;
-      col.appendChild(el("b", "", String(bar.value)));
-      var fill = el("i");
-      fill.style.height = (bar.value ? Math.max(8, Math.round((bar.value / most) * 100)) : 4) + "%";
-      col.appendChild(fill);
-      col.appendChild(el("span", "", bar.label));
-      wrap.appendChild(col);
-    });
-    return wrap;
-  }
-  function drawGauges(box) {
-    var wrap = el("div", "gauges");
-    box.gauges.forEach(function (gauge) {
-      var row = el("div", "gauge2" + (gauge.used >= 75 ? " low" : ""));
-      row.appendChild(el("span", "", gauge.label));
-      var track = el("span", "track");
-      var fill = el("i");
-      fill.style.width = gauge.used + "%";
-      track.appendChild(fill);
-      row.appendChild(track);
-      row.appendChild(el("b", "", gauge.used + "%"));
-      if (gauge.resetsAt) row.title = "resets " + new Date(gauge.resetsAt).toLocaleString();
-      wrap.appendChild(row);
-    });
-    return wrap;
-  }
-  function drawHours(box) {
-    var wrap = el("div", "hours");
-    var temps = box.hours.map(function (hour) { return hour.tempC; });
-    var low = Math.min.apply(null, temps), high = Math.max.apply(null, temps);
-    box.hours.forEach(function (hour, index) {
-      var col = el("div", "h" + (hour.rainChance >= 50 ? " wet" : ""));
-      col.title = hour.label + ":00 " + Math.round(hour.tempC) + "°, " + hour.rainChance + "% rain";
-      var fill = el("i");
-      fill.style.height = Math.round(30 + (high > low ? ((hour.tempC - low) / (high - low)) * 70 : 50)) + "%";
-      col.appendChild(fill);
-      col.appendChild(el("span", "", index % 3 === 0 ? hour.label : ""));
-      wrap.appendChild(col);
-    });
-    return wrap;
-  }
-  function drawBox(box) {
-    var node = el("section", "box " + box.kind + " " + box.size + " k-" + (box.tone || "news") + (box.children && box.children.some(function (child) { return child.kind === "shot"; }) ? " has-shots" : ""));
-    node.dataset.id = box.id;
-    if (!seenBoxes.has(box.id) && !reduced && drawn) node.classList.add("fresh");
-    seenBoxes.add(box.id);
-    if (box.kind === "shot") {
-      var img = el("img");
-      img.alt = box.title;
-      img.src = withToken(box.shot.src);
-      img.addEventListener("click", function () { openImage(img.src); });
-      node.appendChild(img);
-      return node;
+  // Core's boxes, split: what holds the stage in turn, and the readouts under it.
+  function split(boxes) {
+    var stage = [];
+    var readouts = [];
+    function place(box) {
+      if (box.kind === "group") { (box.children || []).forEach(place); return; }
+      if (box.kind in RANK) stage.push(box); else if (box.kind !== "shot") readouts.push(box);
     }
-    if (box.kind === "group") node.title = box.why;
-    else if (box.why) node.appendChild(el("p", "why", box.why));
-    var title = el(box.kind === "call" || box.kind === "note" ? "h1" : "h2", "title", box.title);
-    node.appendChild(title);
+    boxes.forEach(place);
+    // A stable sort: calls first, then the situation, what is coming, the stories.
+    stage = stage.map(function (box, index) { return { box: box, index: index }; })
+      .sort(function (a, b) { return (RANK[a.box.kind] - RANK[b.box.kind]) || (a.index - b.index); })
+      .map(function (entry) { return entry.box; });
+    return { stage: stage, readouts: readouts };
+  }
+  function kindWord(box) {
+    if (box.kind === "note") return box.why || "where things stand";
+    if (box.tone === "news") return box.why || WORDS.news;
+    return WORDS[box.kind === "alert" ? "warn" : box.tone] || box.why || "";
+  }
+  function shotsOf(box) {
+    return (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; }).map(function (child) { return child.shot; });
+  }
+
+  function fillScene(box) {
+    filled = JSON.stringify(box);
+    var shots = shotsOf(box);
+    sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "");
+    sceneEl.dataset.id = box.id;
+    sceneHead.textContent = box.title;
+    sceneHead.classList.toggle("long", box.title.length > 80);
     if (box.ref) {
-      node.dataset.ref = box.ref;
-      title.setAttribute("role", "button");
-      title.tabIndex = 0;
-      title.title = "Open in the terminal";
-      title.addEventListener("click", function () { openInTerminal(box.ref); });
-      title.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openInTerminal(box.ref); } });
+      sceneHead.setAttribute("role", "button");
+      sceneHead.tabIndex = 0;
+      sceneHead.dataset.ref = box.ref;
+      sceneHead.title = "Open in the conversation";
+    } else {
+      sceneHead.removeAttribute("role");
+      sceneHead.removeAttribute("tabindex");
+      sceneHead.removeAttribute("title");
+      sceneHead.dataset.ref = "";
     }
-    if (box.line) node.appendChild(el("p", "line", sentence(box.line)));
-    if (box.bars) node.appendChild(drawBars(box));
-    if (box.gauges) node.appendChild(drawGauges(box));
-    if (box.hours) node.appendChild(drawHours(box));
-    var meta = el("div", "meta");
-    if (box.project) meta.appendChild(el("span", "project", box.project));
-    if (box.status) meta.appendChild(el("span", "status", box.status));
+    sceneLine.textContent = box.line ? sentence(capital(box.line)) : "";
+    sceneMeta.textContent = "";
+    var word = kindWord(box);
+    if (word) sceneMeta.appendChild(el("span", "kind", word));
+    if (box.project) sceneMeta.appendChild(el("span", "project", box.project));
+    if (box.status && box.status !== word) sceneMeta.appendChild(el("span", "status", box.status));
     (box.links || []).forEach(function (link) {
       var a = el("a", "", link.label);
       a.href = link.url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      meta.appendChild(a);
+      sceneMeta.appendChild(a);
     });
-    if (box.at && box.kind !== "weather") {
+    if (box.at) {
       var when = el("span", "ago", ago(box.at));
       when.dataset.at = box.at;
-      meta.appendChild(when);
+      sceneMeta.appendChild(when);
     }
-    if (meta.childNodes.length) node.appendChild(meta);
-    if (box.children && box.children.length) {
-      var inner = el("div", "inner");
-      box.children.forEach(function (child) { inner.appendChild(drawBox(child)); });
-      node.appendChild(inner);
+    var old = sceneEl.querySelector(".scene-shot");
+    if (old) old.remove();
+    if (!shots.length) return;
+    var figure = el("figure", "scene-shot");
+    var main = el("img", "main");
+    main.alt = "Screenshot: " + box.title;
+    main.src = withToken(shots[0].src);
+    main.addEventListener("click", function () { openImage(main.src); });
+    figure.appendChild(main);
+    if (shots.length > 1) {
+      var thumbs = el("div", "thumbs");
+      shots.forEach(function (shot, index) {
+        var thumb = el("img", index === 0 ? "on" : "");
+        thumb.alt = shot.label;
+        thumb.src = withToken(shot.src);
+        // Rolling over a thumbnail brings it up; a tap does the same on a phone.
+        function choose() {
+          main.src = thumb.src;
+          thumbs.querySelectorAll("img").forEach(function (other) { other.classList.toggle("on", other === thumb); });
+        }
+        thumb.addEventListener("mouseenter", choose);
+        thumb.addEventListener("click", choose);
+        thumbs.appendChild(thumb);
+      });
+      figure.appendChild(thumbs);
     }
+    sceneEl.appendChild(figure);
+  }
+  function markTicks() {
+    Array.prototype.forEach.call(ticksEl.children, function (tick, index) {
+      tick.classList.remove("on");
+      tick.classList.toggle("held", holding);
+      if (index === at) {
+        void tick.offsetWidth;
+        tick.classList.add("on");
+      }
+      tick.setAttribute("aria-current", index === at ? "true" : "false");
+    });
+  }
+  function show(index, animate) {
+    if (!scenes.length) return;
+    at = (index + scenes.length) % scenes.length;
+    var box = scenes[at];
+    if (!animate || reduced || !onShow()) {
+      sceneEl.classList.remove("out");
+      fillScene(box);
+      markTicks();
+      return;
+    }
+    sceneEl.classList.remove("in");
+    sceneEl.classList.add("out");
+    setTimeout(function () {
+      fillScene(box);
+      sceneEl.classList.add("in");
+      markTicks();
+    }, 220);
+  }
+  function schedule() {
+    clearInterval(cycle);
+    cycle = null;
+    if (scenes.length > 1 && !holding) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+  }
+  function hold(on) {
+    holding = on;
+    markTicks();
+    schedule();
+  }
+  sceneEl.addEventListener("mouseenter", function () { hold(true); });
+  sceneEl.addEventListener("mouseleave", function () { hold(false); });
+  ticksEl.addEventListener("mouseleave", function () { hold(false); });
+  function openScene() { if (sceneHead.dataset.ref) openInTerminal(sceneHead.dataset.ref); }
+  sceneHead.addEventListener("click", openScene);
+  sceneHead.addEventListener("keydown", function (event) {
+    if (sceneHead.dataset.ref && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openScene(); }
+  });
+  function renderTicks() {
+    ticksEl.textContent = "";
+    ticksEl.hidden = scenes.length < 2;
+    scenes.forEach(function (box, index) {
+      var tick = el("button", "k-" + (box.kind === "alert" ? "warn" : box.tone || "news"));
+      tick.type = "button";
+      tick.setAttribute("aria-label", (kindWord(box) ? kindWord(box) + ": " : "") + box.title);
+      tick.style.setProperty("--dwell", DWELL + "ms");
+      // Hover, not click: resting on a line brings its scene up.
+      function choose() { holding = true; if (index !== at) show(index, true); else markTicks(); schedule(); }
+      tick.addEventListener("mouseenter", choose);
+      tick.addEventListener("focus", choose);
+      tick.addEventListener("click", choose);
+      ticksEl.appendChild(tick);
+    });
+    markTicks();
+  }
+
+  // The readouts: each drawn small, white, with room for every label.
+  function drawCols(values, max, extra) {
+    var cols = el("div", "ro-cols");
+    values.forEach(function (value, index) {
+      var bar = el("i", (value ? "" : "none") + (extra ? " " + extra(index) : ""));
+      bar.style.height = (value ? Math.max(10, Math.round((value / Math.max(max, 1)) * 100)) : 6) + "%";
+      cols.appendChild(bar);
+    });
+    return cols;
+  }
+  function drawAxis(labels) {
+    var axis = el("div", "ro-axis");
+    labels.forEach(function (label) { axis.appendChild(el("span", "", label)); });
+    return axis;
+  }
+  function drawReadout(box) {
+    var node = el("div", "ro");
+    node.dataset.id = box.id;
+    node.appendChild(el("span", "ro-label", box.why));
+    node.appendChild(el("span", "ro-value", box.title));
+    if (box.hours && box.hours.length) {
+      var temps = box.hours.map(function (hour) { return hour.tempC; });
+      var low = Math.min.apply(null, temps), high = Math.max.apply(null, temps);
+      node.appendChild(drawCols(box.hours.map(function (hour) { return 30 + (high > low ? ((hour.tempC - low) / (high - low)) * 70 : 50); }), 100, function (index) { return box.hours[index].rainChance >= 50 ? "wet" : ""; }));
+      node.appendChild(drawAxis(box.hours.map(function (hour, index) { return index % 3 === 0 ? hour.label : ""; })));
+    }
+    if (box.gauges && box.gauges.length) {
+      var rows = el("div", "ro-rows");
+      box.gauges.forEach(function (gauge) {
+        var row = el("div", "ro-row" + (gauge.used >= 75 ? " low" : ""));
+        if (gauge.resetsAt) row.title = "resets " + new Date(gauge.resetsAt).toLocaleString();
+        row.appendChild(el("span", "", gauge.label));
+        row.appendChild(el("b", "", gauge.used + "%"));
+        var track = el("span", "track");
+        var fill = el("i");
+        fill.style.width = gauge.used + "%";
+        track.appendChild(fill);
+        row.appendChild(track);
+        rows.appendChild(row);
+      });
+      node.appendChild(rows);
+    }
+    if (box.bars && box.bars.length) {
+      if (box.id === "work-state") {
+        // Where the work stands: one line split by state, the counts written out under it.
+        var whole = box.bars.reduce(function (sum, bar) { return sum + bar.value; }, 0) || 1;
+        var line = el("div", "ro-split");
+        var legend = el("div", "ro-legend");
+        box.bars.forEach(function (bar) {
+          var part = el("i", "k-" + (bar.tone || "news"));
+          part.style.flex = String(bar.value / whole);
+          line.appendChild(part);
+          var item = el("span", "k-" + (bar.tone || "news"));
+          item.appendChild(el("b", "", String(bar.value)));
+          item.appendChild(document.createTextNode(" " + bar.label));
+          legend.appendChild(item);
+        });
+        node.appendChild(line);
+        node.appendChild(legend);
+      } else {
+        var most = Math.max.apply(null, box.bars.map(function (bar) { return bar.value; }));
+        node.appendChild(drawCols(box.bars.map(function (bar) { return bar.value; }), most));
+        node.appendChild(drawAxis(box.bars.map(function (bar) { return bar.label.charAt(0); })));
+      }
+    }
+    if (box.line && !box.hours) node.appendChild(el("span", "ro-label", box.line));
     return node;
   }
-  function renderBoxes(boxes) {
-    var key = JSON.stringify(boxes);
-    if (key === drawn) return;
-    var scroll = showEl.scrollTop;
-    dashEl.textContent = "";
-    boxes.forEach(function (box) { dashEl.appendChild(drawBox(box)); });
-    drawn = key;
-    showEl.scrollTop = scroll;
-  }
-  // The terminal's last few lines, as they are in the stream.
-  function renderStrip() {
-    stripEl.textContent = "";
-    var lines = Array.prototype.filter.call(main.querySelectorAll(".msg"), function (node) {
-      return !node.classList.contains("routine");
-    }).slice(-STRIP_LINES);
-    lines.forEach(function (node) {
-      var body = node.querySelector(".body");
-      var text = (body ? body.textContent : node.textContent || "").replace(/\\s+/g, " ").trim();
-      if (!text) return;
-      var line = el("p", node.classList.contains("user") ? "user" : "", text);
-      stripEl.appendChild(line);
+  function flicker() {
+    if (reduced) return;
+    readoutsEl.querySelectorAll(".ro").forEach(function (node) {
+      node.classList.remove("flick");
+      node.style.setProperty("--d", Math.round(160 + Math.random() * 520) + "ms");
+      void node.offsetWidth;
+      node.classList.add("flick");
     });
-    if (lastScreen) {
-      var doing = el("p", "doing" + (lastScreen.live ? " on" : ""), lastScreen.live ? (lastScreen.doing || "Working on it") : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : ""));
-      stripEl.appendChild(doing);
-    }
   }
-  stripEl.addEventListener("click", function () { setScreen("terminal"); });
+  function renderReadouts(readouts) {
+    var key = JSON.stringify(readouts);
+    if (key === drawnReadouts) return;
+    var first = drawnReadouts === "";
+    drawnReadouts = key;
+    readoutsEl.textContent = "";
+    readouts.forEach(function (box) { readoutsEl.appendChild(drawReadout(box)); });
+    if (!first && onShow()) flicker();
+  }
+  function renderDoing() {
+    if (!lastScreen) return;
+    showDoing.classList.toggle("on", !!lastScreen.live);
+    showDoing.textContent = lastScreen.live ? (lastScreen.doing || "Working on it") : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
+  }
   function renderShow(next, boxes) {
     lastScreen = next;
     air.classList.toggle("on", !!next.live);
     air.textContent = next.live ? "on air" : "standby";
-    renderBoxes(boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }]);
-    renderStrip();
+    var parts = split(boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }]);
+    var current = scenes[at] ? scenes[at].id : null;
+    var sameSet = parts.stage.length === scenes.length && parts.stage.every(function (box, index) { return box.id === scenes[index].id; });
+    scenes = parts.stage;
+    if (!sameSet) {
+      var keep = scenes.findIndex(function (box) { return box.id === current; });
+      at = keep >= 0 ? keep : 0;
+      renderTicks();
+      schedule();
+    }
+    if (scenes.length && JSON.stringify(scenes[at]) !== filled) fillScene(scenes[at]);
+    renderReadouts(parts.readouts);
+    renderDoing();
   }
   setInterval(function () {
-    dashEl.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
-    if (lastScreen) renderStrip();
+    sceneMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
+    renderDoing();
   }, 30000);
 
   function applyScreen(next, animate) {
     var root = document.documentElement;
     if (next === "show") {
-      if (!onShow() && root.hasAttribute("data-screen")) terminalAt = { y: window.scrollY, bottom: nearBottom() };
+      if (!onShow() && root.hasAttribute("data-screen")) terminalAt = { pinned: pinned, anchor: pinned ? null : anchor() };
       root.setAttribute("data-screen", "show");
       showEl.hidden = false;
       showEl.classList.remove("off");
@@ -1536,23 +1754,23 @@ var __name = function (f) { return f; };
         showEl.classList.remove("power");
         void showEl.offsetWidth;
         showEl.classList.add("power");
+        if (scenes.length) { sceneEl.classList.remove("out"); sceneEl.classList.remove("in"); void sceneEl.offsetWidth; sceneEl.classList.add("in"); }
+        flicker();
       }
-      showEl.scrollTop = 0;
-      renderStrip();
-      flip.setAttribute("aria-pressed", "true");
+      flip.setAttribute("aria-checked", "true");
     } else {
       root.setAttribute("data-screen", "terminal");
       showEl.hidden = true;
       showEl.classList.remove("power", "off");
-      if (terminalAt.bottom) { toBottom(); jump.hidden = true; } else window.scrollTo(0, terminalAt.y);
-      flip.setAttribute("aria-pressed", "false");
+      if (terminalAt.pinned) { toBottom(); jump.hidden = true; } else { pinned = false; restore(terminalAt.anchor); }
+      flip.setAttribute("aria-checked", "false");
     }
   }
   function setScreen(next) {
     store("flyd-view-screen", next);
     if (next === "show") { applyScreen("show", true); return; }
     if (reduced) { applyScreen("terminal", false); return; }
-    // The set switches off: a quick collapse to a line, then the terminal.
+    // The set switches off, then the conversation.
     showEl.classList.add("off");
     setTimeout(function () { if (showEl.classList.contains("off")) applyScreen("terminal", false); }, 170);
   }
@@ -1560,25 +1778,44 @@ var __name = function (f) { return f; };
     if (showEl.classList.contains("off")) return;
     setScreen(onShow() ? "terminal" : "show");
   });
-  // Tab swaps between the terminal and the artefact, from anywhere. Left alone
-  // while the "/" command list is completing (it already claimed the key).
   document.addEventListener("keydown", function (event) {
-    if (event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    event.preventDefault();
-    if (showEl.classList.contains("off")) return;
-    setScreen(onShow() ? "terminal" : "show");
+    if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+    // Tab swaps between the conversation and the artefact, from anywhere. Left
+    // alone while the "/" list or a typing suggestion has claimed the key.
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (showEl.classList.contains("off")) return;
+      setScreen(onShow() ? "terminal" : "show");
+      return;
+    }
+    if (showEl.hidden || !lightbox.hidden) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      holding = true;
+      show(at + (event.key === "ArrowRight" ? 1 : -1), true);
+      schedule();
+      return;
+    }
+    // Typing talks to Flyd: the conversation comes back with the message box, and the key lands in it.
+    if (event.key.length === 1 && event.key !== " " && !composer.hidden) {
+      // At once, not after the switch-off: a hidden box cannot take the key.
+      store("flyd-view-screen", "terminal");
+      applyScreen("terminal", false);
+      input.focus();
+    }
   });
-  // A card opens its message in the terminal.
+  // A scene opens its message in the conversation.
   function openInTerminal(ref) {
     store("flyd-view-screen", "terminal");
     var target = ref ? nodes.get(ref) : null;
-    terminalAt = { y: 0, bottom: !target };
+    terminalAt = { pinned: !target, anchor: null };
     applyScreen("terminal", false);
     if (!target) return;
     if (target.classList.contains("has-summary") && !target.classList.contains("open")) {
       var more = target.querySelector(":scope > .more");
       if (more) more.click();
     }
+    pinned = false;
     target.scrollIntoView({ block: "center" });
     target.classList.remove("spot");
     void target.offsetWidth;
@@ -1614,10 +1851,10 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="air" id="air">standby</span>
   <span class="when" id="when"></span>
   <span class="controls">
-    <button id="mode" type="button" aria-label="Show full replies">full</button>
     <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
-    <button id="theme" type="button" aria-pressed="false" aria-label="Light theme">light</button>
-    <button id="flip" type="button" aria-pressed="false" aria-label="Artefact view">artefact</button>
+    <button id="mode" type="button" role="switch" aria-checked="false" aria-label="Full replies, as written">full<span class="track" aria-hidden="true"></span></button>
+    <button id="theme" type="button" role="switch" aria-checked="false" aria-label="Light theme">light<span class="track" aria-hidden="true"></span></button>
+    <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
 <main id="stream" aria-live="polite">
@@ -1627,9 +1864,19 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
-<section class="show" id="show" hidden aria-label="Flyd's overview: what it thinks you need to see">
-  <div class="dash" id="dash" aria-live="polite"></div>
-  <div class="strip" id="strip" role="button" aria-label="The terminal: open it"></div>
+<section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
+  <div class="tv">
+    <div class="scene" id="scene" aria-live="polite">
+      <div class="scene-text">
+        <h1 class="scene-head" id="scene-head"></h1>
+        <p class="scene-line" id="scene-line"></p>
+        <div class="scene-meta" id="scene-meta"></div>
+      </div>
+    </div>
+  </div>
+  <div class="ticks" id="ticks" aria-label="Flyd's scenes" hidden></div>
+  <div class="readouts" id="readouts" aria-label="Readouts"></div>
+  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">

@@ -44,7 +44,7 @@ export interface RenderedMessage {
   /** Names of documents attached to the message. */
   files?: string[];
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
-  summary?: { html: string; source: SummarySource | "flyd"; pending?: boolean };
+  summary?: { html: string; source: SummarySource | "flyd" | "brief"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
   compare?: { html: string; pending?: boolean };
   /** The reply hands the captain something to act on: the page never folds it behind its summary. */
@@ -94,6 +94,16 @@ interface StreamUpdate {
   boxes: Box[];
 }
 
+/**
+ * With no model reading coming, Flyd's briefing of the whole reply leads: the
+ * engineering stubs gone and several pieces of work as a status card, but every
+ * sentence kept. A local digest cut a reply to its lead and left him almost
+ * nothing to read; it only stands in while a model summary is on its way.
+ */
+function briefOf(text: string): NonNullable<RenderedMessage["summary"]> {
+  return { html: renderBriefing(text), source: "brief" };
+}
+
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
@@ -115,8 +125,8 @@ export class SnapshotDiffer {
 
   /**
    * Firstmate's answer to his note, as Flyd tells it: Flyd's interpretation
-   * leads, firstmate's own words wait behind "more". Until it lands, or with
-   * no model, the lead is the answer's local digest.
+   * leads, firstmate's own words wait behind "more". Until it lands the lead
+   * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
   private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
@@ -131,7 +141,7 @@ export class SnapshotDiffer {
         .then(() => summaries.onSummary?.());
     }
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", ...(pending ? { pending: true } : {}) } };
+    return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text) };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -168,7 +178,7 @@ export class SnapshotDiffer {
       body: message.text,
       summary: model.text && !isRoutineAnswer(model.text)
         ? { html: statusSummaryHtml(message.text, model.text) ?? renderBriefing(model.text), source: "model" }
-        : { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", ...(model.pending ? { pending: true } : {}) },
+        : model.pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text),
       ...(actionable ? { expanded: true } : {}),
     };
   }
