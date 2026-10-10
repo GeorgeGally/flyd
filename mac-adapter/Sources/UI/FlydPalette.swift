@@ -18,6 +18,8 @@ enum FlydPalette {
     static let signalRust = NSColor(calibratedRed: 0.788, green: 0.376, blue: 0.239, alpha: 1)
     static let line = paper.withAlphaComponent(0.14)
     static let brassGlow = NSColor(calibratedRed: 0.890, green: 0.612, blue: 0.271, alpha: 1)
+    /// Bright, saturated orange for the island's working spinner: reads at a glance on black.
+    static let workingOrange = NSColor(calibratedRed: 1.0, green: 0.549, blue: 0.0, alpha: 1)
     static let inkDeep = NSColor(calibratedRed: 0.059, green: 0.051, blue: 0.039, alpha: 1)
 
     static func monospace(_ size: CGFloat, weight: NSFont.Weight = .semibold) -> NSFont {
@@ -41,10 +43,11 @@ enum FlydPalette {
 /// Recolors per state and pulses gently while a state is "live," standing in for the
 /// generic colored-pill/glow-everywhere treatment.
 final class FlydStatusDot: NSView {
-    private let dotSize: CGFloat = 7
+    private let dotSize: CGFloat
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(x: frameRect.origin.x, y: frameRect.origin.y, width: 7, height: 7))
+    init(frame frameRect: NSRect, diameter: CGFloat = 7) {
+        dotSize = diameter
+        super.init(frame: NSRect(x: frameRect.origin.x, y: frameRect.origin.y, width: diameter, height: diameter))
         wantsLayer = true
         layer?.cornerRadius = dotSize / 2
         layer?.backgroundColor = FlydPalette.brass.cgColor
@@ -56,7 +59,7 @@ final class FlydStatusDot: NSView {
         layer?.removeAnimation(forKey: "pulse")
         layer?.backgroundColor = color.cgColor
         layer?.shadowColor = color.cgColor
-        layer?.shadowRadius = 4
+        layer?.shadowRadius = dotSize * 0.6
         layer?.shadowOpacity = 0.85
         layer?.shadowOffset = .zero
 

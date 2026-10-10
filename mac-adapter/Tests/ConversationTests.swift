@@ -138,7 +138,7 @@ final class ConversationStatusWorkingTests: XCTestCase {
 
 final class IslandStatusTextTests: XCTestCase {
     func testStatusTextStaysShortOnAWordBoundary() {
-        let short = DictationPill.quoted("Good idea. I've asked the worker to turn the Mac's top-of-screen pill into a status line", limit: DictationPill.statusLimit)
+        let short = DictationPill.quoted("Good idea. I've asked the worker to turn the Mac's top-of-screen pill into a status line that shows what firstmate is doing", limit: DictationPill.statusLimit)
         XCTAssertLessThanOrEqual(short.count, DictationPill.statusLimit + 1)
         XCTAssertTrue(short.hasSuffix("…"))
         XCTAssertEqual(ConversationStatus.workingText, "")
