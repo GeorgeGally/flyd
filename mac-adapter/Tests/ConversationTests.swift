@@ -127,6 +127,9 @@ final class ConversationStatusDecisionTests: XCTestCase {
         XCTAssertEqual(ConversationStatusDecision.decide(previous: quiet, current: passed), [.announce("Passing this to firstmate - GNM", .progress)])
         XCTAssertEqual(ConversationStatusDecision.decide(previous: passed, current: taken), [.announce("Firstmate is on it: run the tests", .progress), .showWorking])
         XCTAssertEqual(ConversationStatusDecision.decide(previous: taken, current: nextStep), [.none])
+        let idle = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Firstmate is on it - GNM"}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: taken, current: idle), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: idle, current: nextStep), [.none])
         XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: taken), [.showWorking])
     }
 

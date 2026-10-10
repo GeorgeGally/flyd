@@ -73,12 +73,12 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
   const recent = snapshot.lastActivity ? now - Date.parse(snapshot.lastActivity) < WORKING_STALE_MS : false;
   const reply = [...snapshot.messages].reverse().find((message) => message.role === "assistant" && !isRoutine(message.text));
   const working = snapshot.working && recent;
-  const waiting = [...snapshot.messages].reverse().find((message) => message.role === "user" && message.waiting);
+  const newest = [...snapshot.messages].reverse().find((message) => message.role === "user");
   return {
     working,
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
     ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
-    ...(waiting ? { waiting: { id: waiting.id, text: waiting.waiting! } } : {}),
+    ...(newest?.waiting ? { waiting: { id: newest.id, text: newest.waiting } } : {}),
   };
 }

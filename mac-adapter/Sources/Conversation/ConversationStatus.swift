@@ -13,8 +13,11 @@ struct ConversationStatusPayload: Decodable, Equatable {
         let id: String
         let text: String
 
-        /// "Firstmate is on it: run the tests" is the stage "Firstmate is on it"; each new step is not news.
-        var stage: String { text.components(separatedBy: ": ").first ?? text }
+        /// "Firstmate is on it: run the tests" and "Firstmate is on it - GNM" are the stage "Firstmate is on it"; neither the step nor the project is news.
+        var stage: String {
+            let cut = [": ", " - "].compactMap { text.range(of: $0)?.lowerBound }.min()
+            return cut.map { String(text[..<$0]) } ?? text
+        }
     }
     let session: String
     let working: Bool
