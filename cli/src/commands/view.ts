@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { ArtefactFeed } from "../conversation-view/artefact.js";
+import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
@@ -84,8 +86,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   plan.start();
   // Firstmate's answer to each note is told by Flyd, through Flyd's own model.
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
+  // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
+  const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }) });
   // Show mode names things by his own projects.
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() });
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed);
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

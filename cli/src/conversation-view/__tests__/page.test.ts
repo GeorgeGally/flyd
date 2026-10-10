@@ -277,11 +277,15 @@ describe("conversation page", () => {
     expect(more.textContent).toBe("less");
     expect(document.querySelectorAll("article.assistant")[1]!.querySelector(".summary")).toBeNull();
 
-    (document.getElementById("mode") as HTMLButtonElement).click();
+    const mode = document.getElementById("mode") as HTMLButtonElement;
+    expect(mode.textContent).toBe("full");
+    mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("full");
     expect(localStorage.getItem("flyd-view-mode")).toBe("full");
-    (document.getElementById("mode") as HTMLButtonElement).click();
+    expect(mode.textContent).toBe("flyd");
+    mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
+    expect(mode.textContent).toBe("full");
   });
 
   it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {
@@ -551,5 +555,63 @@ describe("conversation page", () => {
     const esc = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
     input.dispatchEvent(esc);
     expect(menu.hidden).toBe(true);
+  });
+});
+
+describe("header and artefact view", () => {
+  const SHOW = {
+    title: "Your move, sir.",
+    summary: "1 call waits on you, 2 under way.",
+    live: true,
+    doing: "Running the Swift tests",
+    counts: { call: 1, live: 2, landed: 30 },
+    landedByDay: [{ day: "2026-10-09", count: 2 }, { day: "2026-10-10", count: 1 }],
+    items: [
+      { id: "call:jev", kind: "call", headline: "Review the Jev decision log", why: "", detail: "Captain decides keep or remove" },
+      { id: "live:a", kind: "live", headline: "Header controls", why: "", detail: "Working on it now", project: "Flyd",
+        shots: [{ src: "/api/artefact-shot?task=a&file=after.png", label: "after.png" }], links: [{ label: "flyd #85", url: "https://github.com/GeorgeGally/flyd/pull/85" }] },
+      { id: "news:memory-0", kind: "news", headline: "Bloom gets finished", why: "from your memory" },
+    ],
+  };
+
+  it("uses one kind of control, its state shown by colour, never brackets", async () => {
+    load("");
+    await settle();
+    const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
+    expect(controls).toEqual(["full", "taste", "light", "artefact"]);
+    const flip = document.getElementById("flip")!;
+    expect(flip.getAttribute("aria-pressed")).toBe("false");
+    flip.click();
+    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
+    expect(flip.getAttribute("aria-pressed")).toBe("true");
+    expect(flip.textContent).toBe("artefact");
+    const theme = document.getElementById("theme")!;
+    theme.click();
+    expect(theme.getAttribute("aria-pressed")).toBe("true");
+    expect(theme.textContent).toBe("light");
+  });
+
+  it("puts Flyd's pick in the middle with its screenshot, and the fleet as an instrument", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: true, show: SHOW });
+    expect(document.getElementById("show-title")!.textContent).toBe("Your move, sir.");
+    expect(document.getElementById("situation")!.textContent).toContain("1 call waits on you, 2 under way.");
+    expect(document.getElementById("pick-head")!.textContent).toBe("Review the Jev decision log");
+    expect(document.getElementById("pick-line")!.textContent).toBe("Captain decides keep or remove.");
+    expect(document.querySelectorAll("#ticks button")).toHaveLength(2);
+    (document.querySelectorAll("#ticks button")[1] as HTMLElement).dispatchEvent(new Event("mouseenter"));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(document.getElementById("pick-head")!.textContent).toBe("Header controls");
+    const shot = document.querySelector(".pick-shot img") as HTMLImageElement;
+    expect(shot.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
+    expect(document.querySelector("#pick-meta a")!.textContent).toBe("flyd #85");
+    const gauges = Array.from(document.querySelectorAll("#fleet .gauge span")).map((label) => label.textContent);
+    expect(gauges).toEqual(["1 need you", "2 under way", "30 landed"]);
+    expect(document.querySelectorAll("#fleet .gauge.k-landed .lines i")).toHaveLength(25);
+    expect(document.getElementById("week-label")!.textContent).toBe("3 landed in 7 days");
+    expect(document.getElementById("also")!.textContent).toContain("From your memory: Bloom gets finished.");
+    expect(document.getElementById("show-doing")!.textContent).toBe("Running the Swift tests");
   });
 });

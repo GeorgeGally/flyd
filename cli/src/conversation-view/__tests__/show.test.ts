@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
-import { MAX_SHOW_ITEMS, showOf, titleOf } from "../show.js";
+import { MAX_SHOW_ITEMS, showOf, situationOf, titleOf } from "../show.js";
 import type { ConversationMessage, ConversationSnapshot } from "../types.js";
 
 const NOW = Date.parse("2026-10-09T12:00:00.000Z");
@@ -95,7 +95,7 @@ describe("showOf", () => {
     const screen = showOf(snapshot([fleet("a1", "Sir, the dossier renderer shipped.", 5)]), {
       now: NOW,
       artefact: {
-        fleet: { calls: [{ label: "Keep or remove the Jev log?" }], live: [], landed: [], next: [] },
+        fleet: { calls: [{ label: "Keep or remove the Jev log?" }], live: [], ready: [], landed: [], held: [], next: [] },
         memories: ["George wants Bloom finished."],
         news: [{ title: "Hybrid RAG" }],
         taste: [],
@@ -108,6 +108,66 @@ describe("showOf", () => {
       ["landed", "The dossier renderer shipped."],
     ]);
     expect(screen.title).toBe("Your move, sir.");
+    expect(screen.summary).toBe("1 call waits on you.");
+    expect(screen.counts).toMatchObject({ call: 1, landed: 0 });
+  });
+
+  it("counts each piece of work once: from the fleet when it can be read, never his own question as held up", () => {
+    const messages = [
+      captain("u1", "can you check the notch island?", 10, { waiting: "passed to firstmate" }),
+      fleet("a1", "Sir, keep or remove the Jev log? A or B?", 5, { aside: true }),
+    ];
+    const working = { working: true, activity: "Reading the island code", lastActivity: minutesAgo(1) };
+    const read = showOf(snapshot(messages, working), {
+      now: NOW,
+      artefact: {
+        fleet: { calls: [{ label: "Keep or remove the Jev log?" }], live: [], ready: [], landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+      },
+    });
+    expect(read.items.map((item) => item.kind)).toContain("waiting");
+    expect(read.summary).toBe("1 call waits on you.");
+    expect(read.counts).toMatchObject({ call: 1, live: 0, waiting: 0 });
+
+    const unread = showOf(snapshot(messages, working), { now: NOW });
+    expect(unread.summary).toBe("1 call waits on you, 1 under way.");
+    expect(unread.counts.waiting).toBeUndefined();
+  });
+
+  it("sums up the whole fleet, counting past what the screen shows", () => {
+    const many = Array.from({ length: 9 }, (_, index) => ({ label: `Piece ${index}`, repo: "flyd" }));
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      projects: [{ name: "Flyd", repos: ["/Users/george/Documents/flyd"] }],
+      artefact: {
+        fleet: { generated: "2026-10-09T11:58:00Z", calls: [], live: many, ready: many.slice(0, 2), landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+        landedByDay: [{ day: "2026-10-09", count: 2 }],
+      },
+    });
+    expect(screen.summary).toBe("Nothing waits on you, 9 under way, 2 waiting to land.");
+    expect(screen.counts).toMatchObject({ live: 9, ready: 2 });
+    expect(screen.items.filter((item) => item.kind === "live")).toHaveLength(4);
+    expect(screen.items[0]).toMatchObject({ project: "Flyd", headline: "Piece 0" });
+    expect(screen.landedByDay).toEqual([{ day: "2026-10-09", count: 2 }]);
+    expect(screen.read).toBe("2026-10-09T11:58:00Z");
+  });
+
+  it("says plainly when the fleet could not be read", () => {
+    expect(situationOf({}, "timed out")).toBe("I couldn't read firstmate's fleet just now (timed out).");
+    expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
+  });
+
+  it("says all clear beside queued work, so the screen always has something to show", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: { fleet: { calls: [], live: [], ready: [], landed: [], held: [], next: [{ label: "Gate the notch island" }] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.items.map((item) => item.kind)).toEqual(["next", "clear"]);
   });
 
   it("shows a taste note only when there is nothing else at all", () => {
