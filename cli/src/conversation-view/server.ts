@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
+import { syncTasteSkills } from "../council/taste-skills.js";
+import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
@@ -348,7 +350,7 @@ export class ConversationViewServer {
         "cache-control": "no-store",
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
       });
-      res.end(renderTastePage(readTaste(), { token: this.token }));
+      res.end(renderTastePage(readTaste(), { token: this.token, projects: readProjects() }));
       return;
     }
     if (url.pathname === "/api/sessions") {
@@ -414,7 +416,11 @@ export class ConversationViewServer {
           : null;
     if (done === null) sendJson(res, 400, { error: "expected { action: veto|restore|reword, id, text? }" });
     else if (!done) sendJson(res, 404, { error: "unknown rule" });
-    else sendJson(res, 200, { ok: true });
+    else {
+      // A reworded or vetoed rule changes what agents are told at once.
+      try { syncTasteSkills(); } catch { /* the next council pass catches up */ }
+      sendJson(res, 200, { ok: true });
+    }
   }
 
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
