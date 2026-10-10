@@ -121,7 +121,7 @@ final class ConversationStatusDecisionTests: XCTestCase {
     func testTheIslandNeverAnnouncesRoutingOrSteps() throws {
         let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
         let quiet = try decode(#"{"session":"s1","working":false}"#)
-        let sent = try decode(#"{"session":"s1","working":false,"waiting":{"id":"note:1","text":"Working on it"}}"#)
+        let sent = try decode(#"{"session":"s1","working":false,"waiting":{"id":"note:1","text":"Fixing the island filter"}}"#)
         let taken = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Run the tests"}}"#)
         let nextStep = try decode(#"{"session":"s1","working":true,"waiting":{"id":"note:1","text":"Push the branch"}}"#)
         XCTAssertEqual(ConversationStatusDecision.decide(previous: quiet, current: sent), [.none])
@@ -140,7 +140,7 @@ final class ConversationStatusDecisionTests: XCTestCase {
 
     func testANewReplyIsNeverOverwrittenByTheLivingLine() throws {
         let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
-        let before = try decode(#"{"session":"s1","working":false,"reply":{"id":"r1","headline":"Old.","asks":false},"waiting":{"id":"note:2","text":"Working on it"}}"#)
+        let before = try decode(#"{"session":"s1","working":false,"reply":{"id":"r1","headline":"Old.","asks":false},"waiting":{"id":"note:2","text":"Fixing the island filter"}}"#)
         let both = try decode(#"{"session":"s1","working":false,"reply":{"id":"r2","headline":"Merge it?","asks":true},"waiting":{"id":"note:2","text":"Run the tests"}}"#)
         XCTAssertEqual(ConversationStatusDecision.decide(previous: before, current: both), [.announce("Needs you: Merge it?", .decision)])
     }

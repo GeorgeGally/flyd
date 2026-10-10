@@ -219,9 +219,9 @@ esac
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Working on it");
+    expect(sent.waiting).toBe("Looking into the good neighbours market hero is too tall");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Looking into the good neighbours market hero is too tall");
 
     // Firstmate reads the note and starts work: the step rides on the note's own line.
     const inbox = join(home, "state", "inbox");
@@ -309,7 +309,7 @@ esac
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
 
     const messages = (await source.read("s1")).messages;
-    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Working on it" });
+    expect(messages.find((message) => message.id === sent.id)).toMatchObject({ waiting: "Fixing the island filter" });
     const relay = messages.find((message) => message.role === "assistant")!;
     expect(relay).toMatchObject({ aside: true, text: "Sir, the island filter is still paused on your call." });
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
@@ -539,7 +539,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
-    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Working on it" });
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Looking into what's the fleet doing" });
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 

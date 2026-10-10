@@ -28,6 +28,17 @@ describe("the living line", () => {
     expect(handoffLine("taken", { activity: "word ".repeat(40) }).length).toBeLessThan(120);
   });
 
+  it("says what the message asks for, with the project he named, before any step is known", () => {
+    expect(handoffLine("queued", { text: "can you fix the footer on the GNM site?" })).toBe("Fixing the footer on the GNM site");
+    expect(handoffLine("queued", { text: "Please add a dark mode toggle", projects: ["Flyd", "GNM"] })).toBe("Adding a dark mode toggle");
+    expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
+    expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
+    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe("Looking into what is the notch island doing wrong");
+    expect(handoffLine("queued", { text: "fix it" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "ok" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);
+  });
+
   it("puts the current step on the newest taken note only, and leaves answered ones alone", () => {
     const exchanges = livened(
       [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: ANSWERING }],

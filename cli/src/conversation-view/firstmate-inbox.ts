@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { handoffLine } from "./living.js";
+import { handoffLine, projectNames } from "./living.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
@@ -297,13 +297,14 @@ export class FirstmateInbox implements CaptainInbox {
     }
     const replyFor = new Map<string, ConversationMessage>();
     for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
+    const projects = projectNames();
     this.sorted = [...this.parsed.entries()]
       .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
       .map(([name, question]): Exchange => {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
         const handoff = present.get(name)!.startsWith(`${handled}/`) ? "taken" : "queued";
-        return { question, handoff, waiting: handoffLine(handoff) };
+        return { question, handoff, waiting: handoffLine(handoff, { text: question.text, projects }) };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;
