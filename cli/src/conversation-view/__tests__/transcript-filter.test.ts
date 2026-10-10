@@ -167,6 +167,19 @@ describe("transcript filter", () => {
     expect(conversation.snapshot().activity).toBeUndefined();
   });
 
+  it("never shows the assistant narrating itself as the current step", () => {
+    const conversation = new TranscriptConversation();
+    conversation.pushLine(captain("is CI green?"));
+    for (const said of ["Let me check the CI run…", "One moment.", "I'll look at the logs.", "Passing this to the crew."]) {
+      conversation.pushLine(assistantText(said, "tool_use"));
+      conversation.pushLine(toolUse("Read", { file_path: "/x/ci.yml" }));
+      expect(conversation.snapshot().activity).toBeUndefined();
+    }
+    conversation.pushLine(assistantText("Let me check the CI run…", "tool_use"));
+    conversation.pushLine(toolUse("Bash", { command: "gh run list", description: "List CI runs" }));
+    expect(conversation.snapshot().activity).toBe("List CI runs");
+  });
+
   it("reports working while a turn is open and settles when it ends", () => {
     const conversation = new TranscriptConversation();
     conversation.pushLine(captain("build the view"));

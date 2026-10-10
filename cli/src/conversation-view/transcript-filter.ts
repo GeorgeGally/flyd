@@ -1,3 +1,4 @@
+import { stripInternalNarration } from "../runtime/honesty-check.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Reduces a Claude Code session transcript (one JSON object per line) to the
@@ -199,6 +200,16 @@ function activityLine(raw: string): string | null {
   return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text;
 }
 
+/** First-person stalling or routing says nothing about the work itself. */
+const FIRST_PERSON = /^(?:let me|let's|I'?ll|I will|I'?m going to|one moment|passing|handing|routing|checking|just checking)\b/i;
+
+/** The assistant's own words before a tool call, unless they only narrate itself. */
+function narrationLine(raw: string): string | null {
+  const line = activityLine(raw);
+  if (!line || FIRST_PERSON.test(line) || stripInternalNarration(line).removed.length) return null;
+  return line;
+}
+
 /**
  * What a tool call says about the current step, ranked: the assistant's
  * own task list (3) and delegated work (2) over a shell step's description
@@ -326,7 +337,7 @@ export class TranscriptConversation {
       if (block.type === "tool_use" || block.type === "server_tool_use") {
         // Text said just before a tool call is the assistant naming its next step.
         const said = segment.trailing.at(-1);
-        const narration = said && said.text.length < SUBSTANTIVE_CHARS ? activityLine(said.text) : null;
+        const narration = said && said.text.length < SUBSTANTIVE_CHARS ? narrationLine(said.text) : null;
         if (narration) segment.activity = { text: narration, rank: 3 };
         const step = activityOf(block);
         if (step && step.rank >= (segment.activity?.rank ?? 0)) segment.activity = step;
