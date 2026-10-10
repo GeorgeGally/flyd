@@ -96,6 +96,7 @@ const pending = (): string[] => Array.from(document.querySelectorAll(".msg.pendi
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   FakeEventSource.instances = [];
   sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z" };
   blips = 0;
@@ -755,6 +756,60 @@ describe("conversation page", () => {
 });
 
 describe("header and artefact view", () => {
+  it("offers real choices and a review link, keeps Tab and typing in the answer form, and shows only a delivery receipt", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a Christmas look", why: "", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] }, links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    expect(document.querySelector("#scene-meta a")!.textContent).toBe("Open design review");
+    const choice = document.querySelector<HTMLButtonElement>(".scene-answer .choices button")!;
+    choice.click();
+    const answer = document.querySelector<HTMLTextAreaElement>("#decision-answer")!;
+    expect(answer.value).toBe("Evergreen luxe");
+    expect(document.activeElement).toBe(answer);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    answer.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    answer.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
+    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
+    document.querySelector(".scene-answer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ decision: "visuals", text: "Evergreen luxe" }]);
+    expect(document.querySelector(".receipt")!.textContent).toContain("Answer received (note:1)");
+    expect(document.querySelector(".receipt")!.textContent).toContain("decision remains open");
+    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+  });
+
+  it("frames portrait screenshots without cropping and lets keyboard thumbnails switch back to an unframed landscape", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/phone.png", label: "Mobile" }, { src: "/map.png", label: "Map" }] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.querySelectorAll<HTMLButtonElement>("#ticks button")[1]!.click();
+    const main = document.querySelector<HTMLImageElement>(".scene-shot .main")!;
+    Object.defineProperty(main, "naturalWidth", { value: 390, configurable: true });
+    Object.defineProperty(main, "naturalHeight", { value: 844, configurable: true });
+    main.dispatchEvent(new Event("load"));
+    expect(main.classList.contains("phone")).toBe(true);
+    const thumb = document.querySelectorAll<HTMLImageElement>(".thumbs img")[1]!;
+    thumb.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(main.src).toContain("/map.png");
+    Object.defineProperty(main, "naturalWidth", { value: 1200 });
+    Object.defineProperty(main, "naturalHeight", { value: 800 });
+    main.dispatchEvent(new Event("load"));
+    expect(main.classList.contains("phone")).toBe(false);
+    Object.defineProperty(main, "naturalWidth", { value: 1200 });
+    Object.defineProperty(main, "naturalHeight", { value: 2029 });
+    main.dispatchEvent(new Event("load"));
+    expect(main.classList.contains("phone")).toBe(false);
+    Object.defineProperty(main, "naturalWidth", { value: 390 });
+    Object.defineProperty(main, "naturalHeight", { value: 844 });
+    main.dispatchEvent(new Event("load"));
+    expect(main.classList.contains("phone")).toBe(true);
+  });
   const SHOW = {
     title: "Your move, sir.",
     summary: "1 call waits on you, 2 under way.",

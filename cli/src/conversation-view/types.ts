@@ -115,6 +115,7 @@ export interface ConversationSource {
    * swap its optimistic copy for the real one.
    */
   send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[]): Promise<SentMessage>;
+  sendDecision?(text: string): Promise<SentMessage>;
   /** Skills and slash commands the captain can run by typing "/" (empty when the source has none). */
   commands(): Promise<Array<{ name: string; description: string }>>;
   /** Bytes of an image named in a message's `images`, or null when unknown. */

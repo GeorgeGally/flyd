@@ -26,6 +26,7 @@ export interface ShowShot {
 }
 
 export interface ShowItem {
+  decision?: { task: string; question: string; choices: string[] };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;

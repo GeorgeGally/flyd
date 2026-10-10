@@ -603,11 +603,29 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
       sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (payload.decision !== undefined) {
+      const call = this.feed.current().fleet?.calls.find((row) => row.task === payload.decision);
+      if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {
+        sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
+        return;
+      }
+      if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
+        sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
+        return;
+      }
+      try {
+        const sent = await this.source.sendDecision(`Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`);
+        sendJson(res, 200, { ...sent, waiting: "Answer received. Waiting for acknowledgement; the decision remains open." });
+      } catch (error) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
     const images = payload.images ?? [];

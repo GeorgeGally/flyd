@@ -180,6 +180,19 @@ const SHOW_STYLE = `
   display: block; width: auto; height: auto; max-width: 100%; max-height: min(58vh, calc(100vh - 420px));
   min-height: 120px; object-fit: contain; border-radius: 10px; cursor: zoom-in;
 }
+.scene-shot .main.phone {
+  box-sizing: border-box; border-radius: 38px; corner-shape: squircle; border: 5px solid #26292c;
+  outline: 1px solid rgba(255,255,255,.16);
+  box-shadow: 0 3px 7px rgba(0,0,0,.18), 0 18px 36px rgba(0,0,0,.24), 0 40px 72px rgba(0,0,0,.16);
+}
+.scene-answer { display: grid; gap: 12px; margin-top: 24px; max-width: 38em; }
+.scene-answer .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.scene-answer button, .scene-answer textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--muted); border-radius: 18px; padding: 10px 16px; }
+.scene-answer button { cursor: pointer; width: fit-content; }
+.scene-answer button:disabled { opacity: .55; cursor: default; }
+.scene-answer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 76px; }
+.scene-answer :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.scene-answer .receipt { font: 400 14px/1.5 var(--sans); color: var(--muted); }
 .scene-shot .thumbs { display: flex; gap: 10px; }
 .scene-shot .thumbs img {
   width: 72px; height: 46px; object-fit: contain; border-radius: 5px; cursor: pointer;
@@ -1595,6 +1608,7 @@ var __name = function (f) { return f; };
     return { stage: stage, readouts: readouts };
   }
   function kindWord(box) {
+    if (box.status === "report available") return "earlier report";
     if (box.kind === "note") return box.why || "where things stand";
     if (box.tone === "news") return box.why || WORDS.news;
     return WORDS[box.kind === "alert" ? "warn" : box.tone] || box.why || "";
@@ -1623,6 +1637,61 @@ var __name = function (f) { return f; };
       sceneHead.dataset.ref = "";
     }
     sceneLine.textContent = box.line ? sentence(capital(box.line)) : "";
+    var oldAnswer = sceneEl.querySelector(".scene-answer");
+    if (oldAnswer) oldAnswer.remove();
+    if (box.decision && VIEW_TOKEN) {
+      var decision = box.decision;
+      var key = "flyd-decision:" + decision.task + ":" + decision.question;
+      var state = {};
+      try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
+      var form = el("form", "scene-answer");
+      form.setAttribute("aria-label", "Answer this question");
+      var label = el("label", "", "Your answer");
+      label.htmlFor = "decision-answer";
+      var answer = el("textarea");
+      answer.id = "decision-answer";
+      answer.maxLength = 4000;
+      answer.required = true;
+      answer.value = state.text || "";
+      var choices = el("div", "choices");
+      (decision.choices || []).forEach(function (choice) {
+        var button = el("button", "", choice);
+        button.type = "button";
+        button.addEventListener("click", function () { answer.value = choice; answer.dispatchEvent(new Event("input")); answer.focus(); });
+        choices.appendChild(button);
+      });
+      form.appendChild(choices);
+      form.appendChild(label);
+      form.appendChild(answer);
+      var send = el("button", "", "Send answer");
+      send.type = "submit";
+      var receipt = el("div", "receipt", state.receipt || "The question stays open until your answer is acknowledged.");
+      receipt.setAttribute("role", "status");
+      receipt.setAttribute("aria-live", "polite");
+      function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
+      answer.addEventListener("input", function () { state.text = answer.value; state.receipt = ""; save(); send.disabled = !answer.value.trim(); });
+      send.disabled = !answer.value.trim() || !!state.receipt;
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (send.disabled || !answer.value.trim()) return;
+        send.disabled = true;
+        receipt.textContent = "Sending your answer…";
+        try {
+          var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ decision: decision.task, text: answer.value }) });
+          var sent = await response.json();
+          if (!response.ok) throw new Error(sent.error || "Answer not delivered");
+          state.receipt = "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
+          save();
+          receipt.textContent = state.receipt;
+        } catch (error) {
+          receipt.textContent = error.message || "Answer not delivered. Try again.";
+          send.disabled = false;
+        }
+      });
+      form.appendChild(send);
+      form.appendChild(receipt);
+      sceneEl.querySelector(".scene-text").appendChild(form);
+    }
     sceneMeta.textContent = "";
     var word = kindWord(box);
     if (word) sceneMeta.appendChild(el("span", "kind", word));
@@ -1645,15 +1714,23 @@ var __name = function (f) { return f; };
     if (!shots.length) return;
     var figure = el("figure", "scene-shot");
     var main = el("img", "main");
+    main.tabIndex = 0;
+    main.setAttribute("role", "button");
+    // ponytail: a phone silhouette is a portrait 9:16-to-9:22 frame; a taller
+    // desktop capture (~0.59) and a tablet (~0.7) fall outside it.
+    main.addEventListener("load", function () { var ratio = main.naturalWidth / main.naturalHeight; main.classList.toggle("phone", ratio >= .4 && ratio <= .58); });
     main.alt = "Screenshot: " + box.title;
     main.src = withToken(shots[0].src);
     main.addEventListener("click", function () { openImage(main.src); });
+    main.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openImage(main.src); } });
     figure.appendChild(main);
     if (shots.length > 1) {
       var thumbs = el("div", "thumbs");
       shots.forEach(function (shot, index) {
         var thumb = el("img", index === 0 ? "on" : "");
         thumb.alt = shot.label;
+        thumb.tabIndex = 0;
+        thumb.setAttribute("role", "button");
         thumb.src = withToken(shot.src);
         // Rolling over a thumbnail brings it up; a tap does the same on a phone.
         function choose() {
@@ -1662,6 +1739,7 @@ var __name = function (f) { return f; };
         }
         thumb.addEventListener("mouseenter", choose);
         thumb.addEventListener("click", choose);
+        thumb.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(); } });
         thumbs.appendChild(thumb);
       });
       figure.appendChild(thumbs);
@@ -1700,7 +1778,7 @@ var __name = function (f) { return f; };
   function schedule() {
     clearInterval(cycle);
     cycle = null;
-    if (scenes.length > 1 && !holding) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+    if (scenes.length > 1 && !holding && !sceneEl.contains(document.activeElement)) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
   }
   function hold(on) {
     holding = on;
@@ -1709,6 +1787,8 @@ var __name = function (f) { return f; };
   }
   sceneEl.addEventListener("mouseenter", function () { hold(true); });
   sceneEl.addEventListener("mouseleave", function () { hold(false); });
+  sceneEl.addEventListener("focusin", function () { hold(true); });
+  sceneEl.addEventListener("focusout", function (event) { if (!sceneEl.contains(event.relatedTarget)) hold(false); });
   ticksEl.addEventListener("mouseleave", function () { hold(false); });
   function openScene() { if (sceneHead.dataset.ref) openInTerminal(sceneHead.dataset.ref); }
   sceneHead.addEventListener("click", openScene);
@@ -1884,6 +1964,7 @@ var __name = function (f) { return f; };
   });
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+    if (event.target instanceof Element && event.target.closest(".scene-answer, .scene-shot, #ticks, #scene-meta, #flip")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {

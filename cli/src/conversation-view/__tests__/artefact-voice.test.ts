@@ -108,15 +108,23 @@ describe("withVoice", () => {
     expect(items[1]).toMatchObject({ kind: "live", headline: "Drag and drop documents into the window", detail: "Working on it now" });
   });
 
-  it("shows a task's last words while new ones are asked for, only while it stays in the same section", () => {
-    const last = (kind: string, task: string) =>
-      kind === "needs you" && task === "jev" ? { headline: "Decide whether the Jev log stays.", line: "Keep it or drop it." } : undefined;
-    const asCall = withVoice(parseBearings({ decisions_open: [{ id: "jev", summary: JEV.title }] }), () => undefined, last);
-    expect(asCall.fleet.calls[0]!.said?.headline).toBe("Decide whether the Jev log stays.");
+  it("shows source evidence rather than unmatched cached words", () => {
+    const asCall = withVoice(parseBearings({ decisions_open: [{ id: "jev", summary: JEV.title }] }), () => undefined);
+    expect(asCall.fleet.calls[0]!.said).toBeUndefined();
     expect(asCall.unsaid).toHaveLength(1);
-    const asLanded = withVoice(parseBearings({ landed: [{ id: "jev", what: "Jev decision log reviewed" }] }), () => undefined, last);
+    const asLanded = withVoice(parseBearings({ landed: [{ id: "jev", what: "Jev decision log reviewed" }] }), () => undefined);
     expect(asLanded.fleet.landed[0]).toMatchObject({ task: "jev" });
     expect(asLanded.fleet.landed[0]!.said).toBeUndefined();
     expect(asLanded.unsaid).toHaveLength(1);
+  });
+
+  it("invalidates earlier design wording when active Christmas evidence arrives", () => {
+    const report = { kind: "report available", title: "Find the Good Neighbours design", project: "good_neighbours" };
+    const current = { ...report, context: "Still open: Christmas market at Block42, Nuanu. Preview http://127.0.0.1:8097/ on christmas-2026 has newer local edits." };
+    expect(voiceKey(current)).not.toBe(voiceKey(report));
+    const prompt = voicePrompt([{ ...current, id: "r1" }], null);
+    expect(prompt).toContain("Block42, Nuanu");
+    expect(prompt).toContain("never infer the preview matches a PR");
+    expect(prompt).toContain("Preserve pending decisions");
   });
 });
