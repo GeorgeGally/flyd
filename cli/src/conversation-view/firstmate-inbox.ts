@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { readProjects } from "../council/projects.js";
 import { handoffLine } from "./living.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
@@ -157,7 +156,11 @@ export class FirstmateInbox implements CaptainInbox {
   private sorted: Exchange[] = [];
   private listingKey = "";
 
-  constructor(options: { home?: string; script?: string } = {}) {
+  /** His own names for his projects, for the living line. */
+  private readonly projectNames: () => string[];
+
+  constructor(options: { home?: string; script?: string; projects?: () => string[] } = {}) {
+    this.projectNames = options.projects ?? (() => []);
     this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
   }
@@ -298,7 +301,7 @@ export class FirstmateInbox implements CaptainInbox {
     }
     const replyFor = new Map<string, ConversationMessage>();
     for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
-    const projects = projectNames();
+    const projects = this.projectNames();
     this.sorted = [...this.parsed.entries()]
       .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
       .map(([name, question]): Exchange => {
@@ -365,9 +368,4 @@ export function mergeNotes(
   }
   while (next < inWindow.length) push(inWindow[next++]!);
   return merged;
-}
-
-/** His own names for his projects, read when a living line is composed. */
-export function projectNames(): string[] {
-  return readProjects().map((project) => project.name);
 }

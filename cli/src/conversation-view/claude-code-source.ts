@@ -2,10 +2,16 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
-import { mergeNotes, projectNames, relayed, type CaptainInbox } from "./firstmate-inbox.js";
+import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { readProjects } from "../council/projects.js";
 import { handoffLine, livened } from "./living.js";
+
+/** His own names for his projects, read when a living line is composed. */
+export function projectNames(): string[] {
+  return readProjects().map((project) => project.name);
+}
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
