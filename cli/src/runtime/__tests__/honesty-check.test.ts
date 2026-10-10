@@ -98,6 +98,13 @@ describe("internal narration", () => {
       "I sent the clock fix to Firstmate this morning. It landed at 3pm.",
       "Sure. Let me check with Sam tomorrow and get back to you.",
       "Order pizza for the crew. Soundcheck is at 6.",
+      "Order pizza. That's for the crew, not the guests.",
+      "Routing it to the aux bus gives you the reverb tail. Then automate the send.",
+      "Handing it to the promoter early gives them time.",
+      "Using the clone stamp tool, paint over the logo.",
+      "I'd handle payroll internally. An agency costs more.",
+      "I'll send that to Sam once he replies.",
+      "Sending it to the label first is safer.",
     ]) expect(stripInternalNarration(answer)).toEqual({ cleaned: answer, removed: [] });
   });
 

@@ -91,13 +91,13 @@ export function styleProblems(answer: string): string[] {
 // handing it to your accountant"), outcomes ("I sent the fix to Firstmate this
 // morning") and commitments ("Let me check with Sam tomorrow") stay.
 // Handing something to George himself ("I'll pass it to you") is not routing.
-const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing|sending)|I'?ll (?:pass|hand|route|send)|I will (?:pass|hand|route|send)) (?:this|it|that)(?: along| over| on)?(?: to (?!you\b|your\b)|\s*(?:[.!,…]|$))|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\b/i;
+const HANDOFF = /^(?:(?:I'?m |I am |now )?(?:passing|handing|routing)|I'?ll (?:pass|hand|route)|I will (?:pass|hand|route)) (?:this|it|that)(?: along| over| on)?(?: to (?!your\b)(?:the )?(?:[\w-]+ )?(?:firstmate|crew|boss|team|agent|worker)s?\b|\s*(?:[.!,…]|$))|^(?:this|that|it)(?: one)?(?:'s| is) for the crew\s*[.!…]*$/i;
 const STALL_PHRASE = "one moment|give me a (?:sec(?:ond)?|moment|minute)|let me check|just checking|checking now";
 const STALL = new RegExp(`^(?:(?:${STALL_PHRASE})(?:,? (?:please|sir|now|that|this|it|for you|on that|real quick))*|(?:still )?loading(?: now| it| that| up)?)[,\\s]*(?:[.…!]+)?$`, "i");
-const TOOL_NARRATION = /^(?:I'?m |I am |now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool\b|\bI (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
-// "Internally" alone is ordinary English ("discussed internally"); only
-// first-person use describes Flyd's own machinery.
-const INTERNALLY = /\b(?:I|I'm|I've|I'll|I'd|my)\b[^.!?]*\binternally\b|\binternally\b[^.!?]*\b(?:I|my)\b/;
+const TOOL_NARRATION = /^(?:I'?m|I am) (?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool\b|^(?:now )?(?:calling|running|invoking|using) (?:the|my) (?:[\w-]+ ){0,3}tool(?: now)?\s*[.!…]*$|\bI (?:ran|called|used|invoked) (?:the|my) (?:[\w-]+ ){0,3}tools?\b|\bmy tools\b/i;
+// "Internally" alone is ordinary English ("I'd handle payroll internally");
+// only Flyd's own checking or running describes its machinery.
+const INTERNALLY = /\bI(?:'ve|'m)? (?:checked|checking|ran|running|looked|looking|searched|searching|processed|processing|routed|routing)\b[^.!?]*\binternally\b/i;
 // A stall that opens a real sentence ("Let me check — the venue opens at 9.")
 // loses only its opening clause.
 const LEADING_STALL = new RegExp(`^((?:${STALL_PHRASE})(?:,? please)?(?:,? sir)?\\s*(?:—|–|-|,|:|\\.\\.\\.|…))\\s+(\\S.*)$`, "i");
