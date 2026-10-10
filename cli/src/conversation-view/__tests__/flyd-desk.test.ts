@@ -524,11 +524,13 @@ describe("supervision chatter never reaches Flyd's window", () => {
     mkdirSync(project);
     writeFileSync(join(project, "main.jsonl"), [
       captain("how's the island?"),
-      assistantText("Captain, the island filter is back on and working."),
+      assistantText("Captain, the island filter is back on and working, and the going-silent fix is ready: https://github.com/GeorgeGally/flyd/pull/84"),
       injection(WAKE),
       assistantText("The stale wake for the Good Neighbours site worker was a false alarm. The worker isn't wedged.\n\nI took no action and reported it to MAIN as a silent routine outcome. The wake is acknowledged."),
       injection(WAKE),
-      assistantText("Captain, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90"),
+      assistantText("Captain, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90. PR 84 (https://github.com/GeorgeGally/flyd/pull/84) is still waiting on your merge."),
+      injection(WAKE),
+      assistantText("The worker isn't blocked; no action needed."),
       injection(WAKE),
       assistantText("Captain, the Good Neighbours worker failed its build twice and stopped."),
       injection(WAKE),
@@ -542,13 +544,28 @@ describe("supervision chatter never reaches Flyd's window", () => {
     const snapshot = await source(project, join(dir, "firstmate")).read("main");
     const relays = snapshot.messages.filter((message) => message.role === "assistant");
     expect(relays.map((message) => message.text)).toEqual([
-      "Sir, the island filter is back on and working.",
-      "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90",
+      "Sir, the island filter is back on and working, and the going-silent fix is ready: https://github.com/GeorgeGally/flyd/pull/84",
+      "Sir, the settings screen is ready to merge: https://github.com/GeorgeGally/flyd/pull/90. PR 84 (https://github.com/GeorgeGally/flyd/pull/84) is still waiting on your merge.",
       "Sir, the Good Neighbours worker failed its build twice and stopped.",
       "Sir, the lab page has two layouts. Should I keep the grid or the list?",
       "Sir, deployed and all tests pass; landed on main.",
     ]);
     // The island reads the same snapshot, so it names only what the window shows.
     expect(relays.map((message) => message.id)).toContain(statusOf(snapshot).reply?.id);
+  });
+
+  it("keeps his own message that quotes a watcher wake, and firstmate's answer to it", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "main.jsonl"), [
+      captain("why does \"firstmate watcher wake - one supervision event needs a handling turn now\" keep showing?"),
+      assistantText("Captain, the Stop hook prints it whenever a supervision event is parked."),
+    ].join("\n") + "\n");
+
+    const snapshot = await source(project, join(dir, "firstmate")).read("main");
+    expect(snapshot.messages.map((message) => message.text)).toEqual([
+      "why does \"firstmate watcher wake - one supervision event needs a handling turn now\" keep showing?",
+      "Sir, the Stop hook prints it whenever a supervision event is parked.",
+    ]);
   });
 });

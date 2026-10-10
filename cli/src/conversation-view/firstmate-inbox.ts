@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { forCaptain } from "./status.js";
+import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
 // The captain's way to talk to firstmate from the view: firstmate's own
@@ -316,8 +316,13 @@ export class FirstmateInbox implements CaptainInbox {
  * him (see forCaptain).
  */
 export function relayed(messages: ConversationMessage[]): ConversationMessage[] {
+  const named = new Set<string>();
   return messages
-    .filter((message) => !message.wake || forCaptain(message.text))
+    .filter((message) => {
+      const kept = !message.wake || forCaptain(message.text, named);
+      for (const url of pullRequestsIn(message.text)) named.add(url);
+      return kept;
+    })
     .map((message) => (message.role === "assistant" ? { ...message, text: inFlydsVoice(message.text), aside: true } : message));
 }
 
