@@ -139,13 +139,15 @@ export interface StatusItem {
   detail?: string;
 }
 
-const NEEDS = /\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|your (?:call|decision|word|ok|go-ahead|approval)|say ["“']|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok)|approve)\b/i;
-const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:merge|land|ship)|still going|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
+const NEEDS = /\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|your (?:call|decision|word|ok|go-ahead|approval)|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok)|approve)\b/i;
+/** "Say "X" to keep it" is an ask, but only when it leads the line, not mid-sentence quoted text. */
+const SAY_ASK = /(?:^|[:;.]\s+)say\s*["“']/i;
+const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:merge|land|ship)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
 const LANDED = /\b(?:merged|landed|shipped|is live|went live|released|deployed|done|finished|complete)\b/i;
 const NOT_YET = /\b(?:never|not|isn't|wasn't|hasn't|unmerged|until|before)\b/i;
 
 export function stateOf(text: string): WorkState | null {
-  if (NEEDS.test(text)) return "needs";
+  if (NEEDS.test(text) || SAY_ASK.test(text)) return "needs";
   if (UNDERWAY.test(text)) return "underway";
   if (LANDED.test(text)) return NOT_YET.test(text) ? "underway" : "landed";
   return null;
@@ -309,7 +311,9 @@ export function statusCardHtml(items: StatusItem[]): string {
         .map((url) => `<a class="sc-led" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Open the next one"></a>`).join("");
       const project = named && item.project ? `<span class="sc-project">${escapeHtml(item.project)}</span>` : "";
       const detail = item.detail ? `<span class="sc-detail">${escapeHtml(item.detail)}</span>` : "";
-      return `<li class="sc-row" style="--i:${index++}"><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
+      // A question he can answer right here; the page puts a reply box under it.
+      const ask = state === "needs" ? ` data-ask="${escapeHtml(item.text)}"` : "";
+      return `<li class="sc-row" style="--i:${index++}"${ask}><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
     });
     const count = mine.reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
     return [`<section class="sc-group ${GROUP[state].kind}"><h4 class="sc-kicker">${GROUP[state].title}<span class="sc-count">${count}</span></h4><ul>${rows.join("")}</ul></section>`];

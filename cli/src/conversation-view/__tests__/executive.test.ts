@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brief, renderBriefing, statusSummaryHtml, withoutStubs } from "../executive.js";
+import { brief, renderBriefing, statusCardHtml, statusSummaryHtml, withoutStubs } from "../executive.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { SnapshotDiffer } from "../server.js";
 import { headlineOf, statusOf } from "../status.js";
@@ -110,3 +110,33 @@ describe("Flyd's executive voice", () => {
     expect(short!.html).toContain('href="https://github.com/GeorgeGally/flyd/pull/90"');
   });
 });
+
+describe("needs you: only real questions, each answerable", () => {
+  const REPLY = [
+    "Captain, the Block42 review raised three questions that need your call before it can merge:",
+    "",
+    "1. **Sepia tint.** Keep it on both, or brands only?",
+    "2. **Repeated copy.** Keep it, give me new wording, or draft different copy?",
+    "3. **Photo rights.** Are you OK publishing it?",
+    "",
+    "Other updates:",
+    '- **Flyd artefacts:** the fix is built. Finished reports no longer wrongly say "waiting to land". It\'s going through checks now and merges itself when green.',
+    "- **Flyd status line:** the follow-up wording fix is in its checks.",
+  ].join("\n");
+
+  it("keeps a progress line that merely quotes say \"…\" out of Needs you", () => {
+    const byState = brief(REPLY).items.map((item) => [item.state, item.text]);
+    expect(byState.filter(([state]) => state === "needs").map(([, text]) => text)).toEqual(["Sepia tint", "Repeated copy", "Photo rights"]);
+    expect(byState.some(([, text]) => /Flyd artefacts/.test(text) && /Needs you/.test(text))).toBe(false);
+    expect(byState).toContainEqual(["underway", "Flyd artefacts: the fix is built"]);
+  });
+
+  it("marks each Needs you row with the question, so the page can answer it in place", () => {
+    const html = statusCardHtml(brief(REPLY).items);
+    expect(html).toContain('<section class="sc-group k-call"><h4 class="sc-kicker">Needs you<span class="sc-count">3</span>');
+    expect(html).toContain('data-ask="Sepia tint"');
+    expect(html).toContain('data-ask="Photo rights"');
+    expect(html).not.toContain('data-ask="Flyd artefacts: the fix is built"');
+  });
+});
+

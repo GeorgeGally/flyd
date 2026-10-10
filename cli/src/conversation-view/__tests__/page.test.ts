@@ -817,7 +817,7 @@ describe("header and artefact view", () => {
     const stream = open("latest", []);
     const rail = {
       conversations: [
-        { id: "q1", question: "make a playlist", answer: "Nine tracks.", at: "2026-10-10T12:46:56Z" },
+        { id: "q1", question: "make a playlist", answer: "Nine tracks.", at: "2026-10-10T12:46:56Z", previews: [{ id: "image:x", title: "Screenshot", line: "after.png", image: "/api/rail-image?path=%2FUsers%2Fme%2Fafter.png" }] },
         { id: "q2", question: "and tickets?", waiting: "Working on it" },
       ],
       artefacts: [
@@ -835,11 +835,35 @@ describe("header and artefact view", () => {
     expect(talks[0]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
     expect(talks[0]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
     expect(talks[1]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
+    const shot = talks[1]!.querySelector<HTMLImageElement>(".rail-shot")!;
+    expect(shot.src).toContain("/api/rail-image?path=%2FUsers%2Fme%2Fafter.png");
+    expect(shot.src).toContain("token=");
     const frame = document.querySelector<HTMLIFrameElement>(".rail-frame")!;
     expect(frame.src).toBe("http://127.0.0.1:8097/");
     document.getElementById("rail-hide")!.click();
     expect(document.getElementById("rail")!.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
+  });
+
+  it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
+    sendResponse = { id: "note:7", timestamp: "2026-10-05T20:02:00.000Z" };
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const html = '<div class="status-card"><section class="sc-group k-call"><h4 class="sc-kicker">Needs you</h4><ul><li class="sc-row" data-ask="Sepia tint"><span class="sc-led"></span><span class="sc-what"><span class="sc-text">Sepia tint</span></span></li></ul></section></div>';
+    stream.emit("update", { order: ["r1"], messages: [{ id: "r1", role: "assistant", html }], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [] });
+    await settle();
+    const input = document.querySelector<HTMLTextAreaElement>(".sc-ask-input")!;
+    expect(input).toBeTruthy();
+    input.value = "brands only";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const send = document.querySelector<HTMLButtonElement>(".sc-ask-send")!;
+    expect(send.disabled).toBe(false);
+    document.querySelector(".sc-ask")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const calls = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send");
+    expect(calls.map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", text: 'On "Sepia tint": brands only' }]);
+    expect(document.querySelector(".sc-ask-receipt")!.textContent).toContain("Sent to firstmate");
   });
   const SHOW = {
     title: "Your move, sir.",

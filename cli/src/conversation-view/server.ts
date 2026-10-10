@@ -1,8 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { extname } from "node:path";
+import { extname, sep } from "node:path";
+import { FLYD_DIR } from "../lib/config.js";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
@@ -20,7 +22,7 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreview, type RailArtefact } from "./rail.js";
+import { composeRail, conversationPreviews, type RailArtefact } from "./rail.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
@@ -438,6 +440,14 @@ export class ConversationViewServer {
       await this.artefactShot(res, url.searchParams.get("task") ?? "", url.searchParams.get("file") ?? "");
       return;
     }
+    if (url.pathname === "/api/rail-image") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      await this.railImage(res, url.searchParams.get("path") ?? "");
+      return;
+    }
     if (url.pathname === "/api/status") {
       await this.statusStream(req, res);
       return;
@@ -527,7 +537,35 @@ export class ConversationViewServer {
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
       }));
-    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreview(snapshot.messages));
+    return composeRail(this.source.exchanges?.() ?? [], artefacts, conversationPreviews(snapshot.messages));
+  }
+
+  /** A screenshot a reply named, served only from firstmate's own tree or Flyd's. */
+  private async railImage(res: ServerResponse, file: string): Promise<void> {
+    const type = SHOT_TYPES[extname(file).toLowerCase()];
+    if (!file.startsWith("/") || !type || file.includes("\0")) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    let real: string;
+    try {
+      real = await realpath(file);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    const roots = await Promise.all([firstmateHome(), FLYD_DIR].map((root) => realpath(root).catch(() => root)));
+    if (!roots.some((root) => real === root || real.startsWith(root + sep))) {
+      sendJson(res, 403, { error: "not allowed" });
+      return;
+    }
+    try {
+      const data = await readFile(real);
+      res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=60", "x-content-type-options": "nosniff" });
+      res.end(data);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+    }
   }
 
   /** George rewords, vetoes or restores a learned taste rule from the taste page. */
