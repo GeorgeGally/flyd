@@ -910,7 +910,7 @@ private final class GradientView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
-/// Draws a block of text exactly as `DictationPill.textBox` measured it: wrapped to the view's
+/// Draws a block of text exactly as `DictationPill.block(_:width:maxLines:)` measured it: wrapped to the view's
 /// width from its top edge, the last line that fits truncating.
 private final class IslandText: NSView {
     var text: NSAttributedString? {
