@@ -483,6 +483,22 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .reply-send { font: 700 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .reply-note { flex-basis: 100%; font: 400 13px/1.4 var(--mono); color: var(--muted); }
 .reply-ref { display: block; margin: 0 0 0.3em; font: 400 0.72em/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+/* A question a reply put to him: the question, one tap per option, or his own
+   words. Said to him, so never muted as an update; it fades in, nothing moves. */
+.msg.aside.asks { color: var(--fg); font-size: 1em; }
+.choice { margin-top: 0.9em; padding: 0.85em 1em 0.95em; border-radius: 12px; background: var(--tint); animation: choice-in 380ms ease both; }
+.choice-q { margin: 0 0 0.65em; font: 600 1.05em/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.choice-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 0.75em; }
+.choice-option { font: 500 16px/1.3 var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--faint); border-radius: 18px; padding: 9px 16px; cursor: pointer; text-align: left; transition: color 140ms ease, border-color 140ms ease; }
+.choice-option:hover { color: var(--strong); border-color: var(--accent); }
+.choice-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.choice-option:disabled { opacity: 0.5; cursor: default; }
+.choice-option:disabled:hover { color: var(--fg); border-color: var(--faint); }
+.choice-free { display: flex; align-items: flex-end; gap: 8px; }
+.choice-free[hidden] { display: none; }
+.choice .reply-note { display: block; margin-top: 0.55em; }
+@keyframes choice-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .choice { animation: none; } }
 .rail-replies { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--faint); }
 .rail-replies .rail-talk { margin: 0 0 12px; }
 .rail-replies .rail-q { font-size: 16px; }
@@ -837,6 +853,7 @@ var __name = function (f) { return f; };
       summarize(el, message);
       wireAsks(body);
     }
+    wireChoice(el, message);
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
   }
   // A question waits for its own answer; firstmate's session lines are relayed updates.
@@ -1249,12 +1266,89 @@ var __name = function (f) { return f; };
     return message.settled && message.waiting ? message.id : null;
   }
   function wireReply(el, message) {
-    var target = SEND_TOKEN ? replyTarget(message) : null;
+    // A reply that asks him something is answered in its own card instead.
+    var target = SEND_TOKEN && !message.choice ? replyTarget(message) : null;
     var old = el.querySelector(":scope > .reply");
     if (old && (!target || old.dataset.key !== "reply:" + target)) { old.remove(); old = null; }
     if (!target) return;
     if (!old) old = replyBox(target, "window");
     if (el.lastElementChild !== old) el.appendChild(old);
+  }
+  // A reply that asks him something carries its question under it: one tap per
+  // option, or his own words. The answer goes back where the question came from,
+  // the way a reply to an answer does. Drawn from its state alone, so a redraw
+  // keeps what he typed and what was sent.
+  var choiceStates = new Map();
+  function wireChoice(target, message) {
+    var choice = SEND_TOKEN ? message.choice : null;
+    var key = choice ? "choice:" + choice.replyTo + ":" + choice.question + ":" + choice.options.join("|") : "";
+    var old = target.querySelector(":scope > .choice");
+    target.classList.toggle("asks", !!choice);
+    if (old && old.dataset.key !== key) { old.remove(); old = null; }
+    if (!choice) return;
+    if (!old) old = choiceCard(choice, key);
+    if (target.lastElementChild !== old) target.appendChild(old);
+  }
+  function choiceCard(choice, key) {
+    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false });
+    var state = choiceStates.get(key);
+    var card = el("div", "choice");
+    card.dataset.key = key;
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", choice.question);
+    card.appendChild(el("p", "choice-q", choice.question));
+    var buttons = [];
+    if (choice.options.length) {
+      var options = el("div", "choice-options");
+      choice.options.forEach(function (option) {
+        var button = el("button", "choice-option", option);
+        button.type = "button";
+        button.addEventListener("click", function () { deliver(option); });
+        buttons.push(button);
+        options.appendChild(button);
+      });
+      card.appendChild(options);
+    }
+    var form = el("form", "choice-free");
+    var input = el("textarea", "reply-input choice-input");
+    input.rows = 1;
+    input.placeholder = choice.options.length ? "Or say something else…" : "Your answer…";
+    input.value = state.draft;
+    input.setAttribute("aria-label", "Answer: " + choice.question);
+    var send = el("button", "reply-send", "Send");
+    send.type = "submit";
+    form.appendChild(input);
+    form.appendChild(send);
+    card.appendChild(form);
+    var note = el("span", "reply-note", state.note);
+    note.setAttribute("role", "status");
+    note.hidden = !state.note;
+    card.appendChild(note);
+    function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
+    function settle() {
+      buttons.forEach(function (button) { button.disabled = state.sent || state.sending; });
+      input.disabled = send.disabled = state.sent || state.sending;
+      form.hidden = state.sent;
+    }
+    function deliver(text) {
+      text = String(text || "").trim();
+      if (!text || !current || state.sending || state.sent) return;
+      state.sending = true;
+      settle();
+      say("Sending…");
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+        .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
+        .then(function () { state.sent = true; state.draft = ""; input.value = ""; say("Sent: “" + text + "”"); })
+        .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
+        .then(function () { state.sending = false; settle(); });
+    }
+    input.addEventListener("input", function () { state.draft = input.value; });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener("submit", function (event) { event.preventDefault(); deliver(input.value); });
+    settle();
+    return card;
   }
   function renderRail(rail) {
     if (!rail) { railEl.hidden = true; setRail(false); return; }
@@ -2132,7 +2226,7 @@ var __name = function (f) { return f; };
       var form = el("form", "scene-answer");
       form.setAttribute("aria-label", "Answer this question");
       form.dataset.key = key;
-      var label = el("label", "", "Your answer");
+      var label = el("label", "", decision.replyTo ? "Or in your own words" : "Your answer");
       label.htmlFor = "decision-answer";
       var answer = el("textarea");
       answer.id = "decision-answer";
@@ -2140,10 +2234,17 @@ var __name = function (f) { return f; };
       answer.required = true;
       answer.value = state.text || "";
       var choices = el("div", "choices");
+      // A question a reply put to him is answered by one tap; a fleet hold's choice is filled in to be sent.
+      var asked = !!decision.replyTo;
       (decision.choices || []).forEach(function (choice) {
         var button = el("button", "", choice);
         button.type = "button";
-        button.addEventListener("click", function () { answer.value = choice; answer.dispatchEvent(new Event("input")); answer.focus(); });
+        button.addEventListener("click", function () {
+          answer.value = choice;
+          answer.dispatchEvent(new Event("input"));
+          if (asked) form.requestSubmit(); else answer.focus();
+        });
+        button.disabled = asked && !!state.receipt;
         choices.appendChild(button);
       });
       form.appendChild(choices);
@@ -2151,7 +2252,7 @@ var __name = function (f) { return f; };
       form.appendChild(answer);
       var send = el("button", "", "Send answer");
       send.type = "submit";
-      var receipt = el("div", "receipt", state.receipt || "The question stays open until your answer is acknowledged.");
+      var receipt = el("div", "receipt", state.receipt || (asked ? "" : "The question stays open until your answer is acknowledged."));
       receipt.setAttribute("role", "status");
       receipt.setAttribute("aria-live", "polite");
       function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
@@ -2163,10 +2264,12 @@ var __name = function (f) { return f; };
         send.disabled = true;
         receipt.textContent = "Sending your answer…";
         try {
-          var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ decision: decision.task, text: answer.value }) });
+          var payload = asked ? { session: current, replyTo: decision.replyTo, text: answer.value } : { decision: decision.task, text: answer.value };
+          var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(payload) });
           var sent = await response.json();
           if (!response.ok) throw new Error(sent.error || "Answer not delivered");
-          state.receipt = "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
+          state.receipt = asked ? "Sent: “" + answer.value.trim() + "”." : "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
+          if (asked) choices.querySelectorAll("button").forEach(function (button) { button.disabled = true; });
           save();
           receipt.textContent = state.receipt;
         } catch (error) {

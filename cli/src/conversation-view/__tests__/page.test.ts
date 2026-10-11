@@ -802,6 +802,21 @@ describe("conversation page", () => {
 });
 
 describe("header and artefact view", () => {
+  it("sends a question a reply put to him back with one tap on the artefact", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", detail: "Three places would benefit from motion", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    expect(document.querySelector(".scene-answer .receipt")!.textContent).toBe("");
+    document.querySelector<HTMLButtonElement>(".scene-answer .choices button")!.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", text: "Yes, all three" }]);
+    expect(document.querySelector(".scene-answer .receipt")!.textContent).toBe("Sent: “Yes, all three”.");
+    expect([...document.querySelectorAll<HTMLButtonElement>(".scene-answer .choices button")].every((button) => button.disabled)).toBe(true);
+  });
+
   it("offers real choices and a review link, keeps Tab and typing in the answer form, and shows only a delivery receipt", async () => {
     load("");
     await settle();
@@ -936,6 +951,41 @@ describe("header and artefact view", () => {
     update({ conversations: [{ ...answered, replies: [{ id: "note:3", question: "make the spin slower", waiting: "Working on it", replyTo: "note:1" }] }], artefacts: [] });
     await settle();
     expect(document.querySelector(".rail-talk .rail-replies .rail-q")!.textContent).toBe("Make the spin slower.");
+  });
+
+  it("puts a question a reply asks him in a card under it, answered by one tap or his own words", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const choice = { question: "Want me to add all three?", options: ["Yes, all three", "Only 1: Press feedback", "No"], replyTo: "reply:a#2" };
+    const asked = { id: "reply:a#2", role: "assistant", html: "<p>Three places would benefit from motion.</p>", aside: true, choice };
+    stream.emit("update", { order: ["u1", "reply:a#2"], messages: [{ id: "u1", role: "user", html: "<p>ok do it</p>" }, asked], working: false });
+    await settle();
+    const message = document.querySelector<HTMLElement>('.msg.aside')!;
+    // Said to him, so it reads at full strength, with its own card instead of a reply link.
+    expect(message.classList.contains("asks")).toBe(true);
+    expect(message.querySelector(".reply")).toBeNull();
+    expect(message.querySelector(".choice-q")!.textContent).toBe("Want me to add all three?");
+    const buttons = [...message.querySelectorAll<HTMLButtonElement>(".choice-option")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["Yes, all three", "Only 1: Press feedback", "No"]);
+    buttons[0]!.click();
+    await settle();
+    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(sends()).toEqual([{ session: "latest", text: "Yes, all three", replyTo: "reply:a#2" }]);
+    expect(message.querySelector(".choice .reply-note")!.textContent).toBe("Sent: “Yes, all three”");
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    // Once he has answered, the card goes; an open question takes his own words.
+    stream.emit("update", { order: ["u1", "reply:a#2", "r3"], messages: [{ ...asked, choice: undefined }, { id: "r3", role: "assistant", html: "<p>Done.</p>", choice: { question: "What should the button say?", options: [], replyTo: "r3" } }], working: false });
+    await settle();
+    expect(message.querySelector(".choice")).toBeNull();
+    const open3 = document.querySelectorAll<HTMLElement>(".msg")[2]!;
+    expect(open3.querySelector(".choice-option")).toBeNull();
+    const words = open3.querySelector<HTMLTextAreaElement>(".choice-input")!;
+    words.value = "Book a stall";
+    words.dispatchEvent(new Event("input"));
+    words.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(sends().at(-1)).toEqual({ session: "latest", text: "Book a stall", replyTo: "r3" });
   });
 
   it("shows what Flyd remembers here and what it is remembering now, each as one plain sentence", async () => {

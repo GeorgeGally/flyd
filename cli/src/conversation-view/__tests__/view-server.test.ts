@@ -349,6 +349,27 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ session: "s1", text: " ", replyTo: "note:1" }), headers)).status).toBe(400);
   });
 
+  it("sends his answer to a question firstmate put in its own session back to that session, quoting the question", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox, [
+      captain("ok do it"),
+      assistantText("Captain, I checked the form. The leftover test page is still there. Should I remove it?"),
+      captain("thanks"),
+      assistantText("All three are live now, and the form feels firmer on a phone."),
+    ]);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const messages: ConversationMessage[] = (await server!["source"].read("s1")).messages;
+    const [asked, reported] = messages.filter((message) => message.role === "assistant");
+    const sent = await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: asked!.id }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[0]!.text).toBe(`[Captain is replying from Flyd to ${asked!.id} — your question: "The leftover test page is still there. Should I remove it?"; your reply began: "I checked the form.". His answer follows.]\n\nYes`);
+    // In the window and the column it reads as his own word, answering that question.
+    const answer = server!["source"].exchanges!()[0]!;
+    expect(answer.question).toMatchObject({ text: "Yes", replyTo: asked!.id, replyQuote: "The leftover test page is still there. Should I remove it?" });
+    // A reply that asked nothing is not a question to answer.
+    expect((await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: reported!.id }), headers)).status).toBe(409);
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {
