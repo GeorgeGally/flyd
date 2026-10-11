@@ -76,7 +76,7 @@ export function firstSentence(text: string): string {
   return sentence.length > 220 ? `${sentence.slice(0, 217).trimEnd()}…` : sentence;
 }
 
-const SALUTATION = /^(?:captain|sir|george|boss)\s*[,!:—-]\s*/i;
+export const SALUTATION = /^(?:captain|sir|george|boss)\s*[,!:—-]\s*/i;
 /** Opening words that only acknowledge; the reply's substance is in the next sentence. */
 const ACK_LEAD = /^(?:(?:yes|ok(?:ay)?),? )?(?:agreed|aye(?: aye)?|yes|done|right|ok(?:ay)?|sure|well spotted|good (?:call|catch|spot|point)|understood|noted|got it|shipshape|you(?:'re| are) (?:right|correct)|that's (?:right|correct|fair)|fair (?:point|enough)|correct|true|my mistake|sorry)[.!]?$/i;
 /** A whole reply that carries no outcome, decision or ask. */
