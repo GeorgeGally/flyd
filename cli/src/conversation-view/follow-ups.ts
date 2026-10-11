@@ -1,6 +1,6 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { outcomeFirst, spoken } from "./rail.js";
-import { inline } from "./summaries.js";
+import { clipKeepingLinks, inlineKeepingLinks } from "./line-links.js";
 import type { ConversationMessage, Exchange } from "./types.js";
 
 // Firstmate rarely answers a note with a formal `fm-inbox.sh reply`: it says
@@ -211,8 +211,6 @@ export function outcomeLine(text: string, question = ""): string {
   const line = words.size >= ABOUT_WORDS ? mostAbout(words, sentences) : -1;
   const shared = line >= 0 ? Math.max(...sentences.filter((sentence) => sentence.line === line).map((sentence) => [...words].filter((word) => sentence.words.has(word)).length)) : 0;
   const lead = shared >= ABOUT_WORDS ? excerpt(said, line) : said.split("\n").find((entry) => entry.trim()) ?? "";
-  const flat = inline(lead.replace(/^\s*(?:[-*+]|\d+[.)]|#+)\s+/, "")).replace(/\s+/g, " ").trim();
-  if (flat.length <= OUTCOME_CHARS) return flat;
-  const cut = flat.slice(0, OUTCOME_CHARS);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 60)).trimEnd()}…`;
+  const flat = inlineKeepingLinks(lead.replace(/^\s*(?:[-*+]|\d+[.)]|#+)\s+/, ""));
+  return clipKeepingLinks(flat, OUTCOME_CHARS, 60);
 }

@@ -382,8 +382,10 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 /* A question with no answer yet: one living line says what is happening to
    it, changing in place, until its answer appears right under it. */
 /* Read at a glance: the message face, near body size, in full text colour. */
-.queued { display: flex; align-items: center; gap: 0.55em; margin-top: 0.5em; font: 400 0.82em/1.45 var(--sans); color: var(--fg); }
-.queued::before { content: ""; flex: none; width: 0.36em; height: 0.36em; border-radius: 50%; background: currentColor; animation: breathe 1.4s ease-in-out infinite; }
+.queued { display: flex; align-items: flex-start; gap: 0.55em; margin-top: 0.5em; font: 400 0.82em/1.45 var(--sans); color: var(--fg); }
+.queued::before { content: ""; flex: none; width: 0.36em; height: 0.36em; margin-top: 0.545em; border-radius: 50%; background: currentColor; animation: breathe 1.4s ease-in-out infinite; }
+.queued .line-words { min-width: 0; overflow-wrap: anywhere; }
+.queued a, .rail-wait a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
@@ -794,7 +796,7 @@ var __name = function (f) { return f; };
       queued.className = "queued";
       queued.setAttribute("role", "status");
       // Picks up where the optimistic copy's line left off: no jump.
-      queued.textContent = carried.get(message.id) || message.waiting;
+      setLine(queued, carried.get(message.id) || message.waiting);
       carried.delete(message.id);
       el.appendChild(queued);
       living(queued, message.waiting);
@@ -910,9 +912,40 @@ var __name = function (f) { return f; };
   // The one line under his newest message changes in place, with a calm
   // swap, never growing into a log.
   var carried = new Map();
+  // A line can carry links: a bare web address, or "[label](address)"; each opens like any other link.
+  var LINE_LINK = /\\[([^\\]\\n]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)|https?:\\/\\/[^\\s<>"'\`)\\]]*[^\\s<>"'\`)\\].,;:!?…]/g;
+  function linkLine(node, text) {
+    text = String(text || "");
+    node.textContent = "";
+    var at = 0;
+    text.replace(LINE_LINK, function (whole, label, href, offset) {
+      if (offset > at) node.appendChild(document.createTextNode(text.slice(at, offset)));
+      var link = document.createElement("a");
+      link.href = href || whole;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = label || whole;
+      node.appendChild(link);
+      at = offset + whole.length;
+      return whole;
+    });
+    if (at < text.length) node.appendChild(document.createTextNode(text.slice(at)));
+  }
+  // The words sit in their own span so a link inside them flows as text beside the line's dot.
+  function setLine(line, text) {
+    line.dataset.line = text;
+    var words = line.querySelector(":scope > .line-words");
+    if (!words) {
+      line.textContent = "";
+      words = document.createElement("span");
+      words.className = "line-words";
+      line.appendChild(words);
+    }
+    linkLine(words, text);
+  }
   function living(line, text) {
-    if (line.textContent === text) return;
-    line.textContent = text;
+    if (line.dataset.line === text) return;
+    setLine(line, text);
     line.classList.remove("swap");
     void line.offsetWidth;
     line.classList.add("swap");
@@ -1102,7 +1135,7 @@ var __name = function (f) { return f; };
           wrap.appendChild(answer);
         } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
         else if (talk.answered) wrap.appendChild(el("p", "rail-wait", "Answered"));
-        else if (talk.waiting) wrap.appendChild(el("p", "rail-wait", talk.waiting));
+        else if (talk.waiting) { var wait = el("p", "rail-wait"); linkLine(wait, talk.waiting); wrap.appendChild(wait); }
         (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
         if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
         next.appendChild(wrap);
@@ -1638,7 +1671,7 @@ var __name = function (f) { return f; };
     var state = document.createElement("span");
     state.className = "queued state";
     state.setAttribute("role", "status");
-    state.textContent = ${JSON.stringify(RECEIVED)};
+    setLine(state, ${JSON.stringify(RECEIVED)});
     el.appendChild(state);
     main.insertBefore(el, working);
     document.getElementById("empty").hidden = true;
@@ -1784,7 +1817,7 @@ var __name = function (f) { return f; };
       awaiting.add(sent.id);
       if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
       living(state, warnings.get(sent.id) || sent.waiting || "Sent");
-      carried.set(sent.id, state.textContent);
+      carried.set(sent.id, state.dataset.line || state.textContent);
     }).catch(function (error) {
       sendsInFlight -= 1;
       el.classList.add("failed");

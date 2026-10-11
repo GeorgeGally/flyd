@@ -161,6 +161,20 @@ describe("conversation page", () => {
     expect(lines()).toEqual([]);
   });
 
+  it("makes the web addresses in a message's line real links, whole", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const question = { id: "note:5", role: "user", html: "<p>ship it</p>" };
+    stream.emit("update", { order: ["u1", "note:5"], messages: [{ ...question, waiting: "Done and live on https://christmas.example.com/vendors. See [the board](https://example.com/b)", settled: true }], working: false });
+    const links = Array.from(document.querySelectorAll(".queued a")) as HTMLAnchorElement[];
+    expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.target])).toEqual([
+      ["https://christmas.example.com/vendors", "https://christmas.example.com/vendors", "_blank"],
+      ["the board", "https://example.com/b", "_blank"],
+    ]);
+    expect(document.querySelector(".queued")!.textContent).toBe("Done and live on https://christmas.example.com/vendors. See the board");
+  });
+
   it("stills a line that says the answer failed, and keeps the working dots", async () => {
     load("");
     await settle();

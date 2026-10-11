@@ -1,3 +1,4 @@
+import { plainLinks } from "./line-links.js";
 import { brief, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
@@ -79,6 +80,6 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
     ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
-    ...(newest?.waiting ? { waiting: { id: newest.id, text: newest.waiting, ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
+    ...(newest?.waiting ? { waiting: { id: newest.id, text: plainLinks(newest.waiting), ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
   };
 }

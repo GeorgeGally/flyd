@@ -1,3 +1,4 @@
+import { clipKeepingLinks } from "./line-links.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -68,21 +69,20 @@ function upperFirst(text: string): string {
 }
 
 function clip(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim().replace(/[.…]+$/, "");
-  if (flat.length <= ACTIVITY_CHARS) return flat;
-  const cut = flat.slice(0, ACTIVITY_CHARS);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`;
+  return clipKeepingLinks(text.replace(/\s+/g, " ").trim().replace(/[.…]+$/, ""), ACTIVITY_CHARS, 40);
 }
 
 /**
- * Brings each unanswered note's line up to date: for the newest note
- * firstmate has taken, what its session is doing now. Only one line ever carries the live step, so nothing reads as a
- * growing log.
+ * Brings each unanswered note's line up to date: the step of the crewmate working on it when one is, else for the
+ * newest note firstmate has taken, what its own session is doing now. Each line is replaced in place, so nothing
+ * reads as a growing log.
  */
-export function livened(exchanges: Exchange[], live: { activity?: string; projects?: string[] }): Exchange[] {
+export function livened(exchanges: Exchange[], live: { activity?: string; projects?: string[]; steps?: Map<string, string> }): Exchange[] {
   const newestTaken = exchanges.reduce((index, exchange, i) => (exchange.handoff === "taken" && !exchange.answer ? i : index), -1);
   return exchanges.map((exchange, i) => {
     if (exchange.answer || exchange.settled || exchange.answered || !exchange.handoff) return exchange;
+    const step = live.steps?.get(exchange.question.id);
+    if (step) return { ...exchange, waiting: upperFirst(clip(step)) };
     const activity = i === newestTaken ? live.activity : undefined;
     return { ...exchange, waiting: handoffLine(exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}), ...(activity ? { activity } : {}) }) };
   });
