@@ -76,6 +76,8 @@ export interface RenderedMessage {
   files?: string[];
   /** The screenshot behind the answer (on a question, behind its inline outcome), as a same-origin src. */
   shots?: string[];
+  /** The web page the answer changed, as a button that opens it. */
+  page?: { label: string; url: string };
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
   summary?: { html: string; source: SummarySource | "flyd" | "brief"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
@@ -255,7 +257,7 @@ export class SnapshotDiffer {
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, choice]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, choice]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -266,6 +268,7 @@ export class SnapshotDiffer {
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
         ...(shots.length ? { shots } : {}),
+        ...(message.page ? { page: message.page } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
         ...(routine ? { routine: true } : {}),
@@ -611,14 +614,25 @@ export class ConversationViewServer {
       const name = repo.toLowerCase();
       return projects.find((entry) => entry.repos.some((path) => path.replace(/\/+$/, "").split("/").pop()!.toLowerCase() === name) || entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") === name)?.name;
     };
-    const artefacts: RailArtefact[] = composeArtefact(this.feed.current(), { project })
+    // Changes made to a website lead the column's artefacts: the element it changed, and the page to open.
+    const sites: RailArtefact[] = showOf(snapshot, { projects }).items
+      .filter((item) => item.open)
+      .map((item) => ({
+        id: item.id,
+        title: item.headline,
+        line: item.open!.label,
+        url: item.open!.url,
+        ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
+        ...(item.at ? { at: item.at } : {}),
+      }));
+    const artefacts: RailArtefact[] = [...sites, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,
         title: item.headline,
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
-      }));
+      }))];
     const interpreter = this.summaries?.interpreter;
     const { boards, deliverables } = this.workshop.current();
     // A Lavish board refuses to be framed; the column frames the page it reviews instead and links the board.

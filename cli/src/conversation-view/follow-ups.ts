@@ -159,14 +159,16 @@ function mostAbout(question: Set<string>, sentences: Sentence[]): number {
 }
 
 function answerFrom(message: ConversationMessage, exchange: Exchange, text: string): ConversationMessage {
+  const handled = message.notes?.includes(exchange.question.id.slice("note:".length)) === true;
   return {
     id: message.id,
     role: "assistant",
     text: inFlydsVoice(text),
     ...(message.timestamp ? { timestamp: message.timestamp } : {}),
     answers: exchange.question.id,
-    // Only the turn that handled the note looked at it; a later report's screenshot may be of anything.
-    ...(message.shots?.length && message.notes?.includes(exchange.question.id.slice("note:".length)) ? { shots: message.shots } : {}),
+    // Only the turn that handled the note looked at it; a later report's screenshot, or page, may be of anything.
+    ...(handled && message.shots?.length ? { shots: message.shots } : {}),
+    ...(handled && message.site ? { site: message.site } : {}),
   };
 }
 
@@ -181,8 +183,10 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
     if (!chat) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
     if (!exchange.answer || Date.parse(chat.timestamp ?? "") > formal) return { ...exchange, answer: chat, waiting: "" };
-    // A formal reply keeps its words; the screenshot firstmate looked at for the note still leads it.
-    return chat.shots?.length && !exchange.answer.shots?.length ? { ...exchange, answer: { ...exchange.answer, shots: chat.shots } } : exchange;
+    // A formal reply keeps its words; the screenshot firstmate looked at for the note, and the page it changed, still lead it.
+    const shots = chat.shots?.length && !exchange.answer.shots?.length ? { shots: chat.shots } : {};
+    const page = chat.page && !exchange.answer.page ? { page: chat.page } : {};
+    return Object.keys(shots).length || Object.keys(page).length ? { ...exchange, answer: { ...exchange.answer, ...shots, ...page } } : exchange;
   });
   const current = working ? merged.reduce((index, exchange, i) => (exchange.handoff === "taken" ? i : index), -1) : -1;
   return merged.map((exchange, i) =>
@@ -203,8 +207,12 @@ export function inlineOutcomes(exchanges: Exchange[]): Exchange[] {
     if (exchange.answered && !exchange.answer) return { ...exchange, waiting: "Answered", settled: true };
     if (!exchange.answer || exchange.answer.id.startsWith("note-reply:") || !exchange.question.id.startsWith("note:")) return exchange;
     const { answer, ...rest } = exchange;
-    // The screenshot behind the outcome goes with it, under his message.
-    const question = answer.shots?.length ? { ...rest.question, shots: answer.shots } : rest.question;
+    // The screenshot behind the outcome, and the page it changed, go with it, under his message.
+    const question = {
+      ...rest.question,
+      ...(answer.shots?.length ? { shots: answer.shots } : {}),
+      ...(answer.page ? { page: answer.page } : {}),
+    };
     return { ...rest, question, waiting: outcomeLine(answer.text, exchange.question.text), settled: true };
   });
 }

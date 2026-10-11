@@ -171,6 +171,13 @@ const SHOW_STYLE = `
 .scene-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 8px; border-radius: 6px; }
 .scene-line { margin: 30px 0 0; max-width: 31em; font: 400 clamp(18px, 1.45vw, 23px)/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .scene-line:empty { display: none; }
+/* The page a change is on: a button that opens it, big enough to read across the room. */
+a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-items: center; gap: 0.5em; max-width: 100%; padding: 0.6em 1.15em; border-radius: 999px; background: var(--accent); color: var(--bg); font: 600 15px/1.2 var(--sans); text-decoration: none; overflow-wrap: anywhere; transition: opacity 160ms ease; }
+.open-page:hover { opacity: 0.85; }
+.open-page:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
+.scene-open { margin-top: 26px; font-size: clamp(16px, 1.2vw, 19px); }
+.rail-open { margin: 10px 0 0; }
+.reply-open-page { margin: 0.6em 0 0.4em; }
 .scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
 .scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--k); }
 .scene-meta .project { color: var(--fg); }
@@ -234,7 +241,7 @@ const SHOW_STYLE = `
 .scene.out > * { animation: scene-out 200ms ease both; }
 .scene.in .scene-head { animation: scene-fade 380ms ease both; }
 .scene.in .scene-line { animation: scene-fade 380ms ease 70ms both; }
-.scene.in .scene-meta, .scene.in .scene-answer { animation: scene-fade 380ms ease 140ms both; }
+.scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-open { animation: scene-fade 380ms ease 140ms both; }
 .scene.in .scene-shot { animation: scene-fade 520ms ease 40ms both; }
 @keyframes scene-out { to { opacity: 0; } }
 @keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -306,7 +313,7 @@ const SHOW_STYLE = `
   .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-shot,
+  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-shot, .scene.in .scene-open,
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
   .ambient { transition: none; }
   .ticks button.on::after { transition: none; }
@@ -822,7 +829,7 @@ var __name = function (f) { return f; };
     var body = el.querySelector(".body");
     body.innerHTML = message.html;
     if (message.role === "user") highlight(body);
-    el.querySelectorAll(":scope > .shots").forEach(function (old) { old.remove(); });
+    el.querySelectorAll(":scope > .shots, :scope > .reply-open-page").forEach(function (old) { old.remove(); });
     var oldDocs = el.querySelector(".docs");
     if (oldDocs) oldDocs.remove();
     if (message.files && message.files.length) body.after(docs(message.files));
@@ -835,6 +842,12 @@ var __name = function (f) { return f; };
     if (message.shots && message.shots.length) {
       var answerShots = shots(message.shots.map(withToken), "reply-shots");
       if (message.role === "user") body.after(answerShots); else body.before(answerShots);
+    }
+    // The page the answer changed opens from a button beside its picture.
+    if (message.page) {
+      var opener = pageButton(message.page, "reply-open-page");
+      var after = el.querySelector(":scope > .reply-shots");
+      if (message.role === "user") (after || body).after(opener); else body.before(opener);
     }
     pairing(el, message);
     var ref = el.querySelector(":scope > .reply-ref");
@@ -919,6 +932,16 @@ var __name = function (f) { return f; };
       more.setAttribute("aria-expanded", open ? "true" : "false");
     });
     el.insertBefore(more, body);
+  }
+  // The page a change is on, as a button that opens it in his browser.
+  function pageButton(page, kind) {
+    var a = document.createElement("a");
+    a.className = "open-page " + kind;
+    a.href = page.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Open " + page.label + " ↗";
+    return a;
   }
   function shots(urls, kind) {
     var row = document.createElement("div");
@@ -1186,6 +1209,7 @@ var __name = function (f) { return f; };
   function talkAnswer(wrap, talk) {
     // The picture of the result leads; the words follow.
     if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
+    if (talk.page) wrap.appendChild(pageButton(talk.page, "rail-open"));
     if (talk.answerHtml) {
       var answer = el("div", "rail-a rail-a-md");
       answer.innerHTML = talk.answerHtml;
@@ -2215,6 +2239,9 @@ var __name = function (f) { return f; };
       sceneHead.dataset.ref = "";
     }
     sceneLine.textContent = box.line ? sentence(capital(box.line)) : "";
+    var oldOpen = sceneEl.querySelector(".scene-open");
+    if (oldOpen) oldOpen.remove();
+    if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
     var oldAnswer = sceneEl.querySelector(".scene-answer");
     var decisionKey = box.decision && VIEW_TOKEN ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "";
     if (oldAnswer && oldAnswer.dataset.key !== decisionKey) oldAnswer.remove();
@@ -2368,6 +2395,8 @@ var __name = function (f) { return f; };
   // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
   function deviceOf(name) {
     name = String(name || "").toLowerCase();
+    // A crop of the element a change touched keeps its own shape: it is a piece of the page, not a screen.
+    if (/^element-/.test(name)) return "art";
     function width(list) { return new RegExp("(?:^|[^0-9])(?:" + list + ")(?:[^0-9]|$)").test(name); }
     if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) return "phone";
     if (/ipad|tablet/.test(name) || width("768|810|820|834")) return "tablet";

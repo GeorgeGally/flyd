@@ -42,6 +42,8 @@ export interface RailConversation {
   answered?: boolean;
   /** The screenshot firstmate looked at before answering, as a same-origin src; it leads the answer. */
   shots?: string[];
+  /** The web page the answer changed, as a button that opens it. */
+  page?: { label: string; url: string };
   at?: string;
   /** Previews the reply showed: a live page or a local screenshot. */
   previews?: RailArtefact[];
@@ -383,6 +385,7 @@ export function composeRail(
         id: exchange.question.id,
         question: question(exchange.question.text),
         ...(shots.length ? { shots } : {}),
+        ...(answer?.page ? { page: answer.page } : {}),
         ...(answer ? { answer: outcomeFirst(spoken(answer.text)) } : {}),
         ...(html ? { answerHtml: html } : {}),
         ...(!answer && exchange.answered ? { answered: true } : !answer && exchange.waiting ? { waiting: exchange.waiting } : {}),

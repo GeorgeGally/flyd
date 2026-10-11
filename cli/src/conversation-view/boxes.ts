@@ -54,6 +54,8 @@ export interface Box {
   hours?: BoxHour[];
   shot?: ShowShot;
   links?: ShowLink[];
+  /** The web page the work changed: a button that opens it. */
+  open?: ShowLink;
   project?: string;
   status?: string;
   at?: string;
@@ -108,6 +110,7 @@ function fromItem(item: ShowItem, kind: "call" | "story", size: BoxSize): Box {
     tone: item.kind,
     ...(children.length ? { children } : {}),
     ...(item.links?.length ? { links: item.links } : {}),
+    ...(item.open ? { open: item.open } : {}),
     ...(item.project ? { project: item.project } : {}),
     ...(item.status ? { status: item.status } : {}),
     ...(item.at ? { at: item.at } : {}),
