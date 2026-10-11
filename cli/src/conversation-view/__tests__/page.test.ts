@@ -869,6 +869,23 @@ describe("header and artefact view", () => {
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
   });
 
+  it("puts the newest message at the top of the rail, above what Flyd remembers, and keeps the top in view", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const memory = { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] };
+    const update = (conversations: unknown[]) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations, artefacts: [], memory } });
+    update([{ id: "q1", question: "first", answer: "One." }]);
+    await settle();
+    const body = document.getElementById("rail-body")!;
+    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Conversations", "Remembers · GNM"]);
+    body.scrollTop = 200;
+    update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", waiting: "Working on it" }]);
+    await settle();
+    expect([...document.querySelectorAll(".rail-q")].map((node) => node.textContent)).toEqual(["Second.", "First."]);
+    expect(body.scrollTop).toBe(0);
+  });
+
   it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {
     load("");
     await settle();
