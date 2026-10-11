@@ -833,6 +833,8 @@ describe("header and artefact view", () => {
     const talks = document.querySelectorAll(".rail-talk");
     expect(talks).toHaveLength(2);
     expect(talks[0]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
+    // His questions stand out: a gold bar on a soft tint, a little larger than the answers.
+    expect(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) })).toMatch(/\.rail-q \{[^}]*border-left: 3px solid var\(--accent\)[^}]*background: color-mix\(in srgb, var\(--accent\) 12%, transparent\)[^}]*font: 500 18\.5px/);
     expect(talks[0]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
     expect(talks[1]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
     const shot = talks[1]!.querySelector<HTMLImageElement>(".rail-shot")!;
