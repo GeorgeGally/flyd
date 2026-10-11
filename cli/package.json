@@ -32,6 +32,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "@tobilu/qmd": "^2.5.3",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "better-sqlite3": "^12.10.0",
     "braces": "file:vendor/braces",
     "commander": "^12.0.0",
@@ -41,6 +42,7 @@
     "marked": "^16.4.2",
     "openai": "^4.0.0",
     "pg": "^8.22.0",
+    "qrcode-terminal": "^0.12.0",
     "undici": "^7.30.0",
     "ws": "^8.21.1"
   },
@@ -60,6 +62,7 @@
     "@types/mailparser": "^3.9.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.20.0",
+    "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.18.1",
     "happy-dom": "^20.14.5",
     "tsx": "^4.0.0",

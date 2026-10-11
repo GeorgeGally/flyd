@@ -1,3 +1,4 @@
+import { answerAccountIntent, isAccountIntent } from "../connectors/invocation.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -873,6 +874,10 @@ export async function respondToConversation(
   input: ConversationInput & { onToken(token: string): void },
   dependencies: ConversationResponderDependencies = {},
 ): Promise<string> {
+  if (!dependencies.readOnly && /\bwhatsapp\b/i.test(input.message) && isAccountIntent(input.message)) {
+    const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
+    input.onToken(answer); return answer;
+  }
   const txSession = input.sessionId ?? randomUUID();
   const txInvocation = randomUUID();
   let compiledContext: CompiledContext | null = null;

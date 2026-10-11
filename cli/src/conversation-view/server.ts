@@ -1,3 +1,4 @@
+import { renderWhatsAppPage } from "./whatsapp-page.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, realpath } from "node:fs/promises";
@@ -385,6 +386,17 @@ export class ConversationViewServer {
       return;
     }
     const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (req.method === "POST" && url.pathname === "/api/whatsapp") {
+      const origin = req.headers.origin;
+      if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
+      try {
+        const body = JSON.parse(await readBody(req, 32 * 1024)) as { name: string; input: Record<string, unknown> };
+        const wa = await import("../connectors/whatsapp-tools.js");
+        if (!wa.whatsappTools.some(t => t.name === body.name) || !body.input || typeof body.input !== "object") { sendJson(res, 400, { error: "invalid action" }); return; }
+        sendJson(res, 200, { result: await wa.runWhatsAppTool(body.name, body.input) });
+      } catch { sendJson(res, 400, { error: "WhatsApp action unavailable. Check pairing and Core connection; do not retry an uncertain send." }); }
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/send") {
       await this.send(req, res);
       return;
@@ -404,6 +416,10 @@ export class ConversationViewServer {
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
+    }
+    if (url.pathname === "/whatsapp") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:", "referrer-policy": "no-referrer" });
+      res.end(renderWhatsAppPage(this.token)); return;
     }
     if (url.pathname === "/") {
       res.writeHead(200, {

@@ -1258,6 +1258,18 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       const url = new URL(req.url || "/", `http://${host}:${port}`);
 
       switch (url.pathname) {
+      case "/whatsapp/tool": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        void parseBody(req).then(async raw => {
+          const body = JSON.parse(raw) as { name: string; input: Record<string, unknown> };
+          const wa = await import("./connectors/whatsapp-tools.js");
+          if (!wa.whatsappTools.some(t => t.name === body.name) || !body.input || typeof body.input !== "object") { sendJson(res, 400, { error: "Invalid WhatsApp tool" }); return; }
+          const result = await wa.runLocalWhatsAppTool(body.name, body.input);
+          sendJson(res, 200, { result });
+        }).catch(() => sendJson(res, 400, { error: "WhatsApp operation failed; do not retry a send without checking the conversation" }));
+        break;
+      }
       case "/manifest":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleManifest(req, res);
@@ -1781,6 +1793,7 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
     server.listen(port, host, async () => {
       serverInstance = server;
       console.log(`[Flyd Core] Server listening on http://${host}:${port}`);
+      void import("./connectors/whatsapp.js").then(m => m.startPairedWhatsApp()).catch(() => console.log("[Flyd Core] WhatsApp unavailable; check flyd whatsapp status"));
 
       try {
         const pluginSync = await syncInstalledOpenCodePlugin();

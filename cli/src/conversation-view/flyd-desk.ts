@@ -1,3 +1,4 @@
+import { isAccountIntent } from "../connectors/invocation.js";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -74,6 +75,7 @@ export async function routeMessage(
 ): Promise<Route> {
   // Attachments are read by firstmate; Flyd's own turn only sees words.
   if (input.command || input.images > 0 || (input.files ?? 0) > 0 || !input.text.trim()) return "firstmate";
+  if (/\bwhatsapp\b/i.test(input.text) && isAccountIntent(input.text)) return "flyd";
   const started = Date.now();
   const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");
   const fast = mode === "off" ? null : await (options.predict ?? defaultDeskPrediction)(input.text, input.recent).catch(() => null);

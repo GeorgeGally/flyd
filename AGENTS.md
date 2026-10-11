@@ -122,6 +122,10 @@ PRESENT remains zero-network. External evidence is not automatically written int
 
 Direct Google APIs and DreamHost IMAP live in `cli/src/connectors/`, exposed through personal tools and the explicit account-intent path in `resolve.ts` (also used by LIVE). `flyd accounts` connects/checks/disconnects accounts; setup and limits are in `docs/product/flyd-email-drive-setup.md`. Drafts and new Docs are supported; no sending/deletion/sharing tools. Credentials stay outside repositories and model tools; retrieved content is untrusted evidence and is not automatically learned into memory.
 
+### WhatsApp
+
+Personal WhatsApp transport lives in `cli/src/connectors/whatsapp*.ts`; setup/limits: `docs/product/flyd-whatsapp-setup.md`. The People artefact (`conversation-view/whatsapp-page.ts`, `/whatsapp`) owns inbox/thread/reply review; Core owns the linked-device socket, other processes use its authenticated loopback API. Credentials and partial text history stay private/local; provider messages are untrusted evidence, not automatic memory. Outward sends use immutable reviewed drafts, atomically claimed once; uncertain sends never retry.
+
 ### Privacy invariants
 
 11 falsifiable constraints live in `mac-adapter/Sources/Privacy/PrivacyInvariants.swift`. Key guarantees: no screenshots in PRESENT, no environment persistence after invocation, no raw audio storage, mic only during explicit user action.

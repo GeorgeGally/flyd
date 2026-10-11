@@ -923,7 +923,7 @@ export async function resolve(
     return {
       resolutionId: randomUUID(), invocationId: invocation_id,
       environmentRevision: environment_revision, mode: "requires_augment",
-      rationale: "Email/Drive request handled through account tools",
+      rationale: "Account request handled through account tools",
       operations: [], augmentations: [{ kind: "explanation", content: answer, placement: "cursor" }],
       workSessionId: resolvedSessionId, consequence: heuristicConsequence,
     };

@@ -2248,7 +2248,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="air" id="air">standby</span>
   <span class="when" id="when"></span>
   <span class="controls">
-    <button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
+    <a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
     <button id="mode" type="button" role="switch" aria-checked="false" aria-label="Full replies, as written">full<span class="track" aria-hidden="true"></span></button>
     <button id="theme" type="button" role="switch" aria-checked="false" aria-label="Light theme">light<span class="track" aria-hidden="true"></span></button>
     <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
