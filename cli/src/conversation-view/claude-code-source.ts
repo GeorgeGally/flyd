@@ -336,7 +336,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const answered = followUps(exchanges, snapshot.messages, snapshot.working);
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
-    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
+    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });
     return {
       ...voiced,
       messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),

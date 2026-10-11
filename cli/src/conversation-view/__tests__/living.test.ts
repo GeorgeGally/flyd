@@ -70,4 +70,12 @@ describe("the living line", () => {
     expect(a!.waiting).toBe("Checking how you like spacing");
     expect(b!.waiting).toBe("Running the tests");
   });
+
+  it("puts firstmate's own step on the notes its turn picked up, even before it files them", () => {
+    const exchanges = livened([note("note:a", "taken", "the header"), note("note:b", "queued", "the map"), note("note:c", "queued", "the footer")], {
+      activity: "Editing the styles",
+      workingOn: ["note:b"],
+    });
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, "Editing the styles", WORKING]);
+  });
 });

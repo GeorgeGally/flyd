@@ -153,18 +153,38 @@ describe("transcript filter", () => {
     conversation.pushLine(captain("fix the About cards"));
     expect(conversation.snapshot().activity).toBeUndefined();
     conversation.pushLine(toolUse("Bash", { command: "git status", description: "Check the working tree" }));
-    expect(conversation.snapshot().activity).toBe("Check the working tree");
+    expect(conversation.snapshot().activity).toBe("Checking the working tree");
     // Reads and searches say nothing; the last step stays.
     conversation.pushLine(toolUse("Read", { file_path: "/x/about.css" }));
-    expect(conversation.snapshot().activity).toBe("Check the working tree");
-    conversation.pushLine(assistantText("Captain, **dispatching** a crewmate for the cards:", "tool_use"));
+    expect(conversation.snapshot().activity).toBe("Checking the working tree");
+    conversation.pushLine(assistantText("Captain, **recolouring** the About cards to navy:", "tool_use"));
     conversation.pushLine(toolUse("Bash", { command: "fm-dispatch", description: "Launch crewmate" }));
-    expect(conversation.snapshot().activity).toBe("Dispatching a crewmate for the cards");
-    conversation.pushLine(toolUse("TodoWrite", { todos: [{ content: "Recolour cards", activeForm: "Recolouring the cards", status: "in_progress" }] }));
-    expect(conversation.snapshot().activity).toBe("Recolouring the cards");
+    expect(conversation.snapshot().activity).toBe("Recolouring the About cards to navy");
+    conversation.pushLine(toolUse("TodoWrite", { todos: [{ content: "Check cards on phone", activeForm: "Checking the cards on a phone", status: "in_progress" }] }));
+    expect(conversation.snapshot().activity).toBe("Checking the cards on a phone");
     conversation.pushLine(assistantText("Captain, the cards are navy again."));
     expect(conversation.snapshot()).toMatchObject({ working: false });
     expect(conversation.snapshot().activity).toBeUndefined();
+  });
+
+  it("follows firstmate's own undescribed steps on the note it picked up, newest step first", () => {
+    const F = "/Users/george/Documents/firstmate";
+    const G = "/Users/george/Documents/good_neighbours";
+    const conversation = new TranscriptConversation();
+    conversation.pushLine(captain("<task-notification> watcher wake </task-notification>"));
+    conversation.pushLine(toolUse("Read", { file_path: `${F}/state/inbox/1791722780-h1i26b.note` }));
+    expect(conversation.snapshot()).toMatchObject({ working: true, activity: "Reading your note", workingOn: ["note:1791722780-h1i26b"] });
+    conversation.pushLine(assistantText("Captain, making the site map all white: removing the dark fade at the top.", "tool_use"));
+    conversation.pushLine(toolUse("Bash", { command: `G=${G}; sed -n 652,660p $G/css/christmas-2026.css` }));
+    expect(conversation.snapshot().activity).toBe("Making the site map all white");
+    conversation.pushLine(toolUse("Bash", { command: `G=${G}; echo '.map { background: #fff; }' >> $G/css/christmas-2026.css` }));
+    expect(conversation.snapshot().activity).toBe("Editing the styles");
+    conversation.pushLine(toolUse("Read", { file_path: "/private/tmp/scratchpad/m.png" }));
+    expect(conversation.snapshot().activity).toBe("Looking at the screenshots");
+    conversation.pushLine(toolUse("Bash", { command: `FM_HOME=${F} ${F}/bin/fm-wake-drain.sh`, description: "Commit, ack note and wake" }));
+    expect(conversation.snapshot().activity).toBe("Looking at the screenshots");
+    conversation.pushLine(assistantText("Captain, the site map is white now."));
+    expect(conversation.snapshot().workingOn).toBeUndefined();
   });
 
   it("never shows the assistant narrating itself as the current step", () => {
@@ -186,8 +206,8 @@ describe("transcript filter", () => {
       expect(conversation.snapshot().activity).toBeUndefined();
     }
     conversation.pushLine(assistantText("Let me check the CI run…", "tool_use"));
-    conversation.pushLine(toolUse("Bash", { command: "gh run list", description: "List CI runs" }));
-    expect(conversation.snapshot().activity).toBe("List CI runs");
+    conversation.pushLine(toolUse("Bash", { command: "gh run list", description: "Look up the latest runs" }));
+    expect(conversation.snapshot().activity).toBe("Looking up the latest runs");
     conversation.pushLine(assistantText("Updating the calendar sync:", "tool_use"));
     conversation.pushLine(toolUse("Read", { file_path: "/x/sync.ts" }));
     expect(conversation.snapshot().activity).toBe("Updating the calendar sync");

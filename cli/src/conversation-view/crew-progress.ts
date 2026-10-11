@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { LineFollower } from "./line-follower.js";
+import { commandStep, fewWords, fileStep } from "./step-words.js";
 import type { Exchange } from "./types.js";
 
 // Firstmate hands most of George's notes to a crewmate and goes quiet, so its own session says nothing while the work
@@ -258,7 +259,7 @@ export function stepIn(line: string): string | undefined {
 function said(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > 240 || trimmed.includes("\n\n")) return undefined;
-  return plainStep(trimmed);
+  return stepWords(trimmed);
 }
 
 function toolStep(block: Record<string, unknown>): string | undefined {
@@ -273,13 +274,13 @@ function toolStep(block: Record<string, unknown>): string | undefined {
     if (MEMORY_SKILL.test(skill)) return "Checking memory";
     return undefined;
   }
-  if (name === "Read" && /(?:^|\/)(?:MEMORY|USER|TASTE)\.md$|\/memory\//.test(String(input.file_path ?? ""))) return "Checking memory";
   if (name === "TodoWrite" && Array.isArray(input.todos)) {
     const doing = input.todos.filter(isRecord).find((todo) => todo.status === "in_progress");
     return doing ? plainStep(String(doing.activeForm ?? doing.content ?? "")) : undefined;
   }
-  if (name === "Bash" || name === "Agent" || name === "Task") return plainStep(String(input.description ?? ""));
-  return undefined;
+  if (name === "Agent" || name === "Task") return stepWords(String(input.description ?? ""));
+  if (name === "Bash") return stepWords(String(input.description ?? "")) ?? commandStep(String(input.command ?? ""));
+  return fileStep(name, String(input.file_path ?? input.notebook_path ?? ""));
 }
 
 /** Machinery George never needs to read: paths, code, tools and the crew behind Flyd. */
@@ -288,6 +289,12 @@ const MACHINERY =
 /** An identifier in code: "stepIn", "fileName". */
 const CAMEL = /[a-z][A-Z]/;
 const STALL = /^(?:(?:ok(?:ay)?|now|next|so|good|right|then|first)[,.]?\s+)*(?:let me|let's|i'll|i will|i'm going to|i need to|i'm)\s+/i;
+
+/** A step in a few plain words: "Find the ticket modal CSS; measure it" → "Finding the ticket modal styles". */
+export function stepWords(raw: string): string | undefined {
+  const plain = plainStep(raw);
+  return plain ? fewWords(plain) || undefined : undefined;
+}
 
 /** One short plain line, or nothing when it reads as machinery. */
 export function plainStep(raw: string): string | undefined {

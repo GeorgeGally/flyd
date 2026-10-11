@@ -62,6 +62,8 @@ export interface ConversationSnapshot {
   working: boolean;
   /** While working: what the assistant is doing now, in a few plain words. */
   activity?: string;
+  /** While working: the notes this turn has picked up, by question id; the activity is about them. */
+  workingOn?: string[];
   /** ISO timestamp of the newest activity the source saw, if known. */
   lastActivity?: string;
   /** How full the assistant's context window is, when the source knows. */
