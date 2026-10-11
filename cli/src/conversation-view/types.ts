@@ -24,6 +24,8 @@ export interface ConversationMessage {
   waiting?: string;
   /** The waiting line says the answer failed (an error, an interruption), not that work is under way. */
   waitingFailed?: boolean;
+  /** The waiting line is firstmate's outcome, said in its own chat: the work is settled, nothing is under way. */
+  settled?: boolean;
   /** An assistant message that answers the captain message with this id. */
   answers?: string;
   /** An assistant message relayed from the assistant's own session: not an answer to the captain message above it. */
@@ -42,6 +44,8 @@ export interface Exchange {
   waiting: string;
   /** The waiting line says the answer failed, not that work is under way. */
   waitingFailed?: boolean;
+  /** The waiting line is the outcome firstmate gave in its own chat, not work under way. */
+  settled?: boolean;
   /** A note to firstmate: still in its inbox, or taken (read) by firstmate. */
   handoff?: "queued" | "taken";
   /** When firstmate took the note (moved it to handled/), ISO. */

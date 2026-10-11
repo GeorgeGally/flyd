@@ -529,6 +529,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .msg.failed .state.queued { color: #d0574c; }
 .msg.failed.pending > * { opacity: 1; }
 .queued.still::before { animation: none; opacity: 0.5; }
+/* Firstmate's outcome, said in its own chat: the work is settled, so the dot rests. */
+.queued.settled::before { animation: none; opacity: 0.5; }
 
 .composer {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
@@ -797,7 +799,10 @@ var __name = function (f) { return f; };
       el.appendChild(queued);
       living(queued, message.waiting);
     } else living(queued, message.waiting);
-    if (queued && message.waiting) queued.classList.toggle("still", !!message.waitingFailed);
+    if (queued && message.waiting) {
+      queued.classList.toggle("still", !!message.waitingFailed);
+      queued.classList.toggle("settled", !!message.settled);
+    }
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
     var label = el.querySelector(":scope > .aside-label");
@@ -917,7 +922,7 @@ var __name = function (f) { return f; };
     // While his newest message's own line says what is happening, the dots would only repeat it.
     var shown = main.querySelectorAll(".msg");
     var last = shown[shown.length - 1];
-    var speaking = !!(last && last.querySelector(":scope > .queued:not(.still)"));
+    var speaking = !!(last && last.querySelector(":scope > .queued:not(.still):not(.settled)"));
     working.hidden = !(isWorking && recent) || speaking;
   }
   setInterval(refreshWorking, 15000);
@@ -978,7 +983,7 @@ var __name = function (f) { return f; };
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
   function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
   function railCard(card) {
-    var box = el("div", "rail-card" + (card.down ? " rail-card--down" : ""));
+    var box = keyed(el("div", "rail-card" + (card.down ? " rail-card--down" : "")), "card:" + card.id);
     var head = el("div", "rail-card-head");
     head.appendChild(el("span", "", card.title));
     if (card.url) {
@@ -1027,7 +1032,7 @@ var __name = function (f) { return f; };
   function railMemory(memory, fresh) {
     return el("div", "rail-mem" + (fresh ? " rail-mem--new" : ""), memory.title);
   }
-  function renderMemory(memory) {
+  function renderMemory(memory, railBody) {
     if (!memory) return false;
     var now = memory.remembering || [];
     var held = memory.remembers || [];
@@ -1041,18 +1046,53 @@ var __name = function (f) { return f; };
     }
     return now.length > 0 || held.length > 0;
   }
+  // Rebuilding the column on every update reloads each framed page, so a live
+  // preview never gets to paint: only what changed is replaced, and nothing kept is moved.
+  function keyed(node, key, deep) {
+    node.dataset.key = key;
+    if (deep) node.dataset.deep = "1";
+    return node;
+  }
+  function keyOf(node) { return node.dataset.key || node.outerHTML; }
+  function patch(parent, fresh) {
+    var keys = fresh.map(keyOf);
+    var children = Array.prototype.slice.call(parent.children);
+    var old = new Map(children.map(function (child) { return [keyOf(child), child]; }));
+    var kept = children.map(keyOf).filter(function (key) { return keys.indexOf(key) >= 0; });
+    var order = keys.filter(function (key) { return old.has(key); });
+    if (new Set(keys).size !== keys.length || old.size !== children.length || kept.join("\\n") !== order.join("\\n")) {
+      parent.replaceChildren.apply(parent, fresh);
+      return;
+    }
+    children.forEach(function (child) { if (keys.indexOf(keyOf(child)) < 0) child.remove(); });
+    var cursor = parent.firstElementChild;
+    fresh.forEach(function (node, i) {
+      var was = old.get(keys[i]);
+      if (!was) { parent.insertBefore(node, cursor); return; }
+      if (was.outerHTML !== node.outerHTML) {
+        if (node.dataset.deep && was.tagName === node.tagName) {
+          was.className = node.className;
+          patch(was, Array.prototype.slice.call(node.children));
+        } else {
+          parent.replaceChild(node, was);
+          was = node;
+        }
+      }
+      cursor = was.nextElementSibling;
+    });
+  }
   function renderRail(rail) {
     if (!rail) { railEl.hidden = true; setRail(false); return; }
     var signature = JSON.stringify(rail);
     if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
     railSignature = signature;
-    railBody.textContent = "";
-    var remembered = renderMemory(rail.memory);
+    var next = el("div");
+    var remembered = renderMemory(rail.memory, next);
     var talks = rail.conversations || [];
     if (talks.length) {
-      railBody.appendChild(el("div", "rail-section", "Conversations"));
+      next.appendChild(el("div", "rail-section", "Conversations"));
       talks.slice().reverse().forEach(function (talk) {
-        var wrap = el("div", "rail-talk");
+        var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
         wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
         if (talk.answerHtml) {
           var answer = el("div", "rail-a rail-a-md");
@@ -1063,14 +1103,15 @@ var __name = function (f) { return f; };
         else if (talk.waiting) wrap.appendChild(el("p", "rail-wait", talk.waiting));
         (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
         if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
-        railBody.appendChild(wrap);
+        next.appendChild(wrap);
       });
     }
     var cards = rail.artefacts || [];
     if (cards.length) {
-      railBody.appendChild(el("div", "rail-section", "Artefacts"));
-      cards.forEach(function (card) { railBody.appendChild(railCard(card)); });
+      next.appendChild(el("div", "rail-section", "Artefacts"));
+      cards.forEach(function (card) { next.appendChild(railCard(card)); });
     }
+    patch(railBody, Array.prototype.slice.call(next.children));
     railEl.hidden = railHidden || (!talks.length && !cards.length && !remembered);
     setRail(railOn());
   }
