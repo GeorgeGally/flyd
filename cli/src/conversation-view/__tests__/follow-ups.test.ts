@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboutQuestion, excerpt, followUps, sentenceTopics, topicWords, withFollowUps } from "../follow-ups.js";
+import { aboutQuestion, excerpt, followUps, inlineOutcomes, outcomeLine, sentenceTopics, topicWords, withFollowUps } from "../follow-ups.js";
 import type { ConversationMessage, Exchange } from "../types.js";
 
 const note = (id: string, text: string, at: string): Exchange => ({ question: { id: `note:${id}`, role: "user", text, timestamp: at }, waiting: "Working on it", handoff: "taken" });
@@ -130,5 +130,44 @@ describe("topicWords and aboutQuestion", () => {
     const question = new Set(["top", "menu", "item", "slide"]);
     expect(aboutQuestion(question, sentenceTopics("Every slide now has its own item in the top menu.")).share).toBe(1);
     expect(aboutQuestion(question, sentenceTopics("Both decks are ready, 12 slides. The menu panel moved. One item is left.")).share).toBe(0);
+  });
+});
+
+describe("inlineOutcomes", () => {
+  const asked = note("1791700000-aaaaaa", "merge date and remind me pages", "2026-10-11T05:00:00Z");
+
+  it("puts firstmate's chat outcome under his message in place of the living line", () => {
+    const answer = reply("r1", "Captain, done.\n\nThe date and remind-me pages are now **one page** at /remind.\n\n- Old links redirect.", "2026-10-11T05:10:00Z", ["1791700000-aaaaaa"]);
+    const [exchange] = inlineOutcomes(withFollowUps([asked], followUps([asked], [answer])));
+    expect(exchange).toMatchObject({ waiting: "The date and remind-me pages are now one page at /remind.", settled: true });
+    expect(exchange!.answer).toBeUndefined();
+  });
+
+  it("keeps a formal reply as the note's answer", () => {
+    const formal = { ...asked, answer: { id: "note-reply:1791700000-aaaaaa", role: "assistant" as const, text: "Merged.", answers: asked.question.id }, waiting: "" };
+    expect(inlineOutcomes([formal])).toEqual([formal]);
+  });
+
+  it("says a note firstmate finished with is answered, never that it is still being worked on", () => {
+    expect(inlineOutcomes(withFollowUps([asked], {}))).toMatchObject([{ waiting: "Answered", settled: true }]);
+  });
+
+  it("leaves the living line while firstmate is still on the newest note", () => {
+    expect(inlineOutcomes(withFollowUps([asked], {}, true))).toMatchObject([{ waiting: "Working on it" }]);
+  });
+});
+
+describe("outcomeLine", () => {
+  it("clips a long outcome at a word", () => {
+    const line = outcomeLine(`The hero now reads ${"very ".repeat(60)}well.`);
+    expect(line.length).toBeLessThanOrEqual(161);
+    expect(line.endsWith("…")).toBe(true);
+  });
+});
+
+describe("outcomeLine for a batch", () => {
+  it("picks the line about his question from a reply that covers several notes", () => {
+    const text = "Three changes, all committed locally only.\n\n- The hero headline now reads Celebrate Christmas.\n- The site map opens full screen.\n- The menu has an item for every slide.";
+    expect(outcomeLine(text, "the site map can be full screen also")).toBe("The site map opens full screen.");
   });
 });

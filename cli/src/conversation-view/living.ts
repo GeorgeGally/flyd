@@ -82,7 +82,7 @@ function clip(text: string): string {
 export function livened(exchanges: Exchange[], live: { activity?: string; projects?: string[] }): Exchange[] {
   const newestTaken = exchanges.reduce((index, exchange, i) => (exchange.handoff === "taken" && !exchange.answer ? i : index), -1);
   return exchanges.map((exchange, i) => {
-    if (exchange.answer || !exchange.handoff) return exchange;
+    if (exchange.answer || exchange.settled || exchange.answered || !exchange.handoff) return exchange;
     const activity = i === newestTaken ? live.activity : undefined;
     return { ...exchange, waiting: handoffLine(exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}), ...(activity ? { activity } : {}) }) };
   });

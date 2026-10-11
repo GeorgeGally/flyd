@@ -1,4 +1,6 @@
 import { inFlydsVoice } from "./flyd-voice.js";
+import { outcomeFirst, spoken } from "./rail.js";
+import { inline } from "./summaries.js";
 import type { ConversationMessage, Exchange } from "./types.js";
 
 // Firstmate rarely answers a note with a formal `fm-inbox.sh reply`: it says
@@ -175,4 +177,42 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
   const current = working ? merged.reduce((index, exchange, i) => (exchange.handoff === "taken" ? i : index), -1) : -1;
   return merged.map((exchange, i) =>
     exchange.handoff === "taken" && !exchange.answer && i !== current ? { ...exchange, waiting: "", answered: true } : exchange);
+}
+
+/** Longer than this, an inline outcome is clipped at a word. */
+const OUTCOME_CHARS = 160;
+
+/**
+ * A note answered only in firstmate's own chat keeps that reply where it was
+ * said; under his message, its outcome takes the place of the living line.
+ * A formal reply stays the note's answer. Pure.
+ */
+export function inlineOutcomes(exchanges: Exchange[]): Exchange[] {
+  return exchanges.map((exchange) => {
+    // Taken and finished with, though no reply names it: the column says the same.
+    if (exchange.answered && !exchange.answer) return { ...exchange, waiting: "Answered", settled: true };
+    if (!exchange.answer || exchange.answer.id.startsWith("note-reply:") || !exchange.question.id.startsWith("note:")) return exchange;
+    const { answer: _answer, ...rest } = exchange;
+    return { ...rest, waiting: outcomeLine(exchange.answer.text, exchange.question.text), settled: true };
+  });
+}
+
+/** Fewer shared words than this, a line is not plainly about his question. */
+const ABOUT_WORDS = 2;
+
+/**
+ * As plain text, the reply's line plainly about his question (one reply often
+ * covers a batch of notes), else its first line that says what changed.
+ */
+export function outcomeLine(text: string, question = ""): string {
+  const said = outcomeFirst(spoken(text));
+  const words = topicWords(question);
+  const sentences = sentenceTopics(said);
+  const line = words.size >= ABOUT_WORDS ? mostAbout(words, sentences) : -1;
+  const shared = line >= 0 ? Math.max(...sentences.filter((sentence) => sentence.line === line).map((sentence) => [...words].filter((word) => sentence.words.has(word)).length)) : 0;
+  const lead = shared >= ABOUT_WORDS ? excerpt(said, line) : said.split("\n").find((entry) => entry.trim()) ?? "";
+  const flat = inline(lead.replace(/^\s*(?:[-*+]|\d+[.)]|#+)\s+/, "")).replace(/\s+/g, " ").trim();
+  if (flat.length <= OUTCOME_CHARS) return flat;
+  const cut = flat.slice(0, OUTCOME_CHARS);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 60)).trimEnd()}…`;
 }

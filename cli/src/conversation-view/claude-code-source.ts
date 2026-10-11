@@ -4,7 +4,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
 import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
-import { followUps } from "./follow-ups.js";
+import { followUps, inlineOutcomes, withFollowUps } from "./follow-ups.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { readProjects } from "../council/projects.js";
 import { handoffLine, livened } from "./living.js";
@@ -319,10 +319,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
     if (exchanges.length === 0) return voiced;
-    // What firstmate's session is doing now goes on the line of the note it took, not under the dots.
-    const live = livened(exchanges, { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
-    // Firstmate's answers in its own chat, read before its supervision replies are filtered out, for the right column.
+    // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
     const answered = followUps(exchanges, snapshot.messages, snapshot.working);
+    // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
+    // said the outcome in its own chat, that outcome is the line.
+    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
     return {
       ...voiced,
       messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),
