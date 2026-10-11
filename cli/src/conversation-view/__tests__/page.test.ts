@@ -457,6 +457,38 @@ describe("conversation page", () => {
     expect(document.querySelector(".msg.failed .state")?.textContent).toContain("missing or wrong token");
   });
 
+  it("never sits on \"reconnecting…\" after the view restarts: a new view's token reloads the page, the same one reconnects", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      let token = "a".repeat(48);
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/token" ? json({ token }) : json({ sessions: SESSIONS }))));
+      const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
+      load("");
+      await vi.runOnlyPendingTimersAsync();
+      const first = open("latest", []);
+      // A dropped stream the browser is still retrying: say so, and leave it to the browser.
+      first.onerror!();
+      expect(document.getElementById("problem")!.textContent).toBe("reconnecting…");
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(FakeEventSource.instances).toHaveLength(1);
+      // The view refused the stream for good with the same token: connect again.
+      (first as unknown as { readyState: number }).readyState = 2;
+      first.onerror!();
+      await vi.advanceTimersByTimeAsync(1_100);
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(reload).not.toHaveBeenCalled();
+      // A restarted view has a new token: the page reloads to take it, and its new code.
+      token = "b".repeat(48);
+      const second = FakeEventSource.instances.at(-1)!;
+      (second as unknown as { readyState: number }).readyState = 2;
+      second.onerror!();
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("leads long replies with their summary, opens the full reply on demand, and switches to full view", async () => {
     load("");
     await settle();
@@ -796,33 +828,44 @@ describe("header and artefact view", () => {
     expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
   });
 
-  it("frames portrait screenshots without cropping and lets keyboard thumbnails switch back to an unframed landscape", async () => {
+  it("shows the work on devices: the desktop capture in a browser with the phone in front, artwork at its own shape", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/phone.png", label: "Mobile" }, { src: "/map.png", label: "Map" }] }] };
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [
+      { src: "/desk.png", label: "desktop-1440.png" }, { src: "/phone.png", label: "phone.png" }, { src: "/art.png", label: "after.png" },
+    ] }] };
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.querySelectorAll<HTMLButtonElement>("#ticks button")[1]!.click();
-    const main = document.querySelector<HTMLImageElement>(".scene-shot .main")!;
-    Object.defineProperty(main, "naturalWidth", { value: 390, configurable: true });
-    Object.defineProperty(main, "naturalHeight", { value: 844, configurable: true });
-    main.dispatchEvent(new Event("load"));
-    expect(main.classList.contains("phone")).toBe(true);
-    const thumb = document.querySelectorAll<HTMLImageElement>(".thumbs img")[1]!;
-    thumb.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(main.src).toContain("/map.png");
-    Object.defineProperty(main, "naturalWidth", { value: 1200 });
-    Object.defineProperty(main, "naturalHeight", { value: 800 });
-    main.dispatchEvent(new Event("load"));
-    expect(main.classList.contains("phone")).toBe(false);
-    Object.defineProperty(main, "naturalWidth", { value: 1200 });
-    Object.defineProperty(main, "naturalHeight", { value: 2029 });
-    main.dispatchEvent(new Event("load"));
-    expect(main.classList.contains("phone")).toBe(false);
-    Object.defineProperty(main, "naturalWidth", { value: 390 });
-    Object.defineProperty(main, "naturalHeight", { value: 844 });
-    main.dispatchEvent(new Event("load"));
-    expect(main.classList.contains("phone")).toBe(true);
+    // The work with pictures leads the cycle.
+    expect(document.getElementById("scene-head")!.textContent).toBe("Christmas Nuanu map");
+    const stage = () => document.querySelector<HTMLElement>(".scene-shot .devices")!;
+    const shown = () => Array.from(stage().querySelectorAll<HTMLElement>(".device")).map((node) => [node.className, node.querySelector("img")!.getAttribute("src")!.split("?")[0]]);
+    expect(stage().classList.contains("pair")).toBe(true);
+    expect(shown()).toEqual([["device desk", "/desk.png"], ["device phone", "/phone.png"]]);
+    expect(stage().querySelectorAll(".device.desk .bar i")).toHaveLength(3);
+    // A thumbnail brings its own picture up; artwork keeps its shape, alone.
+    const thumbs = document.querySelectorAll<HTMLImageElement>(".thumbs img");
+    thumbs[2]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(stage().classList.contains("one")).toBe(true);
+    expect(shown()).toEqual([["device art", "/art.png"]]);
+    expect(thumbs[2]!.classList.contains("on")).toBe(true);
+    thumbs[1]!.click();
+    expect(shown()).toEqual([["device desk", "/desk.png"], ["device phone", "/phone.png"]]);
+  });
+
+  it("places a capture without a device in its name by its shape once it loads", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/a.png", label: "after.png" }] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
+    expect(img.parentElement!.className).toBe("device art");
+    Object.defineProperty(img, "naturalWidth", { value: 390, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 844, configurable: true });
+    img.dispatchEvent(new Event("load"));
+    expect(document.querySelector(".scene-shot .device")!.className).toBe("device phone");
+    expect(document.querySelector<HTMLElement>(".scene-shot .devices")!.classList.contains("one")).toBe(true);
   });
 
   it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
@@ -985,7 +1028,7 @@ describe("header and artefact view", () => {
     expect(theme.textContent).toBe("light");
   });
 
-  it("plays Flyd's boxes as scenes, one at a time, calls first, with the readouts under them", async () => {
+  it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -993,34 +1036,33 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes });
     document.getElementById("flip")!.click();
 
-    // One scene holds the stage: the call, never every box at once.
+    // One scene holds the stage: the work with its picture, never every box at once.
     expect(document.querySelectorAll("#show h1")).toHaveLength(1);
-    expect(document.getElementById("scene-head")!.textContent).toBe("Review the Jev decision log");
-    expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
-    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
-    // The call, then what Flyd sees coming (the plan limit), then the stories.
+    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
+    expect(document.querySelector("#scene-meta a")!.textContent).toBe("flyd #85");
+    expect(document.querySelector(".scene-shot .device img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
+    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(true);
+    // The pictured work, then the call, what Flyd sees coming (the plan limit), then the stories in words.
     const ticks = Array.from(document.querySelectorAll("#ticks button")).map((tick) => tick.getAttribute("aria-label"));
     expect(ticks).toEqual([
+      "under way: Header controls",
       "needs you: Review the Jev decision log",
       "coming up: Claude weekly limit: 10% left.",
-      "under way: Header controls",
       "from your memory: Bloom gets finished",
     ]);
 
-    // The arrow brings the next scene up like a title card; the story's screenshot shows large.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    // The arrow brings the next scene up like a title card: the call, with its ask.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
-    expect(document.querySelector("#scene-meta a")!.textContent).toBe("flyd #85");
-    expect(document.querySelector(".scene-shot .main")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
-    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(true);
+    expect(document.getElementById("scene-head")!.textContent).toBe("Review the Jev decision log");
+    expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
+    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+    expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(false);
 
-    // The instruments are small readouts, each label on its own line.
+    // The numbers are one quiet line of words and figures: no charts.
     expect(Array.from(document.querySelectorAll(".ro")).map((node) => (node as HTMLElement).dataset.id)).toEqual(["plan", "landed-week", "work-state"]);
-    expect(Array.from(document.querySelectorAll(".ro-row b")).map((node) => node.textContent)).toEqual(["90%"]);
-    expect(document.querySelector('.ro[data-id="landed-week"] .ro-value')!.textContent).toBe("3 landed this week");
-    expect(Array.from(document.querySelectorAll('.ro[data-id="work-state"] .ro-legend span')).map((node) => node.textContent)).toEqual(["1 need you", "2 under way"]);
+    expect(document.getElementById("readouts")!.textContent).toBe("Claude weekly 90% used3 landed this week1 need you2 under way");
+    expect(document.querySelector("#readouts .ro-cols, #readouts .ro-split")).toBeNull();
     expect(document.getElementById("show-doing")!.textContent).toBe("Running the Swift tests");
   });
 

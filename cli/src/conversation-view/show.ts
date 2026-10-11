@@ -87,7 +87,7 @@ export interface ShowInputs {
 
 export const MAX_SHOW_ITEMS = 3;
 /** The artefact carries more than the conversation read: the fleet, memory, news. */
-export const MAX_ARTEFACT_ITEMS = 28;
+export const MAX_ARTEFACT_ITEMS = 32;
 const LANDED_WITHIN_MS = 24 * 60 * 60 * 1000;
 const NEWS_WITHIN_MS = 6 * 60 * 60 * 1000;
 const HEADLINE_CHARS = 200;
