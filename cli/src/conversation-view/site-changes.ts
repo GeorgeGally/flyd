@@ -113,9 +113,10 @@ export function isSiteChange(text: string): boolean {
   return siteUrlsIn(text).length > 0 && CHANGED.test(text);
 }
 
-function short(url: URL): string {
-  const path = url.pathname.replace(/\/+$/, "").replace(/\/index\.html?$/i, "");
-  return `${url.host}${path}`;
+/** A page's address said short: just its path, without an index file or trailing slash ("/vendor-apply"; the front door is "/"). */
+export function short(url: URL): string {
+  const path = url.pathname.replace(/\/+$/, "").replace(/\/index\.(?:html?|php)$/i, "").replace(/\/+$/, "");
+  return path || "/";
 }
 
 /**

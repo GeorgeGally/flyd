@@ -172,7 +172,7 @@ const SHOW_STYLE = `
 .scene-line { margin: 30px 0 0; max-width: 31em; font: 400 clamp(18px, 1.45vw, 23px)/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .scene-line:empty { display: none; }
 /* The page a change is on: a button that opens it, big enough to read across the room. */
-a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-items: center; gap: 0.5em; max-width: 100%; padding: 0.6em 1.15em; border-radius: 999px; background: var(--accent); color: var(--bg); font: 600 15px/1.2 var(--sans); text-decoration: none; overflow-wrap: anywhere; transition: opacity 160ms ease; }
+a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-items: center; gap: 0.5em; max-width: 100%; padding: 0.6em 1.15em; border-radius: 999px; background: var(--accent); color: var(--bg); font: 600 15px/1.2 var(--sans); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 160ms ease; }
 .open-page:hover { opacity: 0.85; }
 .open-page:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
 .scene-open { margin-top: 26px; font-size: clamp(16px, 1.2vw, 19px); }
@@ -940,7 +940,9 @@ var __name = function (f) { return f; };
     a.href = page.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.textContent = "Open " + page.label + " ↗";
+    a.title = page.url;
+    a.setAttribute("aria-label", "Open " + page.url);
+    a.textContent = page.label + " ↗";
     return a;
   }
   function shots(urls, kind) {
