@@ -13,6 +13,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: npm ci
       - name: Test routing learning and assumption audits without live providers
         working-directory: cli
         run: npm run test:routing-learning
