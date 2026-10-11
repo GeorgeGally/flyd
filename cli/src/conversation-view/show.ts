@@ -4,6 +4,7 @@ import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./s
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget } from "./choices.js";
 import { composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Show mode: Flyd's own picture of what matters now, for the Conversation
@@ -50,6 +51,8 @@ export interface ShowItem {
   at?: string;
   /** Pull requests it names. */
   links?: ShowLink[];
+  /** The web page the work changed: a button that opens it. */
+  open?: ShowLink;
   /** His own name for the project it belongs to, when Flyd knows it. */
   project?: string;
   /** The conversation message it comes from, so the page can open it in the terminal. */
@@ -93,6 +96,9 @@ export interface ShowInputs {
 }
 
 export const MAX_SHOW_ITEMS = 3;
+/** Site changes on the screen at once: the newest few, each with its page. */
+export const MAX_SITE_CHANGES = 4;
+const SITE_WITHIN_MS = 24 * 60 * 60 * 1000;
 /** The artefact carries more than the conversation read: the fleet, memory, news. */
 export const MAX_ARTEFACT_ITEMS = 32;
 const LANDED_WITHIN_MS = 24 * 60 * 60 * 1000;
@@ -134,6 +140,18 @@ function proseSentences(text: string): string[] {
 
 function tidy(line: string): string {
   return capitalise(clip(inFlydsVoice(line.replace(/\s+/g, " ").trim()), HEADLINE_CHARS));
+}
+
+/** Sentences that only say where the work went ("Live on … and pushed"), not what changed. */
+const DEPLOY_ONLY = /\b(?:live on|pushed|deployed|screenshots? (?:is|are) open)\b/i;
+
+/** A site change told by what it changed: its first sentence that is not about deploying or a question, and the one after. Pure. */
+export function siteChangeLines(text: string): { headline: string; detail?: string } {
+  // Line by line: a list item is its own sentence, never the tail of the lead that introduced it.
+  const all = text.replace(/```[\s\S]*?```/g, " ").split(/\n+/).flatMap((line) => proseSentences(line));
+  const said = all.filter((sentence) => !DEPLOY_ONLY.test(sentence) && !/\?$/.test(sentence.trim()));
+  const [first, second] = said.length ? said : all;
+  return { headline: tidy(first ?? text), ...(second ? { detail: tidy(second) } : {}) };
 }
 
 /** The question in a message that asks him something, with the sentence before it when the question alone is short ("A or B?"). */
@@ -192,6 +210,21 @@ function projectOf(text: string, projects: ShowProject[]): string | undefined {
   return best?.name;
 }
 
+/** His project a website belongs to, from the site's own address ("goodneighboursmarket.com" is Good Neighbours'). Pure. */
+export function siteProjectOf(url: string, projects: ShowProject[]): string | undefined {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/[^a-z0-9]/g, "");
+  } catch {
+    return undefined;
+  }
+  const letters = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return projects.find((project) => [
+    ...project.name.split(/[()]/).map(letters),
+    ...project.repos.map((repo) => letters(base(repo))),
+  ].some((token) => token.length >= 4 && host.includes(token)))?.name;
+}
+
 /** Flyd's three things: what he needs to see now, most important first. */
 export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}): ShowScreen {
   const now = inputs.now ?? Date.now();
@@ -216,6 +249,37 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
       ...(message ? { ref: message.id } : {}),
     });
   };
+
+  // Changes made to a website: each its own story, the element it changed as
+  // its picture, and the page as a button. Read from firstmate's answers to
+  // his notes and its own replies, which is where work done in its own session
+  // is reported; the fleet snapshot never sees it.
+  const sited = new Map<string, ConversationMessage>();
+  for (const message of [...Object.values(snapshot.followUps ?? {}), ...messages]) {
+    if (message.role === "assistant" && message.page && !sited.has(message.id) && age(message, now) < SITE_WITHIN_MS) sited.set(message.id, message);
+  }
+  const siteItems: ShowItem[] = [...sited.values()]
+    .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))
+    .slice(0, MAX_SITE_CHANGES)
+    .map((message) => {
+      used.add(message.id);
+      const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/"));
+      const project = siteProjectOf(message.page!.url, projects);
+      const lines = siteChangeLines(message.text);
+      return {
+        id: `site:${message.id}`,
+        kind: "landed" as const,
+        headline: lines.headline,
+        ...(lines.detail ? { detail: lines.detail } : {}),
+        why: "changed on the site",
+        status: /\b(?:live on|is live|now live|went live|deployed)\b/i.test(message.text) ? "live" : "changed",
+        open: message.page!,
+        ...(shots.length ? { shots: shots.map((shot) => ({ src: railImageSrc(shot), label: shot.split("/").pop()! })) } : {}),
+        ...(message.timestamp ? { at: message.timestamp } : {}),
+        ...(project ? { project } : {}),
+        ref: message.answers?.startsWith("note:") ? message.answers : message.id,
+      };
+    });
 
   // A call only he can make: the newest ask since he last spoke.
   let lastCaptain = -1;
@@ -291,9 +355,10 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const projectOfRepo = (repo: string): string | undefined =>
     projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
   const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
-  // A question just put to him in the conversation leads the fleet's older holds.
+  // A question just put to him in the conversation leads the fleet's older holds; the site's latest changes come next.
   const asked = items.filter((item) => item.kind === "call");
-  const chosen = [...asked, ...artefact, ...items.filter((item) => item.kind !== "call")].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
+  const chosen = [...asked, ...siteItems, ...artefact, ...items.filter((item) => item.kind !== "call")]
+    .slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS + siteItems.length);
   if (chosen.every((item) => item.kind === "next")) {
     const taste = inputs.artefact?.taste?.[0];
     if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });

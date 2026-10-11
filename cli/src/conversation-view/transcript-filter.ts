@@ -1,5 +1,6 @@
 import { isNarration, stripInternalNarration } from "../runtime/honesty-check.js";
 import { stepWords } from "./crew-progress.js";
+import { hintsFromTool, mergeHints, type SiteHints } from "./site-changes.js";
 import { commandStep, fileStep } from "./step-words.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -43,6 +44,8 @@ interface Segment {
   notes?: Set<string>;
   /** The last screenshot the assistant looked at this turn, as a transcript image id. */
   shot?: string;
+  /** What this turn's tool lines say about a website it changed: pages opened, rules written, elements checked. */
+  site?: SiteHints;
 }
 
 /** An inbox note id, as fm-inbox.sh names it: "<epoch>-<6 chars>". */
@@ -335,8 +338,11 @@ export class TranscriptConversation {
     if (!this.segment || ids.length === 0) return;
     this.segment.notes ??= new Set();
     for (const id of ids) {
-      // A screenshot from before the turn took up this note is a picture of other work.
-      if (!this.segment.notes.has(id)) delete this.segment.shot;
+      // A screenshot, or a page changed, before the turn took up this note is other work.
+      if (!this.segment.notes.has(id)) {
+        delete this.segment.shot;
+        delete this.segment.site;
+      }
       this.segment.notes.add(id);
     }
   }
@@ -420,6 +426,8 @@ export class TranscriptConversation {
         const read = stringField(block, "name") === "Read" && isRecord(block.input) ? stringField(block.input, "file_path") : undefined;
         const toolUseId = stringField(block, "id");
         if (read && toolUseId && isOwnShot(read)) this.shotReads.add(toolUseId);
+        const site = mergeHints(segment.site, hintsFromTool(stringField(block, "name") ?? "", block.input));
+        if (site) segment.site = site;
         // The newest step is what is happening now, unless it says less than what was already shown this step.
         const step = activityOf(block);
         if (step && (step.rank >= (segment.activity?.rank ?? 0) || !plain)) segment.activity = step;
@@ -481,6 +489,7 @@ export class TranscriptConversation {
       ...(segment.wake ? { wake: true } : {}),
       ...(segment.notes?.size ? { notes: [...segment.notes] } : {}),
       ...(segment.shot ? { shots: [segment.shot] } : {}),
+      ...(segment.site ? { site: segment.site } : {}),
     };
   }
 

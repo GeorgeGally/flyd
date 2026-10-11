@@ -11,7 +11,9 @@ import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
 import { ownWords, threaded } from "./replies.js";
+import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
+import { pictured, PICTURE_WITHIN_MS, siteChangeOf } from "./site-changes.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
@@ -193,6 +195,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly commandRoots: { claudeHome?: string; projectDir?: string };
   /** Where the screenshot behind each note's answer is kept. */
   private readonly shots?: ReplyShots;
+  /** Crops of the elements a site change touched. */
+  private readonly elements?: ElementShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
 
   constructor(options: {
@@ -208,8 +212,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     commandRoots?: { claudeHome?: string; projectDir?: string };
     /** Where the screenshot behind each note's answer is kept (default ~/.flyd/view/reply-shots; none under tests). */
     shots?: ReplyShots;
+    /** Crops of the element each site change touched (default ~/.flyd/view/element-shots; none under tests). */
+    elements?: ElementShots;
   } = {}) {
     this.shots = options.shots ?? (process.env.VITEST ? undefined : new ReplyShots());
+    this.elements = options.elements ?? (process.env.VITEST ? undefined : new ElementShots());
     this.commandRoots = options.commandRoots ?? {};
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
     // With a desk the window is Flyd's: it speaks to him, firstmate stays backstage.
@@ -309,6 +316,25 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return kept;
   }
 
+  /**
+   * A reply that changed a website, with the page it changed as a button and
+   * the element it touched as its picture (asked for in the background while
+   * the change is recent); any other message as it was.
+   */
+  private sited<T extends ConversationMessage>(sessionId: string, message: T): T {
+    const change = siteChangeOf(message);
+    if (!change) return message;
+    const at = Date.parse(message.timestamp ?? "");
+    const recent = Number.isNaN(at) || Date.now() - at < PICTURE_WITHIN_MS;
+    const shot = recent ? this.elements?.shot({ key: message.id, pages: change.pages, locators: change.locators }) : undefined;
+    if (shot?.state === "ready" || shot?.state === "pending" || !this.shots || !message.shots?.some((id) => !id.startsWith("/"))) return pictured(message, change.page, shot);
+    // No element to show: the screenshot the turn looked at is the picture, kept as Flyd's own copy.
+    const shots = message.shots
+      .map((id) => (id.startsWith("/") ? id : this.shots!.keep(sessionId, id, () => transcriptImage(this.sessionPath(sessionId), id))))
+      .filter((path): path is string => path !== null);
+    return pictured({ ...message, shots }, change.page, shot);
+  }
+
   /** Cached once its first message is written: a session's first entries never change. */
   private headOf(path: string): { start?: string; entrypoint?: string } {
     const cached = this.heads.get(path);
@@ -372,15 +398,16 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const voiced = this.desk
       ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
-    if (exchanges.length === 0) return voiced;
+    if (exchanges.length === 0) return { ...voiced, messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
-    const answered = this.keptShots(sessionId, followUps(exchanges, snapshot.messages, snapshot.working), exchanges);
+    const answered = Object.fromEntries(Object.entries(this.keptShots(sessionId, followUps(exchanges, snapshot.messages, snapshot.working), exchanges))
+      .map(([id, answer]) => [id, this.sited(sessionId, answer)]));
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
     const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });
     return {
       ...voiced,
-      messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),
+      messages: mergeNotes(voiced.messages.map((message) => this.sited(sessionId, message)), live, this.noteWindow(sessionId)),
       ...(Object.keys(answered).length ? { followUps: answered } : {}),
     };
   }
@@ -437,6 +464,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     let conversation = new TranscriptConversation();
     let closed = false;
     let noteKey = "";
+    // A crop of a changed element that finishes is news to the views too.
+    let pictures = false;
+    const stopPictures = this.elements?.onChange(() => {
+      pictures = true;
+      pump(false);
+    });
 
     const pump = (initial: boolean): void => {
       if (closed) return;
@@ -453,7 +486,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         const key = exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",");
         const notesChanged = key !== noteKey;
         noteKey = key;
-        if (!initial && !truncated && count === 0 && !notesChanged) return;
+        if (!initial && !truncated && count === 0 && !notesChanged && !pictures) return;
+        pictures = false;
         const snapshot = this.withNotes(sessionId, conversation.snapshot(), exchanges);
         this.latest.set(sessionId, snapshot.messages.slice(-8));
         onUpdate(snapshot);
@@ -471,6 +505,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       close() {
         closed = true;
         clearInterval(timer);
+        stopPictures?.();
       },
     };
   }

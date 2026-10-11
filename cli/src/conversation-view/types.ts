@@ -6,6 +6,8 @@
 // Code transcripts); Flyd's own chat is meant to plug in as another source
 // without the server or page changing.
 
+import type { SiteHints, SitePage } from "./site-changes.js";
+
 export type ConversationRole = "user" | "assistant";
 
 export interface ConversationMessage {
@@ -39,6 +41,10 @@ export interface ConversationMessage {
    * once kept, the absolute path of Flyd's own copy. On a question, the screenshot behind its inline outcome.
    */
   shots?: string[];
+  /** What the turn behind this reply did to a website: pages it opened, CSS rules it wrote, elements it checked. */
+  site?: SiteHints;
+  /** The web page this reply changed, as a button that opens it. On a question, the page behind its inline outcome. */
+  page?: SitePage;
   /** His reply to an answer: the id of the question whose answer it replies to. */
   replyTo?: string;
   /** His words in that question, as the reply quoted them. */
