@@ -16,7 +16,7 @@ const STOP = new Set([
   "please", "same", "should", "show", "some", "such", "than", "that", "their", "them", "then", "there", "these", "they", "this",
   "those", "through", "under", "very", "want", "were", "what", "when", "where", "which", "while", "will", "with", "would", "your",
   "yours", "sir", "now", "can", "the", "and", "for", "not", "but", "all", "any", "has", "had", "its", "our", "out", "too", "you",
-  "local", "copy", "reload", "see", "it's", "it", "is", "on", "in", "to", "of", "a", "an", "be", "do", "go",
+  "local", "copy", "reload", "see", "it's", "it", "is", "on", "in", "to", "of", "a", "an", "be", "do", "go", "are", "was", "own",
 ]);
 
 /** The words that say what a line is about. */
@@ -91,9 +91,10 @@ export function excerpt(text: string, line: number): string {
 /**
  * Firstmate's latest chat reply about each note, keyed by the note's
  * question id, in Flyd's voice. `messages` is firstmate's own transcript,
- * in order, before anything is filtered out of it.
+ * in order, before anything is filtered out of it; `working` says its newest
+ * reply is still mid-turn, so not yet an answer.
  */
-export function followUps(exchanges: Exchange[], messages: ConversationMessage[]): Record<string, ConversationMessage> {
+export function followUps(exchanges: Exchange[], messages: ConversationMessage[], working = false): Record<string, ConversationMessage> {
   const notes = exchanges.filter((exchange) => exchange.question.id.startsWith("note:"));
   if (notes.length === 0) return {};
   const byNote = new Map(notes.map((exchange) => [exchange.question.id.slice("note:".length), exchange]));
@@ -126,19 +127,52 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
     const answered = message.notes?.length
       ? handled.map((id) => ({ exchange: byNote.get(id)!, text: message.text }))
       : OUTCOME.test(message.text) ? bestNote(message) : [];
-    for (const { exchange, text } of answered) {
-      found[exchange.question.id] = { id: message.id, role: "assistant", text: inFlydsVoice(text), ...(message.timestamp ? { timestamp: message.timestamp } : {}), answers: exchange.question.id };
-    }
+    for (const { exchange, text } of answered) found[exchange.question.id] = answerFrom(message, exchange, text);
+  }
+  // A note taken with others, its id never named again: the first reply firstmate settled after taking it.
+  const settled = working && messages.at(-1)?.role === "assistant" ? replies.filter((message) => message !== messages.at(-1)) : replies;
+  for (const exchange of notes) {
+    if (found[exchange.question.id] || exchange.answer || !exchange.takenAt) continue;
+    const taken = Date.parse(exchange.takenAt);
+    const own = exchange.question.id.slice("note:".length);
+    const reply = settled.find((message) =>
+      !message.wake && Date.parse(message.timestamp ?? "") >= taken && (!message.notes?.length || message.notes.includes(own)));
+    if (!reply) continue;
+    // The report covers the batch it took, so the line naming most of this note's words is its part.
+    const line = reply.text.includes("\n") ? mostAbout(topics.get(exchange.question.id)!, sentences.get(reply.id)!) : -1;
+    found[exchange.question.id] = answerFrom(reply, exchange, line >= 0 ? excerpt(reply.text, line) : reply.text);
   }
   return found;
 }
 
-/** Each note's answer as firstmate's newest word on it: its formal reply, or a later chat reply about it. Pure. */
-export function withFollowUps(exchanges: Exchange[], found: Record<string, ConversationMessage>): Exchange[] {
-  return exchanges.map((exchange) => {
+/** The line of the sentence that shares the most of these words, or -1 when none shares any. */
+function mostAbout(question: Set<string>, sentences: Sentence[]): number {
+  let best = { shared: 0, line: -1 };
+  for (const sentence of sentences) {
+    let shared = 0;
+    for (const word of question) if (sentence.words.has(word)) shared += 1;
+    if (shared > best.shared) best = { shared, line: sentence.line };
+  }
+  return best.line;
+}
+
+function answerFrom(message: ConversationMessage, exchange: Exchange, text: string): ConversationMessage {
+  return { id: message.id, role: "assistant", text: inFlydsVoice(text), ...(message.timestamp ? { timestamp: message.timestamp } : {}), answers: exchange.question.id };
+}
+
+/**
+ * Each note's answer as firstmate's newest word on it: its formal reply, or a
+ * later chat reply about it. A note firstmate took and has no words on is
+ * still answered, unless it is the newest one taken while firstmate is mid-turn. Pure.
+ */
+export function withFollowUps(exchanges: Exchange[], found: Record<string, ConversationMessage>, working = false): Exchange[] {
+  const merged = exchanges.map((exchange) => {
     const chat = found[exchange.question.id];
     if (!chat) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
     return !exchange.answer || Date.parse(chat.timestamp ?? "") > formal ? { ...exchange, answer: chat, waiting: "" } : exchange;
   });
+  const current = working ? merged.reduce((index, exchange, i) => (exchange.handoff === "taken" ? i : index), -1) : -1;
+  return merged.map((exchange, i) =>
+    exchange.handoff === "taken" && !exchange.answer && i !== current ? { ...exchange, waiting: "", answered: true } : exchange);
 }

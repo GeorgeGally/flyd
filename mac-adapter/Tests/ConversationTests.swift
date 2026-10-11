@@ -17,6 +17,13 @@ final class ConversationLinkPolicyTests: XCTestCase {
         XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "mailto:a@b.c"), serverOrigin: origin), .openExternally)
     }
 
+    func testAPreviewFrameLoadsItsPageInPlaceAndNeverOpensTheBrowser() {
+        XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "http://127.0.0.1:8088/"), serverOrigin: origin, inFrame: true), .allow)
+        XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "https://www.youtube.com/embed/x"), serverOrigin: origin, inFrame: true), .allow)
+        XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "mailto:a@b.c"), serverOrigin: origin, inFrame: true), .block)
+        XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "file:///Users/x/shot.png"), serverOrigin: origin, inFrame: true), .block)
+    }
+
     func testDroppedFilesAndOtherSchemesGoNowhere() {
         XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "file:///Users/x/shot.png"), serverOrigin: origin), .block)
         XCTAssertEqual(ConversationLinkPolicy.decide(URL(string: "javascript:alert(1)"), serverOrigin: origin), .block)

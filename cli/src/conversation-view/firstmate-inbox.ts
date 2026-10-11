@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -302,12 +302,23 @@ export class FirstmateInbox implements CaptainInbox {
       .map(([name, question]): Exchange => {
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
-        const handoff = present.get(name)!.startsWith(`${handled}/`) ? "taken" : "queued";
-        return { question, handoff, waiting: handoffLine(handoff, { text: question.text }) };
+        const path = present.get(name)!;
+        const handoff = path.startsWith(`${handled}/`) ? "taken" : "queued";
+        // Taking a note is a rename into handled/, which stamps the file's ctime.
+        const takenAt = handoff === "taken" ? takenTime(path) : undefined;
+        return { question, handoff, ...(takenAt ? { takenAt } : {}), waiting: handoffLine(handoff, { text: question.text }) };
       })
       .sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
     this.listingKey = unreadable ? "" : key;
     return this.sorted;
+  }
+}
+
+function takenTime(path: string): string | undefined {
+  try {
+    return new Date(statSync(path).ctimeMs).toISOString();
+  } catch {
+    return undefined;
   }
 }
 

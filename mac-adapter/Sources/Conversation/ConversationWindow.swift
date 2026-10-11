@@ -3,15 +3,19 @@ import WebKit
 
 /// Where a navigation inside the Conversation window may go: the view's own
 /// pages stay inside, web links open in the default browser, anything else
-/// (a dropped file, an unknown scheme) goes nowhere.
+/// (a dropped file, an unknown scheme) goes nowhere. A frame inside the page
+/// (the right column's live preview) loads its web page in place and never
+/// opens the browser: sent outside, it was a blank box and a browser window
+/// on every redraw.
 enum ConversationLinkPolicy: Equatable {
     case allow
     case openExternally
     case block
 
-    static func decide(_ url: URL?, serverOrigin: URL?) -> ConversationLinkPolicy {
+    static func decide(_ url: URL?, serverOrigin: URL?, inFrame: Bool = false) -> ConversationLinkPolicy {
         guard let url, let scheme = url.scheme?.lowercased() else { return .block }
         if scheme == "about" { return .allow }
+        if inFrame { return ["http", "https"].contains(scheme) ? .allow : .block }
         if let origin = serverOrigin, scheme == "http", url.host == origin.host, url.port == origin.port { return .allow }
         if ["http", "https", "mailto"].contains(scheme) { return .openExternally }
         return .block
@@ -228,7 +232,8 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     // MARK: WKNavigationDelegate / WKUIDelegate
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        switch ConversationLinkPolicy.decide(action.request.url, serverOrigin: serverURL) {
+        let inFrame = action.targetFrame.map { !$0.isMainFrame } ?? false
+        switch ConversationLinkPolicy.decide(action.request.url, serverOrigin: serverURL, inFrame: inFrame) {
         case .allow:
             decisionHandler(.allow)
         case .openExternally:

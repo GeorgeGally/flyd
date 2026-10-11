@@ -1019,6 +1019,7 @@ var __name = function (f) { return f; };
           answer.innerHTML = talk.answerHtml;
           wrap.appendChild(answer);
         } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
+        else if (talk.answered) wrap.appendChild(el("p", "rail-wait", "Answered"));
         else if (talk.waiting) wrap.appendChild(el("p", "rail-wait", talk.waiting));
         (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
         if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));

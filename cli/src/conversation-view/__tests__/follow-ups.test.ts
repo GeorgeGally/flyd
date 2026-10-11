@@ -74,6 +74,30 @@ describe("followUps", () => {
     expect(found["note:1791660389-520khJ"]).toBeUndefined();
   });
 
+  it("answers notes taken in a batch with the first reply settled after taking them, by the line about each", () => {
+    const taken = (id: string, text: string, at: string): Exchange => ({ ...note(id, text, at), takenAt: "2026-10-10T20:09:36Z" });
+    const batch = [
+      taken("1791661488-Ii4Idq", "the image can get a bit of a border", "2026-10-10T19:44:48Z"),
+      taken("1791661816-OFMyDA", "http://127.0.0.1:8088/ are we on a different server?", "2026-10-10T19:50:16Z"),
+    ];
+    const report = [
+      "Captain, all of your notes are done in your local copy.",
+      "",
+      "**Brands screen:**",
+      "- The photo has a thin cream border.",
+      "",
+      "**Your server question:** 8088 is your own server showing your local copy live. Use 8088.",
+    ].join("\n");
+    const messages = [reply("early", "Captain, looking at the Christmas site notes now, one moment.", "2026-10-10T20:00:00Z"), reply("r", report, "2026-10-10T20:09:42Z")];
+    const found = followUps(batch, messages);
+    expect(found["note:1791661488-Ii4Idq"]!.text).toBe("The photo has a thin cream border.");
+    expect(found["note:1791661816-OFMyDA"]!.text).toBe("**Your server question:** 8088 is your own server showing your local copy live. Use 8088.");
+    // Mid-turn, the newest reply is not an answer yet.
+    expect(followUps(batch, messages, true)).toEqual({});
+    // A reply that handled another note by name is that note's, not the batch's.
+    expect(followUps(batch, [reply("other", report, "2026-10-10T20:09:42Z", ["1791600000-zzzzzz"])])).toEqual({});
+  });
+
   it("ignores Flyd's own questions", () => {
     const asks: Exchange[] = [{ question: { id: "ask:1", role: "user", text: "site map full screen?", timestamp: "2026-10-10T19:00:00Z" }, waiting: "" }];
     expect(followUps(asks, [reply("r", "Captain, the site map is now full screen in your local copy.", "2026-10-10T19:30:00Z")])).toEqual({});
@@ -89,6 +113,14 @@ describe("withFollowUps", () => {
     expect(merged[0]).toMatchObject({ answer: { text: "chat" }, waiting: "" });
     expect(merged[1]!.answer!.text).toBe("formal");
     expect(withFollowUps([formal], { "note:b": chat("2026-10-10T19:45:00Z", "note:b") })[0]!.answer!.text).toBe("chat");
+  });
+
+  it("calls a taken note with no words answered, except the newest while firstmate is mid-turn", () => {
+    const older = note("a", "q", "2026-10-10T19:00:00Z");
+    const newest = note("b", "q", "2026-10-10T19:05:00Z");
+    const queued: Exchange = { ...note("c", "q", "2026-10-10T19:06:00Z"), handoff: "queued" };
+    expect(withFollowUps([older, newest, queued], {}).map((exchange) => [exchange.answered ?? false, exchange.waiting])).toEqual([[true, ""], [true, ""], [false, "Working on it"]]);
+    expect(withFollowUps([older, newest, queued], {}, true).map((exchange) => [exchange.answered ?? false, exchange.waiting])).toEqual([[true, ""], [false, "Working on it"], [false, "Working on it"]]);
   });
 });
 

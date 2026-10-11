@@ -44,6 +44,10 @@ export interface Exchange {
   waitingFailed?: boolean;
   /** A note to firstmate: still in its inbox, or taken (read) by firstmate. */
   handoff?: "queued" | "taken";
+  /** When firstmate took the note (moved it to handled/), ISO. */
+  takenAt?: string;
+  /** Firstmate took the note and has finished with it, though no reply to show names it. */
+  answered?: boolean;
 }
 
 export interface ConversationSnapshot {
