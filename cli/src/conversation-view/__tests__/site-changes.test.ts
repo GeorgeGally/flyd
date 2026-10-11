@@ -23,6 +23,7 @@ import {
   selectorsInCss,
   selectorsInScript,
   siteChangeOf,
+  short,
   sitePageOf,
   siteUrlsIn,
 } from "../site-changes.js";
@@ -49,17 +50,26 @@ describe("the page a site change is on", () => {
     expect(isSiteChange("Merged https://github.com/GeorgeGally/flyd/pull/118 and pushed.")).toBe(false);
   });
 
+  it("labels a page with just its path", () => {
+    expect(short(new URL(`${SITE}/vendor-apply/index.php`))).toBe("/vendor-apply");
+    expect(short(new URL(`${SITE}/vendor-apply/`))).toBe("/vendor-apply");
+    expect(short(new URL(`${SITE}/visit/index.html`))).toBe("/visit");
+    expect(short(new URL(`${SITE}/index.php`))).toBe("/");
+    expect(short(new URL(SITE))).toBe("/");
+    expect(sitePageOf(`Live on ${SITE}/vendor-apply/index.php and pushed.`)).toEqual({ label: "/vendor-apply", url: `${SITE}/vendor-apply/index.php` });
+  });
+
   it("opens the most particular page the reply names, as a short label", () => {
-    expect(sitePageOf(`Live on ${SITE} and pushed (see it at ${SITE}/vendor).`)).toEqual({ label: "christmas.goodneighboursmarket.com/vendor", url: `${SITE}/vendor` });
-    expect(sitePageOf(`Live on ${SITE}.`)).toEqual({ label: "christmas.goodneighboursmarket.com", url: SITE });
-    expect(sitePageOf("Pushed; the preview is http://127.0.0.1:8088/visit.html")).toEqual({ label: "127.0.0.1:8088/visit.html", url: "http://127.0.0.1:8088/visit.html" });
+    expect(sitePageOf(`Live on ${SITE} and pushed (see it at ${SITE}/vendor).`)).toEqual({ label: "/vendor", url: `${SITE}/vendor` });
+    expect(sitePageOf(`Live on ${SITE}.`)).toEqual({ label: "/", url: SITE });
+    expect(sitePageOf("Pushed; the preview is http://127.0.0.1:8088/visit.html")).toEqual({ label: "/visit.html", url: "http://127.0.0.1:8088/visit.html" });
     expect(sitePageOf("No site here, just pushed.")).toBeUndefined();
   });
 
   it("opens the deeper page the turn checked on its preview when the reply names only the front door", () => {
     const opened = ["http://127.0.0.1:8088/index.html", "http://127.0.0.1:8088/vendor.html"];
-    expect(sitePageOf(`Live on ${SITE} and pushed.`, opened)).toEqual({ label: "christmas.goodneighboursmarket.com/vendor.html", url: `${SITE}/vendor.html` });
-    expect(sitePageOf(`Live on ${SITE} and pushed.`, ["http://127.0.0.1:8088/index.html"])).toEqual({ label: "christmas.goodneighboursmarket.com", url: SITE });
+    expect(sitePageOf(`Live on ${SITE} and pushed.`, opened)).toEqual({ label: "/vendor.html", url: `${SITE}/vendor.html` });
+    expect(sitePageOf(`Live on ${SITE} and pushed.`, ["http://127.0.0.1:8088/index.html"])).toEqual({ label: "/", url: SITE });
   });
 
   it("renders from the preview the turn checked first, then the pages the reply names", () => {
@@ -145,7 +155,7 @@ describe("finding the changed element", () => {
 
 describe("a reply pictured as the element it changed", () => {
   const reply: ConversationMessage = { id: "reply:1", role: "assistant", text: `The "Remind me" button is bigger. Live on ${SITE} and pushed.`, shots: ["/flyd/view/reply-shots/full.png"] };
-  const page = { label: "christmas.goodneighboursmarket.com", url: SITE };
+  const page = { label: "/", url: SITE };
 
   it("shows the crop in place of the whole page once it is made", () => {
     expect(pictured(reply, page, { state: "ready", path: "/flyd/view/element-shots/element-a.png" })).toMatchObject({ page, shots: ["/flyd/view/element-shots/element-a.png"] });
@@ -181,7 +191,7 @@ describe("a reply pictured as the element it changed", () => {
 
 describe("site changes on Flyd's artefact", () => {
   const now = Date.parse("2026-10-11T15:00:00Z");
-  const page = { label: "christmas.goodneighboursmarket.com/vendor", url: `${SITE}/vendor` };
+  const page = { label: "/vendor", url: `${SITE}/vendor` };
   const answer: ConversationMessage = {
     id: "reply:x#4",
     role: "assistant",
@@ -301,7 +311,7 @@ describe("a note that changed the site, read from firstmate's session", () => {
     const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home }), shots: new ReplyShots({ root: join(dir, "shots") }), elements });
     const made = new Promise<void>((resolve) => elements.onChange(resolve));
     const first = await source.read("s1");
-    const page = { label: "christmas.goodneighboursmarket.com", url: SITE };
+    const page = { label: "/", url: SITE };
     // While the crop is made, the whole page waits.
     expect(first.followUps?.[`note:${NOTE}`]).toMatchObject({ page });
     expect(first.followUps?.[`note:${NOTE}`]?.shots).toBeUndefined();
