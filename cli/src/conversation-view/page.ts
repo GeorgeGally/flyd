@@ -104,11 +104,11 @@ header :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /*
  * Artefact view: Flyd on TV. One scene holds the screen at a time: a big
  * headline in Flyd's words, the sentence that says what it means for him, and
- * the work's screenshot large beside it. The scenes take turns like title
- * cards, the calls only he can make first. Under them a row of small readouts
- * (weather, plan, the week, where the work stands) flickers in. Nothing framed:
- * colour, type and motion carry it. The conversation stays live underneath,
- * one switch away.
+ * the work itself large beside it: the desktop capture in a browser, the phone
+ * capture in a phone in front of it. The scenes take turns like title cards,
+ * the work with pictures first. The numbers are one quiet line at the foot,
+ * never a dashboard. Text fades in place: no movement, no pop. The
+ * conversation stays live underneath, one switch away.
  */
 const SHOW_STYLE = `
 :root {
@@ -155,7 +155,9 @@ const SHOW_STYLE = `
 /* The stage: one scene, centred, the same room above and below it. */
 .tv { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: safe center; padding: clamp(20px, 5vh, 64px) 0; }
 .scene { --k: var(--k-news); display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: clamp(36px, 4.5vw, 88px); }
-.scene.has-shot { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); }
+.scene.has-shot { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); }
+/* A question with its answer field needs the room for words: the picture steps back. */
+.scene.has-shot.has-ask { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); }
 .scene-text { min-width: 0; }
 .scene-head {
   margin: 0; max-width: 14em; font: 800 clamp(40px, 5.6vw, 96px)/1.02 var(--display); letter-spacing: -0.032em;
@@ -174,42 +176,73 @@ const SHOW_STYLE = `
 .scene-meta .project { color: var(--fg); }
 .scene-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .scene-meta a:hover { color: var(--strong); }
-/* The screenshot at its own shape, as large as the stage allows: never cropped. */
-.scene-shot { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.scene-shot .main {
-  display: block; width: auto; height: auto; max-width: 100%; max-height: min(58vh, calc(100vh - 420px));
-  min-height: 120px; object-fit: contain; border-radius: 10px; cursor: zoom-in;
+/*
+ * The work, as large as the stage allows. A desktop capture sits in a browser,
+ * a phone capture in a phone (both shown from the top of the page, as a device
+ * would); with both, the phone stands in front of the browser. Anything else
+ * (artwork, a tablet without its name) keeps its own shape, never cropped.
+ */
+.scene-shot { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.devices { position: relative; width: 100%; height: min(66vh, calc(100vh - 300px)); min-height: 220px; container-type: size; }
+.device { position: absolute; overflow: hidden; background: #050608; cursor: zoom-in; box-sizing: border-box; }
+.device img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.device:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.device.desk {
+  border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 4px 10px rgba(0,0,0,.22), 0 24px 48px rgba(0,0,0,.28), 0 60px 110px rgba(0,0,0,.2);
+  display: flex; flex-direction: column;
 }
-.scene-shot .main.phone {
-  box-sizing: border-box; border-radius: 38px; corner-shape: squircle; border: 5px solid #26292c;
-  outline: 1px solid rgba(255,255,255,.16);
-  box-shadow: 0 3px 7px rgba(0,0,0,.18), 0 18px 36px rgba(0,0,0,.24), 0 40px 72px rgba(0,0,0,.16);
+.device.desk .bar { flex: none; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: #17191d; border-bottom: 1px solid rgba(255,255,255,.06); }
+.device.desk .bar i { width: 8px; height: 8px; border-radius: 50%; background: #34373d; }
+.device.desk img { flex: 1; min-height: 0; height: auto; }
+.device.phone {
+  border-radius: 40px; corner-shape: squircle; border: 6px solid #1c1e21; outline: 1px solid rgba(255,255,255,.16);
+  box-shadow: 0 3px 8px rgba(0,0,0,.24), 0 20px 40px rgba(0,0,0,.3), 0 44px 80px rgba(0,0,0,.22);
 }
+.device.tablet {
+  border-radius: 26px; corner-shape: squircle; border: 8px solid #1c1e21; outline: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 4px 10px rgba(0,0,0,.22), 0 24px 48px rgba(0,0,0,.28);
+}
+.device.art { background: none; border-radius: 10px; box-shadow: 0 18px 44px rgba(0,0,0,.28); }
+.device.art img { object-fit: contain; }
+/* One device, centred at its own proportions. */
+.devices.one .device { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.devices.one .desk { width: min(100cqw, 160cqh); height: min(62.5cqw, 100cqh); }
+.devices.one .phone { width: min(46.2cqh, 100cqw); height: min(100cqh, 216.7cqw); }
+.devices.one .tablet { width: min(75cqh, 100cqw); height: min(100cqh, 133.3cqw); }
+.devices.one .art { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; }
+.devices.one .art img { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; }
+/* The pair: the browser behind, the phone in front of its right edge. */
+.devices.pair .desk { left: 0; top: 4cqh; width: min(86cqw, 137.6cqh); height: min(53.75cqw, 86cqh); }
+.devices.pair .phone { right: 0; bottom: 0; width: min(36cqh, 34cqw); height: min(78cqh, 73.7cqw); }
 .scene-answer { display: grid; gap: 12px; margin-top: 24px; max-width: 38em; }
 .scene-answer .choices { display: flex; flex-wrap: wrap; gap: 8px; }
-.scene-answer button, .scene-answer textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--muted); border-radius: 18px; padding: 10px 16px; }
+.scene-answer button, .scene-answer textarea { font: 400 17px/1.4 var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--muted); border-radius: 18px; padding: 10px 16px; }
 .scene-answer button { cursor: pointer; width: fit-content; }
 .scene-answer button:disabled { opacity: .55; cursor: default; }
 .scene-answer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 76px; }
 .scene-answer :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .scene-answer .receipt { font: 400 14px/1.5 var(--sans); color: var(--muted); }
-.scene-shot .thumbs { display: flex; gap: 10px; }
+.scene-shot .thumbs { display: flex; align-items: center; gap: 8px; }
 .scene-shot .thumbs img {
-  width: 72px; height: 46px; object-fit: contain; border-radius: 5px; cursor: pointer;
+  width: auto; height: 46px; max-width: 82px; object-fit: cover; object-position: top; border-radius: 5px; cursor: pointer;
   opacity: 0.45; transition: opacity 140ms ease;
 }
 .scene-shot .thumbs img:hover, .scene-shot .thumbs img.on { opacity: 1; }
 
-/* Title-card motion: the old scene lifts away, the new one rises in, headline first. */
-.scene.out > * { animation: scene-out 220ms ease both; }
-.scene.in .scene-head { animation: scene-in 620ms cubic-bezier(.16,1,.3,1) both; }
-.scene.in .scene-line { animation: scene-in 620ms cubic-bezier(.16,1,.3,1) 90ms both; }
-.scene.in .scene-meta { animation: scene-fade 520ms ease 180ms both; }
-.scene.in .scene-shot { animation: shot-in 700ms cubic-bezier(.16,1,.3,1) 60ms both; }
-@keyframes scene-out { to { opacity: 0; transform: translateY(-12px); } }
-@keyframes scene-in { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+/* Title-card motion, TV style: the old scene fades out, the new one fades in where it stands, headline first. Nothing moves or scales. */
+.scene.out > * { animation: scene-out 200ms ease both; }
+.scene.in .scene-head { animation: scene-fade 380ms ease both; }
+.scene.in .scene-line { animation: scene-fade 380ms ease 70ms both; }
+.scene.in .scene-meta, .scene.in .scene-answer { animation: scene-fade 380ms ease 140ms both; }
+.scene.in .scene-shot { animation: scene-fade 520ms ease 40ms both; }
+@keyframes scene-out { to { opacity: 0; } }
 @keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes shot-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* The work's own colours, far behind everything and out of focus: the room the screen is in. */
+.ambient { position: absolute; inset: -10%; z-index: -1; max-width: none; margin: 0; width: auto; background: center / cover no-repeat; filter: blur(90px) saturate(1.3); opacity: 0; transition: opacity 900ms ease; pointer-events: none; }
+.ambient.on { opacity: .2; }
+:root[data-theme="light"] .ambient.on { opacity: .14; }
 
 /* Which scene is up, and how long until the next: one short line each. */
 .ticks { display: flex; flex-wrap: wrap; gap: 10px; min-height: 14px; margin-bottom: clamp(28px, 5vh, 48px); }
@@ -222,32 +255,16 @@ const SHOW_STYLE = `
 .ticks button.on.held::after { transition: none; }
 .ticks button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The readouts: small, white, drawn rather than framed; each flickers in. */
-.readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 300px)); gap: 28px clamp(40px, 5vw, 80px); padding-bottom: 26px; }
+/* The numbers: one quiet line, read like a TV's crawl, never a dashboard of charts. */
+.readouts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding-bottom: 14px; font: 500 14px/1.4 var(--mono); color: var(--muted); }
 .readouts:empty { display: none; }
-.ro { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-.ro-label { font: 500 11px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-.ro-value { font: 600 17px/1.25 var(--display); color: var(--strong); overflow-wrap: anywhere; }
-.ro-cols { display: flex; align-items: flex-end; gap: 4px; height: 30px; }
-.ro-cols { justify-content: space-between; }
-.ro-cols i { flex: 0 1 6px; min-width: 2px; background: var(--strong); opacity: 0.85; border-radius: 1px; }
-.ro-cols i.none { opacity: 0.18; }
-.ro-cols i.wet { background: var(--k-live); opacity: 1; }
-.ro-axis { display: flex; justify-content: space-between; gap: 4px; margin-top: -3px; font: 500 10px/1 var(--mono); color: var(--muted); }
-.ro-axis span { flex: 0 1 6px; min-width: 0; display: flex; justify-content: center; white-space: nowrap; }
-.ro-rows { display: flex; flex-direction: column; gap: 9px; }
-.ro-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; font: 500 12px/1.2 var(--mono); color: var(--muted); }
-.ro-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ro-row b { font-weight: 600; color: var(--strong); font-variant-numeric: tabular-nums; }
-.ro-row .track { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 14%, transparent); overflow: hidden; }
-.ro-row .track i { display: block; height: 100%; background: var(--strong); }
-.ro-row.low .track i { background: var(--k-waiting); }
-.ro-split { display: flex; gap: 3px; height: 4px; }
-.ro-split i { min-width: 3px; border-radius: 2px; background: var(--k); }
-.ro-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 12px/1.4 var(--mono); color: var(--muted); }
-.ro-legend b { font-weight: 600; color: var(--k); }
-.ro.flick { animation: flick 900ms steps(6, jump-none) both; animation-delay: var(--d, 0ms); }
-@keyframes flick { 0% { opacity: 0; } 30% { opacity: 1; } 45% { opacity: 0.15; } 60%, 100% { opacity: 1; } }
+.ro { min-width: 0; display: flex; flex-wrap: wrap; column-gap: 0.6em; }
+.ro b, .ro-part { white-space: nowrap; }
+.ro b { font-weight: 600; color: var(--strong); font-variant-numeric: tabular-nums; }
+.ro .k-call b, .ro b.k-call { color: var(--k-call); }
+.ro-part + .ro-part::before { content: "· "; color: var(--muted); }
+.ro-part b { color: var(--k); }
+.ro.fade { animation: scene-fade 600ms ease both; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
@@ -268,29 +285,30 @@ const SHOW_STYLE = `
 @media (max-width: 900px) {
   .scene.has-shot { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .scene-shot { order: -1; }
-  .scene-shot .main { max-height: 38vh; }
+  .devices { height: 44vh; }
 }
 @media (max-height: 680px) {
   .scene-head, .scene.has-shot .scene-head { font-size: clamp(30px, 3.4vw, 48px); }
   .scene-head.long, .scene.has-shot .scene-head.long { font-size: clamp(24px, 2.6vw, 36px); }
   .scene-line { margin-top: 18px; }
   .scene-meta { margin-top: 18px; }
-  .scene-shot .main, .scene.has-shot .scene-shot .main { max-height: 30vh; }
+  .devices { height: 38vh; }
 }
 @media (max-width: 720px) {
-  .show { overflow-y: auto; padding: 52px 20px 0; }
+  .show { overflow-x: hidden; overflow-y: auto; padding: 52px 16px 0; }
   .tv { flex: none; min-height: calc(100vh - 220px); padding: 28px 0 36px; }
   .scene-head, .scene.has-shot .scene-head { font-size: 34px; }
   .scene-head.long, .scene.has-shot .scene-head.long { font-size: 27px; }
   .scene-line { margin-top: 20px; font-size: 18px; }
   .scene-meta { margin-top: 20px; font-size: 13px; }
   .ticks { margin-bottom: 32px; }
-  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .devices { height: 46vh; }
   .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-shot,
-  .scene.out > *, .ro.flick, .doing.on::before, .msg.spot { animation: none; }
+  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-shot,
+  .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
+  .ambient { transition: none; }
   .ticks button.on::after { transition: none; }
 }
 `;
@@ -1257,8 +1275,33 @@ var __name = function (f) { return f; };
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
-    source.onerror = function () { problem.textContent = "reconnecting…"; };
-    source.onopen = function () { problem.textContent = ""; };
+    source.onerror = function () {
+      problem.textContent = "reconnecting…";
+      // The browser retries a dropped stream by itself, but gives up for good
+      // once the view refuses it: after a restart the old token is no longer
+      // the view's. Then a new view is up; load it, its code and its token.
+      if (source.readyState === 2 /* CLOSED */) rejoin(sessionId);
+    };
+    source.onopen = function () { problem.textContent = ""; rejoinDelay = 1000; };
+  }
+  var rejoinDelay = 1000;
+  var rejoining = null;
+  function rejoin(sessionId) {
+    if (rejoining) return;
+    rejoining = setTimeout(function () {
+      fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
+        rejoining = null;
+        // The draft is kept on the way out (pagehide), so reloading loses nothing.
+        if (data.token && data.token !== VIEW_TOKEN) { location.reload(); return; }
+        rejoinDelay = Math.min(rejoinDelay * 2, 15000);
+        connect(sessionId);
+      }).catch(function () {
+        // The view is not up yet: try again, less often each time.
+        rejoining = null;
+        rejoinDelay = Math.min(rejoinDelay * 2, 15000);
+        rejoin(sessionId);
+      });
+    }, rejoinDelay);
   }
 
   function loadSessions() {
@@ -1830,9 +1873,10 @@ var __name = function (f) { return f; };
 
 
   // Artefact view: Flyd on TV. Core's boxes become scenes that take turns,
-  // one at a time like title cards: the calls only he can make, then what
-  // Flyd sees coming, then the stories, each with its screenshot large. The
-  // instruments become a row of small readouts under the stage. The
+  // one at a time like title cards: the work with pictures of it first (in a
+  // browser and a phone), then the calls only he can make, what Flyd sees
+  // coming, and the stories told in words. The instruments become one quiet
+  // line under the stage. The
   // "artefact" switch (or Tab) flips between it and the conversation, and the
   // choice is remembered; the conversation keeps streaming underneath.
   var showEl = document.getElementById("show");
@@ -1843,12 +1887,14 @@ var __name = function (f) { return f; };
   var ticksEl = document.getElementById("ticks");
   var readoutsEl = document.getElementById("readouts");
   var showDoing = document.getElementById("show-doing");
+  var ambient = document.getElementById("ambient");
   var air = document.getElementById("air");
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   // What each kind is called on screen.
   var WORDS = { call: "needs you", live: "under way", ready: "waiting to land", landed: "landed", waiting: "held up", next: "up next", news: "also", clear: "all clear", warn: "coming up" };
-  var RANK = { call: 0, note: 1, alert: 2, story: 3 };
+  // The screen is for showing the work: pictured stories lead, then his calls.
+  var RANK = { pictured: 0, call: 1, note: 2, alert: 3, story: 4 };
   var DWELL = 9000;
   var scenes = [];
   var at = 0;
@@ -1889,9 +1935,10 @@ var __name = function (f) { return f; };
       if (box.kind in RANK) stage.push(box); else if (box.kind !== "shot") readouts.push(box);
     }
     boxes.forEach(place);
-    // A stable sort: calls first, then the situation, what is coming, the stories.
+    // A stable sort: the work with pictures, then calls, the situation, what is coming, the stories in words.
+    function rank(box) { return box.kind === "story" && shotsOf(box).length ? RANK.pictured : RANK[box.kind]; }
     stage = stage.map(function (box, index) { return { box: box, index: index }; })
-      .sort(function (a, b) { return (RANK[a.box.kind] - RANK[b.box.kind]) || (a.index - b.index); })
+      .sort(function (a, b) { return (rank(a.box) - rank(b.box)) || (a.index - b.index); })
       .map(function (entry) { return entry.box; });
     return { stage: stage, readouts: readouts };
   }
@@ -1908,7 +1955,7 @@ var __name = function (f) { return f; };
   function fillScene(box) {
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
-    sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "");
+    sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "") + (box.decision ? " has-ask" : "");
     if (sceneEl.dataset.id !== box.id) sceneEl.parentElement.scrollTop = 0;
     sceneEl.dataset.id = box.id;
     sceneHead.textContent = box.title;
@@ -2001,30 +2048,60 @@ var __name = function (f) { return f; };
     }
     var old = sceneEl.querySelector(".scene-shot");
     if (old) old.remove();
+    setAmbient(shots.length ? withToken(shots[0].src) : "");
     if (!shots.length) return;
     var figure = el("figure", "scene-shot");
-    var main = el("img", "main");
-    main.tabIndex = 0;
-    main.setAttribute("role", "button");
-    // ponytail: a phone silhouette is a portrait 9:16-to-9:22 frame; a taller
-    // desktop capture (~0.59) and a tablet (~0.7) fall outside it.
-    main.addEventListener("load", function () { var ratio = main.naturalWidth / main.naturalHeight; main.classList.toggle("phone", ratio >= .4 && ratio <= .58); });
-    main.alt = "Screenshot: " + box.title;
-    main.src = withToken(shots[0].src);
-    main.addEventListener("click", function () { openImage(main.src); });
-    main.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openImage(main.src); } });
-    figure.appendChild(main);
-    if (shots.length > 1) {
+    var stage = el("div", "devices");
+    figure.appendChild(stage);
+    var looks = shots.map(function (shot) { return { src: withToken(shot.src), label: shot.label, device: deviceOf(shot.label) }; });
+    // What holds the stage: the desktop and phone captures as a pair, else the one chosen.
+    var slots = { desk: null, phone: null, chosen: looks[0] };
+    looks.forEach(function (look) { if (look.device === "desk" && !slots.desk) slots.desk = look; if (look.device === "phone" && !slots.phone) slots.phone = look; });
+    function device(look) {
+      var node = el("div", "device " + (look.device || "art"));
+      node.tabIndex = 0;
+      node.setAttribute("role", "button");
+      node.setAttribute("aria-label", "Open " + look.label);
+      if (look.device === "desk") { var bar = el("div", "bar"); bar.appendChild(el("i")); bar.appendChild(el("i")); bar.appendChild(el("i")); node.appendChild(bar); }
+      var img = el("img");
+      img.alt = "Screenshot: " + box.title;
+      img.src = look.src;
+      // A capture without a device in its name is placed by its shape once it loads.
+      if (!look.device) img.addEventListener("load", function () {
+        var shape = shapeOf(img.naturalWidth, img.naturalHeight);
+        if (shape && !look.device) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); }
+      });
+      node.appendChild(img);
+      node.addEventListener("click", function () { openImage(look.src); });
+      node.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openImage(look.src); } });
+      return node;
+    }
+    function place() {
+      var chosen = slots.chosen;
+      var pair = slots.desk && slots.phone && (chosen === slots.desk || chosen === slots.phone);
+      var shown = pair ? [slots.desk, slots.phone] : [chosen];
+      var key = shown.map(function (look) { return look.src + "|" + (look.device || ""); }).join(" ");
+      if (stage.dataset.key === key) return;
+      stage.dataset.key = key;
+      stage.className = "devices " + (pair ? "pair" : "one");
+      stage.textContent = "";
+      shown.forEach(function (look) { stage.appendChild(device(look)); });
+    }
+    place();
+    if (looks.length > 1) {
       var thumbs = el("div", "thumbs");
-      shots.forEach(function (shot, index) {
+      looks.forEach(function (look, index) {
         var thumb = el("img", index === 0 ? "on" : "");
-        thumb.alt = shot.label;
+        thumb.alt = look.label;
         thumb.tabIndex = 0;
         thumb.setAttribute("role", "button");
-        thumb.src = withToken(shot.src);
-        // Rolling over a thumbnail brings it up; a tap does the same on a phone.
+        thumb.src = look.src;
+        // Rolling over a thumbnail brings it up (beside its partner device); a tap does the same on a phone.
         function choose() {
-          main.src = thumb.src;
+          if (look.device === "desk") slots.desk = look;
+          if (look.device === "phone") slots.phone = look;
+          slots.chosen = look;
+          place();
           thumbs.querySelectorAll("img").forEach(function (other) { other.classList.toggle("on", other === thumb); });
         }
         thumb.addEventListener("mouseenter", choose);
@@ -2035,6 +2112,35 @@ var __name = function (f) { return f; };
       figure.appendChild(thumbs);
     }
     sceneEl.appendChild(figure);
+  }
+  // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
+  function deviceOf(name) {
+    name = String(name || "").toLowerCase();
+    function width(list) { return new RegExp("(?:^|[^0-9])(?:" + list + ")(?:[^0-9]|$)").test(name); }
+    if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) return "phone";
+    if (/ipad|tablet/.test(name) || width("768|810|820|834")) return "tablet";
+    if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) return "desk";
+    return "";
+  }
+  // Otherwise its shape says it: a portrait 9:16-to-9:22 capture is a phone, a
+  // wide one a desktop; anything else (artwork, a square) keeps its own shape.
+  function shapeOf(w, h) {
+    var ratio = w / h;
+    if (ratio >= .4 && ratio <= .58) return "phone";
+    if (ratio >= 1.25) return "desk";
+    return "";
+  }
+  var ambientSrc = "";
+  function setAmbient(src) {
+    if (src === ambientSrc) return;
+    ambientSrc = src;
+    ambient.classList.remove("on");
+    if (!src) return;
+    setTimeout(function () {
+      if (ambientSrc !== src) return;
+      ambient.style.backgroundImage = "url(" + JSON.stringify(src) + ")";
+      ambient.classList.add("on");
+    }, reduced ? 0 : 300);
   }
   function markTicks() {
     Array.prototype.forEach.call(ticksEl.children, function (tick, index) {
@@ -2103,81 +2209,40 @@ var __name = function (f) { return f; };
     markTicks();
   }
 
-  // The readouts: each drawn small, white, with room for every label.
-  function drawCols(values, max, extra) {
-    var cols = el("div", "ro-cols");
-    values.forEach(function (value, index) {
-      var bar = el("i", (value ? "" : "none") + (extra ? " " + extra(index) : ""));
-      bar.style.height = (value ? Math.max(10, Math.round((value / Math.max(max, 1)) * 100)) : 6) + "%";
-      cols.appendChild(bar);
-    });
-    return cols;
-  }
-  function drawAxis(labels) {
-    var axis = el("div", "ro-axis");
-    labels.forEach(function (label) { axis.appendChild(el("span", "", label)); });
-    return axis;
-  }
+  // The numbers: one quiet line, each reading a few words with its figure.
   function drawReadout(box) {
-    var node = el("div", "ro");
+    var node = el("span", "ro");
     node.dataset.id = box.id;
-    node.appendChild(el("span", "ro-label", box.why));
-    node.appendChild(el("span", "ro-value", box.title));
-    if (box.hours && box.hours.length) {
-      var temps = box.hours.map(function (hour) { return hour.tempC; });
-      var low = Math.min.apply(null, temps), high = Math.max.apply(null, temps);
-      node.appendChild(drawCols(box.hours.map(function (hour) { return 30 + (high > low ? ((hour.tempC - low) / (high - low)) * 70 : 50); }), 100, function (index) { return box.hours[index].rainChance >= 50 ? "wet" : ""; }));
-      node.appendChild(drawAxis(box.hours.map(function (hour, index) { return index % 3 === 0 ? hour.label : ""; })));
+    if (box.id === "work-state" && box.bars) {
+      box.bars.forEach(function (bar) {
+        var part = el("span", "ro-part k-" + (bar.tone || "news"));
+        part.appendChild(el("b", "", String(bar.value)));
+        part.appendChild(document.createTextNode(" " + bar.label));
+        node.appendChild(part);
+      });
+      return node;
     }
     if (box.gauges && box.gauges.length) {
-      var rows = el("div", "ro-rows");
       box.gauges.forEach(function (gauge) {
-        var row = el("div", "ro-row" + (gauge.used >= 75 ? " low" : ""));
-        if (gauge.resetsAt) row.title = "resets " + new Date(gauge.resetsAt).toLocaleString();
-        row.appendChild(el("span", "", gauge.label));
-        row.appendChild(el("b", "", gauge.used + "%"));
-        var track = el("span", "track");
-        var fill = el("i");
-        fill.style.width = gauge.used + "%";
-        track.appendChild(fill);
-        row.appendChild(track);
-        rows.appendChild(row);
+        var part = el("span", "ro-part");
+        if (gauge.resetsAt) part.title = "resets " + new Date(gauge.resetsAt).toLocaleString();
+        part.appendChild(document.createTextNode("Claude " + gauge.label + " "));
+        part.appendChild(el("b", "", gauge.used + "%"));
+        part.appendChild(document.createTextNode(" used"));
+        node.appendChild(part);
       });
-      node.appendChild(rows);
+      return node;
     }
-    if (box.bars && box.bars.length) {
-      if (box.id === "work-state") {
-        // Where the work stands: one line split by state, the counts written out under it.
-        var whole = box.bars.reduce(function (sum, bar) { return sum + bar.value; }, 0) || 1;
-        var line = el("div", "ro-split");
-        var legend = el("div", "ro-legend");
-        box.bars.forEach(function (bar) {
-          var part = el("i", "k-" + (bar.tone || "news"));
-          part.style.flex = String(bar.value / whole);
-          line.appendChild(part);
-          var item = el("span", "k-" + (bar.tone || "news"));
-          item.appendChild(el("b", "", String(bar.value)));
-          item.appendChild(document.createTextNode(" " + bar.label));
-          legend.appendChild(item);
-        });
-        node.appendChild(line);
-        node.appendChild(legend);
-      } else {
-        var most = Math.max.apply(null, box.bars.map(function (bar) { return bar.value; }));
-        node.appendChild(drawCols(box.bars.map(function (bar) { return bar.value; }), most));
-        node.appendChild(drawAxis(box.bars.map(function (bar) { return bar.label.charAt(0); })));
-      }
-    }
-    if (box.line && !box.hours) node.appendChild(el("span", "ro-label", box.line));
+    node.appendChild(el("b", "", box.title));
+    if (box.line) node.appendChild(document.createTextNode(" " + box.line));
     return node;
   }
   function flicker() {
     if (reduced) return;
     readoutsEl.querySelectorAll(".ro").forEach(function (node) {
-      node.classList.remove("flick");
-      node.style.setProperty("--d", Math.round(160 + Math.random() * 520) + "ms");
+      node.classList.remove("fade");
       void node.offsetWidth;
-      node.classList.add("flick");
+      node.classList.add("fade");
     });
   }
   function renderReadouts(readouts) {
@@ -2344,6 +2409,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
+  <div class="ambient" id="ambient" aria-hidden="true"></div>
   <div class="tv">
     <div class="scene" id="scene" aria-live="polite">
       <div class="scene-text">

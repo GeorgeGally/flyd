@@ -29,6 +29,8 @@ export interface ArtefactRow {
   at?: string;
   /** Screenshots the task saved, as paths under its data directory. */
   shots?: string[];
+  /** The data directory the screenshots are in, when it is not the task's own (a call's lab, say). */
+  shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
 }
@@ -80,7 +82,7 @@ export const EMPTY_ARTEFACT: ArtefactInputs = { memories: [], news: [], taste: [
 const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ unavailable: reason, calls: [], live: [], ready: [], landed: [], held: [], next: [] });
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
-export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 4, waiting: 4, next: 3 } as const;
+export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
 
 const str = (value: unknown): string => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
 const rows = (value: unknown): Record<string, unknown>[] =>
@@ -213,6 +215,8 @@ export interface BacklogEntry {
   hold?: string;
   /** The day it finished, for done items. */
   finished?: string;
+  /** The pull request (or other link) the row names. */
+  url?: string;
 }
 
 /** Firstmate stores a hold's reason as `fm-hold-v1:<base64>`; its plain words, or nothing when it does not decode. Pure. */
@@ -246,6 +250,7 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
       rest = rest.slice(0, tag.index);
     }
     const title = rest
+      .replace(/\s+blocked-by:\s*\S+/g, "")
       .replace(/https?:\/\/\S+/g, "")
       .replace(/\bdata\/\S+/g, "")
       .replace(/\(\s*\)/g, "")
@@ -254,8 +259,10 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
     if (!title) continue;
     const finished = [tags.get("merged"), tags.get("done"), tags.get("landed")].find((value) => value && /^\d{4}-\d{2}-\d{2}/.test(value));
     const hold = holdReason(tags.get("hold") ?? "");
+    const url = rest.match(PR_URL)?.[0] ?? rest.match(/https?:\/\/[^\s()]+/)?.[0];
     current = {
       title,
+      ...(url ? { url } : {}),
       ...(tags.get("repo") ? { repo: tags.get("repo") } : {}),
       ...(hold ? { hold } : {}),
       ...(row[1] === "x" && finished ? { finished: finished.slice(0, 10) } : {}),
@@ -275,6 +282,8 @@ function wholeLabel(label: string, full: string): string {
 export interface TaskExtra {
   at?: string;
   shots?: string[];
+  /** When the newest of those screenshots was taken. */
+  shotAt?: string;
   /** The task's own last status note, whole. */
   note?: string;
 }
@@ -316,6 +325,12 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     if (extra?.at) next.at = extra.at;
     if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) next.shots = extra.shots;
+    else if (entry) {
+      // No pictures of its own: the lab or report its words point at has them.
+      const dir = referencedDirs(entry).find((name) => name !== row.task && extras.get(name)?.shots?.length);
+      if (dir) next = { ...next, shots: extras.get(dir)!.shots, shotDir: dir };
+    }
+    if (!next.url && entry?.url) next.url = entry.url;
     return next;
   };
   if (fleet.unavailable) return fleet;
@@ -328,6 +343,30 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     held: fleet.held.map((row) => enrich(row)),
     next: fleet.next.map((row) => enrich(row)),
   };
+}
+
+/** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
+export function referencedDirs(entry: BacklogEntry): string[] {
+  const text = `${entry.hold ?? ""} ${entry.notes ?? ""}`;
+  return [...new Set([...text.matchAll(/\bdata\/([\w-][\w.-]*)\//g)].map((match) => match[1]!))];
+}
+
+/** How far back finished work still counts as just landed. */
+export const RECENT_DAYS = 3;
+
+/**
+ * Work that finished in the last few days, newest first: firstmate moves done
+ * rows to its archive, and its snapshot keeps only the last six landings, so
+ * the work worth showing (the pictures of it) is found here. Pure.
+ */
+export function recentlyFinished(entries: Map<string, BacklogEntry>, now: number, days = RECENT_DAYS): Array<{ task: string; entry: BacklogEntry }> {
+  const since = new Date(now - days * 86_400_000).toISOString().slice(0, 10);
+  return [...entries]
+    .map(([task, entry], index) => ({ task, entry, index }))
+    .filter(({ entry }) => entry.finished && entry.finished >= since)
+    // Same day: the archive's later rows are the newer ones.
+    .sort((a, b) => b.entry.finished!.localeCompare(a.entry.finished!) || b.index - a.index)
+    .map(({ task, entry }) => ({ task, entry }));
 }
 
 export function decisionChoices(question: string): string[] {
@@ -350,16 +389,37 @@ export function landedByDay(backlog: Map<string, BacklogEntry>, now: number): Da
 }
 
 const IMAGE = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-export const SHOTS_PER_TASK = 3;
+export const SHOTS_PER_TASK = 4;
+/** Smaller than this is an icon or a texture, not a picture of the work. */
+const MIN_SHOT_BYTES = 12_000;
 
-/** The screenshots worth showing from a task's files: "after" shots first, then the newest. Pure. */
-export function pickShots(files: Array<{ path: string; mtime: number }>): string[] {
-  const images = files.filter((file) => IMAGE.has(extname(file.path).toLowerCase()));
-  const score = (path: string) => (/\bafter\b|after[-_]/i.test(path) ? 0 : /\bbefore\b|before[-_]/i.test(path) ? 2 : 1);
-  return [...images]
-    .sort((a, b) => score(a.path) - score(b.path) || b.mtime - a.mtime)
-    .slice(0, SHOTS_PER_TASK)
-    .map((file) => file.path);
+export type Device = "phone" | "tablet" | "desktop";
+
+/** What a screenshot's name says it was taken on, when it says. Pure. */
+export function deviceOf(path: string): Device | undefined {
+  const name = path.toLowerCase().split("/").pop() ?? "";
+  const width = (widths: string) => new RegExp(`(?:^|[^0-9])(?:${widths})(?:[^0-9]|$)`).test(name);
+  if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) return "phone";
+  if (/ipad|tablet/.test(name) || width("768|810|820|834")) return "tablet";
+  if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) return "desktop";
+  return undefined;
+}
+
+/**
+ * The screenshots worth showing from a task's files: "after" shots before
+ * "before" ones, newest first, and when the work was captured on more than one
+ * device, the best desktop and phone shots lead so the screen can show the
+ * pair. Pure.
+ */
+export function pickShots(files: Array<{ path: string; mtime: number; size?: number }>): string[] {
+  // What the captain sent in (his screenshots, his artwork) is the ask, not the work.
+  const images = files.filter((file) => IMAGE.has(extname(file.path).toLowerCase()) && (file.size === undefined || file.size >= MIN_SHOT_BYTES) && !/captain/i.test(file.path));
+  // "Before" shots and references come last: they are not the work.
+  const score = (path: string) => (/\bafter\b|after[-_]/i.test(path) ? 0 : /\bbefore\b|before[-_]|reference|inspiration/i.test(path) ? 2 : 1);
+  const ranked = [...images].sort((a, b) => score(a.path) - score(b.path) || b.mtime - a.mtime).map((file) => file.path);
+  const lead = (["desktop", "phone"] as const).map((device) => ranked.find((path) => deviceOf(path) === device)).filter((path): path is string => Boolean(path));
+  const ordered = lead.length === 2 ? [...lead, ...ranked.filter((path) => !lead.includes(path))] : ranked;
+  return ordered.slice(0, SHOTS_PER_TASK);
 }
 
 /** A commitment older than this is not news to him. */
@@ -452,8 +512,8 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
       ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [] } } : {}),
       ...(detail ? { detail } : {}),
       ...(row.at ? { at: row.at } : {}),
-      ...(row.task && row.shots?.length
-        ? { shots: row.shots.map((file) => ({ src: shotSrc(row.task!, file), label: file.split("/").pop()! })) }
+      ...((row.shotDir ?? row.task) && row.shots?.length
+        ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
         : {}),
       ...(row.status ? { status: row.status } : {}),
       ...(project ? { project } : {}),
@@ -520,6 +580,30 @@ export function withVoice(
   return { fleet: next, unsaid };
 }
 
+/** No more than this many landed rows from one project, so one busy repository never fills the screen. */
+export const LANDED_PER_REPO = 3;
+
+/** Recently finished work with pictures of it, as landed rows, the most recently pictured first. Pure. */
+export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>, extras: Map<string, TaskExtra>): ArtefactRow[] {
+  const at = (task: string) => extras.get(task)?.shotAt ?? extras.get(task)?.at ?? "";
+  const perRepo = new Map<string, number>();
+  return recent
+    .filter(({ task }) => extras.get(task)?.shots?.length)
+    .sort((a, b) => at(b.task).localeCompare(at(a.task)))
+    .filter(({ entry }) => {
+      const seen = perRepo.get(entry.repo ?? "") ?? 0;
+      perRepo.set(entry.repo ?? "", seen + 1);
+      return seen < LANDED_PER_REPO;
+    })
+    .map(({ task, entry }) => ({
+      label: entry.title,
+      task,
+      status: "landed",
+      ...(entry.repo ? { repo: entry.repo } : {}),
+      ...(entry.url ? { url: entry.url } : {}),
+    }));
+}
+
 function reason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
@@ -565,6 +649,7 @@ export class ArtefactFeed {
     return {
       home,
       backlog: join(home, "data", "backlog.md"),
+      archive: join(home, "data", "done-archive.md"),
       memory: this.options.memoryFile ?? join(FLYD_DIR, "MEMORY.md"),
       news: this.options.newsFile ?? join(FLYD_DIR, "scout", "edition-latest.json"),
       taste: this.options.tasteFile ?? join(FLYD_DIR, "TASTE.md"),
@@ -620,9 +705,17 @@ export class ArtefactFeed {
         const names = (await readdir(dir, { recursive: true })).slice(0, 400);
         const files = await Promise.all(names
           .filter((name) => IMAGE.has(extname(name).toLowerCase()) && name.split(sep).length <= 3)
-          .map(async (name) => ({ path: relative(dir, join(dir, name)).split(sep).join("/"), mtime: (await stat(join(dir, name))).mtimeMs })));
+          .map(async (name) => {
+            const info = await stat(join(dir, name));
+            return { path: relative(dir, join(dir, name)).split(sep).join("/"), mtime: info.mtimeMs, size: info.size };
+          }));
         const shots = pickShots(files);
-        if (shots.length) extra.shots = shots;
+        if (shots.length) {
+          extra.shots = shots;
+          extra.shotAt = new Date(Math.max(...files.filter((file) => shots.includes(file.path)).map((file) => file.mtime))).toISOString();
+          // Without a status report, when its pictures were taken says how recent it is.
+          extra.at ??= extra.shotAt;
+        }
       } catch {
         // No data directory: no screenshots.
       }
@@ -635,10 +728,11 @@ export class ArtefactFeed {
     if (this.refreshing) return;
     this.refreshing = true;
     try {
-      const { backlog, memory, news, taste } = this.paths();
-      const [bearings, backlogText, memoryText, newsText, tasteText] = await Promise.all([
+      const { backlog, archive, memory, news, taste } = this.paths();
+      const [bearings, backlogText, archiveText, memoryText, newsText, tasteText] = await Promise.all([
         this.readFleet(),
         ArtefactFeed.text(backlog),
+        ArtefactFeed.text(archive),
         ArtefactFeed.text(memory),
         ArtefactFeed.text(news),
         ArtefactFeed.text(taste),
@@ -649,12 +743,19 @@ export class ArtefactFeed {
       } catch {
         newsRaw = undefined;
       }
-      const entries = parseBacklog(backlogText);
-      const tasks = [...new Set([bearings.calls, bearings.live, bearings.ready, bearings.landed, bearings.held, bearings.next]
-        .flat().map((row) => row.task).filter((task): task is string => Boolean(task)))];
-      const extras = await this.extras(tasks);
+      // Done rows move to the archive; the live backlog wins for a task in both.
+      const entries = new Map([...parseBacklog(archiveText), ...parseBacklog(backlogText)]);
+      const listed = [bearings.calls, bearings.live, bearings.ready, bearings.landed, bearings.held, bearings.next]
+        .flat().map((row) => row.task).filter((task): task is string => Boolean(task));
+      const recent = bearings.unavailable ? [] : recentlyFinished(entries, Date.now()).filter(({ task }) => !listed.includes(task)).slice(0, 30);
+      const referenced = bearings.calls.flatMap((row) => {
+        const entry = row.task ? entries.get(row.task) : undefined;
+        return entry ? referencedDirs(entry) : [];
+      });
+      const extras = await this.extras([...new Set([...listed, ...recent.map(({ task }) => task), ...referenced])]);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
-      const enriched = enrichFleet(bearings, entries, extras);
+      const withRecent = bearings.unavailable ? bearings : { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
+      const enriched = enrichFleet(withRecent, entries, extras);
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };

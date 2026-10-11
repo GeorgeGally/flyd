@@ -70,8 +70,11 @@ export interface BoxReadings {
 /** The screen's groups, what is in them, and one level inside that. */
 export const MAX_DEPTH = 3;
 const MAX_CALLS = 3;
-const MAX_STORIES = 6;
-const SHOTS_PER_STORY = 2;
+/** Stories with pictures of the work; the screen is for showing it. */
+const MAX_PICTURED = 8;
+/** Stories that are words only: a couple, so the cycle never becomes a list. */
+const MAX_UNPICTURED = 2;
+const SHOTS_PER_STORY = 4;
 /** A plan window with less than this left is worth saying before he runs into it. */
 export const PLAN_LOW_PERCENT = 25;
 /** Rain this likely within RAIN_HOURS is worth saying before it starts. */
@@ -241,7 +244,13 @@ export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
   } else {
     boxes.push({ id: "situation", kind: "note", size: "wide", title: screen.title, line: screen.summary, why: "where things stand" });
   }
-  const stories = screen.items.filter((item) => STORY_KINDS.includes(item.kind)).slice(0, MAX_STORIES);
+  const told = screen.items.filter((item) => STORY_KINDS.includes(item.kind));
+  // Finished work is the showcase; what is still moving follows it.
+  const pictured = STORY_KINDS.flatMap((kind) => told.filter((item) => item.kind === kind && item.shots?.length));
+  const stories = [
+    ...pictured.slice(0, MAX_PICTURED),
+    ...told.filter((item) => !item.shots?.length).slice(0, MAX_UNPICTURED),
+  ];
   if (stories.length) {
     boxes.push({
       id: "stories",

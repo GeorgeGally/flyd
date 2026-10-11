@@ -10,7 +10,7 @@ FLYD_CODESIGN_KEYCHAIN = $(HOME)/Library/Keychains/flyd-local-signing.keychain-d
 FLYD_CODESIGN_KEYCHAIN_PASSWORD ?= flyd-local-signing
 FLYD_CODESIGN_IDENTITY ?= $(shell /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/awk '/Flyd Local Development/ { print $$2; exit }')
 
-.PHONY: build bundle run invoke-installed install clean test-work-intelligence check-foundry-gate
+.PHONY: build bundle cli run invoke-installed install clean test-work-intelligence check-foundry-gate
 
 build:
 	swift build -c release
@@ -30,7 +30,12 @@ bundle: build
 		codesign --force --deep --sign - "$(APP_DIR)"; \
 	fi
 
-install: bundle
+# The terminal `flyd` runs cli/dist, so every install rebuilds it from the
+# current source; dependencies added since the last install come first.
+cli:
+	cd ../cli && { npm ls --silent >/dev/null 2>&1 || npm install --no-audit --no-fund; } && npm run build
+
+install: bundle cli
 	mkdir -p "$(INSTALL_DIR)"
 	-pkill -9 -x "$(APP_NAME)" 2>/dev/null
 	@while pgrep -x "$(APP_NAME)" >/dev/null 2>&1; do sleep 0.2; done

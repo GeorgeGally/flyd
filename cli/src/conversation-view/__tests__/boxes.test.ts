@@ -35,10 +35,18 @@ describe("boxesOf", () => {
     expect(boxes[0]).toMatchObject({ kind: "note", title: "Your move, sir.", line: "One needs you." });
   });
 
-  it("puts stories in one group, each holding at most two of its screenshots", () => {
-    const stories = boxesOf(screen([landed, news]), { now: NOW }).find((box) => box.id === "stories")!;
+  it("puts stories in one group, each holding at most four of its screenshots", () => {
+    const many = { ...landed, shots: [...landed.shots!, { src: "/d.png", label: "d" }, { src: "/e.png", label: "e" }] };
+    const stories = boxesOf(screen([many, news]), { now: NOW }).find((box) => box.id === "stories")!;
     expect(stories.children?.map((box) => box.title)).toEqual([landed.headline, news.headline]);
-    expect(stories.children?.[0]!.children?.map((box) => box.kind)).toEqual(["shot", "shot"]);
+    expect(stories.children?.[0]!.children?.map((box) => box.kind)).toEqual(["shot", "shot", "shot", "shot"]);
+  });
+
+  it("tells the work with pictures first, and only a couple of stories in words", () => {
+    const words = (id: string): ShowItem => ({ id, kind: "live", headline: `Words ${id}`, why: "" });
+    const pictured = (id: string): ShowItem => ({ ...landed, id, headline: `Pictured ${id}` });
+    const stories = boxesOf(screen([words("w1"), words("w2"), words("w3"), pictured("p1"), pictured("p2")]), { now: NOW }).find((box) => box.id === "stories")!;
+    expect(stories.children?.map((box) => box.title)).toEqual(["Pictured p1", "Pictured p2", "Words w1", "Words w2"]);
   });
 
   it("never shows more than MAX_DEPTH levels", () => {

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
-  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, withVoice,
+  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -103,7 +103,7 @@ describe("the backlog", () => {
       title: "Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove the rule",
       hold: "Review after ~20 real decisions; captain decides keep or remove",
     });
-    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", repo: "flyd", finished: "2026-10-09" });
+    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", url: "https://github.com/GeorgeGally/flyd/pull/79", repo: "flyd", finished: "2026-10-09" });
   });
 
   it("says bearings' shortened lines whole and puts the ask under a call", () => {
@@ -149,7 +149,48 @@ describe("the backlog", () => {
       { path: "shots/after-home.png", mtime: 1 },
       { path: "old.png", mtime: 2 },
       { path: "new.jpg", mtime: 5 },
-    ])).toEqual(["shots/after-home.png", "new.jpg", "old.png"]);
+    ])).toEqual(["shots/after-home.png", "new.jpg", "old.png", "shots/before-home.png"]);
+  });
+
+  it("leads with the desktop and phone captures, so the screen can show the pair, and skips icons and what the captain sent in", () => {
+    expect(pickShots([
+      { path: "ipad.png", mtime: 9, size: 400_000 },
+      { path: "phone.png", mtime: 8, size: 300_000 },
+      { path: "w-row.png", mtime: 7, size: 300_000 },
+      { path: "desktop-1440.png", mtime: 6, size: 900_000 },
+      { path: "lab/assets/glint.png", mtime: 10, size: 2_000 },
+      { path: "captain-screenshot.png", mtime: 11, size: 500_000 },
+    ])).toEqual(["desktop-1440.png", "phone.png", "ipad.png", "w-row.png"]);
+    expect(deviceOf("shots/final-phone-invite.png")).toBe("phone");
+    expect(deviceOf("days-390.png")).toBe("phone");
+    expect(deviceOf("track-desktop-screens.png")).toBe("desktop");
+    expect(deviceOf("space-820.png")).toBe("tablet");
+    expect(deviceOf("shot-2026-10-10.png")).toBeUndefined();
+    expect(deviceOf("after.png")).toBeUndefined();
+  });
+
+  it("finds the work that finished in the last few days, newest first, archive rows included", () => {
+    const archive = parseBacklog([
+      "- [x] gnm-old - Good Neighbours: an old change https://github.com/GeorgeGally/good-neighbours/pull/1 (repo: good_neighbours) (merged 2026-10-01)",
+      "- [x] gnm-xmas-map - Good Neighbours: remake the Nuanu map https://github.com/GeorgeGally/good-neighbours/pull/4 (repo: good_neighbours) (merged 2026-10-10)",
+      "- [x] gnm-tickets - Good Neighbours: ticket modal https://github.com/GeorgeGally/good-neighbours/pull/14 (repo: good_neighbours) (merged 2026-10-11)",
+      "- [x] gnm-slide - Good Neighbours: page slide-in https://github.com/GeorgeGally/good-neighbours/pull/10 (repo: good_neighbours) (merged 2026-10-10)",
+    ].join("\n"));
+    const now = Date.parse("2026-10-11T12:00:00Z");
+    expect(recentlyFinished(archive, now).map(({ task }) => task)).toEqual(["gnm-tickets", "gnm-slide", "gnm-xmas-map"]);
+    const rows = landedRows(recentlyFinished(archive, now), new Map([["gnm-tickets", { shots: ["shots/final-phone-invite.png"] }]]));
+    expect(rows).toEqual([{ label: "Good Neighbours: ticket modal", task: "gnm-tickets", status: "landed", repo: "good_neighbours", url: "https://github.com/GeorgeGally/good-neighbours/pull/14" }]);
+  });
+
+  it("shows a call the pictures its own words point at", () => {
+    const hold = Buffer.from("Captain picks the Christmas direction from the lab (report data/gnm-christmas-lab/report.md): 1 Evergreen, 2 Fairy-light").toString("base64");
+    const backlog = parseBacklog(`- [ ] gnm-christmas-visuals - Christmas site direction (repo: good_neighbours) (hold: fm-hold-v1:${hold})`);
+    expect(referencedDirs(backlog.get("gnm-christmas-visuals")!)).toEqual(["gnm-christmas-lab"]);
+    const fleet = parseBearings({ ...BEARINGS, decisions_open: [{ id: "gnm-christmas-visuals", summary: "Christmas site direction" }] });
+    const enriched = enrichFleet(fleet, backlog, new Map([["gnm-christmas-lab", { shots: ["lab/evergreen.png"] }]]));
+    expect(enriched.calls[0]).toMatchObject({ shots: ["lab/evergreen.png"], shotDir: "gnm-christmas-lab" });
+    const items = composeArtefact({ fleet: enriched, memories: [], news: [], taste: [] });
+    expect(items[0]!.shots).toEqual([{ src: "/api/artefact-shot?task=gnm-christmas-lab&file=lab%2Fevergreen.png", label: "evergreen.png" }]);
   });
 });
 
@@ -237,7 +278,8 @@ describe("ArtefactFeed", () => {
     mkdirSync(join(home, "data", "a", "shots"), { recursive: true });
     writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify(BEARINGS)}'\n`, { mode: 0o755 });
     writeFileSync(join(home, "state", "a.status"), "working: building the scene\n");
-    writeFileSync(join(home, "data", "a", "shots", "after.png"), "png");
+    writeFileSync(join(home, "data", "a", "shots", "after.png"), Buffer.alloc(20_000));
+    writeFileSync(join(home, "data", "a", "icon.png"), "png");
     writeFileSync(join(home, "data", "a", "notes.md"), "notes");
     writeFileSync(join(home, "data", "backlog.md"), "- [x] flyd-show-mode - Flyd: visual show mode (merged 2026-10-09)\n");
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
@@ -248,8 +290,33 @@ describe("ArtefactFeed", () => {
     expect(feed.current().landedByDay).toHaveLength(7);
     expect(feed.shotPath("a", "shots/after.png")).toBe(join(home, "data", "a", "shots", "after.png"));
     expect(feed.shotPath("a", "notes.md")).toBeNull();
+    expect(feed.shotPath("a", "icon.png")).toBeNull();
     expect(feed.shotPath("a", "../../state/a.status")).toBeNull();
     expect(feed.shotPath("b", "shots/after.png")).toBeNull();
+  });
+
+  it("shows work firstmate archived after it landed, with its pictures, and counts it in the week", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-archive-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data", "gnm-tickets", "shots"), { recursive: true });
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify(BEARINGS)}'\n`, { mode: 0o755 });
+    const today = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(home, "data", "backlog.md"), "# Backlog\n");
+    writeFileSync(join(home, "data", "done-archive.md"), [
+      `- [x] gnm-tickets - Good Neighbours: ticket modal https://github.com/GeorgeGally/good-neighbours/pull/14 (repo: good_neighbours) (merged ${today})`,
+      `- [x] gnm-words - Good Neighbours: copy only (repo: good_neighbours) (merged ${today})`,
+    ].join("\n"));
+    writeFileSync(join(home, "data", "gnm-tickets", "shots", "final-phone-invite.png"), Buffer.alloc(20_000));
+    writeFileSync(join(home, "data", "gnm-tickets", "shots", "final-desktop-invite.png"), Buffer.alloc(20_000));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    const landed = feed.current().fleet!.landed.find((row) => row.task === "gnm-tickets")!;
+    expect(landed).toMatchObject({ label: "Good Neighbours: ticket modal", url: "https://github.com/GeorgeGally/good-neighbours/pull/14", shots: ["shots/final-desktop-invite.png", "shots/final-phone-invite.png"] });
+    expect(landed.at).toBeTruthy();
+    // Finished work with nothing to show stays in the count, not on the screen.
+    expect(feed.current().fleet!.landed.some((row) => row.task === "gnm-words")).toBe(false);
+    expect(feed.current().landedByDay!.at(-1)).toEqual({ day: today, count: 2 });
+    expect(feed.shotPath("gnm-tickets", "shots/final-phone-invite.png")).toBe(join(home, "data", "gnm-tickets", "shots", "final-phone-invite.png"));
   });
 
   it("keeps the last words on screen while new ones are asked for, and never lets a slow answer bring back an older read", async () => {

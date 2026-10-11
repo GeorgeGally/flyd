@@ -215,8 +215,8 @@ FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run e
 > picked up until you run `cd cli && npm run build` (regenerates `dist/`). After
 > changing `cli/src/` and verifying with `npm test`, rebuild before claiming a
 > CLI fix is live — a stale `dist/` means the running CLI still uses the old
-> behavior. The Mac overlay/Core auto-rebuilds via `make install`; the plain
-> `flyd` terminal does not.
+> behavior. `make install`/`make run` rebuild `dist/` (installing missing
+> dependencies first); a plain `git pull` does not.
 
 Legacy Rails commands are not part of the active product workflow.
 
