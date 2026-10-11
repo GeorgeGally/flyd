@@ -41,12 +41,23 @@ interface Segment {
   wake?: boolean;
   /** Inbox notes this turn handled: note ids its tool lines named. */
   notes?: Set<string>;
+  /** The last screenshot the assistant looked at this turn, as a transcript image id. */
+  shot?: string;
 }
 
 /** An inbox note id, as fm-inbox.sh names it: "<epoch>-<6 chars>". */
 const NOTE_ID = /\b(1\d{9}-[A-Za-z0-9]{6})\b/g;
 /** A line naming more notes than this is a listing, not the handling of one. */
 const MAX_NOTES_PER_LINE = 2;
+
+/** A screenshot file the assistant opens with Read, as against his own pasted images or a mockup he sent. */
+const SHOT_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
+const HIS_IMAGE = /\/inbox-images\/|captain/i;
+
+/** Whether a Read of this path is the assistant looking at its own screenshot of the work. */
+export function isOwnShot(path: string): boolean {
+  return SHOT_FILE.test(path) && !HIS_IMAGE.test(path);
+}
 
 /** The note ids a tool line names, when it is about the inbox. */
 export function noteIdsIn(line: string): string[] {
@@ -129,6 +140,27 @@ export function transcriptImageId(offset: number, n: number): string {
 
 function imageBlocks(content: unknown): Json[] {
   return contentBlocks(content).filter((block) => block.type === "image");
+}
+
+/**
+ * Image blocks of a tool result entry, in order: what a Read of a screenshot
+ * returned. Its n-th is the id `transcriptImageId(offset, n)` names.
+ */
+function toolResultImages(entry: Json): Array<{ toolUseId: string; block: Json }> {
+  const message = isRecord(entry.message) ? entry.message : undefined;
+  return contentBlocks(message?.content)
+    .filter((block) => block.type === "tool_result")
+    .flatMap((block) => imageBlocks(block.content).map((image) => ({ toolUseId: stringField(block, "tool_use_id") ?? "", block: image })));
+}
+
+/** The n-th image a tool result entry returned (a screenshot the assistant read), as base64. */
+export function toolImageAt(entry: unknown, n: number): { mediaType: string; data: string } | null {
+  if (!isRecord(entry)) return null;
+  const source = toolResultImages(entry)[n]?.block.source;
+  if (!isRecord(source) || source.type !== "base64") return null;
+  const mediaType = stringField(source, "media_type");
+  const data = stringField(source, "data");
+  return mediaType && data ? { mediaType, data } : null;
 }
 
 /** The n-th pasted image of a captain entry (a user message or a queued command), as base64. */
@@ -258,6 +290,8 @@ export class TranscriptConversation {
   private segmentCount = 0;
   private context?: { tokens: number; model: string };
   private maxContext = 0;
+  /** Read calls of the assistant's own screenshots whose result has not come back yet. */
+  private readonly shotReads = new Set<string>();
 
   /**
    * Parses one JSONL line; malformed lines (e.g. a torn write) are ignored.
@@ -270,6 +304,7 @@ export class TranscriptConversation {
     if (line.includes('"type":"tool_result"')) {
       this.touch(line);
       this.noteHandled(noteIdsIn(line));
+      if (offset !== undefined && this.shotReads.size > 0 && line.includes('"type":"image"')) this.noteShot(line, offset);
       return;
     }
     let entry: unknown;
@@ -281,10 +316,29 @@ export class TranscriptConversation {
     if (isRecord(entry)) this.push(entry, offset);
   }
 
+  /** The newest screenshot the assistant read becomes the turn's picture of the work. */
+  private noteShot(line: string, offset: number): void {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!isRecord(entry) || !this.segment) return;
+    toolResultImages(entry).forEach((image, n) => {
+      if (!this.shotReads.delete(image.toolUseId)) return;
+      this.segment!.shot = transcriptImageId(offset, n);
+    });
+  }
+
   private noteHandled(ids: string[]): void {
     if (!this.segment || ids.length === 0) return;
     this.segment.notes ??= new Set();
-    for (const id of ids) this.segment.notes.add(id);
+    for (const id of ids) {
+      // A screenshot from before the turn took up this note is a picture of other work.
+      if (!this.segment.notes.has(id)) delete this.segment.shot;
+      this.segment.notes.add(id);
+    }
   }
 
   private touch(line: string): void {
@@ -363,6 +417,9 @@ export class TranscriptConversation {
         const plain = narration ? stepWords(narration) : undefined;
         if (plain) segment.activity = { text: plain, rank: 3 };
         this.noteHandled(noteIdsIn(JSON.stringify(block.input ?? "")));
+        const read = stringField(block, "name") === "Read" && isRecord(block.input) ? stringField(block.input, "file_path") : undefined;
+        const toolUseId = stringField(block, "id");
+        if (read && toolUseId && isOwnShot(read)) this.shotReads.add(toolUseId);
         // The newest step is what is happening now, unless it says less than what was already shown this step.
         const step = activityOf(block);
         if (step && (step.rank >= (segment.activity?.rank ?? 0) || !plain)) segment.activity = step;
@@ -423,6 +480,7 @@ export class TranscriptConversation {
       ...(last.timestamp ? { timestamp: last.timestamp } : {}),
       ...(segment.wake ? { wake: true } : {}),
       ...(segment.notes?.size ? { notes: [...segment.notes] } : {}),
+      ...(segment.shot ? { shots: [segment.shot] } : {}),
     };
   }
 
