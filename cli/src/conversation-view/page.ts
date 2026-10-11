@@ -973,6 +973,7 @@ var __name = function (f) { return f; };
   var railEl = document.getElementById("rail");
   var railBody = document.getElementById("rail-body");
   var railSignature = null;
+  var railNewest = null;
   var railHidden = store("flyd-rail") === "off";
   function railRoot() { return document.documentElement; }
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
@@ -1047,8 +1048,10 @@ var __name = function (f) { return f; };
     if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
     railSignature = signature;
     railBody.textContent = "";
-    var remembered = renderMemory(rail.memory);
     var talks = rail.conversations || [];
+    // Newest message on top, and the top kept in view when a new one arrives.
+    var newest = talks.length ? talks[talks.length - 1].id : null;
+    if (newest !== railNewest) { railNewest = newest; railBody.scrollTop = 0; }
     if (talks.length) {
       railBody.appendChild(el("div", "rail-section", "Conversations"));
       talks.slice().reverse().forEach(function (talk) {
@@ -1071,6 +1074,7 @@ var __name = function (f) { return f; };
       railBody.appendChild(el("div", "rail-section", "Artefacts"));
       cards.forEach(function (card) { railBody.appendChild(railCard(card)); });
     }
+    var remembered = renderMemory(rail.memory);
     railEl.hidden = railHidden || (!talks.length && !cards.length && !remembered);
     setRail(railOn());
   }
