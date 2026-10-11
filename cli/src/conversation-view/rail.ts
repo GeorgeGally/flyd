@@ -1,5 +1,6 @@
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
+import type { RailMemories } from "./memory.js";
 import type { ConversationMessage } from "./types.js";
 
 // Flyd's right column: one scrolling list of what he is talking about and what
@@ -88,6 +89,8 @@ export interface RailProject {
 export interface Rail {
   conversations: RailConversation[];
   artefacts: RailArtefact[];
+  /** What Flyd remembers that applies here, and what it is taking in now. */
+  memory?: RailMemories;
 }
 
 /** How far back a named preview still counts as what we are talking about. */

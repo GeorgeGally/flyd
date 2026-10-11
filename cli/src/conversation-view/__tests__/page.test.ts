@@ -514,7 +514,7 @@ describe("conversation page", () => {
     document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!.replace(/<script>[\s\S]*<\/script>/, "");
     const input = document.getElementById("input") as HTMLTextAreaElement;
     expect(input.placeholder).toBe("Message Flyd");
-    expect(document.body.textContent).not.toMatch(/firstmate/i);
+    expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
   });
 
   it("shows a question waiting under itself until its own answer arrives, with relayed updates set apart", async () => {
@@ -843,6 +843,35 @@ describe("header and artefact view", () => {
     document.getElementById("rail-hide")!.click();
     expect(document.getElementById("rail")!.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
+  });
+
+  it("shows what Flyd remembers here and what it is remembering now, each opened in place, and keeps an opened one open", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const memory = {
+      project: "GNM",
+      remembering: [{ id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere · seen 4 times", detail: "Animate text TV-style.\n\nLearned from:\n“should be TV style fade in. no pop.” — 2026-10-10", at: new Date(Date.now() - 120_000).toISOString() }],
+      remembers: [{ id: "capture:2026-10-10-17-37-34.md", kind: "capture", title: "Gallery opens at ten.", line: "Capture · GNM" }],
+    };
+    const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    update({ conversations: [], artefacts: [], memory });
+    await settle();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    const sections = [...document.querySelectorAll(".rail-section")].map((node) => node.textContent);
+    expect(sections).toEqual(["Remembering now", "Remembers · GNM"]);
+    const fresh = document.querySelector<HTMLDetailsElement>(".rail-mem--new")!;
+    expect(fresh.querySelector(".rail-mem-title")!.textContent).toBe("Animate text TV-style: a clean fade in place.");
+    expect(fresh.querySelector(".rail-mem-line")!.textContent).toBe("Taste · Everywhere · seen 4 times · 2m ago");
+    expect(fresh.querySelector(".rail-mem-detail")!.textContent).toContain("“should be TV style fade in. no pop.”");
+    expect(fresh.querySelector<HTMLAnchorElement>(".rail-mem-detail a")!.getAttribute("href")).toContain("/taste?token=");
+    expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
+    fresh.open = true;
+    fresh.dispatchEvent(new Event("toggle"));
+    update({ conversations: [], artefacts: [], memory: { ...memory, remembers: [...memory.remembers, { id: "memory:x", kind: "memory", title: "Ships GNM Friday.", line: "Memory · Commitments" }] } });
+    await settle();
+    expect(document.querySelectorAll(".rail-mem")).toHaveLength(3);
+    expect(document.querySelector<HTMLDetailsElement>(".rail-mem--new")!.open).toBe(true);
   });
 
   it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {
