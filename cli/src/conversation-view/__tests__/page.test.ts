@@ -846,12 +846,12 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-rail")).toBe("on");
     const talks = document.querySelectorAll(".rail-talk");
     expect(talks).toHaveLength(2);
-    expect(talks[0]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
+    expect(talks[1]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
     // His questions stand out: a gold bar on a soft tint, a little larger than the answers.
     expect(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) })).toMatch(/\.rail-q \{[^}]*border-left: 3px solid var\(--accent\)[^}]*background: color-mix\(in srgb, var\(--accent\) 12%, transparent\)[^}]*font: 500 18\.5px/);
-    expect(talks[0]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
-    expect(talks[1]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
-    const shot = talks[1]!.querySelector<HTMLImageElement>(".rail-shot")!;
+    expect(talks[1]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
+    expect(talks[0]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
+    const shot = talks[0]!.querySelector<HTMLImageElement>(".rail-shot")!;
     expect(shot.src).toContain("/api/rail-image?path=%2FUsers%2Fme%2Fafter.png");
     expect(shot.src).toContain("token=");
     const frame = document.querySelector<HTMLIFrameElement>(".rail-frame")!;
@@ -883,21 +883,31 @@ describe("header and artefact view", () => {
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
   });
 
-  it("puts the newest message at the top of the rail, above what Flyd remembers, and keeps the top in view", async () => {
+  it("keeps the rail in chat order, newest message at the bottom, pinned there unless he scrolled up", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const memory = { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] };
     const update = (conversations: unknown[]) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations, artefacts: [], memory } });
+    const body = document.getElementById("rail-body")!;
+    let height = 1000;
+    Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
     update([{ id: "q1", question: "first", answer: "One." }]);
     await settle();
-    const body = document.getElementById("rail-body")!;
-    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Conversations", "Remembers · GNM"]);
-    body.scrollTop = 200;
+    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Remembers · GNM", "Conversations"]);
+    expect(body.scrollTop).toBe(1000);
+    height = 1200;
     update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", waiting: "Working on it" }]);
     await settle();
-    expect([...document.querySelectorAll(".rail-q")].map((node) => node.textContent)).toEqual(["Second.", "First."]);
-    expect(body.scrollTop).toBe(0);
+    expect([...document.querySelectorAll(".rail-q")].map((node) => node.textContent)).toEqual(["First.", "Second."]);
+    expect(body.scrollTop).toBe(1200);
+    // Scrolled up to read: a new message does not yank him back down.
+    body.scrollTop = 100;
+    height = 1400;
+    update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", answer: "Two." }, { id: "q3", question: "third", waiting: "Working on it" }]);
+    await settle();
+    expect(body.scrollTop).toBe(100);
   });
 
   it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {

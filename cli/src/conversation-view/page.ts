@@ -1011,7 +1011,6 @@ var __name = function (f) { return f; };
   var railEl = document.getElementById("rail");
   var railBody = document.getElementById("rail-body");
   var railSignature = null;
-  var railNewest = null;
   var railHidden = store("flyd-rail") === "off";
   function railRoot() { return document.documentElement; }
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
@@ -1122,11 +1121,18 @@ var __name = function (f) { return f; };
     railSignature = signature;
     var next = el("div");
     var talks = rail.conversations || [];
-    // Newest message on top, and the top kept in view when a new one arrives.
-    var newest = talks.length ? talks[talks.length - 1].id : null;
+    // Chat order: the newest message last, at the bottom, which stays in view
+    // unless he has scrolled up to read.
+    var pinned = !railBody.firstElementChild || railBody.scrollHeight - railBody.scrollTop - railBody.clientHeight < 40;
+    var remembered = renderMemory(rail.memory, next);
+    var cards = rail.artefacts || [];
+    if (cards.length) {
+      next.appendChild(el("div", "rail-section", "Artefacts"));
+      cards.forEach(function (card) { next.appendChild(railCard(card)); });
+    }
     if (talks.length) {
       next.appendChild(el("div", "rail-section", "Conversations"));
-      talks.slice().reverse().forEach(function (talk) {
+      talks.forEach(function (talk) {
         var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
         wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
         if (talk.answerHtml) {
@@ -1141,16 +1147,10 @@ var __name = function (f) { return f; };
         next.appendChild(wrap);
       });
     }
-    var cards = rail.artefacts || [];
-    if (cards.length) {
-      next.appendChild(el("div", "rail-section", "Artefacts"));
-      cards.forEach(function (card) { next.appendChild(railCard(card)); });
-    }
-    var remembered = renderMemory(rail.memory, next);
     patch(railBody, Array.prototype.slice.call(next.children));
-    if (newest !== railNewest) { railNewest = newest; railBody.scrollTop = 0; }
     railEl.hidden = railHidden || (!talks.length && !cards.length && !remembered);
     setRail(railOn());
+    if (pinned) railBody.scrollTop = railBody.scrollHeight;
   }
   document.getElementById("rail-hide").addEventListener("click", function () {
     railHidden = true; store("flyd-rail", "off"); railEl.hidden = true; setRail(false);
