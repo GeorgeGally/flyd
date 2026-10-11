@@ -329,6 +329,26 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
   });
 
+  it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("There should also be other movements for bunny.");
+    const answered = inbox.notes.bind(inbox);
+    inbox.notes = () => answered().map((exchange) => exchange.question.id !== "note:1" ? exchange : {
+      ...exchange,
+      waiting: "",
+      answer: { id: "note-reply:1", role: "assistant" as const, text: "Clicking the bunny now makes him jump. Each click picks a new move.", timestamp: new Date().toISOString(), answers: "note:1", shots: ["/tmp/bunny.png"] },
+    });
+    const port = await start(inbox);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const sent = await post(port, JSON.stringify({ session: "s1", text: "Make the spin slower.", replyTo: "note:1" }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[1]!.text).toBe('[Captain is replying from Flyd to note:1 — his note: "There should also be other movements for bunny."; your answer began: "Clicking the bunny now makes him jump."; the answer\'s screenshot: /tmp/bunny.png. His reply follows.]\n\nMake the spin slower.');
+    const reply = server!["source"].exchanges!().find((exchange: { question: ConversationMessage }) => exchange.question.id === "note:2")!;
+    expect(reply.question).toMatchObject({ text: "Make the spin slower.", replyTo: "note:1", replyQuote: "There should also be other movements for bunny." });
+    expect((await post(port, JSON.stringify({ session: "s1", text: "Hm", replyTo: "note:9" }), headers)).status).toBe(409);
+    expect((await post(port, JSON.stringify({ session: "s1", text: " ", replyTo: "note:1" }), headers)).status).toBe(400);
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {

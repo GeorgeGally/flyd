@@ -45,6 +45,11 @@ export interface RailConversation {
   at?: string;
   /** Previews the reply showed: a live page or a local screenshot. */
   previews?: RailArtefact[];
+  /** His reply to an answer: the question it replies to, and his words there as quoted. */
+  replyTo?: string;
+  replyQuote?: string;
+  /** His replies to this answer, and theirs, oldest first, threaded under it. */
+  replies?: RailConversation[];
 }
 
 export interface RailArtefact {
@@ -383,11 +388,38 @@ export function composeRail(
         ...(!answer && exchange.answered ? { answered: true } : !answer && exchange.waiting ? { waiting: exchange.waiting } : {}),
         ...(exchange.question.timestamp ? { at: exchange.question.timestamp } : {}),
         ...(shown.length ? { previews: shown.map(card) } : {}),
+        ...(exchange.question.replyTo ? { replyTo: exchange.question.replyTo, ...(exchange.question.replyQuote ? { replyQuote: exchange.question.replyQuote } : {}) } : {}),
       };
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
+  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card) };
+}
+
+/** Each reply under the conversation it answers, a reply to a reply under the same one; a reply whose answer is gone stands alone. Pure. */
+export function threadReplies(conversations: RailConversation[]): RailConversation[] {
+  const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+  const root = (conversation: RailConversation): RailConversation => {
+    const seen = new Set<string>();
+    let at = conversation;
+    while (at.replyTo && byId.has(at.replyTo) && !seen.has(at.id)) {
+      seen.add(at.id);
+      at = byId.get(at.replyTo)!;
+    }
+    return at;
+  };
+  const replies = new Map<string, RailConversation[]>();
+  const top: RailConversation[] = [];
+  for (const conversation of conversations) {
+    const under = root(conversation);
+    if (under === conversation) top.push(conversation);
+    else replies.set(under.id, [...(replies.get(under.id) ?? []), conversation]);
+  }
+  return top.map((conversation) => (replies.has(conversation.id) ? { ...conversation, replies: replies.get(conversation.id)! } : conversation));
+}
+
+function railCards(artefacts: RailArtefact[], previews: RailPreview[], attached: Set<string>, card: (preview: RailPreview) => RailArtefact): RailArtefact[] {
   const cards = [...artefacts];
   const own = previews.filter((preview) => !attached.has(preview.id) && (attached.add(preview.id), true));
   cards.unshift(...own.map(card));
-  return { conversations, artefacts: cards.slice(0, MAX_RAIL_ARTEFACTS) };
+  return cards.slice(0, MAX_RAIL_ARTEFACTS);
 }

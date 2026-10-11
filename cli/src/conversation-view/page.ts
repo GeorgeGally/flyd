@@ -470,6 +470,22 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .sc-detail { flex-basis: 100%; margin-top: 0.1em; font-size: 0.86em; line-height: 1.4; color: var(--muted); }
 .sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 /* Answering a "needs you" line right where it stands. */
+/* His reply to one answer: quiet until he looks for it, then a box under the answer. */
+.reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
+.reply-open { font: 400 13px/1 var(--mono); color: var(--muted); background: transparent; border: 0; padding: 4px 0; cursor: pointer; opacity: 0.55; transition: opacity 160ms ease, color 160ms ease; }
+.msg:hover .reply-open, .rail-talk:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
+.reply-open:hover { color: var(--fg); }
+.reply form { flex-basis: 100%; display: flex; align-items: flex-end; gap: 8px; }
+.reply form[hidden], .reply-note[hidden] { display: none; }
+.reply-input { flex: 1; min-width: 8em; max-height: 12em; field-sizing: content; font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px; padding: 8px 10px; resize: none; }
+.reply-input:focus { outline: none; border-color: var(--accent); }
+.reply-input::placeholder { color: var(--muted); }
+.reply-send { font: 700 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+.reply-note { flex-basis: 100%; font: 400 13px/1.4 var(--mono); color: var(--muted); }
+.reply-ref { display: block; margin: 0 0 0.3em; font: 400 0.72em/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--faint); }
+.rail-replies .rail-talk { margin: 0 0 12px; }
+.rail-replies .rail-q { font-size: 16px; }
 .sc-ask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.5em; }
 .sc-ask-input { flex: 1; min-width: 8em; font: 400 0.82em/1.4 var(--sans); color: var(--fg); background: var(--tint); border: 0; border-radius: 8px; padding: 8px 10px; resize: none; }
 .sc-ask-input::placeholder { color: var(--muted); }
@@ -805,6 +821,15 @@ var __name = function (f) { return f; };
       if (message.role === "user") body.after(answerShots); else body.before(answerShots);
     }
     pairing(el, message);
+    var ref = el.querySelector(":scope > .reply-ref");
+    if (ref) ref.remove();
+    if (message.replyQuote) {
+      ref = document.createElement("span");
+      ref.className = "reply-ref";
+      ref.textContent = "Replying to “" + message.replyQuote + "”";
+      el.insertBefore(ref, body);
+    }
+    wireReply(el, message);
     if (message.role === "assistant") {
       el.classList.toggle("routine", !!message.routine);
       // Something to act on (rules to paste, steps) shows whole until he folds it.
@@ -1141,6 +1166,96 @@ var __name = function (f) { return f; };
       cursor = was.nextElementSibling;
     });
   }
+  function talkAnswer(wrap, talk) {
+    // The picture of the result leads; the words follow.
+    if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
+    if (talk.answerHtml) {
+      var answer = el("div", "rail-a rail-a-md");
+      answer.innerHTML = talk.answerHtml;
+      wrap.appendChild(answer);
+    } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
+    else if (talk.answered) wrap.appendChild(el("p", "rail-wait", "Answered"));
+    else if (talk.waiting) { var wait = el("p", "rail-wait"); linkLine(wait, talk.waiting); wrap.appendChild(wait); }
+  }
+  function talkRest(wrap, talk) {
+    (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
+    if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
+    if (SEND_TOKEN && (talk.answer || talk.answerHtml || talk.answered)) wrap.appendChild(replyBox(talk.id, "rail"));
+  }
+
+  // His reply to one answer, in a box under it. The box is drawn from its
+  // state alone, so a redraw of the column leaves an open box, and what he
+  // is typing in it, where they are.
+  var replies = new Map();
+  function replyState(key) {
+    if (!replies.has(key)) replies.set(key, { open: false, note: "", draft: "", sending: false });
+    return replies.get(key);
+  }
+  // The column and the window each keep their own box for the same answer.
+  function replyBox(id, place) {
+    var state = replyState(place + ":" + id);
+    var box = keyed(el("div", "reply"), "reply:" + id);
+    var opener = el("button", "reply-open", state.open ? "Close" : "Reply");
+    opener.type = "button";
+    opener.setAttribute("aria-expanded", state.open ? "true" : "false");
+    box.appendChild(opener);
+    var form = el("form");
+    form.hidden = !state.open;
+    var input = el("textarea", "reply-input");
+    input.rows = 1;
+    input.placeholder = "Reply to this…";
+    input.value = state.draft;
+    input.setAttribute("aria-label", "Reply to this answer");
+    var send = el("button", "reply-send", "Send");
+    send.type = "submit";
+    form.appendChild(input);
+    form.appendChild(send);
+    box.appendChild(form);
+    var note = el("span", "reply-note", state.note);
+    note.setAttribute("role", "status");
+    note.hidden = !state.note;
+    box.appendChild(note);
+    function show(open) {
+      state.open = open;
+      form.hidden = !open;
+      opener.textContent = open ? "Close" : "Reply";
+      opener.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) input.focus(); else opener.focus();
+    }
+    function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
+    opener.addEventListener("click", function () { say(""); show(!state.open); });
+    input.addEventListener("input", function () { state.draft = input.value; });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); show(false); return; }
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = input.value.trim();
+      if (!text || !current || state.sending) return;
+      state.sending = true;
+      say("Sending…");
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: id }) }, true)
+        .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
+        .then(function () { input.value = ""; state.draft = ""; say(""); show(false); })
+        .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
+        .then(function () { state.sending = false; });
+    });
+    return box;
+  }
+  // In the window: an answer, or the outcome under his note, takes a reply the same way.
+  function replyTarget(message) {
+    if (message.role === "assistant") return message.answers || null;
+    return message.settled && message.waiting ? message.id : null;
+  }
+  function wireReply(el, message) {
+    var target = SEND_TOKEN ? replyTarget(message) : null;
+    var old = el.querySelector(":scope > .reply");
+    if (old && (!target || old.dataset.key !== "reply:" + target)) { old.remove(); old = null; }
+    if (!target) return;
+    if (!old) old = replyBox(target, "window");
+    if (el.lastElementChild !== old) el.appendChild(old);
+  }
   function renderRail(rail) {
     if (!rail) { railEl.hidden = true; setRail(false); return; }
     var signature = JSON.stringify(rail);
@@ -1161,18 +1276,22 @@ var __name = function (f) { return f; };
       next.appendChild(el("div", "rail-section", "Conversations"));
       talks.forEach(function (talk) {
         var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
+        // A reply whose answer has scrolled out of the column says what it answers.
+        if (talk.replyQuote) wrap.appendChild(el("span", "reply-ref", "Replying to “" + talk.replyQuote + "”"));
         wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
-        // The picture of the result leads; the words follow.
-        if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
-        if (talk.answerHtml) {
-          var answer = el("div", "rail-a rail-a-md");
-          answer.innerHTML = talk.answerHtml;
-          wrap.appendChild(answer);
-        } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
-        else if (talk.answered) wrap.appendChild(el("p", "rail-wait", "Answered"));
-        else if (talk.waiting) { var wait = el("p", "rail-wait"); linkLine(wait, talk.waiting); wrap.appendChild(wait); }
-        (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
-        if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
+        talkAnswer(wrap, talk);
+        talkRest(wrap, talk);
+        if (talk.replies && talk.replies.length) {
+          var thread = keyed(el("div", "rail-replies"), "replies:" + talk.id, true);
+          talk.replies.forEach(function (reply) {
+            var sub = keyed(el("div", "rail-talk"), "talk:" + reply.id, true);
+            sub.appendChild(el("p", "rail-q", sentence(capital(reply.question))));
+            talkAnswer(sub, reply);
+            talkRest(sub, reply);
+            thread.appendChild(sub);
+          });
+          wrap.appendChild(thread);
+        }
         next.appendChild(wrap);
       });
     }
@@ -1773,38 +1892,56 @@ var __name = function (f) { return f; };
   // heard and go out on release like a typed message. Whatever was typed
   // before stays in front of them.
   var voiceBase = null;
+  // Speaking while a reply box is open fills that box, and sends it, instead of the message box.
+  var voiceInput = null;
+  function voiceField() { return voiceInput || input; }
   function joinVoice(text) {
     return voiceBase && voiceBase.trim() ? voiceBase.trimEnd() + " " + text : text;
+  }
+  function voiceShow() {
+    var field = voiceField();
+    if (field === input) grow(); else field.dispatchEvent(new Event("input"));
   }
   function endVoice() {
     composer.classList.remove("listening", "transcribing");
     voiceBase = null;
+    voiceInput = null;
   }
   window.flydVoice = {
     start: function () {
       typingPredictions.reset();
+      var active = document.activeElement;
+      voiceInput = active && active.classList && active.classList.contains("reply-input") ? active : null;
       // Speaking is conversation: the terminal comes back for it, this once.
-      if (onShow()) applyScreen("terminal", false);
-      if (composer.hidden) return;
-      voiceBase = input.value;
+      if (!voiceInput && onShow()) applyScreen("terminal", false);
+      if (!voiceInput && composer.hidden) return;
+      voiceBase = voiceField().value;
+      if (voiceInput) return;
       composer.classList.add("listening");
       composer.classList.remove("transcribing");
     },
     draft: function (text) {
       typingPredictions.reset();
       if (voiceBase === null) return;
-      input.value = joinVoice(text);
-      grow();
+      voiceField().value = joinVoice(text);
+      voiceShow();
     },
     transcribing: function () {
       typingPredictions.reset();
+      if (voiceInput) return;
       composer.classList.remove("listening");
       composer.classList.add("transcribing");
     },
     send: function (text) {
-      if (voiceBase === null) voiceBase = input.value;
-      input.value = joinVoice(text).trim();
+      var field = voiceField();
+      if (voiceBase === null) voiceBase = field.value;
+      field.value = joinVoice(text).trim();
       endVoice();
+      if (field !== input) {
+        field.dispatchEvent(new Event("input"));
+        if (field.value && field.form) field.form.requestSubmit();
+        return;
+      }
       grow();
       if (!input.value) return;
       // A window that was never shown may still be connecting: wait for the
@@ -1817,7 +1954,8 @@ var __name = function (f) { return f; };
       })();
     },
     cancel: function (message) {
-      if (voiceBase !== null) { input.value = voiceBase; grow(); }
+      var field = voiceField();
+      if (voiceBase !== null) { field.value = voiceBase; voiceShow(); }
       endVoice();
       if (message) problem.textContent = message;
     },
