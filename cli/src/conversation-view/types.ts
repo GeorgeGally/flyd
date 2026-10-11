@@ -39,6 +39,10 @@ export interface ConversationMessage {
    * once kept, the absolute path of Flyd's own copy. On a question, the screenshot behind its inline outcome.
    */
   shots?: string[];
+  /** His reply to an answer: the id of the question whose answer it replies to. */
+  replyTo?: string;
+  /** His words in that question, as the reply quoted them. */
+  replyQuote?: string;
 }
 
 /** A message the captain sent from the view, and its answer once there is one. */
@@ -110,6 +114,9 @@ export interface SentMessage {
   waiting?: string;
 }
 
+/** Who a message goes to when the window already knows: a reply goes back to whoever gave the answer. */
+export type Recipient = "firstmate" | "flyd";
+
 export interface ConversationFollower {
   close(): void;
 }
@@ -133,7 +140,7 @@ export interface ConversationSource {
    * snapshot once the source can read the message back, so the page can
    * swap its optimistic copy for the real one.
    */
-  send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[]): Promise<SentMessage>;
+  send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient): Promise<SentMessage>;
   sendDecision?(text: string): Promise<SentMessage>;
   /** Skills and slash commands the captain can run by typing "/" (empty when the source has none). */
   commands(): Promise<Array<{ name: string; description: string }>>;

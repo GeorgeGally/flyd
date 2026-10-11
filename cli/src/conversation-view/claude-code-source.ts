@@ -10,6 +10,7 @@ import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
+import { ownWords, threaded } from "./replies.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
@@ -21,6 +22,7 @@ import type {
   FileUpload,
   ImageData,
   ImageUpload,
+  Recipient,
   SentMessage,
   SessionSummary,
 } from "./types.js";
@@ -222,12 +224,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox !== undefined;
   }
 
-  async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[]): Promise<SentMessage> {
+  async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
     const command = matchCommand(text, await this.commands());
     if (this.desk) {
-      const route = await routeMessage(
+      // A reply goes back to whoever gave the answer; only a new message is routed.
+      const route = to ?? await routeMessage(
         { text, images: images?.length ?? 0, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
@@ -239,7 +242,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       if (route === "flyd") return this.desk.desk.ask(text);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
-        return { ...sent, waiting: handoffLine("queued", { text, projects: projectNames() }) };
+        return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
         const message = error instanceof Error ? error.message : String(error);
@@ -352,7 +355,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   exchanges(): Exchange[] {
     const notes = this.inbox?.notes() ?? [];
     const asks = this.desk?.desk.exchanges() ?? [];
-    const all = asks.length === 0 ? notes : [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
+    const all = threaded(asks.length === 0 ? notes : [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? "")));
     // What the crewmate on each note is doing now, wherever the note is shown: under it in the window and in the column.
     const steps = this.crew?.steps(all);
     if (!steps?.size) return all;

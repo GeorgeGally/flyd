@@ -904,6 +904,40 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
   });
 
+  it("takes a reply under an answer, keeps it through a redraw, threads replies, and sends it with what it answers", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    const answered = { id: "note:1", question: "other movements for bunny", answer: "Five moves now.", at: "2026-10-11T10:00:00Z" };
+    update({ conversations: [answered, { id: "note:2", question: "and tickets?", waiting: "Working on it" }], artefacts: [] });
+    await settle();
+    const talks = document.querySelectorAll(".rail-talk");
+    // Only an answer takes a reply, and its box stays shut until asked for.
+    expect(talks[1]!.querySelector(".reply")).toBeNull();
+    const opener = talks[0]!.querySelector<HTMLButtonElement>(".reply-open")!;
+    expect(talks[0]!.querySelector<HTMLFormElement>(".reply form")!.hidden).toBe(true);
+    opener.click();
+    const box = talks[0]!.querySelector<HTMLTextAreaElement>(".reply-input")!;
+    expect(document.activeElement).toBe(box);
+    box.value = "make the spin";
+    box.dispatchEvent(new Event("input"));
+    update({ conversations: [{ ...answered, answer: "Five moves now, all live." }, { id: "note:2", question: "and tickets?", waiting: "Working on it" }], artefacts: [] });
+    await settle();
+    expect(document.querySelector<HTMLTextAreaElement>(".rail-talk .reply-input")).toBe(box);
+    // Speaking while the box is open fills it and sends it; the message box is left alone.
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+    voice.start!();
+    voice.send!("slower");
+    await settle();
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "make the spin slower", replyTo: "note:1" });
+    update({ conversations: [{ ...answered, replies: [{ id: "note:3", question: "make the spin slower", waiting: "Working on it", replyTo: "note:1" }] }], artefacts: [] });
+    await settle();
+    expect(document.querySelector(".rail-talk .rail-replies .rail-q")!.textContent).toBe("Make the spin slower.");
+  });
+
   it("shows what Flyd remembers here and what it is remembering now, each as one plain sentence", async () => {
     load("");
     await settle();

@@ -28,6 +28,7 @@ import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAI
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
+import { replyNote } from "./replies.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -88,6 +89,9 @@ export interface RenderedMessage {
   settled?: boolean;
   answers?: string;
   aside?: boolean;
+  /** His reply to an answer: the question it replies to, and his words there as quoted. */
+  replyTo?: string;
+  replyQuote?: string;
 }
 
 export interface SummaryOptions {
@@ -238,7 +242,7 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -259,6 +263,7 @@ export class SnapshotDiffer {
         ...(message.waiting && message.settled ? { settled: true } : {}),
         ...(message.answers ? { answers: message.answers } : {}),
         ...(message.aside ? { aside: true } : {}),
+        ...(message.replyTo ? { replyTo: message.replyTo, ...(message.replyQuote ? { replyQuote: message.replyQuote } : {}) } : {}),
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
@@ -814,7 +819,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -852,9 +857,35 @@ export class ConversationViewServer {
       sendJson(res, 400, { error: "expected { session, text, images?, files? }" });
       return;
     }
+    if (payload.replyTo !== undefined) {
+      await this.reply(res, payload.session, payload.replyTo, payload.text);
+      return;
+    }
     try {
       const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
       this.predictions.remember(payload.text);
+      sendJson(res, 200, sent);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** His reply to one answer: back to whoever gave it, saying what it answers. */
+  private async reply(res: ServerResponse, session: string, replyTo: unknown, text: string): Promise<void> {
+    if (typeof replyTo !== "string" || !text.trim()) {
+      sendJson(res, 400, { error: "expected { session, text, replyTo }" });
+      return;
+    }
+    try {
+      const snapshot = await this.source.read(session);
+      const parent = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working)
+        .find((exchange) => exchange.question.id === replyTo);
+      if (!parent) {
+        sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
+        return;
+      }
+      const sent = await this.source.send(session, replyNote(parent, text), [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
+      this.predictions.remember(text);
       sendJson(res, 200, sent);
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
