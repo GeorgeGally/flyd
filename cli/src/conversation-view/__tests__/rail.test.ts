@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { composeRail, conversationPreviews, negationsIn, normalizeLoopback, previewCard, previewsIn, changeNotice, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
+import { renderBriefing } from "../executive.js";
+import { composeRail, conversationPreviews, negationsIn, normalizeLoopback, outcomeFirst, previewCard, previewsIn, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
 import type { ConversationMessage } from "../types.js";
 
 const user = (id: string, text: string, at = "2026-10-10T17:24:00Z"): ConversationMessage => ({ id, role: "user", text, timestamp: at });
@@ -93,6 +94,50 @@ describe("spoken", () => {
   });
 });
 
+describe("outcomeFirst", () => {
+  const REPLY = [
+    "Captain, done on Visit → Hours:",
+    "- **Position:** Mr Christmas now sits level with the green card, centred between it and his dance panel.",
+    "- **Dance panel:** on the right is a small video-game-style panel:",
+    "  - a dark box with a cream border",
+    "  - all five dances are numbered",
+    "- **Phones:** the panel sits bottom-right with him beside it.",
+    "",
+    "It's committed in your local copy only; refresh your tab.",
+  ].join("\n");
+
+  it("leads with what changed when the answer opens with only \"done on <place>\"", () => {
+    const said = outcomeFirst(REPLY.replace("Captain,", "Sir,"));
+    expect(said.split("\n")[0]).toBe("Mr Christmas now sits level with the green card, centred between it and his dance panel.");
+    expect(said).not.toMatch(/\b(?:Sir|Captain)\b|done on Visit/);
+    // The rest of the answer is still there, the sentence that leads now said once.
+    expect(said).toContain("**Dance panel:**");
+    expect(said).toContain("refresh your tab");
+    expect(said.match(/sits level/g)).toHaveLength(1);
+  });
+
+  it("takes what changed from the reply when Flyd's reading of it is only \"done\"", () => {
+    expect(outcomeFirst("Sir, done on Visit → Hours.", REPLY)).toBe("Mr Christmas now sits level with the green card, centred between it and his dance panel.");
+    expect(outcomeFirst("Done.", "Captain, the hat is red now.")).toBe("The hat is red now.");
+  });
+
+  it("drops the salutation and keeps an answer that already says what changed", () => {
+    expect(outcomeFirst("Sir, the hat is red now. Refresh to see it.")).toBe("The hat is red now. Refresh to see it.");
+    expect(outcomeFirst("Captain: nothing else blocks.")).toBe("Nothing else blocks.");
+    expect(outcomeFirst("Mr Christmas dances at 70% speed.")).toBe("Mr Christmas dances at 70% speed.");
+  });
+
+  it("keeps a bare acknowledgement when nothing says what changed", () => {
+    expect(outcomeFirst("Sir, done.")).toBe("Done.");
+  });
+
+  it("never shows the internal word \"Landed\" in the column's status card", () => {
+    const html = renderBriefing("Both are in.\n\n- The hat merged\n- The scarf landed", RAIL_CARD_TITLES);
+    expect(html).toContain('<h4 class="sc-kicker">Done<span');
+    expect(html).not.toMatch(/>Landed</i);
+  });
+});
+
 describe("composeRail", () => {
   const artefacts: RailArtefact[] = [{ id: "landed:x", title: "Christmas Nuanu map", line: "just landed" }];
 
@@ -144,6 +189,11 @@ describe("composeRail", () => {
     expect(talk.previews!.map((card) => card.preview)).toEqual(["http://127.0.0.1:8097/"]);
     expect(rail.artefacts[0]).toMatchObject({ title: "Preview not running", down: true });
     expect(asked).toEqual(["http://127.0.0.1:8097/", "http://127.0.0.1:8088/"]);
+  });
+
+  it("shows a plain answer leading with what changed, without the salutation", () => {
+    const rail = composeRail([{ question: user("q", "move bunny up"), answer: assistant("a", "Captain, done on Visit → Hours:\n- **Position:** Mr Christmas now sits level with the green card.", "q") }], []);
+    expect(rail.conversations[0]!.answer).toBe("Mr Christmas now sits level with the green card.");
   });
 
   it("shows a review board through its own page, and a reply naming the board gets the same card", () => {

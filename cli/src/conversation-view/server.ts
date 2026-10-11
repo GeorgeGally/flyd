@@ -23,7 +23,7 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, normalizeLoopback, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAIL_CARD_TITLES, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import { withFollowUps } from "./follow-ups.js";
 import { PreviewProbe } from "./preview-probe.js";
@@ -607,9 +607,10 @@ export class ConversationViewServer {
         return served ? railServer(url, served, projects, homedir()) : undefined;
       },
       // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.
+      // Either way it leads with what changed, never a salutation or a bare "done".
       voice: (answer) => {
         const reading = answer.answers?.startsWith("note:") ? interpreter?.cached(answer.text) : undefined;
-        return renderBriefing(reading ? inFlydsVoice(reading) : spoken(answer.text));
+        return renderBriefing(outcomeFirst(reading ? inFlydsVoice(reading) : spoken(answer.text), spoken(answer.text)), RAIL_CARD_TITLES);
       },
     });
   }

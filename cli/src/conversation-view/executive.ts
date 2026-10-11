@@ -296,7 +296,7 @@ function safeHref(url: string): string | null {
  * opens the work; when one line stands for several, each extra light opens
  * the next. The project shows only when the work spans more than one.
  */
-export function statusCardHtml(items: StatusItem[]): string {
+export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkState, string>> = {}): string {
   const projects = new Set(items.map((item) => item.project ?? ""));
   const named = projects.size > 1;
   let index = 0;
@@ -316,7 +316,7 @@ export function statusCardHtml(items: StatusItem[]): string {
       return `<li class="sc-row" style="--i:${index++}"${ask}><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
     });
     const count = mine.reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
-    return [`<section class="sc-group ${GROUP[state].kind}"><h4 class="sc-kicker">${GROUP[state].title}<span class="sc-count">${count}</span></h4><ul>${rows.join("")}</ul></section>`];
+    return [`<section class="sc-group ${GROUP[state].kind}"><h4 class="sc-kicker">${escapeHtml(titles[state] ?? GROUP[state].title)}<span class="sc-count">${count}</span></h4><ul>${rows.join("")}</ul></section>`];
   });
   return `<div class="status-card" role="group" aria-label="Where the work stands">${groups.join("")}</div>`;
 }
@@ -327,11 +327,11 @@ export function brief(text: string): Briefing {
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
-export function renderBriefing(text: string): string {
+export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}): string {
   const { prose, items } = brief(text);
   if (items.length === 0) return renderMarkdown(prose);
   const [lead, ...rest] = prose.split(/\n\s*\n/);
-  return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
+  return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
 }
 
 const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|your (?:call|decision|word|ok|go-ahead)|needs? your)\b/i;
