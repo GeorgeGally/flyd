@@ -110,6 +110,12 @@ describe("composeRail", () => {
     expect(rail.conversations[1]!.answer).toBeUndefined();
   });
 
+  it("says a question is answered when firstmate has finished with it and has no words to show", () => {
+    const rail = composeRail([{ question: user("q", "are we on a different server?"), waiting: "", answered: true }], []);
+    expect(rail.conversations[0]).toMatchObject({ id: "q", answered: true });
+    expect(rail.conversations[0]!.waiting).toBeUndefined();
+  });
+
   it("shows a preview from outside the exchanges as its own artefact, and never twice", () => {
     const rail = composeRail(
       [{ question: user("q1", "make a playlist"), answer: assistant("a1", "Nine tracks.", "q1") }],

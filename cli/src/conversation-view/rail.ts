@@ -33,6 +33,8 @@ export interface RailConversation {
   answerHtml?: string;
   /** What is happening to a question that has no answer yet. */
   waiting?: string;
+  /** Answered, though there are no words to show for it. */
+  answered?: boolean;
   at?: string;
   /** Previews the reply showed: a live page or a local screenshot. */
   previews?: RailArtefact[];
@@ -196,7 +198,7 @@ export interface RailOptions {
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
 export function composeRail(
-  exchanges: Array<{ question: ConversationMessage; answer?: ConversationMessage; waiting?: string }>,
+  exchanges: Array<{ question: ConversationMessage; answer?: ConversationMessage; waiting?: string; answered?: boolean }>,
   artefacts: RailArtefact[],
   previews: RailPreview[] = [],
   options: RailOptions = {},
@@ -219,7 +221,7 @@ export function composeRail(
         question: question(exchange.question.text),
         ...(answer ? { answer: spoken(answer.text) } : {}),
         ...(html ? { answerHtml: html } : {}),
-        ...(!answer && exchange.waiting ? { waiting: exchange.waiting } : {}),
+        ...(!answer && exchange.answered ? { answered: true } : !answer && exchange.waiting ? { waiting: exchange.waiting } : {}),
         ...(exchange.question.timestamp ? { at: exchange.question.timestamp } : {}),
         ...(shown.length ? { previews: shown.map(card) } : {}),
       };

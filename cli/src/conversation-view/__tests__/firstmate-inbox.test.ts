@@ -183,6 +183,10 @@ describe("FirstmateInbox", () => {
       ["note:100-a", "first\nwith two lines"],
       ["note:200-b", "second"],
     ]);
+    // When firstmate took a note: the rename into handled/.
+    const [pending, handled] = inbox.notes();
+    expect(pending!.takenAt).toBeUndefined();
+    expect(Date.parse(handled!.takenAt!)).toBeGreaterThan(Date.now() - 60_000);
   });
 });
 

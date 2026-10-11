@@ -322,7 +322,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots.
     const live = livened(exchanges, { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out, for the right column.
-    const answered = followUps(exchanges, snapshot.messages);
+    const answered = followUps(exchanges, snapshot.messages, snapshot.working);
     return {
       ...voiced,
       messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),

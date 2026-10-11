@@ -596,7 +596,7 @@ export class ConversationViewServer {
         at: new Date(entry.mtimeMs).toISOString(),
       })),
     ];
-    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {});
+    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
     return composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       known: (preview) => board.get(preview.url) ?? preview,
