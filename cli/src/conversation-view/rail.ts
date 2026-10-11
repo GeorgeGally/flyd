@@ -1,6 +1,8 @@
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
+import type { WorkState } from "./executive.js";
 import type { RailMemories } from "./memory.js";
+import { capitalise, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
 // Flyd's right column: one scrolling list of what he is talking about and what
@@ -284,6 +286,59 @@ export function spoken(text: string): string {
   return words ? words[0]!.toUpperCase() + words.slice(1) : text.trim();
 }
 
+/** The column's status card says what happened in his words: work that landed is "Done". */
+export const RAIL_CARD_TITLES: Partial<Record<WorkState, string>> = { landed: "Done" };
+
+/** A lead that only acknowledges, or says where ("Done on Visit → Hours:"), not what changed. */
+const HOLLOW_LEAD = /^(?:(?:yes|ok(?:ay)?|right),?\s+)?(?:agreed|aye(?: aye)?|yes|ok(?:ay)?|sure|right|noted|understood|got it|on it|will do|shipshape|(?:all |that's |it's )?(?:done|finished|sorted|fixed))(?:\s+(?:on|in|at|for|to|with)\s+[^.!?:]{1,60})?\s*[.!:]?$/i;
+const LIST_MARK = /^(\s*)(?:[-*+]|\d+[.)])\s+/;
+/** "**Position:** …" — the label an item opens with, which says nothing on its own. */
+const ITEM_LABEL = /^(?:(?:\*\*|__)[^*_\n]{1,40}?:?(?:\*\*|__)\s*:?|[A-Z][\w ]{0,30}:)\s*/;
+
+/** The first sentence in these lines that says what changed, and the lines without it. */
+function outcomeIn(lines: string[]): { outcome: string; lines: string[] } | undefined {
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]!;
+    const mark = LIST_MARK.exec(line);
+    const body = mark ? line.slice(mark[0].length) : line.trim();
+    const label = mark ? ITEM_LABEL.exec(body)?.[0] ?? "" : "";
+    const [first, ...others] = sentences(body.slice(label.length));
+    if (!first || HOLLOW_LEAD.test(inline(first))) continue;
+    const outcome = capitalise(inline(first).replace(/[:;,]$/, "."));
+    const nested = /^\s+\S/.test(lines[at + 1] ?? "") && (mark ? lines[at + 1]!.search(/\S/) > mark[1]!.length : false);
+    // The sentence leads the answer now, so its line goes; an item that opens a nested list keeps its place.
+    const rest = others.join(" ");
+    const kept = rest ? [...lines.slice(0, at), `${mark ? mark[0] + label : ""}${rest}`, ...lines.slice(at + 1)]
+      : nested ? lines : [...lines.slice(0, at), ...lines.slice(at + 1)];
+    return { outcome, lines: kept };
+  }
+  return undefined;
+}
+
+/**
+ * His answer in the column, leading with what changed: no salutation, and a
+ * lead that only acknowledges ("Done on Visit → Hours.") gives way to the
+ * sentence that says what changed, taken from the answer or, when the answer
+ * has none, from the reply it tells. The rest of the answer follows. Pure.
+ */
+export function outcomeFirst(text: string, reply?: string): string {
+  const answer = opened(text);
+  if (!answer.hollow) return capitalise(answer.said);
+  const own = outcomeIn(answer.lines);
+  if (own) return [own.outcome, own.lines.join("\n").trim()].filter(Boolean).join("\n\n");
+  const told = reply ? opened(reply) : undefined;
+  const found = told ? outcomeIn(told.hollow ? told.lines : told.said.split("\n")) : undefined;
+  return found ? [found.outcome, answer.lines.join("\n").trim()].filter(Boolean).join("\n\n") : capitalise(answer.said);
+}
+
+/** Text without its salutation, whether its lead only acknowledges, and the lines after that lead. */
+function opened(text: string): { said: string; hollow: boolean; lines: string[] } {
+  const said = text.trim().replace(SALUTATION, "");
+  const [firstLine = "", ...after] = said.split("\n");
+  const [lead = "", ...rest] = sentences(firstLine);
+  return { said, hollow: HOLLOW_LEAD.test(inline(lead)), lines: [rest.join(" "), ...after].filter((line, at) => at > 0 || line.trim()) };
+}
+
 export interface RailOptions {
   /** Whether a live page answers; without it every page is framed. */
   live?: (url: string) => PreviewState;
@@ -319,7 +374,7 @@ export function composeRail(
       return {
         id: exchange.question.id,
         question: question(exchange.question.text),
-        ...(answer ? { answer: spoken(answer.text) } : {}),
+        ...(answer ? { answer: outcomeFirst(spoken(answer.text)) } : {}),
         ...(html ? { answerHtml: html } : {}),
         ...(!answer && exchange.answered ? { answered: true } : !answer && exchange.waiting ? { waiting: exchange.waiting } : {}),
         ...(exchange.question.timestamp ? { at: exchange.question.timestamp } : {}),
