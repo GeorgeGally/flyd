@@ -24,7 +24,7 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAIL_CARD_TITLES, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
@@ -72,6 +72,8 @@ export interface RenderedMessage {
   images?: string[];
   /** Names of documents attached to the message. */
   files?: string[];
+  /** The screenshot behind the answer (on a question, behind its inline outcome), as a same-origin src. */
+  shots?: string[];
   /** For a long reply: what to read first. `html` is then the rest of the reply. */
   summary?: { html: string; source: SummarySource | "flyd" | "brief"; pending?: boolean };
   /** The model's summary of a reply that carries its own, when FLYD_SUMMARY_ALWAYS asks for both. */
@@ -234,7 +236,9 @@ export class SnapshotDiffer {
       order.push(message.id);
       seen.add(message.id);
       const expanded = parts.expanded === true;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside]);
+      // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
+      const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -244,6 +248,7 @@ export class SnapshotDiffer {
         html: message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
+        ...(shots.length ? { shots } : {}),
         ...(parts.summary ? { summary: parts.summary } : {}),
         ...(parts.compare ? { compare: parts.compare } : {}),
         ...(routine ? { routine: true } : {}),

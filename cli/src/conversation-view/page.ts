@@ -362,6 +362,9 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 .rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
+/* The screenshot behind an answer leads it, a size to read at a glance. */
+.rail-shots { margin: 8px 0 0; }
+.rail-shots .shot img { max-height: 15em; max-width: 100%; }
 /* What Flyd remembers here: one plain sentence each. */
 .rail-mem { margin: 0 0 6px; border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; font: 400 15px/1.4 var(--sans); color: var(--fg); overflow-wrap: anywhere; }
 .rail-mem--new { border-left-color: var(--accent); }
@@ -529,6 +532,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .shot { font: inherit; padding: 0; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); cursor: zoom-in; overflow: hidden; line-height: 0; }
 .shot img { display: block; width: auto; height: auto; max-height: 9em; max-width: min(22em, calc(100vw - 3em)); }
 .shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.reply-shots { margin: 0.55em 0 0.35em; }
+.reply-shots .shot img { max-height: 16em; max-width: min(30em, calc(100vw - 3em)); }
 .lightbox {
   position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, #000 82%, transparent); cursor: zoom-out; padding: 3vh 3vw;
@@ -785,8 +790,7 @@ var __name = function (f) { return f; };
     var body = el.querySelector(".body");
     body.innerHTML = message.html;
     if (message.role === "user") highlight(body);
-    var old = el.querySelector(".shots");
-    if (old) old.remove();
+    el.querySelectorAll(":scope > .shots").forEach(function (old) { old.remove(); });
     var oldDocs = el.querySelector(".docs");
     if (oldDocs) oldDocs.remove();
     if (message.files && message.files.length) body.after(docs(message.files));
@@ -794,6 +798,11 @@ var __name = function (f) { return f; };
       body.after(shots(message.images.map(function (id) {
         return "/api/image?session=" + encodeURIComponent(current || "") + "&id=" + encodeURIComponent(id);
       })));
+    }
+    // The screenshot firstmate looked at leads its answer: under his words, before the outcome line.
+    if (message.shots && message.shots.length) {
+      var answerShots = shots(message.shots.map(withToken), "reply-shots");
+      if (message.role === "user") body.after(answerShots); else body.before(answerShots);
     }
     pairing(el, message);
     if (message.role === "assistant") {
@@ -869,9 +878,9 @@ var __name = function (f) { return f; };
     });
     el.insertBefore(more, body);
   }
-  function shots(urls) {
+  function shots(urls, kind) {
     var row = document.createElement("div");
-    row.className = "shots";
+    row.className = "shots" + (kind ? " " + kind : "");
     urls.forEach(function (url) {
       var button = document.createElement("button");
       button.type = "button";
@@ -1153,6 +1162,8 @@ var __name = function (f) { return f; };
       talks.forEach(function (talk) {
         var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
         wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
+        // The picture of the result leads; the words follow.
+        if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
         if (talk.answerHtml) {
           var answer = el("div", "rail-a rail-a-md");
           answer.innerHTML = talk.answerHtml;

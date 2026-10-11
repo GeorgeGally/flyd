@@ -10,7 +10,8 @@ import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
-import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
+import { isHisImage, ReplyShots } from "./reply-shots.js";
+import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
   ConversationMessage,
@@ -115,6 +116,29 @@ function readLineAt(path: string, offset: number): string | null {
 }
 
 /**
+ * "t<offset>.<n>": the n-th image of the transcript line at that byte offset,
+ * read back from the transcript: one the captain pasted, or a screenshot the
+ * assistant read.
+ */
+function transcriptImage(path: string, imageId: string): ImageData | null {
+  const ref = /^t(\d+)\.(\d+)$/.exec(imageId);
+  if (!ref) return null;
+  const offset = Number(ref[1]);
+  if (!Number.isSafeInteger(offset) || offset >= statSync(path).size) return null;
+  const line = readLineAt(path, offset);
+  if (!line) return null;
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const image = captainImageAt(entry, Number(ref[2])) ?? toolImageAt(entry, Number(ref[2]));
+  if (!image || !IMAGE_MEDIA_TYPES.has(image.mediaType)) return null;
+  return { mediaType: image.mediaType, data: Buffer.from(image.data, "base64") };
+}
+
+/**
  * When the session started (its first timed entry), and whether the Agent SDK
  * drove it rather than a person at Claude Code's prompt: firstmate's
  * supervision sessions run that way, beside the captain's own conversation.
@@ -165,6 +189,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
 
   private readonly commandRoots: { claudeHome?: string; projectDir?: string };
+  /** Where the screenshot behind each note's answer is kept. */
+  private readonly shots?: ReplyShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
 
   constructor(options: {
@@ -178,7 +204,10 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     crew?: Pick<CrewProgress, "steps">;
     /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
     commandRoots?: { claudeHome?: string; projectDir?: string };
+    /** Where the screenshot behind each note's answer is kept (default ~/.flyd/view/reply-shots; none under tests). */
+    shots?: ReplyShots;
   } = {}) {
+    this.shots = options.shots ?? (process.env.VITEST ? undefined : new ReplyShots());
     this.commandRoots = options.commandRoots ?? {};
     this.projectDir = options.projectDir ?? resolveProjectDir(FIRSTMATE_PROJECT_DIR);
     // With a desk the window is Flyd's: it speaks to him, firstmate stays backstage.
@@ -251,21 +280,30 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   async image(sessionId: string, imageId: string): Promise<ImageData | null> {
     const path = this.sessionPath(sessionId);
     if (imageId.startsWith("f")) return this.inbox?.image(imageId) ?? null;
-    const ref = /^t(\d+)\.(\d+)$/.exec(imageId);
-    if (!ref) return null;
-    const offset = Number(ref[1]);
-    if (!Number.isSafeInteger(offset) || offset >= statSync(path).size) return null;
-    const line = readLineAt(path, offset);
-    if (!line) return null;
-    let entry: unknown;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      return null;
+    return transcriptImage(path, imageId);
+  }
+
+  /**
+   * Each answer's screenshot as Flyd's own copy, made the first time the
+   * answer is seen; a shot that cannot be kept is left out.
+   */
+  private keptShots(sessionId: string, answers: Record<string, ConversationMessage>, exchanges: Exchange[]): Record<string, ConversationMessage> {
+    const kept: Record<string, ConversationMessage> = {};
+    for (const [id, answer] of Object.entries(answers)) {
+      const { shots, ...rest } = answer;
+      // His own images on the note: firstmate often opens a copy of one, which is no picture of the result.
+      const his = (): Buffer[] => (exchanges.find((exchange) => exchange.question.id === id)?.question.images ?? [])
+        .map((image) => this.inbox?.image(image)?.data)
+        .filter((data): data is Buffer => data !== undefined);
+      const paths = this.shots && shots?.length
+        ? shots.map((shot) => this.shots!.keep(sessionId, shot, () => {
+          const image = transcriptImage(this.sessionPath(sessionId), shot);
+          return image && !isHisImage(image.data, his()) ? image : null;
+        })).filter((path): path is string => path !== null)
+        : [];
+      kept[id] = paths.length ? { ...rest, shots: paths } : rest;
     }
-    const image = captainImageAt(entry, Number(ref[2]));
-    if (!image || !IMAGE_MEDIA_TYPES.has(image.mediaType)) return null;
-    return { mediaType: image.mediaType, data: Buffer.from(image.data, "base64") };
+    return kept;
   }
 
   /** Cached once its first message is written: a session's first entries never change. */
@@ -333,7 +371,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       : snapshot;
     if (exchanges.length === 0) return voiced;
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
-    const answered = followUps(exchanges, snapshot.messages, snapshot.working);
+    const answered = this.keptShots(sessionId, followUps(exchanges, snapshot.messages, snapshot.working), exchanges);
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
     const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });

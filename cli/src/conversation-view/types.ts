@@ -34,6 +34,11 @@ export interface ConversationMessage {
   wake?: boolean;
   /** Inbox notes (by note id) the turn behind this reply handled, read from firstmate's own tool lines. */
   notes?: string[];
+  /**
+   * The screenshot the assistant looked at before giving this reply: a transcript image id as read, then,
+   * once kept, the absolute path of Flyd's own copy. On a question, the screenshot behind its inline outcome.
+   */
+  shots?: string[];
 }
 
 /** A message the captain sent from the view, and its answer once there is one. */

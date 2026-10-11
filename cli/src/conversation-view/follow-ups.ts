@@ -159,7 +159,15 @@ function mostAbout(question: Set<string>, sentences: Sentence[]): number {
 }
 
 function answerFrom(message: ConversationMessage, exchange: Exchange, text: string): ConversationMessage {
-  return { id: message.id, role: "assistant", text: inFlydsVoice(text), ...(message.timestamp ? { timestamp: message.timestamp } : {}), answers: exchange.question.id };
+  return {
+    id: message.id,
+    role: "assistant",
+    text: inFlydsVoice(text),
+    ...(message.timestamp ? { timestamp: message.timestamp } : {}),
+    answers: exchange.question.id,
+    // Only the turn that handled the note looked at it; a later report's screenshot may be of anything.
+    ...(message.shots?.length && message.notes?.includes(exchange.question.id.slice("note:".length)) ? { shots: message.shots } : {}),
+  };
 }
 
 /**
@@ -172,7 +180,9 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
     const chat = found[exchange.question.id];
     if (!chat) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
-    return !exchange.answer || Date.parse(chat.timestamp ?? "") > formal ? { ...exchange, answer: chat, waiting: "" } : exchange;
+    if (!exchange.answer || Date.parse(chat.timestamp ?? "") > formal) return { ...exchange, answer: chat, waiting: "" };
+    // A formal reply keeps its words; the screenshot firstmate looked at for the note still leads it.
+    return chat.shots?.length && !exchange.answer.shots?.length ? { ...exchange, answer: { ...exchange.answer, shots: chat.shots } } : exchange;
   });
   const current = working ? merged.reduce((index, exchange, i) => (exchange.handoff === "taken" ? i : index), -1) : -1;
   return merged.map((exchange, i) =>
@@ -192,8 +202,10 @@ export function inlineOutcomes(exchanges: Exchange[]): Exchange[] {
     // Taken and finished with, though no reply names it: the column says the same.
     if (exchange.answered && !exchange.answer) return { ...exchange, waiting: "Answered", settled: true };
     if (!exchange.answer || exchange.answer.id.startsWith("note-reply:") || !exchange.question.id.startsWith("note:")) return exchange;
-    const { answer: _answer, ...rest } = exchange;
-    return { ...rest, waiting: outcomeLine(exchange.answer.text, exchange.question.text), settled: true };
+    const { answer, ...rest } = exchange;
+    // The screenshot behind the outcome goes with it, under his message.
+    const question = answer.shots?.length ? { ...rest.question, shots: answer.shots } : rest.question;
+    return { ...rest, question, waiting: outcomeLine(answer.text, exchange.question.text), settled: true };
   });
 }
 
