@@ -1,6 +1,8 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
-import { capitalise, clip, inline, isRoutine, sentences } from "./summaries.js";
+import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
+import { withoutStubs } from "./executive.js";
+import { choiceOf, choiceTarget } from "./choices.js";
 import { composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -26,7 +28,12 @@ export interface ShowShot {
 }
 
 export interface ShowItem {
-  decision?: { task: string; question: string; choices: string[] };
+  /**
+   * A question only he can answer, with its options. A fleet hold names its
+   * task; a question a reply put to him names where his answer goes (replyTo),
+   * and goes back the way a reply to an answer does.
+   */
+  decision?: { task: string; question: string; choices: string[]; replyTo?: string };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;
@@ -217,7 +224,19 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   });
   const since = messages.slice(lastCaptain + 1).filter((message) => fromFleet(message) && !routine(message));
   const call = [...since].reverse().find((message) => asksForDecision(message.text) || FOR_HIM.test(message.text));
-  if (call) add("call", call, { headline: askLine(readingOf(call)) ?? askLine(call.text) ?? headline(readingOf(call)), why: "waiting on you" });
+  if (call) {
+    // A question with options is answerable on screen: the question leads, what it is about under it.
+    const choice = choiceOf(call.text);
+    const about = choice ? tidy(digestReply(withoutStubs(readingOf(call))).lead) : "";
+    add("call", call, choice
+      ? {
+        headline: choice.question,
+        why: "waiting on you",
+        ...(about && about !== choice.question ? { detail: about } : {}),
+        decision: { task: choiceTarget(call), question: choice.question, choices: choice.options, replyTo: choiceTarget(call) },
+      }
+      : { headline: askLine(readingOf(call)) ?? askLine(call.text) ?? headline(readingOf(call)), why: "waiting on you" });
+  }
 
   // What just landed: the newest reply in the last day that says work finished.
   const fresh = (message: ConversationMessage, within: number) => fromFleet(message) && !used.has(message.id) && age(message, now) < within && !routine(message);
@@ -272,7 +291,9 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const projectOfRepo = (repo: string): string | undefined =>
     projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
   const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
-  const chosen = [...artefact, ...items].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
+  // A question just put to him in the conversation leads the fleet's older holds.
+  const asked = items.filter((item) => item.kind === "call");
+  const chosen = [...asked, ...artefact, ...items.filter((item) => item.kind !== "call")].slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS);
   if (chosen.every((item) => item.kind === "next")) {
     const taste = inputs.artefact?.taste?.[0];
     if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });

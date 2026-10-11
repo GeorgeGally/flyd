@@ -28,7 +28,8 @@ import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAI
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
-import { replyNote } from "./replies.js";
+import { answerNote, replyNote } from "./replies.js";
+import { choiceOf, choiceTarget, openChoice, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -92,6 +93,8 @@ export interface RenderedMessage {
   /** His reply to an answer: the question it replies to, and his words there as quoted. */
   replyTo?: string;
   replyQuote?: string;
+  /** The reply asks him something he has not answered yet: its question, options, and where his answer goes. */
+  choice?: ReplyChoice & { replyTo: string };
 }
 
 export interface SummaryOptions {
@@ -220,6 +223,13 @@ export class SnapshotDiffer {
     return { body: message.text, summary, ...(actionable && summary.source !== "brief" ? { expanded: true } : {}) };
   }
 
+  /** A reply Flyd's model judged routine (nothing asked, nothing to act on), or one plainly routine. */
+  private routine(message: ConversationMessage): boolean {
+    if (isRoutine(message.text)) return true;
+    const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
+    return model !== undefined && isRoutineAnswer(model) && !isActionable(message.text);
+  }
+
   next(snapshot: ConversationSnapshot): StreamUpdate {
     const changed: RenderedMessage[] = [];
     const order: string[] = [];
@@ -227,6 +237,8 @@ export class SnapshotDiffer {
     const newest = new Set(
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
+    // The question the newest reply put to him, while he has said nothing since.
+    const open = openChoice(snapshot.messages, (message) => this.routine(message));
     for (const message of snapshot.messages) {
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
@@ -242,7 +254,8 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo]);
+      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, choice]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -264,6 +277,7 @@ export class SnapshotDiffer {
         ...(message.answers ? { answers: message.answers } : {}),
         ...(message.aside ? { aside: true } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo, ...(message.replyQuote ? { replyQuote: message.replyQuote } : {}) } : {}),
+        ...(choice ? { choice } : {}),
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
@@ -272,10 +286,7 @@ export class SnapshotDiffer {
         projects: this.show?.projects?.() ?? [],
         ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
         reading: (message) => this.reading(message),
-        muted: (message) => {
-          const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
-          return model !== undefined && isRoutineAnswer(model) && !isActionable(message.text);
-        },
+        muted: (message) => this.routine(message),
       });
     return {
       order,
@@ -880,11 +891,15 @@ export class ConversationViewServer {
       const snapshot = await this.source.read(session);
       const parent = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working)
         .find((exchange) => exchange.question.id === replyTo);
-      if (!parent) {
+      // A question the session put to him in its own reply, not under a note of his: the answer goes back to that session.
+      const asked = parent ? undefined : snapshot.messages.find((message) => message.role === "assistant" && message.id === replyTo);
+      const question = asked ? choiceOf(asked.text)?.question : undefined;
+      if (!parent && !(asked && question)) {
         sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
         return;
       }
-      const sent = await this.source.send(session, replyNote(parent, text), [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
+      const note = parent ? replyNote(parent, text) : answerNote(asked!, question!, text);
+      const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
       this.predictions.remember(text);
       sendJson(res, 200, sent);
     } catch (error) {

@@ -6,11 +6,14 @@ import type { ConversationMessage, Exchange } from "./types.js";
 // out as an ordinary note (or question to Flyd) whose first line says what it
 // answers, so whoever reads it knows what "that" means. The line is hidden
 // again when the note is shown, and the reply is threaded under the answer.
+// His answer to a question a session asked in its own reply (see choices.ts)
+// goes out the same way, its line quoting that question.
 
 /** How much of his note and of the answer the reply quotes. */
 const QUOTE_CHARS = 160;
 
-const MARKER = /^\[Captain is replying from Flyd to ((?:note|ask):[\w.-]+) — his note: "([^"\n]*)"[^\n]*\]\n*/;
+// A reply to a session's own message names it by its id and quotes its question instead of his note.
+const MARKER = /^\[Captain is replying from Flyd to ((?:note|ask):[\w.-]+|reply:[\w.#:-]+) — (?:his note|your question): "([^"\n]*)"[^\n]*\]\n*/;
 
 /** One line, no brackets or double quotes to break the marker. */
 function quoted(text: string): string {
@@ -30,6 +33,19 @@ export function replyNote(parent: Exchange, words: string): string {
   const shot = (answer?.shots ?? parent.question.shots ?? []).find((path) => path.startsWith("/"));
   const marker = `[Captain is replying from Flyd to ${parent.question.id} — his note: "${quoted(parent.question.text)}"`
     + `${said ? `; your answer began: "${said}"` : ""}${shot ? `; the answer's screenshot: ${shot}` : ""}. His reply follows.]`;
+  return `${marker}\n\n${words.trim()}`;
+}
+
+/**
+ * The note that carries his answer to a question the session put to him in
+ * its own reply, not under any note of his: it quotes the question and the
+ * reply's opening, so the session knows what his "yes" says yes to. Pure.
+ */
+export function answerNote(message: ConversationMessage, question: string, words: string): string {
+  const said = opening(message);
+  const asked = quoted(question);
+  const marker = `[Captain is replying from Flyd to ${message.id} — your question: "${asked}"`
+    + `${said && said !== asked ? `; your reply began: "${said}"` : ""}. His answer follows.]`;
   return `${marker}\n\n${words.trim()}`;
 }
 
