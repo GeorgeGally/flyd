@@ -322,7 +322,7 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 .rail-talk { margin: 0 0 18px; }
-.rail-q { margin: 0; font: 500 17px/1.4 var(--sans); color: var(--strong); }
+.rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
 .rail-when { margin: 6px 0 0; font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -344,6 +344,16 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 .rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
+/* What Flyd remembers here: one line each, opened in place for the whole item. */
+.rail-mem { margin: 0 0 6px; border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; }
+.rail-mem--new { border-left-color: var(--accent); }
+.rail-mem summary { list-style: none; cursor: pointer; }
+.rail-mem summary::-webkit-details-marker { display: none; }
+.rail-mem-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 400 15px/1.4 var(--sans); color: var(--fg); }
+.rail-mem[open] .rail-mem-title { display: block; }
+.rail-mem-line { display: block; margin-top: 2px; font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-mem-detail { margin: 8px 0 2px; font: 400 14px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rail-mem-detail a { color: var(--link); text-decoration: none; }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -1021,12 +1031,48 @@ var __name = function (f) { return f; };
     }
     return box;
   }
+  // A memory he opened stays open when the column redraws around it.
+  var memOpen = {};
+  function railMemory(memory, fresh) {
+    var box = el("details", "rail-mem" + (fresh ? " rail-mem--new" : ""));
+    box.open = !!memOpen[memory.id];
+    box.addEventListener("toggle", function () { if (box.open) memOpen[memory.id] = true; else delete memOpen[memory.id]; });
+    var summary = el("summary");
+    summary.appendChild(el("span", "rail-mem-title", memory.title));
+    var line = [memory.line, fresh && memory.at ? ago(memory.at) : ""].filter(Boolean).join(" · ");
+    if (line) summary.appendChild(el("span", "rail-mem-line", line));
+    box.appendChild(summary);
+    var detail = el("div", "rail-mem-detail", memory.detail || memory.title);
+    if (memory.kind === "taste") {
+      detail.appendChild(document.createTextNode("\\n"));
+      var open = el("a", "", "See all his taste ↗");
+      open.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN);
+      detail.appendChild(open);
+    }
+    box.appendChild(detail);
+    return box;
+  }
+  function renderMemory(memory) {
+    if (!memory) return false;
+    var now = memory.remembering || [];
+    var held = memory.remembers || [];
+    if (now.length) {
+      railBody.appendChild(el("div", "rail-section", "Remembering now"));
+      now.forEach(function (item) { railBody.appendChild(railMemory(item, true)); });
+    }
+    if (held.length) {
+      railBody.appendChild(el("div", "rail-section", "Remembers" + (memory.project ? " · " + memory.project : "")));
+      held.forEach(function (item) { railBody.appendChild(railMemory(item, false)); });
+    }
+    return now.length > 0 || held.length > 0;
+  }
   function renderRail(rail) {
     if (!rail) { railEl.hidden = true; setRail(false); return; }
     var signature = JSON.stringify(rail);
     if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
     railSignature = signature;
     railBody.textContent = "";
+    var remembered = renderMemory(rail.memory);
     var talks = rail.conversations || [];
     if (talks.length) {
       railBody.appendChild(el("div", "rail-section", "Conversations"));
@@ -1050,7 +1096,7 @@ var __name = function (f) { return f; };
       railBody.appendChild(el("div", "rail-section", "Artefacts"));
       cards.forEach(function (card) { railBody.appendChild(railCard(card)); });
     }
-    railEl.hidden = railHidden || (!talks.length && !cards.length);
+    railEl.hidden = railHidden || (!talks.length && !cards.length && !remembered);
     setRail(railOn());
   }
   document.getElementById("rail-hide").addEventListener("click", function () {
@@ -2233,7 +2279,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
     <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
-<aside class="rail" id="rail" hidden aria-label="Your conversations and artefacts">
+<aside class="rail" id="rail" hidden aria-label="Your conversations, artefacts and what Flyd remembers">
   <div class="rail-head"><span>Your conversations</span><button id="rail-hide" type="button" aria-label="Hide the column">✕</button></div>
   <div class="rail-body" id="rail-body"></div>
 </aside>

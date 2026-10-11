@@ -10,6 +10,7 @@ import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
+import { MemoryReader } from "../conversation-view/memory.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 
 export interface ViewOptions {
@@ -89,8 +90,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
   const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }) });
-  // Show mode names things by his own projects.
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader());
+  // Show mode names things by his own projects; the column shows what Flyd remembers for the one we are on.
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

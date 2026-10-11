@@ -1,6 +1,7 @@
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
 import type { WorkState } from "./executive.js";
+import type { RailMemories } from "./memory.js";
 import { capitalise, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -90,6 +91,8 @@ export interface RailProject {
 export interface Rail {
   conversations: RailConversation[];
   artefacts: RailArtefact[];
+  /** What Flyd remembers that applies here, and what it is taking in now. */
+  memory?: RailMemories;
 }
 
 /** How far back a named preview still counts as what we are talking about. */

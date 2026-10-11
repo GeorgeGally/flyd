@@ -25,6 +25,7 @@ import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
 import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAIL_CARD_TITLES, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
+import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -340,6 +341,8 @@ export class ConversationViewServer {
     private readonly predictions = new ComposerPredictions(),
     private readonly drafts = new ComposerDrafts(),
     private readonly previews = new PreviewProbe(),
+    /** Flyd's memory stores, read for the column; without it the column shows no memory. */
+    private readonly memory?: MemoryReader,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -598,7 +601,7 @@ export class ConversationViewServer {
       })),
     ];
     const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
-    return composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
+    const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       known: (preview) => board.get(preview.url) ?? preview,
       // Which server answers on the page's port: the process, its folder, and whether that is the project's own.
@@ -613,6 +616,7 @@ export class ConversationViewServer {
         return renderBriefing(outcomeFirst(reading ? inFlydsVoice(reading) : spoken(answer.text), spoken(answer.text)), RAIL_CARD_TITLES);
       },
     });
+    return this.memory ? { ...rail, memory: composeMemory(this.memory.current(), snapshot.messages, projects) } : rail;
   }
 
   /** The same-origin src of a file in firstmate's data tree; its relative assets resolve under the same prefix. */
@@ -934,6 +938,10 @@ export class ConversationViewServer {
     const stopPreviews = this.previews.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
+    // A memory landed: the column's "Remembering now" shows it.
+    const stopMemory = this.memory?.onChange(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
@@ -941,6 +949,7 @@ export class ConversationViewServer {
       clearInterval(heartbeat);
       stopFeed();
       stopPreviews();
+      stopMemory?.();
       follower.close();
     });
   }
