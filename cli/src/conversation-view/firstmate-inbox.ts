@@ -364,7 +364,7 @@ export function mergeNotes(
   const merged: ConversationMessage[] = [];
   const push = (exchange: Exchange): void => {
     if (exchange.answer) merged.push(exchange.question, exchange.answer);
-    else merged.push({ ...exchange.question, waiting: exchange.waiting, ...(exchange.waitingFailed ? { waitingFailed: true } : {}) });
+    else merged.push({ ...exchange.question, waiting: exchange.waiting, ...(exchange.waitingFailed ? { waitingFailed: true } : {}), ...(exchange.settled ? { settled: true } : {}) });
   };
   let next = 0;
   for (const message of messages) {

@@ -539,7 +539,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     expect((await view.listSessions()).map((session) => session.id)).toEqual(["main"]);
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
-    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Working on it" });
+    expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Answered", settled: true });
     expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
   });
 

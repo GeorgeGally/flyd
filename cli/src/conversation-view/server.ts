@@ -83,6 +83,7 @@ export interface RenderedMessage {
   timestamp?: string;
   waiting?: string;
   waitingFailed?: boolean;
+  settled?: boolean;
   answers?: string;
   aside?: boolean;
 }
@@ -233,7 +234,7 @@ export class SnapshotDiffer {
       order.push(message.id);
       seen.add(message.id);
       const expanded = parts.expanded === true;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.answers, message.aside]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -250,6 +251,7 @@ export class SnapshotDiffer {
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),
+        ...(message.waiting && message.settled ? { settled: true } : {}),
         ...(message.answers ? { answers: message.answers } : {}),
         ...(message.aside ? { aside: true } : {}),
       });
