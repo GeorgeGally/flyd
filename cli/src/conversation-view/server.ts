@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { homedir } from "node:os";
 import { extname, join, sep } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -22,7 +23,7 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, normalizeLoopback, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { composeRail, conversationPreviews, normalizeLoopback, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import { withFollowUps } from "./follow-ups.js";
 import { PreviewProbe } from "./preview-probe.js";
@@ -600,6 +601,11 @@ export class ConversationViewServer {
     return composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       known: (preview) => board.get(preview.url) ?? preview,
+      // Which server answers on the page's port: the process, its folder, and whether that is the project's own.
+      server: (url) => {
+        const served = this.previews.servedBy(url);
+        return served ? railServer(url, served, projects, homedir()) : undefined;
+      },
       // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.
       voice: (answer) => {
         const reading = answer.answers?.startsWith("note:") ? interpreter?.cached(answer.text) : undefined;

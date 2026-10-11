@@ -336,6 +336,12 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-a-md a { color: var(--link); }
 .rail-card-note { font-style: italic; }
 .rail-card--down .rail-card-head span { color: var(--muted); }
+.rail-card p.rail-card-server { margin-top: -6px; font: 400 12px/1.45 var(--mono); overflow-wrap: anywhere; }
+.rail-card-whose { display: block; color: var(--muted); }
+.rail-card-whose::before { content: "✓ "; }
+.rail-card-server--copy .rail-card-whose { color: var(--accent); }
+.rail-card-server--copy .rail-card-whose::before { content: "! "; }
+.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 .rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
 :root[data-screen="show"] .rail { display: none; }
@@ -980,7 +986,20 @@ var __name = function (f) { return f; };
       head.appendChild(open);
     }
     box.appendChild(head);
+    var server = card.server;
+    // A change of server behind the page leads the card, with when it happened.
+    if (server && server.changed) {
+      var when = clock(server.changed.at);
+      box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
+    }
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (server && server.command) {
+      var served = el("p", "rail-card-server" + (server.own === false ? " rail-card-server--copy" : ""));
+      served.appendChild(el("span", "", [server.command, server.folder].filter(Boolean).join(" · ")));
+      if (server.whose) served.appendChild(el("span", "rail-card-whose", server.whose));
+      served.title = "Served by " + server.command + " on " + server.address + (server.folder ? " from " + server.folder : "");
+      box.appendChild(served);
+    }
     if (card.down) box.appendChild(el("p", "rail-card-note", "Nothing answers at this address yet."));
     else if (card.checking) box.appendChild(el("p", "rail-card-note", "Checking the page answers…"));
     else if (card.blocked) box.appendChild(el("p", "rail-card-note", "This page won't show inside Flyd; open it to see it."));
