@@ -11,8 +11,8 @@ const tool = (name: string, input: Record<string, unknown>) => ({ type: "tool_us
 
 describe("a crewmate's step", () => {
   it("is its own short words, or a tool's purpose, in plain English", () => {
-    expect(stepIn(assistant({ type: "text", text: "Let me look at the footer spacing." }, tool("Bash", { command: "ls" })))).toBe("Look at the footer spacing");
-    expect(stepIn(assistant(tool("Bash", { command: "npm test", description: "Run the site's tests" })))).toBe("Run the site's tests");
+    expect(stepIn(assistant({ type: "text", text: "Let me look at the footer spacing." }, tool("Bash", { command: "ls" })))).toBe("Looking at the footer spacing");
+    expect(stepIn(assistant(tool("Bash", { command: "npm test", description: "Run the site's tests" })))).toBe("Running the site's tests");
     expect(stepIn(assistant(tool("Skill", { skill: "flyd-taste-spacing" })))).toBe("Checking how you like spacing");
     expect(stepIn(assistant(tool("Read", { file_path: "/Users/george/.claude/projects/x/memory/MEMORY.md" })))).toBe("Checking memory");
     expect(stepIn(assistant(tool("TodoWrite", { todos: [{ status: "in_progress", activeForm: "Making the header wider" }] })))).toBe("Making the header wider");
@@ -60,7 +60,7 @@ describe("CrewProgress", () => {
     appendFileSync(transcript, `${assistant(tool("Bash", { description: "Tighten the gap under the footer links" }))}\n`);
     expect(crew.steps([note]).get("note:1")).toBe("Checking how you like spacing");
     now += 2_000;
-    expect(crew.steps([note]).get("note:1")).toBe("Tighten the gap under the footer links");
+    expect(crew.steps([note]).get("note:1")).toBe("Tightening the gap under the footer links");
   });
 
   it("finds a later note firstmate passed on to a crewmate already at work", () => {

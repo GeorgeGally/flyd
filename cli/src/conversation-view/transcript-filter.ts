@@ -1,4 +1,6 @@
 import { isNarration, stripInternalNarration } from "../runtime/honesty-check.js";
+import { stepWords } from "./crew-progress.js";
+import { commandStep, fileStep } from "./step-words.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Reduces a Claude Code session transcript (one JSON object per line) to the
@@ -225,9 +227,9 @@ function narrationLine(raw: string): string | null {
 }
 
 /**
- * What a tool call says about the current step, ranked: the assistant's
- * own task list (3) and delegated work (2) over a shell step's description
- * (1). Reads, edits and searches say nothing worth showing.
+ * What a tool call says about the current step, in a few plain words: the assistant's own task list (rank 3),
+ * delegated work (2), or what a shell step or file edit does (1), from its description or else from the command
+ * itself. Plain reads and searches say nothing worth showing.
  */
 function activityOf(block: Json): { text: string; rank: number } | null {
   const input = isRecord(block.input) ? block.input : {};
@@ -239,11 +241,10 @@ function activityOf(block: Json): { text: string; rank: number } | null {
   }
   const active = stringField(input, "activeForm");
   if (active && activityLine(active)) return { text: activityLine(active)!, rank: 3 };
-  const description = stringField(input, "description");
-  if (!description || !activityLine(description)) return null;
-  if (name === "Agent" || name === "Task") return { text: activityLine(description)!, rank: 2 };
-  if (name === "Bash") return { text: activityLine(description)!, rank: 1 };
-  return null;
+  const description = stringField(input, "description") ?? "";
+  if (name === "Agent" || name === "Task") return description && activityLine(description) ? { text: activityLine(description)!, rank: 2 } : null;
+  const step = name === "Bash" ? stepWords(description) ?? commandStep(stringField(input, "command") ?? "") : fileStep(name, stringField(input, "file_path") ?? "");
+  return step ? { text: step, rank: 1 } : null;
 }
 
 /**
@@ -359,10 +360,12 @@ export class TranscriptConversation {
         // Text said just before a tool call is the assistant naming its next step.
         const said = segment.trailing.at(-1);
         const narration = said && said.text.length < SUBSTANTIVE_CHARS ? narrationLine(said.text) : null;
-        if (narration) segment.activity = { text: narration, rank: 3 };
+        const plain = narration ? stepWords(narration) : undefined;
+        if (plain) segment.activity = { text: plain, rank: 3 };
         this.noteHandled(noteIdsIn(JSON.stringify(block.input ?? "")));
+        // The newest step is what is happening now, unless it says less than what was already shown this step.
         const step = activityOf(block);
-        if (step && step.rank >= (segment.activity?.rank ?? 0)) segment.activity = step;
+        if (step && (step.rank >= (segment.activity?.rank ?? 0) || !plain)) segment.activity = step;
         segment.trailing = [];
         segment.settled = false;
         return;
@@ -434,6 +437,7 @@ export class TranscriptConversation {
       messages,
       working,
       ...(working && open?.activity ? { activity: open.activity.text } : {}),
+      ...(working && open?.notes?.size ? { workingOn: [...open.notes].map((id) => `note:${id}`) } : {}),
       ...(this.lastActivity ? { lastActivity: this.lastActivity } : {}),
       ...(this.context ? { context: { tokens: this.context.tokens, window: contextWindow(this.context.model, this.maxContext) } } : {}),
     };

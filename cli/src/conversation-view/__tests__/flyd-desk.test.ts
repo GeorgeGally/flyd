@@ -231,8 +231,8 @@ esac
     rmSync(join(inbox, name));
     writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: "npm test", description: "Run the site's tests" })].join("\n") + "\n");
     snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Run the site's tests");
-    expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Run the site's tests" });
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Running the site's tests");
+    expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Running the site's tests" });
   });
 
   it("never lets firstmate's 'Captain' reach him: lines, narration, summaries, interpretations and the island", async () => {
