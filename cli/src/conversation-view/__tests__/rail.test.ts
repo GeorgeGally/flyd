@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeRail, conversationPreviews, negationsIn, normalizeLoopback, previewCard, previewsIn, spoken, type RailArtefact } from "../rail.js";
+import { composeRail, conversationPreviews, negationsIn, normalizeLoopback, previewCard, previewsIn, changeNotice, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
 import type { ConversationMessage } from "../types.js";
 
 const user = (id: string, text: string, at = "2026-10-10T17:24:00Z"): ConversationMessage => ({ id, role: "user", text, timestamp: at });
@@ -167,5 +167,49 @@ describe("composeRail", () => {
   it("drops conversation rows with no words", () => {
     const rail = composeRail([{ question: user("q", "   ") }], []);
     expect(rail.conversations).toEqual([]);
+  });
+});
+
+describe("the server behind a live preview", () => {
+  const projects = [{ id: "gnm-good-neighbours-market", name: "GNM (Good Neighbours Market)", repos: ["/Users/george/Documents/good_neighbours"] }];
+  const home = "/Users/george";
+
+  it("says the project's own folder, or a copy of it", () => {
+    expect(whoseFolder("/Users/george/Documents/good_neighbours", projects)).toEqual({ whose: "GNM's own folder", own: true });
+    expect(whoseFolder("/Users/george/Documents/firstmate/data/gnm-preview/site", projects)).toEqual({ whose: "a copy, not GNM's own folder", own: false });
+    expect(whoseFolder("/tmp/elsewhere", projects)).toBeUndefined();
+  });
+
+  it("puts the process, folder and whose it is on the card", () => {
+    const server = railServer("http://127.0.0.1:8088/", { server: { pid: 9, command: "php -S", folder: "/Users/george/Documents/good_neighbours" } }, projects, home);
+    expect(server).toEqual({ address: "127.0.0.1:8088", command: "php -S", folder: "~/Documents/good_neighbours", whose: "GNM's own folder", own: true });
+    const card = previewCard({ id: "live:http://127.0.0.1:8088/", kind: "live", url: "http://127.0.0.1:8088/" }, "up", server);
+    expect(card.server).toBe(server);
+    expect(card.preview).toBe("http://127.0.0.1:8088/");
+  });
+
+  it("tells what changed behind the address and when", () => {
+    const at = "2026-10-11T10:42:00.000Z";
+    const own = { pid: 1, command: "php -S", folder: "/Users/george/Documents/good_neighbours" };
+    const copy = { pid: 2, command: "php -S", folder: "/Users/george/data/gnm-preview/site" };
+    expect(changeNotice({ at, was: null, now: own }, home)).toEqual({ at, title: "Server started", detail: "php -S serving ~/Documents/good_neighbours" });
+    expect(changeNotice({ at, was: own, now: null }, home)).toEqual({ at, title: "Server stopped", detail: "was php -S serving ~/Documents/good_neighbours" });
+    expect(changeNotice({ at, was: own, now: copy }, home)).toEqual({ at, title: "Server changed", detail: "now php -S serving ~/data/gnm-preview/site, was ~/Documents/good_neighbours" });
+    expect(changeNotice({ at, was: own, now: { ...own, pid: 3 } }, home).title).toBe("Server restarted");
+    const down = previewCard({ id: "live:x", kind: "live", url: "http://127.0.0.1:8088/" }, "down", railServer("http://127.0.0.1:8088/", { server: null, change: { at, was: own, now: null } }, projects, home));
+    expect(down.down).toBe(true);
+    expect(down.server?.changed?.title).toBe("Server stopped");
+    expect(down.server?.command).toBeUndefined();
+  });
+
+  it("asks the server only for live pages", () => {
+    const asked: string[] = [];
+    const rail = composeRail([], [], [
+      { id: "live:http://127.0.0.1:8088/", kind: "live", url: "http://127.0.0.1:8088/" },
+      { id: "image:/tmp/a.png", kind: "image", url: "/tmp/a.png" },
+    ], { live: () => "up", server: (url) => { asked.push(url); return { address: "127.0.0.1:8088", command: "php -S" }; } });
+    expect(asked).toEqual(["http://127.0.0.1:8088/"]);
+    expect(rail.artefacts[0]!.server?.command).toBe("php -S");
+    expect(rail.artefacts[1]!.server).toBeUndefined();
   });
 });

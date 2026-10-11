@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { PortServer } from "../port-server.js";
 import { PreviewProbe, refusesFraming } from "../preview-probe.js";
 
 describe("PreviewProbe", () => {
@@ -6,7 +7,7 @@ describe("PreviewProbe", () => {
   afterEach(() => probe?.close());
 
   it("is checking until the page answers, then up; a change is announced", async () => {
-    probe = new PreviewProbe(async () => ({ status: 200 }));
+    probe = new PreviewProbe(async () => ({ status: 200 }), Date.now, async () => null);
     let changes = 0;
     probe.onChange(() => { changes += 1; });
     expect(probe.state("http://127.0.0.1:8097/")).toBe("checking");
@@ -50,5 +51,58 @@ describe("PreviewProbe", () => {
     expect(refusesFraming(headers({ "content-security-policy": "default-src 'self'; frame-ancestors 'none'" }))).toBe(true);
     expect(refusesFraming(headers({ "content-security-policy": "frame-ancestors *" }))).toBe(false);
     expect(refusesFraming(headers({ "content-security-policy": "default-src 'self'" }))).toBe(false);
+  });
+});
+
+describe("PreviewProbe's server behind a page", () => {
+  let probe: PreviewProbe | undefined;
+  afterEach(() => probe?.close());
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("knows the server once looked at, and remembers when it changed", async () => {
+    let now = Date.parse("2026-10-11T10:00:00Z");
+    let server: PortServer | null = { pid: 1, command: "php -S", folder: "/gnm" };
+    let up = true;
+    const ports: number[] = [];
+    probe = new PreviewProbe(async () => { if (!up) throw new Error("ECONNREFUSED"); return { status: 200 }; }, () => now, async (port) => { ports.push(port); return server; });
+    let changes = 0;
+    probe.onChange(() => { changes += 1; });
+    const url = "http://127.0.0.1:8088/";
+    expect(probe.servedBy(url)).toBeUndefined();
+    probe.state(url);
+    await settle();
+    expect(ports).toEqual([8088]);
+    expect(probe.servedBy(url)).toEqual({ server: { pid: 1, command: "php -S", folder: "/gnm" } });
+
+    server = { pid: 2, command: "php -S", folder: "/copy" };
+    now += 10_000;
+    probe.state(url);
+    await settle();
+    expect(probe.servedBy(url)?.change).toEqual({ at: "2026-10-11T10:00:10.000Z", was: { pid: 1, command: "php -S", folder: "/gnm" }, now: server });
+
+    server = null;
+    up = false;
+    now += 10_000;
+    probe.state(url);
+    await settle();
+    expect(probe.servedBy(url)).toEqual({ server: null, change: { at: "2026-10-11T10:00:20.000Z", was: { pid: 2, command: "php -S", folder: "/copy" }, now: null } });
+    expect(changes).toBeGreaterThanOrEqual(3);
+
+    now += 31 * 60_000;
+    expect(probe.servedBy(url)).toEqual({ server: null });
+  });
+
+  it("never reads a lookup that could not see the process as the server stopping", async () => {
+    let server: PortServer | null = { pid: 1, command: "php -S", folder: "/gnm" };
+    let now = 1_000_000;
+    probe = new PreviewProbe(async () => ({ status: 200 }), () => now, async () => server);
+    const url = "http://127.0.0.1:8088/";
+    probe.state(url);
+    await settle();
+    server = null;
+    now += 10_000;
+    probe.state(url);
+    await settle();
+    expect(probe.servedBy(url)).toEqual({ server: { pid: 1, command: "php -S", folder: "/gnm" } });
   });
 });

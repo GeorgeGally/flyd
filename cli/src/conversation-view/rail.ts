@@ -1,3 +1,5 @@
+import type { PortServer } from "./port-server.js";
+import type { ServedBy } from "./preview-probe.js";
 import type { ConversationMessage } from "./types.js";
 
 // Flyd's right column: one scrolling list of what he is talking about and what
@@ -55,7 +57,32 @@ export interface RailArtefact {
   checking?: boolean;
   /** A live page that refuses to be framed: linked, never a blank frame. */
   blocked?: boolean;
+  /** Which server serves a live page, and whether it changed lately. */
+  server?: RailServer;
   at?: string;
+}
+
+/** The server behind a live page, as the card says it. */
+export interface RailServer {
+  /** "127.0.0.1:8088". */
+  address: string;
+  /** "php -S"; absent when nothing listens. */
+  command?: string;
+  /** The folder it serves, home as "~". */
+  folder?: string;
+  /** "GNM's own folder", "a copy, not GNM's own folder". */
+  whose?: string;
+  /** Whether the folder is the project's own, when Flyd can tell. */
+  own?: boolean;
+  /** What changed behind this address lately: "Server stopped", and the detail. */
+  changed?: { at: string; title: string; detail: string };
+}
+
+/** A project as the column needs it: its name and its folders. */
+export interface RailProject {
+  id?: string;
+  name: string;
+  repos: string[];
 }
 
 export interface Rail {
@@ -159,7 +186,7 @@ export function railImageSrc(path: string): string {
 }
 
 /** One artefact card for a preview: a live page framed once it answers, a screenshot, or a finished file. Pure. */
-export function previewCard(preview: RailPreview, state: PreviewState = "up"): RailArtefact {
+export function previewCard(preview: RailPreview, state: PreviewState = "up", server?: RailServer): RailArtefact {
   const at = preview.at ? { at: preview.at } : {};
   if (preview.kind === "image") {
     const name = preview.url.split("/").pop() ?? preview.url;
@@ -170,12 +197,79 @@ export function previewCard(preview: RailPreview, state: PreviewState = "up"): R
   }
   const line = preview.line ?? preview.url.replace(/^https?:\/\//, "");
   const title = preview.title ?? "Live preview";
-  if (state === "down") return { id: preview.id, title: "Preview not running", line, url: preview.url, down: true, ...at };
+  const served = server ? { server } : {};
+  if (state === "down") return { id: preview.id, title: "Preview not running", line, url: preview.url, down: true, ...served, ...at };
   // A page that refuses to be framed is shown through its own file when the server has one, else only linked.
-  if (preview.frame) return { id: preview.id, title, line, url: preview.url, preview: preview.frame, ...at };
-  if (state === "checking") return { id: preview.id, title, line, url: preview.url, checking: true, ...at };
-  if (state === "blocked") return { id: preview.id, title, line, url: preview.url, blocked: true, ...at };
-  return { id: preview.id, title, line, url: preview.url, preview: preview.url, ...at };
+  if (preview.frame) return { id: preview.id, title, line, url: preview.url, preview: preview.frame, ...served, ...at };
+  if (state === "checking") return { id: preview.id, title, line, url: preview.url, checking: true, ...served, ...at };
+  if (state === "blocked") return { id: preview.id, title, line, url: preview.url, blocked: true, ...served, ...at };
+  return { id: preview.id, title, line, url: preview.url, preview: preview.url, ...served, ...at };
+}
+
+function home(path: string, homeDir: string): string {
+  return homeDir && (path === homeDir || path.startsWith(`${homeDir}/`)) ? `~${path.slice(homeDir.length)}` : path;
+}
+
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/** "GNM (Good Neighbours Market)" as "GNM". */
+function shortName(name: string): string {
+  return name.replace(/\s*\(.*\)\s*$/, "").trim() || name;
+}
+
+/**
+ * Whose folder a server serves: inside a project's own repo is its own; a
+ * folder named after a project elsewhere ("gnm-preview", a worktree "flyd")
+ * is a copy of it. Pure.
+ */
+export function whoseFolder(folder: string, projects: RailProject[]): { whose: string; own: boolean } | undefined {
+  const clean = folder.replace(/\/+$/, "");
+  for (const project of projects) {
+    if (project.repos.some((repo) => { const root = repo.replace(/\/+$/, ""); return clean === root || clean.startsWith(`${root}/`); })) {
+      return { whose: `${shortName(project.name)}'s own folder`, own: true };
+    }
+  }
+  const segments = clean.split("/").map(slug).filter(Boolean);
+  for (const project of projects) {
+    const first = slug(shortName(project.name)).split("-")[0] ?? "";
+    const names = [...project.repos.map((repo) => slug(repo.replace(/\/+$/, "").split("/").pop() ?? "")), ...(project.id ? [slug(project.id)] : []), ...(first.length >= 3 ? [first] : [])].filter(Boolean);
+    if (segments.some((segment) => names.some((name) => segment === name || segment.startsWith(`${name}-`)))) {
+      return { whose: `a copy, not ${shortName(project.name)}'s own folder`, own: false };
+    }
+  }
+  return undefined;
+}
+
+function serving(server: PortServer, homeDir: string): string {
+  return server.folder ? `${server.command} serving ${home(server.folder, homeDir)}` : server.command;
+}
+
+/** A change of server as the card says it. Pure. */
+export function changeNotice(change: NonNullable<ServedBy["change"]>, homeDir = ""): { at: string; title: string; detail: string } {
+  const { was, now, at } = change;
+  if (!was && now) return { at, title: "Server started", detail: serving(now, homeDir) };
+  if (was && !now) return { at, title: "Server stopped", detail: `was ${serving(was, homeDir)}` };
+  if (was && now && was.folder !== now.folder) {
+    return { at, title: "Server changed", detail: `now ${serving(now, homeDir)}, was ${was.folder ? home(was.folder, homeDir) : was.command}` };
+  }
+  if (was && now && was.command !== now.command) return { at, title: "Server changed", detail: `now ${serving(now, homeDir)}, was ${was.command}` };
+  return { at, title: "Server restarted", detail: now ? `same ${serving(now, homeDir)}` : "" };
+}
+
+/** The server behind a live page as the card says it, from what the port showed. Pure. */
+export function railServer(url: string, served: ServedBy, projects: RailProject[] = [], homeDir = ""): RailServer {
+  const address = new URL(url).host;
+  const { server, change } = served;
+  const place = server?.folder ? whoseFolder(server.folder, projects) : undefined;
+  return {
+    address,
+    ...(server ? { command: server.command } : {}),
+    ...(server?.folder ? { folder: home(server.folder, homeDir) } : {}),
+    ...(place ?? {}),
+    ...(change ? { changed: changeNotice(change, homeDir) } : {}),
+  };
 }
 
 /** Machine status a reply opened with ("status=needs_decision: …"): never his to read. */
@@ -194,6 +288,8 @@ export interface RailOptions {
   voice?: (answer: ConversationMessage) => string | undefined;
   /** What the server knows about a page a reply named: a review board's title and own file. */
   known?: (preview: RailPreview) => RailPreview;
+  /** Which server serves a live page, once known. */
+  server?: (url: string) => RailServer | undefined;
 }
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
@@ -205,7 +301,8 @@ export function composeRail(
 ): Rail {
   const card = (named: RailPreview): RailArtefact => {
     const preview = options.known?.(named) ?? named;
-    return previewCard(preview, preview.kind === "live" && options.live ? options.live(preview.url) : "up");
+    if (preview.kind !== "live") return previewCard(preview);
+    return previewCard(preview, options.live ? options.live(preview.url) : "up", options.server?.(preview.url));
   };
   const conversations: RailConversation[] = exchanges
     .filter((exchange) => exchange.question.text.trim())
