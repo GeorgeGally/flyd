@@ -618,7 +618,10 @@ export class ConversationViewServer {
         at: new Date(entry.mtimeMs).toISOString(),
       })),
     ];
-    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
+    // A question still under way says in the column what its line says in the window.
+    const lines = new Map(snapshot.messages.filter((message) => message.role === "user" && message.waiting).map((message) => [message.id, message.waiting!]));
+    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working)
+      .map((exchange) => (!exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange));
     const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       known: (preview) => board.get(preview.url) ?? preview,

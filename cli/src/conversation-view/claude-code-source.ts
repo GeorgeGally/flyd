@@ -7,6 +7,7 @@ import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { followUps, inlineOutcomes, withFollowUps } from "./follow-ups.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { readProjects } from "../council/projects.js";
+import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
 import { captainImageAt, TranscriptConversation } from "./transcript-filter.js";
@@ -156,6 +157,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly pollMs: number;
   private readonly inbox?: CaptainInbox;
   private readonly desk?: { desk: FlydDesk; complete: Complete };
+  /** What the crewmate working on each note is doing now. */
+  private readonly crew?: Pick<CrewProgress, "steps">;
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
@@ -171,6 +174,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     inbox?: CaptainInbox;
     /** Flyd's own answers, and the model call that decides who answers each message. */
     desk?: { desk: FlydDesk; complete: Complete };
+    /** Reads each note's crewmate step; only with an inbox. */
+    crew?: Pick<CrewProgress, "steps">;
     /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
     commandRoots?: { claudeHome?: string; projectDir?: string };
   } = {}) {
@@ -181,6 +186,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     this.pollMs = options.pollMs ?? 400;
     this.inbox = options.inbox;
     this.desk = options.inbox ? options.desk : undefined;
+    this.crew = options.inbox ? options.crew : undefined;
   }
 
   get canSend(): boolean {
@@ -308,11 +314,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   exchanges(): Exchange[] {
     const notes = this.inbox?.notes() ?? [];
     const asks = this.desk?.desk.exchanges() ?? [];
-    if (asks.length === 0) return notes;
-    return [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
+    const all = asks.length === 0 ? notes : [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? ""));
+    // What the crewmate on each note is doing now, wherever the note is shown: under it in the window and in the column.
+    const steps = this.crew?.steps(all);
+    if (!steps?.size) return all;
+    return all.map((exchange) => {
+      const step = steps.get(exchange.question.id);
+      return step && !exchange.answer && !exchange.answered && !exchange.settled ? { ...exchange, waiting: step } : exchange;
+    });
   }
 
   private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[]): ConversationSnapshot {
+    const steps = this.crew?.steps(exchanges);
     // Firstmate's context window is its own machinery, not part of Flyd's conversation.
     const { context: _context, ...flyds } = snapshot;
     const voiced = this.desk
@@ -323,7 +336,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const answered = followUps(exchanges, snapshot.messages, snapshot.working);
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
-    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
+    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}) });
     return {
       ...voiced,
       messages: mergeNotes(voiced.messages, live, this.noteWindow(sessionId)),

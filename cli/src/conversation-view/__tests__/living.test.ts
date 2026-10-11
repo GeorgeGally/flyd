@@ -62,4 +62,12 @@ describe("the living line", () => {
     );
     expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, "Run the tests", WORKING, "", WORKING]);
   });
+
+  it("puts the crewmate's step on the note it is working on, over firstmate's own", () => {
+    const note = (id: string, text: string): Exchange => ({ question: { id, role: "user", text }, handoff: "taken", waiting: WORKING });
+    const steps = new Map([["note:a", "Checking how you like spacing"]]);
+    const [a, b] = livened([note("note:a", "fix the header"), note("note:b", "fix the footer")], { steps, activity: "Running the tests" });
+    expect(a!.waiting).toBe("Checking how you like spacing");
+    expect(b!.waiting).toBe("Running the tests");
+  });
 });

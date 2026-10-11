@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
+import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
@@ -63,7 +64,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const source = new ClaudeCodeTranscriptSource({
     projectDir,
     // Skills and commands: ~/.claude plus firstmate's own .claude, as Claude Code lists them.
-    ...(wantsInbox ? { inbox, commandRoots: { projectDir: inbox.home } } : {}),
+    ...(wantsInbox ? { inbox, crew: new CrewProgress({ home: inbox.home }), commandRoots: { projectDir: inbox.home } } : {}),
     // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
     ...(wantsInbox ? {
       desk: {
