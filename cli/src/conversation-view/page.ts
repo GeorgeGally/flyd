@@ -344,16 +344,9 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 .rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
-/* What Flyd remembers here: one line each, opened in place for the whole item. */
-.rail-mem { margin: 0 0 6px; border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; }
+/* What Flyd remembers here: one plain sentence each. */
+.rail-mem { margin: 0 0 6px; border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; font: 400 15px/1.4 var(--sans); color: var(--fg); overflow-wrap: anywhere; }
 .rail-mem--new { border-left-color: var(--accent); }
-.rail-mem summary { list-style: none; cursor: pointer; }
-.rail-mem summary::-webkit-details-marker { display: none; }
-.rail-mem-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 400 15px/1.4 var(--sans); color: var(--fg); }
-.rail-mem[open] .rail-mem-title { display: block; }
-.rail-mem-line { display: block; margin-top: 2px; font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail-mem-detail { margin: 8px 0 2px; font: 400 14px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rail-mem-detail a { color: var(--link); text-decoration: none; }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -1031,26 +1024,8 @@ var __name = function (f) { return f; };
     }
     return box;
   }
-  // A memory he opened stays open when the column redraws around it.
-  var memOpen = {};
   function railMemory(memory, fresh) {
-    var box = el("details", "rail-mem" + (fresh ? " rail-mem--new" : ""));
-    box.open = !!memOpen[memory.id];
-    box.addEventListener("toggle", function () { if (box.open) memOpen[memory.id] = true; else delete memOpen[memory.id]; });
-    var summary = el("summary");
-    summary.appendChild(el("span", "rail-mem-title", memory.title));
-    var line = [memory.line, fresh && memory.at ? ago(memory.at) : ""].filter(Boolean).join(" · ");
-    if (line) summary.appendChild(el("span", "rail-mem-line", line));
-    box.appendChild(summary);
-    var detail = el("div", "rail-mem-detail", memory.detail || memory.title);
-    if (memory.kind === "taste") {
-      detail.appendChild(document.createTextNode("\\n"));
-      var open = el("a", "", "See all his taste ↗");
-      open.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN);
-      detail.appendChild(open);
-    }
-    box.appendChild(detail);
-    return box;
+    return el("div", "rail-mem" + (fresh ? " rail-mem--new" : ""), memory.title);
   }
   function renderMemory(memory) {
     if (!memory) return false;
