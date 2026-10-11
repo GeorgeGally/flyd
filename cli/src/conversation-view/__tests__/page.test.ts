@@ -847,7 +847,7 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
   });
 
-  it("shows what Flyd remembers here and what it is remembering now, each opened in place, and keeps an opened one open", async () => {
+  it("shows what Flyd remembers here and what it is remembering now, each as one plain sentence", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -862,18 +862,11 @@ describe("header and artefact view", () => {
     expect(document.getElementById("rail")!.hidden).toBe(false);
     const sections = [...document.querySelectorAll(".rail-section")].map((node) => node.textContent);
     expect(sections).toEqual(["Remembering now", "Remembers · GNM"]);
-    const fresh = document.querySelector<HTMLDetailsElement>(".rail-mem--new")!;
-    expect(fresh.querySelector(".rail-mem-title")!.textContent).toBe("Animate text TV-style: a clean fade in place.");
-    expect(fresh.querySelector(".rail-mem-line")!.textContent).toBe("Taste · Everywhere · seen 4 times · 2m ago");
-    expect(fresh.querySelector(".rail-mem-detail")!.textContent).toContain("“should be TV style fade in. no pop.”");
-    expect(fresh.querySelector<HTMLAnchorElement>(".rail-mem-detail a")!.getAttribute("href")).toContain("/taste?token=");
+    // One sentence each: no kind/scope/seen/age line, no "Learned from" quote, no dates.
+    expect(document.querySelector(".rail-mem--new")!.textContent).toBe("Animate text TV-style: a clean fade in place.");
+    expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent)).toEqual(["Animate text TV-style: a clean fade in place.", "Gallery opens at ten."]);
+    expect(document.getElementById("rail")!.textContent).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
-    fresh.open = true;
-    fresh.dispatchEvent(new Event("toggle"));
-    update({ conversations: [], artefacts: [], memory: { ...memory, remembers: [...memory.remembers, { id: "memory:x", kind: "memory", title: "Ships GNM Friday.", line: "Memory · Commitments" }] } });
-    await settle();
-    expect(document.querySelectorAll(".rail-mem")).toHaveLength(3);
-    expect(document.querySelector<HTMLDetailsElement>(".rail-mem--new")!.open).toBe(true);
   });
 
   it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {
