@@ -68,7 +68,7 @@ header button {
 }
 header button[aria-pressed="true"] { color: var(--accent); }
 /* A switch: its word, then a small track whose knob and fill say on or off at a glance. */
-header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; }
 button[role="switch"] .track {
   position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px;
   background: color-mix(in srgb, var(--muted) 34%, transparent); transition: background-color 180ms ease;
@@ -180,7 +180,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .rail-open { margin: 10px 0 0; }
 .reply-open-page { margin: 0.6em 0 0.4em; }
 .scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
-.scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--k); }
+.scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
 .scene-meta .project { color: var(--fg); }
 .scene-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .scene-meta a:hover { color: var(--strong); }
@@ -377,12 +377,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 12px 16px; border-bottom: 1px solid var(--faint);
-  font: 600 15px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+  font: 600 15px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
 }
 .rail-head button { font: inherit; color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 .rail-head button:hover { color: var(--fg); }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
-.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -404,7 +404,15 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card-server--copy .rail-card-whose { color: var(--accent); }
 .rail-card-server--copy .rail-card-whose::before { content: "! "; }
 .rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
-.rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
+/* A framed page is laid out at a desktop width and scaled down whole, like a
+   screenshot of it: the narrow card never reflows it. The script sets --fit. */
+.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; border-top: 1px solid var(--faint); background: #fff; }
+.rail-frame {
+  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: #fff; display: block;
+  transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none;
+}
+.rail-frame-open { position: absolute; inset: 0; }
+.rail-frame-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
 /* The screenshot behind an answer leads it, a size to read at a glance. */
 .rail-shots { margin: 8px 0 0; }
@@ -444,7 +452,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .msg { position: relative; overflow-wrap: anywhere; }
 .msg[data-day]::before {
   content: attr(data-day); display: block; margin: 2.4em 0 0.4em;
-  font: 500 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  font: 500 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
 }
 .msg.user { margin-top: 2em; }
 /* The captain's words look exactly like selected text: the selection's
@@ -526,7 +534,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .sc-group.k-call { --k: var(--k-call); }
 .sc-group.k-live { --k: var(--k-live); }
 .sc-group.k-landed { --k: var(--k-landed); }
-.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--k); }
+.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
 .sc-count { color: var(--muted); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .sc-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55em; }
 .sc-row {
@@ -542,7 +550,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .sc-group.k-landed .sc-text { color: var(--fg); }
 .sc-detail { flex-basis: 100%; margin-top: 0.1em; font-size: 0.86em; line-height: 1.4; color: var(--muted); }
-.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 /* Answering a "needs you" line right where it stands. */
 /* His reply to one answer: quiet until he looks for it, then a box under the answer. */
 .reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
@@ -625,7 +633,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .summary p { margin: 0 0 0.5em; }
 .summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
 .compare { margin-top: 0.5em; padding-left: 0.8em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.86em; }
-.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .compare p { margin: 0; }
 .more {
   display: inline-block; margin: 0.35em 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer;
@@ -765,7 +773,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   header { gap: 10px; padding: 0 16px; }
   header .controls { margin-left: 0; gap: 0; }
   header button { padding: 0 6px; }
-  header button[role="switch"] { gap: 5px; font-size: 11px; letter-spacing: 0.04em; }
+  header button[role="switch"] { gap: 5px; }
   /* A phone keeps the light of "on air", not its words. */
   header .air { font-size: 0; gap: 0; }
   header .site { max-width: 34vw; padding: 0 10px; }
@@ -1261,6 +1269,10 @@ var __name = function (f) { return f; };
   function railRoot() { return document.documentElement; }
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
   function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
+  // Each framed page is scaled from its 1280px desktop width to the card's width.
+  var fitFrames = window.ResizeObserver ? new ResizeObserver(function (entries) {
+    entries.forEach(function (entry) { entry.target.style.setProperty("--fit", String(entry.contentRect.width / 1280)); });
+  }) : null;
   function railCard(card) {
     var box = keyed(el("div", "rail-card" + (card.down ? " rail-card--down" : "")), "card:" + card.id);
     var head = el("div", "rail-card-head");
@@ -1298,13 +1310,26 @@ var __name = function (f) { return f; };
       box.appendChild(shot);
     }
     if (card.preview) {
+      var framed = el("div", "rail-frame-box");
       var frame = el("iframe", "rail-frame");
       frame.src = card.preview;
       frame.loading = "lazy";
+      frame.tabIndex = -1;
       frame.setAttribute("referrerpolicy", "no-referrer");
       frame.setAttribute("title", "Live preview of " + card.preview);
       frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
-      box.appendChild(frame);
+      framed.appendChild(frame);
+      // The preview is a picture of the page; clicking it opens the page full size.
+      if (card.url) {
+        var full = el("a", "rail-frame-open");
+        full.href = card.url;
+        full.target = "_blank";
+        full.rel = "noopener";
+        full.setAttribute("aria-label", "Open " + card.title + " full size");
+        framed.appendChild(full);
+      }
+      if (fitFrames) fitFrames.observe(framed);
+      box.appendChild(framed);
     }
     return box;
   }

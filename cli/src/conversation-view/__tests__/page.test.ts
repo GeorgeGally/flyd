@@ -950,6 +950,17 @@ describe("header and artefact view", () => {
     expect(shot.src).toContain("token=");
     const frame = document.querySelector<HTMLIFrameElement>(".rail-frame")!;
     expect(frame.src).toBe("http://127.0.0.1:8097/");
+    // The page is laid out at a desktop width and scaled down whole; clicking it opens it full size.
+    expect(frame.parentElement!.classList.contains("rail-frame-box")).toBe(true);
+    expect(frame.tabIndex).toBe(-1);
+    const full = frame.parentElement!.querySelector<HTMLAnchorElement>(".rail-frame-open")!;
+    expect(full.href).toBe("http://127.0.0.1:8097/");
+    expect(full.target).toBe("_blank");
+    const css = renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) });
+    expect(css).toMatch(/\.rail-frame \{[^}]*width: 1280px; height: 800px;[^}]*transform: scale\(var\(--fit, 0\.3\)\); transform-origin: 0 0; pointer-events: none;/);
+    expect(css).toMatch(/\.rail-frame-box \{[^}]*aspect-ratio: 1280 \/ 800; overflow: hidden;/);
+    // Labels and dates stay tightly tracked.
+    expect(css.match(/letter-spacing: 0?\.(0[5-9]|[1-9])\d*em/g)).toBeNull();
     document.getElementById("rail-hide")!.click();
     expect(document.getElementById("rail")!.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
