@@ -189,8 +189,13 @@ function stepOf(text: string): ChoiceStep {
 function leadInAsks(sentence: string): boolean {
   if (!/:$/.test(sentence)) return false;
   const bare = sentence.replace(/:$/, " ");
-  return LEAD_IN.test(bare) || OPEN_WORD.test(bare.replace(LEAD_IN, "")) || ASK_IMPERATIVE.test(bare);
+  // "Which do you want:" asks; "Where things stand:" and "What changed:" are headings.
+  const question = OPEN_WORD.test(bare) && QUESTION_VERB.test(bare.replace(OPEN_WORD, ""));
+  return LEAD_IN.test(bare) || question || ASK_IMPERATIVE.test(bare);
 }
+
+/** The verb that makes "which/what/how…" a question to him rather than a heading. */
+const QUESTION_VERB = /\b(?:you|do|does|did|should|shall|would|could|can|will|is|are|was|were)\b/i;
 
 /** The choice a reply puts to him, or null when its closing words ask him nothing. */
 export function choiceOf(text: string): ReplyChoice | null {
