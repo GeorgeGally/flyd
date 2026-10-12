@@ -101,21 +101,37 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
   if (notes.length === 0) return {};
   const byNote = new Map(notes.map((exchange) => [exchange.question.id.slice("note:".length), exchange]));
   const replies = messages.filter((message) => message.role === "assistant" && message.text.trim().length >= MIN_REPLY_CHARS);
-  const said = new Map(replies.map((message) => [message.id, topicWords(message.text)]));
-  const sentences = new Map(replies.map((message) => [message.id, sentenceTopics(message.text)]));
   const seen = new Map<string, number>();
-  for (const words of said.values()) for (const word of words) seen.set(word, (seen.get(word) ?? 0) + 1);
+  for (const message of replies) for (const word of parsed(message).words) seen.set(word, (seen.get(word) ?? 0) + 1);
   const common = (word: string): boolean => (seen.get(word) ?? 0) > Math.max(2, replies.length * COMMON_SHARE);
-  const topics = new Map(notes.map((exchange) => [exchange.question.id, new Set([...topicWords(exchange.question.text)].filter((word) => !common(word)))]));
+  const topics = notes.map((exchange) => new Set([...parsed(exchange.question).words].filter((word) => !common(word))));
+  const asked = notes.map((exchange) => Date.parse(exchange.question.timestamp ?? ""));
+  // Which notes name each word: a report is only weighed against notes sharing two words with one of its sentences.
+  const naming = new Map<string, number[]>();
+  topics.forEach((words, index) => {
+    if (words.size < 2) return;
+    for (const word of words) naming.set(word, [...(naming.get(word) ?? []), index]);
+  });
   // An untagged report belongs to the one note it is most plainly about; the newer note wins a tie.
   const bestNote = (message: ConversationMessage): Array<{ exchange: Exchange; text: string }> => {
     const at = Date.parse(message.timestamp ?? "");
+    const sentences = parsed(message).sentences;
+    const candidates = new Set<number>();
+    for (const sentence of sentences) {
+      const shared = new Map<number, number>();
+      for (const word of sentence.words) {
+        for (const index of naming.get(word) ?? []) {
+          const count = (shared.get(index) ?? 0) + 1;
+          shared.set(index, count);
+          if (count === 2) candidates.add(index);
+        }
+      }
+    }
     let best: { exchange: Exchange; share: number; line: number } | undefined;
-    for (const exchange of notes) {
-      const asked = Date.parse(exchange.question.timestamp ?? "");
-      if (!Number.isNaN(asked) && !Number.isNaN(at) && at <= asked) continue;
-      const about = aboutQuestion(topics.get(exchange.question.id)!, sentences.get(message.id)!);
-      if (about.share > 0 && (!best || about.share >= best.share)) best = { exchange, ...about };
+    for (const index of [...candidates].sort((a, b) => a - b)) {
+      if (!Number.isNaN(asked[index]!) && !Number.isNaN(at) && at <= asked[index]!) continue;
+      const about = aboutQuestion(topics[index]!, sentences);
+      if (about.share > 0 && (!best || about.share >= best.share)) best = { exchange: notes[index]!, ...about };
     }
     // Only the part of the report about this note, unless the report is about nothing else.
     const part = best ? excerpt(message.text, best.line) : "";
@@ -132,19 +148,31 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
     for (const { exchange, text } of answered) found[exchange.question.id] = answerFrom(message, exchange, text);
   }
   // A note taken with others, its id never named again: the first reply firstmate settled after taking it.
-  const settled = working && messages.at(-1)?.role === "assistant" ? replies.filter((message) => message !== messages.at(-1)) : replies;
-  for (const exchange of notes) {
-    if (found[exchange.question.id] || exchange.answer || !exchange.takenAt) continue;
+  const settled = (working && messages.at(-1)?.role === "assistant" ? replies.filter((message) => message !== messages.at(-1)) : replies)
+    .filter((message) => !message.wake)
+    .map((message) => ({ message, at: Date.parse(message.timestamp ?? "") }));
+  notes.forEach((exchange, index) => {
+    if (found[exchange.question.id] || exchange.answer || !exchange.takenAt) return;
     const taken = Date.parse(exchange.takenAt);
     const own = exchange.question.id.slice("note:".length);
-    const reply = settled.find((message) =>
-      !message.wake && Date.parse(message.timestamp ?? "") >= taken && (!message.notes?.length || message.notes.includes(own)));
-    if (!reply) continue;
+    const reply = settled.find(({ message, at }) => at >= taken && (!message.notes?.length || message.notes.includes(own)))?.message;
+    if (!reply) return;
     // The report covers the batch it took, so the line naming most of this note's words is its part.
-    const line = reply.text.includes("\n") ? mostAbout(topics.get(exchange.question.id)!, sentences.get(reply.id)!) : -1;
+    const line = reply.text.includes("\n") ? mostAbout(topics[index]!, parsed(reply).sentences) : -1;
     found[exchange.question.id] = answerFrom(reply, exchange, line >= 0 ? excerpt(reply.text, line) : reply.text);
-  }
+  });
   return found;
+}
+
+/** Each message's topic words and sentences, worked out once: the window asks again on every transcript line. */
+const parsedText = new WeakMap<ConversationMessage, { text: string; words: Set<string>; sentences: Sentence[] }>();
+
+function parsed(message: ConversationMessage): { words: Set<string>; sentences: Sentence[] } {
+  const cached = parsedText.get(message);
+  if (cached?.text === message.text) return cached;
+  const fresh = { text: message.text, words: topicWords(message.text), sentences: sentenceTopics(message.text) };
+  parsedText.set(message, fresh);
+  return fresh;
 }
 
 /** The line of the sentence that shares the most of these words, or -1 when none shares any. */

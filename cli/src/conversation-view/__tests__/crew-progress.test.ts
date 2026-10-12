@@ -78,6 +78,18 @@ describe("CrewProgress", () => {
     expect(new CrewProgress({ home, claudeProjects: projects }).steps([exchange("the footer's spacing is off", { answered: true })]).size).toBe(0);
   });
 
+  it("only follows notes still in the inbox or taken in the last few hours", () => {
+    const at = Date.parse(sent);
+    const taken = (hoursAgo: number, now: number) => exchange("the footer's spacing is off", { handoff: "taken", takenAt: new Date(now - hoursAgo * 3600_000).toISOString() });
+    const now = at + 7 * 3600_000;
+    const crew = () => new CrewProgress({ home, claudeProjects: projects, now: () => now });
+    expect(crew().steps([taken(1, now)]).get("note:1")).toBe("Checking how you like spacing");
+    // Taken long ago and never named in a reply: firstmate finished with it, it is not the crewmate's work now.
+    expect(crew().steps([taken(6.5, now)]).size).toBe(0);
+    // Still waiting in his inbox, however old.
+    expect(crew().steps([exchange("the footer's spacing is off")]).get("note:1")).toBe("Checking how you like spacing");
+  });
+
   it("ignores a session older than the task", () => {
     utimesSync(transcript, new Date(0), new Date(0));
     const crew = new CrewProgress({ home, claudeProjects: projects });

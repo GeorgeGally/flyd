@@ -37,6 +37,31 @@ const START_SCAN_BYTES = 64 * 1024;
 const MAX_IMAGE_LINE_BYTES = 64 * 1024 * 1024;
 const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** A session nobody follows any more is kept read this long, so a reload or reconnect does not parse it again. */
+const LINGER_MS = 60_000;
+
+interface Subscriber {
+  onUpdate: (snapshot: ConversationSnapshot) => void;
+  onError?: (error: Error) => void;
+}
+
+/** One reading of a session's transcript, shared by every view that follows it and by `read()`. */
+interface SharedSession {
+  follower: LineFollower;
+  conversation: TranscriptConversation;
+  subscribers: Set<Subscriber>;
+  timer: ReturnType<typeof setInterval>;
+  linger?: ReturnType<typeof setTimeout>;
+  stopPictures?: () => void;
+  /** Lines were read since the last snapshot was made. */
+  dirty: boolean;
+  /** A crop of a changed element finished since the last snapshot. */
+  pictures: boolean;
+  noteKey: string;
+  snapshot?: ConversationSnapshot;
+  /** Firstmate's chat answers to the notes, kept until the notes or its replies change. */
+  answers?: { key: string; found: Record<string, ConversationMessage> };
+}
 
 /** His own names for his projects, read when a living line is composed. */
 function projectNames(): string[] {
@@ -198,6 +223,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   /** Crops of the elements a site change touched. */
   private readonly elements?: ElementShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
+  private readonly shared = new Map<string, SharedSession>();
 
   constructor(options: {
     projectDir?: string;
@@ -391,7 +417,27 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     });
   }
 
-  private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[]): ConversationSnapshot {
+  /**
+   * Firstmate's chat answers to the notes, with their screenshots kept. A
+   * tool line changes neither the notes nor the replies, so a session being
+   * followed works them out again only when one of those changed.
+   */
+  private answersOf(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[], shared?: SharedSession): Record<string, ConversationMessage> {
+    // Finished messages never change; only the newest can still grow, or gain the notes and pictures its turn names.
+    const last = snapshot.messages.at(-1);
+    const key = [
+      snapshot.working,
+      snapshot.messages.length,
+      last ? JSON.stringify([last.id, last.role, last.text, last.timestamp, last.notes, last.shots, last.site, last.wake]) : "",
+      exchanges.map((exchange) => `${exchange.question.id}:${exchange.answer?.id ?? ""}:${exchange.takenAt ?? ""}`).join(","),
+    ].join("\n");
+    if (shared?.answers?.key === key) return shared.answers.found;
+    const found = this.keptShots(sessionId, followUps(exchanges, snapshot.messages, snapshot.working), exchanges);
+    if (shared) shared.answers = { key, found };
+    return found;
+  }
+
+  private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[], shared?: SharedSession): ConversationSnapshot {
     const steps = this.crew?.steps(exchanges);
     // Firstmate's context window is its own machinery, not part of Flyd's conversation.
     const { context: _context, ...flyds } = snapshot;
@@ -400,7 +446,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       : snapshot;
     if (exchanges.length === 0) return { ...voiced, messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
-    const answered = Object.fromEntries(Object.entries(this.keptShots(sessionId, followUps(exchanges, snapshot.messages, snapshot.working), exchanges))
+    const answered = Object.fromEntries(Object.entries(this.answersOf(sessionId, snapshot, exchanges, shared))
       .map(([id, answer]) => [id, this.sited(sessionId, answer)]));
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
@@ -449,64 +495,129 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   }
 
   async read(sessionId: string): Promise<ConversationSnapshot> {
+    // A session a view follows is already read: catch up on it rather than parse the whole transcript again.
+    const shared = this.shared.get(sessionId);
+    if (shared) {
+      const fresh = this.refresh(sessionId, shared);
+      if (fresh) this.deliver(shared, fresh);
+      return shared.snapshot!;
+    }
     const conversation = new TranscriptConversation();
     new LineFollower(this.sessionPath(sessionId)).readNew((line, offset) => conversation.pushLine(line, offset));
     return this.withNotes(sessionId, conversation.snapshot(), this.exchanges());
   }
 
+  /**
+   * Every view of a session (the page, the island's status, a reconnect)
+   * shares one reading of its transcript: it is parsed once, then each new
+   * line once, and each update is worked out once for all of them.
+   */
   follow(
     sessionId: string,
     onUpdate: (snapshot: ConversationSnapshot) => void,
     onError?: (error: Error) => void,
   ): ConversationFollower {
-    const path = this.sessionPath(sessionId);
-    const follower = new LineFollower(path);
-    let conversation = new TranscriptConversation();
+    const shared = this.shared.get(sessionId) ?? this.share(sessionId);
+    if (shared.linger) clearTimeout(shared.linger);
+    delete shared.linger;
+    const subscriber: Subscriber = { onUpdate, ...(onError ? { onError } : {}) };
+    shared.subscribers.add(subscriber);
+    const before = shared.snapshot;
+    this.pump(sessionId, shared);
+    // Nothing new since the last update: this view still needs it.
+    if (shared.snapshot && shared.snapshot === before) this.deliver(shared, shared.snapshot, [subscriber]);
     let closed = false;
-    let noteKey = "";
-    // A crop of a changed element that finishes is news to the views too.
-    let pictures = false;
-    const stopPictures = this.elements?.onChange(() => {
-      pictures = true;
-      pump(false);
-    });
-
-    const pump = (initial: boolean): void => {
-      if (closed) return;
-      try {
-        let truncated = false;
-        const count = follower.readNew(
-          (line, offset) => conversation.pushLine(line, offset),
-          () => {
-            truncated = true;
-            conversation = new TranscriptConversation();
-          },
-        );
-        const exchanges = this.exchanges();
-        const key = exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",");
-        const notesChanged = key !== noteKey;
-        noteKey = key;
-        if (!initial && !truncated && count === 0 && !notesChanged && !pictures) return;
-        pictures = false;
-        const snapshot = this.withNotes(sessionId, conversation.snapshot(), exchanges);
-        this.latest.set(sessionId, snapshot.messages.slice(-8));
-        onUpdate(snapshot);
-      } catch (error) {
-        onError?.(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-
-    pump(true);
-    // Polling, not fs.watch: it behaves the same for every editor and
-    // filesystem, and a stat every few hundred ms is negligible.
-    const timer = setInterval(() => pump(false), this.pollMs);
-    timer.unref?.();
     return {
-      close() {
+      close: () => {
+        if (closed) return;
         closed = true;
-        clearInterval(timer);
-        stopPictures?.();
+        shared.subscribers.delete(subscriber);
+        if (shared.subscribers.size > 0) return;
+        shared.linger = setTimeout(() => this.unshare(sessionId, shared), LINGER_MS);
+        shared.linger.unref?.();
       },
     };
+  }
+
+  private share(sessionId: string): SharedSession {
+    const shared: SharedSession = {
+      follower: new LineFollower(this.sessionPath(sessionId)),
+      conversation: new TranscriptConversation(),
+      subscribers: new Set(),
+      // Polling, not fs.watch: it behaves the same for every editor and
+      // filesystem, and a stat every few hundred ms is negligible.
+      timer: setInterval(() => this.pump(sessionId, shared), this.pollMs),
+      dirty: true,
+      pictures: false,
+      noteKey: "",
+    };
+    shared.timer.unref?.();
+    // A crop of a changed element that finishes is news to the views too.
+    shared.stopPictures = this.elements?.onChange(() => {
+      shared.pictures = true;
+      this.pump(sessionId, shared);
+    });
+    this.shared.set(sessionId, shared);
+    return shared;
+  }
+
+  private unshare(sessionId: string, shared: SharedSession): void {
+    if (shared.subscribers.size > 0) return;
+    clearInterval(shared.timer);
+    shared.stopPictures?.();
+    if (this.shared.get(sessionId) === shared) this.shared.delete(sessionId);
+  }
+
+  /** Reads what was appended; with nobody following, that is all until someone does. */
+  private pump(sessionId: string, shared: SharedSession): void {
+    try {
+      if (shared.subscribers.size === 0) {
+        this.catchUp(shared);
+        return;
+      }
+      const fresh = this.refresh(sessionId, shared);
+      if (fresh) this.deliver(shared, fresh);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      for (const subscriber of [...shared.subscribers]) subscriber.onError?.(failure);
+    }
+  }
+
+  private catchUp(shared: SharedSession): void {
+    const count = shared.follower.readNew(
+      (line, offset) => shared.conversation.pushLine(line, offset),
+      () => {
+        shared.conversation = new TranscriptConversation();
+        delete shared.answers;
+        shared.dirty = true;
+      },
+    );
+    if (count > 0) shared.dirty = true;
+  }
+
+  /** A new snapshot when anything it shows may have changed, else undefined. */
+  private refresh(sessionId: string, shared: SharedSession): ConversationSnapshot | undefined {
+    this.catchUp(shared);
+    const exchanges = this.exchanges();
+    const key = exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",");
+    const notesChanged = key !== shared.noteKey;
+    shared.noteKey = key;
+    if (shared.snapshot && !shared.dirty && !notesChanged && !shared.pictures) return undefined;
+    shared.dirty = false;
+    shared.pictures = false;
+    const snapshot = this.withNotes(sessionId, shared.conversation.snapshot(), exchanges, shared);
+    shared.snapshot = snapshot;
+    this.latest.set(sessionId, snapshot.messages.slice(-8));
+    return snapshot;
+  }
+
+  private deliver(shared: SharedSession, snapshot: ConversationSnapshot, to: Iterable<Subscriber> = [...shared.subscribers]): void {
+    for (const subscriber of to) {
+      try {
+        subscriber.onUpdate(snapshot);
+      } catch (error) {
+        subscriber.onError?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
   }
 }
