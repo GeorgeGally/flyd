@@ -163,6 +163,8 @@ export interface StatusItem {
   project?: string;
   /** What follows from it ("being updated, will merge when green"), quieter under the line. */
   detail?: string;
+  /** For work that needs him: the question it puts to him, which his answer in place names. */
+  ask?: string;
 }
 
 const NEEDS = /\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|your (?:call|decision|word|ok|go-ahead|approval)|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok)|approve)\b/i;
@@ -195,12 +197,21 @@ function projectOf(url: string | undefined): string | undefined {
 /** The Markdown links of an item, then its text with them flattened. */
 function itemOf(raw: string, state: WorkState): StatusItem {
   const urls = [...raw.matchAll(LINK)].map((match) => match[2]!);
-  const said = clip(inline(sentences(inline(raw))[0] ?? inline(raw)).replace(/[,;:.]+$/, ""), 140);
+  const said = sentences(inline(raw));
+  const first = clip(inline(said[0] ?? inline(raw)).replace(/[,;:.]+$/, ""), 140);
   // "X clashed with what landed, so it's being updated" → the line, then what follows from it.
-  const split = /^(.{12,}?)(?:,\s+so\s+|\s+[—–]\s+|;\s+)(.+)$/.exec(said);
+  const split = /^(.{12,}?)(?:,\s+so\s+|\s+[—–]\s+|;\s+)(.+)$/.exec(first);
+  const text = capitalise(split ? split[1]! : first);
+  // Nothing the item says after its line is dropped: an outcome often comes first and the ask after it.
+  const rest = [split ? capitalise(split[2]!) : "", ...said.slice(1)].filter(Boolean).join(" ");
+  const detail = rest ? clip(rest, DETAIL_CHARS) : "";
+  const asked = state === "needs" ? said.slice(1).find((sentence) => NEEDS.test(sentence) || SAY_ASK.test(sentence) || ASKS.test(sentence)) : undefined;
   const project = projectOf(urls[0]);
-  return { text: capitalise(split ? split[1]! : said), state, urls, ...(project ? { project } : {}), ...(split ? { detail: capitalise(split[2]!) } : {}) };
+  return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: `${text}: ${clip(asked, DETAIL_CHARS)}` } : {}) };
 }
+
+/** Longer than this, what an item says after its line is clipped at a word. */
+const DETAIL_CHARS = 240;
 
 const COUNTS = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 
@@ -338,7 +349,7 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
       const project = named && item.project ? `<span class="sc-project">${escapeHtml(item.project)}</span>` : "";
       const detail = item.detail ? `<span class="sc-detail">${escapeHtml(item.detail)}</span>` : "";
       // A question he can answer right here; the page puts a reply box under it.
-      const ask = state === "needs" ? ` data-ask="${escapeHtml(item.text)}"` : "";
+      const ask = state === "needs" ? ` data-ask="${escapeHtml(item.ask ?? item.text)}"` : "";
       return `<li class="sc-row" style="--i:${index++}"${ask}><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
     });
     const count = mine.reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
