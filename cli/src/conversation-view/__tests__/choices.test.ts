@@ -4,7 +4,7 @@ import { SnapshotDiffer } from "../server.js";
 import { showOf } from "../show.js";
 import { boxesOf } from "../boxes.js";
 import type { ConversationMessage } from "../types.js";
-import { MISSED_NOTES } from "./fixtures/replies.js";
+import { MISSED_NOTES, OPEN_QUESTIONS } from "./fixtures/replies.js";
 
 // The reply that never reached him: an animation review in firstmate's own
 // session, ending on a question about the three things it listed.
@@ -64,6 +64,22 @@ describe("choiceOf", () => {
       question: "Which do you want?",
       options: ["Evergreen", "Frost"],
     });
+  });
+
+  it("puts several questions listed at the end one at a time, never offering one as the answer to another", () => {
+    expect(choiceOf(OPEN_QUESTIONS)).toEqual({
+      question: "Still waiting on you",
+      options: [],
+      steps: [
+        { question: "Discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)?", options: ["Yes", "No"] },
+        { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
+      ],
+    });
+    // Each question keeps its own alternatives; one that asks which is his to say.
+    expect(choiceOf("Two calls before I go on:\n\n1. Merge PR 12 now or wait for checks?\n2. Which colour should the button be?")!.steps).toEqual([
+      { question: "Merge PR 12 now or wait for checks?", options: ["Merge PR 12 now", "Wait for checks"] },
+      { question: "Which colour should the button be?", options: [] },
+    ]);
   });
 
   it("leaves an open question to his own words", () => {
@@ -147,6 +163,15 @@ describe("the choice, where he sees it", () => {
     });
     const answered = differ.next({ messages: [said("u1", "ok do it"), asked, said("note:1", "Yes, all three")], working: false });
     expect(answered.messages.find((message) => message.id === asked.id)!.choice).toBeUndefined();
+  });
+
+  it("carries several questions as steps, in the window and on the artefact", () => {
+    const asked = reply("reply:b#4", OPEN_QUESTIONS, { aside: true, timestamp: "2026-10-12T07:40:29Z" });
+    const choice = new SnapshotDiffer().next({ messages: [said("u1", "fix the admin"), asked], working: false }).messages.find((message) => message.id === asked.id)!.choice!;
+    expect(choice).toMatchObject({ question: "Still waiting on you", options: [], replyTo: "reply:b#4" });
+    expect(choice.steps!.map((step) => step.question)).toEqual(["Discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)?", "Should Flyd's sidebar show newest at the top again?"]);
+    const screen = showOf({ messages: [said("u1", "fix the admin"), asked], working: false }, { now: Date.parse("2026-10-12T07:41:00Z") });
+    expect(screen.items[0]!.decision).toMatchObject({ replyTo: "reply:b#4", choices: [], steps: choice.steps });
   });
 
   it("puts it on the artefact as a call ahead of the fleet's holds, answerable with a tap", () => {

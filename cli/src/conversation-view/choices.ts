@@ -7,14 +7,26 @@ import type { ConversationMessage } from "./types.js";
 // question is Yes / No; one that offers a numbered set ("Want me to add all
 // three?") is all of them, any one of them, or none; "A or B?" is A and B; a
 // list under "Which do you want?" is one button per item. An open question
-// has no options, only his own words. Only the reply's closing words count:
-// a question it raised and answered along the way is not put to him. Pure.
+// has no options, only his own words. A list whose items are themselves
+// questions ("Still waiting on you: whether to …; whether …") is not a choice
+// among them: it is several questions, put to him one at a time and answered
+// together. Only the reply's closing words count: a question it raised and
+// answered along the way is not put to him. Pure.
+
+export interface ChoiceStep {
+  /** One question, in Flyd's words. */
+  question: string;
+  /** One tap each; empty when only his own words can answer. */
+  options: string[];
+}
 
 export interface ReplyChoice {
-  /** The question, one sentence, in Flyd's words. */
+  /** The question, one sentence, in Flyd's words; over several, what they are about. */
   question: string;
-  /** One tap each, in order; empty when only his own words can answer. */
+  /** One tap each, in order; empty when only his own words can answer, or when there are steps. */
   options: string[];
+  /** Several questions asked at once: one at a time, and one reply that answers them all. */
+  steps?: ChoiceStep[];
 }
 
 /** At most this many options; more is a list to read, not a choice to make. */
@@ -31,10 +43,11 @@ const ABOUT_SET = /\b(?:all|both|these|them|each|any of|one of|which)\b/i;
 /** Lead-ins that only make the question polite; the alternatives follow them. */
 const LEAD_IN = /^(?:so,?\s+|then,?\s+|and\s+)?(?:do you want me to|would you like me to|want me to|should i|shall i|should we|shall we|do you want to|would you like to|do you want|would you like|do you prefer|would you prefer|prefer|is it)\s+/i;
 
-/** A numbered option the reply listed: its number and what it is called. */
+/** A numbered option the reply listed: its number, what it is called, and all it says. */
 interface Listed {
   number?: string;
   label: string;
+  text: string;
 }
 
 const LIST_ITEM = /^\s*(?:(\d+)[.)]|[-*+])\s+(.*)$/;
@@ -61,13 +74,14 @@ function listed(lines: string[]): Listed[] {
     return rows.slice(2).map((row) => {
       const [first = "", second = ""] = cells(row);
       const number = /^#?(\d+)\.?$/.exec(first)?.[1];
-      return { ...(number ? { number } : {}), label: labelOf(number ? second : first) };
+      const text = number ? second : first;
+      return { ...(number ? { number } : {}), label: labelOf(text), text: inline(text).trim() };
     }).filter((item) => item.label);
   }
   // Top-level items only; a nested line belongs to the item above it.
   const items = rows.filter((line) => !/^\s{2,}/.test(line) || !LIST_ITEM.test(line)).map((line) => LIST_ITEM.exec(line));
   if (items.length === 0 || items.some((item) => !item)) return [];
-  return items.map((item) => ({ ...(item![1] ? { number: item![1] } : {}), label: labelOf(item![2]!) })).filter((item) => item.label);
+  return items.map((item) => ({ ...(item![1] ? { number: item![1] } : {}), label: labelOf(item![2]!), text: inline(item![2]!).trim() })).filter((item) => item.label);
 }
 
 /** The reply's blocks: runs of lines between blank lines, code blocks dropped. */
@@ -145,6 +159,29 @@ function onlyOne(item: Listed): string {
   return clip(`Only ${item.number ? `${item.number}: ` : ""}${item.label}`, OPTION_CHARS + 8);
 }
 
+/** An item that is a question of its own: "whether to …", "if …", or one that ends asking. */
+const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
+/** "whether Flyd's sidebar should show …": who, the verb that asks, and the rest. */
+const WHETHER_SUBJECT = /^(?:whether|if)\s+(.+?)\s+(should|can|could|will|would|is|are|was|were|do|does|did|has|have|may|might|must)\s+(.+)$/i;
+
+/** A listed item as the question it is: "whether to discard X" → "Discard X?". */
+function itemQuestion(text: string): string {
+  const bare = text.replace(/[.;:,!?]+$/, "").trim();
+  const subject = WHETHER_SUBJECT.exec(bare);
+  const asked = /^(?:whether|if)\s+to\s+/i.test(bare) ? bare.replace(/^(?:whether|if)\s+to\s+/i, "")
+    : subject ? `${subject[2]!} ${subject[1]!} ${subject[3]!}`
+      : bare.replace(/^(?:whether|if)\s+/i, "");
+  return capitalise(inFlydsVoice(`${asked}?`));
+}
+
+/** One question as a step: its alternatives, nothing to tap when it asks which, else yes or no. */
+function stepOf(text: string): ChoiceStep {
+  const question = itemQuestion(text);
+  const either = alternatives(question);
+  if (either.length) return { question, options: either };
+  return { question, options: OPEN_WORD.test(question) ? [] : ["Yes", "No"] };
+}
+
 /** The choice a reply puts to him, or null when its closing words ask him nothing. */
 export function choiceOf(text: string): ReplyChoice | null {
   const blocks = blocksOf(text);
@@ -155,6 +192,10 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (!asks) return null;
   const question = capitalise(inFlydsVoice([context, sentence.replace(/:$/, "?")].filter(Boolean).join(" ")));
   const lead = sentence.replace(LEAD_IN, "");
+  // Questions listed under it are asked one at a time, not offered as answers.
+  if (after.length >= 2 && after.every((item) => ITEM_ASKS.test(item.text))) {
+    return { question: question.replace(/\?$/, ""), options: [], steps: after.map((item) => stepOf(item.text)) };
+  }
   // Options listed under the question are the choice.
   if (after.length >= 2 && after.length <= MAX_OPTIONS) return { question, options: after.map((item) => item.label) };
   const either = alternatives(sentence);

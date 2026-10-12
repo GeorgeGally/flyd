@@ -855,6 +855,34 @@ describe("header and artefact view", () => {
     expect(picks[1]!.disabled).toBe(true);
   });
 
+  it("asks a reply's several questions on the artefact one at a time; a tap there never sends", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const steps = [
+      { question: "Discard the old CapFive experiment branches?", options: ["Yes", "No"] },
+      { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
+    ];
+    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:b#4", kind: "call", headline: "Still waiting on you", why: "waiting on you", ref: "reply:b#4", decision: { task: "reply:b#4", replyTo: "reply:b#4", question: "Still waiting on you", choices: [], steps } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    const pick = (label: string) => [...ask.querySelectorAll<HTMLButtonElement>(".stepper .choice-pick")].find((button) => button.textContent === label)!.click();
+    expect(ask.querySelector(".step-q")!.textContent).toBe("Discard the old CapFive experiment branches?");
+    pick("Yes");
+    pick("No");
+    await settle();
+    expect(sends()).toEqual([]);
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("");
+    ask.querySelector<HTMLButtonElement>(".step-send")!.click();
+    await settle();
+    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to firstmate");
+    expect(ask.querySelector(".step-send")).toBeNull();
+    expect(ask.querySelector(".step-count")!.textContent).toBe("Your answers");
+  });
+
   it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
@@ -1152,6 +1180,49 @@ describe("header and artefact view", () => {
     words.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await settle();
     expect(sends().at(-1)).toEqual({ session: "latest", text: "Book a stall", replyTo: "r3" });
+  });
+
+  it("asks several questions one at a time, sends nothing on a tap, and sends his answers together at the end", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const steps = [
+      { question: "Discard the old CapFive experiment branches?", options: ["Yes", "No"] },
+      { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
+    ];
+    const asked = { id: "reply:b#4", role: "assistant", html: "<p>Both fixes are live.</p>", aside: true, choice: { question: "Still waiting on you", options: [], steps, replyTo: "reply:b#4" } };
+    stream.emit("update", { order: ["u1", "reply:b#4"], messages: [{ id: "u1", role: "user", html: "<p>fix the admin</p>" }, asked], working: false });
+    await settle();
+    const card = document.querySelector<HTMLElement>(".msg.aside .choice")!;
+    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    const tap = (label: string) => [...card.querySelectorAll<HTMLButtonElement>(".stepper .choice-option")].find((button) => button.textContent === label)!.click();
+    expect(card.querySelector(".choice-q")!.textContent).toBe("Still waiting on you");
+    expect(card.querySelector(".step-count")!.textContent).toBe("Question 1 of 2");
+    expect(card.querySelector(".step-q")!.textContent).toBe("Discard the old CapFive experiment branches?");
+    // A tap answers this question and shows the next; nothing has gone anywhere.
+    tap("Yes");
+    await settle();
+    expect(sends()).toEqual([]);
+    expect(card.querySelector(".step-count")!.textContent).toBe("Question 2 of 2");
+    expect(card.querySelector(".step-q")!.textContent).toBe("Should Flyd's sidebar show newest at the top again?");
+    // Back keeps what he picked; his own words answer as well as a tap.
+    card.querySelector<HTMLButtonElement>(".step-back")!.click();
+    expect(card.querySelector(".stepper .choice-option[aria-pressed='true']")!.textContent).toBe("Yes");
+    tap("Yes");
+    const words = card.querySelector<HTMLTextAreaElement>(".step-input")!;
+    words.value = "No, newest at the bottom";
+    words.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(sends()).toEqual([]);
+    expect([...card.querySelectorAll(".step-review li")].map((item) => item.textContent)).toEqual([
+      "Discard the old CapFive experiment branches?Yes",
+      "Should Flyd's sidebar show newest at the top again?No, newest at the bottom",
+    ]);
+    card.querySelector<HTMLButtonElement>(".step-send")!.click();
+    await settle();
+    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No, newest at the bottom" }]);
+    expect(card.querySelector(".reply-note")!.textContent).toBe("Sent your answers");
+    expect(card.querySelector(".step-send")).toBeNull();
   });
 
   it("shows an answer Flyd gave for him as one quiet line with its rule, and takes it back on Undo", async () => {

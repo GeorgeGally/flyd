@@ -2,7 +2,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
-import { choiceOf, choiceTarget, openChoice } from "./choices.js";
+import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
 import { callItems, composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
@@ -36,7 +36,7 @@ export interface ShowItem {
    * task; a question a reply put to him names where his answer goes (replyTo),
    * and goes back the way a reply to an answer does.
    */
-  decision?: { task: string; question: string; choices: string[]; replyTo?: string; recommended?: string };
+  decision?: { task: string; question: string; choices: string[]; replyTo?: string; recommended?: string; steps?: ChoiceStep[] };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;
@@ -330,7 +330,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
         headline: choice.question,
         why: "waiting on you",
         ...(about && about !== choice.question ? { detail: about } : {}),
-        decision: { task: choiceTarget(call), question: choice.question, choices: choice.options, replyTo: choiceTarget(call) },
+        decision: { task: choiceTarget(call), question: choice.question, choices: choice.options, replyTo: choiceTarget(call), ...(choice.steps ? { steps: choice.steps } : {}) },
       }
       : { headline: askLine(readingOf(call)) ?? askLine(call.text) ?? headline(readingOf(call)), why: "waiting on you" });
   }

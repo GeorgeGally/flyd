@@ -151,3 +151,16 @@ export const MOBILE_DEPLOY = `Captain, I pulled the mobile changes, tested them,
 
 **Two things to know:**
 - **Phone dead end:** the other session hid the footer screen on phones on purpose. That left the rates page with nowhere to go. My best guess was that swiping on from it should carry round to the Welcome page, and that's what it does now. Desktop still goes to the footer. If you'd rather phones show the footer, say so.`;
+
+/** Ends on two open questions: tapping one of them, read as an answer, sent it to firstmate (2026-10-12). */
+export const OPEN_QUESTIONS = `Captain, both fixes are live on christmas.goodneighboursmarket.com. Phone screenshots are open in Preview.
+
+**Admin on phones** (the "mobile version needs work" note):
+- **Header:** smaller, and it now scrolls away instead of staying pinned at the top.
+- **Desktop:** the table layout is unchanged.
+
+In the Flyd preview you sent, the phone picture of the admin was cut off on its left edge. If you also meant that Flyd preview, tell me and I'll send it to a worker.
+
+Still waiting on you:
+- whether to discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)
+- whether Flyd's sidebar should show newest at the top again`;
