@@ -249,6 +249,43 @@ export function buildResolveToolOutput(
   return { mode: resolution.mode, operations, augmentations, message };
 }
 
+/** The manifest for a LIVE flyd_resolve_intent call. */
+export function liveManifest(intent: string, observation: Record<string, unknown>): ManifestRequest {
+  return {
+    invocation_id: randomUUID(),
+    environment_revision: (observation.revision as number) || 1,
+    environment: {
+      application: {
+        bundle_id: (observation.environment as Record<string, unknown>)?.bundleId as string || "unknown",
+        name: "",
+      },
+      window: {
+        title: (observation.environment as Record<string, unknown>)?.windowTitle as string || "",
+        ref: "win_01",
+      },
+      focused_element: {
+        ref: "el_01",
+        role: (observation.environment as Record<string, unknown>)?.elementRole as string || "AXUnknown",
+        description: "",
+        value: "",
+        placeholder: "",
+        selected_text: "",
+      },
+      selection: "",
+      sufficiency: "partial" as const,
+    },
+    intent,
+    modality: "voice",
+    // The realtime model wrote this intent, not George: it never counts as his own send command.
+    intent_author: "model",
+    invocation_fingerprint: {
+      app: (observation.fingerprint as Record<string, unknown>)?.app as string || "unknown",
+      window: (observation.fingerprint as Record<string, unknown>)?.window as string || "win_01",
+      element: "el_01",
+    } as ManifestRequest["invocation_fingerprint"],
+  };
+}
+
 async function handleToolCalls(
   adapterWs: WebSocket,
   openaiWs: WebSocket,
@@ -292,37 +329,7 @@ async function handleToolCalls(
         continue;
       }
 
-      const manifest: ManifestRequest = {
-        invocation_id: randomUUID(),
-        environment_revision: (observation.revision as number) || 1,
-        environment: {
-          application: {
-            bundle_id: (observation.environment as Record<string, unknown>)?.bundleId as string || "unknown",
-            name: "",
-          },
-          window: {
-            title: (observation.environment as Record<string, unknown>)?.windowTitle as string || "",
-            ref: "win_01",
-          },
-          focused_element: {
-            ref: "el_01",
-            role: (observation.environment as Record<string, unknown>)?.elementRole as string || "AXUnknown",
-            description: "",
-            value: "",
-            placeholder: "",
-            selected_text: "",
-          },
-          selection: "",
-          sufficiency: "partial" as const,
-        },
-        intent: intent || "",
-        modality: "voice",
-        invocation_fingerprint: {
-          app: (observation.fingerprint as Record<string, unknown>)?.app as string || "unknown",
-          window: (observation.fingerprint as Record<string, unknown>)?.window as string || "win_01",
-          element: "el_01",
-        } as ManifestRequest["invocation_fingerprint"],
-      };
+      const manifest = liveManifest(intent || "", observation);
 
       let workerConfig = null;
       try {

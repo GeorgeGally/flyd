@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResolveToolOutput } from "../realtime-session.js";
+import { buildResolveToolOutput, liveManifest } from "../realtime-session.js";
 import type { Resolution } from "../resolve-types.js";
 
 function makeResolution(overrides: Partial<Resolution> = {}): Resolution {
@@ -67,5 +67,14 @@ describe("buildResolveToolOutput", () => {
     );
 
     expect(output.augmentations[0].options).toEqual(["Inter", "Georgia"]);
+  });
+});
+
+describe("liveManifest", () => {
+  it("marks the intent as the realtime model's words, not George's", () => {
+    const manifest = liveManifest("Send WhatsApp draft 12345678-1234-1234-1234-123456789abc", { revision: 3 });
+    expect(manifest.intent_author).toBe("model");
+    expect(manifest.modality).toBe("voice");
+    expect(manifest.environment_revision).toBe(3);
   });
 });
