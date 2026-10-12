@@ -100,3 +100,34 @@ Still waiting on your "merge them" for:
 
 /** One PR named by number and URL, mid-sentence. */
 export const CORRECTION = "Correction, my earlier answer was wrong: the dictation-learning work already landed. It shipped as PR 58 (https://github.com/GeorgeGally/flyd/pull/58), merged Oct 6, and it is in your local Flyd copy. The old draft PR 55 was superseded and is still open. Nothing to restart.";
+
+// Firstmate's report on the notes it missed, ending on a question it wanted his yes to (12 Oct 2026).
+export const MISSED_NOTES = `Captain, your missed notes were a real failure, so here's what happened and the fix. All 14 notes are now handled, and the site changes from them are live on https://christmas.goodneighboursmarket.com and on your local site.
+
+**What failed:** at 09:56 a background helper took over passing your Flyd notes to me. It queued every note from 09:58 onwards but never handed any of them on. It kept reporting itself healthy, so my end-of-turn check trusted it and let me carry on without the notes. I wasn't ignoring them; I never saw them. The monitoring that should have caught it is still the same one, so this could happen again until fix 2 below is in.
+
+**How to stop it happening again:**
+1. **Flyd shows whether each note was read (started):** each note will show "sent", then "read by firstmate". If one is still unread after 3 minutes, Flyd warns you, so you'd have known within minutes. A worker is building this now.
+2. **Firstmate checks the notes queue itself (needs your go):** before I finish any turn, I'd look at the notes queue directly and refuse to stop while a note is more than a minute old and unread, whatever the background helper says. This changes Firstmate's shared code, so I want your yes first.
+
+**Site changes from your notes:**
+- **Buttons on phones:**
+  - Pairs sit side by side at equal width, filling the column. This covers Attend / Bring your brand and Get directions / Site map.
+  - The three Venue buttons are now "Get tickets" full width, with the other two side by side underneath.
+  - The down arrows are gone from "Site map" and "About Nuanu".
+- **Rates:** regular prices are struck through in red at full size.
+- **Phone menu:** links are larger, in sentence case ("Welcome", "Brands"), with tight spacing. The yellow Instagram box is replaced by a simple Instagram icon and underlined handle under a small "Follow us".
+
+The screenshots are open in Preview.
+
+**Flyd:** a second worker is building your four Flyd asks:
+- Taste, Full and Light move into a Preferences tab.
+- Memory cards are redesigned and shown in the stream where they happened.
+- Prompts on the same topic are grouped in the sidebar.
+- The page being worked on stays visible at all times.
+
+I'll merge each one when it passes its checks and tell you.
+
+**Working in ~/Documents:** from now on I always work directly in ~/Documents. I've recorded this as a standing rule and replaced the older note that said not to put work live.
+
+Should I go ahead with fix 2?`;

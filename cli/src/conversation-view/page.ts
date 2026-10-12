@@ -486,7 +486,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .receipt.late { color: var(--k-waiting); }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
 .msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
-.aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
   position: absolute; right: calc(100% + 2em); top: 0.55em; white-space: nowrap;
@@ -572,6 +572,14 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .choice-free[hidden] { display: none; }
 .choice .reply-note { display: block; margin-top: 0.55em; }
 @keyframes choice-in { from { opacity: 0; } to { opacity: 1; } }
+/* An answer Flyd gave for him by one of his standing rules: one quiet line,
+   what it said and the rule it stands on, with Undo. Not his words, so no highlight. */
+.msg.user.auto > .body { display: none; }
+.auto-line { margin: 0; font: 400 0.92em/1.5 var(--sans); color: var(--muted); text-wrap: pretty; }
+.auto-what { color: var(--fg); font-weight: 500; }
+.auto-undo { margin-left: 0.5em; font: 500 1em/1 var(--sans); color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.auto-undo:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+.auto-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .choice { animation: none; } }
 .rail-replies { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--faint); }
 .rail-replies .rail-talk { margin: 0 0 12px; }
@@ -963,6 +971,7 @@ var __name = function (f) { return f; };
       ref.textContent = "Replying to “" + message.replyQuote + "”";
       el.insertBefore(ref, body);
     }
+    wireAuto(el, message, body.textContent.trim());
     wireReply(el, message);
     if (message.role === "assistant") {
       el.classList.toggle("routine", !!message.routine);
@@ -1434,6 +1443,34 @@ var __name = function (f) { return f; };
         .then(function () { state.sending = false; });
     });
     return box;
+  }
+  // An answer Flyd gave for him by one of his standing rules says so in one
+  // line, with the rule; Undo tells the session to hold off until he answers.
+  function wireAuto(target, message, said) {
+    var auto = message.answeredFor !== undefined;
+    target.classList.toggle("auto", auto);
+    var old = target.querySelector(":scope > .auto-line");
+    if (old) old.remove();
+    if (!auto) return;
+    var line = el("p", "auto-line");
+    line.appendChild(el("span", "auto-what", (message.undone ? "You took back “" : "Answered for you: “") + said + "”"));
+    if (message.answeredFor) line.appendChild(document.createTextNode(" · your rule: " + sentence(message.answeredFor)));
+    if (SEND_TOKEN && !message.undone) {
+      var undo = el("button", "auto-undo", "Undo");
+      undo.type = "button";
+      undo.setAttribute("aria-label", "Undo the answer Flyd gave for you");
+      undo.addEventListener("click", function () {
+        if (undo.disabled || !current) return;
+        undo.disabled = true;
+        undo.textContent = "Taking back…";
+        authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, undo: message.id }) }, true)
+          .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); }); })
+          .then(function () { undo.textContent = "Taken back"; })
+          .catch(function (error) { undo.disabled = false; undo.textContent = "Undo (" + (error.message || "try again") + ")"; });
+      });
+      line.appendChild(undo);
+    }
+    target.insertBefore(line, target.querySelector(":scope > .body"));
   }
   // In the window: an answer, or the outcome under his note, takes a reply the same way.
   function replyTarget(message) {

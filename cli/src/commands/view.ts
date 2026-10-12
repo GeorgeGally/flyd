@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
+import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-answers.js";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
@@ -9,6 +11,8 @@ import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-v
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
+import { tastePath } from "../council/taste.js";
+import { readUserProfile } from "../lib/user-profile.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { MemoryReader } from "../conversation-view/memory.js";
@@ -23,6 +27,13 @@ export interface ViewOptions {
 }
 
 const PORT_ATTEMPTS = 10;
+
+/** His recorded preferences: USER.md, and TASTE.md without the rules he vetoed or the Librarian retired. */
+function recordedPreferences(): string {
+  const taste = existsSync(tastePath()) ? readFileSync(tastePath(), "utf8") : "";
+  const kept = taste.split(/^(?=## )/m).filter((section) => !/^## (?:Not me|Retired)\b/i.test(section)).join("");
+  return [readUserProfile() ?? "", kept].join("\n");
+}
 
 async function listenNear(server: ConversationViewServer, port: number, explicit: boolean): Promise<number> {
   for (let attempt = 0; ; attempt += 1) {
@@ -93,7 +104,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
   const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }) });
   // Show mode names things by his own projects; the column shows what Flyd remembers for the one we are on.
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader());
+  // Firstmate's routine questions that his standing rules settle are answered for him, each one he can take back.
+  const autoAnswers = wantsInbox && process.env.FLYD_AUTO_ANSWER !== "0"
+    ? new AutoAnswers({ preferences: recordedPreferences, logFile: defaultAutoAnswerLog() })
+    : undefined;
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers);
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

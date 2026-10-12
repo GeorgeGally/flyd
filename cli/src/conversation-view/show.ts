@@ -2,7 +2,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
-import { choiceOf, choiceTarget } from "./choices.js";
+import { choiceOf, choiceTarget, openChoice } from "./choices.js";
 import { composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
@@ -281,16 +281,18 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
       };
     });
 
-  // A call only he can make: the newest ask since he last spoke.
+  // A call only he can make: a question still waiting on his answer (a note about
+  // something else does not answer it), else the newest ask since he last spoke.
   let lastCaptain = -1;
   messages.forEach((message, index) => {
     if (message.role === "user") lastCaptain = index;
   });
   const since = messages.slice(lastCaptain + 1).filter((message) => fromFleet(message) && !routine(message));
-  const call = [...since].reverse().find((message) => asksForDecision(message.text) || FOR_HIM.test(message.text));
+  const open = openChoice(messages.filter((message) => message.role === "user" || fromFleet(message)), routine);
+  const call = open?.message ?? [...since].reverse().find((message) => asksForDecision(message.text) || FOR_HIM.test(message.text));
   if (call) {
     // A question with options is answerable on screen: the question leads, what it is about under it.
-    const choice = choiceOf(call.text);
+    const choice = open?.choice ?? choiceOf(call.text);
     const about = choice ? tidy(digestReply(withoutStubs(readingOf(call))).lead) : "";
     add("call", call, choice
       ? {

@@ -7,13 +7,18 @@ import type { ConversationMessage, Exchange } from "./types.js";
 // answers, so whoever reads it knows what "that" means. The line is hidden
 // again when the note is shown, and the reply is threaded under the answer.
 // His answer to a question a session asked in its own reply (see choices.ts)
-// goes out the same way, its line quoting that question.
+// goes out the same way, its line quoting that question. So does an answer
+// Flyd gave for him by one of his standing rules (see auto-answers.ts), its
+// line naming the rule, and his taking such an answer back.
 
 /** How much of his note and of the answer the reply quotes. */
 const QUOTE_CHARS = 160;
 
 // A reply to a session's own message names it by its id and quotes its question instead of his note.
-const MARKER = /^\[Captain is replying from Flyd to ((?:note|ask):[\w.-]+|reply:[\w.#:-]+) — (?:his note|your question): "([^"\n]*)"[^\n]*\]\n*/;
+const MARKER = /^\[(Captain is replying from Flyd|Flyd is answering for the captain) to ((?:note|ask):[\w.-]+|reply:[\w.#:-]+) — (?:his note|your question): "([^"\n]*)"([^\n]*)\]\n*/;
+/** The standing rule an answer Flyd gave for him was settled by, as the line quotes it. */
+const RULE = /; by his standing rule: "([^"\n]*)"/;
+const TAKEN_BACK = /; he takes back the answer Flyd gave for him\b/;
 
 /** One line, no brackets or double quotes to break the marker. */
 function quoted(text: string): string {
@@ -49,11 +54,33 @@ export function answerNote(message: ConversationMessage, question: string, words
   return `${marker}\n\n${words.trim()}`;
 }
 
+/**
+ * The note that answers, for him, a question put to him, when one of his
+ * standing rules already settles it. It says it is Flyd's answer and which
+ * rule gave it, so the session knows he can still take it back. Pure.
+ */
+export function autoAnswerNote(target: string, question: string, answer: string, rule: string): string {
+  return `[Flyd is answering for the captain to ${target} — your question: "${quoted(question)}"; by his standing rule: "${quoted(rule)}". He can take it back.]\n\n${answer.trim()}`;
+}
+
+/** The note that takes back an answer Flyd gave for him: hold off until he answers himself. Pure. */
+export function undoNote(target: string, question: string, answer: string): string {
+  return `[Captain is replying from Flyd to ${target} — your question: "${quoted(question)}"; he takes back the answer Flyd gave for him ("${quoted(answer)}") and will answer himself. Hold off until he does.]\n\nHold off on that; I'll answer this one myself.`;
+}
+
 /** A message with its reply line read: his own words, and what they answer. Pure. */
 export function readReply(message: ConversationMessage): ConversationMessage {
   const found = MARKER.exec(message.text);
   if (!found) return message;
-  return { ...message, text: ownWords(message.text), replyTo: found[1]!, replyQuote: found[2]! };
+  const rule = found[1]!.startsWith("Flyd") ? RULE.exec(found[4]!)?.[1] : undefined;
+  return {
+    ...message,
+    text: ownWords(message.text),
+    replyTo: found[2]!,
+    replyQuote: found[3]!,
+    ...(rule !== undefined ? { answeredFor: rule } : {}),
+    ...(TAKEN_BACK.test(found[4]!) ? { undoes: true } : {}),
+  };
 }
 
 /** His own words in a message, its reply line gone. Pure. */
