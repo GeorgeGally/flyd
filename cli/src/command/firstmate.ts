@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
-import { parseDomainResult } from "./result.js";
+import { parseDomainResult, validateDomainHandoff } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
 
@@ -263,8 +263,12 @@ export async function syncFirstmateDomainRuns(options: {
       .at(-1);
     if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
       const parsed = parseDomainResult(reply.body!);
-      const status = parsed.status ?? "completed";
-      const { notified, failure, ...rest } = next;
+      // Success is recorded only for a handoff that meets the layered contract;
+      // otherwise the raw detail is kept and the run stays open with the reason.
+      const handoff = validateDomainHandoff(parsed.result);
+      const claimed = parsed.status ?? "completed";
+      const status = claimed === "completed" && !handoff.ok ? "incomplete" : claimed;
+      const { notified, failure, incompleteReason: _previous, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
         ...rest,
@@ -275,6 +279,7 @@ export async function syncFirstmateDomainRuns(options: {
         // A new outcome is announced again; the same one is not.
         ...(notified !== undefined && !news ? { notified } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
+        ...(status === "incomplete" && !handoff.ok ? { incompleteReason: handoff.reason } : {}),
       };
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;

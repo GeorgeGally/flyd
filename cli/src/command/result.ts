@@ -88,3 +88,26 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
     },
   };
 }
+
+export type HandoffLayer = "brief" | "report" | "evidence";
+
+export type HandoffValidation =
+  | { ok: true }
+  | { ok: false; missing: HandoffLayer[]; reason: string };
+
+/**
+ * The layered handoff contract a domain boss must meet before Flyd records its
+ * work as done: a brief, a report body, and at least one evidence reference.
+ * Prose with no layers meets none of them, even though Flyd derives a brief and
+ * report from it so the raw detail survives.
+ */
+export function validateDomainHandoff(result: DomainResult): HandoffValidation {
+  const structured = result.format === "structured";
+  const missing: HandoffLayer[] = [];
+  if (!structured || !result.brief.trim()) missing.push("brief");
+  if (!structured || !result.detailedReport.trim()) missing.push("report");
+  if (!result.evidence.some((item) => item.trim())) missing.push("evidence");
+  return missing.length
+    ? { ok: false, missing, reason: `domain handoff contract unmet: missing ${missing.join(", ")}` }
+    : { ok: true };
+}

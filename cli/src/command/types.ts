@@ -7,6 +7,8 @@ export type DomainRunStatus =
   | "working"
   | "needs_decision"
   | "completed"
+  /** The boss claimed success but its handoff missed the brief/report/evidence contract; still open. */
+  | "incomplete"
   | "failed"
   | "cancelled";
 
@@ -91,5 +93,7 @@ export interface DomainRun {
   messages?: DomainMessage[];
   result?: DomainResult;
   failure?: string;
+  /** Why the latest handoff was not recorded as done (see validateDomainHandoff). */
+  incompleteReason?: string;
   notified?: boolean;
 }
