@@ -495,6 +495,42 @@ function withoutProject(label: string, names: string[]): string {
   return label;
 }
 
+/** One fleet row as a panel item; a call carries its question to answer. Pure. */
+function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
+  const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
+  const names = [project, row.repo].filter((name): name is string => Boolean(name));
+  const detail = row.said?.line || row.detail;
+  const sourceHeadline = withoutProject(row.label, names);
+  const headline = row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline);
+  if (!headline) return undefined;
+  return {
+    id: `${kind}:${id}`,
+    kind,
+    headline,
+    why: "",
+    ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [] } } : {}),
+    ...(detail ? { detail } : {}),
+    ...(row.at ? { at: row.at } : {}),
+    ...((row.shotDir ?? row.task) && row.shots?.length
+      ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
+      : {}),
+    ...(row.status ? { status: row.status } : {}),
+    ...(project ? { project } : {}),
+    ...withLink(row.url),
+    ...(row.references?.length ? { links: [...(row.url ? [{ label: linkLabel(row.url), url: row.url }] : []), ...row.references] } : {}),
+  };
+}
+
+function withLink(url: string | undefined): Partial<ShowItem> {
+  return url ? { links: [{ label: linkLabel(url), url }] } : {};
+}
+
+/** Every call the fleet holds for him, past the panel's limit, each with its question. Pure. */
+export function callItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  return fleet.calls.flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
+}
+
 /** Compose the panel's items from the four inputs, in priority order. Pure. */
 export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions = {}): ShowItem[] {
   const items: ShowItem[] = [];
@@ -502,24 +538,9 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     if (!headline) return;
     items.push({ id: `${kind}:${id}`, kind, headline, why, ...extra });
   };
-  const withLink = (url: string | undefined): Partial<ShowItem> => (url ? { links: [{ label: linkLabel(url), url }] } : {});
   const fromRow = (kind: ShowKind, id: string, row: ArtefactRow): void => {
-    const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
-    const names = [project, row.repo].filter((name): name is string => Boolean(name));
-    const detail = row.said?.line || row.detail;
-    const sourceHeadline = withoutProject(row.label, names);
-    add(kind, id, row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline), "", {
-      ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [] } } : {}),
-      ...(detail ? { detail } : {}),
-      ...(row.at ? { at: row.at } : {}),
-      ...((row.shotDir ?? row.task) && row.shots?.length
-        ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
-        : {}),
-      ...(row.status ? { status: row.status } : {}),
-      ...(project ? { project } : {}),
-      ...withLink(row.url),
-      ...(row.references?.length ? { links: [...(row.url ? [{ label: linkLabel(row.url), url: row.url }] : []), ...row.references] } : {}),
-    });
+    const item = rowItem(kind, id, row, options);
+    if (item) items.push(item);
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
     shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));

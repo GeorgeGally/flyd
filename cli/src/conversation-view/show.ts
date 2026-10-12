@@ -3,7 +3,7 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice } from "./choices.js";
-import { composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { callItems, composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -67,6 +67,8 @@ export interface ShowScreen {
   items: ShowItem[];
   /** How many of each kind exist, including those past the screen's limits. */
   counts: Partial<Record<ShowKind, number>>;
+  /** Every call that needs him, as many as counts.call says, each with its question to answer. */
+  calls?: ShowItem[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
   /** When firstmate's fleet snapshot was read. */
@@ -371,11 +373,14 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   if (!fleet || fleet.unavailable) {
     for (const item of items) if (item.kind !== "waiting") counts[item.kind] = (counts[item.kind] ?? 0) + 1;
   }
+  // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
+  const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
     items: chosen,
     counts,
+    ...(calls.length ? { calls } : {}),
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
     ...(fleet?.generated ? { read: fleet.generated } : {}),
     live: status.working,

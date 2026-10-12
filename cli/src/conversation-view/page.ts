@@ -68,7 +68,7 @@ header button {
 }
 header button[aria-pressed="true"] { color: var(--accent); }
 /* A switch: its word, then a small track whose knob and fill say on or off at a glance. */
-header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; }
 button[role="switch"] .track {
   position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px;
   background: color-mix(in srgb, var(--muted) 34%, transparent); transition: background-color 180ms ease;
@@ -180,7 +180,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .rail-open { margin: 10px 0 0; }
 .reply-open-page { margin: 0.6em 0 0.4em; }
 .scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
-.scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--k); }
+.scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
 .scene-meta .project { color: var(--fg); }
 .scene-meta a { color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .scene-meta a:hover { color: var(--strong); }
@@ -273,6 +273,40 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .ro-part + .ro-part::before { content: "· "; color: var(--muted); }
 .ro-part b { color: var(--k); }
 .ro.fade { animation: scene-fade 600ms ease both; }
+/* A figure that opens what it counts: underlined like a link, nothing louder. */
+.ro-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--k) 45%, transparent); text-underline-offset: 4px; transition: color 140ms ease; }
+.ro-open:hover { color: var(--fg); text-decoration-color: var(--k); }
+.ro-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+/* What needs him: a sheet over the artefact, one call after another, each answerable where it stands. */
+.calls { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; padding: 64px 16px 24px; background: color-mix(in srgb, var(--bg) 62%, transparent); }
+.calls[hidden] { display: none; }
+.calls-sheet {
+  display: flex; flex-direction: column; width: min(680px, 100%); max-height: calc(100vh - 88px); border: 1px solid var(--faint); border-radius: 14px;
+  background: var(--bg); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32); animation: choice-in 160ms ease both;
+}
+.calls-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--faint); }
+.calls-top h2 { margin: 0; font: 600 20px/1.2 var(--sans); color: var(--k-call); }
+.calls-top button { font: 500 15px/1 var(--mono); color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+.calls-top button:hover { color: var(--fg); }
+.calls-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calls-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 24px; list-style: none; }
+.call { padding: 22px 0 24px; }
+.call + .call { border-top: 1px solid var(--faint); }
+.call-meta { display: flex; gap: 12px; margin: 0 0 6px; font: 500 12px/1.4 var(--mono); color: var(--muted); }
+.call-head { margin: 0; font: 600 19px/1.35 var(--sans); color: var(--strong); text-wrap: pretty; }
+.call-question { margin: 8px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
+.call-link { display: inline-block; margin: 8px 14px 0 0; font: 500 13px/1.4 var(--mono); color: var(--link); text-decoration: none; }
+.calls-sheet:focus { outline: none; }
+/* Each answer compact: the choices, his own words, send, on two lines. */
+.call .scene-answer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 14px; max-width: none; }
+.call .scene-answer .choices, .call .scene-answer .receipt { grid-column: 1 / -1; }
+.call .scene-answer label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.call .scene-answer button, .call .scene-answer textarea { font-size: 15px; padding: 8px 14px; }
+.call .scene-answer textarea { min-height: 40px; height: 40px; border-radius: 12px; border-color: var(--faint); }
+.call .scene-answer textarea:focus { outline: none; border-color: var(--accent); }
+.call .scene-answer .receipt { font-size: 13px; }
+.call .scene-answer .receipt:empty { display: none; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
@@ -377,12 +411,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 12px 16px; border-bottom: 1px solid var(--faint);
-  font: 600 15px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+  font: 600 15px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
 }
 .rail-head button { font: inherit; color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 .rail-head button:hover { color: var(--fg); }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
-.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -404,7 +438,56 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card-server--copy .rail-card-whose { color: var(--accent); }
 .rail-card-server--copy .rail-card-whose::before { content: "! "; }
 .rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
-.rail-frame { width: 100%; height: 340px; border: 0; border-top: 1px solid var(--faint); background: #fff; display: block; }
+/* A framed page is laid out at a desktop width and scaled down whole, like a
+   screenshot of it: the narrow card never reflows it. The script sets --fit. */
+.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; border-top: 1px solid var(--faint); background: #fff; }
+.rail-frame {
+  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: #fff; display: block;
+  transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none;
+}
+/* Work at phone width is shown on a phone: the page at 390×844, scaled into a
+   quiet bezel. With comments on, a click drops a pin and opens a line to say what about it. */
+.rail-phone { padding: 14px 0 16px; border-top: 1px solid var(--faint); background: var(--tint); }
+.rail-phone-screen {
+  position: relative; width: min(236px, 70%); aspect-ratio: 390 / 844; margin: 0 auto; overflow: hidden;
+  border-radius: 26px; background: #fff; box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--faint), 0 14px 32px rgba(0, 0, 0, 0.28);
+}
+.rail-phone-frame {
+  position: absolute; top: 0; left: 0; width: 390px; height: 844px; border: 0; background: #fff; display: block;
+  transform: scale(var(--fit, 0.6)); transform-origin: 0 0;
+}
+.rail-phone-pins { position: absolute; inset: 0; pointer-events: none; }
+.rail-card--commenting .rail-phone-pins { pointer-events: auto; cursor: crosshair; }
+.rail-card--commenting .rail-phone-screen { box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--accent), 0 14px 32px rgba(0, 0, 0, 0.28); }
+.rail-pin {
+  position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid #fff; background: var(--k-call); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.45); animation: choice-in 140ms ease both;
+}
+.rail-pin.sent { background: #8a8f98; }
+.rail-card-head .rail-phone-toggle {
+  margin-left: auto; font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 2px 6px; cursor: pointer; transition: color 140ms ease;
+}
+.rail-card-head .rail-phone-toggle + a { margin-left: 6px; }
+.rail-phone-toggle:hover, .rail-phone-toggle[aria-pressed="true"] { color: var(--accent); }
+.rail-phone-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rail-card p.rail-phone-hint { padding: 10px 12px 12px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.rail-card p.rail-phone-hint[hidden], .rail-phone-say[hidden] { display: none; }
+.rail-phone-say { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--faint); }
+.rail-phone-where { font: 500 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.rail-phone-say textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 8px 10px; border: 1px solid var(--faint); border-radius: 8px;
+  background: var(--bg); color: var(--fg); font: 400 15px/1.4 var(--sans);
+}
+.rail-phone-say textarea:focus { outline: none; border-color: var(--accent); }
+.rail-phone-row { display: flex; align-items: center; gap: 8px; }
+.rail-phone-receipt { flex: 1; min-width: 0; font: 400 13px/1.4 var(--sans); color: var(--muted); }
+.rail-phone-cancel { font: 500 13px/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 8px 6px; cursor: pointer; }
+.rail-phone-cancel:hover { color: var(--fg); }
+.rail-phone-send { font: 600 13px/1 var(--sans); color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+.rail-phone-send:disabled { opacity: .55; cursor: default; }
+.rail-phone-say button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rail-frame-open { position: absolute; inset: 0; }
+.rail-frame-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
 /* The screenshot behind an answer leads it, a size to read at a glance. */
 .rail-shots { margin: 8px 0 0; }
@@ -444,7 +527,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .msg { position: relative; overflow-wrap: anywhere; }
 .msg[data-day]::before {
   content: attr(data-day); display: block; margin: 2.4em 0 0.4em;
-  font: 500 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  font: 500 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
 }
 .msg.user { margin-top: 2em; }
 /* The captain's words look exactly like selected text: the selection's
@@ -526,7 +609,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .sc-group.k-call { --k: var(--k-call); }
 .sc-group.k-live { --k: var(--k-live); }
 .sc-group.k-landed { --k: var(--k-landed); }
-.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--k); }
+.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
 .sc-count { color: var(--muted); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .sc-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55em; }
 .sc-row {
@@ -542,7 +625,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .sc-group.k-landed .sc-text { color: var(--fg); }
 .sc-detail { flex-basis: 100%; margin-top: 0.1em; font-size: 0.86em; line-height: 1.4; color: var(--muted); }
-.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 /* Answering a "needs you" line right where it stands. */
 /* His reply to one answer: quiet until he looks for it, then a box under the answer. */
 .reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
@@ -625,7 +708,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .summary p { margin: 0 0 0.5em; }
 .summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
 .compare { margin-top: 0.5em; padding-left: 0.8em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.86em; }
-.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .compare p { margin: 0; }
 .more {
   display: inline-block; margin: 0.35em 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer;
@@ -765,7 +848,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   header { gap: 10px; padding: 0 16px; }
   header .controls { margin-left: 0; gap: 0; }
   header button { padding: 0 6px; }
-  header button[role="switch"] { gap: 5px; font-size: 11px; letter-spacing: 0.04em; }
+  header button[role="switch"] { gap: 5px; }
   /* A phone keeps the light of "on air", not its words. */
   header .air { font-size: 0; gap: 0; }
   header .site { max-width: 34vw; padding: 0 10px; }
@@ -1261,6 +1344,127 @@ var __name = function (f) { return f; };
   function railRoot() { return document.documentElement; }
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
   function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
+  // Each framed page is scaled from its own width (1280px desktop, 390px phone) to the card's.
+  var fitFrames = window.ResizeObserver ? new ResizeObserver(function (entries) {
+    entries.forEach(function (entry) { entry.target.style.setProperty("--fit", String(entry.contentRect.width / Number(entry.target.dataset.base || 1280))); });
+  }) : null;
+  // What he pointed at, when the page lets Flyd look inside it: "button.cta “Book now”".
+  function describeSpot(frame, x, y) {
+    try {
+      var node = frame.contentDocument && frame.contentDocument.elementFromPoint(x, y);
+      if (!node) return "";
+      var name = node.tagName.toLowerCase() + (node.id ? "#" + node.id : "") + Array.prototype.slice.call(node.classList, 0, 2).map(function (c) { return "." + c; }).join("");
+      var words = String(node.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 60);
+      return words ? name + " “" + words + "”" : name;
+    } catch (_) { return ""; }
+  }
+  // A page at phone width, on a phone: he uses it as it is, or turns on comments and clicks a spot to say something about it.
+  function railPhone(card, box, head) {
+    var W = 390, H = 844;
+    var phone = el("div", "rail-phone");
+    var screen = el("div", "rail-phone-screen");
+    screen.dataset.base = String(W);
+    var frame = el("iframe", "rail-phone-frame");
+    frame.src = card.preview;
+    frame.loading = "lazy";
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.setAttribute("title", "Phone preview of " + card.preview);
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+    var pins = el("div", "rail-phone-pins");
+    pins.setAttribute("aria-hidden", "true");
+    screen.appendChild(frame);
+    screen.appendChild(pins);
+    phone.appendChild(screen);
+    if (fitFrames) fitFrames.observe(screen);
+    var toggle = el("button", "rail-phone-toggle", "comment");
+    toggle.type = "button";
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.title = "Click a spot on the phone to comment on it";
+    head.insertBefore(toggle, head.querySelector("a"));
+    var hint = el("p", "rail-phone-hint", "Click a spot on the phone to comment on it.");
+    hint.hidden = true;
+    var say = el("form", "rail-phone-say");
+    say.hidden = true;
+    var where = el("label", "rail-phone-where");
+    var text = el("textarea");
+    text.rows = 2;
+    text.maxLength = 4000;
+    text.placeholder = "What about it?";
+    var row = el("div", "rail-phone-row");
+    var receipt = el("span", "rail-phone-receipt");
+    receipt.setAttribute("role", "status");
+    var cancel = el("button", "rail-phone-cancel", "Cancel");
+    cancel.type = "button";
+    var send = el("button", "rail-phone-send", "Send");
+    send.type = "submit";
+    row.appendChild(receipt);
+    row.appendChild(cancel);
+    row.appendChild(send);
+    say.appendChild(where);
+    say.appendChild(text);
+    say.appendChild(row);
+    var spot = null;
+    var pin = null;
+    function commenting(on) {
+      box.classList.toggle("rail-card--commenting", on);
+      toggle.setAttribute("aria-pressed", on ? "true" : "false");
+      hint.hidden = !on || !!spot;
+      if (!on) drop();
+    }
+    function drop() {
+      if (pin && !pin.classList.contains("sent")) pin.remove();
+      pin = null; spot = null; say.hidden = true; text.value = ""; receipt.textContent = "";
+      hint.hidden = !box.classList.contains("rail-card--commenting");
+    }
+    toggle.addEventListener("click", function () { commenting(!box.classList.contains("rail-card--commenting")); });
+    pins.addEventListener("click", function (event) {
+      var rect = screen.getBoundingClientRect();
+      var fit = rect.width / W;
+      var x = Math.max(0, Math.min(W, (event.clientX - rect.left) / fit));
+      var y = Math.max(0, Math.min(H, (event.clientY - rect.top) / fit));
+      if (pin && !pin.classList.contains("sent")) pin.remove();
+      pin = el("span", "rail-pin");
+      pin.style.left = (x / W * 100) + "%";
+      pin.style.top = (y / H * 100) + "%";
+      pins.appendChild(pin);
+      spot = { x: Math.round(x), y: Math.round(y), element: describeSpot(frame, x, y) };
+      where.textContent = "At " + spot.x + ", " + spot.y + (spot.element ? " · " + spot.element : "") + " on the " + W + "×" + H + " screen";
+      hint.hidden = true;
+      say.hidden = false;
+      receipt.textContent = "";
+      send.disabled = false;
+      text.focus();
+    });
+    cancel.addEventListener("click", drop);
+    text.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); drop(); }
+      else if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); say.requestSubmit(); }
+    });
+    say.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      if (!spot || !text.value.trim() || send.disabled) return;
+      send.disabled = true;
+      receipt.textContent = "Sending…";
+      try {
+        var comment = { url: card.url || card.preview, x: spot.x, y: spot.y, text: text.value };
+        if (spot.element) comment.element = spot.element;
+        var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ session: current, comment: comment }) });
+        var sent = await response.json();
+        if (!response.ok) throw new Error(sent.error || "Not sent");
+        pin.classList.add("sent");
+        pin.title = text.value.trim();
+        pin = null; spot = null; say.hidden = true; text.value = "";
+        hint.hidden = false;
+        hint.textContent = "Sent. Click another spot to say more.";
+      } catch (error) {
+        receipt.textContent = error.message || "Not sent. Try again.";
+        send.disabled = false;
+      }
+    });
+    box.appendChild(phone);
+    box.appendChild(hint);
+    box.appendChild(say);
+  }
   function railCard(card) {
     var box = keyed(el("div", "rail-card" + (card.down ? " rail-card--down" : "")), "card:" + card.id);
     var head = el("div", "rail-card-head");
@@ -1297,14 +1501,28 @@ var __name = function (f) { return f; };
       shot.loading = "lazy";
       box.appendChild(shot);
     }
-    if (card.preview) {
+    if (card.preview && card.phone) railPhone(card, box, head);
+    else if (card.preview) {
+      var framed = el("div", "rail-frame-box");
       var frame = el("iframe", "rail-frame");
       frame.src = card.preview;
       frame.loading = "lazy";
+      frame.tabIndex = -1;
       frame.setAttribute("referrerpolicy", "no-referrer");
       frame.setAttribute("title", "Live preview of " + card.preview);
       frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
-      box.appendChild(frame);
+      framed.appendChild(frame);
+      // The preview is a picture of the page; clicking it opens the page full size.
+      if (card.url) {
+        var full = el("a", "rail-frame-open");
+        full.href = card.url;
+        full.target = "_blank";
+        full.rel = "noopener";
+        full.setAttribute("aria-label", "Open " + card.title + " full size");
+        framed.appendChild(full);
+      }
+      if (fitFrames) fitFrames.observe(framed);
+      box.appendChild(framed);
     }
     return box;
   }
@@ -2448,6 +2666,70 @@ var __name = function (f) { return f; };
     return (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; }).map(function (child) { return child.shot; });
   }
 
+  // A question only he can answer, as a form: its choices, his own words, and a receipt once sent.
+  function answerForm(decision, fieldId, quiet) {
+    var key = "flyd-decision:" + decision.task + ":" + decision.question;
+    var state = {};
+    try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
+    var form = el("form", "scene-answer");
+    form.setAttribute("aria-label", "Answer this question");
+    form.dataset.key = key;
+    var label = el("label", "", decision.replyTo ? "Or in your own words" : "Your answer");
+    label.htmlFor = fieldId;
+    var answer = el("textarea");
+    answer.id = fieldId;
+    answer.maxLength = 4000;
+    answer.required = true;
+    answer.value = state.text || "";
+    var choices = el("div", "choices");
+    // A question a reply put to him is answered by one tap; a fleet hold's choice is filled in to be sent.
+    var asked = !!decision.replyTo;
+    (decision.choices || []).forEach(function (choice) {
+      var button = el("button", "", choice);
+      button.type = "button";
+      button.addEventListener("click", function () {
+        answer.value = choice;
+        answer.dispatchEvent(new Event("input"));
+        if (asked) form.requestSubmit(); else answer.focus();
+      });
+      button.disabled = asked && !!state.receipt;
+      choices.appendChild(button);
+    });
+    form.appendChild(choices);
+    form.appendChild(label);
+    form.appendChild(answer);
+    var send = el("button", "", "Send answer");
+    send.type = "submit";
+    var receipt = el("div", "receipt", state.receipt || (asked || quiet ? "" : "The question stays open until your answer is acknowledged."));
+    receipt.setAttribute("role", "status");
+    receipt.setAttribute("aria-live", "polite");
+    function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
+    answer.addEventListener("input", function () { state.text = answer.value; state.receipt = ""; save(); send.disabled = !answer.value.trim(); });
+    send.disabled = !answer.value.trim() || !!state.receipt;
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      if (send.disabled || !answer.value.trim()) return;
+      send.disabled = true;
+      receipt.textContent = "Sending your answer…";
+      try {
+        var payload = asked ? { session: current, replyTo: decision.replyTo, text: answer.value } : { decision: decision.task, text: answer.value };
+        var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(payload) });
+        var sent = await response.json();
+        if (!response.ok) throw new Error(sent.error || "Answer not delivered");
+        state.receipt = asked ? "Sent: “" + answer.value.trim() + "”." : "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
+        if (asked) choices.querySelectorAll("button").forEach(function (button) { button.disabled = true; });
+        save();
+        receipt.textContent = state.receipt;
+      } catch (error) {
+        receipt.textContent = error.message || "Answer not delivered. Try again.";
+        send.disabled = false;
+      }
+    });
+    form.appendChild(send);
+    form.appendChild(receipt);
+    return form;
+  }
+
   function fillScene(box) {
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
@@ -2474,69 +2756,7 @@ var __name = function (f) { return f; };
     var oldAnswer = sceneEl.querySelector(".scene-answer");
     var decisionKey = box.decision && VIEW_TOKEN ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "";
     if (oldAnswer && oldAnswer.dataset.key !== decisionKey) oldAnswer.remove();
-    if (decisionKey && !(oldAnswer && oldAnswer.isConnected)) {
-      var decision = box.decision;
-      var key = decisionKey;
-      var state = {};
-      try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
-      var form = el("form", "scene-answer");
-      form.setAttribute("aria-label", "Answer this question");
-      form.dataset.key = key;
-      var label = el("label", "", decision.replyTo ? "Or in your own words" : "Your answer");
-      label.htmlFor = "decision-answer";
-      var answer = el("textarea");
-      answer.id = "decision-answer";
-      answer.maxLength = 4000;
-      answer.required = true;
-      answer.value = state.text || "";
-      var choices = el("div", "choices");
-      // A question a reply put to him is answered by one tap; a fleet hold's choice is filled in to be sent.
-      var asked = !!decision.replyTo;
-      (decision.choices || []).forEach(function (choice) {
-        var button = el("button", "", choice);
-        button.type = "button";
-        button.addEventListener("click", function () {
-          answer.value = choice;
-          answer.dispatchEvent(new Event("input"));
-          if (asked) form.requestSubmit(); else answer.focus();
-        });
-        button.disabled = asked && !!state.receipt;
-        choices.appendChild(button);
-      });
-      form.appendChild(choices);
-      form.appendChild(label);
-      form.appendChild(answer);
-      var send = el("button", "", "Send answer");
-      send.type = "submit";
-      var receipt = el("div", "receipt", state.receipt || (asked ? "" : "The question stays open until your answer is acknowledged."));
-      receipt.setAttribute("role", "status");
-      receipt.setAttribute("aria-live", "polite");
-      function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
-      answer.addEventListener("input", function () { state.text = answer.value; state.receipt = ""; save(); send.disabled = !answer.value.trim(); });
-      send.disabled = !answer.value.trim() || !!state.receipt;
-      form.addEventListener("submit", async function (event) {
-        event.preventDefault();
-        if (send.disabled || !answer.value.trim()) return;
-        send.disabled = true;
-        receipt.textContent = "Sending your answer…";
-        try {
-          var payload = asked ? { session: current, replyTo: decision.replyTo, text: answer.value } : { decision: decision.task, text: answer.value };
-          var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(payload) });
-          var sent = await response.json();
-          if (!response.ok) throw new Error(sent.error || "Answer not delivered");
-          state.receipt = asked ? "Sent: “" + answer.value.trim() + "”." : "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
-          if (asked) choices.querySelectorAll("button").forEach(function (button) { button.disabled = true; });
-          save();
-          receipt.textContent = state.receipt;
-        } catch (error) {
-          receipt.textContent = error.message || "Answer not delivered. Try again.";
-          send.disabled = false;
-        }
-      });
-      form.appendChild(send);
-      form.appendChild(receipt);
-      sceneEl.querySelector(".scene-text").appendChild(form);
-    }
+    if (decisionKey && !(oldAnswer && oldAnswer.isConnected)) sceneEl.querySelector(".scene-text").appendChild(answerForm(box.decision, "decision-answer"));
     sceneMeta.textContent = "";
     var word = kindWord(box);
     if (word) sceneMeta.appendChild(el("span", "kind", word));
@@ -2725,9 +2945,17 @@ var __name = function (f) { return f; };
     node.dataset.id = box.id;
     if (box.id === "work-state" && box.bars) {
       box.bars.forEach(function (bar) {
-        var part = el("span", "ro-part k-" + (bar.tone || "news"));
+        // "7 need you" opens the list of what needs him, each with its question to answer.
+        var opens = bar.tone === "call" && lastScreen && lastScreen.calls && lastScreen.calls.length;
+        var part = el(opens ? "button" : "span", "ro-part k-" + (bar.tone || "news") + (opens ? " ro-open" : ""));
         part.appendChild(el("b", "", String(bar.value)));
         part.appendChild(document.createTextNode(" " + bar.label));
+        if (opens) {
+          part.type = "button";
+          part.setAttribute("aria-haspopup", "dialog");
+          part.setAttribute("aria-controls", "calls");
+          part.addEventListener("click", function () { showCalls(true, part); });
+        }
         node.appendChild(part);
       });
       return node;
@@ -2756,7 +2984,7 @@ var __name = function (f) { return f; };
     });
   }
   function renderReadouts(readouts) {
-    var key = JSON.stringify(readouts);
+    var key = JSON.stringify([readouts, !!(lastScreen && lastScreen.calls && lastScreen.calls.length)]);
     if (key === drawnReadouts) return;
     var first = drawnReadouts === "";
     drawnReadouts = key;
@@ -2786,7 +3014,60 @@ var __name = function (f) { return f; };
     if (scenes.length && JSON.stringify(scenes[at]) !== filled) fillScene(scenes[at]);
     renderReadouts(parts.readouts);
     renderDoing();
+    if (!callsEl.hidden) drawCalls();
   }
+
+  // What needs him, every one: a sheet over the artefact, each call with its question and a way to answer.
+  var callsEl = document.getElementById("calls");
+  var callsList = document.getElementById("calls-list");
+  var callsFrom = null;
+  var drawnCalls = "";
+  function drawCalls() {
+    var calls = (lastScreen && lastScreen.calls) || [];
+    var key = JSON.stringify(calls);
+    if (key === drawnCalls) return;
+    drawnCalls = key;
+    var open = {};
+    callsList.querySelectorAll(".call").forEach(function (node) { open[node.dataset.id] = node.contains(document.activeElement); });
+    document.getElementById("calls-title").textContent = calls.length === 1 ? "One needs you" : calls.length + " need you";
+    callsList.textContent = "";
+    calls.forEach(function (call, index) {
+      var item = el("li", "call");
+      item.dataset.id = call.id;
+      var meta = el("p", "call-meta");
+      if (call.project) meta.appendChild(el("span", "", call.project));
+      if (call.at) meta.appendChild(el("span", "", ago(call.at)));
+      if (meta.childNodes.length) item.appendChild(meta);
+      item.appendChild(el("h3", "call-head", call.headline));
+      var question = call.decision && call.decision.question;
+      if (question && question !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(question))));
+      else if (call.detail && call.detail !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(call.detail))));
+      (call.links || []).forEach(function (link) {
+        var a = el("a", "call-link", link.label + " ↗");
+        a.href = link.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        item.appendChild(a);
+      });
+      if (call.decision && VIEW_TOKEN) {
+        var form = answerForm(call.decision, "call-answer-" + index, true);
+        form.querySelector("textarea").placeholder = (call.decision.choices || []).length ? "Or in your own words" : "Your answer";
+        item.appendChild(form);
+      }
+      callsList.appendChild(item);
+    });
+  }
+  function showCalls(open, from) {
+    if (open) { callsFrom = from || null; drawnCalls = ""; drawCalls(); }
+    callsEl.hidden = !open;
+    if (open) callsEl.querySelector(".calls-sheet").focus();
+    else if (callsFrom && callsFrom.isConnected) callsFrom.focus();
+  }
+  document.getElementById("calls-close").addEventListener("click", function () { showCalls(false); });
+  callsEl.addEventListener("click", function (event) { if (event.target === callsEl) showCalls(false); });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !callsEl.hidden) { event.preventDefault(); showCalls(false); }
+  });
   setInterval(function () {
     sceneMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
     renderDoing();
@@ -2829,7 +3110,7 @@ var __name = function (f) { return f; };
   });
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-answer, .prefs")) return;
+    if (event.target instanceof Element && event.target.closest(".scene-answer, .prefs, .calls, .rail-phone-say")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {
@@ -2936,6 +3217,12 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   </div>
   <div class="ticks" id="ticks" aria-label="Flyd's scenes" hidden></div>
   <div class="readouts" id="readouts" aria-label="Readouts"></div>
+  <div class="calls" id="calls" hidden role="dialog" aria-modal="true" aria-labelledby="calls-title">
+    <div class="calls-sheet" tabindex="-1">
+      <div class="calls-top"><h2 id="calls-title">Need you</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
+      <ol class="calls-list" id="calls-list"></ol>
+    </div>
+  </div>
   <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">

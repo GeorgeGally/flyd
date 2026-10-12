@@ -402,6 +402,21 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ session: "s1", undo: "note:2" }), headers)).status).toBe(409);
   });
 
+  it("sends his comment on a spot of the phone preview to firstmate, with the page, viewport and spot", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const comment = { url: "http://127.0.0.1:8088/index.html#location", x: 120.4, y: 300, element: "a.cta “Plan your visit”", text: "Full width on phones." };
+    const sent = await post(port, JSON.stringify({ session: "s1", comment }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[0]!.text).toBe("Comment on the phone preview of http://127.0.0.1:8088/index.html#location (390×844 viewport), at x 120, y 300 of the screen, on a.cta “Plan your visit”:\n\nFull width on phones.");
+    // Only a local page, a spot on the screen, and words.
+    expect((await post(port, JSON.stringify({ session: "s1", comment: { ...comment, url: "https://example.com/" } }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", comment: { ...comment, x: 900 } }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", comment: { ...comment, text: " " } }), headers)).status).toBe(400);
+    expect(inbox.sent).toHaveLength(1);
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {
