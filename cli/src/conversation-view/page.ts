@@ -252,6 +252,9 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-chat-receipt { flex-basis: 100%; margin: 0; font: 400 14px/1.4 var(--sans); color: var(--muted); }
 .art-chat-receipt:empty { display: none; }
 .art-chat-receipt.problem { color: var(--k-waiting); }
+.art-chat--receipt .art-chat-input, .art-chat--receipt .art-chat-send { display: none; }
+.scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }
+.scene-ask .step-review { font-size: clamp(16px, 1.2vw, 19px); }
 .scene-meta .closed { color: var(--muted); font-style: italic; }
 /* A question leads in words his own size: the answer under it is what matters. */
 .scene.has-ask .scene-head, .scene.has-ask .scene-head.long { max-width: 24em; font-size: clamp(26px, 2.4vw, 40px); line-height: 1.15; letter-spacing: -0.015em; }
@@ -679,6 +682,24 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .choice-free { display: flex; align-items: flex-end; gap: 8px; }
 .choice-free[hidden] { display: none; }
 .choice .reply-note { display: block; margin-top: 0.55em; }
+/* Several questions, one at a time: where he is, the question, its answers; his answers listed before they go. */
+.choice-q.choice-lead { margin-bottom: 0.4em; font-weight: 500; font-size: 0.95em; color: var(--muted); }
+.stepper { display: grid; gap: 10px; line-height: 1.4; }
+.step-count { margin: 0; font: 500 12px/1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.step-q { margin: 0; font: 600 1.05em/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.step-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.scene-ask .step-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); }
+.choice-option[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.step-free { display: flex; align-items: flex-end; gap: 8px; }
+.step-nav { display: flex; align-items: center; gap: 12px; }
+.step-back { font: 500 15px/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 8px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.step-back:hover { color: var(--strong); }
+.step-send { font: 700 12px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 12px 16px; cursor: pointer; }
+.step-send:disabled, .step-back:disabled { opacity: .45; cursor: default; }
+.step-review { margin: 0 0 4px; padding-left: 1.3em; display: grid; gap: 12px; }
+.step-review-q { display: block; color: var(--fg); overflow-wrap: anywhere; }
+.step-review-a { display: block; margin-top: 2px; font-weight: 600; color: var(--strong); overflow-wrap: anywhere; }
+.stepper :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @keyframes choice-in { from { opacity: 0; } to { opacity: 1; } }
 /* An answer Flyd gave for him by one of his standing rules: one quiet line,
    what it said and the rule it stands on, with Undo. Not his words, so no highlight. */
@@ -1741,7 +1762,7 @@ var __name = function (f) { return f; };
   var choiceStates = new Map();
   function wireChoice(target, message) {
     var choice = SEND_TOKEN ? message.choice : null;
-    var key = choice ? "choice:" + choice.replyTo + ":" + choice.question + ":" + choice.options.join("|") : "";
+    var key = choice ? "choice:" + choice.replyTo + ":" + choice.question + ":" + choice.options.join("|") + (choice.steps ? ":" + JSON.stringify(choice.steps) : "") : "";
     var old = target.querySelector(":scope > .choice");
     target.classList.toggle("asks", !!choice);
     if (old && old.dataset.key !== key) { old.remove(); old = null; }
@@ -1750,13 +1771,14 @@ var __name = function (f) { return f; };
     if (target.lastElementChild !== old) target.appendChild(old);
   }
   function choiceCard(choice, key) {
-    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false });
+    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false, steps: { at: 0, answers: [] } });
     var state = choiceStates.get(key);
     var card = el("div", "choice");
     card.dataset.key = key;
     card.setAttribute("role", "group");
     card.setAttribute("aria-label", choice.question);
     card.appendChild(el("p", "choice-q", choice.question));
+    if (choice.steps && choice.steps.length) { card.firstChild.classList.add("choice-lead"); return stepsCard(card, choice, state); }
     var buttons = [];
     if (choice.options.length) {
       var options = el("div", "choice-options");
@@ -1809,6 +1831,127 @@ var __name = function (f) { return f; };
     form.addEventListener("submit", function (event) { event.preventDefault(); deliver(input.value); });
     settle();
     return card;
+  }
+  // Several questions in one reply: the card asks them one after another, and his
+  // answers go back together, only when he sends them.
+  function stepsCard(card, choice, state) {
+    var note = el("span", "reply-note", state.note);
+    note.setAttribute("role", "status");
+    note.hidden = !state.note;
+    function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
+    var steps = stepper(choice.steps, state.steps, { option: "choice-option", input: "reply-input", next: "reply-send" }, function () {}, function (text) {
+      if (!current || state.steps.sending || state.steps.sent) return;
+      state.steps.sending = true;
+      steps.sync();
+      say("Sending…");
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+        .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
+        .then(function () { state.steps.sent = true; say("Sent your answers"); })
+        .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
+        .then(function () { state.steps.sending = false; steps.draw(); });
+    });
+    card.appendChild(steps.el);
+    card.appendChild(note);
+    return card;
+  }
+  // One question at a time: a tap or his own words answers it and moves to the
+  // next, Back goes to the one before, and nothing is sent until the last step,
+  // where he sees every answer and sends them as one reply. \`state\` is
+  // { at, answers, sent, sending }; \`look\` names the surface's option, input
+  // and button classes; \`save\` keeps the state, \`send\` delivers the reply.
+  function stepper(steps, state, look, save, send) {
+    var wrap = el("div", "stepper");
+    var controls = [];
+    function answerFor(index) { return state.answers[index] || ""; }
+    function reply() {
+      return steps.map(function (step, index) { return (index + 1) + ". " + step.question + " " + answerFor(index); }).join("\\n");
+    }
+    function go(at) { state.at = Math.max(0, Math.min(steps.length, at)); save(); draw(); }
+    function answer(index, text) {
+      text = String(text || "").trim();
+      if (!text || state.sent || state.sending) return;
+      state.answers[index] = text;
+      go(index + 1);
+    }
+    function backButton() {
+      var back = el("button", "step-back", "Back");
+      back.type = "button";
+      back.addEventListener("click", function () { go(state.at - 1); });
+      controls.push(back);
+      return back;
+    }
+    function draw() {
+      wrap.textContent = "";
+      controls = [];
+      var at = Math.min(state.at || 0, steps.length);
+      if (at === steps.length) {
+        wrap.appendChild(el("p", "step-count", state.sent ? "Your answers" : "Your answers, ready to send"));
+        var list = el("ol", "step-review");
+        steps.forEach(function (step, index) {
+          var item = el("li");
+          item.appendChild(el("span", "step-review-q", step.question));
+          item.appendChild(el("span", "step-review-a", answerFor(index)));
+          list.appendChild(item);
+        });
+        wrap.appendChild(list);
+        if (!state.sent) {
+          var nav = el("div", "step-nav");
+          nav.appendChild(backButton());
+          var go2 = el("button", "step-send", "Send answers");
+          go2.type = "button";
+          go2.addEventListener("click", function () { if (!state.sending && !state.sent) send(reply()); });
+          controls.push(go2);
+          nav.appendChild(go2);
+          wrap.appendChild(nav);
+        }
+        sync();
+        return;
+      }
+      var step = steps[at];
+      wrap.appendChild(el("p", "step-count", "Question " + (at + 1) + " of " + steps.length));
+      wrap.appendChild(el("p", "step-q", step.question));
+      var given = answerFor(at);
+      if (step.options.length) {
+        var options = el("div", "step-options");
+        options.setAttribute("role", "group");
+        options.setAttribute("aria-label", "Options");
+        step.options.forEach(function (option) {
+          var button = el("button", look.option, option);
+          button.type = "button";
+          button.setAttribute("aria-pressed", String(given === option));
+          button.addEventListener("click", function () { answer(at, option); });
+          controls.push(button);
+          options.appendChild(button);
+        });
+        wrap.appendChild(options);
+      }
+      var form = el("form", "step-free");
+      var input = el("textarea", look.input + " step-input");
+      input.rows = 1;
+      input.placeholder = step.options.length ? "Or say something else…" : "Your answer…";
+      input.setAttribute("aria-label", "Answer: " + step.question);
+      if (given && step.options.indexOf(given) === -1) input.value = given;
+      var next = el("button", look.next, "Next");
+      next.type = "submit";
+      form.appendChild(input);
+      form.appendChild(next);
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+      });
+      form.addEventListener("submit", function (event) { event.preventDefault(); answer(at, input.value); });
+      controls.push(input, next);
+      wrap.appendChild(form);
+      if (at > 0) {
+        var row = el("div", "step-nav");
+        row.appendChild(backButton());
+        wrap.appendChild(row);
+      }
+      sync();
+    }
+    function sync() { controls.forEach(function (control) { control.disabled = !!state.sending || !!state.sent; }); }
+    if (!state.answers) state.answers = [];
+    draw();
+    return { el: wrap, draw: draw, sync: sync };
   }
   function railTalk(talk) {
     var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
@@ -1984,8 +2127,25 @@ var __name = function (f) { return f; };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
     var target = !decision ? { about: about } : decision.replyTo ? { session: current, replyTo: decision.replyTo } : { decision: decision.task };
-    var chat = artefactChat(key, target, decision && decision.choices.length ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
-    if (decision && decision.choices.length) {
+    var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
+    if (decision && decision.steps && decision.steps.length) {
+      // Several questions: one at a time, a tap moves on, and the answers go together from the last step.
+      if (!chat.state.steps) chat.state.steps = { at: 0, answers: [] };
+      chat.state.steps.sending = false;
+      var steps = stepper(decision.steps, chat.state.steps, { option: "choice-pick", input: "art-chat-input", next: "art-chat-send" }, chat.save, function (text) {
+        chat.deliver(text, function () { chat.state.steps.sent = true; });
+      });
+      // Redrawn only when sending starts or ends, so a half-typed answer stays put.
+      chat.onPaint = function () {
+        var sending = chat.state.receipt === "sending";
+        if (sending === !!chat.state.steps.sending && !(chat.state.steps.sent && steps.el.querySelector(".step-send"))) return;
+        chat.state.steps.sending = sending;
+        steps.draw();
+      };
+      wrap.appendChild(steps.el);
+      // Each question takes his own words; the box below only says where the answers are.
+      chat.form.classList.add("art-chat--receipt");
+    } else if (decision && decision.choices.length) {
       var choices = el("div", "choices");
       choices.setAttribute("role", "group");
       choices.setAttribute("aria-label", "Options");
