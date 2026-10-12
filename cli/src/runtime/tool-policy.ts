@@ -9,6 +9,8 @@
 //   FLYD_AUTONOMY=trusted  (default) ask only for irreversible/outward actions
 //   FLYD_AUTONOMY=ask      ask before any state change
 
+import { workModelAction } from "./work-model-tool.js";
+
 export type ActionCategory = "read" | "local" | "outward" | "destructive";
 export type AutonomyLevel = "full" | "trusted" | "ask";
 
@@ -192,7 +194,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "domain_work": return input.action === "ask" ? "local" : "read";
     // Building on its own branch is local; approving a push or deploy for when he lands it is not.
     case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
-    case "work_model":
+    case "work_model": return workModelAction(input) === "show" ? "read" : "local";
     case "speaking_style":
     case "background_task":
     case "start_knowledge_task":

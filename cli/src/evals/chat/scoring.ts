@@ -7,6 +7,8 @@ export interface ChatEvalExpect {
   answer?: string[];
   notAnswer?: string[];
   anyTool?: string[];
+  /** Tools the turn must not reach for, e.g. a search standing in for the right tool. */
+  notTools?: string[];
   noTools?: boolean;
   maxToolCalls?: number;
   toolInput?: { tool: string; match: Record<string, string> };
@@ -89,6 +91,8 @@ export function scoreChatEval(
   if (expect.anyTool && !expect.anyTool.some((tool) => names.includes(tool))) {
     failures.push(`used none of ${expect.anyTool.join("/")} (used: ${names.join(", ") || "none"})`);
   }
+  const wrong = (expect.notTools ?? []).filter((tool) => names.includes(tool));
+  if (wrong.length) failures.push(`used ${wrong.join(", ")} instead`);
   if (expect.noTools && names.length > 0) failures.push(`expected no tools, used ${names.join(", ")}`);
   if (expect.maxToolCalls !== undefined && names.length > expect.maxToolCalls) {
     failures.push(`${names.length} tool calls > ${expect.maxToolCalls}`);

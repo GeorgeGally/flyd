@@ -362,6 +362,11 @@
       "anyTool": [
         "work_model"
       ],
+      "notTools": [
+        "bash",
+        "email_search",
+        "recall"
+      ],
       "maxSeconds": 30
     }
   },

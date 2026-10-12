@@ -65,8 +65,13 @@ export interface TurnPlan {
 // hidden on routes that shouldn't change anything, so the model isn't
 // tempted; tools with a read action (todos list, schedule list, reminders
 // list) stay visible and the gate stops their writes.
-const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "work_model", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
+const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
 const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task"];
+// George telling Flyd about his own work ("I'm not working on X anymore"):
+// recording it is hearing him, not changing anything, so wherever the tool is
+// in sight its correction runs. Blocked, the model went hunting through mail
+// and the shell for the same thing.
+const HEARS_HIM = new Set(["work_model"]);
 
 /**
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
@@ -128,6 +133,7 @@ export function visibleTools<T extends { name: string }>(tools: T[], plan: TurnP
 export function offRoute(plan: TurnPlan | null, name: string, input: Record<string, unknown>): string | null {
   if (!plan) return null;
   if (plan.handoffs.has(name)) return null;
+  if (HEARS_HIM.has(name) && plan.hidden !== null) return null;
   const category = classifyToolCall(name, input);
   if (plan.allows.has(category)) return null;
   const why = plan.route === "delegate"
