@@ -1,11 +1,20 @@
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
+import { followUps } from "../follow-ups.js";
 import { LineFollower } from "../line-follower.js";
-import type { ConversationSnapshot } from "../types.js";
+import { TranscriptConversation } from "../transcript-filter.js";
+import type { CaptainInbox } from "../firstmate-inbox.js";
+import type { ConversationSnapshot, Exchange } from "../types.js";
 import { assistantText, attachment, captain, captainBlocks, title, toolResult, toolUse } from "./transcript-fixture.js";
+
+// The real follow-ups, counted: a tool line must not make the view work them out again.
+vi.mock("../follow-ups.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../follow-ups.js")>();
+  return { ...actual, followUps: vi.fn(actual.followUps) };
+});
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -180,6 +189,71 @@ describe("ClaudeCodeTranscriptSource", () => {
     const later = new Date(stamp.getTime() + 1000);
     utimesSync(path, later, later);
     expect((await source.listSessions()).map((s) => s.title)).toEqual(["Other title"]);
+  });
+
+  it("reads a session once for every view following it, a reply's read, and a reconnect", async () => {
+    const path = join(dir, "s1.jsonl");
+    writeFileSync(path, [captain("build the view"), assistantText("Captain, the view is live.")].join("\n") + "\n");
+    const pushed = vi.spyOn(TranscriptConversation.prototype, "pushLine");
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, pollMs: 15 });
+    const page: ConversationSnapshot[] = [];
+    const island: ConversationSnapshot[] = [];
+    try {
+      const pageFollower = source.follow("s1", (snapshot) => page.push(snapshot));
+      const islandFollower = source.follow("s1", (snapshot) => island.push(snapshot));
+      expect(page).toHaveLength(1);
+      expect(island).toHaveLength(1);
+      expect(pushed).toHaveBeenCalledTimes(2);
+      expect((await source.read("s1")).messages).toHaveLength(2);
+      expect(pushed).toHaveBeenCalledTimes(2);
+
+      appendFileSync(path, captain("and the island?") + "\n");
+      await until(() => (page.at(-1)!.messages.length === 3 && island.at(-1)!.messages.length === 3 ? true : undefined));
+      expect(pushed).toHaveBeenCalledTimes(3);
+
+      // A reload closes the page's stream and opens another: the session is not parsed again.
+      pageFollower.close();
+      islandFollower.close();
+      const reloaded: ConversationSnapshot[] = [];
+      source.follow("s1", (snapshot) => reloaded.push(snapshot)).close();
+      expect(reloaded.at(-1)!.messages).toHaveLength(3);
+      expect(pushed).toHaveBeenCalledTimes(3);
+    } finally {
+      pushed.mockRestore();
+    }
+  });
+
+  it("works out firstmate's answers to the notes again only when the notes or its replies change", async () => {
+    const path = join(dir, "s1.jsonl");
+    writeFileSync(path, [captain("check the footer"), toolUse("Bash", { command: "bin/fm-inbox.sh drain --ack" })].join("\n") + "\n");
+    const note: Exchange = {
+      question: { id: "note:1791000000-abcdef", role: "user", text: "the footer spacing is off on the market page", timestamp: "2026-10-05T17:00:00.000Z" },
+      handoff: "taken",
+      takenAt: "2026-10-05T17:00:00.500Z",
+      waiting: "Working on it",
+    };
+    const inbox: CaptainInbox = { send: async () => ({ id: "note:x", timestamp: "x" }), notes: () => [note], image: () => null };
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, pollMs: 15, inbox });
+    const counted = vi.mocked(followUps);
+    counted.mockClear();
+    const updates: ConversationSnapshot[] = [];
+    const follower = source.follow("s1", (snapshot) => updates.push(snapshot));
+    try {
+      expect(counted).toHaveBeenCalledTimes(1);
+      // Firstmate at work: each tool line is an update, but neither a reply nor a note changed.
+      for (let n = 0; n < 3; n += 1) {
+        const seen = updates.length;
+        appendFileSync(path, [toolUse(), toolResult("ok")].join("\n") + "\n");
+        await until(() => (updates.length > seen ? true : undefined));
+      }
+      expect(counted).toHaveBeenCalledTimes(1);
+      appendFileSync(path, assistantText("Captain, the footer spacing on the market page is fixed and live.") + "\n");
+      const answered = await until(() => updates.at(-1)!.followUps?.["note:1791000000-abcdef"]);
+      expect(answered.text).toBe("Sir, the footer spacing on the market page is fixed and live.");
+      expect(counted).toHaveBeenCalledTimes(2);
+    } finally {
+      follower.close();
+    }
   });
 
   it("refuses session ids that would escape the project dir", async () => {
