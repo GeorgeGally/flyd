@@ -42,6 +42,8 @@ interface Segment {
   wake?: boolean;
   /** Inbox notes this turn handled: note ids its tool lines named. */
   notes?: Set<string>;
+  /** Notes whose crew work this turn took the outcome of: by the task a note's turn spawned. */
+  reports?: Set<string>;
   /** The last screenshot the assistant looked at this turn, as a transcript image id. */
   shot?: string;
   /** What this turn's tool lines say about a website it changed: pages opened, rules written, elements checked. */
@@ -52,6 +54,21 @@ interface Segment {
 const NOTE_ID = /\b(1\d{9}-[A-Za-z0-9]{6})\b/g;
 /** A line naming more notes than this is a listing, not the handling of one. */
 const MAX_NOTES_PER_LINE = 2;
+
+/** A crew task firstmate started, as fm-spawn reports it: "spawned <task>". */
+const SPAWNED = /\bspawned ([a-z0-9][a-z0-9-]*[a-z0-9])\b/g;
+/** Firstmate taking a crew task's outcome in: reading its report, or merging its PR. */
+const OUTCOME_IN = /\bdata\/([a-z0-9][a-z0-9-]*[a-z0-9])\/report\.md\b|\bfm-pr-merge\.sh\s+([a-z0-9][a-z0-9-]*[a-z0-9])\b/g;
+
+/** The crew tasks a turn spawned, by a tool result's text. */
+export function tasksSpawnedIn(line: string): string[] {
+  return [...line.matchAll(SPAWNED)].map((match) => match[1]!);
+}
+
+/** The crew tasks whose outcome a tool call takes in. */
+export function outcomesTakenIn(command: string): string[] {
+  return [...command.matchAll(OUTCOME_IN)].map((match) => (match[1] ?? match[2])!);
+}
 
 /** A screenshot file the assistant opens with Read, as against his own pasted images or a mockup he sent. */
 const SHOT_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
@@ -295,6 +312,8 @@ export class TranscriptConversation {
   private maxContext = 0;
   /** Read calls of the assistant's own screenshots whose result has not come back yet. */
   private readonly shotReads = new Set<string>();
+  /** The note each crew task was spawned for: the note its turn took up last before spawning it. */
+  private readonly taskNotes = new Map<string, string>();
 
   /**
    * Parses one JSONL line; malformed lines (e.g. a torn write) are ignored.
@@ -307,6 +326,7 @@ export class TranscriptConversation {
     if (line.includes('"type":"tool_result"')) {
       this.touch(line);
       this.noteHandled(noteIdsIn(line));
+      if (this.segment?.notes?.size && line.includes("spawned ")) this.noteSpawned(line);
       if (offset !== undefined && this.shotReads.size > 0 && line.includes('"type":"image"')) this.noteShot(line, offset);
       return;
     }
@@ -332,6 +352,22 @@ export class TranscriptConversation {
       if (!this.shotReads.delete(image.toolUseId)) return;
       this.segment!.shot = transcriptImageId(offset, n);
     });
+  }
+
+  private noteSpawned(line: string): void {
+    const note = [...this.segment!.notes!].at(-1)!;
+    for (const task of tasksSpawnedIn(line)) this.taskNotes.set(task, note);
+  }
+
+  /** A later turn that takes in a task's outcome reports on the note the task was spawned for. */
+  private noteOutcomes(segment: Segment, input: unknown): void {
+    const command = isRecord(input) ? stringField(input, "command") ?? stringField(input, "file_path") ?? "" : "";
+    for (const task of outcomesTakenIn(command)) {
+      const note = this.taskNotes.get(task);
+      if (!note) continue;
+      segment.reports ??= new Set();
+      segment.reports.add(note);
+    }
   }
 
   private noteHandled(ids: string[]): void {
@@ -423,6 +459,7 @@ export class TranscriptConversation {
         const plain = narration ? stepWords(narration) : undefined;
         if (plain) segment.activity = { text: plain, rank: 3 };
         this.noteHandled(noteIdsIn(JSON.stringify(block.input ?? "")));
+        this.noteOutcomes(segment, block.input);
         const read = stringField(block, "name") === "Read" && isRecord(block.input) ? stringField(block.input, "file_path") : undefined;
         const toolUseId = stringField(block, "id");
         if (read && toolUseId && isOwnShot(read)) this.shotReads.add(toolUseId);
@@ -488,6 +525,7 @@ export class TranscriptConversation {
       ...(last.timestamp ? { timestamp: last.timestamp } : {}),
       ...(segment.wake ? { wake: true } : {}),
       ...(segment.notes?.size ? { notes: [...segment.notes] } : {}),
+      ...(segment.reports?.size ? { reports: [...segment.reports] } : {}),
       ...(segment.shot ? { shots: [segment.shot] } : {}),
       ...(segment.site ? { site: segment.site } : {}),
     };
