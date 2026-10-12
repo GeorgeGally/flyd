@@ -323,11 +323,31 @@ describe("ConversationViewServer", () => {
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const sent = await post(port, body, headers);
     expect(sent.status).toBe(200);
-    expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Answer received. Waiting for acknowledgement; the decision remains open." });
+    expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
     expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
     expect(feed.current().fleet!.calls).toHaveLength(1);
     expect((await post(port, JSON.stringify({ decision: "unknown", text: "Yes" }), headers)).status).toBe(409);
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
+    // Any artefact: his words go to firstmate naming what they are about.
+    const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
+    expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
+    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
+    expect((await post(port, JSON.stringify({ about: { task: "x" }, text: "Hi" }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "" }), headers)).status).toBe(400);
+  });
+
+  it("says whether firstmate has read a note he sent from an artefact, only with the view's token", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    await inbox.send("And the labels");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, question: { ...exchange.question, receipt: exchange.question.id === "note:1" ? "read" as const : "sent" as const } }));
+    const port = await start(inbox);
+    const receipt = async (id: string) => JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(id)}&token=${viewToken}`)).body).receipt;
+    expect(await receipt("note:1")).toBe("read");
+    expect(await receipt("note:2")).toBe("sent");
+    expect(await receipt("note:9")).toBeNull();
+    expect((await get(port, "/api/note?id=note%3A1")).status).toBe(403);
   });
 
   it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {

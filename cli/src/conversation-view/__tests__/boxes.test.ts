@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertsOf, boxesOf, clampDepth, instrumentsOf, MAX_DEPTH, type Box } from "../boxes.js";
+import { alertsOf, boxesOf, clampDepth, instrumentsOf, MAX_DEPTH, withClosedLinks, type Box } from "../boxes.js";
 import type { ShowItem, ShowScreen } from "../show.js";
 import type { WeatherReading } from "../weather.js";
 
@@ -118,5 +118,22 @@ describe("clampDepth", () => {
     const clamped = clampDepth([deep])[0]!;
     expect(clamped.children?.[0]!.children?.[0]!.title).toBe("c");
     expect(clamped.children?.[0]!.children?.[0]!.children).toBeUndefined();
+  });
+});
+
+describe("withClosedLinks", () => {
+  it("marks a link to a page on this machine that stopped answering, and leaves the rest as links", () => {
+    const links = [
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/a" },
+      { label: "Preview", url: "http://localhost:8097/" },
+      { label: "flyd #9", url: "https://github.com/o/flyd/pull/9" },
+    ];
+    const boxes: Box[] = [{ id: "calls", kind: "group", size: "lead", title: "", why: "", children: [{ id: "c", kind: "call", size: "wide", title: "Pick", why: "", links }] }];
+    const asked: string[] = [];
+    const marked = withClosedLinks(boxes, (url) => { asked.push(url); return url.includes("4387") ? "down" : "up"; });
+    expect(marked[0]!.children![0]!.links).toEqual([{ ...links[0], closed: true }, links[1], links[2]]);
+    // Only pages on this machine are checked.
+    expect(asked).toEqual([links[0]!.url, links[1]!.url]);
+    expect(withClosedLinks(boxes, () => "checking")[0]!.children![0]!.links).toEqual(links);
   });
 });

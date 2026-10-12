@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
-  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
+  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -83,10 +83,20 @@ describe("the backlog", () => {
     const { unsaid } = withVoice(fleet, () => undefined);
     expect(unsaid.find((row) => row.kind === "report available")!.context).toContain("newer than merged work");
     const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
-    expect(items[0]!.decision).toEqual({ task: "visuals", question, choices: ["Evergreen luxe", "Fairy-light night", "Red letter day", "Christmas in the tropics", "Christmas card"] });
+    expect(items[0]!.decision).toEqual({ task: "visuals", question, choices: ["Evergreen luxe", "Fairy-light night", "Red letter day", "Christmas in the tropics", "Christmas card"], recommended: "Evergreen luxe" });
+    // The question leads in plain words, the options left to the buttons; the work it is about sits under it.
+    expect(items[0]!.headline).toBe("Picks the direction");
+    expect(items[0]!.detail).toBe("Choose a Christmas look");
     expect(items[0]!.links).toEqual([{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }]);
     expect(items[1]!.kind).toBe("news");
     expect(decisionChoices("Choose one of five directions")).toEqual([]);
+  });
+  it("puts a hold's question to him in plain words, with the option it recommends", () => {
+    const hold = "Captain picks the Christmas direction for the site from the lab (board http://127.0.0.1:4387/session/a4f0, report data/gnm-christmas-lab/report.md): 1 Evergreen luxe (recommended after round 1: green plus boutique-fair luxury), 2 Fairy-light night, 3 Red letter day, or a mix.";
+    expect(plainQuestion(hold)).toBe("Pick the Christmas direction for the site from the lab");
+    expect(recommendedChoice(hold)).toBe("Evergreen luxe");
+    expect(plainQuestion("Captain chooses: 1 A, 2 B")).toBe("Choose");
+    expect(recommendedChoice("1 A, 2 B")).toBeUndefined();
   });
   const BACKLOG = [
     "## In flight",

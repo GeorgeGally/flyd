@@ -20,6 +20,8 @@ export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next"
 export interface ShowLink {
   label: string;
   url: string;
+  /** A page on this machine that no longer answers: said in words, never a dead link. */
+  closed?: boolean;
 }
 
 export interface ShowShot {
@@ -34,7 +36,7 @@ export interface ShowItem {
    * task; a question a reply put to him names where his answer goes (replyTo),
    * and goes back the way a reply to an answer does.
    */
-  decision?: { task: string; question: string; choices: string[]; replyTo?: string };
+  decision?: { task: string; question: string; choices: string[]; replyTo?: string; recommended?: string };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;
@@ -57,6 +59,8 @@ export interface ShowItem {
   project?: string;
   /** The conversation message it comes from, so the page can open it in the terminal. */
   ref?: string;
+  /** Firstmate's task id, so what he says about it names the work. */
+  task?: string;
 }
 
 export interface ShowScreen {
@@ -144,14 +148,39 @@ function tidy(line: string): string {
   return capitalise(clip(inFlydsVoice(line.replace(/\s+/g, " ").trim()), HEADLINE_CHARS));
 }
 
-/** Sentences that only say where the work went ("Live on … and pushed"), not what changed. */
-const DEPLOY_ONLY = /\b(?:live on|pushed|deployed|screenshots? (?:is|are) open)\b/i;
+/** Where the work went ("Live on …", "pushed", "deployed to …"): not what changed. */
+const DEPLOY_ONLY = /\b(?:live on|pushed|deployed(?: to)?|screenshots? (?:is|are) open)\b/gi;
+/** Something done: a past-tense action ("pulled", "tested", "rebuilt"). */
+const DID = /\b(?:[a-z]{2,}ed|built|made|set up|cut|put|wrote|rewrote|ran|took)\b/i;
+/** Words that point at the rest of the reply ("your fixes below"): they mean nothing on their own. */
+const POINTING = /,?\s*(?:along with|together with|plus) [^.;:]*\bbelow\b/gi;
+/** A caveat or aside: what only happens if asked, what stays as it was. */
+const CAVEAT = /\b(?:if asked|only if|only \w+(?: \w+)? if|unless|stays? (?:closed|off|hidden|the same|as (?:it|they) (?:was|were))|however|by the way|note that)\b/i;
+/** A link that sits in the sentence: the page button says where it went. */
+const BARE_URL = /\s*\bhttps?:\/\/\S+?(?=[\s,;:]|\.(?:\s|$)|$)/g;
+/** "to https://…": where the work went, said by the page button instead. */
+const TO_URL = /\s+(?:to|on|at)\s+https?:\/\/\S+?(?=[\s,;:]|\.(?:\s|$)|$)/gi;
 
-/** A site change told by what it changed: its first sentence that is not about deploying or a question, and the one after. Pure. */
+/** A sentence that only says where the work went ("Live on … and pushed"), with nothing done in it. */
+function deployOnly(sentence: string): boolean {
+  if (!new RegExp(DEPLOY_ONLY.source, "i").test(sentence)) return false;
+  return !DID.test(sentence.replace(BARE_URL, " ").replace(DEPLOY_ONLY, " "));
+}
+
+/**
+ * A site change told by what it changed: its first sentence that says what was
+ * done or changed, then the one after. A sentence that only says where the work
+ * went, a question, and a caveat or aside ("Applications stay closed there; the
+ * deploy only opens them if asked") never lead; with nothing else said, the
+ * first sentence does. Pure.
+ */
 export function siteChangeLines(text: string): { headline: string; detail?: string } {
   // Line by line: a list item is its own sentence, never the tail of the lead that introduced it.
   const all = text.replace(/```[\s\S]*?```/g, " ").split(/\n+/).flatMap((line) => proseSentences(line));
-  const said = all.filter((sentence) => !DEPLOY_ONLY.test(sentence) && !/\?$/.test(sentence.trim()));
+  // What was done, in words that stand alone: "I pulled …, and deployed to https://… along with your fixes below" leads as "Pulled …, and deployed".
+  const said = all
+    .filter((sentence) => !deployOnly(sentence) && !/\?$/.test(sentence.trim()) && !CAVEAT.test(sentence))
+    .map((sentence) => sentence.replace(TO_URL, "").replace(POINTING, "").replace(/\s+([.,;:])/g, "$1").replace(/^I\s+(?=[a-z]+ed\b)/, ""));
   const [first, second] = said.length ? said : all;
   return { headline: tidy(first ?? text), ...(second ? { detail: tidy(second) } : {}) };
 }

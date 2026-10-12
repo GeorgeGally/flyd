@@ -223,14 +223,41 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /* The pair: the browser behind, the phone in front of its right edge. */
 .devices.pair .desk { left: 0; top: 4cqh; width: min(86cqw, 137.6cqh); height: min(53.75cqw, 86cqh); }
 .devices.pair .phone { right: 0; bottom: 0; width: min(36cqh, 34cqw); height: min(78cqh, 73.7cqw); }
-.scene-answer { display: grid; gap: 12px; margin-top: 24px; max-width: 38em; }
-.scene-answer .choices { display: flex; flex-wrap: wrap; gap: 8px; }
-.scene-answer button, .scene-answer textarea { font: 400 17px/1.4 var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--muted); border-radius: 18px; padding: 10px 16px; }
-.scene-answer button { cursor: pointer; width: fit-content; }
-.scene-answer button:disabled { opacity: .55; cursor: default; }
-.scene-answer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 76px; }
-.scene-answer :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-.scene-answer .receipt { font: 400 14px/1.5 var(--sans); color: var(--muted); }
+/* A scene's foot: a question's options, one tap each, then the chat box every artefact has. */
+.scene-ask { display: grid; gap: 14px; margin-top: 28px; max-width: 36em; }
+.scene-ask .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 8px; }
+.choice-pick {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px;
+  font: 500 17px/1.25 var(--sans); color: var(--fg); text-align: left; background: var(--tint); border: 1px solid var(--faint);
+  border-radius: 10px; padding: 10px 14px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+.choice-pick small { font: 400 13px/1.2 var(--sans); color: var(--muted); }
+.choice-pick:hover { color: var(--strong); border-color: var(--accent); }
+.choice-pick[aria-pressed="true"], .choice-pick[aria-pressed="true"]:hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.choice-pick[aria-pressed="true"] small { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.choice-pick:disabled:not([aria-pressed="true"]) { opacity: .45; cursor: default; }
+.choice-pick:disabled:not([aria-pressed="true"]):hover { color: var(--fg); border-color: var(--faint); }
+.scene-ask :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* The chat box at the foot of every artefact: one quiet line until he types into it. */
+.art-chat { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.art-chat-input {
+  flex: 1; min-width: 8em; height: 40px; max-height: 10em; box-sizing: border-box; overflow: hidden;
+  font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px;
+  padding: 8px 12px; resize: none; transition: border-color 140ms ease;
+}
+.art-chat-input:focus { outline: none; border-color: var(--accent); height: auto; min-height: 40px; field-sizing: content; overflow: auto; }
+.art-chat-input::placeholder { color: var(--muted); }
+.art-chat-send { height: 40px; font: 700 12px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 0 16px; cursor: pointer; transition: opacity 140ms ease; }
+.art-chat-send:disabled { opacity: .4; cursor: default; }
+.art-chat-receipt { flex-basis: 100%; margin: 0; font: 400 14px/1.4 var(--sans); color: var(--muted); }
+.art-chat-receipt:empty { display: none; }
+.art-chat-receipt.problem { color: var(--k-waiting); }
+.scene-meta .closed { color: var(--muted); font-style: italic; }
+/* A question leads in words his own size: the answer under it is what matters. */
+.scene.has-ask .scene-head, .scene.has-ask .scene-head.long { max-width: 24em; font-size: clamp(26px, 2.4vw, 40px); line-height: 1.15; letter-spacing: -0.015em; }
+.scene.has-ask .scene-line { margin-top: 14px; font-size: clamp(16px, 1.2vw, 19px); color: var(--muted); }
+.scene.has-ask .scene-text { display: flex; flex-direction: column; }
+.scene.has-ask .scene-meta { order: -1; margin: 0 0 14px; }
 .scene-shot .thumbs { display: flex; align-items: center; gap: 8px; }
 .scene-shot .thumbs img {
   width: auto; height: 46px; max-width: 82px; object-fit: cover; object-position: top; border-radius: 5px; cursor: pointer;
@@ -242,7 +269,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .scene.out > * { animation: scene-out 200ms ease both; }
 .scene.in .scene-head { animation: scene-fade 380ms ease both; }
 .scene.in .scene-line { animation: scene-fade 380ms ease 70ms both; }
-.scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-open { animation: scene-fade 380ms ease 140ms both; }
+.scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-open { animation: scene-fade 380ms ease 140ms both; }
 .scene.in .scene-shot { animation: scene-fade 520ms ease 40ms both; }
 @keyframes scene-out { to { opacity: 0; } }
 @keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -298,15 +325,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .call-question { margin: 8px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
 .call-link { display: inline-block; margin: 8px 14px 0 0; font: 500 13px/1.4 var(--mono); color: var(--link); text-decoration: none; }
 .calls-sheet:focus { outline: none; }
-/* Each answer compact: the choices, his own words, send, on two lines. */
-.call .scene-answer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 14px; max-width: none; }
-.call .scene-answer .choices, .call .scene-answer .receipt { grid-column: 1 / -1; }
-.call .scene-answer label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.call .scene-answer button, .call .scene-answer textarea { font-size: 15px; padding: 8px 14px; }
-.call .scene-answer textarea { min-height: 40px; height: 40px; border-radius: 12px; border-color: var(--faint); }
-.call .scene-answer textarea:focus { outline: none; border-color: var(--accent); }
-.call .scene-answer .receipt { font-size: 13px; }
-.call .scene-answer .receipt:empty { display: none; }
+/* Each answer compact: the choices, then the chat box. */
+.call .scene-ask { margin-top: 14px; max-width: none; }
+.call .choice-pick { min-height: 44px; font-size: 15px; }
+.call-link.closed { color: var(--muted); font-style: italic; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
@@ -343,12 +365,13 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
   .scene-head.long, .scene.has-shot .scene-head.long { font-size: 27px; }
   .scene-line { margin-top: 20px; font-size: 18px; }
   .scene-meta { margin-top: 20px; font-size: 13px; }
+  .scene.has-ask .scene-head, .scene.has-ask .scene-head.long { font-size: 24px; }
   .ticks { margin-bottom: 32px; }
   .devices { height: 46vh; }
   .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-answer, .scene.in .scene-shot, .scene.in .scene-open,
+  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-shot, .scene.in .scene-open,
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
   .ambient { transition: none; }
   .ticks button.on::after { transition: none; }
@@ -431,6 +454,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-a-md p:last-child { margin-bottom: 0; }
 .rail-a-md a { color: var(--link); }
 .rail-card-note { font-style: italic; }
+.rail-card .art-chat { padding: 10px 12px 12px; border-top: 1px solid var(--faint); }
+.rail-card .art-chat-receipt { padding: 0; font-size: 13px; }
 .rail-card--down .rail-card-head span { color: var(--muted); }
 .rail-card p.rail-card-server { margin-top: -6px; font: 400 12px/1.45 var(--mono); overflow-wrap: anywhere; }
 .rail-card-whose { display: block; color: var(--muted); }
@@ -1524,6 +1549,11 @@ var __name = function (f) { return f; };
       if (fitFrames) fitFrames.observe(framed);
       box.appendChild(framed);
     }
+    if (SEND_TOKEN) {
+      var about = { title: card.title };
+      if (card.url) about.url = card.url;
+      box.appendChild(artefactChat("flyd-about:" + card.id, { about: about }, "Say something about this…").form);
+    }
     return box;
   }
   // One memory as a card: the sentence, and "Learned" over what it took in while we talked.
@@ -1868,6 +1898,124 @@ var __name = function (f) { return f; };
     railHidden = true; store("flyd-rail", "off"); railEl.hidden = true; setRail(false);
   });
 
+  // The chat box at the foot of every artefact: his words about that one thing go
+  // to firstmate naming it, and the line under the box says where they are in
+  // plain words: sent, then "Firstmate has it" once firstmate has read the note.
+  // \`target\` is what the words answer: a fleet decision, a reply's question, or
+  // the artefact itself ({ about: { title, task, url } }).
+  function artefactChat(key, target, label) {
+    var state = {};
+    try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
+    if (state.receipt === "sending") state.receipt = "";
+    var form = el("form", "art-chat");
+    form.setAttribute("aria-label", label);
+    var input = el("textarea", "art-chat-input");
+    input.rows = 1;
+    input.maxLength = 4000;
+    input.placeholder = label;
+    input.setAttribute("aria-label", label);
+    input.value = state.text || "";
+    var send = el("button", "art-chat-send", "Send");
+    send.type = "submit";
+    var receipt = el("p", "art-chat-receipt");
+    receipt.setAttribute("role", "status");
+    receipt.setAttribute("aria-live", "polite");
+    var watching = null;
+    function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
+    function paint() {
+      receipt.textContent = state.error || (state.receipt === "read" ? "Firstmate has it" : state.receipt === "sent" ? "Sent to firstmate" : state.receipt === "sending" ? "Sending…" : "");
+      receipt.classList.toggle("problem", !!state.error);
+      send.disabled = state.receipt === "sending" || !input.value.trim();
+      if (chat.onPaint) chat.onPaint();
+    }
+    // Firstmate reads a note by acknowledging it; until then the line says only that it was sent.
+    function watch() {
+      if (watching || !state.note || state.receipt !== "sent") return;
+      watching = setInterval(function () {
+        if (!form.isConnected || state.receipt !== "sent") { clearInterval(watching); watching = null; return; }
+        fetch("/api/note?id=" + encodeURIComponent(state.note) + "&token=" + encodeURIComponent(VIEW_TOKEN))
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (data) { if (data && data.receipt === "read") { state.receipt = "read"; save(); paint(); } })
+          .catch(function () {});
+      }, 5000);
+    }
+    function deliver(text, done) {
+      state.receipt = "sending";
+      state.error = "";
+      paint();
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ text: text }, target)) }, true)
+        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
+          state.receipt = "sent";
+          state.note = result.data.id;
+          if (done) done();
+          save();
+          paint();
+          watch();
+        })
+        .catch(function (error) { state.receipt = ""; state.error = error.message || "Not delivered; try again."; paint(); });
+    }
+    input.addEventListener("input", function () { state.text = input.value; state.error = ""; save(); paint(); });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = input.value.trim();
+      if (send.disabled || !text) return;
+      deliver(text, function () { input.value = ""; state.text = ""; });
+    });
+    form.appendChild(input);
+    form.appendChild(send);
+    form.appendChild(receipt);
+    var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
+    paint();
+    watch();
+    return chat;
+  }
+  // A scene's foot: a question's options, one tap each, then the chat box.
+  function sceneAsk(box, key) {
+    var wrap = el("div", "scene-ask");
+    wrap.dataset.key = key;
+    var decision = box.decision;
+    var link = box.open || (box.links || []).find(function (one) { return !one.closed; });
+    var about = { title: box.title };
+    if (box.task) about.task = box.task;
+    if (link) about.url = link.url;
+    var target = !decision ? { about: about } : decision.replyTo ? { session: current, replyTo: decision.replyTo } : { decision: decision.task };
+    var chat = artefactChat(key, target, decision && decision.choices.length ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
+    if (decision && decision.choices.length) {
+      var choices = el("div", "choices");
+      choices.setAttribute("role", "group");
+      choices.setAttribute("aria-label", "Options");
+      var buttons = decision.choices.map(function (choice) {
+        var button = el("button", "choice-pick");
+        button.type = "button";
+        button.appendChild(el("span", "", choice));
+        if (choice === decision.recommended) button.appendChild(el("small", "", "recommended"));
+        button.addEventListener("click", function () {
+          if (chat.state.picked || chat.state.receipt === "sending") return;
+          chat.deliver(choice, function () { chat.state.picked = choice; });
+        });
+        choices.appendChild(button);
+        return button;
+      });
+      // The one he picked stays lit; the others step back once it is sent.
+      chat.onPaint = function () {
+        buttons.forEach(function (button, index) {
+          var picked = chat.state.picked === decision.choices[index];
+          button.setAttribute("aria-pressed", String(picked));
+          button.disabled = !!chat.state.picked && !picked;
+        });
+      };
+      chat.onPaint();
+      wrap.appendChild(choices);
+    }
+    wrap.appendChild(chat.form);
+    return wrap;
+  }
+
   // A "needs you" line in a reply is answerable where it stands: the answer goes
   // to firstmate as a note, like the answers to an artefact question.
   function wireAsks(root) {
@@ -1901,7 +2049,7 @@ var __name = function (f) { return f; };
           .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
           .then(function (result) {
             if (!result.ok) throw new Error(result.data.error || "not delivered");
-            receipt.textContent = "Sent to firstmate (" + result.data.id + ").";
+            receipt.textContent = "Sent to firstmate.";
             input.disabled = true;
             try { sessionStorage.setItem(key, receipt.textContent); } catch (_) {}
           })
@@ -2666,70 +2814,6 @@ var __name = function (f) { return f; };
     return (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; }).map(function (child) { return child.shot; });
   }
 
-  // A question only he can answer, as a form: its choices, his own words, and a receipt once sent.
-  function answerForm(decision, fieldId, quiet) {
-    var key = "flyd-decision:" + decision.task + ":" + decision.question;
-    var state = {};
-    try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
-    var form = el("form", "scene-answer");
-    form.setAttribute("aria-label", "Answer this question");
-    form.dataset.key = key;
-    var label = el("label", "", decision.replyTo ? "Or in your own words" : "Your answer");
-    label.htmlFor = fieldId;
-    var answer = el("textarea");
-    answer.id = fieldId;
-    answer.maxLength = 4000;
-    answer.required = true;
-    answer.value = state.text || "";
-    var choices = el("div", "choices");
-    // A question a reply put to him is answered by one tap; a fleet hold's choice is filled in to be sent.
-    var asked = !!decision.replyTo;
-    (decision.choices || []).forEach(function (choice) {
-      var button = el("button", "", choice);
-      button.type = "button";
-      button.addEventListener("click", function () {
-        answer.value = choice;
-        answer.dispatchEvent(new Event("input"));
-        if (asked) form.requestSubmit(); else answer.focus();
-      });
-      button.disabled = asked && !!state.receipt;
-      choices.appendChild(button);
-    });
-    form.appendChild(choices);
-    form.appendChild(label);
-    form.appendChild(answer);
-    var send = el("button", "", "Send answer");
-    send.type = "submit";
-    var receipt = el("div", "receipt", state.receipt || (asked || quiet ? "" : "The question stays open until your answer is acknowledged."));
-    receipt.setAttribute("role", "status");
-    receipt.setAttribute("aria-live", "polite");
-    function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
-    answer.addEventListener("input", function () { state.text = answer.value; state.receipt = ""; save(); send.disabled = !answer.value.trim(); });
-    send.disabled = !answer.value.trim() || !!state.receipt;
-    form.addEventListener("submit", async function (event) {
-      event.preventDefault();
-      if (send.disabled || !answer.value.trim()) return;
-      send.disabled = true;
-      receipt.textContent = "Sending your answer…";
-      try {
-        var payload = asked ? { session: current, replyTo: decision.replyTo, text: answer.value } : { decision: decision.task, text: answer.value };
-        var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(payload) });
-        var sent = await response.json();
-        if (!response.ok) throw new Error(sent.error || "Answer not delivered");
-        state.receipt = asked ? "Sent: “" + answer.value.trim() + "”." : "Answer received (" + sent.id + "). Waiting for acknowledgement; this decision remains open.";
-        if (asked) choices.querySelectorAll("button").forEach(function (button) { button.disabled = true; });
-        save();
-        receipt.textContent = state.receipt;
-      } catch (error) {
-        receipt.textContent = error.message || "Answer not delivered. Try again.";
-        send.disabled = false;
-      }
-    });
-    form.appendChild(send);
-    form.appendChild(receipt);
-    return form;
-  }
-
   function fillScene(box) {
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
@@ -2753,16 +2837,19 @@ var __name = function (f) { return f; };
     var oldOpen = sceneEl.querySelector(".scene-open");
     if (oldOpen) oldOpen.remove();
     if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
-    var oldAnswer = sceneEl.querySelector(".scene-answer");
-    var decisionKey = box.decision && VIEW_TOKEN ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "";
-    if (oldAnswer && oldAnswer.dataset.key !== decisionKey) oldAnswer.remove();
-    if (decisionKey && !(oldAnswer && oldAnswer.isConnected)) sceneEl.querySelector(".scene-text").appendChild(answerForm(box.decision, "decision-answer"));
+    // Every scene takes his words about it at its foot; a question's options answer it in one tap.
+    var oldAsk = sceneEl.querySelector(".scene-ask");
+    var askKey = !VIEW_TOKEN ? "" : box.decision ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "flyd-about:" + box.id;
+    if (oldAsk && oldAsk.dataset.key !== askKey) oldAsk.remove();
+    if (askKey && !(oldAsk && oldAsk.isConnected)) sceneEl.querySelector(".scene-text").appendChild(sceneAsk(box, askKey));
     sceneMeta.textContent = "";
     var word = kindWord(box);
     if (word) sceneMeta.appendChild(el("span", "kind", word));
     if (box.project) sceneMeta.appendChild(el("span", "project", box.project));
     if (box.status && box.status !== word) sceneMeta.appendChild(el("span", "status", box.status));
     (box.links || []).forEach(function (link) {
+      // A page on this machine that stopped answering is said in words, never a dead link.
+      if (link.closed) { sceneMeta.appendChild(el("span", "closed", "The review page for this has closed")); return; }
       var a = el("a", "", link.label);
       a.href = link.url;
       a.target = "_blank";
@@ -2904,7 +2991,7 @@ var __name = function (f) { return f; };
   function schedule() {
     clearInterval(cycle);
     cycle = null;
-    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-answer"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
   }
   function hold(on) {
     holding = on;
@@ -3043,17 +3130,14 @@ var __name = function (f) { return f; };
       if (question && question !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(question))));
       else if (call.detail && call.detail !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(call.detail))));
       (call.links || []).forEach(function (link) {
+        if (link.closed) { item.appendChild(el("p", "call-link closed", "The review page for this has closed")); return; }
         var a = el("a", "call-link", link.label + " ↗");
         a.href = link.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         item.appendChild(a);
       });
-      if (call.decision && VIEW_TOKEN) {
-        var form = answerForm(call.decision, "call-answer-" + index, true);
-        form.querySelector("textarea").placeholder = (call.decision.choices || []).length ? "Or in your own words" : "Your answer";
-        item.appendChild(form);
-      }
+      if (call.decision && VIEW_TOKEN) item.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
       callsList.appendChild(item);
     });
   }
@@ -3110,7 +3194,7 @@ var __name = function (f) { return f; };
   });
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-answer, .prefs, .calls, .rail-phone-say")) return;
+    if (event.target instanceof Element && event.target.closest(".scene-ask, .art-chat, .prefs, .calls, .rail-phone-say")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {

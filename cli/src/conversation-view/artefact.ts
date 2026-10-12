@@ -369,6 +369,30 @@ export function recentlyFinished(entries: Map<string, BacklogEntry>, now: number
     .map(({ task, entry }) => ({ task, entry }));
 }
 
+/** The option a hold recommends ("1 Evergreen luxe (recommended after round 1: …)"), when it names one. Pure. */
+export function recommendedChoice(question: string): string | undefined {
+  const match = question.match(/(?:^|:\s*|,\s*)\d+\s+([^,(]+?)\s*\(recommended\b/i);
+  return match ? match[1]!.trim() : undefined;
+}
+
+/**
+ * A hold's question in plain words: who asks and the numbered options gone (the
+ * buttons say them), and the file paths and board addresses in brackets with them.
+ * "Captain picks the Christmas direction for the site from the lab (board …): 1 …"
+ * reads "Pick the Christmas direction for the site from the lab". Pure.
+ */
+export function plainQuestion(question: string): string {
+  let asked = question
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/:\s*1\s[\s\S]*$/, "")
+    .replace(/[\s:;,.]+$/, "")
+    .trim();
+  // "Captain picks …" is said about him; to him it is "Pick …".
+  const captain = asked.match(/^(?:the\s+)?captain\s+(\w+)\b/i);
+  if (captain) asked = captain[1]!.replace(/(sh|ch|x)es$/i, "$1").replace(/([^s])s$/i, "$1") + asked.slice(captain[0].length);
+  return asked ? asked.charAt(0).toUpperCase() + asked.slice(1) : "";
+}
+
 export function decisionChoices(question: string): string[] {
   const choices = [...question.matchAll(/(?:^|:\s*|,\s*)(\d+)\s+(.+?)(?=,\s*\d+\s+|,?\s+or a mix\b|$)/g)]
     .map((match) => match[2]!.replace(/\s*\([^)]*\)/g, "").replace(/[.,;]+$/, "").trim());
@@ -501,21 +525,25 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
   const names = [project, row.repo].filter((name): name is string => Boolean(name));
   const detail = row.said?.line || row.detail;
   const sourceHeadline = withoutProject(row.label, names);
-  const headline = row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline);
+  // A question with options leads with the question in plain words, and under it the work it is about.
+  const asked = kind === "call" && row.choices?.length && row.detail ? plainQuestion(row.detail) : "";
+  const recommended = asked ? recommendedChoice(row.detail!) : undefined;
+  const headline = asked || (row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline));
   if (!headline) return undefined;
   return {
     id: `${kind}:${id}`,
     kind,
     headline,
     why: "",
-    ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [] } } : {}),
-    ...(detail ? { detail } : {}),
+    ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
+    ...(asked ? { detail: row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
       ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
       : {}),
     ...(row.status ? { status: row.status } : {}),
     ...(project ? { project } : {}),
+    ...(row.task ? { task: row.task } : {}),
     ...withLink(row.url),
     ...(row.references?.length ? { links: [...(row.url ? [{ label: linkLabel(row.url), url: row.url }] : []), ...row.references] } : {}),
   };

@@ -31,6 +31,7 @@ import {
 import { TranscriptConversation } from "../transcript-filter.js";
 import type { ConversationMessage, Exchange } from "../types.js";
 import { assistantText, injection, toolUse } from "./transcript-fixture.js";
+import { MOBILE_DEPLOY } from "./fixtures/replies.js";
 
 const SITE = "https://christmas.goodneighboursmarket.com";
 /** Firstmate's own check of the Block42 headline, as its turn ran it. */
@@ -217,6 +218,14 @@ describe("site changes on Flyd's artefact", () => {
     const report = `Captain, all three changes are live on ${SITE} and pushed:\n\n- **Menu:** "Vendors" is gone.\n- **Lights:** only yellow and green now.\n\nWant the Visit screen gone too?`;
     expect(siteChangeLines(report)).toEqual({ headline: 'Menu: "Vendors" is gone.', detail: "Lights: only yellow and green now." });
     expect(siteChangeLines(`It's live on ${SITE} and pushed.`).headline).toBe(`It's live on ${SITE} and pushed.`);
+  });
+
+  it("lead with what was done, never a caveat or aside", () => {
+    expect(siteChangeLines(MOBILE_DEPLOY)).toEqual({
+      headline: "Pulled the mobile changes, tested them, and deployed.",
+      detail: "Testing: all five pages open at true phone size with no sideways scroll, and nothing errors in the browser.",
+    });
+    expect(siteChangeLines("The deploy only opens applications if asked. The menu now closes when you tap outside.").headline).toBe("The menu now closes when you tap outside.");
   });
 
   it("belong to the project whose site it is, not one the words mention", () => {

@@ -845,38 +845,82 @@ describe("header and artefact view", () => {
     const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", detail: "Three places would benefit from motion", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }] };
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
-    expect(document.querySelector(".scene-answer .receipt")!.textContent).toBe("");
-    document.querySelector<HTMLButtonElement>(".scene-answer .choices button")!.click();
+    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("");
+    document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", text: "Yes, all three" }]);
-    expect(document.querySelector(".scene-answer .receipt")!.textContent).toBe("Sent: “Yes, all three”.");
-    expect([...document.querySelectorAll<HTMLButtonElement>(".scene-answer .choices button")].every((button) => button.disabled)).toBe(true);
+    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to firstmate");
+    const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
+    expect(picks.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+    expect(picks[1]!.disabled).toBe(true);
   });
 
-  it("offers real choices and a review link, keeps Tab and typing in the answer form, and shows only a delivery receipt", async () => {
+  it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"], recommended: "Evergreen luxe" }, links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }] }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      expect(document.querySelector("#scene-meta a")!.textContent).toBe("Open design review");
+      expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+      // No heading over the box: the options, then one quiet line to type in.
+      expect(document.querySelector(".scene-ask label, .scene-ask h2, .scene-ask h3")).toBeNull();
+      const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
+      expect(picks.map((button) => button.textContent)).toEqual(["Evergreen luxerecommended", "Christmas card"]);
+      const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+      chat.focus();
+      const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+      chat.dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(false);
+      chat.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
+      expect(document.documentElement.getAttribute("data-screen")).toBe("show");
+      chat.value = "A mix of the two";
+      chat.dispatchEvent(new Event("input"));
+      chat.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await settle();
+      expect(chat.value).toBe("");
+      picks[0]!.click();
+      await settle();
+      expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
+        { decision: "visuals", text: "A mix of the two" },
+        { decision: "visuals", text: "Evergreen luxe" },
+      ]);
+      const receipt = document.querySelector(".scene-ask .art-chat-receipt")!;
+      expect(receipt.textContent).toBe("Sent to firstmate");
+      expect(picks[0]!.getAttribute("aria-pressed")).toBe("true");
+      // Once firstmate takes the note, the line says so; never a note id.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read" } : {}));
+      vi.advanceTimersByTime(5000);
+      await settle();
+      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/note?id=note%3A1&token="))).toBe(true);
+      expect(receipt.textContent).toBe("Firstmate has it");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives every artefact a chat box that names it, and says a closed review page in words", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a Christmas look", why: "", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] }, links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/review" }] }] };
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "landed:map", kind: "landed", headline: "Christmas Nuanu map", why: "", task: "gnm-xmas-map", shots: [{ src: "/desk.png", label: "desktop-1440.png" }], links: [{ label: "Open design review", url: "http://127.0.0.1:4387/session/gone", closed: true }, { label: "flyd #9", url: "https://github.com/o/flyd/pull/9" }] }] };
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
-    expect(document.querySelector("#scene-meta a")!.textContent).toBe("Open design review");
-    const choice = document.querySelector<HTMLButtonElement>(".scene-answer .choices button")!;
-    choice.click();
-    const answer = document.querySelector<HTMLTextAreaElement>("#decision-answer")!;
-    expect(answer.value).toBe("Evergreen luxe");
-    expect(document.activeElement).toBe(answer);
-    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-    answer.dispatchEvent(tab);
-    expect(tab.defaultPrevented).toBe(false);
-    answer.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
-    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
-    document.querySelector(".scene-answer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    const meta = document.getElementById("scene-meta")!;
+    expect(meta.querySelector(".closed")!.textContent).toBe("The review page for this has closed");
+    expect([...meta.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://github.com/o/flyd/pull/9"]);
+    const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+    expect(chat.placeholder).toBe("Say something about this…");
+    chat.value = "Make the pins bigger";
+    chat.dispatchEvent(new Event("input"));
+    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ decision: "visuals", text: "Evergreen luxe" }]);
-    expect(document.querySelector(".receipt")!.textContent).toContain("Answer received (note:1)");
-    expect(document.querySelector(".receipt")!.textContent).toContain("decision remains open");
-    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
+      { text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" } },
+    ]);
   });
 
   it("shows the work on devices: the desktop capture in a browser with the phone in front, artwork at its own shape", async () => {
