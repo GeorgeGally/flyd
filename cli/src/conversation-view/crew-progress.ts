@@ -20,6 +20,8 @@ const NOTE_WORDS = 10;
 const MIN_NOTE_WORDS = 3;
 /** A brief written this long before the note cannot be the note's task. */
 const BRIEF_SLACK_MS = 60_000;
+/** A note firstmate took longer ago than this is no longer being worked on, whatever it said of it. */
+const UNDER_WAY_MS = 6 * 3600_000;
 
 export interface Task {
   id: string;
@@ -54,9 +56,9 @@ export class CrewProgress {
 
   /** The current step of the crewmate working on each unanswered note, by the note's question id. */
   steps(exchanges: Exchange[]): Map<string, string> {
-    const open = exchanges.filter((exchange) => exchange.question.id.startsWith("note:") && !exchange.answer && !exchange.answered && !exchange.settled);
-    const key = open.map((exchange) => exchange.question.id).join(",");
     const now = this.now();
+    const open = exchanges.filter((exchange) => exchange.question.id.startsWith("note:") && !exchange.answer && !exchange.answered && !exchange.settled && underWay(exchange, now));
+    const key = open.map((exchange) => exchange.question.id).join(",");
     if (this.cached && this.cached.key === key && now - this.cached.at < REFRESH_MS) return this.cached.steps;
     const steps = new Map<string, string>();
     if (open.length) {
@@ -180,11 +182,33 @@ export class CrewProgress {
   }
 }
 
+/**
+ * Still waiting in firstmate's inbox, or taken recently enough to be in
+ * hand. Every note it ever took counts as taken (handled/ is never pruned),
+ * and most were answered without a reply naming them.
+ */
+function underWay(exchange: Exchange, now: number): boolean {
+  if (exchange.handoff !== "taken") return true;
+  const taken = Date.parse(exchange.takenAt ?? exchange.question.timestamp ?? "");
+  return Number.isNaN(taken) || now - taken < UNDER_WAY_MS;
+}
+
+/** Each note's opening words, normalized once: steps are asked for on every refresh. */
+const phrases = new WeakMap<Exchange["question"], { text: string; phrase: string | undefined }>();
+
+function phraseOf(question: Exchange["question"]): string | undefined {
+  const cached = phrases.get(question);
+  if (cached?.text === question.text) return cached.phrase;
+  const words = normalized(question.text.replace(/\[(?:image|file): [^\]]*\]/g, " ")).split(" ").filter(Boolean).slice(0, NOTE_WORDS);
+  const phrase = words.length < MIN_NOTE_WORDS ? undefined : ` ${words.join(" ")} `;
+  phrases.set(question, { text: question.text, phrase });
+  return phrase;
+}
+
 /** The task whose brief carries this note's opening words; the newest when several do. */
 export function taskFor(exchange: Exchange, tasks: Task[]): Task | undefined {
-  const words = normalized(exchange.question.text.replace(/\[(?:image|file): [^\]]*\]/g, " ")).split(" ").filter(Boolean).slice(0, NOTE_WORDS);
-  if (words.length < MIN_NOTE_WORDS) return undefined;
-  const phrase = ` ${words.join(" ")} `;
+  const phrase = phraseOf(exchange.question);
+  if (!phrase) return undefined;
   const sent = Date.parse(exchange.question.timestamp ?? "");
   return tasks
     .filter((task) => {
