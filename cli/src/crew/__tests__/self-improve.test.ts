@@ -103,6 +103,34 @@ describe("runSelfImprovement", () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
+  it("waits only on improvements in its own command store", async () => {
+    seedEvidence();
+    const run = (id: string): DomainRun => ({
+      id, status: "accepted", owner: "FirstMate",
+      createdAt: "2026-09-26T10:00:00Z", updatedAt: "2026-09-26T10:00:00Z",
+      request: {
+        id, domain: "coding", originalMessage: "improve", intendedOutcome: "improve",
+        doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "self-improvement",
+      },
+      transport: { kind: "firstmate", requestId: id },
+    });
+    // Another store (George's live one, say) has an improvement in flight.
+    const elsewhere = join(home, "elsewhere-command");
+    vi.stubEnv("FLYD_COMMAND_DIR", elsewhere);
+    saveDomainRun(run("domain-elsewhere"), elsewhere);
+    const dispatch = vi.fn(async (repo: string, outcome: string) => task({ repo, outcome, status: "running" }));
+    try {
+      expect((await runSelfImprovement({ complete, dispatch, flydDir: home, repo: "/flyd", now: () => NOW })).status).toBe("dispatched");
+      // One in this home's own store does hold the next improvement back.
+      saveDomainRun(run("domain-here"), join(home, "command"));
+      const later = () => new Date(NOW.getTime() + 25 * 3_600_000);
+      const held = await runSelfImprovement({ complete, dispatch: vi.fn(), flydDir: home, now: later });
+      expect(held).toMatchObject({ status: "awaiting_george", task: { id: "domain-here" } });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("runs at most daily and never re-reads evidence it already judged", async () => {
     seedEvidence();
     const none = vi.fn(async () => JSON.stringify({ improvement: null }));
