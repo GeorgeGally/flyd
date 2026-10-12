@@ -518,6 +518,33 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
+  it("streams each note's receipt and a warning when firstmate has left notes unread past three minutes", async () => {
+    const inbox = new MemoryInbox();
+    const old = new Date(Date.now() - 12 * 60_000).toISOString();
+    inbox.notes = () => [
+      { question: { id: "note:1", role: "user" as const, text: "fix the footer", timestamp: old, receipt: "sent" as const }, handoff: "queued" as const, waiting: "Working on it" },
+      { question: { id: "note:2", role: "user" as const, text: "and the header", timestamp: old, receipt: "read" as const }, handoff: "taken" as const, waiting: "Working on it" },
+    ];
+    const port = await start(inbox);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const receipts = Object.fromEntries(update.messages.filter((m: { receipt?: string }) => m.receipt).map((m: { id: string; receipt: string }) => [m.id, m.receipt]));
+    expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
+    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
+    expect(unread).toEqual({ count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 12 min ago." });
+  });
+
   it("feeds the island a compact status of the newest session", async () => {
     const port = await start(undefined, [captain("push it"), assistantText("» Pushed to main. Want me to merge the PR?")]);
     const body = await new Promise<string>((resolve, reject) => {

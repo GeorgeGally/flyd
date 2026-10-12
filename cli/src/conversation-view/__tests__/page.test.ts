@@ -194,6 +194,42 @@ describe("conversation page", () => {
     expect(line.classList.contains("still")).toBe(false);
   });
 
+  it("says under each note whether firstmate has read it, and warns over the box when notes sit unread", async () => {
+    load("");
+    await settle();
+    const fresh = new Date(Date.now() - 60_000).toISOString();
+    const old = new Date(Date.now() - 10 * 60_000).toISOString();
+    const stream = open("latest", [
+      { id: "note:1", role: "user", html: "<p>fix the footer</p>", timestamp: old, receipt: "read" },
+      { id: "note:2", role: "user", html: "<p>and the header</p>", timestamp: fresh, receipt: "sent" },
+      { id: "note:3", role: "user", html: "<p>and the logo</p>", timestamp: old, receipt: "sent" },
+      { id: "ask:4", role: "user", html: "<p>what time is it</p>", timestamp: old },
+    ] as never);
+    const receipt = (id: string) => document.querySelector(`[data-note="${id}"] > .receipt`);
+    expect(receipt("note:1")!.textContent).toBe("read by firstmate");
+    expect(receipt("note:2")!.textContent).toBe("sent");
+    expect(receipt("note:2")!.classList.contains("late")).toBe(false);
+    expect(receipt("note:3")!.textContent).toBe("sent · not read by firstmate yet");
+    expect(receipt("note:3")!.classList.contains("late")).toBe(true);
+    expect(document.querySelectorAll(".receipt")).toHaveLength(3);
+    // It sits right under his words, above the screenshot the answer leads with, through every refill.
+    stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:1", role: "user", html: "<p>fix the footer</p>", timestamp: old, receipt: "read", shots: ["/tmp/footer.png"] }], working: false });
+    expect(receipt("note:1")!.previousElementSibling!.className).toBe("body");
+
+    const banner = document.getElementById("unread")!;
+    expect(banner.hidden).toBe(true);
+    stream.emit("unread", { count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 10 min ago." });
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toBe("Firstmate has not read 1 note you sent 10 min ago.");
+
+    // Acknowledged: the note reads as read, and the warning goes.
+    stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:3", role: "user", html: "<p>and the logo</p>", timestamp: old, receipt: "read" }], working: false });
+    stream.emit("unread", { count: 0 });
+    expect(receipt("note:3")!.textContent).toBe("read by firstmate");
+    expect(receipt("note:3")!.classList.contains("late")).toBe(false);
+    expect(banner.hidden).toBe(true);
+  });
+
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
     await settle();

@@ -299,11 +299,14 @@ export class FirstmateInbox implements CaptainInbox {
     for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
     this.sorted = [...this.parsed.entries()]
       .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
-      .map(([name, question]): Exchange => {
+      .map(([name, parsed]): Exchange => {
+        const path = present.get(name)!;
+        // Acknowledged (`drain --ack`) is a move into handled/: the one signal that firstmate read it.
+        const read = path.startsWith(`${handled}/`);
+        const question: ConversationMessage = { ...parsed, receipt: read ? "read" : "sent" };
         const answer = replyFor.get(question.id);
         if (answer) return { question, answer, waiting: "" };
-        const path = present.get(name)!;
-        const handoff = path.startsWith(`${handled}/`) ? "taken" : "queued";
+        const handoff = read ? "taken" : "queued";
         // Taking a note is a rename into handled/, which stamps the file's ctime.
         const takenAt = handoff === "taken" ? takenTime(path) : undefined;
         return { question, handoff, ...(takenAt ? { takenAt } : {}), waiting: handoffLine(handoff, { text: question.text }) };

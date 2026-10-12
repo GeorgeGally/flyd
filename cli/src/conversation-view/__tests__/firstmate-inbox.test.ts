@@ -188,6 +188,22 @@ describe("FirstmateInbox", () => {
     expect(pending!.takenAt).toBeUndefined();
     expect(Date.parse(handled!.takenAt!)).toBeGreaterThan(Date.now() - 60_000);
   });
+
+  it("marks each note sent until firstmate acknowledges it into handled/, then read, answered or not", () => {
+    writeNote("", "100-a", "2026-10-05T20:00:00Z", "first");
+    writeNote("handled", "200-b", "2026-10-05T20:10:00Z", "second");
+    writeNote("handled", "300-c", "2026-10-05T20:20:00Z", "third");
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    writeFileSync(join(home, "state", "inbox", ".replies", "300-c"), "id=300-c\nat=2026-10-05T20:25:00Z\n--\nDone.\n");
+    const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
+    expect(questions(inbox).map((note) => [note.id, note.receipt])).toEqual([
+      ["note:100-a", "sent"],
+      ["note:200-b", "read"],
+      ["note:300-c", "read"],
+    ]);
+    renameSync(join(home, "state", "inbox", "100-a.note"), join(home, "state", "inbox", "handled", "100-a.note"));
+    expect(questions(inbox)[0]!.receipt).toBe("read");
+  });
 });
 
 describe("mergeNotes", () => {
