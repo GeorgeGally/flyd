@@ -82,6 +82,8 @@ const ACK_LEAD = /^(?:(?:yes|ok(?:ay)?),? )?(?:agreed|aye(?: aye)?|yes|done|righ
 /** A whole reply that carries no outcome, decision or ask. */
 const ROUTINE_REPLY = /^(?:shipshape|aye(?: aye)?|agreed|noted|understood|got it|on it|will do|ok(?:ay)?|thanks?(?: you)?|standing by|all (?:quiet|good|clear|calm)|no change|nothing (?:new|changed|has changed|to report|needs you)|still (?:working|running|waiting|on it)|waiting (?:on|for)|no news)\b/i;
 const ROUTINE_MAX_CHARS = 160;
+/** A reply that waits on his word asks him something, with or without a question mark (as FOR_HIM in show.ts and NEEDS in executive.ts). */
+const WAITS_ON_HIM = /\bwaiting (?:on|for) (?:you|your)\b|\bneeds? your\b|\byour (?:call|decision|go-ahead|ok|approval|review|word)\b|\bready (?:to |for (?:your )?)(?:merge|review|land)\b/i;
 
 /** Markdown inline marks dropped and whitespace collapsed. */
 export function inline(text: string): string {
@@ -151,6 +153,7 @@ export function isActionable(text: string): boolean {
 export function isRoutine(text: string): boolean {
   const body = bodyOf(text);
   if (body.length > ROUTINE_MAX_CHARS || /\?/.test(body) || /^\s*(?:\d+[.)]|[-*+])\s/m.test(body)) return false;
+  if (WAITS_ON_HIM.test(body)) return false;
   return ROUTINE_REPLY.test(body);
 }
 
