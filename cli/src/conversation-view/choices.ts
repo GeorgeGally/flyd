@@ -171,23 +171,65 @@ export function choiceOf(text: string): ReplyChoice | null {
   return { question, options: ["Yes", "No"] };
 }
 
+/** A note that reads as his answer to whatever was just asked: yes, no, go ahead, hold off. */
+const ANSWER_LIKE = /^(?:yes|yeah|yep|yup|no|nope|nah|sure|ok(?:ay)?|go(?:\s+(?:ahead|for it))?|do it|don['’]?t|please do|approved?|agreed|both|all of them|none|neither|hold(?:\s+off)?|wait|skip(?:\s+it)?|lgtm|ship it)\b/i;
+
+/** Whether a new message of his (not a reply in a thread) answers the question just put to him. */
+function answersIt(message: ConversationMessage, choice: ReplyChoice | null): boolean {
+  const said = inline(message.text).trim();
+  if (ANSWER_LIKE.test(said)) return true;
+  const lower = said.toLowerCase();
+  return choice?.options.some((option) => lower.startsWith(option.toLowerCase())) ?? false;
+}
+
 /**
- * The reply still waiting on his choice: the newest assistant message after
- * his last word, when it asks him something and Flyd's model did not judge it
- * routine. Older asks were overtaken by what he said since. Pure.
+ * The reply still waiting on his choice: the newest assistant message that
+ * asks him something Flyd's model did not judge routine, until he answers it.
+ * His answer is his reply to it (or Flyd's, by one of his standing rules,
+ * unless he took that back), anything he typed into the session itself, or a
+ * note that reads as an answer ("yes", "go ahead", one of its options). A
+ * note about something else does not answer it: the question stays put
+ * until he does. Pure.
  */
 export function openChoice(
   messages: ConversationMessage[],
   routine: (message: ConversationMessage) => boolean = () => false,
 ): { message: ConversationMessage; choice: ReplyChoice } | null {
+  // His newest word on each question he replied to: answered, or Flyd's answer taken back.
+  const replied = new Map<string, boolean>();
+  const later: ConversationMessage[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.role === "user") return null;
+    if (message.role === "user") {
+      if (message.replyTo) {
+        if (!replied.has(message.replyTo)) replied.set(message.replyTo, !message.undoes);
+        continue;
+      }
+      // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
+      if (!/^(?:note|ask):/.test(message.id)) return null;
+      later.push(message);
+      continue;
+    }
     if (routine(message)) continue;
     const choice = choiceOf(message.text);
-    if (choice) return { message, choice };
+    if (!choice) continue;
+    if (replied.get(choiceTarget(message)) === true) return null;
+    if (later.some((note) => answersIt(note, choice))) return null;
+    return { message, choice };
   }
   return null;
+}
+
+/**
+ * The reply without its closing question, when the question stands alone as
+ * its last paragraph: the card under the reply asks it, so Flyd's briefing
+ * does not say it twice. Anything else is left as written. Pure.
+ */
+export function withoutClosingAsk(text: string): string {
+  const paragraphs = text.trimEnd().split(/\n\s*\n/);
+  const last = paragraphs.at(-1)!.trim();
+  if (paragraphs.length < 2 || last.includes("\n") || LIST_ITEM.test(last) || !/\?["”')\]]*$/.test(last)) return text;
+  return paragraphs.slice(0, -1).join("\n\n");
 }
 
 /** Where his answer to a reply goes: the question it answers, else the reply itself. */

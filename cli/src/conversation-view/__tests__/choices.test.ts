@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { choiceOf, choiceTarget, openChoice } from "../choices.js";
+import { choiceOf, choiceTarget, openChoice, withoutClosingAsk } from "../choices.js";
 import { SnapshotDiffer } from "../server.js";
 import { showOf } from "../show.js";
 import { boxesOf } from "../boxes.js";
 import type { ConversationMessage } from "../types.js";
+import { MISSED_NOTES } from "./fixtures/replies.js";
 
 // The reply that never reached him: an animation review in firstmate's own
 // session, ending on a question about the three things it listed.
@@ -77,6 +78,14 @@ describe("choiceOf", () => {
   });
 });
 
+describe("withoutClosingAsk", () => {
+  it("drops a question standing alone as the last paragraph, and nothing else", () => {
+    expect(withoutClosingAsk("All live.\n\nShould I merge it?")).toBe("All live.");
+    expect(withoutClosingAsk("All live. Should I merge it?")).toBe("All live. Should I merge it?");
+    expect(withoutClosingAsk("Which one?\n\n1. Red\n2. Blue")).toBe("Which one?\n\n1. Red\n2. Blue");
+  });
+});
+
 describe("openChoice", () => {
   it("is the newest reply after his last word, and only while he has not answered", () => {
     const asked = reply("reply:a#2", REVIEW, { aside: true });
@@ -84,6 +93,35 @@ describe("openChoice", () => {
     expect(openChoice([said("u1", "ok do it"), asked, said("note:1", "Yes, all three")])).toBeNull();
     // An older ask was overtaken by his own later word.
     expect(openChoice([reply("r1", "Should I remove it?"), said("u2", "do the menu"), reply("r2", "Done, the menu is live.")])).toBeNull();
+  });
+
+  it("stays open through a note of his about something else, until he answers it", () => {
+    // Firstmate's report on the missed notes ended on a question; 47 seconds later he sent a note about scrolling.
+    const asked = reply("reply:b#383", "Fix 2 changes firstmate's shared code, so I want your yes first.\n\nShould I go ahead with fix 2?", { aside: true });
+    const scrolling = said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page");
+    expect(openChoice([said("u1", "well its an issue. what failed?"), asked, scrolling])).toMatchObject({ message: asked, choice: { question: "Should I go ahead with fix 2?", options: ["Yes", "No"] } });
+    // A later reply about that note does not overtake it either.
+    expect(openChoice([asked, scrolling, reply("reply:c#1", "Scrolling now needs a firmer swipe to change page.")])?.message).toBe(asked);
+    // His reply to another answer, in its own thread, is not an answer to this one.
+    expect(openChoice([asked, { ...said("note:2", "make it bigger"), replyTo: "note:0" }])?.message).toBe(asked);
+    // Typed into firstmate's session itself: the session has its answer, whatever he said.
+    expect(openChoice([asked, scrolling, said("346e9803", "yes")])).toBeNull();
+    // A note that reads as an answer, or names an option.
+    expect(openChoice([asked, said("note:3", "Yes go ahead")])).toBeNull();
+    expect(openChoice([asked, said("note:3", "no, leave it")])).toBeNull();
+    expect(openChoice([reply("r1", "Should I merge now or wait for checks?"), said("note:4", "wait for checks")])).toBeNull();
+    // His reply to it, in its thread.
+    expect(openChoice([asked, scrolling, { ...said("note:5", "Yes"), replyTo: "reply:b#383" }])).toBeNull();
+  });
+
+  it("is answered by Flyd's answer for him, and open again when he takes that back", () => {
+    const asked = reply("reply:a#9", "Checks are green. Should I merge the Flyd change?", { aside: true });
+    const flyds = { ...said("note:6", "Yes"), replyTo: "reply:a#9", answeredFor: "Merge green Flyd PRs without asking" };
+    expect(openChoice([asked, flyds])).toBeNull();
+    const back = { ...said("note:7", "Hold off on that; I'll answer this one myself."), replyTo: "reply:a#9", undoes: true };
+    expect(openChoice([asked, flyds, back])?.message).toBe(asked);
+    // His own answer after taking it back closes it for good.
+    expect(openChoice([asked, flyds, back, { ...said("note:8", "No"), replyTo: "reply:a#9" }])).toBeNull();
   });
 
   it("passes over a reply Flyd's model judged routine", () => {
@@ -128,5 +166,34 @@ describe("the choice, where he sees it", () => {
     // The screen shows three calls at most: his question is among them, not cut behind the fleet's.
     const calls = boxesOf(screen).find((box) => box.id === "calls")!.children!;
     expect(calls[0]!.decision).toMatchObject({ replyTo: "reply:a#2" });
+  });
+
+  it("keeps the question on the window and the artefact when he sends a note about something else", () => {
+    const now = Date.parse("2026-10-12T04:11:00Z");
+    const asked = reply("reply:b#383", MISSED_NOTES, { aside: true, timestamp: "2026-10-12T04:09:39Z" });
+    const messages = [said("u1", "well its an issue. what failed?"), asked, { ...said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page"), timestamp: "2026-10-12T04:10:26Z" }];
+    const update = new SnapshotDiffer().next({ messages, working: false });
+    expect(update.messages.find((message) => message.id === asked.id)!.choice).toEqual({ question: "Should I go ahead with fix 2?", options: ["Yes", "No"], replyTo: "reply:b#383" });
+    // The briefing above the card does not ask it a second time.
+    const shown = update.messages.find((message) => message.id === asked.id)!;
+    expect(shown.summary!.html).toContain("All 14 notes are now handled");
+    expect(shown.summary!.html).not.toContain("Should I go ahead with fix 2?");
+    expect(shown.html).toContain("Should I go ahead with fix 2?");
+    const [call] = showOf({ messages, working: false }, { now }).items;
+    expect(call).toMatchObject({ kind: "call", headline: "Should I go ahead with fix 2?", decision: { replyTo: "reply:b#383", choices: ["Yes", "No"] } });
+  });
+
+  it("shows an answer Flyd gave for him as Flyd's, with its rule, until he takes it back", () => {
+    const asked = reply("reply:a#9", "Checks are green. Should I merge the Flyd change?", { aside: true });
+    const flyds = { ...said("note:6", "Yes"), replyTo: "reply:a#9", answeredFor: "Merge green Flyd PRs without asking" };
+    const differ = new SnapshotDiffer();
+    const first = differ.next({ messages: [asked, flyds], working: false }).messages;
+    expect(first.find((message) => message.id === "note:6")).toMatchObject({ answeredFor: "Merge green Flyd PRs without asking" });
+    expect(first.find((message) => message.id === "note:6")!.undone).toBeUndefined();
+    expect(first.find((message) => message.id === asked.id)!.choice).toBeUndefined();
+    const back = { ...said("note:7", "Hold off on that; I'll answer this one myself."), replyTo: "reply:a#9", undoes: true };
+    const second = differ.next({ messages: [asked, flyds, back], working: false }).messages;
+    expect(second.find((message) => message.id === "note:6")).toMatchObject({ undone: true });
+    expect(second.find((message) => message.id === asked.id)!.choice).toMatchObject({ question: "Checks are green. Should I merge the Flyd change?" });
   });
 });

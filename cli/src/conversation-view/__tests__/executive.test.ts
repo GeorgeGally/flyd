@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { brief, renderBriefing, statusCardHtml, statusSummaryHtml, withoutStubs } from "../executive.js";
+import { brief, renderBriefing, statusCardHtml, statusSummaryHtml, withoutChatter, withoutStubs } from "../executive.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { SnapshotDiffer } from "../server.js";
 import { headlineOf, statusOf } from "../status.js";
-import { CORRECTION, FOUR_READY, STILL_WAITING, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
+import { CORRECTION, FOUR_READY, MISSED_NOTES, STILL_WAITING, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
 
 const STUB = /github\.com|\bPRs?\b|#\d+|pull\/\d+|fm\/|\b[0-9a-f]{7}\b|\d+\/\d+/;
 
@@ -140,3 +140,19 @@ describe("needs you: only real questions, each answerable", () => {
   });
 });
 
+
+describe("what he needs to know", () => {
+  it("drops the machinery's narration and keeps every outcome and the question", () => {
+    const said = shown(renderBriefing(MISSED_NOTES));
+    for (const chatter of ["A worker is building this now", "The screenshots are open in Preview", "I'll merge each one when it passes its checks and tell you"]) expect(said).not.toContain(chatter);
+    for (const kept of ["All 14 notes are now handled", "never handed any of them on", "regular prices are struck through in red", "Should I go ahead with fix 2?"]) expect(said).toContain(kept);
+    // What waits on him leads the card.
+    expect(brief(MISSED_NOTES).items[0]).toMatchObject({ state: "needs", text: expect.stringMatching(/^Firstmate checks the notes queue itself/) });
+  });
+
+  it("drops only whole sentences of narration, and never inside code", () => {
+    expect(withoutChatter("The menu is live. A crewmate is on it now.\n\n- Rates fixed. I'll tell you when it lands.")).toBe("The menu is live.\n\n- Rates fixed.");
+    expect(withoutChatter("```\nA worker is building this now.\n```")).toBe("```\nA worker is building this now.\n```");
+    expect(withoutChatter("I'll tell you what failed: the relay stopped.")).toBe("I'll tell you what failed: the relay stopped.");
+  });
+});

@@ -1024,6 +1024,29 @@ describe("header and artefact view", () => {
     expect(sends().at(-1)).toEqual({ session: "latest", text: "Book a stall", replyTo: "r3" });
   });
 
+  it("shows an answer Flyd gave for him as one quiet line with its rule, and takes it back on Undo", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const asked = { id: "reply:a#9", role: "assistant", html: "<p>Checks are green. Should I merge the Flyd change?</p>", aside: true };
+    const flyds = { id: "note:6", role: "user", html: "<p>Yes</p>", replyTo: "reply:a#9", replyQuote: "Should I merge the Flyd change?", answeredFor: "Merge green Flyd PRs without asking", waiting: "Working on it" };
+    stream.emit("update", { order: ["reply:a#9", "note:6"], messages: [asked, flyds], working: false });
+    await settle();
+    const note = document.querySelector<HTMLElement>('.msg.user.auto')!;
+    // Flyd's words, not his: no highlighted bubble, the answer and the rule it stands on.
+    expect(note.querySelector(".auto-line")!.textContent).toBe("Answered for you: “Yes” · your rule: Merge green Flyd PRs without asking.Undo");
+    note.querySelector<HTMLButtonElement>(".auto-undo")!.click();
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(sends).toEqual([{ session: "latest", undo: "note:6" }]);
+    expect(note.querySelector(".auto-undo")!.textContent).toBe("Taken back");
+    // Once taken back, it says so and offers no second Undo.
+    stream.emit("update", { order: ["reply:a#9", "note:6"], messages: [{ ...flyds, undone: true }], working: false });
+    await settle();
+    expect(note.querySelector(".auto-what")!.textContent).toBe("You took back “Yes”");
+    expect(note.querySelector(".auto-undo")).toBeNull();
+  });
+
   it("shows what Flyd remembers here folded at the top, and what it learned as a card in the conversation, each one plain sentence", async () => {
     load("");
     await settle();

@@ -387,7 +387,8 @@ export function composeRail(
       const shots = (answer?.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       return {
         id: exchange.question.id,
-        question: question(exchange.question.text),
+        // An answer Flyd gave for him by a standing rule of his is Flyd's, not his own words.
+        question: exchange.question.answeredFor !== undefined ? `Answered for you: ${question(exchange.question.text)}` : question(exchange.question.text),
         ...(shots.length ? { shots } : {}),
         ...(answer?.page ? { page: answer.page } : {}),
         ...(answer ? { answer: outcomeFirst(spoken(answer.text)) } : {}),

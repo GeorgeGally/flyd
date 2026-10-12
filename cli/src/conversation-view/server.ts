@@ -30,7 +30,8 @@ import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, replyNote } from "./replies.js";
-import { choiceOf, choiceTarget, openChoice, type ReplyChoice } from "./choices.js";
+import { choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
+import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -101,6 +102,9 @@ export interface RenderedMessage {
   receipt?: "sent" | "read";
   /** The reply asks him something he has not answered yet: its question, options, and where his answer goes. */
   choice?: ReplyChoice & { replyTo: string };
+  /** Flyd answered a question for him by this standing rule of his; `undone` once he took it back. */
+  answeredFor?: string;
+  undone?: boolean;
 }
 
 export interface SummaryOptions {
@@ -245,14 +249,24 @@ export class SnapshotDiffer {
     const newest = new Set(
       snapshot.messages.filter((message) => message.role === "assistant").slice(-SUMMARIZE_NEWEST).map((message) => message.id),
     );
-    // The question the newest reply put to him, while he has said nothing since.
+    // The question a reply put to him, until he answers it.
     const open = openChoice(snapshot.messages, (message) => this.routine(message));
+    // Answers Flyd gave for him that he took back since.
+    const undone = new Set<string>();
+    const takenBack = new Set<string>();
+    for (const message of [...snapshot.messages].reverse()) {
+      if (message.undoes && message.replyTo) takenBack.add(message.replyTo);
+      else if (message.answeredFor && message.replyTo && takenBack.has(message.replyTo)) undone.add(message.id);
+    }
     for (const message of snapshot.messages) {
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
         : !message.answers ? this.summarize(message, newest.has(message.id))
           : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
             : { body: message.text };
+      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
+      // The card under the reply asks its question; Flyd's briefing does not say it again.
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text));
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
@@ -262,8 +276,7 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, message.receipt, choice]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -288,6 +301,7 @@ export class SnapshotDiffer {
         ...(message.replyTo ? { replyTo: message.replyTo, ...(message.replyQuote ? { replyQuote: message.replyQuote } : {}) } : {}),
         ...(message.receipt ? { receipt: message.receipt } : {}),
         ...(choice ? { choice } : {}),
+        ...(message.answeredFor !== undefined ? { answeredFor: message.answeredFor, ...(undone.has(message.id) ? { undone: true } : {}) } : {}),
       });
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
@@ -379,6 +393,8 @@ export class ConversationViewServer {
     private readonly previews = new PreviewProbe(),
     /** Flyd's memory stores, read for the column; without it the column shows no memory. */
     private readonly memory?: MemoryReader,
+    /** Answers firstmate's routine questions by his standing rules; without it every question waits for him. */
+    private readonly autoAnswers?: AutoAnswers,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -853,11 +869,15 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
       sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (payload.undo !== undefined) {
+      await this.undo(res, payload.session, payload.undo);
       return;
     }
     if (payload.decision !== undefined) {
@@ -928,6 +948,29 @@ export class ConversationViewServer {
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  /** He takes back an answer Flyd gave for him: the session is told to hold off until he answers. */
+  private async undo(res: ServerResponse, session: unknown, noteId: unknown): Promise<void> {
+    const note = typeof noteId === "string" ? this.source.exchanges?.().find((exchange) => exchange.question.id === noteId)?.question : undefined;
+    if (typeof session !== "string" || !note?.answeredFor || !this.autoAnswers) {
+      sendJson(res, 409, { error: "That answer is no longer here" });
+      return;
+    }
+    try {
+      sendJson(res, 200, await this.autoAnswers.undo(note, (text) => this.source.send(session, text, [], [], "firstmate")));
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** A routine question firstmate just put to him that a standing rule of his settles: Flyd answers it. */
+  private autoAnswer(session: string, snapshot: ConversationSnapshot): void {
+    if (!this.autoAnswers || !this.source.canSend) return;
+    const open = openChoice(snapshot.messages, (message) => isRoutine(message.text));
+    void this.autoAnswers
+      .answer(session, open, (text) => this.source.send(session, text, [], [], "firstmate"))
+      .catch((error: unknown) => console.warn(`[view] Flyd could not answer for him: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async image(res: ServerResponse, session: string | null, id: string | null): Promise<void> {
@@ -1032,6 +1075,7 @@ export class ConversationViewServer {
       (snapshot) => {
         latest = snapshot;
         this.cachePredictionContext(session.id, snapshot.messages);
+        this.autoAnswer(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
         emitUnread();
       },

@@ -125,6 +125,32 @@ export function withoutStubs(text: string): string {
     .join("");
 }
 
+/**
+ * Sentences that only narrate the machinery: who is doing the work, a promise
+ * to report later, where a screenshot was opened. He needs the outcomes and
+ * what waits on him; the status card already says what is under way.
+ */
+const CHATTER = [
+  /^(?:a|another|the|one|a second|a third) (?:worker|crewmate|helper|agent|subagent) (?:is|has) (?:now )?(?:building|doing|working on|fixing|handling|on|started on) (?:this|it|that|them)(?: now)?[.!]?$/i,
+  /^(?:and )?(?:I['’]?ll|I will) (?:(?:merge|land|ship|check)[^.!?]*\b(?:and|then) )?(?:tell you|let you know|keep you posted|report back|update you)(?:\s+(?:when|once|as soon as|after|if)\b[^.!?]*)?[.!]?$/i,
+  /^the (?:screenshots?|pages?|previews?|before[- ]and[- ]after shots?) (?:are|is) open(?: in [\w ]+)?[.!]?$/i,
+];
+
+/** A reply with its machinery narration taken out: whole sentences only, code blocks left as written. */
+export function withoutChatter(text: string): string {
+  return text
+    .split(FENCED)
+    .map((part, index) => (index % 2 === 1 ? part : part.split("\n").flatMap((line) => {
+      const item = /^(\s*(?:[-*+]|\d+[.)])\s+|\s*)/.exec(line)![0];
+      const said = line.slice(item.length);
+      const kept = said.split(/(?<=[.!?])\s+/).filter((sentence) => !CHATTER.some((pattern) => pattern.test(inline(sentence).trim())));
+      if (kept.length === said.split(/(?<=[.!?])\s+/).length) return [line];
+      return kept.join(" ").trim() ? [`${item}${kept.join(" ")}`] : [];
+    }).join("\n")))
+    .join("")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 // ── Status card ────────────────────────────────────────────────────────────
 
 export type WorkState = "needs" | "underway" | "landed";
@@ -321,9 +347,9 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
   return `<div class="status-card" role="group" aria-label="Where the work stands">${groups.join("")}</div>`;
 }
 
-/** A reply as Flyd briefs him: stubs out, lists as prose, the work's states as card items. */
+/** A reply as Flyd briefs him: stubs and machinery narration out, lists as prose, the work's states as card items. */
 export function brief(text: string): Briefing {
-  return briefing(withoutStubs(text));
+  return briefing(withoutStubs(withoutChatter(text)));
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
