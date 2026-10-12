@@ -49,6 +49,14 @@ describe("inFlydsVoice", () => {
     expect(voiced).toContain("`captain.ts`");
     expect(voiced).toContain("const captain = 1;");
   });
+
+  it("leaves links, paths and names that merely contain 'captain' as written", () => {
+    const text = "Task gnm-lab is captain-held; see data/captain-shared.md, bin/fm-captain-hold.sh and https://github.com/x/captain-api/pull/3. Done, captain.";
+    expect(inFlydsVoice(text)).toBe("Task gnm-lab is captain-held; see data/captain-shared.md, bin/fm-captain-hold.sh and https://github.com/x/captain-api/pull/3. Done, sir.");
+    expect(inFlydsVoice("Captain, [the captain's call](https://example.com/captain/1) waits on the captain."))
+      .toBe("Sir, [your call](https://example.com/captain/1) waits on you.");
+    expect(inFlydsVoice("The captain-held task stays; captain_id and captain.ts too.")).toBe("The captain-held task stays; captain_id and captain.ts too.");
+  });
 });
 
 describe("routeMessage", () => {
