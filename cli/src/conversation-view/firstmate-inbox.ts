@@ -112,6 +112,10 @@ function parseRecord(file: string): { header: Map<string, string>; body: string 
 function parseNote(file: string, imagesDir: string, filesDir: string): ConversationMessage | null {
   const record = parseRecord(file);
   if (!record) return null;
+  // Flyd's command layer writes its domain-run requests and follow-ups into
+  // the same inbox, under request ids its runs own (`domain-…`). They are
+  // Flyd talking to firstmate, never something he typed.
+  if (record.header.get("request_id")?.startsWith("domain-")) return null;
   const id = record.header.get("id");
   const at = record.header.get("at");
   const images: string[] = [];

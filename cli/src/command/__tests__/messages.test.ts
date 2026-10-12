@@ -80,6 +80,27 @@ describe("domain manager messages", () => {
     expect(sends).toBe(1);
   });
 
+  it("cancels the FirstMate run once George's cancel is delivered", async () => {
+    saveDomainRun({ ...run(), status: "needs_decision" });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ id: "note-cancel", saved: true }), stderr: "" });
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const outcome = await sendDomainMessage({ domain: "coding", kind: "cancel", body: "Drop it, we're not doing this.", transport });
+
+    expect(outcome.delivered).toBe(true);
+    expect(listDomainRuns()[0]!.status).toBe("cancelled");
+    expect(activeDomainRuns("coding")).toEqual([]);
+  });
+
+  it("keeps the run active when the cancel could not be delivered", async () => {
+    saveDomainRun({ ...run(), status: "needs_decision" });
+    const exec: FirstmateExec = async () => { throw new Error("inbox down"); };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const outcome = await sendDomainMessage({ domain: "coding", kind: "cancel", body: "Drop it.", transport });
+
+    expect(outcome).toMatchObject({ delivered: false, reason: "delivery_failed" });
+    expect(listDomainRuns()[0]!.status).toBe("needs_decision");
+  });
+
   it("stores knowledge corrections for the Librarian's next manager wake", async () => {
     saveDomainRun(run("knowledge-one", "knowledge"));
     const outcome = await sendDomainMessage({ domain: "knowledge", kind: "priority_change", body: "Focus on current evidence first." });

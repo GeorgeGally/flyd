@@ -144,6 +144,8 @@ export class FirstmateDomainTransport {
       message.body,
       "",
       `Original outcome: ${run.request.intendedOutcome}`,
+      "",
+      "Reply to this note (fm-inbox.sh reply) with the run's new state under the original request's return contract: status (completed|needs_decision|failed), brief, and the rest. Flyd reads the newest reply as the run's outcome.",
     ].join("\n");
     let stdout = "";
     try {
@@ -217,6 +219,12 @@ export function firstmateRequestBody(request: DomainRequest): string {
   ].filter(Boolean).join("\n");
 }
 
+/** fm-inbox.sh reply cursors are zero-padded counters; a reply without one sorts first. */
+function cursorOrder(cursor: string | undefined): number {
+  const value = Number(cursor);
+  return Number.isFinite(value) ? value : -1;
+}
+
 export async function syncFirstmateDomainRuns(options: {
   transport?: FirstmateDomainTransport;
   now?: () => Date;
@@ -236,21 +244,37 @@ export async function syncFirstmateDomainRuns(options: {
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];
   for (const run of runs) {
-    const note = notes.find((item) => item.request_id === run.transport.requestId || item.id === run.transport.externalId);
-    if (!note) continue;
+    // fm-inbox.sh takes one reply per note, so FirstMate answers each of
+    // George's later decisions or corrections on that message's own note.
+    const noteIds = new Set([run.transport.externalId, ...(run.messages ?? []).map((message) => message.externalId)].filter(Boolean));
+    const requestIds = new Set([run.transport.requestId, ...(run.messages ?? []).map((message) => message.id)]);
+    const own = notes.filter((item) => noteIds.has(item.id) || (item.request_id ? requestIds.has(item.request_id) : false));
+    if (!own.length) continue;
+    const original = own.find((item) => item.request_id === run.transport.requestId || item.id === run.transport.externalId);
     let next: DomainRun = run;
-    if (note.acknowledged && run.status === "queued") {
+    if (original?.acknowledged && run.status === "queued") {
       next = { ...next, status: "accepted", updatedAt: (options.now ?? (() => new Date()))().toISOString() };
     }
-    if (note.reply?.body?.trim()) {
-      const parsed = parseDomainResult(note.reply.body);
+    // The newest reply is the run's current state; one already taken is never taken again.
+    const reply = own
+      .map((item) => item.reply)
+      .filter((item): item is FirstmateReply => Boolean(item?.body?.trim()))
+      .sort((a, b) => cursorOrder(a.cursor) - cursorOrder(b.cursor))
+      .at(-1);
+    if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
+      const parsed = parseDomainResult(reply.body!);
+      const status = parsed.status ?? "completed";
+      const { notified, failure, ...rest } = next;
+      const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
-        ...next,
-        status: parsed.status ?? "completed",
+        ...rest,
+        status,
         result: parsed.result,
-        updatedAt: note.reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
-        transport: { ...next.transport, replyCursor: note.reply.cursor },
-        ...(parsed.status === "failed" ? { failure: parsed.result.brief } : {}),
+        updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
+        transport: { ...next.transport, replyCursor: reply.cursor },
+        // A new outcome is announced again; the same one is not.
+        ...(notified !== undefined && !news ? { notified } : {}),
+        ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
       };
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;

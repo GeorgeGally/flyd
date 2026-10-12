@@ -15,6 +15,7 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "flyd-improve-"));
   process.env.FLYD_SELF_IMPROVE_DIR = join(home, "state");
   process.env.FLYD_CREW_DIR = join(home, "crew");
+  process.env.FLYD_COMMAND_DIR = join(home, "command");
   process.env.FLYD_JOURNAL_DIR = join(home, "journal");
   process.env.FLYD_ADVISORIES_PATH = join(home, "advisories.jsonl");
   process.env.FLYD_SELF_IMPROVE = "1";
@@ -112,6 +113,19 @@ describe("runSelfImprovement", () => {
     expect((await runSelfImprovement({ complete: none, dispatch, flydDir: home, now: tomorrow })).status).toBe("no_new_evidence");
     expect(none).toHaveBeenCalledTimes(1);
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("waits on a self-improvement FirstMate still holds, but not on one gone quiet for a week", async () => {
+    const run = (updatedAt: string): DomainRun => ({
+      id: "domain-improve", owner: "FirstMate", status: "needs_decision", createdAt: "2026-09-10T09:00:00Z", updatedAt,
+      request: { id: "domain-improve", domain: "coding", originalMessage: "Flyd self-improvement: x", intendedOutcome: "x", doneWhen: ["works"], createdAt: "2026-09-10T09:00:00Z", source: "self-improvement" },
+      transport: { kind: "firstmate", requestId: "domain-improve", externalId: "note-1" },
+    });
+    saveDomainRun(run(new Date(NOW.getTime() - 86_400_000).toISOString()));
+    expect((await runSelfImprovement({ complete, flydDir: home, now: () => NOW })).status).toBe("awaiting_george");
+
+    saveDomainRun(run(new Date(NOW.getTime() - 8 * 86_400_000).toISOString()));
+    expect((await runSelfImprovement({ complete, flydDir: home, now: () => NOW })).status).toBe("no_new_evidence");
   });
 
   it("does nothing once George has turned it off", async () => {
