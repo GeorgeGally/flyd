@@ -12,6 +12,8 @@ import {
 // unplanned, as with the room reading switched off. Routing tests inject
 // their own readers, which FLYD_ROOM does not touch.
 beforeEach(() => { vi.stubEnv("FLYD_ROOM", "0"); });
+// Every turn compiles real context over this repo (~0.7s), and some tests run several.
+vi.setConfig({ testTimeout: 20_000 });
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("buildConversationPrompt", () => {
@@ -382,8 +384,7 @@ describe("buildConversationPrompt", () => {
     expect(budgets[1]).toBe(25);
     expect(budgets[2]).toBe(12);
     expect(budgets[3]).toBe(6);
-    // Four whole turns, each compiling context over this repo.
-  }, 20_000);
+  });
 
   it.each([
     "let's just chat",

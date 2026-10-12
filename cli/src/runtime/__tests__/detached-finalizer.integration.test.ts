@@ -13,7 +13,9 @@ import { GitWorktreeManager } from "../worktree-manager.js";
 
 const execFileAsync = promisify(execFile);
 const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
-const pool = new Pool({ connectionString, max: 2 });
+// Production pools run in UTC (createRuntimePool); timestamp columns compare
+// against NOW() wrongly in any other session time zone.
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const store = new PostgresTaskStore(pool);
 
 const cleanedRoots: string[] = [];

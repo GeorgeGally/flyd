@@ -7,7 +7,9 @@ import { PostgresTaskStore } from "../task-store.js";
 import type { WorkerSession } from "../types.js";
 
 const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
-const pool = new Pool({ connectionString, max: 2 });
+// Production pools run in UTC (createRuntimePool); timestamp columns compare
+// against NOW() wrongly in any other session time zone.
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const store = new PostgresTaskStore(pool);
 const projectRoot = `/tmp/flyd-runtime-${process.pid}`;
 const projectName = `runtime-test-${process.pid}`;
