@@ -23,7 +23,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { renderBriefing, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
-import { boxesOf, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
+import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
@@ -314,9 +314,10 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message),
       });
+    const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
-    const page = found?.local && this.show?.live?.(found.url) === "down" ? undefined : found;
+    const page = found?.local && live(found.url) === "down" ? undefined : found;
     return {
       order,
       messages: changed,
@@ -324,8 +325,9 @@ export class SnapshotDiffer {
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
-      show,
-      boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), this.show?.live ?? (() => "up")),
+      // The calls sheet says a closed review page in words too.
+      show: show.calls ? { ...show, calls: show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call)) } : show,
+      boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
       ...(page ? { page } : {}),
     };

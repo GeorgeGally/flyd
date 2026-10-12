@@ -291,9 +291,14 @@ export function isLocalPage(url: string): boolean {
  */
 export function withClosedLinks(boxes: Box[], live: (url: string) => string): Box[] {
   const mark = (box: Box): Box => {
-    const links = box.links?.map((link) => (isLocalPage(link.url) && live(link.url) === "down" ? { ...link, closed: true } : link));
+    const links = box.links && closedLinks(box.links, live);
     const children = box.children?.map(mark);
     return { ...box, ...(links ? { links } : {}), ...(children ? { children } : {}) };
   };
   return boxes.map(mark);
+}
+
+/** The links with each one to a page on this machine that stopped answering marked closed. Pure. */
+export function closedLinks(links: ShowLink[], live: (url: string) => string): ShowLink[] {
+  return links.map((link) => (isLocalPage(link.url) && live(link.url) === "down" ? { ...link, closed: true } : link));
 }

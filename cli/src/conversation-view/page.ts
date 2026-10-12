@@ -3128,9 +3128,10 @@ var __name = function (f) { return f; };
       if (call.at) meta.appendChild(el("span", "", ago(call.at)));
       if (meta.childNodes.length) item.appendChild(meta);
       item.appendChild(el("h3", "call-head", call.headline));
+      // Under the question, the work it is about when Flyd has put the question in plain words; else the question whole.
       var question = call.decision && call.decision.question;
-      if (question && question !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(question))));
-      else if (call.detail && call.detail !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(call.detail))));
+      if (call.detail && call.detail !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(call.detail))));
+      else if (question && question !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(question))));
       (call.links || []).forEach(function (link) {
         if (link.closed) { item.appendChild(el("p", "call-link closed", "The review page for this has closed")); return; }
         var a = el("a", "call-link", link.label + " ↗");

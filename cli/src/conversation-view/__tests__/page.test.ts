@@ -1035,6 +1035,8 @@ describe("header and artefact view", () => {
     expect(items[0]!.querySelector(".call-head")!.textContent).toBe("Publish the apply page?");
     expect(items[0]!.querySelector(".call-question")!.textContent).toBe("Going live emails the stallholders.");
     expect(Array.from(items[0]!.querySelectorAll(".choices button")).map((button) => button.textContent)).toEqual(["Publish", "Hold"]);
+    // The same answer as on the artefact screen: one tap per option, then the chat box.
+    expect(items[0]!.querySelector(".art-chat-input")!.getAttribute("placeholder")).toBe("Or say something else…");
     const answer = items[1]!.querySelector("textarea")!;
     answer.value = "Merge it";
     answer.dispatchEvent(new Event("input"));
