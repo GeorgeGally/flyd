@@ -27,6 +27,12 @@ describe("unreadNotes", () => {
     const ask: Exchange = { question: { id: "ask:1", role: "user", text: "hi", timestamp: ago(60 * 60_000) }, waiting: "" };
     expect(unreadNotes([note("answered", 60 * 60_000, "sent", true), ask], NOW)).toBeNull();
   });
+
+  it("does not count a note firstmate answered in its own chat or finished with, though it never filed it", () => {
+    const settled: Exchange = { ...note("chat", 60 * 60_000, "sent"), waiting: "The footer links are fixed", settled: true };
+    const finished: Exchange = { ...note("finished", 60 * 60_000, "sent"), waiting: "", answered: true };
+    expect(unreadNotes([settled, finished, note("unread", 60 * 60_000, "sent")], NOW)?.ids).toEqual(["note:unread"]);
+  });
 });
 
 describe("unreadWarning", () => {
