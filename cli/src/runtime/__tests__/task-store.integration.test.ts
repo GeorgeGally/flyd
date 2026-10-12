@@ -1,8 +1,9 @@
 import { randomUUID } from "crypto";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { createRuntimePool } from "../database.js";
 import { deliveryContractOf } from "../delivery-contract.js";
+import { ensureRuntimeSchema } from "../runtime-schema.js";
 import { PostgresTaskStore } from "../task-store.js";
 import type { WorkerSession } from "../types.js";
 
@@ -38,6 +39,9 @@ async function cleanProject(): Promise<void> {
 }
 
 describe("PostgresTaskStore", { timeout: 15_000 }, () => {
+  // A blank database (CI) has no schema until Core bootstraps it.
+  beforeAll(() => ensureRuntimeSchema(pool));
+
   beforeEach(async () => {
     await cleanProject();
   });

@@ -6,6 +6,10 @@ import { promisify } from "util";
 import { afterEach, describe, expect, it } from "vitest";
 import { filesOutsideScope, verifyWorkerResult } from "../result-verifier.js";
 
+// The verification sandbox (sandbox-exec) exists only on macOS; elsewhere
+// the tests that verify through it skip, with that reason in their names.
+const onMacOS = it.skipIf(process.platform !== "darwin");
+
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
@@ -33,7 +37,7 @@ describe("verifyWorkerResult", () => {
     expect(filesOutsideScope(["anything.txt"], ["."])).toEqual([]);
   });
 
-  it("records repository evidence and passing commands independently of worker text", async () => {
+  onMacOS("records repository evidence and passing commands independently of worker text (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     await writeFile(join(repo.root, "one.txt"), "implemented\n");
     await writeFile(join(repo.root, "new.txt"), "new file\n");
@@ -51,7 +55,7 @@ describe("verifyWorkerResult", () => {
     expect(result.commands.every((command) => command.exitStatus === 0)).toBe(true);
   });
 
-  it("fails verification when a command fails even if a worker claimed success", async () => {
+  onMacOS("fails verification when a command fails even if a worker claimed success (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     await writeFile(join(repo.root, "one.txt"), "claimed success\n");
 
@@ -161,7 +165,7 @@ describe("verifyWorkerResult", () => {
     })).rejects.toThrow("escaping symlink");
   });
 
-  it("rejects an escaping symlink created by a verification command", async () => {
+  onMacOS("rejects an escaping symlink created by a verification command (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
 
     await expect(verifyWorkerResult({
@@ -205,7 +209,7 @@ describe("verifyWorkerResult", () => {
       .rejects.toThrow();
   });
 
-  it("terminates verification descendants before extracting the patch", async () => {
+  onMacOS("terminates verification descendants before extracting the patch (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
 
     const result = await verifyWorkerResult({
@@ -221,7 +225,7 @@ describe("verifyWorkerResult", () => {
     await expect(access(join(repo.root, "late.txt"))).rejects.toThrow();
   });
 
-  it("force kills a verification command that ignores SIGTERM", async () => {
+  onMacOS("force kills a verification command that ignores SIGTERM (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const startedAt = Date.now();
 
@@ -239,7 +243,7 @@ describe("verifyWorkerResult", () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
-  it("removes inherited secrets and denies verifier network access", async () => {
+  onMacOS("removes inherited secrets and denies verifier network access (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const previous = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "must-not-reach-verification";

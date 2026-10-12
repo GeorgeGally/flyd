@@ -14,6 +14,10 @@ import type { AgentTask, TaskAssignment, TaskGrant, WorkerCommand, WorkerSession
 import type { WorkerAdapter, WorkerRunInput } from "../worker-adapter.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
+// The verification sandbox (sandbox-exec) exists only on macOS; elsewhere
+// the tests that verify through it skip, with that reason in their names.
+const onMacOS = it.skipIf(process.platform !== "darwin");
+
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
@@ -94,7 +98,7 @@ describe("orchestrateAssignments", () => {
       .toThrow("expired before worker start");
   });
 
-  it("restores the first repository when the second repository integration blocks", async () => {
+  onMacOS("restores the first repository when the second repository integration blocks (macOS-only: verification sandbox)", async () => {
     const firstRepo = await repository();
     const secondRepo = await repository();
     const firstSnapshot = await inspectRepository(firstRepo.root);
@@ -238,7 +242,7 @@ describe("orchestrateAssignments", () => {
     expect(store.recordTaskIntegration).not.toHaveBeenCalled();
   });
 
-  it("tells the worker the exact verification commands the integrator will run", async () => {
+  onMacOS("tells the worker the exact verification commands the integrator will run (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const snapshot = await inspectRepository(repo.root);
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
@@ -317,7 +321,7 @@ describe("orchestrateAssignments", () => {
     expect(handedAssignment).toContain("Change one.txt");
   });
 
-  it("runs assignments concurrently and integrates each approved repository", async () => {
+  onMacOS("runs assignments concurrently and integrates each approved repository (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const secondRepo = await repository();
     const snapshot = await inspectRepository(repo.root);
@@ -441,7 +445,7 @@ describe("orchestrateAssignments", () => {
     }
   });
 
-  it("retries a failed worker by resuming the provider session captured by that run", async () => {
+  onMacOS("retries a failed worker by resuming the provider session captured by that run (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const snapshot = await inspectRepository(repo.root);
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
@@ -650,7 +654,7 @@ describe("orchestrateAssignments", () => {
     expect(result.status, JSON.stringify(result)).toBe("blocked");
   });
 
-  it("launches real adapter processes, replaces a failed worker, and integrates both verified patches", async () => {
+  onMacOS("launches real adapter processes, replaces a failed worker, and integrates both verified patches (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const snapshot = await inspectRepository(repo.root);
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));

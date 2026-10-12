@@ -442,7 +442,7 @@ describe("buildConversationPrompt", () => {
       situation: {
         project: "flyd", branch: "main", head: "abc123", dirty: false,
         changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
-        projectRoot: "/Users/radarboy3000/Documents/flyd",
+        projectRoot: process.cwd(),
       },
       crossRepo: [
         {
