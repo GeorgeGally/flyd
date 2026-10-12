@@ -751,6 +751,18 @@ program
   .action(runLearning);
 
 program
+  .command("import")
+  .description("Import another assistant's conversation export into conversation learning: chatgpt <zip|folder|conversations.json> (dry run unless --write)")
+  .argument("<kind>", "chatgpt")
+  .argument("<path>", "the export zip, its extracted folder, or conversations.json")
+  .option("--write", "Import the new conversations (default: dry-run summary)")
+  .option("--json", "Print the summary as JSON")
+  .action(async (kind: string, path: string, opts: { write?: boolean; json?: boolean }) => {
+    const { runImport } = await import("./commands/import.js");
+    await runImport(kind, path, opts);
+  });
+
+program
   .command("transitions")
   .description("Inspect, export, or erase transition-log data (governance)")
   .option("--json", "Structured JSON output")

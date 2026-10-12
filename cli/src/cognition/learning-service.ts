@@ -66,13 +66,19 @@ export async function learningRequest(path: string, method: string, body: unknow
         typeof t.user === "string" && t.user.length <= 12000 &&
         (t.assistant === undefined || typeof t.assistant === "string" && t.assistant.length <= 12000) &&
         (t.projectIds === undefined || Array.isArray(t.projectIds) && t.projectIds.length <= 5 &&
-          t.projectIds.every((id: unknown) => typeof id === "string" && /^(?:project|event):[a-z0-9._-]{1,100}$/.test(id))));
+          t.projectIds.every((id: unknown) => typeof id === "string" && /^(?:project|event):[a-z0-9._-]{1,100}$/.test(id))) &&
+        (t.title === undefined || typeof t.title === "string" && t.title.length <= 500) &&
+        (t.occurredAt === undefined || typeof t.occurredAt === "string" && t.occurredAt.length <= 40 && Number.isFinite(Date.parse(t.occurredAt))) &&
+        (t.attachments === undefined || Number.isInteger(t.attachments) && t.attachments >= 0 && t.attachments <= 10000));
       if (!valid) return { status: 400, body: { error: "Invalid conversation attribution or scope" } };
       const curator = new CognitiveCurator(store);
       const sequences = input.turns.map(t => curator.recordObservation({ conversation: {
         sessionId: t.sessionId, messageId: t.messageId, user: redactSensitiveText(t.user),
         assistant: redactSensitiveText(t.assistant ?? ""), projectIds: t.projectIds ?? [],
         truncated: t.truncated === true,
+        ...(t.title !== undefined ? { title: redactSensitiveText(t.title) } : {}),
+        ...(t.occurredAt !== undefined ? { occurredAt: t.occurredAt } : {}),
+        ...(t.attachments ? { attachments: t.attachments } : {}),
       } }, IMPORT_SOURCE, { correlationId: t.sessionId }));
       // A live HTTP request only ingests; the existing background sweep performs learning.
       return { status: 200, body: { sequences, status: "queued" } };
