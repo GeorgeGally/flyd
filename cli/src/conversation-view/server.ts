@@ -34,6 +34,7 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
+import { unreadNotes, unreadWarning } from "./note-receipts.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -95,6 +96,8 @@ export interface RenderedMessage {
   /** His reply to an answer: the question it replies to, and his words there as quoted. */
   replyTo?: string;
   replyQuote?: string;
+  /** A note to firstmate: sent, or read by firstmate. */
+  receipt?: "sent" | "read";
   /** The reply asks him something he has not answered yet: its question, options, and where his answer goes. */
   choice?: ReplyChoice & { replyTo: string };
 }
@@ -257,7 +260,7 @@ export class SnapshotDiffer {
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, choice]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, message.receipt, choice]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -280,6 +283,7 @@ export class SnapshotDiffer {
         ...(message.answers ? { answers: message.answers } : {}),
         ...(message.aside ? { aside: true } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo, ...(message.replyQuote ? { replyQuote: message.replyQuote } : {}) } : {}),
+        ...(message.receipt ? { receipt: message.receipt } : {}),
         ...(choice ? { choice } : {}),
       });
     }
@@ -993,6 +997,16 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
+    // Notes firstmate has left unread too long: a warning over the composer, checked on every update and heartbeat.
+    let unreadSent = "";
+    const emitUnread = () => {
+      if (closed) return;
+      const unread = unreadNotes(this.source.exchanges?.() ?? []);
+      const data = unread ? { count: unread.count, oldest: unread.oldest, text: unreadWarning(unread) } : { count: 0 };
+      if (JSON.stringify(data) === unreadSent) return;
+      unreadSent = JSON.stringify(data);
+      sseEvent(res, "unread", data);
+    };
     const differ = new SnapshotDiffer(this.summaries
       ? {
           ...this.summaries,
@@ -1014,6 +1028,7 @@ export class ConversationViewServer {
         latest = snapshot;
         this.cachePredictionContext(session.id, snapshot.messages);
         sseEvent(res, "update", differ.next(snapshot));
+        emitUnread();
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
@@ -1028,7 +1043,10 @@ export class ConversationViewServer {
     const stopMemory = this.memory?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
-    const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
+    const heartbeat = setInterval(() => {
+      res.write(": keep-alive\n\n");
+      emitUnread();
+    }, HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {
       closed = true;

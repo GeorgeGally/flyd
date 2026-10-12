@@ -2,6 +2,7 @@ import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmat
 import { escapeHtml } from "./markdown.js";
 import { installComposerPredictions } from "./composer-predictions-client.js";
 import { RECEIVED } from "./living.js";
+import { UNREAD_AFTER_MS } from "./note-receipts.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -417,6 +418,9 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
+/* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long. */
+.receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.receipt.late { color: var(--k-waiting); }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
 .msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -604,6 +608,14 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font-size: 0.8em;
 }
 .composer[hidden] { display: none; }
+/* Notes firstmate has left unread too long: said plainly over the message box. */
+.composer .unread {
+  display: flex; align-items: flex-start; gap: 0.55em; margin: 0 0 0.6em -0.75em; padding: 0.5em 0.75em;
+  border-radius: 0.4em; font: 500 0.82em/1.45 var(--sans); color: var(--k-waiting);
+  background: color-mix(in srgb, var(--k-waiting) 14%, var(--bg));
+}
+.composer .unread::before { content: ""; flex: none; width: 0.42em; height: 0.42em; margin-top: 0.52em; border-radius: 50%; background: currentColor; }
+.composer .unread[hidden] { display: none; }
 .composer .row {
   position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
@@ -867,7 +879,44 @@ var __name = function (f) { return f; };
       wireAsks(body);
     }
     wireChoice(el, message);
+    receipt(el, message);
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
+  }
+  // A note to firstmate says whether firstmate has read it: "sent", then "read by firstmate".
+  var UNREAD_AFTER_MS = ${UNREAD_AFTER_MS};
+  function receipt(el, message) {
+    var line = el.querySelector(":scope > .receipt");
+    if (!message.receipt) { if (line) line.remove(); delete el.dataset.receipt; return; }
+    if (!line) {
+      line = document.createElement("span");
+      line.className = "receipt";
+    }
+    // Right under his own words and attachments, above the screenshot and line of the answer.
+    var own = el.querySelectorAll(":scope > .body, :scope > .docs, :scope > .shots:not(.reply-shots)");
+    var mine = own[own.length - 1];
+    if (mine.nextSibling !== line) mine.after(line);
+    el.dataset.receipt = message.receipt;
+    el.dataset.note = message.id;
+    receiptLine(el, line);
+  }
+  function receiptLine(el, line) {
+    var read = el.dataset.receipt === "read";
+    var age = el.dataset.ts ? Date.now() - new Date(el.dataset.ts).getTime() : 0;
+    // A note firstmate answered was read, even if the acknowledgement never came.
+    var answered = nodes.has("note-reply:" + (el.dataset.note || "").replace(/^note:/, ""));
+    var late = !read && !answered && age > UNREAD_AFTER_MS;
+    var text = read ? "read by firstmate" : late ? "sent · not read by firstmate yet" : "sent";
+    if (line.textContent !== text) line.textContent = text;
+    line.classList.toggle("late", late);
+  }
+  // A note crosses into unread as time passes, with nothing new on the stream.
+  setInterval(function () {
+    main.querySelectorAll(".msg > .receipt").forEach(function (line) { receiptLine(line.parentNode, line); });
+  }, 15000);
+  var unreadEl = document.getElementById("unread");
+  function showUnread(unread) {
+    unreadEl.hidden = !unread.count;
+    unreadEl.textContent = unread.count ? unread.text : "";
   }
   // A question waits for its own answer; firstmate's session lines are relayed updates.
   function pairing(el, message) {
@@ -1525,6 +1574,7 @@ var __name = function (f) { return f; };
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
+    source.addEventListener("unread", function (event) { showUnread(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
       // The browser retries a dropped stream by itself, but gives up for good
@@ -2708,6 +2758,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
+    <p class="unread" id="unread" role="alert" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">

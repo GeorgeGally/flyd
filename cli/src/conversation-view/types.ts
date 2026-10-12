@@ -49,6 +49,8 @@ export interface ConversationMessage {
   replyTo?: string;
   /** His words in that question, as the reply quoted them. */
   replyQuote?: string;
+  /** A note to firstmate: "sent" while in its inbox, "read" once firstmate acknowledged it (moved it to handled/). */
+  receipt?: "sent" | "read";
 }
 
 /** A message the captain sent from the view, and its answer once there is one. */
