@@ -137,6 +137,31 @@ export function sitePageOf(text: string, opened: string[] = []): SitePage | unde
   return { label: short(chosen), url: asPage(chosen) };
 }
 
+/** The page the work is on now, for the header: where it opens, said short, and whether it is a local preview or the live site. */
+export interface CurrentPage extends SitePage {
+  /** "127.0.0.1:8088", "goodneighboursmarket.com". */
+  host: string;
+  local: boolean;
+}
+
+/**
+ * The page the work is on now: the newest message that names a site, its
+ * section ("#location") kept when the words name one. A reply's own page
+ * leads its words. Pure.
+ */
+export function currentPage(messages: Array<{ text: string; page?: SitePage }>): CurrentPage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    const page = message.page ?? sitePageOf(message.text);
+    const url = page ? parsed(page.url) : null;
+    if (!page || !url) continue;
+    const named = [...message.text.matchAll(URL_IN_TEXT)].map((match) => parsed(match[0])).find((found) => found !== null && found.hash.length > 1 && asPage(found) === asPage(url));
+    const hash = named?.hash ?? "";
+    return { label: `${page.label}${hash}`, url: `${page.url}${hash}`, host: url.host, local: isLoopback(url) };
+  }
+  return undefined;
+}
+
 /** The pages to render the change from: the local preview the turn checked first (it is what it looked at), then the pages the reply names. Pure. */
 export function renderPages(text: string, opened: string[] = []): string[] {
   const local = [...opened].reverse().map(parsed).filter((url): url is URL => url !== null && isLoopback(url)).map(asPage);

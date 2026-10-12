@@ -23,6 +23,7 @@ import {
   selectorsInCss,
   selectorsInScript,
   siteChangeOf,
+  currentPage,
   short,
   sitePageOf,
   siteUrlsIn,
@@ -335,5 +336,23 @@ describe("a note that changed the site, read from firstmate's session", () => {
     await made;
     const after = await source.read("s1");
     expect(after.followUps?.[`note:${NOTE}`]?.shots).toEqual([expect.stringMatching(/s1-t\d+\.0\.png$/)]);
+  });
+});
+
+describe("the page the work is on now", () => {
+  it("is the newest message that names a site, its section kept, local or live", () => {
+    const messages = [
+      { text: `Live on ${SITE}/vendor-apply and pushed.` },
+      { text: "Fixed the hat." },
+      { text: "am i even seeing the live version. http://127.0.0.1:8088/index.html#location ??" },
+      { text: "Yes, sir." },
+    ];
+    expect(currentPage(messages)).toEqual({ label: "/#location", url: "http://127.0.0.1:8088/index.html#location", host: "127.0.0.1:8088", local: true });
+    expect(currentPage(messages.slice(0, 2))).toEqual({ label: "/vendor-apply", url: `${SITE}/vendor-apply`, host: "christmas.goodneighboursmarket.com", local: false });
+  });
+
+  it("takes a reply's own page first, and is nothing without a site", () => {
+    expect(currentPage([{ text: "Done; see https://github.com/GeorgeGally/flyd/pull/121", page: { label: "/visit", url: `${SITE}/visit` } }])).toMatchObject({ label: "/visit", local: false });
+    expect(currentPage([{ text: "Merged https://github.com/GeorgeGally/flyd/pull/121." }, { text: "Thanks." }])).toBeUndefined();
   });
 });

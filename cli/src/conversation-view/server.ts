@@ -9,6 +9,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
+import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { readProjects } from "../council/projects.js";
@@ -137,6 +138,8 @@ interface StreamUpdate {
   boxes: Box[];
   /** The right column: his conversations with their answers, and artefacts beside them. */
   rail?: Rail;
+  /** The page the work is on now, kept in the header whenever there is one. */
+  page?: CurrentPage;
 }
 
 /**
@@ -291,6 +294,7 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message),
       });
+    const page = currentPage(snapshot.messages);
     return {
       order,
       messages: changed,
@@ -301,6 +305,7 @@ export class SnapshotDiffer {
       show,
       boxes: boxesOf(show, this.show?.readings?.() ?? {}),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
+      ...(page ? { page } : {}),
     };
   }
 }
