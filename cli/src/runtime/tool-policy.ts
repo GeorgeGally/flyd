@@ -230,6 +230,7 @@ function describe(name: string, input: Record<string, unknown>): string {
       const after = Array.isArray(input.after_land) ? input.after_land.map(String) : [];
       return `build "${clip(String(input.outcome ?? ""), 80)}"${after.length ? `, then ${after.join(" and ")} once you land it` : ""}`;
     }
+    case "whatsapp_send": return `send WhatsApp draft ${clip(String(input.id ?? ""), 40)}`;
     case "start_knowledge_task":
       return `research "${clip(String(input.outcome ?? ""), 80)}"`;
     case "domain_work":
@@ -245,6 +246,11 @@ export function decideToolCall(
   level: AutonomyLevel = autonomyLevel(),
 ): ToolDecision {
   const category = classifyToolCall(name, input);
+  // A WhatsApp draft goes out only on George's own "Send WhatsApp draft <id>" or the
+  // People page's Send, after he has seen it; no autonomy level or "always" covers it.
+  if (name === "whatsapp_send") {
+    return { kind: "deny", category, reason: `${describe(name, input)} (show George the draft's recipient and full body; he sends it himself by typing Send WhatsApp draft ${clip(String(input.id ?? "<id>"), 40)})` };
+  }
   if (category === "read" || level === "full" || sessionAllowed.has(category)) return { kind: "allow" };
   const decision = confirmOrAllow(name, input, category, state, level);
   // A no holds for the turn, but only for what would have been asked again:

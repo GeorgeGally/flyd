@@ -83,6 +83,8 @@ export interface ManifestRequest {
   environment: EnvironmentCapture;
   intent: string;
   modality: "text" | "voice";
+  /** Who wrote `intent`: George (typed or his own transcript, the default) or the LIVE realtime model. */
+  intent_author?: "george" | "model";
   conversation_id?: string;
   /** Base64-encoded JPEG of the user's screen at invocation time (no data: prefix). */
   screenshot?: string;
@@ -919,7 +921,7 @@ export async function resolve(
   });
 
   if (!isDictation && isAccountIntent(intent)) {
-    const answer = await answerAccountIntent(intent, conversationTurns.map(t => `George: ${t.user}\nFlyd: ${t.assistant}`).join("\n"));
+    const answer = await answerAccountIntent(intent, conversationTurns.map(t => `George: ${t.user}\nFlyd: ${t.assistant}`).join("\n"), { allowExplicitSend: manifest.intent_author !== "model" });
     return {
       resolutionId: randomUUID(), invocationId: invocation_id,
       environmentRevision: environment_revision, mode: "requires_augment",

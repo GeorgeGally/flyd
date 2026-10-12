@@ -14,10 +14,15 @@ describe("account requests through Mac resolution", () => {
   it.each(["text", "voice"] as const)("routes %s lookups through the connectors and returns an augment, not a typing operation", async modality => {
     vi.mocked(answerAccountIntent).mockClear();
     const result = await resolve({ ...base, modality });
-    expect(answerAccountIntent).toHaveBeenCalledWith(base.intent, "");
+    expect(answerAccountIntent).toHaveBeenCalledWith(base.intent, "", { allowExplicitSend: true });
     expect(result.mode).toBe("requires_augment");
     expect(result.operations).toEqual([]);
     expect(result.environmentRevision).toBe(7);
     expect(result.augmentations?.[0].content).toContain("Nuanu email");
+  });
+  it("never lets an intent the LIVE model wrote count as George's send command", async () => {
+    vi.mocked(answerAccountIntent).mockClear();
+    await resolve({ ...base, intent_author: "model" });
+    expect(answerAccountIntent).toHaveBeenCalledWith(base.intent, "", { allowExplicitSend: false });
   });
 });

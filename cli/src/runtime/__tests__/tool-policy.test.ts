@@ -120,6 +120,16 @@ describe("decideToolCall (trusted autonomy by default)", () => {
     expect(decideToolCall("bash", { command: "rm -rf x" }, clean, "trusted").kind).toBe("confirm");
   });
 
+  it("never sends a WhatsApp draft from chat, whatever the autonomy level or an earlier 'always'", () => {
+    const id = "12345678-1234-1234-1234-123456789abc";
+    allowForSession("outward");
+    for (const level of ["full", "trusted", "ask"] as const) {
+      const decision = decideToolCall("whatsapp_send", { id }, clean, level);
+      expect(decision.kind).toBe("deny");
+      expect(decision.kind === "deny" && decision.reason).toContain(`Send WhatsApp draft ${id}`);
+    }
+  });
+
   it("treats web tools as untrusted sources", () => {
     expect(marksTurnUntrusted("read_url")).toBe(true);
     expect(marksTurnUntrusted("web_search")).toBe(true);

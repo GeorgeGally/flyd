@@ -71,6 +71,20 @@ describe("WhatsApp personal transport", () => {
     expect(await answerAccountIntent(`Send WhatsApp draft ${id}`, "", { loop: loop as never, runTool, models: ["test"] })).toBe('{"status":"sent"}');
     expect(runTool).toHaveBeenCalledTimes(1);
   });
+  it("never sends from an intent the LIVE model wrote, even when it reads as George's send command", async () => {
+    const id = "12345678-1234-1234-1234-123456789abc";
+    expect(requestedComposeTools(`Send WhatsApp draft ${id}`, false).has("whatsapp_send")).toBe(false);
+    const runTool = vi.fn(async () => '{"status":"sent"}');
+    const loop = vi.fn(async (...args: unknown[]) => {
+      const tools = args[3] as { name: string }[];
+      expect(tools.map(t => t.name)).not.toContain("whatsapp_send");
+      const handler = args[4] as (name: string, input: Record<string, unknown>) => Promise<string>;
+      return { answer: await handler("whatsapp_send", { id }) };
+    });
+    const answer = await answerAccountIntent(`Send WhatsApp draft ${id}`, "", { loop: loop as never, runTool, models: ["test"], allowExplicitSend: false });
+    expect(answer).toMatch(/Error: .*types Send WhatsApp draft <id>/);
+    expect(runTool).not.toHaveBeenCalled();
+  });
 });
 
 it("survives WhatsApp's post-pairing restart and prevents a competing socket", async () => {
