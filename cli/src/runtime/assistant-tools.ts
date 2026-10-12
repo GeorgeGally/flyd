@@ -338,6 +338,7 @@ export async function runAssistantTool(
         if (!run.result) return `${run.request.domain} work is ${run.status}: ${run.request.intendedOutcome}`;
         const result = run.result;
         return [
+          run.incompleteReason ? `Not done: ${run.incompleteReason}` : "",
           `Brief: ${result.brief}`,
           result.recommendation ? `Recommendation: ${result.recommendation.action}${result.recommendation.reasoning ? ` — ${result.recommendation.reasoning}` : ""}` : "",
           `Detailed report:\n${result.detailedReport}`,

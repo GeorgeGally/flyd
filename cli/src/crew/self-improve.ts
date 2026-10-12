@@ -176,7 +176,7 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
       });
       continue;
     }
-    if (run.result?.format === "raw" && ["completed", "needs_decision"].includes(run.status)) {
+    if (run.result?.format === "raw" && ["completed", "incomplete", "needs_decision"].includes(run.status)) {
       evidence.push({
         id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
         text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,
