@@ -111,43 +111,18 @@ jobs:
       - name: Typecheck TypeScript Core
         working-directory: cli
         run: npm run lint
-      - name: Test command routing invariants
-        working-directory: cli
-        run: >-
-          npx vitest run
-          src/runtime/__tests__/turn-plan.test.ts
-          src/runtime/__tests__/read-the-room.test.ts
-          src/runtime/__tests__/turn-receipt.test.ts
-          src/runtime/__tests__/honesty-check.test.ts
-          src/runtime/__tests__/assistant-tools.test.ts
-      - name: Test active Core
+      # The whole suite, runtime included: a red test anywhere blocks the PR.
+      # Suites that need something CI cannot give skip with their reason in
+      # the test name (the detached finalizer's verification sandbox is
+      # macOS-only); Postgres suites use the service above.
+      - name: Test Core
         working-directory: cli
         run: |
           set +e
-          npm run test:active > /tmp/core-test.log 2>&1
+          npm test > /tmp/core-test.log 2>&1
           status=$?
           cat /tmp/core-test.log
           exit $status
-      - name: Test operational runtime invariants
-        working-directory: cli
-        run: >-
-          npx vitest run
-          src/runtime/__tests__/continuous-supervisor.test.ts
-          src/runtime/__tests__/worker-reconciler.test.ts
-          src/runtime/__tests__/worker-supervisor.test.ts
-          src/runtime/__tests__/project-supervisor.test.ts
-          src/runtime/__tests__/recovery.test.ts
-          src/runtime/__tests__/operational-decision.test.ts
-          src/runtime/__tests__/delegation-request.test.ts
-          src/runtime/__tests__/task-request-materializer.test.ts
-          src/runtime/__tests__/runtime-schema.test.ts
-          src/runtime/__tests__/detached-finalizer.integration.test.ts
-      - name: Test operational decision persistence
-        working-directory: cli
-        run: >-
-          npx vitest run
-          src/runtime/__tests__/operational-decision-store.integration.test.ts
-          src/runtime/__tests__/runtime-schema.integration.test.ts
       - name: Upload Core failure log
         uses: actions/upload-artifact@v4
         if: failure()

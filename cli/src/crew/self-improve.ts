@@ -282,10 +282,10 @@ const RUN_EVERY_MS = 24 * 60 * 60 * 1000;
 /** A FirstMate run with no word for this long no longer holds the loop: it was landed or dropped outside Flyd. */
 const DOMAIN_RUN_HOLD_MS = 7 * 86_400_000;
 
-function awaitingGeorge(tasks: CrewTask[], now: Date): CrewTask | DomainRun | undefined {
+function awaitingGeorge(tasks: CrewTask[], now: Date, flydDir?: string): CrewTask | DomainRun | undefined {
   const crew = tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready"].includes(task.status));
   if (crew) return crew;
-  return listDomainRuns().find((run) => run.request.source === "self-improvement"
+  return listDomainRuns(flydDir ? join(flydDir, "command") : undefined).find((run) => run.request.source === "self-improvement"
     && ["queued", "accepted", "working", "needs_decision"].includes(run.status)
     && now.getTime() - Date.parse(run.updatedAt) < DOMAIN_RUN_HOLD_MS);
 }
@@ -344,7 +344,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
   const state = readState(dir);
   if (!deps.force && state.lastRunAt && now.getTime() - Date.parse(state.lastRunAt) < RUN_EVERY_MS) return { status: "not_due" };
   // One improvement in flight at a time: George reviews before the next.
-  const pending = awaitingGeorge(listTasks(), now);
+  const pending = awaitingGeorge(listTasks(), now, deps.flydDir);
   if (pending) return { status: "awaiting_george", task: pending };
 
   const seen = new Set(state.seen);

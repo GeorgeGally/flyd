@@ -1,12 +1,20 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildConversationPrompt,
   isInstagramLoginWall,
   respondToConversation,
 } from "../conversation-responder.js";
+
+// These suites exercise the prompt and the tool loop, not routing: turns run
+// unplanned, as with the room reading switched off. Routing tests inject
+// their own readers, which FLYD_ROOM does not touch.
+beforeEach(() => { vi.stubEnv("FLYD_ROOM", "0"); });
+// Every turn compiles real context over this repo (~0.7s), and some tests run several.
+vi.setConfig({ testTimeout: 20_000 });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("buildConversationPrompt", () => {
   it("treats memory as personal evidence rather than a refusal boundary", () => {
@@ -262,7 +270,7 @@ describe("buildConversationPrompt", () => {
       },
     });
 
-    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "connected_accounts", "email_search", "email_read", "email_mailboxes", "drive_search", "drive_read", "email_draft", "drive_compose", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "start_knowledge_task", "background_task", "domain_work", "crew"]);
+    expect(observedTools).toEqual(["read_file", "grep", "list_files", "git_log", "edit_file", "write_file", "bash", "read_url", "whatsapp_status", "whatsapp_search", "whatsapp_read", "whatsapp_draft", "whatsapp_send", "connected_accounts", "email_search", "email_read", "email_mailboxes", "drive_search", "drive_read", "email_draft", "drive_compose", "web_search", "remember", "recall", "reminders", "schedule", "mac", "calendar_events", "todos", "work_model", "speaking_style", "flyd", "consult_specialist", "start_coding_task", "start_knowledge_task", "background_task", "domain_work", "crew"]);
     expect(observedIterations).toBeGreaterThan(1);
     expect(answer).toContain("evidence-first loop");
     expect(recorded).toMatchObject({
@@ -434,7 +442,7 @@ describe("buildConversationPrompt", () => {
       situation: {
         project: "flyd", branch: "main", head: "abc123", dirty: false,
         changedFiles: 0, latestCommit: "wip", outcome: null, status: null, nextAction: null,
-        projectRoot: "/Users/radarboy3000/Documents/flyd",
+        projectRoot: process.cwd(),
       },
       crossRepo: [
         {
@@ -1120,7 +1128,7 @@ describe("conversation action tools", () => {
       persistReceipt: async (input) => { receipt = input; return input as never; },
     });
     expect(readRoom).not.toHaveBeenCalled();
-    expect(offered.sort()).toEqual(["background_task", "start_coding_task"]);
+    expect(offered.sort()).toEqual(["background_task", "start_coding_task", "start_knowledge_task"]);
     expect(receipt.plan).toEqual({ route: "delegate", source: "jev", cover: [] });
   });
 
@@ -1148,11 +1156,12 @@ describe("conversation action tools", () => {
     expect(receipt.plan).toEqual({ route: "answer", source: "jev", cover: [], skill: "chase-payment" });
   });
 
-  it("falls back to the room reading when Jev is unsure, and to Jev's guess when that fails too", async () => {
+  it("falls back to the room reading when Jev is unsure, and answers read-only when that fails too", async () => {
     const plans: unknown[] = [];
+    let offered: string[] = [];
     const run = (readRoom: () => Promise<null | Record<string, unknown>>) => respondToConversation({
       sessionId: "route-fallback", turnNumber: 1,
-      message: "hm", history: [], memory: { verdict: "insufficient", matches: [] },
+      message: "remind me at 5 to call the bank", history: [], memory: { verdict: "insufficient", matches: [] },
       situation: {
         project: "test/project", branch: "main", head: "abc123", dirty: false,
         changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
@@ -1162,15 +1171,43 @@ describe("conversation action tools", () => {
     }, {
       routeTurn: async () => ({ route: "act", confidence: 0.41, source: "jev", decided: false }),
       readRoom: readRoom as never,
-      runAgentLoop: async () => "<final>ok</final>",
+      runAgentLoop: async (_system, _prompt, tools) => { offered = tools.map((tool) => tool.name); return "<final>ok</final>"; },
       persistReceipt: async (input) => { plans.push(input.plan); return input as never; },
     });
     await run(async () => ({ need: "ask", mode: "companion", route: "answer", cover: ["what he meant"], stance: "Ask.", avoid: "", length: "short", use: [], raise: null, act: null }));
     await run(async () => null);
+    await run(async () => { throw new Error("room reader timed out"); });
+    // A slow or broken room reading is not a reason to question George:
+    // Flyd answers, and the unsure guess still cannot change anything.
     expect(plans).toEqual([
       { route: "answer", source: "llm", cover: ["what he meant"] },
-      { route: "act", source: "jev", cover: [] },
+      { route: "answer", source: "llm", cover: [] },
+      { route: "answer", source: "llm", cover: [] },
     ]);
+    expect(offered).toContain("recall");
+    expect(offered).not.toContain("remember");
+    expect(offered).not.toContain("start_coding_task");
+  });
+
+  it("runs an unsure turn unplanned when the room reading is switched off", async () => {
+    let receipt: { plan?: unknown } = {};
+    let offered: string[] = [];
+    await respondToConversation({
+      sessionId: "route-off", turnNumber: 1,
+      message: "fix the typo in notes.txt", history: [], memory: { verdict: "insufficient", matches: [] },
+      situation: {
+        project: "test/project", branch: "main", head: "abc123", dirty: false,
+        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+        projectRoot: process.cwd(),
+      },
+      onToken: () => undefined,
+    }, {
+      routeTurn: async () => ({ route: "act", confidence: 0.41, source: "jev", decided: false }),
+      runAgentLoop: async (_system, _prompt, tools) => { offered = tools.map((tool) => tool.name); return "<final>ok</final>"; },
+      persistReceipt: async (input) => { receipt = input; return input as never; },
+    });
+    expect(receipt.plan).toEqual({ route: "unplanned", cover: [] });
+    expect(offered).toContain("remember");
   });
 
   it("stops a bash call that failed the same way twice, and reruns it after a change", async () => {

@@ -9,6 +9,10 @@ import { integrateVerifiedResults, preflightVerifiedResults, rollbackIntegratedR
 import { verifyWorkerResult } from "../result-verifier.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
+// The verification sandbox (sandbox-exec) exists only on macOS; elsewhere
+// the tests that verify through it skip, with that reason in their names.
+const onMacOS = it.skipIf(process.platform !== "darwin");
+
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
@@ -29,7 +33,7 @@ afterEach(async () => {
 });
 
 describe("integrateVerifiedResults", () => {
-  it("preflights the combined patch without touching main", async () => {
+  onMacOS("preflights the combined patch without touching main (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-preflight-managed-"));
     roots.push(managedRoot);
@@ -51,7 +55,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
   });
 
-  it("restores an earlier repository when a later repository integration blocks", async () => {
+  onMacOS("restores an earlier repository when a later repository integration blocks (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-rollback-managed-"));
     roots.push(managedRoot);
@@ -72,7 +76,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
   });
 
-  it("proves disjoint patches together before applying them to unchanged main", async () => {
+  onMacOS("proves disjoint patches together before applying them to unchanged main (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
     roots.push(managedRoot);
@@ -101,7 +105,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("two changed\n");
   });
 
-  it("blocks overlapping results without touching main", async () => {
+  onMacOS("blocks overlapping results without touching main (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
     roots.push(managedRoot);
@@ -128,7 +132,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
   });
 
-  it("blocks stale source state without touching the new main commit", async () => {
+  onMacOS("blocks stale source state without touching the new main commit (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
     roots.push(managedRoot);
@@ -155,7 +159,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("new main reality\n");
   });
 
-  it("blocks implementation integration outside main", async () => {
+  onMacOS("blocks implementation integration outside main (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     await execFileAsync("git", ["-C", repo.root, "checkout", "-b", "feature"]);
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
@@ -178,7 +182,7 @@ describe("integrateVerifiedResults", () => {
     expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("one base\n");
   });
 
-  it("accepts a verified read-only result when an already-dirty source is unchanged", async () => {
+  onMacOS("accepts a verified read-only result when an already-dirty source is unchanged (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-integrate-managed-"));
     roots.push(managedRoot);

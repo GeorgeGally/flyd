@@ -74,7 +74,7 @@ interface ConversationResponderDependencies {
   fetchFn?: FetchLike;
   /** Evaluation runs: state-changing tools are recorded as attempted but never execute. */
   readOnly?: boolean;
-  /** Read the room before answering; null falls back to heuristics. Defaults to a model call outside tests. */
+  /** Read the room before answering; null (a failed reading) answers read-only. Defaults to a model call outside tests; FLYD_ROOM=0 turns the default off. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
   /** The fast route reading; defaults to Jev outside tests. */
   routeTurn?: (message: string, history: ConversationInput["history"], notes?: Array<{ id: string; text: string }>) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null>;
@@ -1010,11 +1010,15 @@ export async function respondToConversation(
     message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   };
   const fallbackStarted = Date.now();
-  const room = unattended || fast?.decided ? null : await (dependencies.readRoom ?? defaultReadRoom)(roomInput).catch(() => null);
-  // An uncertain Jev prediction does not gain authority when the fallback fails.
+  // FLYD_ROOM=0 switches the room reading off: a choice, not a failure, so an
+  // unsure turn runs unplanned as it did before routing.
+  const roomOff = !dependencies.readRoom && process.env.FLYD_ROOM === "0";
+  const room = unattended || fast?.decided || roomOff ? null : await (dependencies.readRoom ?? defaultReadRoom)(roomInput).catch(() => null);
+  // An uncertain Jev prediction does not gain authority when the fallback
+  // fails, but Flyd can still answer: read-only, never a forced question.
   const reading = room ? { route: room.route, source: "llm" as const }
-    : fast?.decided ? fast : unattended ? null : { route: "clarify" as const, source: "llm" as const };
-  if (!unattended && process.env.FLYD_ROUTING_LEARNING !== "0") {
+    : fast?.decided ? fast : unattended || roomOff ? null : { route: "answer" as const, source: "llm" as const };
+  if (reading && !unattended && process.env.FLYD_ROUTING_LEARNING !== "0") {
     const prompt = roomPrompt(roomInput);
     routingTrace = {
       version: 1, surface: "runtime", at: roomNow.toISOString(), sessionId: txSession,
@@ -1023,8 +1027,8 @@ export async function respondToConversation(
         ...(!fast?.decided ? { fallbackPrompt: prompt } : { conversation_recap: fast?.evidence?.input.conversation_recap ?? input.history.slice(-4) }),
       }) as Record<string, unknown>,
       contextComplete: true, policyVersion: [fast?.evidence?.policyVersion ?? "jev-unavailable", ROOM_RUBRIC_VERSION].join(":"),
-      observed: { route: reading!.route, ...(fast?.decided && fast.domain ? { domain: fast.domain } : {}) },
-      source: room ? "llm" : fast?.decided ? "jev" : "clarify_after_failure",
+      observed: { route: reading.route, ...(fast?.decided && fast.domain ? { domain: fast.domain } : {}) },
+      source: room ? "llm" : fast?.decided ? "jev" : "answer_after_failure",
       ...(fast ? { confidence: fast.confidence, judgments: fast.evidence?.judgments, model: fast.evidence?.model } : {}),
       ...(room ? { model: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}),
       models: { ...(fast?.evidence?.model ? { jev: fast.evidence.model } : {}), ...(!fast?.decided ? { fallback: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}) },

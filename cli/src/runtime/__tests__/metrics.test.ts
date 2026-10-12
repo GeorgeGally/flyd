@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fiveWorkingDayWindowStart, hasControlTrialEvidence } from "../metrics.js";
 
 describe("fiveWorkingDayWindowStart", () => {
+  // The window starts at local midnight; pin the zone the expectations use.
+  beforeAll(() => { vi.stubEnv("TZ", "Asia/Singapore"); });
+  afterAll(() => { vi.unstubAllEnvs(); });
+
   it("uses five working days inclusive and skips the weekend", () => {
     expect(fiveWorkingDayWindowStart(new Date("2026-07-17T12:00:00+08:00")).toISOString())
       .toBe("2026-07-12T16:00:00.000Z");

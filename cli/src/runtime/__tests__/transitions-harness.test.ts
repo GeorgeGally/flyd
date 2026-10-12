@@ -10,6 +10,10 @@ import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { configureTransitionStore } from "../../transitions/writer.js";
 import { verifyWorkerResult } from "../result-verifier.js";
 
+// The verification sandbox (sandbox-exec) exists only on macOS; elsewhere
+// the tests that verify through it skip, with that reason in their names.
+const onMacOS = it.skipIf(process.platform !== "darwin");
+
 const execFileAsync = promisify(execFile);
 const rootDir = mkdtempSync(join(tmpdir(), "flyd-transitions-harness-"));
 const roots: string[] = [];
@@ -98,7 +102,7 @@ describe("harness transition capture", () => {
     }
   });
 
-  it("stores exit-signal only for a failing command — never raw output text", async () => {
+  onMacOS("stores exit-signal only for a failing command — never raw output text (macOS-only: verification sandbox)", async () => {
     const repo = await repository();
 
     const result = await verifyWorkerResult({
