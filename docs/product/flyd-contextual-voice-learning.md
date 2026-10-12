@@ -63,7 +63,7 @@ JSON input:
 
     {"turns":[{"sessionId":"session-1","messageId":"message-1","user":"The upload still fails on large images.","assistant":"I'll investigate.","projectIds":["project:flyd"]}]}
 
-Optional per-turn fields: `title`, `occurredAt` (ISO time) and `attachments` (a count).
+Optional per-turn field: `occurredAt` (ISO time); lessons learned from that turn take effect from then rather than from the import.
 
 A ChatGPT data export (Settings › Data controls › Export data — the emailed zip, its extracted folder, or `conversations.json`) imports through the same source:
 

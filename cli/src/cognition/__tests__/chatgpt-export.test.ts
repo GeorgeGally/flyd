@@ -35,8 +35,9 @@ describe("ChatGPT export import", () => {
       ["Book a hotel in Porto instead.", "Three Porto hotels near Ribeira."],
     ]);
     expect(trip.turns.map(t => t.messageId)).toEqual(["u1", "u2b"]);
-    expect(trip.turns[0]).toMatchObject({ sessionId: "chatgpt:conv-trip", title: "Trip planning",
-      occurredAt: new Date(1700000100 * 1000).toISOString(), attachments: 1 });
+    expect(trip.turns[0]).toMatchObject({ sessionId: "chatgpt:conv-trip",
+      occurredAt: new Date(1700000100 * 1000).toISOString() });
+    expect(trip.attachments).toBe(1);
     expect(conversations.find(c => c.id === "conv-empty")!.turns).toEqual([]);
   });
 
@@ -48,7 +49,7 @@ describe("ChatGPT export import", () => {
 
   it("shortens very long messages and marks them", () => {
     const long = "x".repeat(20000);
-    const conversation = parseChatGPTConversation({ id: "long", title: "Long", current_node: "u", mapping: {
+    const conversation = parseChatGPTConversation({ id: "long", current_node: "u", mapping: {
       u: { parent: null, children: [], message: { id: "u", author: { role: "user" }, create_time: 1, content: { content_type: "text", parts: [long] } } },
     } })!;
     expect(conversation.turns[0].user).toHaveLength(12000);
@@ -89,7 +90,7 @@ describe("ChatGPT export import", () => {
       const events = store.readSource("conversation.import");
       expect(events).toHaveLength(5);
       expect(events[0].payload?.conversation).toMatchObject({ sessionId: "chatgpt:conv-trip", messageId: "u1",
-        title: "Trip planning", attachments: 1, occurredAt: new Date(1700000100 * 1000).toISOString() });
+        occurredAt: new Date(1700000100 * 1000).toISOString() });
       expect(store.searchConversations(["porto"]).map(e => (e.payload?.conversation as { messageId: string }).messageId)).toEqual(["u2b"]);
     } finally { store.close(); }
     expect(fetch).not.toHaveBeenCalled();

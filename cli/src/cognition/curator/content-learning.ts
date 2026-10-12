@@ -103,6 +103,8 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
   if (!conversation) return 0;
   const projects = [...new Set(conversation.projectIds ?? [])];
   const scope = projects.length === 1 ? projects[0] : "conversation:" + conversation.sessionId;
+  const occurredAt = typeof conversation.occurredAt === "string" ? Date.parse(conversation.occurredAt) : NaN;
+  const effectiveAt = Number.isFinite(occurredAt) ? new Date(occurredAt).toISOString() : event.capturedAt;
   const curator = new CognitiveCurator(store);
   const prior = new ProjectionEngine(store, worldModelProjector).rebuild(0).state;
   const current = deriveWorldState(prior).current;
@@ -113,7 +115,7 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
     const refs = ["event:" + event.sequence];
     if (current.some(c => c.entityId === entityId && c.attribute === attribute && c.value === lesson.quote)) continue;
     const sequence = curator.addClaim({ entityId, attribute, value: lesson.quote, authority: "inferred",
-      effectiveAt: event.capturedAt, timeShape: "state", parentEntityId: projects.length === 1 ? scope : undefined,
+      effectiveAt, timeShape: "state", parentEntityId: projects.length === 1 ? scope : undefined,
       evidenceRefs: refs }, event.sourceId);
     if (!prior.claims.some(c => c.entityId === entityId && c.attribute === "label" && c.value === lesson.subject))
       curator.addClaim({ entityId, attribute: "label", value: lesson.subject, authority: "inferred",

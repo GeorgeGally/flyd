@@ -123,6 +123,22 @@ describe("conversation content learning", () => {
       expect(store.searchConversations(["upload"])).toEqual([]);
     } finally { store.close(); }
   });
+  it("dates lessons from an imported turn by when it was said, not when it was imported", async () => {
+    const { store } = fixture();
+    try {
+      await learningRequest("/learning/source", "POST", { sourceId: "conversation.import", action: "enable" });
+      const turns = [
+        { sessionId: "old", messageId: "m1", user: "Upload is broken.", assistant: "", occurredAt: "2023-03-01T10:00:00.000Z" },
+        { sessionId: "new", messageId: "m2", user: "Voice must work across apps.", assistant: "" },
+      ];
+      expect((await learningRequest("/learning/conversations", "POST", { turns })).status).toBe(200);
+      await runContentLearning({ store });
+      const imported = store.readSource("conversation.import").find(e => (e.payload?.conversation as { sessionId?: string } | undefined)?.sessionId === "new")!;
+      const state = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+      expect(state.current.find(c => c.attribute === "problem")?.effectiveAt).toBe("2023-03-01T10:00:00.000Z");
+      expect(state.current.find(c => c.attribute === "constraint")?.effectiveAt).toBe(imported.capturedAt);
+    } finally { store.close(); }
+  });
   it("imports idempotently, respects pause, and erases raw and derived data together", async () => {
     const { store, dir } = fixture();
     try {

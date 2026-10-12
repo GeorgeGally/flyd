@@ -19,17 +19,14 @@ const EXPORT_FILE = /^conversations(?:-\d+)?\.json$/i;
 export interface ChatGPTTurn {
   sessionId: string;
   messageId: string;
-  title: string;
   occurredAt?: string;
   user: string;
   assistant: string;
-  attachments: number;
   truncated: boolean;
 }
 
 export interface ChatGPTConversation {
   id: string;
-  title: string;
   turns: ChatGPTTurn[];
   attachments: number;
 }
@@ -52,7 +49,6 @@ interface ExportMessage {
 interface ExportConversation {
   id?: string;
   conversation_id?: string;
-  title?: string | null;
   create_time?: number | null;
   current_node?: string | null;
   mapping?: Record<string, ExportNode>;
@@ -105,7 +101,6 @@ function clip(text: string): { text: string; truncated: boolean } {
 export function parseChatGPTConversation(raw: ExportConversation): ChatGPTConversation | null {
   const id = String(raw.conversation_id ?? raw.id ?? "");
   if (!id || !raw.mapping || typeof raw.mapping !== "object") return null;
-  const title = (raw.title ?? "").trim().slice(0, 500);
   const sessionId = "chatgpt:" + id.slice(0, 190);
   const turns: ChatGPTTurn[] = [];
   let attachments = 0, open: { turn: ChatGPTTurn; replies: string[] } | undefined;
@@ -126,12 +121,12 @@ export function parseChatGPTConversation(raw: ExportConversation): ChatGPTConver
     if (role === "user") {
       close();
       const user = clip(text);
-      open = { replies: [], turn: { sessionId, messageId: message.id.slice(0, 200), title, user: user.text, assistant: "",
-        occurredAt: iso(message.create_time) ?? iso(raw.create_time), attachments: count, truncated: user.truncated } };
+      open = { replies: [], turn: { sessionId, messageId: message.id.slice(0, 200), user: user.text, assistant: "",
+        occurredAt: iso(message.create_time) ?? iso(raw.create_time), truncated: user.truncated } };
     } else if (open && text) open.replies.push(text);
   }
   close();
-  return { id, title, turns, attachments };
+  return { id, turns, attachments };
 }
 
 function exportFiles(path: string): string[] {
@@ -207,8 +202,8 @@ export function planChatGPTImport(conversations: ChatGPTConversation[], store: I
 export async function importChatGPTTurns(turns: ChatGPTTurn[]): Promise<number> {
   let queued = 0;
   for (let i = 0; i < turns.length; i += BATCH) {
-    const batch = turns.slice(i, i + BATCH).map(t => ({ sessionId: t.sessionId, messageId: t.messageId, title: t.title,
-      user: t.user, assistant: t.assistant, truncated: t.truncated, attachments: t.attachments,
+    const batch = turns.slice(i, i + BATCH).map(t => ({ sessionId: t.sessionId, messageId: t.messageId,
+      user: t.user, assistant: t.assistant, truncated: t.truncated,
       ...(t.occurredAt ? { occurredAt: t.occurredAt } : {}) }));
     const result = await learningRequest("/learning/conversations", "POST", { turns: batch });
     if (result.status >= 400) throw new Error(`Import stopped after ${queued} turns: ${(result.body as { error?: string }).error ?? "failed"}`);
