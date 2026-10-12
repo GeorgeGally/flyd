@@ -10,6 +10,7 @@ import type { AgentTool } from "../lib/llm.js";
 
 import { connectorTools, CONNECTOR_TOOL_NAMES, CONNECTOR_WRITE_TOOLS, runConnectorTool } from "../connectors/tools.js";
 import type { MailDependencies } from "../connectors/mail.js";
+import { workModelAction } from "./work-model-tool.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -117,7 +118,8 @@ export function isMutatingToolCall(name: string, input: Record<string, unknown>)
   if (CONNECTOR_WRITE_TOOLS.has(name)) return true;
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
   if (name === "schedule" || name === "todos") return input.action !== "list";
-  if (name === "work_model" || name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task") return true;
+  if (name === "work_model") return workModelAction(input) === "correct";
+  if (name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task") return true;
   if (name === "domain_work" && input.action === "ask") return true;
   if (name === "crew") return input.action === "land" || input.action === "discard";
   if (name === "flyd") return input.action === "run_briefing" || input.action === "skillify" || input.action === "improve";

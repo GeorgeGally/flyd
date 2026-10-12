@@ -1,3 +1,5 @@
+import { parseWorkModelArgs } from "./work-model-tool.js";
+
 // Checks on a call's arguments against what the tool is for, run by the
 // harness before the tool does anything. A tool whose description overlaps
 // another's gets chosen by coin-flip; the check turns a wrong pick into a
@@ -24,6 +26,10 @@ export function contractError(name: string, input: Record<string, unknown>): str
     if (SUPPORTED_STYLE.test(text) && ABOUT_HOW_FLYD_WRITES.test(text)) {
       return "Error: that's how he wants you to write, which speaking_style sets (style asd-ste100 is plain, literal Simplified Technical English). Call speaking_style instead; remember is for facts about his life.";
     }
+  }
+  if (name === "work_model") {
+    const parsed = parseWorkModelArgs(input);
+    if ("error" in parsed) return parsed.error;
   }
   return null;
 }

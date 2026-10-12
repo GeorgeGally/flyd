@@ -1,4 +1,5 @@
 import type { AgentTool } from "../lib/llm.js";
+import { formatWorkModelResult, parseWorkModelArgs, workModelTool } from "./work-model-tool.js";
 
 // Capabilities that used to be regex intercepts in front of the model. Each
 // intercept guessed intent from phrasing and answered with canned text before
@@ -18,17 +19,7 @@ export const assistantTools: AgentTool[] = [
       required: ["action"],
     },
   },
-  {
-    name: "work_model",
-    description: "Correct Flyd's model of what George is working on when he says so — e.g. \"I'm not working on Bridgestone anymore\", \"CleanX is done\", \"I'm also working on Koko\". Pass his statement verbatim.",
-    input_schema: {
-      type: "object",
-      properties: {
-        statement: { type: "string", description: "George's correction, in his words" },
-      },
-      required: ["statement"],
-    },
-  },
+  workModelTool,
   {
     name: "speaking_style",
     description: "Set how Flyd writes its replies. asd-ste100 = literal, plain Simplified Technical English (short sentences, one idea each, no idioms); default = normal style. Use when George asks Flyd to change how it talks.",
@@ -173,18 +164,20 @@ export async function runAssistantTool(
         return "Error: todos action must be list, add, done, or replace";
       }
       case "work_model": {
-        const statement = String(input.statement ?? "").trim();
-        if (!statement) return "Error: work_model needs George's statement";
+        const parsed = parseWorkModelArgs(input);
+        if ("error" in parsed) return parsed.error;
+        const { args } = parsed;
         const hypothesis = await import("../work/work-hypothesis/index.js");
+        if (args.action === "show") return formatWorkModelResult(hypothesis.readPresentModel(), args);
         const options = { foregroundRoot: context.situation?.projectRoot, coreCwd: process.cwd() };
-        const correction = hypothesis.parseHypothesisCorrection(statement);
+        const correction = hypothesis.parseHypothesisCorrection(args.statement);
         if (correction) {
-          await hypothesis.applyHypothesisCorrection(statement, options);
-          return hypothesis.formatHypothesisCorrectionReply(correction, context.presentHypothesis);
+          const revised = await hypothesis.applyHypothesisCorrection(args.statement, options);
+          return formatWorkModelResult(revised ?? hypothesis.readPresentModel(), args, { recorded: { kind: correction.kind, project: correction.projectName } });
         }
-        const mention = await hypothesis.handleWorkstreamMention(statement, options);
-        if (mention) return mention;
-        return "Error: could not read that as a work correction. Rephrase as e.g. \"I'm not working on X\", \"X is done\", or \"I'm also working on X\".";
+        const mention = await hypothesis.handleWorkstreamMention(args.statement, options);
+        if (mention) return formatWorkModelResult(hypothesis.readPresentModel(), args, { recorded: mention });
+        return "Error: could not read that as a work correction. Rephrase as e.g. \"I'm not working on X\", \"X is done\", or \"I'm also working on X\", or use action=show to read his priorities.";
       }
       case "speaking_style": {
         const style = input.style === "asd-ste100" ? "asd-ste100" : "default";

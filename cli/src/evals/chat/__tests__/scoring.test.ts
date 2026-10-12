@@ -29,6 +29,18 @@ describe("scoreChatEval", () => {
     ]);
   });
 
+  it("fails a turn that reached for a stand-in tool, even alongside the right one", () => {
+    const expectation = { anyTool: ["work_model"], notTools: ["bash", "email_search", "recall"], maxSeconds: 30 };
+    const call = (name: string) => ({ name, input: {}, succeeded: true });
+    expect(score(expectation, { seconds: 9, toolCalls: [call("work_model")] })).toEqual({ passed: true, failures: [] });
+    expect(score(expectation, { seconds: 36.3, toolCalls: [call("email_search"), call("recall"), call("bash")] }).failures).toEqual([
+      "used none of work_model (used: email_search, recall, bash)",
+      "used bash, email_search, recall instead",
+      "took 36.3s > 30s",
+    ]);
+    expect(score(expectation, { seconds: 12, toolCalls: [call("work_model"), call("recall")] }).failures).toEqual(["used recall instead"]);
+  });
+
   it("checks a tool was attempted with the resolved absolute date", () => {
     const expectation = { toolInput: { tool: "reminders", match: { action: "create", due: "{{tomorrow}} 08:00" } } };
     expect(score(expectation, { toolCalls: [{ name: "reminders", input: { action: "create", due: "2026-09-27 08:00" }, succeeded: false }] }).passed).toBe(true);
