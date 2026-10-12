@@ -10,6 +10,7 @@ import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
+import { markRead, readUnacknowledged } from "./note-receipts.js";
 import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
@@ -212,6 +213,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly desk?: { desk: FlydDesk; complete: Complete };
   /** What the crewmate working on each note is doing now. */
   private readonly crew?: Pick<CrewProgress, "steps">;
+  /**
+   * Notes firstmate has plainly read though they still sit in its inbox (it files a note only once done with it):
+   * answered in its own chat, or picked up by its turn. Kept once seen, since a turn naming a note ends long
+   * before the note is filed.
+   */
+  private readonly heard = new Set<string>();
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
@@ -410,10 +417,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const all = threaded(asks.length === 0 ? notes : [...notes, ...asks].sort((a, b) => Date.parse(a.question.timestamp ?? "") - Date.parse(b.question.timestamp ?? "")));
     // What the crewmate on each note is doing now, wherever the note is shown: under it in the window and in the column.
     const steps = this.crew?.steps(all);
-    if (!steps?.size) return all;
+    for (const id of this.heard) if (!all.some((exchange) => exchange.question.id === id)) this.heard.delete(id);
     return all.map((exchange) => {
-      const step = steps.get(exchange.question.id);
-      return step && !exchange.answer && !exchange.answered && !exchange.settled ? { ...exchange, waiting: step } : exchange;
+      const step = steps?.get(exchange.question.id);
+      // A crewmate on the note means firstmate read it.
+      if (step && !exchange.answer && !exchange.answered && !exchange.settled) return markRead({ ...exchange, waiting: step });
+      return this.heard.has(exchange.question.id) ? markRead(exchange) : exchange;
     });
   }
 
@@ -450,7 +459,10 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       .map(([id, answer]) => [id, this.sited(sessionId, answer)]));
     // What firstmate's session is doing now goes on the line of the note it took, not under the dots; once it has
     // said the outcome in its own chat, that outcome is the line.
-    const live = livened(inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });
+    const shown = inlineOutcomes(withFollowUps(exchanges, answered, snapshot.working));
+    const picked = new Set(voiced.working ? voiced.workingOn ?? [] : []);
+    for (const exchange of shown) if (readUnacknowledged(exchange, picked)) this.heard.add(exchange.question.id);
+    const live = livened(shown.map((exchange) => (this.heard.has(exchange.question.id) ? markRead(exchange) : exchange)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });
     return {
       ...voiced,
       messages: mergeNotes(voiced.messages.map((message) => this.sited(sessionId, message)), live, this.noteWindow(sessionId)),

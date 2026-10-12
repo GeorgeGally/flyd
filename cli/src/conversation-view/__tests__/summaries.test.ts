@@ -105,6 +105,14 @@ describe("isRoutine", () => {
     expect(isRoutine("Captain, agreed. Should I push it?")).toBe(false);
     expect(isRoutine(ABOUT_FIXES)).toBe(false);
   });
+
+  it("never mutes a short reply that waits on his word, question mark or not", () => {
+    expect(isRoutine("Waiting for your go-ahead to merge the vendor form fix.")).toBe(false);
+    expect(isRoutine("Captain, waiting on your call: keep the old hero or ship the new one.")).toBe(false);
+    expect(isRoutine("Still waiting on you to approve the copy.")).toBe(false);
+    expect(isRoutine("No change; the checkout fix is ready to merge.")).toBe(false);
+    expect(isRoutine("Captain, still waiting on the crewmate.")).toBe(true);
+  });
 });
 
 describe("isActionable", () => {

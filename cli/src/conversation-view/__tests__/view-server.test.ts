@@ -13,9 +13,10 @@ import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
+import { unreadNotes } from "../note-receipts.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
-import { assistantText, captain, captainBlocks } from "./transcript-fixture.js";
+import { assistantText, captain, captainBlocks, toolUse } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -619,6 +620,64 @@ describe("ConversationViewServer", () => {
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
     const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
     expect(unread).toEqual({ count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 12 min ago." });
+  });
+
+  it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {
+    const inbox = new MemoryInbox();
+    const lines = [
+      captain("<task-notification> watcher wake </task-notification>"),
+      assistantText("Done, sir: the footer links are fixed and the footer spacing is tighter now."),
+      captain("<task-notification> watcher wake </task-notification>"),
+      toolUse("Read", { file_path: "/Users/george/Documents/firstmate/state/inbox/1791720003-cccccc.note" }),
+    ];
+    // Sent early in firstmate's session and left in its inbox: firstmate files a note only once it is done with it.
+    const old = new Date(Date.parse(JSON.parse(lines[0]!).timestamp) + 500).toISOString();
+    const sent = (id: string, text: string) => ({ question: { id: `note:${id}`, role: "user" as const, text, timestamp: old, receipt: "sent" as const }, handoff: "queued" as const, waiting: "Working on it" });
+    inbox.notes = () => [
+      sent("1791720001-aaaaaa", "fix the footer links spacing"),
+      { ...sent("1791720002-bbbbbb", "rename the pricing tab"), answer: { id: "note-reply:1791720002-bbbbbb", role: "assistant" as const, text: "Renamed it to Plans.", answers: "note:1791720002-bbbbbb" }, waiting: "" },
+      sent("1791720003-cccccc", "make the hero image bigger"),
+      sent("1791720004-dddddd", "check the contact form"),
+    ];
+    const port = await start(inbox, lines);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const receipts = Object.fromEntries(update.messages.filter((m: { receipt?: string }) => m.receipt).map((m: { id: string; receipt: string }) => [m.id, m.receipt]));
+    expect(receipts).toEqual({
+      "note:1791720001-aaaaaa": "read",
+      "note:1791720002-bbbbbb": "read",
+      "note:1791720003-cccccc": "read",
+      "note:1791720004-dddddd": "sent",
+    });
+    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
+    expect(unread).toMatchObject({ count: 1, oldest: old });
+  });
+
+  it("counts a note a crewmate is working on as read by firstmate", () => {
+    dir ??= mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+    const inbox = new MemoryInbox();
+    const old = new Date(Date.now() - 12 * 60_000).toISOString();
+    inbox.notes = () => [
+      { question: { id: "note:1", role: "user" as const, text: "fix the footer", timestamp: old, receipt: "sent" as const }, handoff: "queued" as const, waiting: "Working on it" },
+      { question: { id: "note:2", role: "user" as const, text: "and the header", timestamp: old, receipt: "sent" as const }, handoff: "queued" as const, waiting: "Working on it" },
+    ];
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, inbox, crew: { steps: () => new Map([["note:1", "Running the footer tests"]]) } });
+    expect(source.exchanges().map((exchange) => [exchange.question.id, exchange.question.receipt, exchange.waiting])).toEqual([
+      ["note:1", "read", "Running the footer tests"],
+      ["note:2", "sent", "Working on it"],
+    ]);
+    expect(unreadNotes(source.exchanges())?.ids).toEqual(["note:2"]);
   });
 
   it("feeds the island a compact status of the newest session", async () => {

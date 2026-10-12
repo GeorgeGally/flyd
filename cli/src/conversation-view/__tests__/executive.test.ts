@@ -134,9 +134,27 @@ describe("needs you: only real questions, each answerable", () => {
   it("marks each Needs you row with the question, so the page can answer it in place", () => {
     const html = statusCardHtml(brief(REPLY).items);
     expect(html).toContain('<section class="sc-group k-call"><h4 class="sc-kicker">Needs you<span class="sc-count">3</span>');
-    expect(html).toContain('data-ask="Sepia tint"');
-    expect(html).toContain('data-ask="Photo rights"');
+    expect(html).toContain('data-ask="Sepia tint: Keep it on both, or brands only?"');
+    expect(html).toContain('data-ask="Photo rights: Are you OK publishing it?"');
     expect(html).not.toContain('data-ask="Flyd artefacts: the fix is built"');
+  });
+
+  it("keeps the ask an item makes after its outcome, and names that ask in the reply box", () => {
+    const items = brief([
+      "Where things stand:",
+      "",
+      "- Auth fix merged. The migration then failed on prod and needs your call: roll back or patch forward?",
+      "- The footer fix is being updated.",
+    ].join("\n")).items;
+    expect(items[0]).toMatchObject({
+      state: "needs",
+      text: "Auth fix merged",
+      detail: "The migration then failed on prod and needs your call: roll back or patch forward?",
+      ask: "Auth fix merged: The migration then failed on prod and needs your call: roll back or patch forward?",
+    });
+    const html = statusCardHtml(items);
+    expect(shown(html)).toContain("roll back or patch forward?");
+    expect(html).toContain('data-ask="Auth fix merged: The migration then failed on prod and needs your call: roll back or patch forward?"');
   });
 });
 

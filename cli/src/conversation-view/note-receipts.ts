@@ -22,13 +22,26 @@ export interface UnreadNotes {
 }
 
 /**
- * The notes firstmate has not acknowledged for longer than UNREAD_AFTER_MS.
- * A note firstmate has replied to is not counted: the reply names the note,
- * so it was read even if the acknowledgement never came.
+ * Whether firstmate has plainly read a note it has not acknowledged yet. It acknowledges a note only once it is done
+ * with it, so a note it answered (formally or in its own chat), settled, or is working on now (its turn names the
+ * note, or a crewmate has it) was read, however long the work takes.
+ */
+export function readUnacknowledged(exchange: Exchange, workingOn: ReadonlySet<string> = new Set()): boolean {
+  return !!exchange.answer || !!exchange.answered || !!exchange.settled || workingOn.has(exchange.question.id);
+}
+
+/** The note as read by firstmate. */
+export function markRead(exchange: Exchange): Exchange {
+  return exchange.question.receipt === "sent" ? { ...exchange, question: { ...exchange.question, receipt: "read" } } : exchange;
+}
+
+/**
+ * The notes firstmate has not read for longer than UNREAD_AFTER_MS: still in
+ * its inbox, and with nothing to show firstmate has them (see readUnacknowledged).
  */
 export function unreadNotes(exchanges: Exchange[], now = Date.now()): UnreadNotes | null {
   const late = exchanges
-    .filter((exchange) => exchange.question.receipt === "sent" && !exchange.answer)
+    .filter((exchange) => exchange.question.receipt === "sent" && !readUnacknowledged(exchange))
     .map((exchange) => ({ id: exchange.question.id, at: Date.parse(exchange.question.timestamp ?? "") }))
     .filter((note) => Number.isFinite(note.at) && now - note.at > UNREAD_AFTER_MS)
     .sort((a, b) => a.at - b.at);
