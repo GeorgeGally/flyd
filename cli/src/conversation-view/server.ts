@@ -314,7 +314,9 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message),
       });
-    const page = currentPage(snapshot.messages);
+    const found = currentPage(snapshot.messages);
+    // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
+    const page = found?.local && this.show?.live?.(found.url) === "down" ? undefined : found;
     return {
       order,
       messages: changed,

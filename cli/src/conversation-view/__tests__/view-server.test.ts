@@ -78,6 +78,15 @@ describe("SnapshotDiffer", () => {
   });
 });
 
+describe("SnapshotDiffer closed pages", () => {
+  it("says a closed local review page in words on the artefact and never offers it in the header", () => {
+    const text = "Answer to pending decision visuals: Pick a look\nQuestion: board http://127.0.0.1:4387/session/a";
+    const live = (url: string) => (url.includes(":4387") ? "down" : "up");
+    expect(new SnapshotDiffer(undefined, { live }).next({ messages: [{ id: "a", role: "user", text }], working: false }).page).toBeUndefined();
+    expect(new SnapshotDiffer(undefined, { live: () => "up" }).next({ messages: [{ id: "a", role: "user", text }], working: false }).page).toMatchObject({ host: "127.0.0.1:4387", local: true });
+  });
+});
+
 describe("SnapshotDiffer relays", () => {
   it("drops routine relayed updates, keeps ones with an outcome, and carries the pairing to the page", () => {
     const differ = new SnapshotDiffer();

@@ -224,7 +224,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .devices.pair .desk { left: 0; top: 4cqh; width: min(86cqw, 137.6cqh); height: min(53.75cqw, 86cqh); }
 .devices.pair .phone { right: 0; bottom: 0; width: min(36cqh, 34cqw); height: min(78cqh, 73.7cqw); }
 /* A scene's foot: a question's options, one tap each, then the chat box every artefact has. */
-.scene-ask { display: grid; gap: 14px; margin-top: 28px; max-width: 36em; }
+.scene-ask { display: grid; gap: 14px; margin-top: 28px; max-width: 640px; }
 .scene-ask .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 8px; }
 .choice-pick {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px;
@@ -2839,7 +2839,9 @@ var __name = function (f) { return f; };
     if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
     // Every scene takes his words about it at its foot; a question's options answer it in one tap.
     var oldAsk = sceneEl.querySelector(".scene-ask");
-    var askKey = !VIEW_TOKEN ? "" : box.decision ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "flyd-about:" + box.id;
+    // Only a piece of work takes words about it; "Working on it" and the situation line are not one.
+    var aboutWork = box.decision || box.task || box.ref || box.open || (box.links && box.links.length) || shots.length;
+    var askKey = !VIEW_TOKEN || !aboutWork ? "" : box.decision ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "flyd-about:" + box.id;
     if (oldAsk && oldAsk.dataset.key !== askKey) oldAsk.remove();
     if (askKey && !(oldAsk && oldAsk.isConnected)) sceneEl.querySelector(".scene-text").appendChild(sceneAsk(box, askKey));
     sceneMeta.textContent = "";
