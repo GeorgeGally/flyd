@@ -138,13 +138,25 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
     return best ? [{ exchange: best.exchange, text: message.text.includes("\n") ? part : message.text }] : [];
   };
   const found: Record<string, ConversationMessage> = {};
+  // A turn that took in the outcome of crew work a note started reports on that note, when one of its sentences
+  // shares two words with the note or with what firstmate said of the work when it took the note.
+  const reported = (message: ConversationMessage): Array<{ exchange: Exchange; text: string }> => (message.reports ?? [])
+    .filter((id) => byNote.has(id))
+    .filter((id) => {
+      const exchange = byNote.get(id)!;
+      const earlier = found[exchange.question.id];
+      const words = new Set([...topics[notes.indexOf(exchange)]!, ...(earlier ? [...parsed(earlier).words].filter((word) => !common(word)) : [])]);
+      return parsed(message).sentences.some((sentence) => [...sentence.words].filter((word) => words.has(word)).length >= 2);
+    })
+    .map((id) => ({ exchange: byNote.get(id)!, text: message.text }));
   for (const message of replies) {
     const handled = (message.notes ?? []).filter((id) => byNote.has(id));
     // The turn that handled a note answers it; a reply naming no note may report on one it plainly is about.
     // A reply to a note not listed here is still that note's, never another's.
+    const fromCrew = message.notes?.length ? [] : reported(message);
     const answered = message.notes?.length
       ? handled.map((id) => ({ exchange: byNote.get(id)!, text: message.text }))
-      : OUTCOME.test(message.text) ? bestNote(message) : [];
+      : fromCrew.length ? fromCrew : OUTCOME.test(message.text) ? bestNote(message) : [];
     for (const { exchange, text } of answered) found[exchange.question.id] = answerFrom(message, exchange, text);
   }
   // A note taken with others, its id never named again: the first reply firstmate settled after taking it.
@@ -187,7 +199,9 @@ function mostAbout(question: Set<string>, sentences: Sentence[]): number {
 }
 
 function answerFrom(message: ConversationMessage, exchange: Exchange, text: string): ConversationMessage {
-  const handled = message.notes?.includes(exchange.question.id.slice("note:".length)) === true;
+  const own = exchange.question.id.slice("note:".length);
+  // The turn that took in the note's crew work looked at that work, as much as the turn that handled the note.
+  const handled = message.notes?.includes(own) === true || message.reports?.includes(own) === true;
   return {
     id: message.id,
     role: "assistant",

@@ -8,7 +8,7 @@ import { followUps, inlineOutcomes, withFollowUps } from "../follow-ups.js";
 import { imageSize, isHisImage, ReplyShots } from "../reply-shots.js";
 import { toolImageAt, TranscriptConversation } from "../transcript-filter.js";
 import type { ConversationMessage, Exchange } from "../types.js";
-import { assistantText, injection, toolUse } from "./transcript-fixture.js";
+import { assistantText, injection, toolResult, toolUse } from "./transcript-fixture.js";
 
 /** A PNG header of the given size: enough for sniffing and sizing. */
 function png(width: number, height: number, fill = 0): Buffer {
@@ -105,6 +105,89 @@ describe("the screenshot behind a reply", () => {
     const formal: ConversationMessage = { id: `note-reply:${NOTE}`, role: "assistant", text: "Moved.", timestamp: "2026-10-11T13:05:00Z", answers: question.id };
     const [kept] = withFollowUps([{ question, answer: formal, waiting: "" }], { [question.id]: chat });
     expect(kept!.answer).toMatchObject({ id: formal.id, shots: ["/flyd/shot.png"] });
+  });
+});
+
+// George's "make a lab page with 6 options" (2026-10-12): the turn that took the note spawned a worker; a later
+// watcher wake read the worker's report, built a composite with magick, opened it in Preview, read it, and
+// reported. That report named no note, so it went to no note and its picture was dropped.
+const LAB = "1791794006-wuWtQE";
+const LAB_TASK = "gnm-sell-step-lab";
+const LAB_SHOT = "/private/tmp/claude-501/fm/scratchpad/sell-lab-all.png";
+const labTaken = (): string[] => [
+  injection("firstmate watcher wake"),
+  takeNote(LAB),
+  toolUse("Bash", { command: `ID=${LAB_TASK}; $F/bin/fm-spawn.sh $ID` }),
+  toolResult(`spawned ${LAB_TASK}\nworktree=/Users/r/.treehouse/good_neighbours-4f9341/3/good_neighbours`),
+  assistantText("Captain, a design worker is building a lab page with six different designs for the \"What do you sell?\" step."),
+];
+const labReported = (shot: Buffer): string[] => [
+  injection("firstmate watcher wake"),
+  toolUse("Bash", { command: `sed -n 1,40p $F/data/${LAB_TASK}/report.md` }),
+  toolUse("Bash", { command: `(cd $S && magick r1.png r2.png r3.png -smush 40 sell-lab-all.png; open -g -a Preview sell-lab-all.png)` }),
+  ...readImage(LAB_SHOT, shot),
+  toolUse("Bash", { command: `$F/bin/fm-teardown.sh ${LAB_TASK}` }),
+  assistantText("Captain, the six designs for the \"What do you sell?\" step are live and clickable. Each is shown at desktop and phone size, and an overview of all six is open in Preview.\n- All six: https://christmas.goodneighboursmarket.com/vendor-apply/lab-categories.html"),
+];
+const labExchange = (): Exchange => ({
+  question: { id: `note:${LAB}`, role: "user", text: "this ages looks bad. make a lab page with 6 options", timestamp: "2026-10-05T16:00:00Z" },
+  waiting: "",
+  handoff: "taken",
+  takenAt: "2026-10-05T16:00:05Z",
+});
+
+describe("the screenshot behind a worker's report", () => {
+  it("goes with the note the worker was spawned for, from the turn that took in its report", () => {
+    const { conversation } = fold([...labTaken(), ...labReported(png(2644, 2090))]);
+    const [taken, report] = replies(conversation);
+    expect(taken!.notes).toEqual([LAB]);
+    expect(report!.notes).toBeUndefined();
+    expect(report!.reports).toEqual([LAB]);
+    const answer = followUps([labExchange()], [taken!, report!])[`note:${LAB}`]!;
+    expect(answer).toMatchObject({ id: report!.id });
+    expect(answer.shots).toEqual(report!.shots);
+    expect(answer.shots).toHaveLength(1);
+  });
+
+  it("is not the note's when the turn that took in the report talks about other work", () => {
+    const lines = [
+      ...labTaken(),
+      injection("firstmate watcher wake"),
+      toolUse("Bash", { command: `$F/bin/fm-pr-merge.sh ${LAB_TASK} https://github.com/GeorgeGally/good-neighbours/pull/9` }),
+      ...readImage("/private/tmp/claude-501/fm/scratchpad/bunny.png", png(1440, 900)),
+      assistantText("Captain, the bunny and his snowy floor now sit higher on the Date page, live on the site."),
+    ];
+    const [taken, other] = replies(fold(lines).conversation);
+    expect(other!.reports).toEqual([LAB]);
+    const answer = followUps([labExchange()], [taken!, other!])[`note:${LAB}`]!;
+    expect(answer).toMatchObject({ id: taken!.id });
+    expect(answer.shots).toBeUndefined();
+  });
+
+  it("is kept in Flyd's storage and leads the note's answer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "reply-shots-"));
+    try {
+      const home = join(dir, "fm");
+      const project = join(dir, "project");
+      for (const sub of ["state/inbox/handled", "bin"]) mkdirSync(join(home, sub), { recursive: true });
+      mkdirSync(project);
+      writeFileSync(join(home, "bin", "fm-inbox.sh"), "#!/bin/sh\n");
+      const shot = png(2644, 2090, 7);
+      const lines = [...labTaken(), ...labReported(shot)];
+      // Sent as the session began, so it sits in this session's window.
+      const at = (JSON.parse(lines[0]!) as { timestamp: string }).timestamp;
+      writeFileSync(join(home, "state", "inbox", "handled", `${LAB}.note`), `id=${LAB}\nat=${at}\nsource=text\n--\nthis ages looks bad. make a lab page with 6 options\n`);
+      writeFileSync(join(project, "s1.jsonl"), fold(lines).text);
+      const root = join(dir, "shots");
+      const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home }), shots: new ReplyShots({ root }) });
+      const snapshot = await source.read("s1");
+      const [kept] = snapshot.followUps?.[`note:${LAB}`]?.shots ?? [];
+      expect(kept).toMatch(/s1-t\d+\.0\.png$/);
+      expect(readFileSync(kept!).equals(shot)).toBe(true);
+      expect(snapshot.messages.find((message) => message.id === `note:${LAB}`)?.shots).toEqual([kept]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
