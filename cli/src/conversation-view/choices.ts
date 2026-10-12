@@ -182,18 +182,30 @@ function stepOf(text: string): ChoiceStep {
   return { question, options: OPEN_WORD.test(question) ? [] : ["Yes", "No"] };
 }
 
+/**
+ * "Which do you want:" or "Do you want me to:" over a list asks him to pick; "Here's what changed:" or
+ * "Next steps:" over a list is a report.
+ */
+function leadInAsks(sentence: string): boolean {
+  if (!/:$/.test(sentence)) return false;
+  const bare = sentence.replace(/:$/, " ");
+  return LEAD_IN.test(bare) || OPEN_WORD.test(bare.replace(LEAD_IN, "")) || ASK_IMPERATIVE.test(bare);
+}
+
 /** The choice a reply puts to him, or null when its closing words ask him nothing. */
 export function choiceOf(text: string): ReplyChoice | null {
   const blocks = blocksOf(text);
   const ask = closingAsk(blocks);
   if (!ask) return null;
   const { sentence, context, after, before } = ask;
-  const asks = /\?["”')\]]*$/.test(sentence) || ASK_IMPERATIVE.test(sentence) || (after.length >= 2 && /:$/.test(sentence));
+  // A list of questions asks, whatever its lead-in ("Still waiting on you:").
+  const listAsks = after.length >= 2 && after.every((item) => ITEM_ASKS.test(item.text));
+  const asks = /\?["”')\]]*$/.test(sentence) || ASK_IMPERATIVE.test(sentence) || (after.length >= 2 && (leadInAsks(sentence) || (listAsks && /:$/.test(sentence))));
   if (!asks) return null;
   const question = capitalise(inFlydsVoice([context, sentence.replace(/:$/, "?")].filter(Boolean).join(" ")));
   const lead = sentence.replace(LEAD_IN, "");
   // Questions listed under it are asked one at a time, not offered as answers.
-  if (after.length >= 2 && after.every((item) => ITEM_ASKS.test(item.text))) {
+  if (listAsks) {
     return { question: question.replace(/\?$/, ""), options: [], steps: after.map((item) => stepOf(item.text)) };
   }
   // Options listed under the question are the choice.

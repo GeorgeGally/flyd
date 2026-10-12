@@ -82,6 +82,14 @@ describe("choiceOf", () => {
     ]);
   });
 
+  it("asks with a colon lead-in only when the lead-in itself asks", () => {
+    expect(choiceOf("Done, sir. Here's what changed:\n- Header now sticky\n- Footer links fixed")).toBeNull();
+    expect(choiceOf("All landed.\n\nNext steps:\n1. Watch the deploy\n2. Check the form on a phone")).toBeNull();
+    expect(choiceOf("Summary of today's work:\n- Auth fix merged\n- Docs updated")).toBeNull();
+    expect(choiceOf("Captain, do you want me to:\n1. Merge it now\n2. Wait for checks")).toEqual({ question: "Do you want me to?", options: ["Merge it now", "Wait for checks"] });
+    expect(choiceOf("Pick one:\n- Evergreen\n- Frost")!.options).toEqual(["Evergreen", "Frost"]);
+  });
+
   it("leaves an open question to his own words", () => {
     expect(choiceOf("The button is in. What should it say?")).toEqual({ question: "The button is in. What should it say?", options: [] });
   });
