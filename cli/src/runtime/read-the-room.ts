@@ -1,5 +1,6 @@
 import { localDay } from "../council/memory-store.js";
 import { TURN_ROUTES, type TurnRoute } from "./turn-plan.js";
+import { decisionBrief, decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 
 // Before Flyd answers, it reads the room: what George needs from this
 // message, how he seems, which one or two things Flyd knows actually matter,
@@ -9,7 +10,7 @@ import { TURN_ROUTES, type TurnRoute } from "./turn-plan.js";
 // here as private notes; Flyd decides whether any belongs in this moment.
 
 export type RoomNeed = "vent" | "think" | "decide" | "do" | "ask" | "chat";
-export const ROOM_RUBRIC_VERSION = "room-read.v2";
+export const ROOM_RUBRIC_VERSION = "room-read.v3";
 
 export interface RoomRead {
   need: RoomNeed;
@@ -60,6 +61,7 @@ export function roomPrompt(input: RoomInput): string {
     ...(input.notes.length ? input.notes.map((item) => `[${item.id}] ${clip(item.text, 220)}`) : ["(none)"]),
     "",
     "Decide:",
+    decisionPolicyBlock(),
     "- need: vent (wants to be heard), think (wants a sparring partner), decide (wants a recommendation), do (wants something done), ask (wants information), chat (small talk).",
     "- mode: operator only when answering needs his code, repos, files, or work state inspected; otherwise companion.",
     "- stance: 1-2 sentences on how a wise friend who knows him would respond right now — the angle, the tone, what he actually needs underneath the words.",
@@ -67,7 +69,9 @@ export function roomPrompt(input: RoomInput): string {
     "- length: short (1-3 sentences), medium (a short paragraph or two), long (only for plans, drafts, research).",
     "- use: the 0-4 knowledge ids that genuinely change the answer. Knowing is not a reason to mention; fewer is better.",
     "- raise: one private note id worth weaving in, or null. Default null; only if it serves what he needs right now.",
-    "- route: what this turn is. answer = he wants to know, hear, or think something through; answer from what you know or can look up, and change nothing. clarify = what he wants is genuinely unclear and a wrong guess would waste real effort; ask one question. act = he asked for something done now, outside any codebase (a reminder, a note, a setting, a schedule), or anything that needs his yes before it runs (installing, running a command, sending): only a live turn can ask him. delegate = any change at all to code in one of his repos (a feature, a fix, a typo), or other real work that takes minutes or more and needs no approval along the way (a long document, research across sources, generating and judging things); it gets handed off with checkable done_when points. Anything you can write well in the reply itself (an email, a message, a short plan) is answer. When in doubt between answer and act, answer and offer.",
+    "- route: what this turn is. answer = he wants to know, hear, or think something through; answer from what you know or can look up, and change nothing. clarify = what he wants is genuinely unclear and a wrong guess would waste real effort; ask one question. act = he asked for something done now, outside any codebase (a reminder, a note, a setting, a schedule), or anything that needs his yes before it runs (installing, running a command, sending): only a live turn can ask him. delegate = any change at all to code in one of his repos (a feature, a fix, a typo), or other real work that takes minutes or more and needs no approval along the way (a long document, research across sources, generating and judging things); it gets handed off with checkable done_when points. Anything you can write well in the reply itself (an email, a message, a short plan) is answer. " + (decisionPolicyVersion()
+      ? "Missing optional details alone do not make a clear request ambiguous: use a reasonable assumption for established authorized work. A mood or speculative idea is not an instruction to act. Keep intent and action permission separate; tool policy owns approval."
+      : "When in doubt between answer and act, answer and offer."),
     "- cover: the 1-3 things the reply must address for him to have what he asked for (e.g. for \"anything I should know before tomorrow?\": tomorrow's calendar and reminders; the open loose end that matters). Short replies still cover these.",
     "- act: for act or delegate only, the concrete piece of work to start (e.g. generate two new DIR sets with better prompts and judge them; draft the follow-up email). Only local, reversible work. null for answer and clarify.",
     "",
@@ -128,6 +132,7 @@ export function roomBrief(room: RoomRead, knowledge: RoomItem[], notes: RoomItem
     `He needs: ${room.need}. ${room.stance}`,
     room.avoid ? `Avoid: ${room.avoid}` : "",
     `Length: ${length}.`,
+    decisionBrief(room.need),
     used.length ? `What you know that matters here (use it; don't announce that you know it):\n${used.map((item) => `- ${item.text}`).join("\n")}` : "",
     room.act && (room.route === "act" || room.route === "delegate") ? `The work to start: ${room.act}` : "",
     raised ? `Something from your own background thinking you may weave in, in your own words, if it fits naturally: ${raised.text}` : "",

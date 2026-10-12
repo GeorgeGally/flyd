@@ -30,6 +30,8 @@ export interface TurnReceipt {
   /** The turn's plan (turn-plan.ts), or "unplanned" when no room reading came back in time. */
   plan?: { route: string; source?: "jev" | "llm"; cover: string[]; skill?: string };
   routing?: RoutingTrace;
+  /** Judgment policy supplied, not a claim that the model followed it. */
+  decisionPolicy?: string;
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;

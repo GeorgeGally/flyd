@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { buildResolveToolOutput, liveManifest } from "../realtime-session.js";
+import { describe, expect, it, vi } from "vitest";
+import { buildRealtimeInstructions, buildResolveToolOutput, liveManifest } from "../realtime-session.js";
 import type { Resolution } from "../resolve-types.js";
 
 function makeResolution(overrides: Partial<Resolution> = {}): Resolution {
@@ -15,6 +15,19 @@ function makeResolution(overrides: Partial<Resolution> = {}): Resolution {
 }
 
 describe("buildResolveToolOutput", () => {
+  it("keeps live evidence routing and context while sharing the reversible judgment policy", () => {
+    try {
+      vi.stubEnv("FLYD_OPTIMISTIC_DECISIONS", "1");
+      const enabled = buildRealtimeInstructions("George's current task is a local art prototype.");
+      expect(enabled).toContain("## Judgment");
+      expect(enabled).toContain("MUST call flyd_resolve_intent");
+      expect(enabled).toContain("George's current task is a local art prototype.");
+      vi.stubEnv("FLYD_OPTIMISTIC_DECISIONS", "0");
+      const disabled = buildRealtimeInstructions();
+      expect(disabled).not.toContain("## Judgment");
+      expect(disabled).toContain("MUST call flyd_resolve_intent");
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("returns augmentation answers so the voice model can speak them", () => {
     const output = buildResolveToolOutput(
       makeResolution({

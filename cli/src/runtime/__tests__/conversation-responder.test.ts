@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CognitiveCurator } from "../../cognition/curator/curator.js";
 import {
   buildConversationPrompt,
   isInstagramLoginWall,
@@ -17,6 +18,23 @@ vi.setConfig({ testTimeout: 20_000 });
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("buildConversationPrompt", () => {
+  it("does not learn fictional evaluation replies when the tool harness is read-only", async () => {
+    const capture = vi.spyOn(CognitiveCurator.prototype, "recordConversationTurn");
+    try {
+      await respondToConversation({
+        message: "Fictional supplier A costs 80 units. Choose it for this example.",
+        sessionId: "eval-fiction", turnNumber: 1, history: [],
+        memory: { verdict: "insufficient", matches: [] }, situation: null,
+        onToken: () => undefined,
+      }, {
+        readOnly: true,
+        routeTurn: async () => ({ route: "answer", source: "jev", confidence: 1, decided: true, needsCode: false }),
+        runAgentLoop: async () => "<final>Choose A within the stated budget.</final>",
+        persistReceipt: async (input) => input as never,
+      });
+      expect(capture).not.toHaveBeenCalled();
+    } finally { capture.mockRestore(); }
+  });
   it("treats memory as personal evidence rather than a refusal boundary", () => {
     const prompt = buildConversationPrompt({
       message: "What should I work on next?",
@@ -1103,33 +1121,89 @@ describe("conversation action tools", () => {
     }
   });
 
-  it("lets a confident Jev route decide the turn without the slow room reading", async () => {
+  it.each(["1", "0"])("keeps the fast handoff unchanged with optimism=%s and records the supplied policy", async (enabled) => {
+    const previous = process.env.FLYD_OPTIMISTIC_DECISIONS;
+    process.env.FLYD_OPTIMISTIC_DECISIONS = enabled;
     const readRoom = vi.fn(async () => null);
+    let loops = 0;
+    let suppliedSystem = "";
     let offered: string[] = [];
-    let receipt: { plan?: unknown } = {};
-    await respondToConversation({
-      sessionId: "route-fast", turnNumber: 1,
-      message: "add a clock to the flyd TUI header",
-      history: [],
-      memory: { verdict: "insufficient", matches: [] },
-      situation: {
-        project: "test/project", branch: "main", head: "abc123", dirty: false,
-        changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
-        projectRoot: process.cwd(),
-      },
-      onToken: () => undefined,
-    }, {
-      routeTurn: async () => ({ route: "delegate", confidence: 0.93, source: "jev", decided: true }),
-      readRoom,
-      runAgentLoop: async (_system, _prompt, tools) => {
-        offered = tools.map((tool) => tool.name);
-        return "<final>Started: a live clock in the header. I'll tell you when it's ready.</final>";
-      },
-      persistReceipt: async (input) => { receipt = input; return input as never; },
-    });
-    expect(readRoom).not.toHaveBeenCalled();
-    expect(offered.sort()).toEqual(["background_task", "start_coding_task", "start_knowledge_task"]);
-    expect(receipt.plan).toEqual({ route: "delegate", source: "jev", cover: [] });
+    let receipt: { plan?: unknown; decisionPolicy?: string } = {};
+    try {
+      await respondToConversation({
+        sessionId: "route-fast", turnNumber: 1,
+        message: "add a clock to the flyd TUI header",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: process.cwd(),
+        },
+        onToken: () => undefined,
+      }, {
+        routeTurn: async () => ({ route: "delegate", domain: "coding", confidence: 0.93, source: "jev", decided: true }),
+        readRoom,
+        runAgentLoop: async (_system, _prompt, tools) => {
+          loops++;
+          suppliedSystem = _system;
+          offered = tools.map((tool) => tool.name);
+          return "<final>Started: a live clock in the header. I'll tell you when it's ready.</final>";
+        },
+        persistReceipt: async (input) => { receipt = input; return input as never; },
+      });
+      expect(readRoom).not.toHaveBeenCalled();
+      expect(loops).toBe(1);
+      expect(suppliedSystem.includes("## Judgment")).toBe(enabled === "1");
+      expect(offered).toEqual(["start_coding_task"]);
+      expect(receipt.plan).toEqual({ route: "delegate", source: "jev", cover: [] });
+      expect(receipt.decisionPolicy).toBe(enabled === "1" ? "optimistic-decisions.v1" : undefined);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_OPTIMISTIC_DECISIONS;
+      else process.env.FLYD_OPTIMISTIC_DECISIONS = previous;
+    }
+  });
+
+  it.each(["1", "0"])("keeps authorized local action and outward approval intact with optimism=%s", async (enabled) => {
+    const previous = process.env.FLYD_OPTIMISTIC_DECISIONS;
+    process.env.FLYD_OPTIMISTIC_DECISIONS = enabled;
+    const previousAutonomy = process.env.FLYD_AUTONOMY;
+    process.env.FLYD_AUTONOMY = "trusted";
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "flyd-optimistic-action-")));
+    const readRoom = vi.fn(async () => null);
+    const askUser = vi.fn(async () => false);
+    let loops = 0;
+    const outputs: string[] = [];
+    try {
+      await respondToConversation({
+        message: "Write a local note saying done. Then push the repo if approved.",
+        history: [], memory: { verdict: "insufficient", matches: [] },
+        situation: { project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null, projectRoot: root },
+        onToken: () => undefined, askUser,
+      }, {
+        routeTurn: async () => ({ route: "act", domain: "life", confidence: 0.93, source: "jev", decided: true, needsCode: true }),
+        readRoom,
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          loops++;
+          outputs.push(await onToolCall("write_file", { path: "note.txt", content: "done\n" }));
+          outputs.push(await onToolCall("bash", { command: "git push origin main" }));
+          return "<final>The local note is written. The push was not approved.</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(readFileSync(join(root, "note.txt"), "utf8")).toBe("done\n");
+      expect(outputs[1]).toMatch(/^Not approved:/);
+      expect(askUser).toHaveBeenCalledTimes(1);
+      expect(loops).toBe(1);
+      expect(readRoom).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_OPTIMISTIC_DECISIONS;
+      else process.env.FLYD_OPTIMISTIC_DECISIONS = previous;
+      if (previousAutonomy === undefined) delete process.env.FLYD_AUTONOMY;
+      else process.env.FLYD_AUTONOMY = previousAutonomy;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("loads the one skill that fits into that turn, and records it", async () => {

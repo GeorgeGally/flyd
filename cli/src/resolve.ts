@@ -2,6 +2,7 @@ import { answerAccountIntent, isAccountIntent } from "./connectors/invocation.js
 import { randomUUID } from "node:crypto";
 import type { ConversationTurn } from "./conversation-history.js";
 import { query } from "./lib/llm.js";
+import { decisionPolicyBlock } from "./lib/decision-policy.js";
 import { readContextBundles, type ContextBundle } from "./lib/context-bundles.js";
 import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
 import type { Resolution, NativeOperation, ResolutionMode, AugmentOperation } from "./resolve-types.js";
@@ -562,6 +563,7 @@ ACTIVE TENSIONS:
 ${tensions.length > 0 ? tensions.map((t) => `- ${t}`).join("\n") : "- No active tensions"}
 
 RESOLUTION RULES:
+${decisionPolicyBlock()}
 1. You MUST target only the focused element ref "el_01". Never invent targets.
 2. The ROUTE DECISION is authoritative. If placement is "insert_at_cursor", use mode "native" with insert_text. If placement is "answer_panel", use mode "requires_augment".
 3. Maximum 2000 characters per operation.

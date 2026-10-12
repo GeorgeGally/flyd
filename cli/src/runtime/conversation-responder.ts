@@ -11,6 +11,7 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
+import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
@@ -268,6 +269,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         projects,
         options.room?.brief ?? "",
         options.plan ?? "",
+        decisionPolicyBlock(),
         speakingStyleSystemRule(),
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
@@ -311,6 +313,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
       "When the turn is for acting, act — don't describe what you'll do, do it, and continue to a real conclusion or blocker. Weak tool result — vary the query and try again, then conclude. When you change code, verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Only actions that leave this machine or can't be undone (push, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
+      decisionPolicyBlock(),
       speakingStyleSystemRule(),
     ].filter(Boolean).join("\n\n"),
     prompt: promptBody,
@@ -899,12 +902,12 @@ export async function respondToConversation(
     status: TurnReceipt["status"],
     error?: string,
   ): Promise<void> => {
-    captureTransition(() => {
+    if (!dependencies.readOnly) captureTransition(() => {
       const failed = status === "failed";
       recordAction({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", intent: input.message.trim().slice(0, 200), resolutionMode: connection.providerIdentity, model: connection.model });
       recordNextState({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", origin: failed ? "tool" : "user", signal: failed ? "error" : "succeeded" });
     });
-    if (status === "succeeded" && answer.trim()) {
+    if (!dependencies.readOnly && status === "succeeded" && answer.trim()) {
       try {
         const curator = new CognitiveCurator();
         try {
@@ -940,6 +943,7 @@ export async function respondToConversation(
       toolCalls,
       answer,
       status,
+      ...(decisionPolicyVersion() ? { decisionPolicy: decisionPolicyVersion() } : {}),
       ...(routingTrace ? { routing: routingTrace } : {}),
       ...(error ? { error } : {}),
       plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
@@ -1026,7 +1030,7 @@ export async function respondToConversation(
         message: input.message,
         ...(!fast?.decided ? { fallbackPrompt: prompt } : { conversation_recap: fast?.evidence?.input.conversation_recap ?? input.history.slice(-4) }),
       }) as Record<string, unknown>,
-      contextComplete: true, policyVersion: [fast?.evidence?.policyVersion ?? "jev-unavailable", ROOM_RUBRIC_VERSION].join(":"),
+      contextComplete: true, policyVersion: [fast?.evidence?.policyVersion ?? "jev-unavailable", ROOM_RUBRIC_VERSION, decisionPolicyVersion() ?? "baseline"].join(":"),
       observed: { route: reading.route, ...(fast?.decided && fast.domain ? { domain: fast.domain } : {}) },
       source: room ? "llm" : fast?.decided ? "jev" : "answer_after_failure",
       ...(fast ? { confidence: fast.confidence, judgments: fast.evidence?.judgments, model: fast.evidence?.model } : {}),

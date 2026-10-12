@@ -59,6 +59,26 @@ describe("reading the room", () => {
     expect(prompt).toContain("Knowing is not a reason to mention");
   });
 
+  it("keeps uncertainty distinct from unclear intent, with a rollback to the old rubric", () => {
+    const input = { message: "make a draft", history: [], now: new Date(), core: "Artist.", knowledge, notes };
+    try {
+      vi.stubEnv("FLYD_OPTIMISTIC_DECISIONS", "1");
+      expect(roomPrompt(input)).toContain("Missing optional details alone do not make a clear request ambiguous");
+      expect(roomPrompt(input)).not.toContain("When in doubt between answer and act");
+      vi.stubEnv("FLYD_OPTIMISTIC_DECISIONS", "0");
+      expect(roomPrompt(input)).toContain("When in doubt between answer and act");
+      expect(roomPrompt(input)).not.toContain("## Judgment");
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("adds choice guidance only to think/decide without changing the route or authority", () => {
+    const make = (need: string) => parseRoom(JSON.stringify({ need, route: "answer", stance: "Choose a direction." }), { knowledge, notes })!;
+    const room = make("decide");
+    expect(roomBrief(room, knowledge, notes)).toContain("For this choice:");
+    expect(room.route).toBe("answer");
+    expect(roomBrief(make("vent"), knowledge, notes)).not.toContain("For this choice:");
+  });
+
   it("puts only selected knowledge in front of the answer", () => {
     const room = parseRoom('{"need":"vent","mode":"companion","stance":"Hear him out.","avoid":"reciting awards","length":"short","use":["u3"],"raise":null}', { knowledge, notes })!;
     const brief = roomBrief(room, knowledge, notes);
