@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderBriefing } from "../executive.js";
-import { composeRail, conversationPreviews, groupTopics, negationsIn, normalizeLoopback, outcomeFirst, previewCard, previewsIn, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
+import { composeRail, conversationPreviews, groupTopics, loopbackPage, negationsIn, normalizeLoopback, outcomeFirst, phoneCommentNote, phoneWork, previewCard, previewsIn, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
 import type { ConversationMessage } from "../types.js";
 
 const user = (id: string, text: string, at = "2026-10-10T17:24:00Z"): ConversationMessage => ({ id, role: "user", text, timestamp: at });
@@ -296,5 +296,35 @@ describe("groupTopics", () => {
     ], []);
     expect(rail.conversations).toHaveLength(1);
     expect(rail.conversations[0]!.sameTopic).toMatchObject([{ id: "q2", waiting: "Working on it" }]);
+  });
+});
+
+describe("phone work", () => {
+  const said = (text: string, extra: Partial<ConversationMessage> = {}): ConversationMessage => ({ id: text, role: "user", text, ...extra });
+
+  it("knows the work is at phone width from its words or its screenshots", () => {
+    expect(phoneWork([said("the hero on mobile is cramped")])).toBe(true);
+    expect(phoneWork([said("check it at 390px wide")])).toBe(true);
+    expect(phoneWork([said("looks off at 375x812")])).toBe(true);
+    expect(phoneWork([said("Done.", { role: "assistant", shots: ["/tmp/shots/after-phone.png"] })])).toBe(true);
+    expect(phoneWork([said("tighten the header on desktop")])).toBe(false);
+    expect(phoneWork([said("add a phone number to the footer")])).toBe(false);
+    // Only lately: talk of phones long ago is not this work.
+    expect(phoneWork([said("on mobile it wraps"), ...Array.from({ length: 12 }, (_, index) => said(`desktop pass ${index}`))])).toBe(false);
+  });
+
+  it("shows a framed live page on a phone while the work is at phone width", () => {
+    const preview = { id: "live:http://127.0.0.1:8088/", kind: "live" as const, url: "http://127.0.0.1:8088/" };
+    expect(composeRail([], [], [preview], { phone: true }).artefacts[0]).toMatchObject({ preview: "http://127.0.0.1:8088/", phone: true });
+    expect(composeRail([], [], [preview]).artefacts[0]!.phone).toBeUndefined();
+    // A page not running is not put on a phone.
+    expect(composeRail([], [], [preview], { phone: true, live: () => "down" }).artefacts[0]!.phone).toBeUndefined();
+  });
+
+  it("writes his comment as a note with the page, the viewport and the spot", () => {
+    expect(phoneCommentNote({ url: "http://127.0.0.1:8088/", x: 12.6, y: 40, text: " Bigger. " })).toBe("Comment on the phone preview of http://127.0.0.1:8088/ (390×844 viewport), at x 13, y 40 of the screen:\n\nBigger.");
+    expect(loopbackPage("http://localhost:3000/a#b")).toBe("http://localhost:3000/a#b");
+    expect(loopbackPage("https://example.com/")).toBeNull();
+    expect(loopbackPage("file:///etc/passwd")).toBeNull();
   });
 });

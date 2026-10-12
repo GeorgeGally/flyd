@@ -25,7 +25,7 @@ import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
-import { composeRail, conversationPreviews, normalizeLoopback, outcomeFirst, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
@@ -684,6 +684,7 @@ export class ConversationViewServer {
       .map((exchange) => (!exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange));
     const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
+      phone: phoneWork(snapshot.messages),
       known: (preview) => board.get(preview.url) ?? preview,
       // Which server answers on the page's port: the process, its folder, and whether that is the project's own.
       server: (url) => {
@@ -869,7 +870,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -898,6 +899,10 @@ export class ConversationViewServer {
       }
       return;
     }
+    if (payload.comment !== undefined) {
+      await this.comment(res, payload.session, payload.comment);
+      return;
+    }
     const images = payload.images ?? [];
     const validImages = Array.isArray(images) && images.every((image) =>
       typeof image === "object" && image !== null &&
@@ -918,6 +923,26 @@ export class ConversationViewServer {
     try {
       const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
       this.predictions.remember(payload.text);
+      sendJson(res, 200, sent);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** His comment on a spot of the phone preview: to whoever is doing the work, with the page, viewport and spot. */
+  private async comment(res: ServerResponse, session: unknown, raw: unknown): Promise<void> {
+    const comment = raw as { url?: unknown; x?: unknown; y?: unknown; element?: unknown; text?: unknown } | null;
+    const url = typeof comment?.url === "string" ? loopbackPage(comment.url) : undefined;
+    const spot = (value: unknown, max: number): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max;
+    if (typeof session !== "string" || !comment || !url || !spot(comment.x, PHONE_VIEWPORT.width) || !spot(comment.y, PHONE_VIEWPORT.height) ||
+        typeof comment.text !== "string" || !comment.text.trim() || comment.text.length > 4000 ||
+        (comment.element !== undefined && (typeof comment.element !== "string" || comment.element.length > 300))) {
+      sendJson(res, 400, { error: "expected { session, comment: { url, x, y, element?, text } } on a local page" });
+      return;
+    }
+    try {
+      const note = phoneCommentNote({ url, x: comment.x, y: comment.y, text: comment.text, ...(typeof comment.element === "string" && comment.element.trim() ? { element: comment.element.trim() } : {}) });
+      const sent = await this.source.send(session, note, [], [], "firstmate");
       sendJson(res, 200, sent);
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });

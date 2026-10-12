@@ -71,6 +71,8 @@ export interface RailArtefact {
   checking?: boolean;
   /** A live page that refuses to be framed: linked, never a blank frame. */
   blocked?: boolean;
+  /** The work is at phone width: the page is shown on a phone, where he can comment on a spot. */
+  phone?: boolean;
   /** Which server serves a live page, and whether it changed lately. */
   server?: RailServer;
   at?: string;
@@ -118,6 +120,10 @@ export const TOPIC_GAP_MS = 10 * 60_000;
 const LOOPBACK = /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?(?:\/[^\s)"'<>\]]*)?/g;
 /** An absolute local image path a reply named. */
 const IMAGE_PATH = /(?:\/Users\/|\/home\/|\/tmp\/|\/private\/|\/var\/)[^\s)"'<>\]]+\.(?:png|jpe?g|webp|gif)\b/gi;
+/** Talk of a phone-width change: a phone or mobile view, a phone viewport width, a capture named for one. */
+const PHONE_WORK = /\b(?:mobile|iphone|android|phone(?!\s+(?:number|call)))\b|\b(?:3[6-9]\d|4[0-3]\d)\s*(?:px\b|[×x]\s*\d{3,4}\b)/i;
+/** The phone a page is shown on: an iPhone's viewport, in CSS pixels. */
+export const PHONE_VIEWPORT = { width: 390, height: 844 } as const;
 /** "not 8088", "instead of http://127.0.0.1:8088/": a page the text says is the wrong one. */
 const NEGATED = /\b(?:not|never|instead of|rather than|no longer(?: on| at)?)\s+(?:on\s+|at\s+|port\s+)?(?:(https?:\/\/[^\s)"'<>\]]+)|:?(\d{2,5})\b)/gi;
 /** The words that name a URL as the preview: "preview is", "preview at", "preview:". */
@@ -128,6 +134,16 @@ export function normalizeLoopback(raw: string): string | null {
   try {
     const url = new URL(raw.replace(/[.,;:!?]+$/, ""));
     return `${url.protocol}//${url.host}${url.pathname || "/"}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/** A local page's URL as given, hash kept, or null for anything that is not a loopback http page. Pure. */
+export function loopbackPage(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return /^https?:$/.test(url.protocol) && ["127.0.0.1", "localhost", "0.0.0.0", "[::1]"].includes(url.hostname) ? url.href : null;
   } catch {
     return null;
   }
@@ -191,6 +207,18 @@ export function conversationPreviews(messages: ConversationMessage[], scan = PRE
     }
   }
   return out;
+}
+
+/** Whether the work being talked about lately is at phone width: its words or its screenshots say so. Pure. */
+export function phoneWork(messages: ConversationMessage[], scan = PREVIEW_SCAN): boolean {
+  return messages.slice(-scan).some((message) => PHONE_WORK.test(message.text) || (message.shots ?? []).some((shot) => PHONE_WORK.test(shot.split("/").pop() ?? "")));
+}
+
+/** His comment on a spot of the phone preview, as a note for whoever is doing the work. Pure. */
+export function phoneCommentNote(comment: { url: string; x: number; y: number; element?: string; text: string }): string {
+  const { width, height } = PHONE_VIEWPORT;
+  const on = comment.element ? `, on ${comment.element}` : "";
+  return `Comment on the phone preview of ${comment.url} (${width}×${height} viewport), at x ${Math.round(comment.x)}, y ${Math.round(comment.y)} of the screen${on}:\n\n${comment.text.trim()}`;
 }
 
 /** His question as a rail row, whole. Pure. */
@@ -361,6 +389,8 @@ export interface RailOptions {
   known?: (preview: RailPreview) => RailPreview;
   /** Which server serves a live page, once known. */
   server?: (url: string) => RailServer | undefined;
+  /** The work is at phone width: live pages are shown on a phone. */
+  phone?: boolean;
 }
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
@@ -373,7 +403,8 @@ export function composeRail(
   const card = (named: RailPreview): RailArtefact => {
     const preview = options.known?.(named) ?? named;
     if (preview.kind !== "live") return previewCard(preview);
-    return previewCard(preview, options.live ? options.live(preview.url) : "up", options.server?.(preview.url));
+    const shown = previewCard(preview, options.live ? options.live(preview.url) : "up", options.server?.(preview.url));
+    return options.phone && shown.preview ? { ...shown, phone: true } : shown;
   };
   const conversations: RailConversation[] = exchanges
     .filter((exchange) => exchange.question.text.trim())

@@ -136,6 +136,16 @@ describe("showOf", () => {
     expect(unread.counts.waiting).toBeUndefined();
   });
 
+  it("lists every call that needs him, past the screen's limit, each with its question", () => {
+    const calls = Array.from({ length: 7 }, (_, index) => ({ label: `Call ${index}`, task: `t${index}`, detail: `Question ${index}?`, choices: ["Yes", "No"] }));
+    const read = showOf(snapshot([]), { now: NOW, artefact: { fleet: { calls, live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] } });
+    expect(read.counts.call).toBe(7);
+    expect(read.items.filter((item) => item.kind === "call").length).toBeLessThan(7);
+    expect(read.calls).toHaveLength(7);
+    expect(read.calls![6]).toMatchObject({ kind: "call", headline: "Call 6", decision: { task: "t6", question: "Question 6?", choices: ["Yes", "No"] } });
+    expect(showOf(snapshot([]), { now: NOW }).calls).toBeUndefined();
+  });
+
   it("sums up the whole fleet, counting past what the screen shows", () => {
     const many = Array.from({ length: 9 }, (_, index) => ({ label: `Piece ${index}`, repo: "flyd" }));
     const screen = showOf(snapshot([]), {

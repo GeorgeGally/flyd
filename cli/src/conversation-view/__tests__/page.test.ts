@@ -966,6 +966,79 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-rail")).toBe("off");
   });
 
+  it("opens what needs him from the figure, each call with its question and answerable where it stands", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const calls = [
+      { id: "call:a", kind: "call", headline: "Publish the apply page?", why: "", project: "GNM", decision: { task: "a", question: "Going live emails the stallholders.", choices: ["Publish", "Hold"] } },
+      { id: "call:b", kind: "call", headline: "Merge the pagination PR?", why: "", decision: { task: "b", question: "Checks are green.", choices: [] } },
+    ];
+    const show = { title: "Your move", summary: "", live: false, counts: { call: 2, live: 1 }, items: [], calls };
+    const bars = [{ label: "need you", value: 2, tone: "call" }, { label: "under way", value: 1, tone: "live" }];
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
+    await settle();
+    const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
+    expect(figure.textContent).toBe("2 need you");
+    // Only the figure that has a list behind it opens one.
+    expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
+    figure.click();
+    const sheet = document.getElementById("calls")!;
+    expect(sheet.hidden).toBe(false);
+    expect(document.getElementById("calls-title")!.textContent).toBe("2 need you");
+    const items = sheet.querySelectorAll(".call");
+    expect(items).toHaveLength(2);
+    expect(items[0]!.querySelector(".call-head")!.textContent).toBe("Publish the apply page?");
+    expect(items[0]!.querySelector(".call-question")!.textContent).toBe("Going live emails the stallholders.");
+    expect(Array.from(items[0]!.querySelectorAll(".choices button")).map((button) => button.textContent)).toEqual(["Publish", "Hold"]);
+    const answer = items[1]!.querySelector("textarea")!;
+    answer.value = "Merge it";
+    answer.dispatchEvent(new Event("input"));
+    items[1]!.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(sent).toEqual([{ decision: "b", text: "Merge it" }]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(sheet.hidden).toBe(true);
+  });
+
+  it("shows phone-width work on a phone, where a click on a spot sends a comment with the page and the spot", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = {
+      conversations: [],
+      artefacts: [{ id: "live:http://127.0.0.1:8097/", title: "Live preview", url: "http://127.0.0.1:8097/#hero", preview: "http://127.0.0.1:8097/#hero", phone: true }],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    expect(document.querySelector(".rail-frame-box")).toBeNull();
+    const frame = document.querySelector<HTMLIFrameElement>(".rail-phone-frame")!;
+    expect(frame.src).toBe("http://127.0.0.1:8097/#hero");
+    expect(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) })).toMatch(/\.rail-phone-frame \{[^}]*width: 390px; height: 844px;/);
+    const screen = document.querySelector<HTMLElement>(".rail-phone-screen")!;
+    screen.getBoundingClientRect = () => ({ left: 0, top: 0, width: 195, height: 422, right: 195, bottom: 422, x: 0, y: 0, toJSON() {} });
+    const toggle = document.querySelector<HTMLButtonElement>(".rail-phone-toggle")!;
+    const say = document.querySelector<HTMLFormElement>(".rail-phone-say")!;
+    // Comments are off until he turns them on: the page is used as it is.
+    expect(say.hidden).toBe(true);
+    toggle.click();
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    document.querySelector(".rail-phone-pins")!.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 60, clientY: 150 }));
+    expect(say.hidden).toBe(false);
+    expect(document.querySelector(".rail-phone-where")!.textContent).toMatch(/^At 120, 300\b.* on the 390×844 screen$/);
+    expect(document.querySelectorAll(".rail-pin")).toHaveLength(1);
+    say.querySelector("textarea")!.value = "Full width on phones";
+    say.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ session: "latest", comment: { url: "http://127.0.0.1:8097/#hero", x: 120, y: 300, text: "Full width on phones" } });
+    expect(say.hidden).toBe(true);
+    expect(document.querySelector(".rail-pin.sent")).not.toBeNull();
+    expect(document.querySelector(".rail-phone-hint")!.textContent).toBe("Sent. Click another spot to say more.");
+  });
+
   it("takes a reply under an answer, keeps it through a redraw, threads replies, and sends it with what it answers", async () => {
     load("");
     await settle();
