@@ -17,6 +17,7 @@ process.env.FLYD_SCOUT_DIR ??= join(sandbox, "scout");
 process.env.FLYD_CREW_DIR ??= join(sandbox, "crew");
 process.env.FLYD_CREW_WORKTREES ??= join(sandbox, "worktrees");
 process.env.FLYD_SELF_IMPROVE_DIR ??= join(sandbox, "self-improve");
+process.env.FLYD_COMMAND_DIR ??= join(sandbox, "command");
 process.env.FLYD_SOUL_PATH ??= join(sandbox, "SOUL.md");
 process.env.FLYD_INVESTIGATOR_DIR ??= join(sandbox, "investigator");
 process.env.FLYD_MORNING_PATH ??= join(sandbox, "morning.json");

@@ -130,4 +130,58 @@ describe("FirstMate domain transport", () => {
     expect(sent).toEqual(expected);
     expect(listDomainRuns().find((run) => run.id === "domain-test-1")?.notified).toBe(true);
   });
+
+  // A run waiting on George: FirstMate asked for a decision on note-1, he
+  // answered, and that answer went out as its own note (note-2).
+  const awaitingDecision = (): DomainRun => ({
+    id: "domain-test-1", request: request(), owner: "FirstMate", status: "needs_decision",
+    createdAt: request().createdAt, updatedAt: "2026-10-09T01:00:00.000Z", notified: true,
+    transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
+    result: { format: "raw", brief: "Verified; merge?", detailedReport: "Verified; merge?", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: ["Verified; merge?"], informationLossRisk: "high" },
+    messages: [{ id: "domain-test-1:decision:abc", kind: "decision", body: "Yes, merge it.", at: "2026-10-09T02:00:00.000Z", deliveredAt: "2026-10-09T02:00:01.000Z", externalId: "note-2" }],
+  });
+  const original = { id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: JSON.stringify({ status: "needs_decision", brief: "Verified; merge?" }), cursor: "000000000001" } };
+
+  it("settles a run from FirstMate's reply to George's later decision, and tells him the outcome", async () => {
+    saveDomainRun(awaitingDecision());
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [],
+      handled: [original, { id: "note-2", request_id: "domain-test-1:decision:abc", acknowledged: true, reply: { id: "note-2", at: "2026-10-09T03:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Merged and deployed." }), cursor: "000000000002" } }],
+    }), stderr: "" });
+    const sent: string[] = [];
+    const [settled] = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+
+    expect(settled!.status).toBe("completed");
+    expect(settled!.result?.brief).toBe("Merged and deployed.");
+    expect(settled!.transport.replyCursor).toBe("000000000002");
+    expect(sent).toEqual(["Merged and deployed."]);
+    expect(listDomainRuns()[0]!.notified).toBe(true);
+  });
+
+  it("matches a follow-up note by its request id alone, and never goes back to an older reply", async () => {
+    saveDomainRun({ ...awaitingDecision(), messages: [{ ...awaitingDecision().messages![0]!, externalId: undefined }] });
+    const followUp = { id: "note-2", request_id: "domain-test-1:decision:abc", acknowledged: true, reply: { id: "note-2", at: "2026-10-09T03:00:00.000Z", body: JSON.stringify({ status: "failed", brief: "The deploy failed." }), cursor: "000000000002" } };
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [followUp, original] }), stderr: "" });
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    const [failed] = await syncFirstmateDomainRuns({ transport });
+    expect(failed!.status).toBe("failed");
+    expect(failed!.failure).toBe("The deploy failed.");
+
+    saveDomainRun({ ...failed!, status: "needs_decision" });
+    expect(await syncFirstmateDomainRuns({ transport })).toEqual([]);
+  });
+
+  it("leaves a run waiting while FirstMate has not answered the follow-up yet", async () => {
+    saveDomainRun(awaitingDecision());
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [{ id: "note-2", request_id: "domain-test-1:decision:abc", acknowledged: false, reply: null }],
+      handled: [original],
+    }), stderr: "" });
+    expect(await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) })).toEqual([]);
+    expect(listDomainRuns()[0]!.status).toBe("needs_decision");
+  });
 });

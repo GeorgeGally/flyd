@@ -48,7 +48,13 @@ export async function sendDomainMessage(input: {
     try {
       const receipt = await (input.transport ?? new FirstmateDomainTransport()).sendMessage(run, pending);
       const delivered: DomainMessage = { ...pending, deliveredAt: new Date().toISOString(), externalId: receipt.externalId };
-      const next = { ...withPending, messages: withPending.messages!.map((message) => message.id === id ? delivered : message), updatedAt: delivered.deliveredAt! };
+      const next: DomainRun = {
+        ...withPending,
+        messages: withPending.messages!.map((message) => message.id === id ? delivered : message),
+        updatedAt: delivered.deliveredAt!,
+        // George's cancel is the outcome; FirstMate has it, and the run stops being active.
+        ...(input.kind === "cancel" ? { status: "cancelled" as const } : {}),
+      };
       saveDomainRun(next);
       return { delivered: true, run: next };
     } catch (error) {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
+import { unreadNotes } from "../note-receipts.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -203,6 +204,21 @@ describe("FirstmateInbox", () => {
     ]);
     renameSync(join(home, "state", "inbox", "100-a.note"), join(home, "state", "inbox", "handled", "100-a.note"));
     expect(questions(inbox)[0]!.receipt).toBe("read");
+  });
+
+  it("leaves out the notes Flyd's command layer writes for its domain runs, and their replies", () => {
+    writeNote("", "100-a", "2026-10-05T20:00:00Z", "fix the header");
+    const target = join(home, "state", "inbox");
+    writeFileSync(join(target, "200-b.note"), "id=200-b\nat=2026-10-05T20:10:00Z\nsource=text\nrequest_id=domain-d9b0f61c\n--\nFLYD DOMAIN REQUEST\nFlyd is mediating this coding request for George.\n");
+    mkdirSync(join(target, "handled"), { recursive: true });
+    writeFileSync(join(target, "handled", "300-c.note"), "id=300-c\nat=2026-10-05T20:20:00Z\nsource=text\nrequest_id=domain-d9b0f61c:decision:abc\n--\nFLYD DECISION FOR ACTIVE DOMAIN RUN domain-d9b0f61c\n");
+    mkdirSync(join(target, ".replies"), { recursive: true });
+    writeFileSync(join(target, ".replies", "300-c"), "id=300-c\nat=2026-10-05T20:25:00Z\n--\n{\"status\":\"completed\",\"brief\":\"Merged.\"}\n");
+    const inbox = new FirstmateInbox({ home, script: join(dir, "missing.sh") });
+    const exchanges = inbox.notes();
+    expect(exchanges.map((exchange) => exchange.question.id)).toEqual(["note:100-a"]);
+    expect(exchanges.some((exchange) => exchange.answer)).toBe(false);
+    expect(unreadNotes(exchanges, Date.parse("2026-10-05T23:00:00Z"))?.ids).toEqual(["note:100-a"]);
   });
 });
 
