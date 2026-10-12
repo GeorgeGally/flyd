@@ -131,3 +131,23 @@ I'll merge each one when it passes its checks and tell you.
 **Working in ~/Documents:** from now on I always work directly in ~/Documents. I've recorded this as a standing rule and replaced the older note that said not to put work live.
 
 Should I go ahead with fix 2?`;
+
+/** A site change (2026-10-12) whose aside, "Applications stay closed there…", became the artefact's headline. Its last bullet,
+ * about an admin page on the public site, is left out of this public repo. */
+export const MOBILE_DEPLOY = `Captain, I pulled the mobile changes, tested them, and deployed to https://christmas.goodneighboursmarket.com along with your fixes below. Applications stay closed there; the deploy only opens them if asked.
+
+**Testing:** all five pages open at true phone size with no sideways scroll, and nothing errors in the browser. Four automated homepage checks fail, but they failed the same way before this pull: they still describe the old homepage. The phone and desktop screenshots are open in Preview.
+
+**Your fixes, all live:**
+- **Snow on the Date page:** flakes now land all over the floor, from just behind the bunny to the bottom of the screen. Nearer flakes are bigger, and they lie as flat drifts that don't block snow falling in front or behind.
+- **Letter-spacing:** I tightened the early-bird caption, and every other widely spaced label on the site, to near-normal. I saved this as a lasting preference in Flyd and in my notes.
+- **"Make Christmas your own." on phones:** two problems fixed.
+  - The page kept snapping back to its top, so you could never reach the bottom of it.
+  - Swipes that started on the rates table were ignored.
+
+  Now an up or down swipe on the table moves between pages, and left/right still scrolls the table.
+- **Tilt snow:** the button is gone. On iPhone, tilt snow now asks for motion access on your first tap anywhere, because iPhones only allow that request after a tap. Other phones get it straight away with no prompt.
+- **Follow us in the phone menu:** the Instagram handle is now a large gold button under a larger, clearer label.
+
+**Two things to know:**
+- **Phone dead end:** the other session hid the footer screen on phones on purpose. That left the rates page with nowhere to go. My best guess was that swiping on from it should carry round to the Welcome page, and that's what it does now. Desktop still goes to the footer. If you'd rather phones show the footer, say so.`;

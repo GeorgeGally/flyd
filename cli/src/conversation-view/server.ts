@@ -23,7 +23,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { renderBriefing, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
-import { boxesOf, type Box, type BoxReadings } from "./boxes.js";
+import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
@@ -127,6 +127,8 @@ export interface ShowOptions {
   readings?: () => BoxReadings;
   /** Flyd's right column: his conversations, their answers and the artefacts beside them. */
   rail?: (snapshot: ConversationSnapshot) => Rail;
+  /** Whether a page on this machine answers, so a link to one that closed is said in words. */
+  live?: (url: string) => string;
 }
 
 interface StreamUpdate {
@@ -312,7 +314,10 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message),
       });
-    const page = currentPage(snapshot.messages);
+    const live = this.show?.live ?? (() => "up");
+    const found = currentPage(snapshot.messages);
+    // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
+    const page = found?.local && live(found.url) === "down" ? undefined : found;
     return {
       order,
       messages: changed,
@@ -320,8 +325,9 @@ export class SnapshotDiffer {
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
-      show,
-      boxes: boxesOf(show, this.show?.readings?.() ?? {}),
+      // The calls sheet says a closed review page in words too.
+      show: show.calls ? { ...show, calls: show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call)) } : show,
+      boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
       ...(page ? { page } : {}),
     };
@@ -516,6 +522,14 @@ export class ConversationViewServer {
     if (url.pathname === "/api/prediction-status") {
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       sendJson(res, 200, this.predictions.status());
+      return;
+    }
+    if (url.pathname === "/api/note") {
+      // Whether firstmate has read one note he sent from an artefact: "sent", then "read".
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      const id = url.searchParams.get("id") ?? "";
+      const note = this.source.exchanges?.().find((exchange) => exchange.question.id === id);
+      sendJson(res, 200, { receipt: note ? (note.answer ? "read" : note.question.receipt ?? "sent") : null });
       return;
     }
     if (url.pathname === "/api/plan") {
@@ -870,7 +884,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown; about?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -893,7 +907,7 @@ export class ConversationViewServer {
       }
       try {
         const sent = await this.source.sendDecision(`Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`);
-        sendJson(res, 200, { ...sent, waiting: "Answer received. Waiting for acknowledgement; the decision remains open." });
+        sendJson(res, 200, { ...sent, waiting: "Sent to firstmate" });
       } catch (error) {
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -901,6 +915,10 @@ export class ConversationViewServer {
     }
     if (payload.comment !== undefined) {
       await this.comment(res, payload.session, payload.comment);
+      return;
+    }
+    if (payload.about !== undefined) {
+      await this.sendAbout(res, payload.about, payload.text);
       return;
     }
     const images = payload.images ?? [];
@@ -944,6 +962,37 @@ export class ConversationViewServer {
       const note = phoneCommentNote({ url, x: comment.x, y: comment.y, text: comment.text, ...(typeof comment.element === "string" && comment.element.trim() ? { element: comment.element.trim() } : {}) });
       const sent = await this.source.send(session, note, [], [], "firstmate");
       sendJson(res, 200, sent);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * His words about one artefact, from the chat box at its foot: straight to
+   * firstmate as a note that names the artefact (its title, task and page), so
+   * firstmate knows what "this" is without the screen.
+   */
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown): Promise<void> {
+    const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown } : {};
+    const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
+    const title = field(card.title);
+    if (!title || (card.task !== undefined && !field(card.task)) || (card.url !== undefined && !field(card.url))) {
+      sendJson(res, 400, { error: "expected { about: { title, task?, url? }, text }" });
+      return;
+    }
+    if (typeof text !== "string" || !text.trim() || text.length > 4000) {
+      sendJson(res, 400, { error: "Enter a message of at most 4000 characters" });
+      return;
+    }
+    if (!this.source.sendDecision) {
+      sendJson(res, 405, { error: "read-only" });
+      return;
+    }
+    const task = field(card.task);
+    const url = field(card.url);
+    const named = [`About the artefact "${title}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : [])].join("\n");
+    try {
+      sendJson(res, 200, { ...await this.source.sendDecision(`${named}\n\n${text.trim()}`), waiting: "Sent to firstmate" });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -1094,6 +1143,7 @@ export class ConversationViewServer {
         artefact: () => this.feed.current(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
         rail: (snapshot) => this.rail(snapshot),
+        live: (url) => this.previews.state(url),
       });
     const follower = this.source.follow(
       session.id,

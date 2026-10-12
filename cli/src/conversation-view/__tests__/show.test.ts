@@ -142,7 +142,7 @@ describe("showOf", () => {
     expect(read.counts.call).toBe(7);
     expect(read.items.filter((item) => item.kind === "call").length).toBeLessThan(7);
     expect(read.calls).toHaveLength(7);
-    expect(read.calls![6]).toMatchObject({ kind: "call", headline: "Call 6", decision: { task: "t6", question: "Question 6?", choices: ["Yes", "No"] } });
+    expect(read.calls![6]).toMatchObject({ kind: "call", headline: "Question 6?", detail: "Call 6", decision: { task: "t6", question: "Question 6?", choices: ["Yes", "No"] } });
     expect(showOf(snapshot([]), { now: NOW }).calls).toBeUndefined();
   });
 

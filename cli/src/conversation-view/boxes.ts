@@ -61,6 +61,8 @@ export interface Box {
   at?: string;
   /** The conversation message it opens in the terminal. */
   ref?: string;
+  /** Firstmate's task id, named in what he says about it. */
+  task?: string;
 }
 
 export interface BoxReadings {
@@ -115,6 +117,7 @@ function fromItem(item: ShowItem, kind: "call" | "story", size: BoxSize): Box {
     ...(item.status ? { status: item.status } : {}),
     ...(item.at ? { at: item.at } : {}),
     ...(item.ref ? { ref: item.ref } : {}),
+    ...(item.task ? { task: item.task } : {}),
   };
 }
 
@@ -270,4 +273,32 @@ export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
     boxes.push({ id: "instruments", kind: "group", size: "side", title: "Coming up and the numbers", why: "what Flyd sees coming, then the numbers", children: side });
   }
   return clampDepth(boxes);
+}
+
+/** A page on this machine: 127.0.0.1, localhost or [::1]. Pure. */
+export function isLocalPage(url: string): boolean {
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The boxes with every link to a page on this machine that no longer answers
+ * marked closed, so the screen says so instead of offering a dead link. A page
+ * not yet checked stays a link. `live` says what the page did when last asked.
+ */
+export function withClosedLinks(boxes: Box[], live: (url: string) => string): Box[] {
+  const mark = (box: Box): Box => {
+    const links = box.links && closedLinks(box.links, live);
+    const children = box.children?.map(mark);
+    return { ...box, ...(links ? { links } : {}), ...(children ? { children } : {}) };
+  };
+  return boxes.map(mark);
+}
+
+/** The links with each one to a page on this machine that stopped answering marked closed. Pure. */
+export function closedLinks(links: ShowLink[], live: (url: string) => string): ShowLink[] {
+  return links.map((link) => (isLocalPage(link.url) && live(link.url) === "down" ? { ...link, closed: true } : link));
 }
