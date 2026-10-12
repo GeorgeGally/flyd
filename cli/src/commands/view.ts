@@ -12,7 +12,7 @@ import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conve
 import { getKey } from "../lib/config.js";
 import { readProjects } from "../council/projects.js";
 import { tastePath } from "../council/taste.js";
-import { readUserProfile } from "../lib/user-profile.js";
+import { userProfilePath } from "../lib/user-profile.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { MemoryReader } from "../conversation-view/memory.js";
@@ -28,11 +28,11 @@ export interface ViewOptions {
 
 const PORT_ATTEMPTS = 10;
 
-/** His recorded preferences: USER.md, and TASTE.md without the rules he vetoed or the Librarian retired. */
+/** His recorded preferences, whole (a prompt's copy of USER.md is cut short): USER.md, and TASTE.md without the rules he vetoed or the Librarian retired. */
 function recordedPreferences(): string {
-  const taste = existsSync(tastePath()) ? readFileSync(tastePath(), "utf8") : "";
-  const kept = taste.split(/^(?=## )/m).filter((section) => !/^## (?:Not me|Retired)\b/i.test(section)).join("");
-  return [readUserProfile() ?? "", kept].join("\n");
+  const read = (path: string): string => (existsSync(path) ? readFileSync(path, "utf8") : "");
+  const kept = read(tastePath()).split(/^(?=## )/m).filter((section) => !/^## (?:Not me|Retired)\b/i.test(section)).join("");
+  return [read(userProfilePath()), kept].join("\n");
 }
 
 async function listenNear(server: ConversationViewServer, port: number, explicit: boolean): Promise<number> {

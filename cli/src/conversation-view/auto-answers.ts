@@ -69,11 +69,11 @@ export interface Settled {
   because: string;
 }
 
-/** The recorded line that holds this preference, without its list mark or date. */
+/** The recorded line that holds this preference: its rule, without its list mark, date or the gloss after a dash. */
 function recordedLine(preferences: string, preference: RegExp): string | null {
   const line = preferences.split("\n").find((entry) => preference.test(entry));
   if (!line) return null;
-  return inline(line).replace(/^[-*+]\s+/, "").replace(/(?:\s*\(\d{4}-\d{2}-\d{2}\))+\s*$/, "").trim();
+  return inline(line).replace(/^[-*+]\s+/, "").replace(/(?:\s*\(\d{4}-\d{2}-\d{2}\))+\s*$/, "").split(/\s+[—–]\s+/)[0]!.replace(/[.;:,]+$/, "").trim();
 }
 
 /**

@@ -390,7 +390,7 @@ describe("ConversationViewServer", () => {
     const differ = new SnapshotDiffer();
     const shown = differ.next(await server!["source"].read("s1")).messages;
     expect(shown.find((message) => message.role === "assistant" && message.id.startsWith("reply:"))!.choice).toBeUndefined();
-    expect(shown.find((message) => message.id === "note:1")).toMatchObject({ answeredFor: "Merge green Flyd PRs without asking — land the work and tell him after, not before." });
+    expect(shown.find((message) => message.id === "note:1")).toMatchObject({ answeredFor: "Merge green Flyd PRs without asking" });
     // Undo: the session is told to hold off, and the question is his again.
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     expect((await post(port, JSON.stringify({ session: "s1", undo: "note:1" }), headers)).status).toBe(200);

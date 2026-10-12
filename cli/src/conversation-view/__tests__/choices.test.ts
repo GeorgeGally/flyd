@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceOf, choiceTarget, openChoice } from "../choices.js";
+import { choiceOf, choiceTarget, openChoice, withoutClosingAsk } from "../choices.js";
 import { SnapshotDiffer } from "../server.js";
 import { showOf } from "../show.js";
 import { boxesOf } from "../boxes.js";
@@ -75,6 +75,14 @@ describe("choiceOf", () => {
     expect(choiceOf("Why did it fail? The token expired. I renewed it and it works now.")).toBeNull();
     expect(choiceOf("Run this:\n\n```\nread -p 'Continue?' x\n```")).toBeNull();
     expect(choiceOf("Want me to add all three?\n\nNever mind, I added them; all three are live.")).toBeNull();
+  });
+});
+
+describe("withoutClosingAsk", () => {
+  it("drops a question standing alone as the last paragraph, and nothing else", () => {
+    expect(withoutClosingAsk("All live.\n\nShould I merge it?")).toBe("All live.");
+    expect(withoutClosingAsk("All live. Should I merge it?")).toBe("All live. Should I merge it?");
+    expect(withoutClosingAsk("Which one?\n\n1. Red\n2. Blue")).toBe("Which one?\n\n1. Red\n2. Blue");
   });
 });
 
@@ -166,6 +174,11 @@ describe("the choice, where he sees it", () => {
     const messages = [said("u1", "well its an issue. what failed?"), asked, { ...said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page"), timestamp: "2026-10-12T04:10:26Z" }];
     const update = new SnapshotDiffer().next({ messages, working: false });
     expect(update.messages.find((message) => message.id === asked.id)!.choice).toEqual({ question: "Should I go ahead with fix 2?", options: ["Yes", "No"], replyTo: "reply:b#383" });
+    // The briefing above the card does not ask it a second time.
+    const shown = update.messages.find((message) => message.id === asked.id)!;
+    expect(shown.summary!.html).toContain("All 14 notes are now handled");
+    expect(shown.summary!.html).not.toContain("Should I go ahead with fix 2?");
+    expect(shown.html).toContain("Should I go ahead with fix 2?");
     const [call] = showOf({ messages, working: false }, { now }).items;
     expect(call).toMatchObject({ kind: "call", headline: "Should I go ahead with fix 2?", decision: { replyTo: "reply:b#383", choices: ["Yes", "No"] } });
   });

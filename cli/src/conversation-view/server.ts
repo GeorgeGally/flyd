@@ -30,7 +30,7 @@ import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, replyNote } from "./replies.js";
-import { choiceOf, choiceTarget, openChoice, type ReplyChoice } from "./choices.js";
+import { choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -264,6 +264,9 @@ export class SnapshotDiffer {
         : !message.answers ? this.summarize(message, newest.has(message.id))
           : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
             : { body: message.text };
+      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
+      // The card under the reply asks its question; Flyd's briefing does not say it again.
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text));
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
@@ -273,7 +276,6 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
       const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);

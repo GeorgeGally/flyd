@@ -220,6 +220,18 @@ export function openChoice(
   return null;
 }
 
+/**
+ * The reply without its closing question, when the question stands alone as
+ * its last paragraph: the card under the reply asks it, so Flyd's briefing
+ * does not say it twice. Anything else is left as written. Pure.
+ */
+export function withoutClosingAsk(text: string): string {
+  const paragraphs = text.trimEnd().split(/\n\s*\n/);
+  const last = paragraphs.at(-1)!.trim();
+  if (paragraphs.length < 2 || last.includes("\n") || LIST_ITEM.test(last) || !/\?["”')\]]*$/.test(last)) return text;
+  return paragraphs.slice(0, -1).join("\n\n");
+}
+
 /** Where his answer to a reply goes: the question it answers, else the reply itself. */
 export function choiceTarget(message: ConversationMessage): string {
   return message.answers ?? message.id;

@@ -21,7 +21,7 @@ const MERGE = "The notes-read change is done and all its checks are green: https
 
 describe("settledBy", () => {
   it("answers a merge of green Flyd work yes, by his own recorded words", () => {
-    expect(settle(reply(MERGE))).toEqual({ rule: "merge-green-flyd", answer: "Yes", because: "Merge green Flyd PRs without asking — land the work and tell him after, not before." });
+    expect(settle(reply(MERGE))).toEqual({ rule: "merge-green-flyd", answer: "Yes", because: "Merge green Flyd PRs without asking" });
     expect(settle(reply("Checks passed. Should I land the Flyd change now?"))?.rule).toBe("merge-green-flyd");
   });
 
@@ -74,10 +74,10 @@ describe("AutoAnswers", () => {
     const entry = await auto.answer("s1", open(reply(MERGE)), send);
     expect(entry).toMatchObject({ asked: "reply:b#383", target: "reply:b#383", question: "Should I merge it?", answer: "Yes", rule: "merge-green-flyd", note: "note:1" });
     expect(sent).toEqual([
-      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking — land the work and tell him after, not before.". He can take it back.]\n\nYes',
+      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking". He can take it back.]\n\nYes',
     ]);
     // Read back, it is Flyd's answer to that question, not his own words.
-    expect(readReply({ id: "note:1", role: "user", text: sent[0]! })).toMatchObject({ text: "Yes", replyTo: "reply:b#383", replyQuote: "Should I merge it?", answeredFor: "Merge green Flyd PRs without asking — land the work and tell him after, not before." });
+    expect(readReply({ id: "note:1", role: "user", text: sent[0]! })).toMatchObject({ text: "Yes", replyTo: "reply:b#383", replyQuote: "Should I merge it?", answeredFor: "Merge green Flyd PRs without asking" });
     // Once, even across a restart.
     expect(await auto.answer("s1", open(reply(MERGE)), send)).toBeNull();
     expect(await new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 }).answer("s1", open(reply(MERGE)), send)).toBeNull();
