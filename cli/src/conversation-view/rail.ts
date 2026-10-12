@@ -52,6 +52,8 @@ export interface RailConversation {
   replyQuote?: string;
   /** His replies to this answer, and theirs, oldest first, threaded under it. */
   replies?: RailConversation[];
+  /** His next messages on the same topic, sent close behind this one, oldest first: one entry in the column. */
+  sameTopic?: RailConversation[];
 }
 
 export interface RailArtefact {
@@ -109,6 +111,8 @@ export const PREVIEW_SCAN = 12;
 export const MAX_RAIL_CONVERSATIONS = 40;
 export const MAX_RAIL_ARTEFACTS = 10;
 export const MAX_RAIL_PREVIEWS = 4;
+/** Messages he sends within this long of the last one are taken as one topic. */
+export const TOPIC_GAP_MS = 10 * 60_000;
 
 /** A loopback URL he named: the site we are looking at, never a remote page. */
 const LOOPBACK = /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?(?:\/[^\s)"'<>\]]*)?/g;
@@ -395,7 +399,26 @@ export function composeRail(
       };
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
-  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card) };
+  return { conversations: groupTopics(threadReplies(conversations)), artefacts: railCards(artefacts, previews, attached, card) };
+}
+
+/**
+ * His messages sent one close behind another, as one topic: each that came
+ * within TOPIC_GAP_MS of the one before joins it. A reply to an answer that
+ * scrolled away, or a message with no time, stands alone. Pure.
+ */
+export function groupTopics(conversations: RailConversation[], gap = TOPIC_GAP_MS): RailConversation[] {
+  const out: RailConversation[] = [];
+  let last = NaN;
+  for (const conversation of conversations) {
+    const at = conversation.at ? Date.parse(conversation.at) : NaN;
+    const head = out.at(-1);
+    if (head && !conversation.replyTo && !Number.isNaN(at) && at >= last && at - last <= gap) {
+      out[out.length - 1] = { ...head, sameTopic: [...(head.sameTopic ?? []), conversation] };
+    } else out.push(conversation);
+    last = at;
+  }
+  return out;
 }
 
 /** Each reply under the conversation it answers, a reply to a reply under the same one; a reply whose answer is gone stands alone. Pure. */

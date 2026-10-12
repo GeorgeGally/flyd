@@ -67,18 +67,18 @@ header button {
 }
 header button[aria-pressed="true"] { color: var(--accent); }
 /* A switch: its word, then a small track whose knob and fill say on or off at a glance. */
-header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
-header button[role="switch"] .track {
+header button[role="switch"] { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+button[role="switch"] .track {
   position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px;
   background: color-mix(in srgb, var(--muted) 34%, transparent); transition: background-color 180ms ease;
 }
-header button[role="switch"] .track::after {
+button[role="switch"] .track::after {
   content: ""; position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; border-radius: 50%;
   background: var(--muted); transition: transform 220ms cubic-bezier(.3,1.4,.5,1), background-color 180ms ease;
 }
 header button[role="switch"][aria-checked="true"] { color: var(--strong); }
-header button[role="switch"][aria-checked="true"] .track { background: var(--accent); }
-header button[role="switch"][aria-checked="true"] .track::after { transform: translateX(12px); background: var(--bg); }
+button[role="switch"][aria-checked="true"] .track { background: var(--accent); }
+button[role="switch"][aria-checked="true"] .track::after { transform: translateX(12px); background: var(--bg); }
 header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 0; white-space: nowrap; }
 header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 header .air.on { color: var(--k-live, var(--accent)); }
@@ -136,7 +136,7 @@ const SHOW_STYLE = `
 :root[data-screen="show"] .problem { z-index: 7; }
 /* The header stays: the same switches in both modes, over the screen. */
 :root[data-screen="show"] header { z-index: 7; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
-:root[data-screen="show"] header .picker, :root[data-screen="show"] header #mode { display: none; }
+:root[data-screen="show"] header .picker { display: none; }
 :root[data-screen="show"] header .air { display: inline-flex; }
 
 .show {
@@ -328,6 +328,42 @@ main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 12vh; }
 body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
 
+/* The page the work is on, always in the header while there is one: local
+   preview or live site, where, and which part of it. */
+header .site {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 46vw; height: 30px; padding: 0 12px;
+  border: 1px solid var(--faint); border-radius: 999px; color: var(--muted); text-decoration: none;
+  font: 500 13px/1 var(--mono); letter-spacing: 0; white-space: nowrap; transition: border-color 140ms ease, color 140ms ease;
+}
+header .site[hidden] { display: none; }
+header .site:hover { border-color: var(--accent); color: var(--fg); }
+header .site-kind { display: inline-flex; align-items: center; gap: 6px; font-family: var(--sans); font-weight: 600; color: var(--k-live); }
+header .site-kind::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+header .site--live .site-kind { color: var(--k-landed); }
+header .site-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--strong); }
+header .site-path::after { content: " ↗"; color: var(--muted); }
+
+/* Preferences: the reading, theme and taste settings, out of the header until asked for. */
+header #prefs-open { font-size: 12px; }
+header #prefs-open[aria-expanded="true"] { color: var(--strong); }
+.prefs {
+  position: fixed; top: 48px; right: 16px; z-index: 8; width: min(320px, calc(100vw - 32px)); padding: 6px;
+  border: 1px solid var(--faint); border-radius: 12px; background: var(--bg); box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  font: 400 15px/1.35 var(--sans); animation: choice-in 160ms ease both;
+}
+.prefs[hidden] { display: none; }
+.prefs-title { margin: 0; padding: 10px 12px 6px; font: 600 13px/1.2 var(--sans); color: var(--muted); }
+.prefs button {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; transition: background-color 140ms ease;
+}
+.prefs button:hover { background: var(--tint); }
+.prefs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.prefs-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.prefs-name { font-weight: 500; color: var(--strong); }
+.prefs-about { font-size: 13px; color: var(--muted); }
+.prefs-go { color: var(--muted); }
+
 /* The right column: his conversations with their answers, and artefacts beside them. */
 .rail {
   position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
@@ -340,12 +376,12 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 .rail-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 12px 16px; border-bottom: 1px solid var(--faint);
-  font: 600 15px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  font: 600 15px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
 }
 .rail-head button { font: inherit; color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 .rail-head button:hover { color: var(--fg); }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
-.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -372,9 +408,36 @@ body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
 /* The screenshot behind an answer leads it, a size to read at a glance. */
 .rail-shots { margin: 8px 0 0; }
 .rail-shots .shot img { max-height: 15em; max-width: 100%; }
-/* What Flyd remembers here: one plain sentence each. */
-.rail-mem { margin: 0 0 6px; border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; font: 400 15px/1.4 var(--sans); color: var(--fg); overflow-wrap: anywhere; }
-.rail-mem--new { border-left-color: var(--accent); }
+/* What Flyd remembers: a card each, one plain sentence. What it learned while
+   we talked sits in the conversation where it learned it. */
+.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
+.rail-mem-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
+.rail-mem-kicker::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.rail-mem--new { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
+/* What it already holds here: folded under one line at the top until he opens it. */
+.rail-held > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; transition: color 140ms ease; }
+.rail-held > summary::-webkit-details-marker { display: none; }
+.rail-held > summary::after { content: "›"; font-size: 15px; transition: transform 180ms ease; }
+.rail-held[open] > summary::after { transform: rotate(90deg); }
+.rail-held > summary:hover { color: var(--fg); }
+.rail-held > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.rail-held-count { font-weight: 500; font-variant-numeric: tabular-nums; }
+.rail-held .rail-mem { margin-bottom: 8px; padding: 10px 12px; }
+.rail-held .rail-mem-text { font-size: 15px; color: var(--fg); }
+/* Several messages on one topic: one entry, his words together, the newest answer under them. */
+.rail-topic { margin: 0 0 18px; }
+.rail-q-group p { margin: 0; }
+.rail-q-group p + p { margin-top: 7px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.rail-topic-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
+.rail-topic-toggle:hover { color: var(--fg); }
+.rail-topic-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.rail-topic-toggle::after { content: "›"; transition: transform 180ms ease; }
+.rail-topic.open > .rail-topic-toggle::after { transform: rotate(90deg); }
+.rail-topic-each { margin: 10px 0 0; padding-left: 12px; border-left: 2px solid var(--faint); }
+.rail-topic-each .rail-talk { margin: 0 0 14px; }
+.rail-topic-each .rail-talk:last-child { margin-bottom: 0; }
+.rail-topic-each .rail-q { font-size: 16px; }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -685,6 +748,8 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   header button[role="switch"] { gap: 5px; font-size: 11px; letter-spacing: 0.04em; }
   /* A phone keeps the light of "on air", not its words. */
   header .air { font-size: 0; gap: 0; }
+  header .site { max-width: 34vw; padding: 0 10px; }
+  header .site-kind, header .site-host { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg.fresh, .working i { animation: none; }
@@ -749,6 +814,34 @@ var __name = function (f) { return f; };
     store("flyd-view-theme", next);
     applyTheme(next);
   });
+  // Preferences: a small panel under the header, closed by Escape or a click elsewhere.
+  var prefs = document.getElementById("prefs");
+  var prefsOpen = document.getElementById("prefs-open");
+  function showPrefs(open) {
+    prefs.hidden = !open;
+    prefsOpen.setAttribute("aria-expanded", String(open));
+  }
+  prefsOpen.addEventListener("click", function () { showPrefs(prefs.hidden); });
+  document.addEventListener("click", function (event) {
+    if (!prefs.hidden && event.target instanceof Node && !prefs.contains(event.target) && !prefsOpen.contains(event.target)) showPrefs(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !prefs.hidden) { showPrefs(false); prefsOpen.focus(); }
+  });
+
+  // The page the work is on, in the header for as long as there is one.
+  var siteEl = document.getElementById("site");
+  function renderSite(page) {
+    siteEl.hidden = !page;
+    if (!page) return;
+    siteEl.href = page.url;
+    siteEl.title = page.url;
+    siteEl.className = "site " + (page.local ? "site--local" : "site--live");
+    siteEl.setAttribute("aria-label", "Working on " + page.url + (page.local ? ", a local preview" : ", the live site"));
+    document.getElementById("site-kind").textContent = page.local ? "local" : "live";
+    document.getElementById("site-host").textContent = page.host;
+    document.getElementById("site-path").textContent = page.label;
+  }
 
   function clock(iso) {
     var d = new Date(iso);
@@ -1098,6 +1191,7 @@ var __name = function (f) { return f; };
     else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
     first = false;
     if (update.show) renderShow(update.show, update.boxes);
+    renderSite(update.page);
     renderRail(update.rail);
   }
 
@@ -1156,23 +1250,29 @@ var __name = function (f) { return f; };
     }
     return box;
   }
+  // One memory as a card: the sentence, and "Learned" over what it took in while we talked.
   function railMemory(memory, fresh) {
-    return el("div", "rail-mem" + (fresh ? " rail-mem--new" : ""), memory.title);
+    var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
+    if (fresh) card.appendChild(el("p", "rail-mem-kicker", "Learned"));
+    card.appendChild(el("p", "rail-mem-text", memory.title));
+    return card;
   }
-  function renderMemory(memory, railBody) {
-    if (!memory) return false;
-    var now = memory.remembering || [];
-    var held = memory.remembers || [];
-    if (now.length) {
-      railBody.appendChild(el("div", "rail-section", "Remembering now"));
-      now.forEach(function (item) { railBody.appendChild(railMemory(item, true)); });
-    }
-    if (held.length) {
-      railBody.appendChild(el("div", "rail-section", "Remembers" + (memory.project ? " · " + memory.project : "")));
-      held.forEach(function (item) { railBody.appendChild(railMemory(item, false)); });
-    }
-    return now.length > 0 || held.length > 0;
+  // What Flyd already holds here, folded under one line at the top; he opens it when he wants it.
+  var heldOpen = store("flyd-rail-held") === "open";
+  function renderHeld(memory, into) {
+    var held = (memory && memory.remembers) || [];
+    if (!held.length) return false;
+    var box = keyed(el("details", "rail-held"), "held");
+    box.open = heldOpen;
+    var summary = el("summary", "rail-section", "Remembers" + (memory.project ? " · " + memory.project : ""));
+    summary.appendChild(el("span", "rail-held-count", " " + held.length));
+    box.appendChild(summary);
+    held.forEach(function (item) { box.appendChild(railMemory(item, false)); });
+    box.addEventListener("toggle", function () { heldOpen = box.open; store("flyd-rail-held", heldOpen ? "open" : "closed"); });
+    into.appendChild(box);
+    return true;
   }
+  function timeOf(iso) { var at = iso ? Date.parse(iso) : NaN; return isNaN(at) ? Infinity : at; }
   // Rebuilding the column on every update reloads each framed page, so a live
   // preview never gets to paint: only what changed is replaced, and nothing kept is moved.
   function keyed(node, key, deep) {
@@ -1376,7 +1476,60 @@ var __name = function (f) { return f; };
     settle();
     return card;
   }
+  function railTalk(talk) {
+    var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
+    // A reply whose answer has scrolled out of the column says what it answers.
+    if (talk.replyQuote) wrap.appendChild(el("span", "reply-ref", "Replying to “" + talk.replyQuote + "”"));
+    wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
+    talkAnswer(wrap, talk);
+    talkRest(wrap, talk);
+    if (talk.replies && talk.replies.length) {
+      var thread = keyed(el("div", "rail-replies"), "replies:" + talk.id, true);
+      talk.replies.forEach(function (reply) {
+        var sub = keyed(el("div", "rail-talk"), "talk:" + reply.id, true);
+        sub.appendChild(el("p", "rail-q", sentence(capital(reply.question))));
+        talkAnswer(sub, reply);
+        talkRest(sub, reply);
+        thread.appendChild(sub);
+      });
+      wrap.appendChild(thread);
+    }
+    return wrap;
+  }
+  // Several messages on one topic: his words together, the newest answer under
+  // them; opened, each message with its own answer.
+  var topicsOpen = new Set();
+  var lastRail = null;
+  function railTopic(talk) {
+    var all = [talk].concat(talk.sameTopic);
+    var open = topicsOpen.has(talk.id);
+    var wrap = keyed(el("div", "rail-topic" + (open ? " open" : "")), "topic:" + talk.id, true);
+    var toggle = el("button", "rail-topic-toggle", open ? "Show together" : "Show all " + all.length + " separately");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.addEventListener("click", function () {
+      if (topicsOpen.has(talk.id)) topicsOpen.delete(talk.id); else topicsOpen.add(talk.id);
+      railSignature = null;
+      renderRail(lastRail);
+    });
+    if (open) {
+      var each = el("div", "rail-topic-each");
+      all.forEach(function (one) { each.appendChild(railTalk(one)); });
+      wrap.appendChild(toggle);
+      wrap.appendChild(each);
+      return wrap;
+    }
+    var newest = all[all.length - 1];
+    var asked = el("div", "rail-q rail-q-group");
+    all.forEach(function (one) { asked.appendChild(el("p", "", sentence(capital(one.question)))); });
+    wrap.appendChild(asked);
+    wrap.appendChild(toggle);
+    talkAnswer(wrap, newest);
+    talkRest(wrap, newest);
+    return wrap;
+  }
   function renderRail(rail) {
+    lastRail = rail;
     if (!rail) { railEl.hidden = true; setRail(false); return; }
     var signature = JSON.stringify(rail);
     if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
@@ -1386,37 +1539,24 @@ var __name = function (f) { return f; };
     // Chat order: the newest message last, at the bottom, which stays in view
     // unless he has scrolled up to read.
     var pinned = !railBody.firstElementChild || railBody.scrollHeight - railBody.scrollTop - railBody.clientHeight < 40;
-    var remembered = renderMemory(rail.memory, next);
+    var held = renderHeld(rail.memory, next);
     var cards = rail.artefacts || [];
     if (cards.length) {
       next.appendChild(el("div", "rail-section", "Artefacts"));
       cards.forEach(function (card) { next.appendChild(railCard(card)); });
     }
-    if (talks.length) {
-      next.appendChild(el("div", "rail-section", "Conversations"));
-      talks.forEach(function (talk) {
-        var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
-        // A reply whose answer has scrolled out of the column says what it answers.
-        if (talk.replyQuote) wrap.appendChild(el("span", "reply-ref", "Replying to “" + talk.replyQuote + "”"));
-        wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
-        talkAnswer(wrap, talk);
-        talkRest(wrap, talk);
-        if (talk.replies && talk.replies.length) {
-          var thread = keyed(el("div", "rail-replies"), "replies:" + talk.id, true);
-          talk.replies.forEach(function (reply) {
-            var sub = keyed(el("div", "rail-talk"), "talk:" + reply.id, true);
-            sub.appendChild(el("p", "rail-q", sentence(capital(reply.question))));
-            talkAnswer(sub, reply);
-            talkRest(sub, reply);
-            thread.appendChild(sub);
-          });
-          wrap.appendChild(thread);
-        }
-        next.appendChild(wrap);
-      });
-    }
+    // What Flyd learned while we talked sits in the conversation, after the message it learned it from.
+    var learned = ((rail.memory && rail.memory.remembering) || []).slice().sort(function (a, b) { return timeOf(a.at) - timeOf(b.at); });
+    var told = 0;
+    if (talks.length) next.appendChild(el("div", "rail-section", "Conversations"));
+    talks.forEach(function (talk) {
+      var start = talk.at ? Date.parse(talk.at) : NaN;
+      while (told < learned.length && timeOf(learned[told].at) < start) next.appendChild(railMemory(learned[told++], true));
+      next.appendChild(talk.sameTopic && talk.sameTopic.length ? railTopic(talk) : railTalk(talk));
+    });
+    while (told < learned.length) next.appendChild(railMemory(learned[told++], true));
     patch(railBody, Array.prototype.slice.call(next.children));
-    railEl.hidden = railHidden || (!talks.length && !cards.length && !remembered);
+    railEl.hidden = railHidden || (!talks.length && !cards.length && !held && !learned.length);
     setRail(railOn());
     if (pinned) railBody.scrollTop = railBody.scrollHeight;
   }
@@ -2602,7 +2742,7 @@ var __name = function (f) { return f; };
   });
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-answer")) return;
+    if (event.target instanceof Element && event.target.closest(".scene-answer, .prefs")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {
@@ -2672,14 +2812,19 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <span class="who">${label}</span>
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
   <span class="air" id="air">standby</span>
+  <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
   <span class="controls">
-    <a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="taste-link" type="button" aria-label="What Flyd knows about your taste">taste</button>
-    <button id="mode" type="button" role="switch" aria-checked="false" aria-label="Full replies, as written">full<span class="track" aria-hidden="true"></span></button>
-    <button id="theme" type="button" role="switch" aria-checked="false" aria-label="Light theme">light<span class="track" aria-hidden="true"></span></button>
+    <a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
     <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
+<div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
+  <p class="prefs-title">Preferences</p>
+  <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
+</div>
 <aside class="rail" id="rail" hidden aria-label="Your conversations, artefacts and what Flyd remembers">
   <div class="rail-head"><span>Your conversations</span><button id="rail-hide" type="button" aria-label="Hide the column">✕</button></div>
   <div class="rail-body" id="rail-body"></div>

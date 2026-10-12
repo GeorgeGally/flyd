@@ -507,16 +507,16 @@ describe("conversation page", () => {
     expect(more.textContent).toBe("less");
     expect(document.querySelectorAll("article.assistant")[1]!.querySelector(".summary")).toBeNull();
 
-    // One switch, FULL: off is Flyd's reading, on is everything as written.
+    // One switch, Full replies, in Preferences: off is Flyd's reading, on is everything as written.
     const mode = document.getElementById("mode") as HTMLButtonElement;
+    expect(mode.closest("#prefs")).not.toBeNull();
     expect(mode.getAttribute("role")).toBe("switch");
-    expect(mode.textContent).toBe("full");
+    expect(mode.querySelector(".prefs-name")!.textContent).toBe("Full replies");
     expect(mode.getAttribute("aria-checked")).toBe("false");
     mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("full");
     expect(localStorage.getItem("flyd-view-mode")).toBe("full");
     expect(mode.getAttribute("aria-checked")).toBe("true");
-    expect(mode.textContent).toBe("full");
     mode.click();
     expect(document.documentElement.getAttribute("data-view")).toBe("summary");
     expect(mode.getAttribute("aria-checked")).toBe("false");
@@ -988,7 +988,7 @@ describe("header and artefact view", () => {
     expect(sends().at(-1)).toEqual({ session: "latest", text: "Book a stall", replyTo: "r3" });
   });
 
-  it("shows what Flyd remembers here and what it is remembering now, each as one plain sentence", async () => {
+  it("shows what Flyd remembers here folded at the top, and what it learned as a card in the conversation, each one plain sentence", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -998,15 +998,28 @@ describe("header and artefact view", () => {
       remembers: [{ id: "capture:2026-10-10-17-37-34.md", kind: "capture", title: "Gallery opens at ten.", line: "Capture · GNM" }],
     };
     const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    update({ conversations: [], artefacts: [], memory });
+    const learnedAt = memory.remembering[0]!.at;
+    const before = new Date(Date.parse(learnedAt) - 60_000).toISOString();
+    const after = new Date(Date.parse(learnedAt) + 60_000).toISOString();
+    update({ conversations: [{ id: "q1", question: "should be TV style fade in. no pop.", answer: "Done.", at: before }, { id: "q2", question: "and the footer", answer: "Done.", at: after }], artefacts: [], memory });
     await settle();
     expect(document.getElementById("rail")!.hidden).toBe(false);
     const sections = [...document.querySelectorAll(".rail-section")].map((node) => node.textContent);
-    expect(sections).toEqual(["Remembering now", "Remembers · GNM"]);
+    expect(sections).toEqual(["Remembers · GNM 1", "Conversations"]);
+    // What it already holds is folded under one line until he opens it, and stays as he left it.
+    const held = document.querySelector<HTMLDetailsElement>(".rail-held")!;
+    expect(held.open).toBe(false);
+    held.open = true;
+    held.dispatchEvent(new Event("toggle"));
+    expect(localStorage.getItem("flyd-rail-held")).toBe("open");
+    // What it learned is a card in the stream, right after the message it learned it from.
+    const order = [...document.getElementById("rail-body")!.children].map((node) => node.className);
+    expect(order).toEqual(["rail-held", "rail-section", "rail-talk", "rail-mem rail-mem--new", "rail-talk"]);
+    const card = document.querySelector(".rail-mem--new")!;
+    expect(card.querySelector(".rail-mem-kicker")!.textContent).toBe("Learned");
     // One sentence each: no kind/scope/seen/age line, no "Learned from" quote, no dates.
-    expect(document.querySelector(".rail-mem--new")!.textContent).toBe("Animate text TV-style: a clean fade in place.");
-    expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent)).toEqual(["Animate text TV-style: a clean fade in place.", "Gallery opens at ten."]);
-    expect(document.getElementById("rail")!.textContent).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
+    expect([...document.querySelectorAll(".rail-mem-text")].map((node) => node.textContent)).toEqual(["Gallery opens at ten.", "Animate text TV-style: a clean fade in place."]);
+    expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent).join(" ")).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
   });
 
@@ -1022,7 +1035,7 @@ describe("header and artefact view", () => {
     Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
     update([{ id: "q1", question: "first", answer: "One." }]);
     await settle();
-    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Remembers · GNM", "Conversations"]);
+    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Remembers · GNM 1", "Conversations"]);
     expect(body.scrollTop).toBe(1000);
     height = 1200;
     update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", waiting: "Working on it" }]);
@@ -1097,9 +1110,9 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
-    expect(controls).toEqual(["taste", "full", "light", "artefact"]);
-    const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"]')).map((button) => button.id);
-    expect(switches).toEqual(["mode", "theme", "flip"]);
+    expect(controls).toEqual(["preferences", "artefact"]);
+    const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"], #prefs button[role="switch"]')).map((button) => button.id);
+    expect(switches).toEqual(["flip", "mode", "theme"]);
     const flip = document.getElementById("flip")!;
     expect(flip.getAttribute("aria-checked")).toBe("false");
     flip.click();
@@ -1109,7 +1122,83 @@ describe("header and artefact view", () => {
     const theme = document.getElementById("theme")!;
     theme.click();
     expect(theme.getAttribute("aria-checked")).toBe("true");
-    expect(theme.textContent).toBe("light");
+    expect(theme.querySelector(".prefs-name")!.textContent).toBe("Light theme");
+  });
+
+  it("keeps taste, full replies and the light theme in Preferences, out of the header until asked for", async () => {
+    load("");
+    await settle();
+    const prefs = document.getElementById("prefs")!;
+    const opener = document.getElementById("prefs-open")!;
+    expect(prefs.hidden).toBe(true);
+    expect(document.querySelector("header #mode, header #theme, header #taste-link")).toBeNull();
+    opener.click();
+    expect(prefs.hidden).toBe(false);
+    expect(opener.getAttribute("aria-expanded")).toBe("true");
+    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Taste"]);
+    // A switch inside keeps it open; Escape or a click elsewhere closes it.
+    document.getElementById("theme")!.click();
+    expect(prefs.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(prefs.hidden).toBe(true);
+    opener.click();
+    document.getElementById("stream")!.click();
+    expect(prefs.hidden).toBe(true);
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps the page the work is on in the header, local or live, with its section", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const site = document.getElementById("site") as HTMLAnchorElement;
+    expect(site.hidden).toBe(true);
+    stream.emit("update", { order: [], messages: [], working: false, page: { label: "/#location", url: "http://127.0.0.1:8088/index.html#location", host: "127.0.0.1:8088", local: true } });
+    expect(site.hidden).toBe(false);
+    expect(site.getAttribute("href")).toBe("http://127.0.0.1:8088/index.html#location");
+    expect(site.textContent).toBe("local127.0.0.1:8088/#location");
+    expect(site.getAttribute("aria-label")).toBe("Working on http://127.0.0.1:8088/index.html#location, a local preview");
+    stream.emit("update", { order: [], messages: [], working: false, page: { label: "/vendor-apply", url: "https://goodneighboursmarket.com/vendor-apply", host: "goodneighboursmarket.com", local: false } });
+    expect(site.classList.contains("site--live")).toBe(true);
+    expect(document.getElementById("site-kind")!.textContent).toBe("live");
+    // Still there in the artefact view.
+    document.getElementById("flip")!.click();
+    expect(site.hidden).toBe(false);
+  });
+
+  it("groups his messages on one topic into one rail entry, the newest answer under them, each answer on demand", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = {
+      conversations: [{
+        id: "q1", question: "put taste in preferences", answer: "Moved.", at: "2026-10-12T09:00:00Z",
+        sameTopic: [
+          { id: "q2", question: "and full and light", answer: "Moved too.", at: "2026-10-12T09:02:00Z" },
+          { id: "q3", question: "not on the main menu", waiting: "Working on it", at: "2026-10-12T09:03:00Z" },
+        ],
+      }],
+      artefacts: [],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    const topic = document.querySelector(".rail-topic")!;
+    expect([...topic.querySelectorAll(".rail-q-group p")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
+    expect(topic.querySelector(".rail-wait")!.textContent).toBe("Working on it");
+    expect(topic.querySelector(".rail-a")).toBeNull();
+    const toggle = topic.querySelector<HTMLButtonElement>(".rail-topic-toggle")!;
+    expect(toggle.textContent).toBe("Show all 3 separately");
+    toggle.click();
+    const opened = document.querySelector(".rail-topic")!;
+    expect(opened.classList.contains("open")).toBe(true);
+    expect([...opened.querySelectorAll(".rail-talk .rail-q")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
+    expect([...opened.querySelectorAll(".rail-a")].map((node) => node.textContent)).toEqual(["Moved.", "Moved too."]);
+    // A redraw keeps it open.
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, artefacts: [] } });
+    await settle();
+    expect(document.querySelector(".rail-topic")!.classList.contains("open")).toBe(true);
+    opened.querySelector<HTMLButtonElement>(".rail-topic-toggle")!.click();
+    expect(document.querySelector(".rail-topic")!.classList.contains("open")).toBe(false);
   });
 
   it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {
