@@ -171,15 +171,17 @@ describe("ReplySummarizer", () => {
 });
 
 describe("providers", () => {
-  it("asks xAI first, then Anthropic, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
+  it("asks Claude Haiku first, then xAI, from env, the grok CLI's settings or Flyd's config; FLYD_VIEW_SUMMARIES=0 turns them off", () => {
     expect(defaultProviders({ env: { OPENAI_API_KEY: "o" }, home: dir })).toEqual([]);
     expect(defaultProviders({ env: {}, home: dir })).toEqual([]);
     expect(defaultProviders({ env: { XAI_API_KEY: "x", ANTHROPIC_API_KEY: "a" }, home: dir }).map((p) => p.name))
-      .toEqual(["xai:grok-4-fast-non-reasoning", "anthropic:claude-haiku-4-5-20251001"]);
+      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
+    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c" }, home: dir }).map((p) => p.name)).toEqual(["anthropic:claude-haiku-5-5"]);
+    expect(defaultProviders({ env: { CLAUDE_API_KEY: "c", FLYD_CLAUDE: "0" }, home: dir })).toEqual([]);
     mkdirSync(join(dir, ".grok"));
     writeFileSync(join(dir, ".grok", "user-settings.json"), JSON.stringify({ apiKey: "from-grok-cli" }));
     expect(defaultProviders({ env: {}, home: dir, anthropicKey: "a" }).map((p) => p.name))
-      .toEqual(["xai:grok-4-fast-non-reasoning", "anthropic:claude-haiku-4-5-20251001"]);
+      .toEqual(["anthropic:claude-haiku-5-5", "xai:grok-4-fast-non-reasoning"]);
     expect(defaultProviders({ env: { FLYD_VIEW_SUMMARIES: "0", XAI_API_KEY: "x" }, home: dir })).toEqual([]);
   });
 

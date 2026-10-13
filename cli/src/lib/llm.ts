@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, resolveModelConnection } from "./config.js";
+import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
+import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -69,6 +70,108 @@ export interface QueryOptions {
   json?: boolean;
   /** Base64-encoded JPEG images (no data: prefix) attached to the user message. */
   images?: string[];
+  /** Which spend bucket a Claude call counts against. */
+  source?: string;
+  /** Explicit failover order; overrides the model argument. */
+  chain?: string[];
+}
+
+/**
+ * Where a system prompt's stable prefix ends. Anthropic caches everything
+ * before it across turns; other providers see a plain paragraph break.
+ */
+export const PROMPT_CACHE_BREAK = "<!-- flyd:cache-break -->";
+const CACHE_BREAK_SPLIT = /\s*<!-- flyd:cache-break -->\s*/;
+
+export function withoutCacheBreak(text: string): string {
+  return text.split(CACHE_BREAK_SPLIT).join("\n\n");
+}
+
+/** Claude 5 and later: sampling parameters are fixed and thinking is configured, not budgeted. */
+function isCurrentClaude(model: string): boolean {
+  return /^claude-(?:opus|sonnet|haiku|fable|mythos)-(?:[5-9]|\d{2})/i.test(apiModelId(model));
+}
+
+function isHaiku(model: string): boolean {
+  return /^claude-haiku-/i.test(apiModelId(model));
+}
+
+/** Flyd's own Anthropic account, as opposed to a proxy (CommandCode) that bills elsewhere. */
+function directAnthropic(connection: ModelConnection): boolean {
+  return !connection.baseURL && connection.providerIdentity.startsWith("api.anthropic.com/");
+}
+
+/** Headers Flyd's own account needs (its workspace); a proxy gets none. */
+function anthropicHeaders(connection: ModelConnection): Record<string, string> {
+  return directAnthropic(connection) ? claudeHeaders() : {};
+}
+
+type ClaudeRole = "agent" | "quick";
+// History elision rewrites old tool results; dropping the thinking those
+// edits invalidate beats a 400 on accounts that enforce the check.
+const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
+
+/**
+ * Per-model request shape. Older Claude models keep a low temperature; current
+ * ones reject sampling parameters. Haiku runs with thinking off for speed;
+ * Sonnet and up think adaptively at an effort chosen per role.
+ */
+function claudeShape(model: string, connection: ModelConnection, role: ClaudeRole): {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  params: Record<string, any>;
+  headers: Record<string, string>;
+} {
+  if (!isCurrentClaude(model)) return { params: { temperature: 0.2 }, headers: {} };
+  if (isHaiku(model)) return { params: { thinking: { type: "disabled" } }, headers: {} };
+  const effort = role === "agent" ? process.env.FLYD_CLAUDE_CHAT_EFFORT?.trim() || "medium" : "low";
+  const binding = role === "agent" && directAnthropic(connection);
+  return {
+    params: {
+      thinking: binding ? { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } : { type: "adaptive" },
+      output_config: { effort },
+    },
+    headers: binding ? { "anthropic-beta": THINKING_BINDING_BETA } : {},
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function anthropicText(content: any[]): string {
+  return content.filter((block) => block.type === "text").map((block) => block.text as string).join("");
+}
+
+/** A declined request is a provider failure: the next model in the chain answers instead. */
+function throwOnRefusal(stopReason: string | null | undefined, model: string): void {
+  if (stopReason === "refusal") throw new Error(`${apiModelId(model)} declined this request`);
+}
+
+function recordUsage(model: string, connection: ModelConnection, usage: ClaudeUsage | undefined, source: string): void {
+  if (directAnthropic(connection)) recordClaudeUsage(apiModelId(model), usage, source);
+}
+
+/** System prompt as blocks: the stable prefix cached, the per-turn rest after it. */
+function cachedSystem(system: string | undefined, cache: boolean) {
+  if (!system) return undefined;
+  if (!cache) return withoutCacheBreak(system);
+  const [stable, ...rest] = system.split(CACHE_BREAK_SPLIT);
+  const blocks: Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }> = [
+    { type: "text", text: stable, cache_control: { type: "ephemeral" } },
+  ];
+  const tail = rest.join("\n\n");
+  if (tail.trim()) blocks.push({ type: "text", text: tail });
+  return blocks;
+}
+
+/** Mark the newest message so each tool round reads everything before it from cache. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withRollingCache(messages: any[]): any[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  const content = typeof last.content === "string"
+    ? [{ type: "text", text: last.content }]
+    : Array.isArray(last.content) ? [...last.content] : null;
+  if (!content || content.length === 0) return messages;
+  content[content.length - 1] = { ...content[content.length - 1], cache_control: { type: "ephemeral" } };
+  return [...messages.slice(0, -1), { ...last, content }];
 }
 
 export function openAICompletionLimit(maxCompletionTokens: number): { max_completion_tokens: number } {
@@ -136,13 +239,16 @@ export async function query(
   const fixture = fixtureResponse(prompt);
   if (fixture !== null) return fixture;
   const m = model ?? defaultModel();
+  if (system) system = withoutCacheBreak(system);
   const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
   const resolvedPrompt = enriched.prompt;
   const once = (candidate: string) => usesOpenAITransport(candidate)
     ? queryOpenAI(resolvedPrompt, candidate, system, options)
     : queryAnthropic(resolvedPrompt, candidate, system, options);
   let response: string;
-  if (apiKey) {
+  if (options.chain) {
+    response = (await runWithModelFailover(options.chain, once)).result;
+  } else if (apiKey) {
     response = await queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
   } else if (model && model !== defaultModel()) {
     // A caller that picked a specific non-default model gets exactly that model.
@@ -153,6 +259,17 @@ export async function query(
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
   return response;
+}
+
+/**
+ * A short, latency-sensitive job (routing, a query rewrite, a status line):
+ * Claude Haiku while it is on and under its cap, then the models these jobs
+ * used before. An explicit model still wins.
+ */
+export async function quickQuery(prompt: string, options: QueryOptions & { model?: string; system?: string } = {}): Promise<string> {
+  const { model, system, ...rest } = options;
+  if (model) return query(prompt, model, system, undefined, undefined, rest);
+  return query(prompt, undefined, system, undefined, undefined, { source: "quick", ...rest, chain: quickModelChain() });
 }
 
 export async function streamQuery(
@@ -178,8 +295,8 @@ export async function agentLoop(
 ): Promise<string> {
   return usesOpenAITransport(model)
     ? openAIAgentTransport(model) === "responses"
-      ? agentLoopOpenAIResponses(system, userMessage, tools, onToolCall, model, maxIterations, options)
-      : agentLoopOpenAI(system, userMessage, tools, onToolCall, model, maxIterations, options)
+      ? agentLoopOpenAIResponses(withoutCacheBreak(system), userMessage, tools, onToolCall, model, maxIterations, options)
+      : agentLoopOpenAI(withoutCacheBreak(system), userMessage, tools, onToolCall, model, maxIterations, options)
     : agentLoopAnthropic(system, userMessage, tools, onToolCall, model, maxIterations, options);
 }
 
@@ -368,12 +485,16 @@ export async function probeChatModel(model: string, timeoutMs = 15_000): Promise
       }, { signal });
     } else {
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
-      const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
-      await client.messages.create({
+      const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL, defaultHeaders: anthropicHeaders(connection) });
+      const shape = claudeShape(model, connection, "quick");
+      const res = await client.messages.create({
         model: apiModelId(model),
-        max_tokens: 16,
+        max_tokens: 64,
+        ...shape.params,
         messages: [{ role: "user", content: "Reply with: ok" }],
-      }, { signal });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any, { signal, headers: shape.headers }) as { usage?: ClaudeUsage };
+      recordUsage(model, connection, res.usage, "probe");
     }
     return { model, provider, ok: true, latencyMs: Date.now() - started };
   } catch (error) {
@@ -431,16 +552,20 @@ async function queryOpenAI(prompt: string, model: string, system?: string, optio
 async function queryAnthropic(prompt: string, model: string, system?: string, options: QueryOptions = {}): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const connection = resolveModelConnection(model);
-  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL, defaultHeaders: anthropicHeaders(connection) });
+  const shape = claudeShape(model, connection, "quick");
   const res = await client.messages.create({
     model: apiModelId(model),
     max_tokens: options.json ? 8192 : 4096,
-    temperature: 0.2,
+    ...shape.params,
     system,
     messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any, { headers: shape.headers }) as import("@anthropic-ai/sdk").default.Message;
+  recordUsage(model, connection, res.usage, options.source ?? "quick");
+  throwOnRefusal(res.stop_reason, model);
   if (!res.content.length) throw new Error("Anthropic returned empty content");
-  return res.content[0].type === "text" ? res.content[0].text : "";
+  return anthropicText(res.content);
 }
 
 async function streamOpenAI(
@@ -480,21 +605,25 @@ async function streamAnthropic(
 ): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const connection = resolveModelConnection(model);
-  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL, defaultHeaders: anthropicHeaders(connection) });
   let full = "";
+  const shape = claudeShape(model, connection, "quick");
   const stream = client.messages
     .stream({
       model: apiModelId(model),
       max_tokens: 4096,
-      temperature: 0.2,
-      system,
+      ...shape.params,
+      system: system ? withoutCacheBreak(system) : system,
       messages: [{ role: "user", content: prompt }],
-    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any, { headers: shape.headers })
     .on("text", (token) => {
       full += token;
       onToken(token);
     });
-  await stream.finalMessage();
+  const final = await stream.finalMessage();
+  recordUsage(model, connection, final.usage, "chat");
+  throwOnRefusal(final.stop_reason, model);
   return full;
 }
 
@@ -509,39 +638,47 @@ async function agentLoopAnthropic(
 ): Promise<string> {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const connection = resolveModelConnection(model);
-  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL });
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL, defaultHeaders: anthropicHeaders(connection) });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [{ role: "user", content: userMessage }];
 
+  // Flyd's own account caches the stable prompt, the tools and the growing
+  // history, so each tool round and the next turn re-read them at a tenth of the price.
+  const cache = directAnthropic(connection);
+  const shape = claudeShape(model, connection, "agent");
+  const anthropicTools = tools.map((t, index) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+    ...(cache && index === tools.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
+  }));
   const ceiling = Math.min(TOOL_CALL_CEILING, Math.max(1, maxIterations));
   let toolCallsUsed = 0;
   for (let i = 0; i < ceiling; i++) {
     // Last call drops tools so the model must answer with what it gathered
     // instead of the loop discarding everything at budget exhaustion.
     const lastCall = i === ceiling - 1 || pastAnswerBy(options, toolCallsUsed);
+    const history = elideToolHistory(messages, { ...(options.contextPolicy || {}), overhead: system + JSON.stringify(tools) }, options.contextPolicy !== false, options.onContextManaged).messages;
     const res = await client.messages.create({
       model: apiModelId(model),
-      max_tokens: AGENT_OUTPUT_TOKENS,
-      temperature: 0.2,
-      system: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
-      ...(lastCall ? {} : {
-        tools: tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema,
-        })),
-      }),
-      messages: elideToolHistory(messages, { ...(options.contextPolicy || {}), overhead: system + JSON.stringify(tools) }, options.contextPolicy !== false, options.onContextManaged).messages,
-    }, { signal: options.signal });
+      // Current models think inside this budget too.
+      max_tokens: isCurrentClaude(model) ? AGENT_OUTPUT_TOKENS * 2 : AGENT_OUTPUT_TOKENS,
+      ...shape.params,
+      system: cachedSystem(lastCall ? `${system}${TOOL_CEILING_NOTE}` : system, cache),
+      ...(lastCall ? {} : { tools: anthropicTools }),
+      messages: cache ? withRollingCache(history) : history,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any, { signal: options.signal, headers: shape.headers }) as import("@anthropic-ai/sdk").default.Message;
+    recordUsage(model, connection, res.usage, "chat");
+    throwOnRefusal(res.stop_reason, model);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resContent = res.content as any[];
     messages.push({ role: "assistant", content: resContent });
 
     if (res.stop_reason === "end_turn") {
-      const text = resContent.find((b) => b.type === "text");
-      return text ? (text.text as string) : "";
+      return anthropicText(resContent);
     }
 
     if (res.stop_reason === "tool_use") {
@@ -566,9 +703,7 @@ async function agentLoopAnthropic(
       continue;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fallbackText = (res.content as any[]).find((b) => b.type === "text");
-    return fallbackText ? (fallbackText.text as string) : "";
+    return anthropicText(res.content);
   }
 
   throw new Error("agentLoop: exceeded max iterations");

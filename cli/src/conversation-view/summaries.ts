@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { ClaudeUsage } from "../lib/claude-spend.js";
 
 // Plain-English summaries of the assistant's replies, so the captain can read
 // the outcome first and open the full reply only when he wants it.
@@ -263,18 +264,25 @@ export function xaiProvider(apiKey: string, model: string, fetchFn: FetchFn = fe
 }
 
 export function anthropicProvider(apiKey: string, model: string, fetchFn: FetchFn = fetch): SummaryProvider {
+  // Haiku 5 and later think by default; a summary wants the answer, fast.
+  const thinkingOff = /^claude-haiku-(?:[5-9]|\d{2})/.test(model) ? { thinking: { type: "disabled" } } : {};
   return {
     name: `anthropic:${model}`,
     async summarize(text, signal) {
+      // Past the month's Claude cap the next provider summarises instead.
+      // Loaded on use: this module also runs in the page's test environment, where Flyd's config cannot load.
+      const { claudeHeaders, recordClaudeUsage, spendStatus } = await import("../lib/claude-spend.js");
+      if (spendStatus().capped) throw new Error("Claude is over this month's cap");
       const response = await fetchFn("https://api.anthropic.com/v1/messages", {
         method: "POST",
         signal,
-        headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: 320, system: SUMMARY_PROMPT, messages: [{ role: "user", content: text }] }),
+        headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", ...claudeHeaders() },
+        body: JSON.stringify({ model, max_tokens: 320, ...thinkingOff, system: SUMMARY_PROMPT, messages: [{ role: "user", content: text }] }),
       });
       if (!response.ok) throw new Error(`Anthropic ${response.status}`);
-      const body = (await response.json()) as { content?: Array<{ type?: string; text?: unknown }> };
-      return tidySummary(body.content?.find((block) => block.type === "text")?.text);
+      const body = (await response.json()) as { content?: Array<{ type?: string; text?: unknown }>; usage?: ClaudeUsage };
+      recordClaudeUsage(model, body.usage, "quick");
+      return tidySummary(body.content?.filter((block) => block.type === "text").map((block) => block.text).join(""));
     },
   };
 }
@@ -297,10 +305,14 @@ export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string;
   const env = options.env ?? process.env;
   if (env.FLYD_VIEW_SUMMARIES === "0") return [];
   const models: Array<{ provider: "xai" | "anthropic"; model: string; key: string }> = [];
+  // Claude Haiku first (Flyd's quick-job model), xAI Grok when Claude is off or capped.
+  const anthropic = env.CLAUDE_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
+  if (anthropic && env.FLYD_CLAUDE !== "0") {
+    const model = env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || env.FLYD_CLAUDE_QUICK_MODEL?.trim().replace(/^anthropic:/, "") || "claude-haiku-5-5";
+    models.push({ provider: "anthropic", model, key: anthropic });
+  }
   const xai = findXaiKey(env, options.home);
   if (xai) models.push({ provider: "xai", model: env.FLYD_VIEW_XAI_MODEL?.trim() || "grok-4-fast-non-reasoning", key: xai });
-  const anthropic = env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
-  if (anthropic) models.push({ provider: "anthropic", model: env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5-20251001", key: anthropic });
   return models;
 }
 

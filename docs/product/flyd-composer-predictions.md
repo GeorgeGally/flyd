@@ -20,10 +20,14 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
   restart-surviving draft in `FLYD_DIR/view/drafts`, cleared on send; see
   `cli/src/conversation-view/drafts.ts`). Submitted wording is a completion
   hint, never a fact, memory claim, permission or reviewed routing label.
-- The model sees the draft plus at most six recent human conversation messages,
-  each capped at 400 characters. No retrieval, profile, clipboard, screens,
+- The model sees the draft plus at most ten recent human conversation messages
+  (the newest four capped at 1,500 characters, older ones at 400) and the names
+  and one-line state of George's live projects, so a guess can continue the
+  thing being discussed. No retrieval, profile, clipboard, screens,
   attachments, relayed updates or backstage wake messages. Obvious credential
   drafts are excluded and credential-containing context messages omitted.
+- The model returns a confidence with each suggestion; below 0.55 the box shows
+  nothing, since a wrong guess costs more than no guess.
 - Provider calls have a 1.2 second deadline, 96 output-token ceiling, 12-word /
   160-character visible ceiling, no tools, no retries and no paid fallback.
   Global request spacing is at least 650 ms, at most two active calls and 600
@@ -34,15 +38,19 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
 
 ## Model and setup
 
-`FLYD_PREDICTION_MODEL` selects an exact OpenAI-compatible model through Flyd's
-existing provider-qualified connections. Default:
+While Flyd's Claude is on and under its monthly cap (see
+`docs/product/flyd-models.md`), predictions use Claude Haiku 5.5 with thinking
+off. The conversation and project context ride in a cached system block, so
+every keystroke after the first re-reads them from cache and only the draft is
+new input. Past the cap, or with `FLYD_CLAUDE=0`, it falls back to:
 
 ```dotenv
 OPENROUTER_API_KEY=...
 FLYD_PREDICTION_MODEL=openrouter:inception/mercury-2.5
 ```
 
-No Meta model is selected. OpenRouter requests disable reasoning, choose
+`FLYD_PREDICTION_MODEL` pins an exact provider-qualified model and wins over
+both. No Meta model is selected. OpenRouter requests disable reasoning, choose
 latency-oriented provider routing, disable provider fallback and exclude
 providers that collect data. Unavailable credentials/provider support means
 local matches only. Nothing falls back to the general chat model.
