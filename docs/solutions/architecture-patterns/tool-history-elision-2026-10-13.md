@@ -20,6 +20,8 @@ Source: [An Empirical Study of Harness Design for Coding Agents](https://arxiv.o
 
 The live TypeScript loops previously resent every result. `tool-history.ts` now projects outgoing requests for Anthropic, Chat Completions, Responses, and the native worker. Original arrays and persisted worker sessions remain intact. User/system content, reasoning, tool arguments, IDs, order, and two complete recent model turns are preserved; a recent region also covers at least 30% of the configured estimated input budget. Older string result bodies over 4096 characters keep their first/last 512 characters and an explicit omission marker.
 
+Review correction: recognized Flyd security scan notices remain verbatim through their fetched-content delimiter; only the body is eligible for shortening. Malformed notices and projections that would increase size remain intact.
+
 The default estimated input budget is 32768, with elision triggered at 60%. These are initial engineering settings, not discovered provider limits. UTF-8 JSON bytes / 3 is a heuristic; oversized protected content and structured results can still exceed a provider window. There is no summarization stage or overflow guarantee. `pressureRemaining` reports estimated pressure at 85% after projection.
 
 `AgentLoopOptions.contextPolicy` and the worker's matching option accept `inputBudget`; `false` restores unmodified requests for paired evaluation. `onContextManaged` exposes estimates/counts without raw text; workers emit `context.elided`. No extra model call, persistence store, recall tool, approval gate, or new planning ritual is introduced. Canonical personal memory is unaffected.
