@@ -674,7 +674,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 }
 .reply form:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 /* In the column the conversation is already the card, so the box sits flat inside it. */
-.rail-talk .reply form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.rail-body .reply form { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .reply form[hidden], .reply-open[hidden], .reply-note[hidden] { display: none; }
 .reply-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
 .reply-kicker { display: flex; align-items: center; gap: 7px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
