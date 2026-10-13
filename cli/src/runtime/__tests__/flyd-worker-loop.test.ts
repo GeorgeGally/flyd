@@ -75,6 +75,31 @@ describe("Flyd native worker loop", () => {
     expect(state.messages).toHaveLength(4);
   });
 
+  it("projects old results for requests while persisting originals", async () => {
+    const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-elision-"));
+    const bulky = "first\n" + "x".repeat(25_000) + "\nlast diagnostic";
+    let turn = 0;
+    const requests: string[] = [];
+    const events: string[] = [];
+    await runFlydWorkerLoop({
+      assignment: "original goal", taskKey: "elision", projectRoot: "/work/project", sessionRoot,
+      sessionId: "flyd-elision",
+      client: { complete: async ({ messages }) => {
+        requests.push(JSON.stringify(messages));
+        return turn++ < 8 ? { content: null, toolCalls: [{ id: `t${turn}`, name: "read_file", arguments: {} }] }
+          : { content: "Done", toolCalls: [] };
+      } },
+      tools: { definitions: [], execute: async () => bulky },
+      emit: (event) => events.push(event.type),
+    });
+    expect(requests.at(-1)).toContain("elided from this request");
+    expect(events).toContain("context.elided");
+    const persisted = JSON.parse(await readFile(join(sessionRoot, "flyd-elision.json"), "utf8"));
+    const results = persisted.messages.filter((m: { role: string }) => m.role === "tool");
+    expect(results).toHaveLength(8);
+    expect(results.every((m: { content: string }) => m.content === bulky)).toBe(true);
+  });
+
   it("resumes the exact Flyd session and appends the new assignment", async () => {
     const sessionRoot = await mkdtemp(join(tmpdir(), "flyd-worker-resume-"));
     const firstClient: FlydCompletionClient = {

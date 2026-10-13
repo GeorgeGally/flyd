@@ -28,12 +28,24 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 vi.mock("openai", () => ({
   default: class {
+    responses = {
+      create: (params: Record<string, unknown>) => {
+        state.calls.push(params);
+        const response = state.openAIResponses.shift() ?? { finish_reason: "stop", content: "answer" };
+        const calls = (response.tool_calls ?? []) as Array<{ id: string; function: { name: string; arguments: string } }>;
+        return { output_text: response.content, output: [
+          { type: "reasoning", id: `r${state.calls.length}`, encrypted_content: "opaque" },
+          { type: "message", role: "assistant", content: [{ type: "output_text", text: response.content }] },
+          ...calls.map((call) => ({ type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments })),
+        ] };
+      },
+    };
     chat = {
       completions: {
         create: (params: Record<string, unknown>) => {
           state.calls.push(params);
           const response = state.openAIResponses.shift() ?? { finish_reason: "stop", content: "answer" };
-          return { choices: [{ finish_reason: response.finish_reason, message: { content: response.content, tool_calls: response.tool_calls } }] };
+          return { choices: [{ finish_reason: response.finish_reason, message: { role: "assistant", content: response.content, tool_calls: response.tool_calls } }] };
         },
       },
     };
@@ -83,6 +95,26 @@ describe("agentLoop tool budget", () => {
     expect(answer).toBe("final answer");
     expect(called.filter((name) => name === "grep")).toHaveLength(readRounds);
     expect(called).toContain("edit_file");
+  });
+
+  it.each(["claude-test", "gpt-4o-mini", "gpt-5.6-luna"])("elides stale observations on the real %s request path", async (model) => {
+    const bulky = "start\n" + "x".repeat(25_000) + "\nlast diagnostic";
+    if (model.startsWith("claude")) state.script = [...Array(8).fill("grep"), null];
+    else state.openAIResponses = [
+      ...Array.from({ length: 8 }, (_, i) => ({ finish_reason: "tool_calls", content: "", tool_calls: [
+        { id: `t${i}`, type: "function", function: { name: "grep", arguments: "{}" } },
+      ] })),
+      { finish_reason: "stop", content: "final answer" },
+    ];
+    const observed: unknown[] = [];
+    await agentLoop("system constraints", "original goal", [readTool], () => bulky, model, 12, {
+      onContextManaged: (stats) => observed.push(stats),
+    });
+    const last = JSON.stringify(state.calls.at(-1));
+    expect(last).toContain("elided from this request");
+    expect(last).toContain("original goal");
+    expect(last).toContain("system constraints");
+    expect(observed).toContainEqual(expect.objectContaining({ elided: expect.any(Number) }));
   });
 
   it("names Flyd's own tool limit instead of faking an external failure", async () => {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, resolveModelConnection } from "./config.js";
@@ -192,6 +193,9 @@ export interface AgentLoopOptions {
   answerBy?: number;
   /** Tool calls allowed this turn; once spent, the next model call must answer. */
   toolCallBudget?: number;
+  /** Request-only stale observation elision; false disables it for paired evals. */
+  contextPolicy?: ToolHistoryPolicy | false;
+  onContextManaged?(stats: ToolHistoryStats): void;
   /** Calls that may run concurrently with their siblings (read-only lookups). */
   parallelSafe?(name: string, input: Record<string, unknown>): boolean;
 }
@@ -528,7 +532,7 @@ async function agentLoopAnthropic(
           input_schema: t.input_schema,
         })),
       }),
-      messages,
+      messages: elideToolHistory(messages, { ...(options.contextPolicy || {}), overhead: system + JSON.stringify(tools) }, options.contextPolicy !== false, options.onContextManaged).messages,
     }, { signal: options.signal });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -606,7 +610,7 @@ async function agentLoopOpenAI(
       ...openAICompletionLimit(AGENT_OUTPUT_TOKENS),
       tools: oaiTools,
       ...(lastCall ? { tool_choice: "none" as const } : {}),
-      messages,
+      messages: elideToolHistory(messages, { ...(options.contextPolicy || {}), overhead: JSON.stringify(oaiTools) }, options.contextPolicy !== false, options.onContextManaged).messages,
     }, { signal: options.signal });
 
     const choice = res.choices[0];
@@ -677,7 +681,7 @@ async function agentLoopOpenAIResponses(
     const response = await client.responses.create({
       model: apiModelId(model),
       instructions: lastCall ? `${system}${TOOL_CEILING_NOTE}` : system,
-      input,
+      input: elideToolHistory(input, { ...(options.contextPolicy || {}), overhead: system + JSON.stringify(responseTools) }, options.contextPolicy !== false, options.onContextManaged).messages,
       ...(lastCall ? {} : { tools: responseTools }),
       max_output_tokens: AGENT_OUTPUT_TOKENS,
     }, { signal: options.signal });

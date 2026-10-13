@@ -1,3 +1,4 @@
+import { elideToolHistory, type ToolHistoryPolicy } from "./tool-history.js";
 import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import { join } from "path";
@@ -68,6 +69,7 @@ export async function runFlydWorkerLoop(input: {
   sessionId?: string;
   resume?: boolean;
   maxTurns?: number;
+  contextPolicy?: ToolHistoryPolicy | false;
   client: FlydCompletionClient;
   tools: {
     definitions: FlydToolDefinition[];
@@ -91,7 +93,12 @@ export async function runFlydWorkerLoop(input: {
 
   for (let turn = 0; turn < (input.maxTurns ?? 32); turn += 1) {
     const completion = await input.client.complete({
-      messages: [ { role: "system", content: SYSTEM_PROMPT }, ...state.messages ],
+      messages: elideToolHistory(
+        [ { role: "system", content: SYSTEM_PROMPT }, ...state.messages ],
+        { ...(input.contextPolicy || {}), overhead: JSON.stringify(input.tools.definitions) },
+        input.contextPolicy !== false,
+        (stats) => { if (stats.elided) input.emit({ type: "context.elided", sessionId, text: JSON.stringify(stats) }); },
+      ).messages,
       tools: input.tools.definitions,
     });
     const assistant: Record<string, unknown> = { role: "assistant", content: completion.content };
