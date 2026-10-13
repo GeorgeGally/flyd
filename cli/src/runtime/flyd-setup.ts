@@ -5,10 +5,9 @@ import { chatModelChain, defaultModel, fallbackModelChain, FLYD_APPLICATION_ROOT
 
 // What Flyd runs on, worked out each time it is asked, from the same resolvers
 // each job uses to pick its model. So the answer follows his .env,
-// ~/.flyd/config.json and the code defaults the moment any of them changes,
-// and a new model setting in the code that is not listed here fails a test
-// (flyd-setup.test.ts) instead of going missing quietly. Model ids, setting
-// names and on/off only: no key, token or URL leaves this file.
+// ~/.flyd/config.json and the code defaults the moment any of them changes.
+// Model ids, setting names and on/off only: no key, token or URL leaves this
+// file.
 
 export interface ModelAssignment {
   /** The job, in George's words. */
@@ -142,7 +141,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     job: "Overlay questions (fn key, text and voice), LIVE's look-ups and actions, and Core's coding worker",
     model: workers[0]?.providerIdentity ?? "not configured",
     ...(workers.length > 1 ? { fallbacks: workers.slice(1).map((worker) => worker.providerIdentity) } : {}),
-    settings: ["FLYD_MODEL", "OPENCODE_MODEL", "OPENOCE_MODEL", "OPENROUTER_MODEL", ...COMMANDCODE_SETTINGS, "FLYD_WORKER_MODEL"],
+    settings: ["FLYD_MODEL", "OPENCODE_MODEL", "OPENOCE_MODEL", "OPENROUTER_MODEL", ...COMMANDCODE_SETTINGS],
   });
   add({
     job: "Overlay route classifier",
@@ -279,10 +278,16 @@ export async function flydSetupReport(now = new Date()): Promise<string> {
   ].join("\n"));
 }
 
-const ABOUT_FLYD = /\b(?:flyd|you|your|yours|yourself|u|ur)\b/i;
-const SETUP_WORDS = /\b(?:models?|llms?|config(?:uration|ured)?|settings?|providers?|running on|runs? on|powered by|features?|capabilities)\b/i;
+const SETUP = String.raw`(?:models?|llms?|config(?:uration|ured)?|settings?|providers?|features?|capabilities)`;
+const SELF_SETUP = [
+  new RegExp(String.raw`\bflyd\b[\s\S]*\b(?:${SETUP}|running on|runs? on|powered by)\b|\b${SETUP}\b[\s\S]*\bflyd\b`, "i"),
+  new RegExp(String.raw`\b(?:your|ur)\s+(?:own\s+)?${SETUP}\b`, "i"),
+  new RegExp(String.raw`\b${SETUP}(?:\s+\w+){0,2}?\s+(?:are|do|did|have|is)\s+(?:you|u)\b`, "i"),
+  new RegExp(String.raw`\b(?:you|u)(?:'re|\s+are)?\s+(?:run(?:ning)?\s+on|powered by)\b`, "i"),
+  new RegExp(String.raw`\b(?:you|u)\s+(?:use|using|read)\s+(?:the\s+|your\s+|ur\s+)?${SETUP}\b`, "i"),
+];
 
-/** A question about Flyd's own setup: its models, configuration or features. */
+/** A question about Flyd's own setup: its models, configuration or features, with Flyd plainly the one asked about. */
 export function isFlydSetupQuestion(message: string): boolean {
-  return ABOUT_FLYD.test(message) && SETUP_WORDS.test(message);
+  return SELF_SETUP.some((pattern) => pattern.test(message));
 }

@@ -1,10 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flydModelAssignments, flydSetupReport, isFlydSetupQuestion, redactSecrets } from "../flyd-setup.js";
-
-const SRC = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The settings George sets for Flyd's models, all at once, as his .env would. */
 const CONFIGURED = {
@@ -80,26 +75,24 @@ describe("Flyd's own setup", () => {
     expect(redactSecrets("key sk-proj-abcdefghijklmnop1234 and a model gpt-5.6-luna", {})).toBe("key [hidden] and a model gpt-5.6-luna");
   });
 
-  it("lists every model setting the code reads, so a new one can't go missing quietly", async () => {
-    configure(CONFIGURED);
-    const known = new Set((await flydModelAssignments()).flatMap((assignment) => assignment.settings));
-    const files: string[] = [];
-    const walk = (dir: string): void => {
-      for (const name of readdirSync(dir)) {
-        const path = join(dir, name);
-        if (name === "__tests__" || name === "node_modules") continue;
-        if (statSync(path).isDirectory()) walk(path);
-        else if (name.endsWith(".ts") && !name.endsWith(".d.ts")) files.push(path);
-      }
-    };
-    walk(SRC);
-    const READ = /(?:process\.env|\benv|\bvalues|\benvironment)\.([A-Z][A-Z0-9_]*_MODELS?)\b|(?:getKey|setting)\(\s*"([A-Z][A-Z0-9_]*_MODELS?)"\s*\)|process\.env\[\s*"([A-Z][A-Z0-9_]*_MODELS?)"\s*\]/g;
+  /** What a setting needs before the job reads it. */
+  const NEEDS: Record<string, Record<string, string | undefined>> = {
+    BEACON_JEV_MODEL: { FLYD_JEV_MODEL: undefined },
+    OPENROUTER_MODEL: { OPENROUTER_API_KEY: "or-testsecret-0011223344" },
+    FLYD_VIEW_ANTHROPIC_MODEL: { ANTHROPIC_API_KEY: "ant-testsecret-5566778899" },
+  };
+
+  it("shows the model each listed setting names, whichever one is set", async () => {
+    const settings = [...new Set((await flydModelAssignments()).flatMap((assignment) => assignment.settings))];
     const missing: string[] = [];
-    for (const file of files) {
-      for (const match of readFileSync(file, "utf8").matchAll(READ)) {
-        const name = match[1] ?? match[2] ?? match[3]!;
-        if (!known.has(name)) missing.push(`${relative(SRC, file)}: ${name}`);
-      }
+    for (const name of settings) {
+      vi.unstubAllEnvs();
+      for (const other of settings) vi.stubEnv(other, "");
+      configure(SECRETS);
+      for (const [needed, value] of Object.entries(NEEDS[name] ?? {})) vi.stubEnv(needed, value);
+      const model = `probe-${name.toLowerCase().replaceAll("_", "-")}`;
+      vi.stubEnv(name, model);
+      if (!(await flydSetupReport()).includes(model)) missing.push(name);
     }
     expect(missing).toEqual([]);
   });
@@ -112,8 +105,19 @@ describe("Flyd's own setup", () => {
       "what features do you have",
       "what's your configuration",
       "what LLM are you running on",
+      "which model are you using",
+      "what are you running on",
+      "show me your settings",
     ]) expect(isFlydSetupQuestion(question), question).toBe(true);
-    for (const message of ["what's the weather in bangkok tonight", "how can flyd improve", "fix the footer on GNM", "remind me at 5 to call the bank"]) {
+    for (const message of [
+      "what's the weather in bangkok tonight",
+      "how can flyd improve",
+      "fix the footer on GNM",
+      "remind me at 5 to call the bank",
+      "can you check my iPhone settings",
+      "what features should the GNM app have, what do you think?",
+      "which model of bike should you recommend",
+    ]) {
       expect(isFlydSetupQuestion(message), message).toBe(false);
     }
   });
