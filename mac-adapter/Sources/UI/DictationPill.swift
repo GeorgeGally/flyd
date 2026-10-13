@@ -222,8 +222,8 @@ final class DictationPill: NSObject {
         max(stripTopPadding, (notch?.height ?? 0) + notchClearance - labelRowHeight - labelGap)
     }
 
-    /// Where the label row starts in the strip: past the half of the notch the strip runs
-    /// under, so the notch never hides it; at the strip's inset without a notch.
+    /// Where the label and the message start in the strip: past the half of the notch the strip
+    /// runs under, so the notch never hides them; at the strip's inset without a notch.
     static func labelInset(notch: NSRect?) -> CGFloat {
         guard let notch else { return stripInset }
         return max(stripInset, (notch.width / 2).rounded() + labelNotchGap)
@@ -239,7 +239,7 @@ final class DictationPill: NSObject {
     /// line never holds a single word; a body takes the title's second line.
     static func stripLayout(for message: Message, width: CGFloat, notch: NSRect? = nil) -> StripLayout {
         let width = max(0, width)
-        let textWidth = max(0, width - 2 * stripInset)
+        let textWidth = max(0, width - labelInset(notch: notch) - stripInset)
         let title = block(title(message.title), width: textWidth, maxLines: message.body == nil ? titleLines : 1)
         let body = message.body.map { block(Self.body($0), width: textWidth, maxLines: 1) }
         var content = labelRowHeight + labelGap + title.size.height
@@ -685,11 +685,11 @@ final class DictationPill: NSObject {
                                  width: max(0, strip.frame.width - labelX - inset), height: labelHeight)
         top -= Self.labelRowHeight + Self.labelGap
         let title = layout.title.size
-        titleText.frame = NSRect(x: inset, y: top - title.height, width: title.width, height: title.height)
+        titleText.frame = NSRect(x: labelInset, y: top - title.height, width: title.width, height: title.height)
         top -= title.height
         if let body = layout.body?.size {
             top -= Self.bodyGap
-            bodyText.frame = NSRect(x: inset, y: top - body.height, width: body.width, height: body.height)
+            bodyText.frame = NSRect(x: labelInset, y: top - body.height, width: body.width, height: body.height)
         }
     }
 

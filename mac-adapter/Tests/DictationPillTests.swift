@@ -28,6 +28,14 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(DictationPill.labelInset(notch: nil), DictationPill.stripInset)
     }
 
+    func testTheMessageSharesTheLabelsLeftEdgeAndFitsBesideIt() {
+        let width = DictationPill.stripWidth(screen: macBook, notch: notch)
+        let inset = DictationPill.labelInset(notch: notch)
+        let layout = DictationPill.stripLayout(for: .init(meta: "Reply", title: String(repeating: "a much longer message ", count: 20), body: "Open Flyd settings and check the voice setup"), width: width, notch: notch)
+        XCTAssertLessThanOrEqual(layout.title.size.width, width - inset - DictationPill.stripInset)
+        XCTAssertLessThanOrEqual(layout.body?.size.width ?? .infinity, width - inset - DictationPill.stripInset)
+    }
+
     func testTheMessageClearsTheNotchItRunsUnder() {
         let tall = NSRect(x: 656, y: 944, width: 200, height: 38)
         for notch in [notch, tall] {
