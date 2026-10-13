@@ -71,10 +71,9 @@ final class DictationPill: NSObject {
     static let opticalLift: CGFloat = 2
 
     /// Message strip: runs from the notch's middle to the screen's right edge and hangs below
-    /// the menu bar, a small
-    /// state label over the message set large in Flyd's display face, so it reads at a
-    /// glance from a normal sitting distance. Every message gets the same strip and the same
-    /// type size; a longer one truncates rather than resizing either.
+    /// the menu bar, a small state label over the message set large in Flyd's display face, so
+    /// it reads at a glance from a normal sitting distance. Every message gets the same strip
+    /// and the same type size; a longer one truncates rather than resizing either.
     static let stripInset: CGFloat = 26
     static let stripTopPadding: CGFloat = 18
     /// Under a notch the message runs beneath it, so its first line clears the notch by this.
