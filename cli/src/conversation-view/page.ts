@@ -449,6 +449,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
+/* Each conversation in the column is a card, like what Flyd remembers. */
+.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
@@ -662,22 +664,25 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 /* Answering a "needs you" line right where it stands. */
 /* His reply to one answer: quiet until he looks for it, then a box under the answer. */
 .reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
-.reply-open { font: 400 13px/1 var(--mono); color: var(--muted); background: transparent; border: 0; padding: 4px 0; cursor: pointer; opacity: 0.55; transition: opacity 160ms ease, color 160ms ease; }
+.reply-open { font: 500 13px/1.2 var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 2px 0; cursor: pointer; opacity: 0.7; transition: opacity 160ms ease, color 160ms ease; }
 .msg:hover .reply-open, .rail-talk:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
 .reply-open:hover { color: var(--fg); }
-/* Open, it is one field like the message box: his words, then Close and Send inside it. */
+/* Open, it is a card like a learned memory: its label and Close, then his words and Send as one row. */
 .reply form {
-  flex-basis: 100%; display: flex; align-items: flex-end; gap: 4px; padding: 4px;
-  background: var(--tint); border: 1px solid transparent; border-radius: 10px;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  flex-basis: 100%; padding: 10px 12px 12px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--tint)); transition: border-color 140ms ease;
 }
-.reply form:focus-within { background: color-mix(in srgb, var(--fg) 5%, var(--tint)); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.reply form:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .reply form[hidden], .reply-open[hidden], .reply-note[hidden] { display: none; }
-.reply form .reply-input { min-height: 32px; font-size: 16px; line-height: 22px; padding: 5px 8px; background: transparent; border: 0; border-radius: 6px; }
-.reply form .reply-input:focus { outline: none; }
-.reply form .reply-send, .reply-close { flex: none; height: 32px; padding: 0 14px; font: 600 14px/1 var(--sans); letter-spacing: 0; text-transform: none; border-radius: 6px; }
-.reply-close { color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 0 10px; transition: color 140ms ease; }
+.reply-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+.reply-kicker { display: flex; align-items: center; gap: 7px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
+.reply-kicker::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.reply-close { font: 500 13px/1.2 var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 2px 0; cursor: pointer; transition: color 140ms ease; }
 .reply-close:hover { color: var(--fg); }
+.reply-row { display: flex; align-items: flex-end; gap: 8px; }
+.reply form .reply-input { min-height: 32px; font-size: 16px; line-height: 22px; padding: 5px 0; color: var(--strong); background: transparent; border: 0; border-radius: 0; }
+.reply form .reply-input:focus { outline: none; }
+.reply form .reply-send { flex: none; height: 32px; padding: 0 14px; font: 600 14px/1 var(--sans); letter-spacing: 0; text-transform: none; border-radius: 6px; }
 .reply-close:focus-visible, .reply form .reply-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .reply-input { flex: 1; min-width: 8em; max-height: 12em; field-sizing: content; font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px; padding: 8px 10px; resize: none; }
 .reply-input:focus { outline: none; border-color: var(--accent); }
@@ -1682,7 +1687,8 @@ var __name = function (f) { return f; };
   function replyBox(id, place) {
     var state = replyState(place + ":" + id);
     var box = keyed(el("div", "reply"), "reply:" + id);
-    // Reply opens the box and steps aside; Close sits inside it, by Send.
+    // Reply opens the box and steps aside; open, the box is a card like a
+    // learned memory, its label and Close over his words and Send.
     var opener = el("button", "reply-open", "Reply");
     opener.type = "button";
     opener.setAttribute("aria-expanded", state.open ? "true" : "false");
@@ -1695,13 +1701,18 @@ var __name = function (f) { return f; };
     input.placeholder = "Reply to this…";
     input.value = state.draft;
     input.setAttribute("aria-label", "Reply to this answer");
+    var head = el("div", "reply-head");
+    head.appendChild(el("span", "reply-kicker", "Reply"));
     var close = el("button", "reply-close", "Close");
     close.type = "button";
+    head.appendChild(close);
     var send = el("button", "reply-send", "Send");
     send.type = "submit";
-    form.appendChild(input);
-    form.appendChild(close);
-    form.appendChild(send);
+    var row = el("div", "reply-row");
+    row.appendChild(input);
+    row.appendChild(send);
+    form.appendChild(head);
+    form.appendChild(row);
     box.appendChild(form);
     var note = el("span", "reply-note", state.note);
     note.setAttribute("role", "status");
