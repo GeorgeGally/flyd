@@ -128,13 +128,18 @@ export interface FinishDictationOptions {
   timeoutMs?: number;
 }
 
+/** The model that cleans up dictation: FLYD_DICTATE_MODEL; unset, cleanup is deterministic only. */
+export function dictationModel(): string | undefined {
+  return getKey("FLYD_DICTATE_MODEL")?.trim() || undefined;
+}
+
 export async function finishDictation(transcript: string, options: FinishDictationOptions): Promise<DictationResult> {
   const profile = dictationProfile(options.target);
   if (isSilenceHallucination(transcript, options.audioSeconds)) return { text: "", profile };
 
   const ruled = applyRules(transcript, options.rules);
   const deterministic = deterministicCleanup(ruled, profile);
-  const model = options.model ?? getKey("FLYD_DICTATE_MODEL")?.trim();
+  const model = options.model ?? dictationModel();
   if (!model || !deterministic || !needsModel(ruled, profile)) return { text: deterministic, profile };
 
   const spellExactly = [...new Set([...options.rules.map((rule) => rule.to), ...options.vocabulary])];

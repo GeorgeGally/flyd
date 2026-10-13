@@ -122,11 +122,19 @@ export function startRealtimeServer(): Promise<void> {
   });
 }
 
+/** The LIVE session model: FLYD_REALTIME_MODEL, else the default. */
+export function realtimeModel(): string {
+  return process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
+}
+
+/** What transcribes George's side of a LIVE session. */
+export const REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
+
 async function connectRealtime(
   adapterWs: WebSocket,
   observationResolvers: Map<string, (env: Record<string, unknown>) => void>
 ): Promise<WebSocket> {
-  const model = process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
+  const model = realtimeModel();
   // Realtime WS is OpenAI-only — prefer OPENAI_API_KEY so FLYD_MODEL_API_KEY
   // can point at a non-OpenAI provider (e.g. OpenRouter) without breaking voice.
   const apiKey = process.env.OPENAI_API_KEY || process.env.FLYD_MODEL_API_KEY;
@@ -167,7 +175,7 @@ async function connectRealtime(
           audio: {
             input: { format: { type: "audio/pcm", rate: 24000 } },
             output: { format: { type: "audio/pcm", rate: 24000 } },
-            transcription: { model: "gpt-realtime-whisper" },
+            transcription: { model: REALTIME_TRANSCRIPTION_MODEL },
           },
           tools: [{
             type: "function",

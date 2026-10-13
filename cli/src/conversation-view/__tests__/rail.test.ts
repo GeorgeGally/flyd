@@ -279,6 +279,17 @@ describe("groupTopics", () => {
     expect(grouped[1]!.sameTopic).toBeUndefined();
   });
 
+  it("never folds a note to firstmate under a question Flyd answered, so neither shows the other's line", () => {
+    const grouped = groupTopics([
+      { id: "ask:1", question: "what models is flyd using?", answer: "Chat runs on opencode-go/deepseek-v4.1-flash.", at: at(0) },
+      { id: "note:2", question: "well why didn't u read the config?", waiting: "Shrinking hero on short screens, verify", at: at(2) },
+      { id: "note:3", question: "and why isn't this in memory?", waiting: "Working on it", at: at(3) },
+    ]);
+    expect(grouped.map((talk) => talk.id)).toEqual(["ask:1", "note:2"]);
+    expect(grouped[0]!.sameTopic).toBeUndefined();
+    expect(grouped[1]!.sameTopic!.map((talk) => talk.id)).toEqual(["note:3"]);
+  });
+
   it("leaves a reply, and a message with no time, standing alone", () => {
     const grouped = groupTopics([
       { id: "q1", question: "first", at: at(0) },

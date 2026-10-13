@@ -74,12 +74,17 @@ export function stateProjectionHash(state: Record<string, unknown>): string {
   return hash(boundedState(state));
 }
 
+/** The Jev release System-1 asks by default: FLYD_JEV_MODEL, else BEACON_JEV_MODEL, else jev-latest. */
+export function jevModel(): string {
+  return process.env.FLYD_JEV_MODEL ?? process.env.BEACON_JEV_MODEL ?? DEFAULT_MODEL;
+}
+
 function envOptions(options: JevOptions): Required<Pick<JevOptions, "endpoint" | "model" | "timeoutMs" | "rubricVersion">> & JevOptions {
   return {
     ...options,
     endpoint: options.endpoint ?? process.env.FLYD_JEV_ENDPOINT ?? process.env.BEACON_JEV_ENDPOINT ?? DEFAULT_ENDPOINT,
     apiKey: options.apiKey ?? process.env.TYPESAFE_API_KEY ?? process.env.FLYD_JEV_API_KEY ?? process.env.BEACON_JEV_API_KEY,
-    model: options.model ?? process.env.FLYD_JEV_MODEL ?? process.env.BEACON_JEV_MODEL ?? DEFAULT_MODEL,
+    model: options.model ?? jevModel(),
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     rubricVersion: options.rubricVersion ?? "flyd.system-one.v1",
     fetchFn: options.fetchFn ?? fetch,

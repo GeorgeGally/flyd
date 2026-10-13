@@ -80,6 +80,26 @@ describe("routeMessage", () => {
     expect(await routeMessage(input, () => new Promise<string>(() => {}), 20)).toBe("firstmate");
   });
 
+  it("keeps a follow-up to Flyd's own answer with Flyd when the router can't tell", async () => {
+    // The logged miss: "well why didn't u read the config?" came two minutes after Flyd answered, the router timed out, and it went to firstmate.
+    const followUp = { ...input, text: "well why didn't u read the config? and why isn't this in memory?" };
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    const timedOut = () => new Promise<string>(() => {});
+    expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, timedOut, 20)).toBe("flyd");
+    expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask(new Error("offline")))).toBe("flyd");
+    expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask("maybe"))).toBe("flyd");
+    // An old conversation, or one firstmate is having, keeps the old default.
+    expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(45) } }, timedOut, 20)).toBe("firstmate");
+    expect(await routeMessage({ ...followUp, previous: { owner: "firstmate", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
+    // A router that answers still decides, and attachments still go to firstmate.
+    expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask("FIRSTMATE"))).toBe("firstmate");
+    expect(await routeMessage({ ...followUp, images: 1, previous: { owner: "flyd", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
+  });
+
+  it("tells the router that questions about Flyd itself are Flyd's", () => {
+    expect(routePrompt("what models is flyd using?", [])).toMatch(/Questions about Flyd itself \(which models it uses[^)]*\)[^.]*are Flyd's/);
+  });
+
   it("shows the model what firstmate last asked, so a bare answer like 'A' goes back to it", () => {
     const prompt = routePrompt("A", [
       { id: "t1", role: "assistant", aside: true, text: "Sir, should I go with A or B for the island filter?" },
@@ -120,6 +140,27 @@ describe("FlydDesk", () => {
       { role: "user", content: "whats there to do in bkk tonight?" },
       { role: "assistant", content: "Tonight, sir: art bangkok at Siam Paragon." },
     ]);
+  });
+
+  it("says what Flyd is doing the moment it changes, then its answer", async () => {
+    let step: ((line: string) => void) | undefined;
+    let resolve!: (text: string) => void;
+    const desk = new FlydDesk({ dir, answer: (_question, _history, onStep) => {
+      step = onStep;
+      return new Promise<string>((res) => { resolve = res; });
+    } });
+    desk.ask("what models is flyd using?");
+    expect(desk.exchanges()[0]!.waiting).toBe("Working on it");
+    step!("Checking my own setup");
+    expect(desk.exchanges()[0]!.waiting).toBe("Checking my own setup");
+    step!("Searching the web: gpt-realtime-2.1 release notes…");
+    expect(desk.exchanges()[0]!.waiting).toBe("Searching the web: gpt-realtime-2.1 release notes");
+    resolve("Chat runs on opencode-go/deepseek-v4.1-flash.");
+    const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
+    expect(exchange!.waiting).toBe("");
+    // A step that arrives after the answer is not shown anywhere.
+    step!("Thinking it through");
+    expect(desk.exchanges()[0]!.answer).toBeDefined();
   });
 
   it("says when Flyd could not answer, and when a restart cut it off", async () => {
@@ -172,7 +213,7 @@ case "\${1:-}" in
     [ "\${2:-}" = "-" ] || { echo "usage" >&2; exit 2; }
     body=$(cat)
     mkdir -p "$FM_HOME/state/inbox"
-    id="$(date +%s)-$RANDOM"
+    id="$(date +%s)-$(printf '%06d' "$RANDOM")"
     printf 'id=%s\\nat=%s\\nsource=text\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/$id.note"
     printf 'queued %s\\n' "$id"
     ;;
@@ -231,13 +272,18 @@ esac
     let snapshot = await source.read("s1");
     expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
 
-    // Firstmate reads the note and starts work: the step rides on the note's own line.
+    // Firstmate reads the note, then busies itself with other work: that work's step is not this note's line.
     const inbox = join(home, "state", "inbox");
     const name = readdirSync(inbox).find((file) => file.endsWith(".note"))!;
     mkdirSync(join(inbox, "handled"));
     writeFileSync(join(inbox, "handled", name), readFileSync(join(inbox, name)));
     rmSync(join(inbox, name));
-    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: "npm test", description: "Run the site's tests" })].join("\n") + "\n");
+    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: "npm run shrink", description: "Shrink hero on short screens" })].join("\n") + "\n");
+    snapshot = await source.read("s1");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).not.toMatch(/shrink/i);
+
+    // Its turn takes the note up by name and starts work: the step rides on the note's own line.
+    writeFileSync(join(project, "s1.jsonl"), [captain("status?"), captain("[note] the hero"), toolUse("Bash", { command: `cat ${join(inbox, "handled", name)}`, description: "Read the note" }), toolUse("Bash", { command: "npm test", description: "Run the site's tests" })].join("\n") + "\n");
     snapshot = await source.read("s1");
     expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Running the site's tests");
     expect(statusOf(snapshot).waiting).toEqual({ id: sent.id, text: "Running the site's tests" });
@@ -307,6 +353,17 @@ esac
     } finally {
       follower.close();
     }
+  });
+
+  it("keeps his follow-up to Flyd's answer with Flyd when the router fails, so it never lands in firstmate's inbox", async () => {
+    const { source, home, answered } = setup("not a route");
+    const first = await source.send("s1", "what models is flyd using?", undefined, undefined, "flyd");
+    await until(() => (source.exchanges().find((exchange) => exchange.question.id === first.id)?.answer ? true : undefined));
+    const followUp = await source.send("s1", "well why didn't u read the config? and why isn't this in memory?");
+    expect(followUp.id).toMatch(/^ask:/);
+    await until(() => (answered.length === 2 ? true : undefined));
+    expect(answered[1]).toBe("well why didn't u read the config? and why isn't this in memory?");
+    expect(readdirSync(home)).not.toContain("state");
   });
 
   it("sends software work to firstmate, and relays firstmate's own lines as updates in Flyd's voice", async () => {

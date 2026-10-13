@@ -17,6 +17,18 @@ describe("turn plan", () => {
     expect(planBrief(plan!)).toContain("Your reply must cover, however short it is:\n- tomorrow's calendar");
   });
 
+  it("answers pass on what they can't find out, to an agent that changes nothing, and never offer to look", () => {
+    const withPassOn = [...tools, { name: "pass_on_question" }];
+    const answer = planTurn(jev("answer"));
+    expect(visibleTools(withPassOn, answer).map((tool) => tool.name)).toContain("pass_on_question");
+    expect(offRoute(answer, "pass_on_question", { question: "which build is live?", about: "code" })).toBeNull();
+    expect(planBrief(answer!)).toMatch(/Never offer to look something up/);
+    expect(planBrief(answer!)).toContain("pass_on_question");
+    // Asking him what he means comes before passing anything on.
+    expect(visibleTools(withPassOn, planTurn(jev("clarify"))).map((tool) => tool.name)).not.toContain("pass_on_question");
+    expect(offCode(false, "read_file", { path: "x" }, [])).toMatch(/pass the question on with pass_on_question/);
+  });
+
   it("hands work off at once: only the hand-offs are in reach, the reading is the crewmate's", () => {
     const plan = planTurn(jev("delegate"));
     expect(names(plan)).toEqual(["background_task", "start_coding_task", "start_knowledge_task"]);

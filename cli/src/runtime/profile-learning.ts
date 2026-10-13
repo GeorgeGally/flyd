@@ -40,6 +40,11 @@ export async function learnFromMessage(message: string, deps: LearnDependencies)
   return facts.filter(({ fact, section }) => deps.addFact(fact, section));
 }
 
+/** The model that learns facts he states: FLYD_PROFILE_LEARN_MODEL, else the cheapest (last) model of the chat chain. */
+export function profileLearnModel(chain: string[]): string | undefined {
+  return process.env.FLYD_PROFILE_LEARN_MODEL?.trim() || chain[chain.length - 1];
+}
+
 /** Fire-and-forget hook for live chat turns. */
 export function learnInBackground(message: string): void {
   if (process.env.VITEST || process.env.FLYD_PROFILE_AUTOLEARN === "0") return;
@@ -52,7 +57,7 @@ export function learnInBackground(message: string): void {
     ]);
     const chain = chatModelChain();
     // The cheapest configured model is plenty for extraction; fall back to the chain head.
-    const model = process.env.FLYD_PROFILE_LEARN_MODEL?.trim() || chain[chain.length - 1];
+    const model = profileLearnModel(chain);
     await learnFromMessage(message, {
       complete: (prompt) => query(prompt, model),
       addFact: (fact, section) => profile.addUserProfileFact(fact, { section }),

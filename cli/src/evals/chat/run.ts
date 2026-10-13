@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildJudgePrompt, median, parseJudgeVerdict, scoreChatEval,
+  buildJudgePrompt, evalJudgeModel, median, parseJudgeVerdict, scoreChatEval,
   type ChatEvalCase, type ChatEvalObservation, type Placeholders,
 } from "./scoring.js";
 
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   const model = argValue("--model");
   if (model) process.env.FLYD_CHAT_MODEL = model;
   // The judge stays fixed across runs so model comparisons are apples to apples.
-  const judgeModel = process.env.FLYD_EVAL_JUDGE_MODEL?.trim() || "openai:gpt-5.6-sol";
+  const judgeModel = evalJudgeModel();
   const only = argValue("--only")?.split(",").map((id) => id.trim()).filter(Boolean);
   const suite = argValue("--suite") ?? "chat";
   if (!["chat", "decisions", "decisions-heldout"].includes(suite)) throw new Error(`Unknown eval suite: ${suite}`);

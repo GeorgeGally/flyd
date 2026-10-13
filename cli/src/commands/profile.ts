@@ -2,10 +2,15 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { addUserProfileFact, ensureUserProfile, readUserProfile, userProfilePath } from "../lib/user-profile.js";
 
+/** The model that drafts USER.md from his captures: FLYD_PROFILE_MODEL, else the default. */
+export function profileBootstrapModel(): string {
+  return process.env.FLYD_PROFILE_MODEL?.trim() || "openai:gpt-5.6-sol";
+}
+
 async function bootstrap(): Promise<void> {
   const { draftProfileFromMemory } = await import("../runtime/profile-bootstrap.js");
   const { query } = await import("../lib/llm.js");
-  const model = process.env.FLYD_PROFILE_MODEL?.trim() || "openai:gpt-5.6-sol";
+  const model = profileBootstrapModel();
   process.stdout.write(`Reading your captures and conversations with ${model}…\n`);
   const { facts, sources } = await draftProfileFromMemory({ complete: (prompt) => query(prompt, model) });
   ensureUserProfile();

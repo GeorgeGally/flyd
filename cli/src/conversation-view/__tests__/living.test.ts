@@ -55,20 +55,33 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);
   });
 
-  it("puts the current step on the newest taken note only, and leaves answered ones alone", () => {
+  it("never puts firstmate's step on a note its turn did not pick up, and leaves answered ones alone", () => {
+    // Firstmate busy shrinking a hero for another note: none of these notes gets that step as its line.
     const exchanges = livened(
       [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: ANSWERING }],
-      { activity: "Run the tests" },
+      { activity: "Shrinking hero on short screens, verify" },
     );
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, "Run the tests", WORKING, "", WORKING]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, WORKING, WORKING, "", WORKING]);
   });
 
-  it("puts the crewmate's step on the note it is working on, over firstmate's own", () => {
+  it("keeps the running line under an outcome while work on that note carries on", () => {
+    const settled = (id: string): Exchange => ({ question: { id, role: "user", text: "the hero is cut off" }, handoff: "taken", waiting: "I've logged it as a fix.", settled: true });
+    const [crewed, turned, quiet] = livened([settled("note:a"), settled("note:b"), settled("note:c")], {
+      steps: new Map([["note:a", "Measuring the hero on a short laptop"]]),
+      activity: "Editing the styles",
+      workingOn: ["note:b"],
+    });
+    expect(crewed).toMatchObject({ waiting: "I've logged it as a fix.", settled: true, doing: "Measuring the hero on a short laptop" });
+    expect(turned).toMatchObject({ waiting: "I've logged it as a fix.", doing: "Editing the styles" });
+    expect(quiet!.doing).toBeUndefined();
+  });
+
+  it("puts the crewmate's step on the note it is working on, and firstmate's own nowhere it did not pick up", () => {
     const note = (id: string, text: string): Exchange => ({ question: { id, role: "user", text }, handoff: "taken", waiting: WORKING });
     const steps = new Map([["note:a", "Checking how you like spacing"]]);
     const [a, b] = livened([note("note:a", "fix the header"), note("note:b", "fix the footer")], { steps, activity: "Running the tests" });
     expect(a!.waiting).toBe("Checking how you like spacing");
-    expect(b!.waiting).toBe("Running the tests");
+    expect(b!.waiting).toBe("Fixing the footer");
   });
 
   it("puts firstmate's own step on the notes its turn picked up, even before it files them", () => {

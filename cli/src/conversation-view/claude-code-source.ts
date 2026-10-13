@@ -270,8 +270,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const command = matchCommand(text, await this.commands());
     if (this.desk) {
       // A reply goes back to whoever gave the answer; only a new message is routed.
+      // The conversation his message may continue: who handled his last message, and when he sent it.
+      const last = this.exchanges().map((exchange) => exchange.question)
+        .reduce<ConversationMessage | undefined>((newest, question) => (!newest || Date.parse(question.timestamp ?? "") > Date.parse(newest.timestamp ?? "") ? question : newest), undefined);
+      const previous = last ? { owner: last.id.startsWith("ask:") ? "flyd" as const : "firstmate" as const, ...(last.timestamp ? { at: last.timestamp } : {}) } : undefined;
       const route = to ?? await routeMessage(
-        { text, images: images?.length ?? 0, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId },
+        { text, images: images?.length ?? 0, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
             const { query } = await import("../lib/llm.js");

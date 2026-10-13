@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { clipKeepingLinks } from "./line-links.js";
 import { ANSWERING } from "./living.js";
 import type { ConversationMessage, Exchange, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
@@ -46,6 +47,7 @@ const ROUTE_TIMEOUT_MS = 8_000;
 const RECENT_FOR_ROUTE = 4;
 const HISTORY_EXCHANGES = 4;
 const MAX_ERROR_CHARS = 160;
+const MAX_STEP_CHARS = 90;
 
 export function routePrompt(text: string, recent: ConversationMessage[]): string {
   const context = recent
@@ -56,19 +58,31 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
     "George is talking to Flyd, his personal assistant, in Flyd's conversation window.",
     "Flyd answers everything that is not software work itself, from its own memory of him and the web: questions about his own life and history (where he studied, worked or lived, people he knows, what he said or did before), his calendar and plans, travel, places, facts, the news, writing, his day.",
     "Firstmate is the engineering lead who runs his software fleet. It takes requests that require inspecting or changing code, repositories, pull requests, builds, bugs, deployments or crew work, and replies to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\"). Mere discussion of software, Flyd or firstmate is Flyd's unless inspecting the code or work state is needed. Planning-only requests keep their no-implementation constraint.",
+    "Questions about Flyd itself (which models it uses, its settings, its features, why it answered the way it did) and follow-ups to an answer Flyd just gave are Flyd's: Flyd looks up its own setup and passes on what it can't answer.",
     context ? `Recent conversation:\n${context}` : "",
     `New message from George: ${text.replace(/\s+/g, " ").slice(0, 1_000)}`,
     "Who should handle it? Answer with exactly one word: FLYD or FIRSTMATE.",
   ].filter(Boolean).join("\n\n");
 }
 
+/** How long after his last message a new one still continues that conversation. */
+export const CONTINUES_WITHIN_MS = 10 * 60_000;
+
+/** Who is answering the conversation his new message continues: the handler of his last message, if it was recent. */
+export function continuing(previous: { owner: Route; at?: string } | undefined, now = Date.now()): Route | null {
+  const at = previous?.at ? Date.parse(previous.at) : NaN;
+  return previous && !Number.isNaN(at) && now - at >= 0 && now - at <= CONTINUES_WITHIN_MS ? previous.owner : null;
+}
+
 /**
- * Decides who answers. Anything Flyd cannot tell, a slow or failed model
- * included, goes to firstmate: that was the window's only path before, so a
- * work request is never dropped on the floor.
+ * Decides who answers. When the router can't tell (a slow or failed model), a
+ * message that continues a conversation stays with whoever is having it, so a
+ * follow-up to Flyd's own answer is never sent to firstmate; anything else
+ * goes to firstmate, the window's only path before, so a work request is never
+ * dropped on the floor.
  */
 export async function routeMessage(
-  input: { text: string; images: number; files?: number; command?: string; recent: ConversationMessage[]; sessionId?: string },
+  input: { text: string; images: number; files?: number; command?: string; recent: ConversationMessage[]; sessionId?: string; previous?: { owner: Route; at?: string } },
   complete: Complete,
   timeoutMs = ROUTE_TIMEOUT_MS,
   options: DeskRoutingOptions = {},
@@ -107,6 +121,7 @@ export async function routeMessage(
     }).catch(() => undefined);
   };
   if (mode === "live" && candidate) { record(candidate, "jev"); return candidate; }
+  const unrouted = (): Route => (mode === "live" ? "flyd" : continuing(input.previous) ?? "firstmate");
   let timer: NodeJS.Timeout | undefined;
   try {
     const answer = await Promise.race([
@@ -116,11 +131,11 @@ export async function routeMessage(
       }),
     ]);
     const valid = /^(?:FLYD|FIRSTMATE)[.!]?$/i.test(answer.trim());
-    const owner = valid ? /^flyd/i.test(answer.trim()) ? "flyd" : "firstmate" : mode === "live" ? "flyd" : "firstmate";
+    const owner = valid ? /^flyd/i.test(answer.trim()) ? "flyd" : "firstmate" : unrouted();
     record(owner, valid ? "llm" : "incumbent_failure", !valid ? "fallback_failed" : candidate && mode === "shadow" ? "shadow_only" : fast ? "uncertain_route_or_domain" : "jev_unavailable");
     return owner;
   } catch {
-    const owner = mode === "live" ? "flyd" : "firstmate";
+    const owner = unrouted();
     record(owner, "incumbent_failure", "fallback_failed");
     return owner;
   } finally {
@@ -138,8 +153,8 @@ interface AskRecord {
   error?: string;
 }
 
-/** Flyd's own answer to a question, given the window's earlier questions and answers. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>) => Promise<string>;
+/** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void) => Promise<string>;
 
 export function defaultAsksDir(): string {
   return join(homedir(), ".flyd", "view", "asks");
@@ -150,6 +165,8 @@ export class FlydDesk {
   private readonly answerer: Answerer;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
+  /** What Flyd is doing on each question it is answering, said the moment it changes. */
+  private readonly steps = new Map<string, string>();
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
@@ -212,7 +229,11 @@ export class FlydDesk {
       ]);
     this.write(record);
     this.inFlight.add(record.id);
-    void this.answerer(record.text, history)
+    const onStep = (step: string): void => {
+      const line = step.replace(/\s+/g, " ").trim();
+      if (line && this.inFlight.has(record.id)) this.steps.set(record.id, clipKeepingLinks(line.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
+    };
+    void this.answerer(record.text, history, onStep)
       .then((answer) => {
         if (!answer.trim()) throw new Error("no answer came back");
         this.write({ ...record, answer: answer.trim(), answeredAt: new Date().toISOString() });
@@ -220,7 +241,10 @@ export class FlydDesk {
       .catch((error: unknown) => {
         this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
       })
-      .finally(() => this.inFlight.delete(record.id));
+      .finally(() => {
+        this.inFlight.delete(record.id);
+        this.steps.delete(record.id);
+      });
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: ANSWERING };
   }
 
@@ -234,7 +258,7 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: ANSWERING };
+      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? ANSWERING };
       const waiting = record.error ? `Flyd couldn't answer this: ${record.error}` : "Flyd was interrupted before answering; send it again";
       return { question, waiting, waitingFailed: true };
     });

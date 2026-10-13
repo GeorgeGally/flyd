@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseTaste } from "../../council/taste.js";
-import { composeMemory, conversationProject, MemoryReader, parseCapture, parseMemoryFile, type Capture, type MemoryInputs } from "../memory.js";
+import { composeMemory, conversationProject, entryId, MemoryReader, parseCapture, parseMemoryFile, type Capture, type MemoryInputs } from "../memory.js";
 import type { ConversationMessage } from "../types.js";
 
 const PROJECTS = [
@@ -103,6 +103,17 @@ describe("composeMemory", () => {
     expect(memory.remembering.map((item) => [item.kind, item.at])).toEqual([["taste", "2026-10-11T10:09:00.000Z"], ["memory", "2026-10-11T10:07:00.000Z"]]);
     expect(memory.remembering[1]!.line).toBe("Memory · Commitments");
     expect(memory.remembers.map((item) => item.id)).not.toContain("taste:aaaa0003");
+  });
+
+  it("calls work that got done shipped work, never something learned", () => {
+    const shipped = { section: "Shipped", text: "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.", date: "2026-10-13" };
+    const memory = composeMemory(
+      inputs({ entries: [...parseMemoryFile(MEMORY), shipped], noticed: { [entryId(shipped)]: "2026-10-13T10:07:00.000Z" } }),
+      [user("a", "hello", "2026-10-13T10:00:00Z")],
+      PROJECTS,
+    );
+    expect(memory.remembering).toHaveLength(1);
+    expect(memory.remembering[0]).toMatchObject({ kind: "shipped", line: "Shipped" });
   });
 });
 

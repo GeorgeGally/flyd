@@ -119,7 +119,7 @@ export function isMutatingToolCall(name: string, input: Record<string, unknown>)
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
   if (name === "schedule" || name === "todos") return input.action !== "list";
   if (name === "work_model") return workModelAction(input) === "correct";
-  if (name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task") return true;
+  if (name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task" || name === "pass_on_question") return true;
   if (name === "domain_work" && input.action === "ask") return true;
   if (name === "crew") return input.action === "land" || input.action === "discard";
   if (name === "flyd") return input.action === "run_briefing" || input.action === "skillify" || input.action === "improve";
@@ -244,12 +244,17 @@ async function jinaSearch(fetchFn: FetchLike, apiKey: string, query: string, cou
  * OpenAI's hosted web search. Slower than a raw index but returns a cited
  * synthesis; scraped HTML engines served junk to unauthenticated clients.
  */
+/** The model behind OpenAI's hosted web search: FLYD_WEB_SEARCH_MODEL, else the default. */
+export function webSearchModel(): string {
+  return process.env.FLYD_WEB_SEARCH_MODEL?.trim() || "gpt-5.6-luna";
+}
+
 async function openAIWebSearch(fetchFn: FetchLike, apiKey: string, query: string): Promise<string | null> {
   const response = await fetchFn("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.FLYD_WEB_SEARCH_MODEL?.trim() || "gpt-5.6-luna",
+      model: webSearchModel(),
       reasoning: { effort: "low" },
       tools: [{ type: "web_search" }],
       input: `Search the web and report the key current facts for: ${query}\nBe concise. Include dates and cite source URLs inline.`,
@@ -273,15 +278,30 @@ async function openAIWebSearch(fetchFn: FetchLike, apiKey: string, query: string
 /** Providers whose key was rejected stay skipped for the process lifetime. */
 const rejectedSearchProviders = new Set<string>();
 
+/** Web search backends in the order they are tried, each with the key that turns it on. */
+const WEB_SEARCH_PROVIDERS = [
+  { name: "brave", label: "Brave Search", key: "BRAVE_SEARCH_API_KEY" },
+  { name: "jina", label: "Jina Search", key: "JINA_API_KEY" },
+  { name: "openai", label: "OpenAI web search", key: "OPENAI_API_KEY" },
+] as const;
+
+/** The web search backends this machine has keys for, in the order they are tried; names only. */
+export function webSearchOrder(): Array<{ name: string; label: string }> {
+  return WEB_SEARCH_PROVIDERS.filter((provider) => process.env[provider.key]?.trim()).map(({ name, label }) => ({ name, label }));
+}
+
 export async function webSearch(query: string, count: number, fetchFn: FetchLike = fetch): Promise<string> {
   const errors: string[] = [];
+  const search = {
+    brave: (key: string) => braveSearch(fetchFn, key, query, count),
+    jina: (key: string) => jinaSearch(fetchFn, key, query, count),
+    openai: (key: string) => openAIWebSearch(fetchFn, key, query),
+  };
   const providers: Array<[string, () => Promise<string | null>]> = [];
-  const brave = process.env.BRAVE_SEARCH_API_KEY?.trim();
-  const jina = process.env.JINA_API_KEY?.trim();
-  if (brave) providers.push(["brave", () => braveSearch(fetchFn, brave, query, count)]);
-  if (jina) providers.push(["jina", () => jinaSearch(fetchFn, jina, query, count)]);
-  const openai = process.env.OPENAI_API_KEY?.trim();
-  if (openai) providers.push(["openai", () => openAIWebSearch(fetchFn, openai, query)]);
+  for (const provider of WEB_SEARCH_PROVIDERS) {
+    const key = process.env[provider.key]?.trim();
+    if (key) providers.push([provider.name, () => search[provider.name](key)]);
+  }
   for (const [name, run] of providers) {
     if (rejectedSearchProviders.has(name)) continue;
     try {

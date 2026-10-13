@@ -213,6 +213,11 @@ export function openCodePath(): string {
   return existsSync(home) ? home : "opencode";
 }
 
+/** The model crewmates run on: FLYD_CREW_MODEL, else OpenCode's own default (undefined). */
+export function crewModel(): string | undefined {
+  return process.env.FLYD_CREW_MODEL?.trim() || undefined;
+}
+
 /** Start `opencode run` detached in the worktree; its JSON events stream to the task log. */
 export function launchOpenCode(task: CrewTask, brief: string): number | undefined {
   // A test once dispatched a real crewmate against Flyd itself. Never again.
@@ -221,7 +226,7 @@ export function launchOpenCode(task: CrewTask, brief: string): number | undefine
   }
   const out = openSync(task.log, "a");
   const args = ["run", "--format", "json", "--dir", task.worktree, "--title", `flyd:${task.id}`, "--auto"];
-  const model = process.env.FLYD_CREW_MODEL?.trim();
+  const model = crewModel();
   if (model) args.push("--model", model);
   args.push(brief);
   const child = spawn(openCodePath(), args, {

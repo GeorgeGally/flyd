@@ -33,11 +33,11 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "flyd",
-    description: "Flyd's own skills and jobs. action=news gives today's news edition, already picked for George's taste with why each item matters to him — start there for any news question; skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background work you took on (status, which done_when points were met) plus scheduled overnight jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
+    description: "Flyd's own setup, skills and jobs. action=setup gives Flyd's live setup: which model does each job (chat, one-shot thinking, routing, overlay, crew, web search, memory search, summaries, transcription, dictation, LIVE, speech, learning), the switches that are set and which provider keys are present (never the keys) — use it for any question about Flyd's own models, configuration or features instead of guessing or offering to look; news gives today's news edition, already picked for George's taste with why each item matters to him — start there for any news question; skills lists durable skills, standards and pending Skillify proposals; skillify proposes turning recent work into a reusable skill; jobs_status shows background work you took on (status, which done_when points were met) plus scheduled overnight jobs; run_briefing runs the morning briefing job now; job_hunt shows job-search status; improve starts a self-improvement run now — pass George's words as feedback when he says Flyd should get better at something.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["news", "skills", "skillify", "jobs_status", "run_briefing", "job_hunt", "improve"], description: "What to do" },
+        action: { type: "string", enum: ["setup", "news", "skills", "skillify", "jobs_status", "run_briefing", "job_hunt", "improve"], description: "What to do" },
         feedback: { type: "string", description: "For improve: what George said Flyd should do better, in his words" },
         project: { type: "string", description: "Project for run_briefing (optional)" },
       },
@@ -80,6 +80,19 @@ export const assistantTools: AgentTool[] = [
         done_when: { type: "array", items: { type: "string" }, description: "Checkable points that make the research/synthesis sufficient" },
       },
       required: ["outcome", "done_when"],
+    },
+  },
+  {
+    name: "pass_on_question",
+    description: "Pass a question you can't answer with your own tools to the agent who can, in the background: about code, repos, builds or what's deployed goes to the coding boss, who reads the code; anything else that needs research goes to the knowledge boss. They answer only and change nothing; the answer comes back to George here. Use it instead of offering to look, or telling him you'd be guessing. Returns immediately.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "His question, whole, plus what you already found and what is still missing" },
+        about: { type: "string", enum: ["code", "research"], description: "code: answering needs code, repos, builds or deploys read; research: anything else" },
+        repo: { type: "string", description: "For code: the repository root it is about, when known" },
+      },
+      required: ["question", "about"],
     },
   },
   {
@@ -190,6 +203,7 @@ export async function runAssistantTool(
       case "flyd": {
         const compound = await import("../work-intelligence/compound-nl.js");
         switch (input.action) {
+          case "setup": return (await import("./flyd-setup.js")).flydSetupReport();
           case "skills": {
             const skills = await import("./skills.js");
             try { skills.seedSkills(); } catch { /* optional */ }
@@ -293,6 +307,30 @@ export async function runAssistantTool(
           doneWhen,
         });
         return `Knowledge work accepted (run ${run.id}). Flyd remains your point of contact; the knowledge boss will use specialists, independently check the result, and retain the detailed report. Tell George only what you started, not the internal team or id.`;
+      }
+      case "pass_on_question": {
+        const question = String(input.question ?? "").replace(/\s+/g, " ").trim();
+        if (!question) return "Error: pass_on_question needs the question";
+        const originalMessage = context.userMessage ?? question;
+        const answerOnly = ["His question is answered plainly, with where the answer came from", "Nothing was changed: no edits, commits, pushes, deploys or messages"];
+        const { FirstmateDomainTransport } = await import("../command/firstmate.js");
+        const firstmate = new FirstmateDomainTransport();
+        if (input.about === "code" && process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
+          const { dispatchCodingDomain } = await import("../command/coding.js");
+          const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot;
+          const run = await dispatchCodingDomain({
+            originalMessage,
+            intendedOutcome: `Answer George's question, reading whatever code is needed, and change nothing: ${question}`,
+            doneWhen: answerOnly,
+            source: "chat",
+            ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
+            transport: firstmate,
+          });
+          return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
+        }
+        const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
+        const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly });
+        return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
       }
       case "background_task": {
         const jobs = await import("./background-jobs.js");

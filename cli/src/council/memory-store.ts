@@ -16,7 +16,8 @@ import { FLYD_DIR } from "../lib/config.js";
 
 export type Tier = "aging" | "perishable";
 
-export const MEMORY_SECTIONS = ["Who he is", "Lately", "Commitments", "Decisions", "Projects", "People", "Facts"] as const;
+/** "Shipped" holds dated notes of fixes and finished work: what got done, not a lesson and not how he is ("Lately"). */
+export const MEMORY_SECTIONS = ["Who he is", "Lately", "Shipped", "Commitments", "Decisions", "Projects", "People", "Facts"] as const;
 export type MemorySection = (typeof MEMORY_SECTIONS)[number];
 
 export interface MemoryEntry {
@@ -50,7 +51,7 @@ export const PERISHABLE_DAYS = 7;
 export const MEMORY_BUDGET_CHARS = 16_000;
 
 /** Under budget pressure, what a friend would forget first: project detail before who George is. */
-const EVICTION_ORDER = ["Projects", "Facts", "Decisions", "Commitments", "Lately", "People", "Who he is"];
+const EVICTION_ORDER = ["Shipped", "Projects", "Facts", "Decisions", "Commitments", "Lately", "People", "Who he is"];
 
 export function localDay(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");

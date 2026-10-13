@@ -73,21 +73,23 @@ function clip(text: string): string {
 }
 
 /**
- * Brings each unanswered note's line up to date: the step of the crewmate working on it when one is, else what
- * firstmate's own session is doing now, on the notes its current turn picked up (else on the newest note it has
- * taken). Each line is replaced in place, so nothing reads as a growing log.
+ * Brings each note's line up to date: the step of the crewmate working on it when one is, else what firstmate's
+ * own session is doing now, only on the notes its current turn picked up. A line under a note is always that note's
+ * own: firstmate's session may be busy with something else entirely, so its step never lands on a note its turn did
+ * not name. Once firstmate has said the outcome, work that carries on (a crewmate on it, a turn still on it) keeps
+ * its running line under the outcome. Each line is replaced in place, so nothing reads as a growing log.
  */
 export function livened(exchanges: Exchange[], live: { activity?: string; projects?: string[]; steps?: Map<string, string>; workingOn?: string[] }): Exchange[] {
   // Firstmate reads a note straight from its inbox and only files it once done, so a note it is working on can still
   // read as queued; the turn naming it is what says it has been picked up.
   const picked = new Set(live.workingOn ?? []);
-  const newestTaken = picked.size ? -1 : exchanges.reduce((index, exchange, i) => (exchange.handoff === "taken" && !exchange.answer ? i : index), -1);
-  return exchanges.map((exchange, i) => {
-    if (exchange.answer || exchange.settled || exchange.answered || !exchange.handoff) return exchange;
+  return exchanges.map((exchange) => {
+    if (exchange.answer || exchange.answered || !exchange.handoff) return exchange;
     const step = live.steps?.get(exchange.question.id);
-    if (step) return { ...exchange, waiting: upperFirst(clip(step)) };
-    const onIt = picked.has(exchange.question.id) || i === newestTaken;
-    const activity = onIt ? live.activity : undefined;
-    return { ...exchange, waiting: handoffLine(onIt ? "taken" : exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}), ...(activity ? { activity } : {}) }) };
+    const onIt = picked.has(exchange.question.id);
+    const doing = step ? upperFirst(clip(step)) : onIt && live.activity ? handoffLine("taken", { activity: live.activity }) : "";
+    if (exchange.settled) return doing ? { ...exchange, doing } : exchange;
+    if (doing) return { ...exchange, waiting: doing };
+    return { ...exchange, waiting: handoffLine(onIt ? "taken" : exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}) }) };
   });
 }
