@@ -1,0 +1,83 @@
+[
+  {
+    "title": "Trip planning",
+    "create_time": 1700000000.5,
+    "update_time": 1700000900.5,
+    "conversation_id": "conv-trip",
+    "id": "conv-trip",
+    "current_node": "a2b",
+    "mapping": {
+      "root": { "id": "root", "message": null, "parent": null, "children": ["sys"] },
+      "sys": { "id": "sys", "parent": "root", "children": ["u1"], "message": {
+        "id": "sys", "author": { "role": "system" }, "create_time": null,
+        "content": { "content_type": "text", "parts": [""] },
+        "metadata": { "is_visually_hidden_from_conversation": true }, "recipient": "all" } },
+      "u1": { "id": "u1", "parent": "sys", "children": ["a1", "a1-regen"], "message": {
+        "id": "u1", "author": { "role": "user" }, "create_time": 1700000100,
+        "content": { "content_type": "multimodal_text", "parts": [
+          { "content_type": "image_asset_pointer", "asset_pointer": "file-service://file-abc", "width": 800, "height": 600 },
+          "Plan a week in Portugal from this map."
+        ] }, "metadata": { "attachments": [{ "id": "file-abc", "name": "map.png" }] }, "recipient": "all" } },
+      "a1-regen": { "id": "a1-regen", "parent": "u1", "children": [], "message": {
+        "id": "a1-regen", "author": { "role": "assistant" }, "create_time": 1700000150,
+        "content": { "content_type": "text", "parts": ["A discarded regenerated answer."] }, "recipient": "all" } },
+      "a1": { "id": "a1", "parent": "u1", "children": ["u2a", "u2b"], "message": {
+        "id": "a1", "author": { "role": "assistant" }, "create_time": 1700000200,
+        "content": { "content_type": "text", "parts": ["Start in Lisbon, then head north."] }, "recipient": "all" } },
+      "u2a": { "id": "u2a", "parent": "a1", "children": ["a2a"], "message": {
+        "id": "u2a", "author": { "role": "user" }, "create_time": 1700000300,
+        "content": { "content_type": "text", "parts": ["Book a hotel in Lisbon."] }, "recipient": "all" } },
+      "a2a": { "id": "a2a", "parent": "u2a", "children": [], "message": {
+        "id": "a2a", "author": { "role": "assistant" }, "create_time": 1700000350,
+        "content": { "content_type": "text", "parts": ["Lisbon hotels."] }, "recipient": "all" } },
+      "u2b": { "id": "u2b", "parent": "a1", "children": ["a2b-tool"], "message": {
+        "id": "u2b", "author": { "role": "user" }, "create_time": 1700000400,
+        "content": { "content_type": "text", "parts": ["Book a hotel in Porto instead."] }, "recipient": "all" } },
+      "a2b-tool": { "id": "a2b-tool", "parent": "u2b", "children": ["tool-out"], "message": {
+        "id": "a2b-tool", "author": { "role": "assistant" }, "create_time": 1700000410,
+        "content": { "content_type": "code", "text": "search(\"porto hotels\")" }, "recipient": "browser" } },
+      "tool-out": { "id": "tool-out", "parent": "a2b-tool", "children": ["a2b"], "message": {
+        "id": "tool-out", "author": { "role": "tool", "name": "browser" }, "create_time": 1700000420,
+        "content": { "content_type": "text", "parts": ["raw search results"] }, "recipient": "all" } },
+      "a2b": { "id": "a2b", "parent": "tool-out", "children": [], "message": {
+        "id": "a2b", "author": { "role": "assistant" }, "create_time": 1700000430,
+        "content": { "content_type": "text", "parts": ["Three Porto hotels near Ribeira."] }, "recipient": "all" } }
+    }
+  },
+  {
+    "title": "New chat",
+    "create_time": 1700100000,
+    "conversation_id": "conv-empty",
+    "current_node": "empty-root",
+    "mapping": {
+      "empty-root": { "id": "empty-root", "message": null, "parent": null, "children": [] }
+    }
+  },
+  {
+    "title": "Upload bug",
+    "create_time": 1710000000,
+    "id": "conv-upload",
+    "mapping": {
+      "r": { "id": "r", "message": null, "parent": null, "children": ["ctx"] },
+      "ctx": { "id": "ctx", "parent": "r", "children": ["u"], "message": {
+        "id": "ctx", "author": { "role": "user" }, "create_time": 1710000001,
+        "content": { "content_type": "user_editable_context", "user_profile": "I am George.", "user_instructions": "Be brief." },
+        "metadata": { "is_visually_hidden_from_conversation": true }, "recipient": "all" } },
+      "u": { "id": "u", "parent": "ctx", "children": ["a"], "message": {
+        "id": "u", "author": { "role": "user" }, "create_time": 1710000100,
+        "content": { "content_type": "text", "parts": ["The upload still fails on large images."] }, "recipient": "all" } },
+      "a": { "id": "a", "parent": "u", "children": ["v"], "message": {
+        "id": "a", "author": { "role": "assistant" }, "create_time": 1710000200,
+        "content": { "content_type": "text", "parts": ["Check the size limit."] }, "recipient": "all" } },
+      "v": { "id": "v", "parent": "a", "children": ["va"], "message": {
+        "id": "v", "author": { "role": "user" }, "create_time": 1710000300,
+        "content": { "content_type": "multimodal_text", "parts": [
+          { "content_type": "audio_transcription", "text": "Raise the limit to twenty megabytes." },
+          { "content_type": "audio_asset_pointer", "asset_pointer": "file-service://audio" }
+        ] }, "recipient": "all" } },
+      "va": { "id": "va", "parent": "v", "children": [], "message": {
+        "id": "va", "author": { "role": "assistant" }, "create_time": 1710000400,
+        "content": { "content_type": "text", "parts": ["Done, twenty megabytes it is."] }, "recipient": "all" } }
+    }
+  }
+]

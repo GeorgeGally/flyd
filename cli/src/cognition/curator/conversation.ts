@@ -5,6 +5,7 @@ export interface ConversationPayload {
   user?: string;
   assistant?: string;
   projectIds?: string[];
+  occurredAt?: string;
   intentKind?: string;
   temporalFrame?: string;
   referents?: Record<string, string>;

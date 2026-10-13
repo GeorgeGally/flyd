@@ -66,13 +66,15 @@ export async function learningRequest(path: string, method: string, body: unknow
         typeof t.user === "string" && t.user.length <= 12000 &&
         (t.assistant === undefined || typeof t.assistant === "string" && t.assistant.length <= 12000) &&
         (t.projectIds === undefined || Array.isArray(t.projectIds) && t.projectIds.length <= 5 &&
-          t.projectIds.every((id: unknown) => typeof id === "string" && /^(?:project|event):[a-z0-9._-]{1,100}$/.test(id))));
+          t.projectIds.every((id: unknown) => typeof id === "string" && /^(?:project|event):[a-z0-9._-]{1,100}$/.test(id))) &&
+        (t.occurredAt === undefined || typeof t.occurredAt === "string" && t.occurredAt.length <= 40 && Number.isFinite(Date.parse(t.occurredAt))));
       if (!valid) return { status: 400, body: { error: "Invalid conversation attribution or scope" } };
       const curator = new CognitiveCurator(store);
       const sequences = input.turns.map(t => curator.recordObservation({ conversation: {
         sessionId: t.sessionId, messageId: t.messageId, user: redactSensitiveText(t.user),
         assistant: redactSensitiveText(t.assistant ?? ""), projectIds: t.projectIds ?? [],
         truncated: t.truncated === true,
+        ...(t.occurredAt !== undefined ? { occurredAt: t.occurredAt } : {}),
       } }, IMPORT_SOURCE, { correlationId: t.sessionId }));
       // A live HTTP request only ingests; the existing background sweep performs learning.
       return { status: 200, body: { sequences, status: "queued" } };

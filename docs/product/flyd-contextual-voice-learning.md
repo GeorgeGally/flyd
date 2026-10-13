@@ -63,6 +63,15 @@ JSON input:
 
     {"turns":[{"sessionId":"session-1","messageId":"message-1","user":"The upload still fails on large images.","assistant":"I'll investigate.","projectIds":["project:flyd"]}]}
 
+Optional per-turn field: `occurredAt` (ISO time); lessons learned from that turn take effect from then rather than from the import.
+
+A ChatGPT data export (Settings › Data controls › Export data — the emailed zip, its extracted folder, or `conversations.json`) imports through the same source:
+
+    flyd import chatgpt ~/Downloads/chatgpt-export.zip          # dry run: counts, date range, what is new
+    flyd import chatgpt ~/Downloads/chatgpt-export.zip --write  # queue the new turns
+
+Each conversation keeps only the branch ChatGPT shows (edited messages and regenerated answers off it are dropped); tool calls, hidden system context and custom instructions are skipped, voice messages keep their transcript, and attachments and images are counted, never read. A turn is one user message with the assistant's visible reply, keyed by conversation and message id, so a newer export adds only what is new. The export is read locally; nothing is sent anywhere during import, and learning happens later in the background under the `conversation.import` switch.
+
 Imports are bounded and idempotent; obvious credentials are redacted before persistence. Unknown or multiple project associations remain unassigned. Imported evidence and derived lessons share one source, so erasure removes both and rebuilds knowledge projections. Pausing imports does not block Flyd's own conversation learning.
 
 HTTP surfaces on authenticated Core:
