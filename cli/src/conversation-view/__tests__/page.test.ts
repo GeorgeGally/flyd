@@ -1129,6 +1129,18 @@ describe("header and artefact view", () => {
     opener.click();
     const box = talks[0]!.querySelector<HTMLTextAreaElement>(".reply-input")!;
     expect(document.activeElement).toBe(box);
+    // Open, Reply steps aside and Close sits in the field by Send; it shuts the box and keeps what he typed.
+    expect(opener.hidden).toBe(true);
+    const form = talks[0]!.querySelector<HTMLFormElement>(".reply form")!;
+    expect([...form.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Close", "Send"]);
+    box.value = "make";
+    box.dispatchEvent(new Event("input"));
+    form.querySelector<HTMLButtonElement>(".reply-close")!.click();
+    expect(form.hidden).toBe(true);
+    expect(opener.hidden).toBe(false);
+    expect(document.activeElement).toBe(opener);
+    opener.click();
+    expect(box.value).toBe("make");
     box.value = "make the spin";
     box.dispatchEvent(new Event("input"));
     update({ conversations: [{ ...answered, answer: "Five moves now, all live." }, { id: "note:2", question: "and tickets?", waiting: "Working on it" }], artefacts: [] });

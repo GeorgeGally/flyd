@@ -665,8 +665,20 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .reply-open { font: 400 13px/1 var(--mono); color: var(--muted); background: transparent; border: 0; padding: 4px 0; cursor: pointer; opacity: 0.55; transition: opacity 160ms ease, color 160ms ease; }
 .msg:hover .reply-open, .rail-talk:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
 .reply-open:hover { color: var(--fg); }
-.reply form { flex-basis: 100%; display: flex; align-items: flex-end; gap: 8px; }
-.reply form[hidden], .reply-note[hidden] { display: none; }
+/* Open, it is one field like the message box: his words, then Close and Send inside it. */
+.reply form {
+  flex-basis: 100%; display: flex; align-items: flex-end; gap: 4px; padding: 4px;
+  background: var(--tint); border: 1px solid transparent; border-radius: 10px;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.reply form:focus-within { background: color-mix(in srgb, var(--fg) 5%, var(--tint)); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.reply form[hidden], .reply-open[hidden], .reply-note[hidden] { display: none; }
+.reply form .reply-input { min-height: 32px; font-size: 16px; line-height: 22px; padding: 5px 8px; background: transparent; border: 0; border-radius: 6px; }
+.reply form .reply-input:focus { outline: none; }
+.reply form .reply-send, .reply-close { flex: none; height: 32px; padding: 0 14px; font: 600 14px/1 var(--sans); letter-spacing: 0; text-transform: none; border-radius: 6px; }
+.reply-close { color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 0 10px; transition: color 140ms ease; }
+.reply-close:hover { color: var(--fg); }
+.reply-close:focus-visible, .reply form .reply-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .reply-input { flex: 1; min-width: 8em; max-height: 12em; field-sizing: content; font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px; padding: 8px 10px; resize: none; }
 .reply-input:focus { outline: none; border-color: var(--accent); }
 .reply-input::placeholder { color: var(--muted); }
@@ -1670,9 +1682,11 @@ var __name = function (f) { return f; };
   function replyBox(id, place) {
     var state = replyState(place + ":" + id);
     var box = keyed(el("div", "reply"), "reply:" + id);
-    var opener = el("button", "reply-open", state.open ? "Close" : "Reply");
+    // Reply opens the box and steps aside; Close sits inside it, by Send.
+    var opener = el("button", "reply-open", "Reply");
     opener.type = "button";
     opener.setAttribute("aria-expanded", state.open ? "true" : "false");
+    opener.hidden = state.open;
     box.appendChild(opener);
     var form = el("form");
     form.hidden = !state.open;
@@ -1681,9 +1695,12 @@ var __name = function (f) { return f; };
     input.placeholder = "Reply to this…";
     input.value = state.draft;
     input.setAttribute("aria-label", "Reply to this answer");
+    var close = el("button", "reply-close", "Close");
+    close.type = "button";
     var send = el("button", "reply-send", "Send");
     send.type = "submit";
     form.appendChild(input);
+    form.appendChild(close);
     form.appendChild(send);
     box.appendChild(form);
     var note = el("span", "reply-note", state.note);
@@ -1693,12 +1710,13 @@ var __name = function (f) { return f; };
     function show(open) {
       state.open = open;
       form.hidden = !open;
-      opener.textContent = open ? "Close" : "Reply";
+      opener.hidden = open;
       opener.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) input.focus(); else opener.focus();
     }
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
-    opener.addEventListener("click", function () { say(""); show(!state.open); });
+    opener.addEventListener("click", function () { say(""); show(true); });
+    close.addEventListener("click", function () { say(""); show(false); });
     input.addEventListener("input", function () { state.draft = input.value; });
     input.addEventListener("keydown", function (event) {
       if (event.key === "Escape") { event.preventDefault(); show(false); return; }
