@@ -282,9 +282,9 @@ const SETUP = String.raw`(?:models?|llms?|config(?:uration|ured)?|settings?|prov
 const SELF_SETUP = [
   new RegExp(String.raw`\bflyd\b[\s\S]*\b(?:${SETUP}|running on|runs? on|powered by)\b|\b${SETUP}\b[\s\S]*\bflyd\b`, "i"),
   new RegExp(String.raw`\b(?:your|ur)\s+(?:own\s+)?${SETUP}\b`, "i"),
-  new RegExp(String.raw`\b${SETUP}(?:\s+\w+){0,2}?\s+(?:are|do|did|have|is)\s+(?:you|u)\b`, "i"),
+  new RegExp(String.raw`\b${SETUP}(?:\s+\w+){0,2}?\s+(?:are|do|did|have|is)\s+(?:you|u)(?:\s+(?:use|using|run|running|have|got|on|powered|built)\b|\s*(?:[?.!]|$))`, "i"),
   new RegExp(String.raw`\b(?:you|u)(?:'re|\s+are)?\s+(?:run(?:ning)?\s+on|powered by)\b`, "i"),
-  new RegExp(String.raw`\b(?:you|u)\s+(?:use|using|read)\s+(?:the\s+|your\s+|ur\s+)?${SETUP}\b`, "i"),
+  new RegExp(String.raw`\b(?:you|u)\s+read\s+(?:the\s+|your\s+|ur\s+)?config(?:uration)?\b`, "i"),
 ];
 
 /** A question about Flyd's own setup: its models, configuration or features, with Flyd plainly the one asked about. */

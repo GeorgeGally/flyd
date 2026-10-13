@@ -117,6 +117,11 @@ describe("Flyd's own setup", () => {
       "can you check my iPhone settings",
       "what features should the GNM app have, what do you think?",
       "which model of bike should you recommend",
+      "what features do you think the GNM app should have",
+      "what settings do you recommend for my camera",
+      "which model do you think I should buy",
+      "which settings do you suggest for the export",
+      "can you use the settings from my last project",
     ]) {
       expect(isFlydSetupQuestion(message), message).toBe(false);
     }
