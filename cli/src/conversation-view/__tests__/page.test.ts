@@ -1129,7 +1129,7 @@ describe("header and artefact view", () => {
     opener.click();
     const box = talks[0]!.querySelector<HTMLTextAreaElement>(".reply-input")!;
     expect(document.activeElement).toBe(box);
-    // Open, Reply steps aside and Close sits in the field by Send; it shuts the box and keeps what he typed.
+    // Open, Reply steps aside and Close sits in the card's header row beside the Reply label; it shuts the box and keeps what he typed.
     expect(opener.hidden).toBe(true);
     const form = talks[0]!.querySelector<HTMLFormElement>(".reply form")!;
     expect([...form.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Close", "Send"]);
