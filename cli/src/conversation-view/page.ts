@@ -240,16 +240,21 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .scene-ask :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* The chat box at the foot of every artefact: one quiet line until he types into it. */
 .art-chat { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+/* It grows with what he types, never with focus: a box that shrank as SEND
+   took the click moved SEND out from under the pointer, and nothing went. */
 .art-chat-input {
-  flex: 1; min-width: 8em; height: 40px; max-height: 10em; box-sizing: border-box; overflow: hidden;
+  flex: 1; min-width: 8em; min-height: 40px; max-height: 10em; box-sizing: border-box; field-sizing: content; overflow: auto;
   font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px;
-  padding: 8px 12px; resize: none; transition: border-color 140ms ease;
+  padding: 8px 12px; resize: none; transition: border-color 140ms ease, box-shadow 140ms ease;
 }
-.art-chat-input:focus { outline: none; border-color: var(--accent); height: auto; min-height: 40px; field-sizing: content; overflow: auto; }
+.art-chat-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .art-chat-input::placeholder { color: var(--muted); }
 .art-chat-send { height: 40px; font: 700 12px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 0 16px; cursor: pointer; transition: opacity 140ms ease; }
 .art-chat-send:disabled { opacity: .4; cursor: default; }
+.art-chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .art-chat-receipt { flex-basis: 100%; margin: 0; font: 400 14px/1.4 var(--sans); color: var(--muted); }
+.art-chat-receipt.sent { color: var(--fg); }
+.art-chat-receipt.sent::before { content: "✓ "; color: var(--accent); }
 .art-chat-receipt:empty { display: none; }
 .art-chat-receipt.problem { color: var(--k-waiting); }
 .art-chat--receipt .art-chat-input, .art-chat--receipt .art-chat-send { display: none; }
@@ -2043,7 +2048,7 @@ var __name = function (f) { return f; };
 
   // The chat box at the foot of every artefact: his words about that one thing go
   // to firstmate naming it, and the line under the box says where they are in
-  // plain words: sent, then "Firstmate has it" once firstmate has read the note.
+  // plain words: sent, then "Flyd has it" once firstmate has read the note.
   // \`target\` is what the words answer: a fleet decision, a reply's question, or
   // the artefact itself ({ about: { title, task, url } }).
   function artefactChat(key, target, label) {
@@ -2060,14 +2065,17 @@ var __name = function (f) { return f; };
     input.value = state.text || "";
     var send = el("button", "art-chat-send", "Send");
     send.type = "submit";
+    // Pressing SEND leaves the caret in the box, so nothing in the row moves under the click.
+    send.addEventListener("mousedown", function (event) { event.preventDefault(); });
     var receipt = el("p", "art-chat-receipt");
     receipt.setAttribute("role", "status");
     receipt.setAttribute("aria-live", "polite");
     var watching = null;
     function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
     function paint() {
-      receipt.textContent = state.error || (state.receipt === "read" ? "Firstmate has it" : state.receipt === "sent" ? "Sent to firstmate" : state.receipt === "sending" ? "Sending…" : "");
+      receipt.textContent = state.error || (state.receipt === "read" ? "Flyd has it" : state.receipt === "sent" ? "Sent to Flyd" : state.receipt === "sending" ? "Sending…" : "");
       receipt.classList.toggle("problem", !!state.error);
+      receipt.classList.toggle("sent", !state.error && (state.receipt === "sent" || state.receipt === "read"));
       send.disabled = state.receipt === "sending" || !input.value.trim();
       if (chat.onPaint) chat.onPaint();
     }

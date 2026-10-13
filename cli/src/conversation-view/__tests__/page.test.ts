@@ -849,7 +849,7 @@ describe("header and artefact view", () => {
     document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", text: "Yes, all three" }]);
-    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to firstmate");
+    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
     expect(picks.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
     expect(picks[1]!.disabled).toBe(true);
@@ -878,7 +878,7 @@ describe("header and artefact view", () => {
     ask.querySelector<HTMLButtonElement>(".step-send")!.click();
     await settle();
     expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to firstmate");
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     expect(ask.querySelector(".step-send")).toBeNull();
     expect(ask.querySelector(".step-count")!.textContent).toBe("Your answers");
   });
@@ -917,14 +917,14 @@ describe("header and artefact view", () => {
         { decision: "visuals", text: "Evergreen luxe" },
       ]);
       const receipt = document.querySelector(".scene-ask .art-chat-receipt")!;
-      expect(receipt.textContent).toBe("Sent to firstmate");
+      expect(receipt.textContent).toBe("Sent to Flyd");
       expect(picks[0]!.getAttribute("aria-pressed")).toBe("true");
       // Once firstmate takes the note, the line says so; never a note id.
       vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read" } : {}));
       vi.advanceTimersByTime(5000);
       await settle();
       expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/note?id=note%3A1&token="))).toBe(true);
-      expect(receipt.textContent).toBe("Firstmate has it");
+      expect(receipt.textContent).toBe("Flyd has it");
     } finally {
       vi.useRealTimers();
     }
@@ -1329,6 +1329,34 @@ describe("header and artefact view", () => {
     expect(down.textContent).toContain("Preview not running");
     expect(down.textContent).toContain("127.0.0.1:8088/");
     expect(document.querySelectorAll(".rail-card-note")).toHaveLength(2);
+  });
+
+  it("sends what he typed under a preview card on SEND, clears the box and says it went to Flyd", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = { conversations: [], artefacts: [{ id: "live:http://127.0.0.1:9000/", title: "Live preview", line: "127.0.0.1:9000/", url: "http://127.0.0.1:9000/", preview: "about:blank" }] };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    const card = document.querySelector<HTMLElement>(".rail-card")!;
+    const input = card.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    const send = card.querySelector<HTMLButtonElement>(".art-chat-send")!;
+    input.focus();
+    input.value = "move the top bit closer to the numbers";
+    input.dispatchEvent(new Event("input"));
+    // Pressing SEND keeps the caret in the box, so the box never shrinks out from under the click.
+    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    send.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(true);
+    send.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
+      { text: "move the top bit closer to the numbers", about: { title: "Live preview", url: "http://127.0.0.1:9000/" } },
+    ]);
+    expect(input.value).toBe("");
+    const receipt = card.querySelector(".art-chat-receipt")!;
+    expect(receipt.textContent).toBe("Sent to Flyd");
+    expect(receipt.classList.contains("sent")).toBe(true);
   });
 
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
