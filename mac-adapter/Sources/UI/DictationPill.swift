@@ -76,9 +76,9 @@ final class DictationPill: NSObject {
     /// and the same type size; a longer one truncates rather than resizing either.
     static let stripInset: CGFloat = 26
     static let stripTopPadding: CGFloat = 18
-    /// Under a notch the message runs beneath it, so its first line clears the notch by this.
+    /// Under a notch the message's first line sits this far below the notch's bottom edge.
     static let notchClearance: CGFloat = 6
-    /// Under a notch the label sits just past the notch's right edge, this far from it.
+    /// Under a notch the label and the message start just past the notch's right edge, this far from it.
     static let labelNotchGap: CGFloat = 12
     /// A little more than the top: the last line's descenders leave room the eye counts as space.
     static let stripBottomPadding: CGFloat = 20
