@@ -87,7 +87,7 @@ final class DictationPill: NSObject {
     /// Tight: the label belongs to the message under it.
     static let labelGap: CGFloat = 2
     static let bodyGap: CGFloat = 6
-    /// The state label: monospaced caps, tracked out, like the rest of Flyd's state readouts.
+    /// The state label: monospaced caps, lightly tracked, like the rest of Flyd's state readouts.
     static let labelFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
     /// The message, on up to two lines; with a body under it, the title takes one and the body the other.
     static let titleFont = displayFont(28)
