@@ -311,10 +311,10 @@ final class DictationPill: NSObject {
         return style
     }
 
-    /// The state label, in tracked-out caps.
+    /// The state label, in caps tracked no wider than 0.04em.
     static func label(_ text: String, color: NSColor) -> NSAttributedString {
         NSAttributedString(string: text.uppercased(), attributes: [
-            .font: labelFont, .foregroundColor: color, .kern: 1.6, .paragraphStyle: paragraph(labelFont)
+            .font: labelFont, .foregroundColor: color, .kern: 0.04 * labelFont.pointSize, .paragraphStyle: paragraph(labelFont)
         ])
     }
 
