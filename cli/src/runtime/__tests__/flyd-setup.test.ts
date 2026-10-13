@@ -108,6 +108,8 @@ describe("Flyd's own setup", () => {
       "which model are you using",
       "what are you running on",
       "show me your settings",
+      "what config do you have?",
+      "which providers do you have configured",
     ]) expect(isFlydSetupQuestion(question), question).toBe(true);
     for (const message of [
       "what's the weather in bangkok tonight",
@@ -122,6 +124,8 @@ describe("Flyd's own setup", () => {
       "which model do you think I should buy",
       "which settings do you suggest for the export",
       "can you use the settings from my last project",
+      "what model do you have in mind for this",
+      "what features do you have planned for gnm",
     ]) {
       expect(isFlydSetupQuestion(message), message).toBe(false);
     }
