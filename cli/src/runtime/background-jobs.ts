@@ -1,10 +1,14 @@
+import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "./acceptance.js";
+import {
+  doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, successClauses, unmetChecks, unresolvedItems,
+  VERDICT_FORMAT, type AcceptanceCheck, type LeftoverProcess,
+} from "./acceptance.js";
 import { processIsAlive } from "./recovery.js";
 
 // Work Flyd takes on while the conversation carries on: generating, drafting,
@@ -16,7 +20,11 @@ import { processIsAlive } from "./recovery.js";
 // The builder never grades itself. A separate read-only turn checks the result
 // against each done_when and looks for what would make it unacceptable; unmet
 // criteria go back to the builder once, and whatever is still unmet is said
-// plainly in the result. Job state lives on disk, so a restart can't lose one.
+// plainly in the result. The job's own report is never what makes it a
+// success: its status comes only from the done_when verdict in acceptance.ts,
+// which also wants something concrete behind each point and counts anything
+// the job started and left running as unfinished. Job state lives on disk, so
+// a restart can't lose one.
 
 export interface JobContract {
   task: string;
@@ -27,7 +35,8 @@ export interface JobContract {
 
 export type JobCheck = AcceptanceCheck;
 
-export type JobStatus = "running" | "verifying" | "ok" | "short" | "failed" | "interrupted";
+/** ok: every done_when point met with evidence; blocked: an honest, evidenced blocker; short: anything else unmet. */
+export type JobStatus = "running" | "verifying" | "ok" | "short" | "blocked" | "failed" | "interrupted";
 
 export interface JobRecord {
   id: string;
@@ -38,10 +47,14 @@ export interface JobRecord {
   updatedAt: string;
   attempts: number;
   checks: JobCheck[];
+  /** Each point not done and why, kept instead of a success. */
+  unresolved?: string[];
   result?: string;
 }
 
-export interface JobResult { id: string; task: string; status: "ok" | "failed"; result: string }
+export type JobOutcomeStatus = "ok" | "short" | "blocked";
+
+export interface JobResult { id: string; task: string; status: JobOutcomeStatus | "failed"; result: string }
 
 export const jobEvents = new EventEmitter();
 const running = new Map<string, string>();
@@ -118,12 +131,14 @@ export function repairMessage(contract: JobContract, report: string, unmet: JobC
 }
 
 export function verifyMessage(contract: JobContract, report: string): string {
+  // Only each point's success clause: "or, if blocked, …" is judged apart, never as a pass.
   return [
     "You are checking work someone else did for George. Your job is to find what would make it unacceptable, not to confirm it looks good.",
     `The job: ${contract.task}`,
-    ...contractLines(contract),
+    ...contractLines({ ...contract, doneWhen: successClauses(contract.doneWhen) }),
     `The worker's report (a claim, not proof):\n"""${report}"""`,
     "Check each point against what is actually on disk or observable with your tools. Don't trust the report; look.",
+    "A MET needs what you saw: the file path, the command and its output, the link or the id. A MET with nothing concrete counts as unmet.",
     ...VERDICT_FORMAT,
   ].join("\n");
 }
@@ -139,10 +154,81 @@ export function deterministicChecks(contract: JobContract, exists: (path: string
   return [{ criterion: `result is at ${contract.deliverable}`, met, note: met ? "it's there" : "nothing there" }];
 }
 
-export function jobOutcome(report: string, checks: JobCheck[]): { status: "ok" | "short"; result: string } {
+export interface JobOutcome { status: JobOutcomeStatus; result: string; unresolved: string[] }
+
+/** The terminal status is the done_when verdict's, never the report's own say-so. */
+export function jobOutcome(report: string, checks: JobCheck[]): JobOutcome {
   const body = report.trim() || "(no result)";
-  if (!unmetChecks(checks).length) return { status: "ok", result: body };
-  return { status: "short", result: `${body}\n\nI checked it against what you wanted and it's still short on: ${shortfall(checks)}.` };
+  const verdict = doneWhenStatus(checks);
+  const unresolved = unresolvedItems(checks);
+  if (verdict === "done") return { status: "ok", result: body, unresolved };
+  if (verdict === "blocked") return { status: "blocked", unresolved, result: `${body}\n\nI checked it against what you wanted: it isn't done, it's blocked on: ${shortfall(checks)}.` };
+  return { status: "short", unresolved, result: `${body}\n\nI checked it against what you wanted and it's still short on: ${shortfall(checks)}.` };
+}
+
+// Processes a job's shell commands started, by process group: a backgrounded
+// tunnel or server stays in its command's group after the command returns.
+const jobGroups = new Map<string, Set<number>>();
+
+export function registerJobProcessGroup(id: string, pgid: number): void {
+  const groups = jobGroups.get(id) ?? new Set<number>();
+  groups.add(pgid);
+  jobGroups.set(id, groups);
+}
+
+function processTable(): Array<LeftoverProcess & { pgid: number }> {
+  const out = execFileSync("ps", ["-A", "-o", "pid=,pgid=,command="], { encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] });
+  return out.split("\n").flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    return match ? [{ pid: Number(match[1]), pgid: Number(match[2]), command: match[3].trim() }] : [];
+  });
+}
+
+/** What the job started that is still running. Nothing registered: nothing to look for. */
+export function jobLeftovers(id: string, table: () => Array<LeftoverProcess & { pgid: number }> = processTable): LeftoverProcess[] {
+  const groups = jobGroups.get(id);
+  if (!groups?.size) return [];
+  try {
+    return table()
+      .filter((row) => groups.has(row.pgid) && row.pid !== process.pid)
+      .map(({ pid, command }) => ({ pid, command }));
+  } catch (error) {
+    console.warn("[jobs] couldn't list processes:", error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
+/**
+ * A job's shell command, in a process group of its own registered to the job,
+ * so anything it leaves running can be found when the job ends. Mirrors
+ * execFile's result and "Command failed" error; a timeout ends the whole group.
+ */
+export function runJobShell(id: string, command: string, options: { cwd: string; timeoutMs: number; maxBuffer: number }): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("/bin/bash", ["-c", command], { cwd: options.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (child.pid) registerJobProcessGroup(id, child.pid);
+    let stdout = "";
+    let stderr = "";
+    let failure: string | null = null;
+    const stop = (why: string) => {
+      failure ??= why;
+      try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGTERM"); }
+    };
+    const timer = setTimeout(() => stop("timed out"), options.timeoutMs);
+    const collect = (append: (text: string) => void) => (chunk: Buffer) => {
+      append(chunk.toString("utf8"));
+      if (stdout.length + stderr.length > options.maxBuffer) stop("output over the buffer limit");
+    };
+    child.stdout.on("data", collect((text) => { stdout += text; }));
+    child.stderr.on("data", collect((text) => { stderr += text; }));
+    child.on("error", (error) => { clearTimeout(timer); reject(Object.assign(error, { stdout, stderr })); });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0 && !failure) { resolve({ stdout, stderr }); return; }
+      const reason = failure ?? (signal ? `killed by ${signal}` : `exit code ${code}`);
+      reject(Object.assign(new Error(`Command failed: /bin/bash -c ${command} (${reason})`), { stdout, stderr }));
+    });
+  });
 }
 
 export interface JobDependencies {
@@ -151,23 +237,28 @@ export interface JobDependencies {
   verify?(message: string, id: string): Promise<string>;
   deliver?(result: JobResult): Promise<void>;
   exists?(path: string): boolean;
+  /** What the job started that is still running; defaults to its registered process groups. */
+  leftovers?(id: string): LeftoverProcess[];
   dir?: string;
 }
 
 /** `repairable` is false when the check itself broke: another build round can't fix that. */
 async function checkJob(contract: JobContract, report: string, id: string, deps: JobDependencies): Promise<{ checks: JobCheck[]; repairable: boolean }> {
   const facts = deterministicChecks(contract, deps.exists);
-  if (facts.some((check) => !check.met) || !deps.verify) return { checks: facts, repairable: true };
+  const leftovers = (deps.leftovers ?? jobLeftovers)(id);
+  const judge = (verdicts?: JobCheck[]) => [...facts, ...evaluateDoneWhen({ criteria: contract.doneWhen, report, verdicts, leftovers })];
+  if (facts.some((check) => !check.met) || !deps.verify) return { checks: judge(), repairable: true };
   try {
-    return { checks: [...facts, ...parseVerdicts(contract.doneWhen, await deps.verify(verifyMessage(contract, report), id))], repairable: true };
+    const verdicts = parseVerdicts(successClauses(contract.doneWhen), await deps.verify(verifyMessage(contract, report), id));
+    return { checks: judge(verdicts), repairable: true };
   } catch (error) {
     console.warn("[jobs] independent check failed:", error instanceof Error ? error.message : error);
     const unchecked = contract.doneWhen.map((criterion) => ({ criterion, met: false, note: "I couldn't check this one", unchecked: true }));
-    return { checks: [...facts, ...unchecked], repairable: false };
+    return { checks: judge(unchecked), repairable: false };
   }
 }
 
-async function runJob(job: JobRecord, deps: JobDependencies): Promise<{ status: "ok" | "short"; result: string }> {
+async function runJob(job: JobRecord, deps: JobDependencies): Promise<JobOutcome> {
   const save = (update: Partial<JobRecord>) => {
     Object.assign(job, update, { updatedAt: new Date().toISOString() });
     saveJob(job, deps.dir);
@@ -211,12 +302,15 @@ export function startBackgroundJob(contract: JobContract, deps: JobDependencies)
   saveJob(job, deps.dir);
   running.set(id, contract.task);
   void runJob(job, deps)
-    .catch((error: unknown) => ({ status: "failed" as const, result: `Couldn't finish: ${error instanceof Error ? error.message : String(error)}` }))
+    .catch((error: unknown): JobOutcome | { status: "failed"; result: string; unresolved?: string[] } => (
+      { status: "failed", result: `Couldn't finish: ${error instanceof Error ? error.message : String(error)}` }
+    ))
     .then(async (outcome) => {
       running.delete(id);
-      Object.assign(job, { status: outcome.status, result: outcome.result, updatedAt: new Date().toISOString() });
+      jobGroups.delete(id);
+      Object.assign(job, { status: outcome.status, result: outcome.result, updatedAt: new Date().toISOString() }, outcome.unresolved ? { unresolved: outcome.unresolved } : {});
       try { saveJob(job, deps.dir); } catch { /* the result still reaches George */ }
-      const done: JobResult = { id, task: contract.task, status: outcome.status === "failed" ? "failed" : "ok", result: outcome.result };
+      const done: JobResult = { id, task: contract.task, status: outcome.status, result: outcome.result };
       await deps.deliver?.(done).catch(() => undefined);
       jobEvents.emit("done", done);
     });
