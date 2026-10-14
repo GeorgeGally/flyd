@@ -492,6 +492,11 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
 .brief-meta { flex: none; max-width: 34%; font: 400 12px/1.6 var(--mono); color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#done ul { display: grid; gap: 0; }
+#done li { display: block; padding: 10px 0 11px; }
+#done .brief-line { display: block; font: 500 15px/1.4 var(--sans); color: var(--strong); white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; overflow-wrap: anywhere; }
+#done .brief-line a:hover { color: var(--link); }
+#done .brief-meta { display: block; max-width: none; margin-top: 4px; font: 400 11px/1.4 var(--mono); text-align: left; overflow: visible; text-overflow: clip; white-space: normal; }
 #underway li::before { content: ""; flex: none; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--k-live); animation: breathe 1.6s ease-in-out infinite; }
 .brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
