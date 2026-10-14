@@ -17,7 +17,9 @@ export interface ReplacementRule {
 }
 
 export const TRANSCRIPTION_PROMPT_MAX_CHARS = 800;
-const PROMPT_LEAD = "Flyd (pronounced Floyd) is George's AI assistant. Names and terms he uses:";
+const PROMPT_LEAD = "Flyd is George's AI assistant. Names and terms he uses:";
+// Always in the list, whatever projects.json and USER.md say.
+const BUILT_IN_TERMS = ["Flyd", "Jev", "CapFive", "radarboy3000"];
 
 export function dictationRulesPath(): string {
   return process.env.FLYD_DICTATION_RULES?.trim() || join(FLYD_DIR, "dictation-rules.json");
@@ -48,7 +50,7 @@ export function vocabularyTerms(profileText: string | null, projects: Project[],
   const inWindow = (project: Project) => title.includes(project.name.toLowerCase());
   const ordered = [...projects.filter(inWindow), ...projects.filter((project) => !inWindow(project))];
 
-  const terms = ["Flyd"];
+  const terms = [...BUILT_IN_TERMS];
   for (const project of ordered) {
     terms.push(project.name, ...project.people);
   }

@@ -8,7 +8,7 @@ import { conversationVocabulary, currentProjectVocabulary } from "./dictation/co
 import { reviewedVocabulary, type ReviewedVocabulary } from "./dictation/corrections.js";
 import { IntelligenceEventStore } from "./intelligence/event-store.js";
 import type { DictationTarget } from "./dictation/profile.js";
-import { finishDictation } from "./dictation/cleanup.js";
+import { finishDictation, flydNameBackstop } from "./dictation/cleanup.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
 import { transcriptionPurpose, type TranscriptionPurpose } from "./dictation/request.js";
 export { transcriptionPurpose } from "./dictation/request.js";
@@ -25,8 +25,6 @@ const PUSH_TO_TALK_TRANSCRIPTION_FALLBACKS = [
   "gpt-4o-mini-transcribe",
   "whisper-1",
 ];
-const TRANSCRIPTION_PROMPT =
-  "The user's AI assistant is named Flyd (pronounced Floyd, spelled F-l-y-d). The user may ask Flyd questions or give Flyd commands.";
 
 function loadToken(): string | null {
   try { return readFileSync(AUTH_TOKEN_PATH, "utf-8").trim(); } catch { return null; }
@@ -123,7 +121,7 @@ async function checkTranscriptionModelAccess(apiKey: string): Promise<{ ok: bool
     const form = new FormData();
     form.append("model", model);
     form.append("response_format", "json");
-    form.append("prompt", TRANSCRIPTION_PROMPT);
+    form.append("prompt", transcriptionPrompt(loadVocabulary()));
     form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "voice-check.wav");
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -297,7 +295,7 @@ function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTransc
       model: transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL),
       prompt: purpose.kind === "dictation"
         ? transcriptionPrompt(dictationVocabulary(purpose.target))
-        : TRANSCRIPTION_PROMPT,
+        : transcriptionPrompt(loadVocabulary()),
     });
   } catch (error) {
     console.warn(`[Flyd Core] Streaming transcription unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -329,7 +327,7 @@ async function finishStreamedTranscription(
     await completeDictation(clientWs, transcript, pcm.length / PCM_BYTES_PER_SECOND, purpose, dictationVocabulary(purpose.target));
     return;
   }
-  sendJson(clientWs, { type: "complete", text: transcript });
+  sendJson(clientWs, { type: "complete", text: flydNameBackstop(transcript) });
 }
 
 async function completeDictation(
@@ -364,7 +362,7 @@ export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<W
 
   const wav = pcm16ToWav(pcm);
   const vocabulary = purpose.kind === "dictation" ? dictationVocabulary(purpose.target) : [];
-  const prompt = purpose.kind === "dictation" ? transcriptionPrompt(vocabulary) : TRANSCRIPTION_PROMPT;
+  const prompt = transcriptionPrompt(purpose.kind === "dictation" ? vocabulary : loadVocabulary());
 
   for (const model of transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL)) {
     const form = new FormData();
@@ -386,7 +384,7 @@ export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<W
         await completeDictation(clientWs, body.text || "", pcm.length / PCM_BYTES_PER_SECOND, purpose, vocabulary);
         return;
       }
-      sendJson(clientWs, { type: "complete", text: body.text || "" });
+      sendJson(clientWs, { type: "complete", text: flydNameBackstop(body.text || "") });
       return;
     }
 

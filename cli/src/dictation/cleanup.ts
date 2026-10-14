@@ -47,6 +47,15 @@ export function applyRules(text: string, rules: ReplacementRule[]): string {
   }, text);
 }
 
+// Transcribers still hear "Floyd" now and then. Push-to-talk, where Flyd is the
+// one addressed, ends with this fix, sparing the band; dictation never does.
+const FLOYD = /(?<![\p{L}\p{N}_])(?<!\bpink\s+)floyd(?![\p{L}\p{N}_])/giu;
+
+/** Whole-word, case-insensitive Floyd → Flyd, except "Pink Floyd". */
+export function flydNameBackstop(text: string): string {
+  return text.replace(FLOYD, "Flyd");
+}
+
 export function deterministicCleanup(text: string, profile: DictationProfile): string {
   return finalize(
     text.replace(/\s+/g, " ").trim().replace(LEADING_FILLERS, "").replace(TRAILING_FILLERS, "$1").trim(),
