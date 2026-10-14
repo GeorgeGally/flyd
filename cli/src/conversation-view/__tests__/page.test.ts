@@ -1265,7 +1265,7 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
     await settle();
     const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
-    expect(figure.textContent).toBe("2 decisions for you");
+    expect(figure.textContent).toBe("2 need you");
     // Only the figure that has a list behind it opens one.
     expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
     figure.click();
