@@ -1,8 +1,8 @@
 // OpenAI's transcription models sometimes return the prompt itself when a clip
 // holds little or no speech (a trailing pause, a breath), so George's text box
-// got "Flyd (pronounced Floyd) is George's AI assistant. Names and terms he
-// uses: …". Real speech almost never repeats the prompt four words at a time,
-// so a sentence made mostly of the prompt's four-word runs is an echo.
+// got "Flyd is George's AI assistant. Names and terms he uses: …". Real speech
+// almost never repeats the prompt four words at a time, so a sentence made
+// mostly of the prompt's four-word runs is an echo.
 
 const RUN = 4;
 const ECHO_SHARE = 0.5;

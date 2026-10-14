@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Project } from "../../council/projects.js";
-import { applyRules, deterministicCleanup, finishDictation, isSilenceHallucination } from "../cleanup.js";
+import { applyRules, deterministicCleanup, finishDictation, flydNameBackstop, isSilenceHallucination } from "../cleanup.js";
 import type { CompletionRequest } from "../http.js";
 import { dictationProfile } from "../profile.js";
 import { parseRules, transcriptionPrompt, vocabularyTerms } from "../vocabulary.js";
@@ -85,7 +85,7 @@ describe("vocabulary", () => {
     const projects = [project("Posttraction", ["George", "Gareth"]), project("Koko", ["Lindiwe"])];
 
     expect(vocabularyTerms(profileText, projects, "koko — nvim — Ghostty")).toEqual([
-      "Flyd", "Koko", "Lindiwe", "Posttraction", "Gareth", "Clint Bryce", "Erwin", "TBWA", "CleanX",
+      "Flyd", "Jev", "CapFive", "radarboy3000", "Koko", "Lindiwe", "Posttraction", "Gareth", "Clint Bryce", "Erwin", "TBWA", "CleanX",
     ]);
   });
 
@@ -94,8 +94,30 @@ describe("vocabulary", () => {
     const prompt = transcriptionPrompt(terms);
 
     expect(prompt.length).toBeLessThanOrEqual(800);
-    expect(prompt.startsWith("Flyd (pronounced Floyd) is George's AI assistant. Names and terms he uses: Name0, Name1,")).toBe(true);
+    expect(prompt.startsWith("Flyd is George's AI assistant. Names and terms he uses: Name0, Name1,")).toBe(true);
     expect(prompt.endsWith(".")).toBe(true);
+  });
+});
+
+describe("Flyd's name", () => {
+  it("never puts Floyd in a transcription prompt", () => {
+    const prompt = transcriptionPrompt(vocabularyTerms(null, []));
+    expect(prompt).not.toMatch(/floyd/i);
+    for (const name of ["Flyd", "Jev", "CapFive", "radarboy3000"]) expect(prompt).toContain(name);
+    // Every voice path (push-to-talk, dictation, LIVE) builds its prompt with transcriptionPrompt.
+    for (const file of ["../vocabulary.ts", "../../transcription.ts", "../../realtime-session.ts"]) {
+      expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(/floyd/i);
+    }
+  });
+
+  it("turns a heard Floyd into Flyd, but keeps the band", () => {
+    expect(flydNameBackstop("Floyd, ask floyd. FLOYD! Floyds stay")).toBe("Flyd, ask Flyd. Flyd! Floyds stay");
+    expect(flydNameBackstop("Play Pink Floyd, Floyd")).toBe("Play Pink Floyd, Flyd");
+  });
+
+  it("applies to dictation even without rules", async () => {
+    const result = await finishDictation("Ask Floyd about it", { target: ghostty, audioSeconds: 5, rules: [], vocabulary: [], model: "" });
+    expect(result.text).toBe("Ask Flyd about it");
   });
 });
 
@@ -115,12 +137,12 @@ describe("vocabulary files", () => {
     vi.resetModules();
     const vocabulary = await import("../vocabulary.js");
 
-    expect(vocabulary.loadVocabulary()).toEqual(["Flyd", "Clint Bryce", "TBWA"]);
+    expect(vocabulary.loadVocabulary()).toEqual(["Flyd", "Jev", "CapFive", "radarboy3000", "Clint Bryce", "TBWA"]);
 
     writeFileSync(profilePath, "## People\n- Andrew Haarsager runs the Cartier lab.\n");
     utimesSync(profilePath, new Date(), new Date(Date.now() + 5_000));
 
-    expect(vocabulary.loadVocabulary()).toEqual(["Flyd", "Andrew Haarsager"]);
+    expect(vocabulary.loadVocabulary()).toEqual(["Flyd", "Jev", "CapFive", "radarboy3000", "Andrew Haarsager"]);
     expect(vocabulary.loadReplacementRules()).toEqual([]);
   });
 });

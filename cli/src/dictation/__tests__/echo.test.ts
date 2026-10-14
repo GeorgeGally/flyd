@@ -3,7 +3,7 @@ import { isPromptEcho, removePromptEcho } from "../echo.js";
 import { transcriptionPrompt } from "../vocabulary.js";
 
 const prompt = transcriptionPrompt(["Flyd", "Posttraction", "Tastemaker", "Koko", "Little Organic Baby", "Gareth Chisholm", "CleanX", "Bloom"]);
-const echo = "Flyd (pronounced Floyd) is George's AI assistant. Names and terms he uses: Flyd, Posttraction, Tastemaker, Koko, Little Organic Baby, Gareth Chisholm, CleanX, Bloom.";
+const echo = "Flyd is George's AI assistant. Names and terms he uses: Flyd, Posttraction, Tastemaker, Koko, Little Organic Baby, Gareth Chisholm, CleanX, Bloom.";
 
 describe("prompt echo", () => {
   it("drops a transcript that is the prompt read back", () => {

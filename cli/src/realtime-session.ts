@@ -10,6 +10,7 @@ import { loadFlydWorkerConfig } from "./runtime/flyd-worker-config.js";
 import { compileContext } from "./cognition/context-compiler.js";
 import { formatCompiledContext } from "./cognition/context-format.js";
 import { decisionPolicyBlock } from "./lib/decision-policy.js";
+import { loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
 
 const REALTIME_INSTRUCTIONS =
   "You are Flyd, a voice assistant overlaying the user's Mac. You are connected to Flyd Core " +
@@ -173,9 +174,11 @@ async function connectRealtime(
           instructions: sessionInstructions,
           turn_detection: { type: "server_vad" },
           audio: {
-            input: { format: { type: "audio/pcm", rate: 24000 } },
+            input: {
+              format: { type: "audio/pcm", rate: 24000 },
+              transcription: { model: REALTIME_TRANSCRIPTION_MODEL, prompt: transcriptionPrompt(loadVocabulary()) },
+            },
             output: { format: { type: "audio/pcm", rate: 24000 } },
-            transcription: { model: REALTIME_TRANSCRIPTION_MODEL },
           },
           tools: [{
             type: "function",
