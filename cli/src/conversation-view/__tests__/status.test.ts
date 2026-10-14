@@ -57,6 +57,11 @@ describe("conversation status for the island", () => {
     expect(asksForDecision("Two pages landed.\n\nApprove the apply page and I'll merge it.")).toBe(true);
     expect(forCaptain("Captain, approve the apply page and I'll merge it.", new Set())).toBe(true);
     expect(asksForDecision("Sir, decide which hero we ship.")).toBe(true);
+    expect(asksForDecision("» Docs landed.\n\nApprove the apply page and I'll merge it.\n\nAll checks are green.")).toBe(true);
+    expect(asksForDecision("Sir, updates.\n\nWant me to ship the island?\n\n- Menu bar is merged.\n- Docs are merged.")).toBe(false);
+    expect(headlineOf("- Menu bar fix is merged. Approve the island next.\n- Docs are merged.")).toBe("Approve the island next, plus 1 more");
+    expect(statusOf({ messages: [{ id: "r9", role: "assistant", text: `» ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(2)}Want me to ship it?` }], working: false }).reply)
+      .toMatchObject({ headline: "Want me to ship it?", asks: true });
     expect(forCaptain("Stale wake on the deals page. Was it the old timer? Yes, nothing to do.", new Set())).toBe(false);
     expect(forCaptain("Holding the bump until CI is green, then I'll approve it.", new Set())).toBe(false);
     expect(asksForDecision("Sir, the menu bar landed.\n\nDo you want the island next?\n\nThe docs are updated.")).toBe(false);
@@ -71,7 +76,7 @@ describe("conversation status for the island", () => {
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:59:00Z" }, now)).toEqual({
       working: true,
       lastActivity: "2026-10-06T02:59:00Z",
-      reply: { id: "r1", headline: "Pushed. Want me to merge?", asks: true },
+      reply: { id: "r1", headline: "Want me to merge?", asks: true },
     });
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:00:00Z" }, now).working).toBe(false);
     expect(statusOf({ messages: [], working: false }, now)).toEqual({ working: false });

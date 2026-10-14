@@ -375,16 +375,18 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
 const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to)\b|(?:^|\b(?:you|please)\s+)(?:approve|decide)\b/i;
 
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
-export function asking(paragraph: string): string[] {
-  const said = sentences(inline(paragraph)).map((sentence) => sentence.replace(SALUTATION, ""));
+function asking(paragraph: string): string[] {
+  const said = sentences(inline(paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, ""))).map((sentence) => sentence.replace(SALUTATION, ""));
   return said.filter((sentence, index) => ASKS.test(sentence) && !(/\?$/.test(sentence) && /^(?:yes|no)\b/i.test(said[index + 1] ?? "")));
 }
 
 /** The sentences of a reply that ask something of him, from its own » summary, its opening and its closing paragraph. */
 export function asksIn(text: string): string[] {
-  const paragraphs = brief(text).prose.replace(FENCED, "").split(/\n\s*\n/).filter((paragraph) => paragraph.trim());
+  const clean = withoutStubs(withoutChatter(text)).replace(FENCED, "");
+  const own = authorSummary(clean);
+  const paragraphs = (own ? own.rest : clean).split(/\n\s*\n/).filter((paragraph) => paragraph.trim());
   const ends = paragraphs.length > 1 ? [paragraphs[0]!, paragraphs.at(-1)!] : paragraphs;
-  return [authorSummary(withoutStubs(text))?.summary ?? "", ...ends].flatMap(asking);
+  return [own?.summary ?? "", ...ends].flatMap(asking);
 }
 
 /**
@@ -413,17 +415,17 @@ export function decisionOf(asks: string[]): string | undefined {
 
 /**
  * The status in a sentence for the island, as a chief of staff would put it,
- * within `limit` characters: the decision waiting on him (an item that needs
- * him, else what the reply's prose `asks`), else the last result it lists,
+ * within `limit` characters: the decision waiting on him (what an item that
+ * needs him asks, else that item, else what the reply's prose `asks`), else the last result it lists,
  * else what is moving, then "plus 2 more" for the rest. `asks` is true only
  * when the line names a decision.
  */
 export function statusHeadline(items: StatusItem[], asks: string[], limit: number): { headline: string; asks: boolean } {
   const needs = items.find((item) => item.state === "needs");
-  const question = needs ? undefined : decisionOf(asks);
+  const question = needs ? decisionOf(asking(needs.detail ?? "")) : decisionOf(asks);
   const lead = needs ?? [...items].reverse().find((item) => item.state === "landed") ?? items[0];
   const said = (question ?? lead?.text ?? "").replace(/\s+/g, " ").trim();
-  const rest = question ? items.length : items.length - 1;
+  const rest = question && !needs ? items.length : items.length - 1;
   const line = capitalise(clip(said, rest ? limit - `, plus ${rest} more`.length : limit));
   const headline = !rest ? line : /[?!]$/.test(line) ? `${line} Plus ${rest} more` : `${line.replace(/[.,;:]+$/, "")}, plus ${rest} more`;
   return { headline, asks: Boolean(needs ?? question) };

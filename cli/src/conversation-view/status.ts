@@ -1,5 +1,5 @@
 import { plainLinks } from "./line-links.js";
-import { asking, asksIn, brief, decisionOf, statusHeadline, withoutStubs } from "./executive.js";
+import { asksIn, brief, decisionOf, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -62,11 +62,11 @@ function readingOf(text: string): { headline: string; asks: boolean } {
   // A report on several pieces of work reads as where they stand.
   const { items } = brief(text);
   if (items.length >= 2) return statusHeadline(items, asks, HEADLINE_CHARS);
-  const said = withoutStubs(text);
-  const own = authorSummary(said)?.summary;
   // A decision of his is named as the decision, never put on a result.
   const decision = decisionOf(asks);
-  if (decision) return { headline: fit(own && asking(own).length ? own : decision), asks: true };
+  if (decision) return { headline: fit(decision), asks: true };
+  const said = withoutStubs(text);
+  const own = authorSummary(said)?.summary;
   const digest = own ? null : digestReply(said);
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label)) ?? [];
   return { headline: fit(own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)), asks: false };
