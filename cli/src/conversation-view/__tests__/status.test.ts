@@ -60,6 +60,9 @@ describe("conversation status for the island", () => {
     expect(asksForDecision("» Docs landed.\n\nApprove the apply page and I'll merge it.\n\nAll checks are green.")).toBe(true);
     expect(asksForDecision("Sir, updates.\n\nWant me to ship the island?\n\n- Menu bar is merged.\n- Docs are merged.")).toBe(false);
     expect(headlineOf("- Menu bar fix is merged. Approve the island next.\n- Docs are merged.")).toBe("Approve the island next, plus 1 more");
+    expect(statusOf({ messages: [{ id: "r7", role: "assistant", text: "- Menu bar fix is merged. Waiting on you for the island.\n- Docs are merged." }], working: false }).reply)
+      .toMatchObject({ headline: "Waiting on you for the island, plus 1 more", asks: true });
+    expect(headlineOf("- Island fix is merged, so the apply page is blocked.\n- Docs are merged.")).toBe("The apply page is blocked, plus 1 more");
     expect(statusOf({ messages: [{ id: "r9", role: "assistant", text: `» ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(2)}Want me to ship it?` }], working: false }).reply)
       .toMatchObject({ headline: "Want me to ship it?", asks: true });
     expect(forCaptain("Stale wake on the deals page. Was it the old timer? Yes, nothing to do.", new Set())).toBe(false);

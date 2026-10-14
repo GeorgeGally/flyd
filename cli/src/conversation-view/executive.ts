@@ -203,9 +203,10 @@ function itemOf(raw: string, state: WorkState): StatusItem {
   const split = /^(.{12,}?)(?:,\s+so\s+|\s+[—–]\s+|;\s+)(.+)$/.exec(first);
   const text = capitalise(split ? split[1]! : first);
   // Nothing the item says after its line is dropped: an outcome often comes first and the ask after it.
-  const rest = [split ? capitalise(split[2]!) : "", ...said.slice(1)].filter(Boolean).join(" ");
+  const after = [split ? capitalise(split[2]!) : "", ...said.slice(1)].filter(Boolean);
+  const rest = after.join(" ");
   const detail = rest ? clip(rest, DETAIL_CHARS) : "";
-  const asked = state === "needs" ? said.slice(1).find((sentence) => NEEDS.test(sentence) || SAY_ASK.test(sentence) || ASKS.test(sentence)) : undefined;
+  const asked = state === "needs" ? after.find(asksOfItem) : undefined;
   const project = projectOf(urls[0]);
   return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: `${text}: ${clip(asked, DETAIL_CHARS)}` } : {}) };
 }
@@ -374,6 +375,11 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
 /** What asks him something: a question, or a call for his decision ("I'll approve it" is not one). */
 const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to)\b|(?:^|\b(?:you|please)\s+)(?:approve|decide)\b/i;
 
+/** A sentence in a work item that asks him for something, as the item's state reads it. */
+function asksOfItem(sentence: string): boolean {
+  return NEEDS.test(sentence) || SAY_ASK.test(sentence) || ASKS.test(sentence);
+}
+
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
 function asking(paragraph: string): string[] {
   const said = sentences(inline(paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, ""))).map((sentence) => sentence.replace(SALUTATION, ""));
@@ -422,7 +428,7 @@ export function decisionOf(asks: string[]): string | undefined {
  */
 export function statusHeadline(items: StatusItem[], asks: string[], limit: number): { headline: string; asks: boolean } {
   const needs = items.find((item) => item.state === "needs");
-  const question = needs ? decisionOf(asking(needs.detail ?? "")) : decisionOf(asks);
+  const question = needs ? decisionOf(sentences(needs.detail ?? "").filter(asksOfItem)) : decisionOf(asks);
   const lead = needs ?? [...items].reverse().find((item) => item.state === "landed") ?? items[0];
   const said = (question ?? lead?.text ?? "").replace(/\s+/g, " ").trim();
   const rest = question && !needs ? items.length : items.length - 1;
