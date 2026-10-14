@@ -249,6 +249,21 @@ describe("mergeNotes", () => {
     expect(merged.map((m) => m.id)).toEqual(["u1", "mid", "r1"]);
     expect(merged.some((m) => m.id === "note:chase")).toBe(false);
   });
+
+  it("shows a reply only in the conversation it answers, whatever window its time falls in", () => {
+    const reply = (id: string, replyTo: string, timestamp: string) => ({ ...note(id, timestamp), question: { ...note(id, timestamp).question, replyTo } });
+    const yes = reply("note:yes", "reply:asked#3", "2026-10-05T20:02:00Z");
+    const thanks = reply("note:thanks", "note:yes", "2026-10-05T20:03:00Z");
+    const window = { from: "2026-10-05T19:30:00Z" };
+    // Another conversation open at the same time: the reply's question was never asked here.
+    expect(mergeNotes(messages, [yes, thanks], window).map((m) => m.id)).toEqual(["u1", "r1"]);
+    // The conversation that asked it, even when its window has closed: the reply and a reply to it.
+    const asked = [messages[0]!, { id: "reply:asked#3", role: "assistant" as const, text: "Go on both?", timestamp: "2026-10-05T20:01:00Z" }, messages[1]!];
+    expect(mergeNotes(asked, [yes, thanks], { ...window, until: "2026-10-05T20:01:30Z" }).map((m) => m.id))
+      .toEqual(["u1", "reply:asked#3", "note:yes", "note:thanks", "r1"]);
+    // A question asked in a reply hidden from view (a relayed wake) still holds its answer.
+    expect(mergeNotes(messages, [yes], window, ["u1", "r1", "reply:asked#3"]).map((m) => m.id)).toEqual(["u1", "note:yes", "r1"]);
+  });
 });
 
 function writeReply(id: string, at: string, seq: number, body: string): void {
