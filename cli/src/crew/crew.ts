@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
+import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
 
@@ -51,6 +52,10 @@ export interface CrewTask {
   /** Steps beyond the crew that George approved at dispatch, run when he lands it. */
   afterLand?: AfterLandStep[];
   afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string }>;
+  /** The OpenCode model the crewmate ran on ("provider/model"); unset means OpenCode's own default. */
+  model?: string;
+  /** How far into the log Claude spend has been counted. */
+  spendOffset?: number;
 }
 
 /**
@@ -194,6 +199,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   const task: CrewTask = {
     id, repo, outcome, branch, baseBranch, baseCommit, worktree, status: "running", log,
     createdAt: now.toISOString(), source: options.source ?? "chat", attempts: 1,
+    ...(crewModel() ? { model: crewModel() } : {}),
     ...(doneWhen.length ? { doneWhen } : {}),
     ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
   };
@@ -213,11 +219,6 @@ export function openCodePath(): string {
   return existsSync(home) ? home : "opencode";
 }
 
-/** The model crewmates run on: FLYD_CREW_MODEL, else OpenCode's own default (undefined). */
-export function crewModel(): string | undefined {
-  return process.env.FLYD_CREW_MODEL?.trim() || undefined;
-}
-
 /** Start `opencode run` detached in the worktree; its JSON events stream to the task log. */
 export function launchOpenCode(task: CrewTask, brief: string): number | undefined {
   // A test once dispatched a real crewmate against Flyd itself. Never again.
@@ -226,18 +227,62 @@ export function launchOpenCode(task: CrewTask, brief: string): number | undefine
   }
   const out = openSync(task.log, "a");
   const args = ["run", "--format", "json", "--dir", task.worktree, "--title", `flyd:${task.id}`, "--auto"];
-  const model = crewModel();
+  const model = task.model ?? crewModel();
   if (model) args.push("--model", model);
   args.push(brief);
+  // OpenCode's Anthropic provider reads ANTHROPIC_API_KEY; only this child gets Flyd's key under that name.
+  const claudeKey = model?.startsWith("anthropic/") ? claudeApiKey() : undefined;
   const child = spawn(openCodePath(), args, {
     cwd: task.worktree,
     detached: true,
     stdio: ["ignore", out, out],
-    env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(CREW_OPENCODE_CONFIG) },
+    env: { ...process.env, ...(claudeKey ? { ANTHROPIC_API_KEY: claudeKey } : {}), OPENCODE_CONFIG_CONTENT: JSON.stringify(crewOpenCodeConfig(Boolean(claudeKey))) },
   });
   child.unref();
   closeSync(out);
   return child.pid;
+}
+
+/** The crew's OpenCode config; on Flyd's Claude key it also names the key's workspace. */
+export function crewOpenCodeConfig(claude: boolean): Record<string, unknown> {
+  const headers = claude ? claudeHeaders() : {};
+  return Object.keys(headers).length
+    ? { ...CREW_OPENCODE_CONFIG, provider: { anthropic: { options: { headers } } } }
+    : CREW_OPENCODE_CONFIG;
+}
+
+/** The crewmate's model: FLYD_CREW_MODEL when set, else OpenCode's own default. */
+export function crewModel(): string | undefined {
+  return process.env.FLYD_CREW_MODEL?.trim() || undefined;
+}
+
+/**
+ * Count a Claude crewmate's new steps against the monthly spend, from the
+ * token usage OpenCode logs on each step. Returns the new log offset.
+ */
+export function recordCrewSpend(task: CrewTask): number | undefined {
+  if (!task.model?.startsWith("anthropic/") || !existsSync(task.log)) return task.spendOffset;
+  const log = readFileSync(task.log);
+  const start = Math.min(task.spendOffset ?? 0, log.length);
+  // Only whole lines: a step still being written is counted next time.
+  const end = log.lastIndexOf(0x0a) + 1;
+  if (end <= start) return start;
+  const model = task.model.slice("anthropic/".length);
+  for (const line of log.subarray(start, end).toString("utf8").split("\n")) {
+    if (!line.includes("step_finish")) continue;
+    try {
+      const event = JSON.parse(line) as { type?: string; part?: { tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } } } };
+      const tokens = event.type === "step_finish" ? event.part?.tokens : undefined;
+      if (!tokens) continue;
+      recordClaudeUsage(model, {
+        input_tokens: tokens.input,
+        output_tokens: (tokens.output ?? 0) + (tokens.reasoning ?? 0),
+        cache_read_input_tokens: tokens.cache?.read,
+        cache_creation_input_tokens: tokens.cache?.write,
+      }, "crew");
+    } catch { /* not an event */ }
+  }
+  return end;
 }
 
 export function processAlive(pid: number | undefined): boolean {
@@ -357,7 +402,10 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
   const alive = deps.alive ?? processAlive;
   const run = deps.runCommand ?? defaultRunCommand;
   const changed: CrewTask[] = [];
-  for (const task of listTasks(dir).filter((item) => item.status === "running")) {
+  for (const listed of listTasks(dir).filter((item) => item.status === "running")) {
+    const spendOffset = recordCrewSpend(listed);
+    const task = spendOffset === listed.spendOffset ? listed : { ...listed, spendOffset };
+    if (task !== listed) saveTask(task, dir);
     if (alive(task.pid)) {
       if (now.getTime() - Date.parse(task.attemptStartedAt ?? task.createdAt) > MAX_RUNTIME_MS) {
         try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(task.pid!); } catch { /* already gone */ }

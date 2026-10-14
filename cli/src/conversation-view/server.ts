@@ -380,7 +380,8 @@ function sseEvent(res: ServerResponse, event: string, data: unknown): void {
 export class ConversationViewServer {
   private server: Server | null = null;
   private port = 0;
-  private readonly predictionContexts = new Map<string, { at: number; messages: ConversationMessage[] }>();
+  /** Each followed session's recent conversation, kept current by its stream; others are read fresh. */
+  private readonly predictionContexts = new Map<string, ConversationMessage[]>();
   /**
    * Proof a send came from this server's own page: other origins can POST to
    * loopback, but cannot read the page that carries this token.
@@ -613,20 +614,18 @@ export class ConversationViewServer {
     const disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once("close", disconnected);
     try {
-      const cached = this.predictionContexts.get(payload.session);
-      const messages = cached && Date.now() - cached.at < 5 * 60_000 ? cached.messages : this.cachePredictionContext(payload.session, (await this.source.read(payload.session)).messages);
+      const messages = this.predictionContexts.get(payload.session) ?? boundedPredictionMessages((await this.source.read(payload.session)).messages);
       const prediction = await this.predictions.predict({ session: payload.session, draft: payload.draft, messages }, controller.signal);
       if (!controller.signal.aborted) sendJson(res, 200, { prediction });
     } catch { if (!controller.signal.aborted) sendJson(res, 200, { prediction: null }); }
     finally { res.off("close", disconnected); }
   }
 
-  private cachePredictionContext(session: string, messages: ConversationMessage[]): ConversationMessage[] {
+  private cachePredictionContext(session: string, messages: ConversationMessage[]): void {
     const recent = boundedPredictionMessages(messages);
     this.predictionContexts.delete(session);
     if (this.predictionContexts.size >= 5) this.predictionContexts.delete(this.predictionContexts.keys().next().value!);
-    this.predictionContexts.set(session, { at: Date.now(), messages: recent });
-    return recent;
+    this.predictionContexts.set(session, recent);
   }
 
   /** A screenshot a fleet task saved, only when the artefact listed it. */
@@ -954,6 +953,7 @@ export class ConversationViewServer {
     }
     try {
       const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
+      this.predictionContexts.delete(payload.session);
       this.predictions.remember(payload.text);
       sendJson(res, 200, sent);
     } catch (error) {
@@ -1216,6 +1216,7 @@ export class ConversationViewServer {
       stopPreviews();
       stopMemory?.();
       follower.close();
+      this.predictionContexts.delete(session.id);
     });
   }
 }

@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatModelChain, defaultModel, fallbackModelChain, FLYD_APPLICATION_ROOT, getKey } from "../lib/config.js";
+import { chatModelChain, claudeChatModel, claudeQuickModel, defaultModel, fallbackModelChain, FLYD_APPLICATION_ROOT, getKey, quickModelChain } from "../lib/config.js";
+import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
 
 // What Flyd runs on, worked out each time it is asked, from the same resolvers
 // each job uses to pick its model. So the answer follows his .env,
@@ -56,6 +57,21 @@ function qmdModels(): { embed: string; expand: string; rerank: string } {
 }
 
 const COMMANDCODE_SETTINGS = ["COMMANDCODE_MODEL", "COMMANDCODE_API_KEY_MODEL"];
+const CLAUDE_SETTINGS = ["FLYD_CLAUDE", "FLYD_CLAUDE_MONTHLY_CAP_USD"];
+
+/** Why Claude leads a chain, or why it is missing from one. */
+function claudeState(): string {
+  if (setting("FLYD_CLAUDE") === "0") return "Claude off (FLYD_CLAUDE=0)";
+  if (!claudeApiKey()) return "Claude off (no CLAUDE_API_KEY)";
+  const spend = attempt(() => spendStatus());
+  return spend?.capped ? `Claude paused: this month's $${spend.cap} cap is reached, back on the 1st` : "Claude on";
+}
+
+/** Who picked a chain: Claude's own setting or the code default while Claude leads it, else what picks it without Claude (the spend line says why Claude is out). */
+function claudeDecidedBy(claude: string | null, modelSetting: string, otherwise: string): string {
+  if (!claude) return otherwise;
+  return setting(modelSetting) ? modelSetting : "code default (CLAUDE_API_KEY set, under the monthly cap)";
+}
 
 /** Each job Flyd does with a model, and the model doing it right now. */
 export async function flydModelAssignments(): Promise<ModelAssignment[]> {
@@ -100,19 +116,20 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   };
 
   const chain = attempt(chatModelChain) ?? [];
-  const chatSettings = ["FLYD_CHAT_MODEL", "FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS];
+  const claudeChat = attempt(claudeChatModel);
+  const chatSettings = ["FLYD_CLAUDE_CHAT_MODEL", ...CLAUDE_SETTINGS, "FLYD_CHAT_MODEL", "FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS];
   add({
     job: "Chat: talking with George in the conversation window and the CLI, plus background jobs and scheduled agenda runs",
     model: chain[0] ?? "not configured (set FLYD_MODEL)",
     ...(chain.length > 1 ? { fallbacks: chain.slice(1) } : {}),
     settings: chatSettings,
-    setBy: setting("FLYD_CHAT_MODEL") ? "FLYD_CHAT_MODEL" : setting("FLYD_MODEL") ? "FLYD_MODEL (FLYD_CHAT_MODEL is not set)" : "code default",
+    setBy: claudeDecidedBy(claudeChat, "FLYD_CLAUDE_CHAT_MODEL", setting("FLYD_CHAT_MODEL") ? "FLYD_CHAT_MODEL" : setting("FLYD_MODEL") ? "FLYD_MODEL (FLYD_CHAT_MODEL is not set)" : "code default"),
   });
 
   const main = attempt(defaultModel);
   const mainFallbacks = attempt(fallbackModelChain) ?? [];
   add({
-    job: "One-shot thinking: memory curation and the council, the news edition, the morning brief, and retelling firstmate's replies and artefacts in the window",
+    job: "One-shot thinking: memory curation and the council, the news edition and the morning brief",
     model: main ?? "not configured (set FLYD_MODEL)",
     ...(mainFallbacks.length ? { fallbacks: mainFallbacks } : {}),
     settings: ["FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS],
@@ -129,12 +146,20 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     model: typesafe ? jevModel() : `${jevModel()} (off: no TYPESAFE_API_KEY)`,
     settings: ["FLYD_JEV_MODEL", "BEACON_JEV_MODEL"],
   });
-  add({
-    job: "Deciding who answers a message in the window (Flyd or firstmate), and reading the room when Jev is unsure",
-    model: setting("FLYD_ROUTING_FALLBACK_MODEL") ?? main ?? "not configured",
-    settings: ["FLYD_ROUTING_FALLBACK_MODEL"],
-    setBy: setting("FLYD_ROUTING_FALLBACK_MODEL") ? "FLYD_ROUTING_FALLBACK_MODEL" : "FLYD_MODEL (FLYD_ROUTING_FALLBACK_MODEL is not set)",
-  });
+  const quick = attempt(quickModelChain) ?? [];
+  const claudeQuick = attempt(claudeQuickModel);
+  const quickJobs = (job: string, override?: string): void => {
+    const overridden = override ? setting(override) : undefined;
+    add({
+      job,
+      model: overridden ?? quick[0] ?? "not configured (set FLYD_MODEL)",
+      ...(!overridden && quick.length > 1 ? { fallbacks: quick.slice(1) } : {}),
+      settings: [...(override ? [override] : []), "FLYD_CLAUDE_QUICK_MODEL", ...CLAUDE_SETTINGS, "FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS],
+      setBy: overridden ? override! : claudeDecidedBy(claudeQuick, "FLYD_CLAUDE_QUICK_MODEL", "FLYD_MODEL"),
+    });
+  };
+  quickJobs("Reading the room before each chat reply when Jev is unsure", "FLYD_ROUTING_FALLBACK_MODEL");
+  quickJobs("Deciding who answers a message in the window (Flyd or firstmate) when Jev is unsure, retelling firstmate's replies and artefacts, and the status line under a waiting message");
 
   const workers = attempt(() => loadFlydWorkerConfigs()) ?? [];
   add({
@@ -168,21 +193,24 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   add({
     job: "Searching George's memory: rewriting the search, embedding and reranking, on this Mac",
     model: `query expansion ${qmd.expand}; embeddings ${qmd.embed}; reranking ${qmd.rerank}`,
-    fallbacks: [rewrite ? `${rewrite} rewrites the search if the on-device expansion fails` : "the search runs on the words as typed if the on-device expansion fails (no OPENAI_API_KEY)"],
+    fallbacks: [rewrite ? `${rewrite} rewrites the search if the on-device expansion fails` : "the search runs on the words as typed if the on-device expansion fails (no Claude and no OPENAI_API_KEY)"],
     settings: ["QMD_EMBED_MODEL", "QMD_GENERATE_MODEL", "QMD_RERANK_MODEL"],
   });
 
-  const summaries = summaryModels({ anthropicKey: getKey("ANTHROPIC_API_KEY") }).map(({ model }) => model);
+  const summaryChain = summaryModels({ anthropicKey: claudeApiKey() });
+  const summaries = summaryChain.map(({ model }) => model);
+  const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL", "FLYD_CLAUDE_QUICK_MODEL"] : ["FLYD_VIEW_XAI_MODEL"];
   add({
     job: "Summaries of long replies in the window",
-    model: process.env.FLYD_VIEW_SUMMARIES === "0" ? "off (FLYD_VIEW_SUMMARIES=0)" : summaries[0] ?? "none (no XAI_API_KEY or ANTHROPIC_API_KEY): long replies lead with Flyd's own briefing",
+    model: process.env.FLYD_VIEW_SUMMARIES === "0" ? "off (FLYD_VIEW_SUMMARIES=0)" : summaries[0] ?? "none (no CLAUDE_API_KEY or XAI_API_KEY): long replies lead with Flyd's own briefing",
     ...(summaries.length > 1 ? { fallbacks: summaries.slice(1) } : {}),
-    settings: ["FLYD_VIEW_XAI_MODEL", "FLYD_VIEW_ANTHROPIC_MODEL"],
+    settings: ["FLYD_VIEW_ANTHROPIC_MODEL", "FLYD_CLAUDE_QUICK_MODEL", "FLYD_VIEW_XAI_MODEL"],
+    setBy: decidedBy(summarySettings),
   });
   add({
     job: "Typing suggestions in the message box",
     model: getKey("FLYD_PREDICTIONS") === "0" ? "off (FLYD_PREDICTIONS=0)" : predictionModel(),
-    settings: ["FLYD_PREDICTION_MODEL"],
+    settings: ["FLYD_PREDICTION_MODEL", "FLYD_CLAUDE_QUICK_MODEL"],
   });
 
   const transcription = transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL);
@@ -230,12 +258,12 @@ const SWITCHES = [
   "FLYD_AUTONOMY", "FLYD_COUNCIL", "FLYD_MUSE", "FLYD_SELF_IMPROVE", "FLYD_TASTE_LEARNING", "FLYD_TASTE_SKILLS",
   "FLYD_PROFILE_AUTOLEARN", "FLYD_ROUTING_CASCADE", "FLYD_ROUTING_LEARNING", "FLYD_ROOM", "FLYD_JEV_TURN_ROUTE",
   "FLYD_VIEW_SUMMARIES", "FLYD_SUMMARY_ALWAYS", "FLYD_AUTO_ANSWER", "FLYD_PREDICTIONS", "FLYD_FIRSTMATE",
-  "FLYD_DELEGATION_ENABLED", "FLYD_TRANSITIONS_DISABLED", "FLYD_PROVIDER",
+  "FLYD_DELEGATION_ENABLED", "FLYD_TRANSITIONS_DISABLED", "FLYD_PROVIDER", "FLYD_CLAUDE", "FLYD_CLAUDE_MONTHLY_CAP_USD",
 ];
 
 /** Keys that turn providers on: named when present, never shown. */
 const PROVIDER_KEYS = [
-  "FLYD_MODEL_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY", "OPENROUTER_API_KEY", "COMMANDCODE_API_KEY",
+  "FLYD_MODEL_API_KEY", "OPENAI_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY", "OPENROUTER_API_KEY", "COMMANDCODE_API_KEY",
   "XAI_API_KEY", "TYPESAFE_API_KEY", "JINA_API_KEY", "BRAVE_SEARCH_API_KEY", "GITHUB_TOKEN", "X_BEARER_TOKEN",
 ];
 
@@ -251,6 +279,13 @@ export function redactSecrets(text: string, env: NodeJS.ProcessEnv = process.env
     if (secret && secret.length >= 8 && SECRET_NAME.test(name)) out = out.split(secret).join("[hidden]");
   }
   return out.replace(SECRET_SHAPE, "[hidden]");
+}
+
+/** This month's Claude spend against its cap; at the cap Claude drops out of every chain until the 1st. */
+function claudeSpendLine(): string {
+  const spend = attempt(() => spendStatus());
+  if (!spend) return `Claude spend: unknown (${claudeState()}).`;
+  return `Claude spend for ${spend.month}: $${spend.usd.toFixed(2)} of a $${spend.cap} monthly cap over ${spend.calls} calls (${claudeState()}; George is warned at 80%, and at the cap every job moves to its fallback until the 1st).`;
 }
 
 /** Flyd's setup as it reads to the chat model: every job with its model, the switches he set, which providers have keys. */
@@ -272,6 +307,7 @@ export async function flydSetupReport(now = new Date()): Promise<string> {
     "Development tools:",
     ...assignments.filter((assignment) => assignment.dev).map(line),
     "",
+    claudeSpendLine(),
     `Switches set: ${set.length ? set.join(", ") : "none"}; everything else is at its code default.`,
     `Provider keys present (names only): ${keys.length ? keys.join(", ") : "none"}.`,
     `Flyd's own code and docs: ${FLYD_APPLICATION_ROOT} (AGENTS.md describes its features; read the code there for anything about Flyd not listed here).`,

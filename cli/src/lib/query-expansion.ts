@@ -1,4 +1,4 @@
-import { usesOpenAITransport, defaultModel, getKey } from "./config.js";
+import { usesOpenAITransport, defaultModel, getKey, claudeQuickModel } from "./config.js";
 
 export interface ExpandedQuery {
   type: "lex" | "vec" | "hyde";
@@ -32,22 +32,30 @@ async function queryOpenAI(prompt: string, model: string): Promise<string> {
   return res.choices[0].message.content ?? "";
 }
 
-/**
- * The model that rewrites a search when qmd's on-device expansion fails:
- * Flyd's default model when it speaks OpenAI's API, else gpt-4o-mini; none
- * without an OpenAI key (the search then runs on his words as typed).
- */
-export function queryExpansionModel(model?: string): string | null {
+/** The OpenAI model a rewrite uses: Flyd's default model when it speaks OpenAI's API, else gpt-4o-mini; none without an OpenAI key. */
+function openAIRewriteModel(model?: string): string | null {
   if (!getKey("OPENAI_API_KEY")) return null;
   const m = model ?? defaultModel();
   return usesOpenAITransport(m) ? m : "gpt-4o-mini";
+}
+
+/**
+ * The model that rewrites a search when qmd's on-device expansion fails:
+ * Claude Haiku while it is on and under its cap (rewrites are a quick job),
+ * else the OpenAI model; none with neither (the search then runs on his words
+ * as typed).
+ */
+export function queryExpansionModel(model?: string): string | null {
+  return (model ? null : claudeQuickModel()) ?? openAIRewriteModel(model);
 }
 
 export async function expandQuery(
   query: string,
   model?: string,
 ): Promise<ExpandedQuery[]> {
-  if (!getKey("OPENAI_API_KEY")) {
+  const claude = model ? null : claudeQuickModel();
+  const openai = openAIRewriteModel(model);
+  if (!claude && !openai) {
     // No API key — return original query as fallback
     return [
       { type: "lex", query },
@@ -57,7 +65,10 @@ export async function expandQuery(
 
   try {
     const prompt = EXPANSION_PROMPT.replace("{query}", query);
-    const result = await queryOpenAI(prompt, queryExpansionModel(model)!);
+    // Rewrites are a quick job: Claude Haiku first, the OpenAI path when it is off, capped or fails.
+    const result = claude
+      ? await (await import("./llm.js")).quickQuery(prompt, { source: "quick" }).catch((error) => openai ? queryOpenAI(prompt, openai) : Promise.reject(error))
+      : await queryOpenAI(prompt, openai!);
 
     const lines = result.trim().split("\n");
     const expanded: ExpandedQuery[] = [];

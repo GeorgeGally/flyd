@@ -9,7 +9,7 @@ import { join, dirname, resolve, sep, basename } from "node:path";
 import { apiModelId, chatModelChain, resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
-import { agentLoop, agentLoopWithFailover, type AgentTool, type ToolHandler } from "../lib/llm.js";
+import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
@@ -96,8 +96,8 @@ async function defaultRouteTurn(message: string, history: ConversationInput["his
 
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
   if (process.env.FLYD_ROOM === "0" || process.env.VITEST) return null;
-  const { query } = await import("../lib/llm.js");
-  return readTheRoom(input, (prompt) => query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL, undefined, undefined, undefined, { json: true }));
+  const { quickQuery } = await import("../lib/llm.js");
+  return readTheRoom(input, (prompt) => quickQuery(prompt, { model: process.env.FLYD_ROUTING_FALLBACK_MODEL, json: true }));
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
@@ -247,6 +247,8 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     return {
       system: [
         ...voice,
+        // Everything above is the same on every turn; Anthropic caches it.
+        PROMPT_CACHE_BREAK,
         [
           "## His register (examples of tone only, not content)",
           "George: the gallery still hasn't replied",
@@ -282,6 +284,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   return {
     system: [
       ...voice,
+      PROMPT_CACHE_BREAK,
       options.room?.brief ?? "",
       options.plan ?? "",
       projects,

@@ -44,7 +44,8 @@ describe("Flyd's own setup", () => {
     const report = await flydSetupReport();
     for (const model of new Set(Object.values(CONFIGURED).filter((value) => !value.startsWith("deepseek/")))) expect(report).toContain(model);
     expect(report).toMatch(/Chat: [^\n]*opencode-go\/deepseek-v4\.1-flash \[FLYD_CHAT_MODEL\]; if it fails: openai:gpt-5\.6-luna, then commandcode:deepseek\/deepseek-v4\.1-flash/);
-    expect(report).toMatch(/Deciding who answers[^\n]*openai:gpt-5\.6-mini \[FLYD_ROUTING_FALLBACK_MODEL\]/);
+    expect(report).toMatch(/Reading the room[^\n]*openai:gpt-5\.6-mini \[FLYD_ROUTING_FALLBACK_MODEL\]/);
+    expect(report).toMatch(/Deciding who answers[^\n]*opencode-go\/deepseek-v4\.1-flash \[FLYD_MODEL\]/);
     expect(report).toMatch(/Speaking replies aloud: gpt-4o-mini-tts-2025-12-15 \[FLYD_TTS_MODEL\]/);
     expect(report).toMatch(/LIVE voice sessions[^\n]*gpt-realtime-2\.1, transcribing George with gpt-realtime-whisper/);
     expect(report).toMatch(/Web search: Brave Search, then OpenAI web search on gpt-5\.6-luna/);
@@ -66,6 +67,19 @@ describe("Flyd's own setup", () => {
     expect(await flydSetupReport()).toContain("Speaking replies aloud: gpt-4o-mini-tts [code default]");
   });
 
+  it("names Claude where it leads, and this month's Claude spend against the cap", async () => {
+    configure({ ...CONFIGURED, XAI_API_KEY: SECRETS.XAI_API_KEY, FLYD_CREW_MODEL: "", FLYD_PREDICTION_MODEL: "", FLYD_ROUTING_FALLBACK_MODEL: "", FLYD_CLAUDE: "1", CLAUDE_API_KEY: "sk-ant-api03-testsecretvalue000111222" });
+    const report = await flydSetupReport();
+    expect(report).toMatch(/Chat: [^\n]*anthropic:claude-sonnet-5-5 \[code default \(CLAUDE_API_KEY set, under the monthly cap\)\]; if it fails: opencode-go\/deepseek-v4\.1-flash/);
+    expect(report).toMatch(/Deciding who answers[^\n]*anthropic:claude-haiku-5-5 \[code default/);
+    expect(report).toMatch(/Typing suggestions[^\n]*anthropic:claude-haiku-5-5/);
+    expect(report).toMatch(/Summaries of long replies[^\n]*claude-haiku-5-5 \[code default\]; if it fails: grok-4-fast-non-reasoning/);
+    expect(report).toMatch(/Coding crewmates[^\n]*OpenCode's own default model/);
+    expect(report).toMatch(/Claude spend for \d{4}-\d{2}: \$\d+\.\d{2} of a \$100 monthly cap/);
+    expect(report).toMatch(/Provider keys present \(names only\): [^\n]*CLAUDE_API_KEY/);
+    expect(report).not.toContain("sk-ant-api03-testsecretvalue000111222");
+  });
+
   it("never shows a key, token or secret, only which ones are present", async () => {
     configure({ ...CONFIGURED, ...SECRETS, GITHUB_TOKEN: "ghp_testsecretvalue1234567890abcdef" });
     const report = await flydSetupReport();
@@ -80,6 +94,8 @@ describe("Flyd's own setup", () => {
     BEACON_JEV_MODEL: { FLYD_JEV_MODEL: undefined },
     OPENROUTER_MODEL: { OPENROUTER_API_KEY: "or-testsecret-0011223344" },
     FLYD_VIEW_ANTHROPIC_MODEL: { ANTHROPIC_API_KEY: "ant-testsecret-5566778899" },
+    FLYD_CLAUDE_CHAT_MODEL: { CLAUDE_API_KEY: "ant-testsecret-5566778899", FLYD_CLAUDE: "1" },
+    FLYD_CLAUDE_QUICK_MODEL: { CLAUDE_API_KEY: "ant-testsecret-5566778899", FLYD_CLAUDE: "1" },
   };
 
   it("shows the model each listed setting names, whichever one is set", async () => {

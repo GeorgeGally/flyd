@@ -13,6 +13,7 @@ import {
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";
 export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
+import { claudeApiKey, claudeAvailable } from "./claude-spend.js";
 
 export const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -82,6 +83,9 @@ export const SKILLS_DIR = join(process.cwd(), ".opencode", "skills");
 interface FlydConfig {
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  CLAUDE_API_KEY?: string;
+  CLAUDE_WORKSPACE_ID?: string;
+  ANTHROPIC_WORKSPACE_ID?: string;
   OPENCODE_API_KEY?: string;
   OPENCODE_API?: string;
   GITHUB_TOKEN?: string;
@@ -89,6 +93,8 @@ interface FlydConfig {
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
   FLYD_CHAT_FALLBACK_MODELS?: string;
+  FLYD_CLAUDE_CHAT_MODEL?: string;
+  FLYD_CLAUDE_QUICK_MODEL?: string;
   FLYD_PREDICTIONS?: string;
   FLYD_PREDICTION_MODEL?: string;
   FLYD_MODEL_API_KEY?: string;
@@ -149,14 +155,52 @@ export function defaultChatModel(): string {
   return model;
 }
 
+export const DEFAULT_CLAUDE_CHAT_MODEL = "anthropic:claude-sonnet-5-5";
+export const DEFAULT_CLAUDE_QUICK_MODEL = "anthropic:claude-haiku-5-5";
+
+/** A bare Claude id names the Anthropic API whatever FLYD_PROVIDER says. */
+function anthropicQualified(model: string): string {
+  return qualifiedModelProvider(model) ? model : `anthropic:${model}`;
+}
+
+/** Claude for chat while the key is set and the month is under its cap; null otherwise. */
+export function claudeChatModel(): string | null {
+  if (!claudeAvailable()) return null;
+  return anthropicQualified(getKey("FLYD_CLAUDE_CHAT_MODEL")?.trim() || DEFAULT_CLAUDE_CHAT_MODEL);
+}
+
+/** Claude for quick jobs (routing, rewrites, summaries, status lines, typing); null when off or capped. */
+export function claudeQuickModel(): string | null {
+  if (!claudeAvailable()) return null;
+  return anthropicQualified(getKey("FLYD_CLAUDE_QUICK_MODEL")?.trim() || DEFAULT_CLAUDE_QUICK_MODEL);
+}
+
 /**
- * Ordered chat models: the configured chat model, then FLYD_CHAT_FALLBACK_MODELS
- * (comma-separated, provider-qualified like "openai:gpt-5.6-luna"), then
- * CommandCode whenever its key is present. A provider outage or quota wall on
- * one entry must not leave the personal agent mute.
+ * Ordered chat models: Claude while it is on and under its monthly cap, then
+ * the configured chat model, then FLYD_CHAT_FALLBACK_MODELS (comma-separated,
+ * provider-qualified like "openai:gpt-5.6-luna"), then CommandCode whenever its
+ * key is present. A provider outage or quota wall on one entry must not leave
+ * the personal agent mute.
  */
 export function chatModelChain(): string[] {
-  return [...new Set([defaultChatModel(), ...fallbackModelChain()])];
+  const claude = claudeChatModel();
+  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultChatModel, claude), ...fallbackModelChain()])];
+}
+
+/** Quick jobs: Claude Haiku first, then the models those jobs used before. */
+export function quickModelChain(): string[] {
+  const claude = claudeQuickModel();
+  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultModel, claude), ...fallbackModelChain()])];
+}
+
+/** The configured model; with Claude in front, a missing FLYD_MODEL is no longer fatal. */
+function configuredOr(configured: () => string, claude: string | null): string[] {
+  try {
+    return [configured()];
+  } catch (error) {
+    if (claude) return [];
+    throw error;
+  }
 }
 
 /** Fallback models only, in order; shared by chat and one-shot queries. */
@@ -194,7 +238,7 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
       case "openrouter":
         return { apiKey: getKey("OPENROUTER_API_KEY")?.trim(), keyName: "OPENROUTER_API_KEY", baseURL: OPENROUTER_BASE_URL };
       case "anthropic":
-        return { apiKey: getKey("ANTHROPIC_API_KEY")?.trim(), keyName: "ANTHROPIC_API_KEY", baseURL: undefined };
+        return { apiKey: claudeApiKey(), keyName: "CLAUDE_API_KEY", baseURL: undefined };
       default:
         return {
           apiKey: getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim(),
@@ -238,13 +282,13 @@ export function resolveModelConnection(model = defaultChatModel()): ModelConnect
     ? getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim()
     : useOpenAI
       ? getKey("OPENAI_API_KEY")?.trim()
-      : getKey("ANTHROPIC_API_KEY")?.trim());
+      : claudeApiKey());
   if (!apiKey) {
     const keyName = opencode
       ? "OPENCODE_API_KEY"
       : useOpenAI
         ? "OPENAI_API_KEY"
-        : "ANTHROPIC_API_KEY";
+        : "CLAUDE_API_KEY";
     throw new Error(
       `No API key is configured for Flyd model ${model} (provider ${opencode ?? (useOpenAI ? "openai" : "anthropic")}): set FLYD_MODEL_API_KEY or ${keyName}`,
     );
@@ -275,7 +319,7 @@ export function hasApiKey(model?: string): boolean {
     return Boolean(getKey("OPENCODE_API_KEY") || getKey("OPENCODE_API"));
   }
   if (provider === "openai" || isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
-  if (provider === "anthropic" || !provider) return !!getKey("ANTHROPIC_API_KEY");
+  if (provider === "anthropic" || !provider) return !!claudeApiKey();
   return false;
 }
 

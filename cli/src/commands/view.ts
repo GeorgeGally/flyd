@@ -9,7 +9,7 @@ import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
-import { getKey } from "../lib/config.js";
+import { claudeApiKey } from "../lib/claude-spend.js";
 import { readProjects } from "../council/projects.js";
 import { tastePath } from "../council/taste.js";
 import { userProfilePath } from "../lib/user-profile.js";
@@ -75,7 +75,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Messages go to firstmate's own inbox, so the box only appears on
   // firstmate's conversation.
   const inbox = new FirstmateInbox();
-  const complete: Complete = async (prompt) => (await import("../lib/llm.js")).query(prompt);
+  // Routing, retold answers and status lines are quick jobs: Claude Haiku first.
+  const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt);
   const wantsInbox = options.project === undefined && inbox.available();
   const source = new ClaudeCodeTranscriptSource({
     projectDir,
@@ -95,10 +96,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     throw new Error(`No session ${options.session} in ${projectDir}`);
   }
 
-  // Plain-English summaries: xAI Grok, then Claude Haiku, from whichever keys
+  // Plain-English summaries: Claude Haiku, then xAI Grok, from whichever keys
   // exist; with neither, a long reply leads with Flyd's whole briefing of it
   // (engineering stubs out, a status card for several pieces of work, every sentence kept).
-  const providers = defaultProviders({ anthropicKey: getKey("ANTHROPIC_API_KEY") });
+  const providers = defaultProviders({ anthropicKey: claudeApiKey() });
   const summarizer = new ReplySummarizer({ providers, cacheFile: defaultSummaryCache() });
   // The plan's usage limits, from quota-axi when it can read them without prompting.
   const plan = new PlanUsageReader();
@@ -123,7 +124,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     ? `Summaries: ${providers.map((provider) => provider.name).join(", then ")} (reply text is sent to that provider; FLYD_VIEW_SUMMARIES=0 turns it off).`
     : process.env.FLYD_VIEW_SUMMARIES === "0"
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with Flyd's whole briefing."
-      : "Summaries: no XAI_API_KEY or ANTHROPIC_API_KEY found; long replies lead with Flyd's whole briefing.");
+      : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
   // A note firstmate leaves unread past three minutes: one macOS notification, besides the window's warning.
   const unread = wantsInbox

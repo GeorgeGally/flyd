@@ -54,6 +54,11 @@ vi.mock("openai", () => ({
 
 import { agentLoop } from "../llm.js";
 
+/** Flyd's own Anthropic account sends the system prompt as cacheable blocks. */
+const systemText = (system: unknown): string => Array.isArray(system)
+  ? system.map((block: { text?: string }) => block.text ?? "").join("\n\n")
+  : String(system);
+
 const readTool = {
   name: "grep",
   description: "search",
@@ -125,8 +130,8 @@ describe("agentLoop tool budget", () => {
 
     const last = state.calls.at(-1) as Record<string, unknown>;
     expect(last.tools).toBeUndefined();
-    expect(String(last.system)).toContain("Flyd's tool-call limit");
-    expect(String(last.system)).not.toContain("Tool budget is exhausted");
+    expect(systemText(last.system)).toContain("Flyd's tool-call limit");
+    expect(systemText(last.system)).not.toContain("Tool budget is exhausted");
     expect(answer).toBe("final answer");
   });
 

@@ -72,7 +72,11 @@ function previousRun(directory: string): Map<string, CaseResult> | null {
 
 async function main(): Promise<void> {
   const model = argValue("--model");
-  if (model) process.env.FLYD_CHAT_MODEL = model;
+  if (model) {
+    process.env.FLYD_CHAT_MODEL = model;
+    // The model under test leads the chain even while Flyd's own Claude is on.
+    process.env.FLYD_CLAUDE_CHAT_MODEL = model;
+  }
   // The judge stays fixed across runs so model comparisons are apples to apples.
   const judgeModel = evalJudgeModel();
   const only = argValue("--only")?.split(",").map((id) => id.trim()).filter(Boolean);

@@ -28,6 +28,9 @@ process.env.FLYD_TASTE_FILE ??= join(sandbox, "TASTE.md");
 process.env.FLYD_TASTE_STATE ??= join(sandbox, "taste-state.json");
 process.env.FLYD_CLAUDE_PROJECTS ??= join(sandbox, "claude-projects");
 process.env.FLYD_INVESTIGATOR ??= "0";
+process.env.FLYD_CLAUDE_SPEND_FILE ??= join(sandbox, "claude-spend.json");
+// A developer's own Anthropic key must not turn hermetic tests into live Claude calls.
+process.env.FLYD_CLAUDE ??= "0";
 // Self-improvement dispatches real crew work; tests opt in explicitly.
 process.env.FLYD_SELF_IMPROVE ??= "0";
 // Belt and braces: even an opted-in launch cannot reach the real OpenCode.
