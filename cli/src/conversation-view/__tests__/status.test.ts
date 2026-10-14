@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksForDecision, headlineOf, statusOf } from "../status.js";
+import { asksForDecision, forCaptain, headlineOf, statusOf } from "../status.js";
 import { ABOUT_FIXES } from "./fixtures/replies.js";
 
 describe("conversation status for the island", () => {
@@ -49,9 +49,30 @@ describe("conversation status for the island", () => {
     expect(asksForDecision("Done.\n\nDo you want me to push it?")).toBe(true);
     expect(asksForDecision("» Two options for the hero — your call.\n\n- A\n- B")).toBe(true);
     expect(asksForDecision("I can keep a minimum size on phones. Should I?")).toBe(true);
+    expect(statusOf({ messages: [{ id: "r1", role: "assistant", text: "Sir, the menu bar fix is merged.\n\nWant me to ship the island next?" }], working: false }).reply)
+      .toMatchObject({ headline: "Want me to ship the island next?", asks: true });
     expect(asksForDecision("Pushed.\n\n```js\nif (x?.y) {}\n```\n\nAll green.")).toBe(false);
     expect(asksForDecision("The stats are centred and committed.")).toBe(false);
     expect(asksForDecision('Four Flyd changes in one batch.\n\nSay "go" and one worker builds them.')).toBe(true);
+    expect(asksForDecision("Two pages landed.\n\nApprove the apply page and I'll merge it.")).toBe(true);
+    expect(forCaptain("Captain, approve the apply page and I'll merge it.", new Set())).toBe(true);
+    expect(asksForDecision("Sir, decide which hero we ship.")).toBe(true);
+    expect(asksForDecision("» Docs landed.\n\nApprove the apply page and I'll merge it.\n\nAll checks are green.")).toBe(true);
+    expect(asksForDecision("Sir, updates.\n\nWant me to ship the island?\n\n- Menu bar is merged.\n- Docs are merged.")).toBe(false);
+    expect(headlineOf("- Menu bar fix is merged. Approve the island next.\n- Docs are merged.")).toBe("Approve the island next, plus 1 more");
+    expect(statusOf({ messages: [{ id: "r7", role: "assistant", text: "- Menu bar fix is merged. Waiting on you for the island.\n- Docs are merged." }], working: false }).reply)
+      .toMatchObject({ headline: "Waiting on you for the island, plus 1 more", asks: true });
+    expect(headlineOf("- Island fix is merged, so the apply page is blocked.\n- Docs are merged.")).toBe("The apply page is blocked, plus 1 more");
+    const plan = "- Island fix is merged; I'll approve the follow-up once green.\n- Docs are merged.";
+    expect(statusOf({ messages: [{ id: "r8", role: "assistant", text: plan }], working: false }).reply).toMatchObject({ asks: false });
+    expect(forCaptain(plan, new Set())).toBe(false);
+    expect(headlineOf("- Island fix is merged, so the apply page is blocked. Approve the island next.\n- Docs are merged.")).toBe("The apply page is blocked, plus 1 more");
+    expect(headlineOf(`- ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(4)}Approve the island next.\n- Docs are merged.`)).toBe("Approve the island next, plus 1 more");
+    expect(statusOf({ messages: [{ id: "r9", role: "assistant", text: `» ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(2)}Want me to ship it?` }], working: false }).reply)
+      .toMatchObject({ headline: "Want me to ship it?", asks: true });
+    expect(forCaptain("Stale wake on the deals page. Was it the old timer? Yes, nothing to do.", new Set())).toBe(false);
+    expect(forCaptain("Holding the bump until CI is green, then I'll approve it.", new Set())).toBe(false);
+    expect(asksForDecision("Sir, the menu bar landed.\n\nDo you want the island next?\n\nThe docs are updated.")).toBe(false);
   });
 
   it("is working only while the turn is open and recently active, and names the newest reply", () => {
@@ -63,7 +84,7 @@ describe("conversation status for the island", () => {
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:59:00Z" }, now)).toEqual({
       working: true,
       lastActivity: "2026-10-06T02:59:00Z",
-      reply: { id: "r1", headline: "Pushed. Want me to merge?", asks: true },
+      reply: { id: "r1", headline: "Want me to merge?", asks: true },
     });
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:00:00Z" }, now).working).toBe(false);
     expect(statusOf({ messages: [], working: false }, now)).toEqual({ working: false });

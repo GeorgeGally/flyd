@@ -1271,7 +1271,7 @@ describe("header and artefact view", () => {
     figure.click();
     const sheet = document.getElementById("calls")!;
     expect(sheet.hidden).toBe(false);
-    expect(document.getElementById("calls-title")!.textContent).toBe("2 need you");
+    expect(document.getElementById("calls-title")!.textContent).toBe("2 decisions for you");
     const items = sheet.querySelectorAll(".call");
     expect(items).toHaveLength(2);
     expect(items[0]!.querySelector(".call-head")!.textContent).toBe("Publish the apply page?");

@@ -3928,7 +3928,7 @@ var __name = function (f) { return f; };
     drawnCalls = key;
     var open = {};
     callsList.querySelectorAll(".call").forEach(function (node) { open[node.dataset.id] = node.contains(document.activeElement); });
-    document.getElementById("calls-title").textContent = calls.length === 1 ? "One needs you" : calls.length + " need you";
+    document.getElementById("calls-title").textContent = calls.length === 1 ? "Your decision" : calls.length + " decisions for you";
     callsList.textContent = "";
     calls.forEach(function (call, index) {
       var item = el("li", "call");
@@ -4129,7 +4129,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <div class="readouts" id="readouts" aria-label="Readouts"></div>
   <div class="calls" id="calls" hidden role="dialog" aria-modal="true" aria-labelledby="calls-title">
     <div class="calls-sheet" tabindex="-1">
-      <div class="calls-top"><h2 id="calls-title">Need you</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
+      <div class="calls-top"><h2 id="calls-title">Your decisions</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
       <ol class="calls-list" id="calls-list"></ol>
     </div>
   </div>

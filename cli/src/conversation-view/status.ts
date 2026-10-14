@@ -1,5 +1,5 @@
 import { plainLinks } from "./line-links.js";
-import { brief, statusHeadline, withoutStubs } from "./executive.js";
+import { asksIn, brief, decisionOf, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -22,13 +22,9 @@ export interface ConversationStatus {
 const WORKING_STALE_MS = 10 * 60 * 1000;
 const HEADLINE_CHARS = 72;
 
-/** The reply's closing words ask the captain something: a question, or a call for his decision. */
+/** The reply asks the captain something: a question, or a call for his decision. */
 export function asksForDecision(text: string): boolean {
-  const prose = text.replace(/```[\s\S]*?```/g, "").trim();
-  const last = prose.split(/\n\s*\n/).filter((block) => block.trim()).pop() ?? "";
-  const summary = authorSummary(text)?.summary ?? "";
-  const asking = /\b(do you want|would you like|should i|shall i|want me to|which (one|option|do you)|your call|your decision|needs? your (decision|call|ok|approval)|ok to|okay to|approve)\b|\bsay ["“]\w+/i;
-  return /\?/.test(last) || /\?/.test(summary) || asking.test(last) || asking.test(summary) || brief(text).items.some((item) => item.state === "needs");
+  return asksIn(text).length > 0 || brief(text).items.some((item) => item.state === "needs");
 }
 
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\b/g;
@@ -52,19 +48,33 @@ export function forCaptain(text: string, named: ReadonlySet<string>): boolean {
 }
 
 /**
- * A few words for the island. The reply's own » summary, else the labels of
- * its numbered points (so a three-part report names all three), else its lead
- * sentence without the salutation.
+ * A few words for the island. A report on several pieces of work reads as
+ * where they stand; else the decision it asks of him; else the reply's own
+ * » summary, else the labels of its numbered points (so a three-part report
+ * names all three), else its lead sentence without the salutation.
  */
 export function headlineOf(text: string): string {
+  return readingOf(text).headline;
+}
+
+/** The island's line for a reply, and whether that line names a decision of his. */
+function readingOf(text: string): { headline: string; asks: boolean } {
+  const asks = asksIn(text);
   // A report on several pieces of work reads as where they stand.
   const { items } = brief(text);
-  if (items.length >= 2) return statusHeadline(items);
+  if (items.length >= 2) return statusHeadline(items, asks, HEADLINE_CHARS);
+  // A decision of his is named as the decision, never put on a result.
+  const decision = decisionOf(asks);
+  if (decision) return { headline: fit(decision), asks: true };
   const said = withoutStubs(text);
   const own = authorSummary(said)?.summary;
   const digest = own ? null : digestReply(said);
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label)) ?? [];
-  const headline = (own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)).replace(/\s+/g, " ").trim();
+  return { headline: fit(own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)), asks: false };
+}
+
+function fit(text: string): string {
+  const headline = text.replace(/\s+/g, " ").trim();
   if (headline.length <= HEADLINE_CHARS) return headline;
   const cut = headline.slice(0, HEADLINE_CHARS);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`;
@@ -79,7 +89,7 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     working,
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
-    ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
+    ...(reply ? { reply: { id: reply.id, ...readingOf(reply.text) } } : {}),
     ...(newest?.waiting ? { waiting: { id: newest.id, text: plainLinks(newest.waiting), ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
   };
 }
