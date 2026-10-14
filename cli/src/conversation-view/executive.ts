@@ -373,6 +373,12 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
 
 const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|your (?:call|decision|word|ok|go-ahead)|needs? your)\b/i;
 
+/** Every sentence after a reply's opening paragraph that asks something of him. */
+export function asksIn(prose: string): string[] {
+  const [, ...rest] = prose.split(/\n\s*\n/);
+  return rest.flatMap((paragraph) => sentences(inline(paragraph)).filter((sentence) => ASKS.test(sentence)));
+}
+
 /**
  * The summary of a reply that reports several pieces of work: a one-line
  * lead (Flyd's own reading when it has one, else the reply's opening), the
@@ -382,23 +388,35 @@ const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|wa
 export function statusSummaryHtml(text: string, reading?: string): string | undefined {
   const { prose, items } = brief(text);
   if (items.length === 0) return undefined;
-  const [opening = "", ...rest] = prose.split(/\n\s*\n/);
-  const asks = rest.flatMap((paragraph) => sentences(inline(paragraph)).filter((sentence) => ASKS.test(sentence)));
+  const [opening = ""] = prose.split(/\n\s*\n/);
+  const asks = asksIn(prose);
   const lead = reading ? renderBriefing(reading) : renderMarkdown(opening);
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }
 
+const SAY_WORDS = /\bsay\s*["“']([^"”']+)["”']/i;
+
+/** The decision the asks name, plainest first: 'Say "drop the local edit" and I'll…' → "Drop the local edit?", else a question, else any ask. */
+function decisionOf(asks: string[]): string | undefined {
+  const say = asks.map((sentence) => SAY_WORDS.exec(sentence)).find(Boolean);
+  if (say) return `${capitalise(say[1]!.trim().replace(/[.!?,;:]+$/, ""))}?`;
+  return asks.find((sentence) => /\?$/.test(sentence)) ?? asks[0];
+}
+
 /**
- * The status in a sentence for the island, as a chief of staff would put it:
- * the decision waiting on him, else the newest result, else what is moving,
- * then "plus 2 more" for the rest. Each item speaks in its own words.
+ * The status in a sentence for the island, as a chief of staff would put it,
+ * within `limit` characters: the decision waiting on him (an item that needs
+ * him, else what the reply's prose `asks`), else the last result it lists,
+ * else what is moving, then "plus 2 more" for the rest. `asks` is true only
+ * when the line names a decision.
  */
-export function statusHeadline(items: StatusItem[]): string {
-  const lead = items.find((item) => item.state === "needs")
-    ?? [...items].reverse().find((item) => item.state === "landed")
-    ?? items[0];
-  if (!lead) return "";
-  const said = (lead.ask ?? lead.text).replace(/\s+/g, " ").trim();
-  const rest = items.length - 1;
-  return rest ? `${capitalise(said.replace(/[.]$/, ""))}, plus ${rest} more` : capitalise(said);
+export function statusHeadline(items: StatusItem[], asks: string[], limit: number): { headline: string; asks: boolean } {
+  const needs = items.find((item) => item.state === "needs");
+  const question = needs ? undefined : decisionOf(asks);
+  const lead = needs ?? [...items].reverse().find((item) => item.state === "landed") ?? items[0];
+  const said = (question ?? lead?.text ?? "").replace(/\s+/g, " ").trim();
+  const rest = question ? items.length : items.length - 1;
+  const line = capitalise(clip(said, rest ? limit - `, plus ${rest} more`.length : limit));
+  const headline = !rest ? line : /[?!]$/.test(line) ? `${line} Plus ${rest} more` : `${line.replace(/[.,;:]+$/, "")}, plus ${rest} more`;
+  return { headline, asks: Boolean(needs ?? question) };
 }

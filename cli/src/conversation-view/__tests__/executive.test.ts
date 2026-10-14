@@ -93,7 +93,15 @@ describe("Flyd's executive voice", () => {
   });
 
   it("tells the island the one thing that matters most, in its own words", () => {
-    expect(headlineOf(inFlydsVoice(WHERE_EVERYTHING_STANDS))).toBe("Drag-and-drop for documents, plus 4 more");
+    const stands = statusOf({ messages: [{ id: "r0", role: "assistant", text: inFlydsVoice(WHERE_EVERYTHING_STANDS) }], working: false });
+    expect(stands.reply).toMatchObject({ headline: "Drop the local edit? Plus 5 more", asks: true });
+    const settled = inFlydsVoice(WHERE_EVERYTHING_STANDS).replace(/\*\*Reinstall blocked[^\n]*\n\n/, "");
+    expect(headlineOf(settled)).toBe("Drag-and-drop for documents, plus 4 more");
+    expect(statusOf({ messages: [{ id: "r2", role: "assistant", text: `${settled}\n\nOk to reinstall now.` }], working: false }).reply)
+      .toMatchObject({ headline: "Drag-and-drop for documents, plus 4 more", asks: false });
+    const long = `Sir, where things stand.\n\n- The menu bar fix is merged.\n- ${"The deals page now loads the newest twelve deals first and pages the rest ".repeat(2)}is merged.`;
+    expect(headlineOf(long)).toMatch(/…, plus 1 more$/);
+    expect(headlineOf(long).length).toBeLessThanOrEqual(72);
     const status = statusOf({ messages: [{ id: "r1", role: "assistant", text: inFlydsVoice(FOUR_READY) }], working: false });
     expect(status.reply).toMatchObject({ headline: "The island redesign, plus 3 more", asks: true });
     expect(headlineOf("Captain, PR 58 (https://github.com/GeorgeGally/flyd/pull/58) merged.")).not.toMatch(STUB);

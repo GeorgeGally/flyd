@@ -1,5 +1,5 @@
 import { plainLinks } from "./line-links.js";
-import { brief, statusHeadline, withoutStubs } from "./executive.js";
+import { asksIn, brief, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -57,17 +57,23 @@ export function forCaptain(text: string, named: ReadonlySet<string>): boolean {
  * sentence without the salutation.
  */
 export function headlineOf(text: string): string {
+  return readingOf(text).headline;
+}
+
+/** The island's line for a reply, and whether that line names a decision of his. */
+function readingOf(text: string): { headline: string; asks: boolean } {
   // A report on several pieces of work reads as where they stand.
-  const { items } = brief(text);
-  if (items.length >= 2) return statusHeadline(items);
+  const { items, prose } = brief(text);
+  if (items.length >= 2) return statusHeadline(items, asksIn(prose), HEADLINE_CHARS);
+  const asks = asksForDecision(text);
   const said = withoutStubs(text);
   const own = authorSummary(said)?.summary;
   const digest = own ? null : digestReply(said);
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label)) ?? [];
   const headline = (own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)).replace(/\s+/g, " ").trim();
-  if (headline.length <= HEADLINE_CHARS) return headline;
+  if (headline.length <= HEADLINE_CHARS) return { headline, asks };
   const cut = headline.slice(0, HEADLINE_CHARS);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`;
+  return { headline: `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`, asks };
 }
 
 export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): ConversationStatus {
@@ -79,7 +85,7 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     working,
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
-    ...(reply ? { reply: { id: reply.id, headline: headlineOf(reply.text), asks: asksForDecision(reply.text) } } : {}),
+    ...(reply ? { reply: { id: reply.id, ...readingOf(reply.text) } } : {}),
     ...(newest?.waiting ? { waiting: { id: newest.id, text: plainLinks(newest.waiting), ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
   };
 }
