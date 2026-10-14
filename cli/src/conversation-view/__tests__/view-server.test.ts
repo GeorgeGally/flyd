@@ -1,5 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { request } from "node:http";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1376,6 +1378,55 @@ describe("ConversationViewServer", () => {
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
     expect(status).toMatchObject({ session: "s1", working: false, reply: { headline: "Want me to merge the change?", asks: true } });
+  });
+
+  it("takes Claude Code's notices in place of macOS notifications: the island rings for one that needs him, the column keeps them", async () => {
+    const port = await start();
+    const json = { "content-type": "application/json" };
+    const hook = JSON.stringify({ hook_event_name: "Notification", session_id: "abc", cwd: "/Users/x/flyd", message: "Claude needs your permission to use Bash", notification_type: "permission_prompt" });
+    // A browser page cannot post one: it always names its origin, and cannot send JSON without asking.
+    expect((await post(port, hook, { ...json, origin: "https://evil.example" }, "/api/notice")).status).toBe(403);
+    expect((await post(port, hook, { "content-type": "text/plain" }, "/api/notice")).status).toBe(415);
+    expect((await post(port, "[]", json, "/api/notice")).status).toBe(400);
+    expect((await post(port, JSON.stringify({ title: "Nothing to say" }), json, "/api/notice")).status).toBe(400);
+    const first = JSON.parse((await post(port, hook, json, "/api/notice")).body);
+    expect(first).toMatchObject({ kind: "attention", count: 1 });
+    // A repeat is the same notice, so the island rings once.
+    expect(JSON.parse((await post(port, hook, json, "/api/notice")).body)).toMatchObject({ id: first.id, count: 2 });
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: status")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
+    expect(status.notice).toEqual({ id: first.id, text: "flyd: Claude needs your permission to use Bash" });
+    // The session moved on to waiting for input: the column shows that, quietly.
+    await post(port, JSON.stringify({ hook_event_name: "Notification", session_id: "abc", cwd: "/Users/x/flyd", message: "Claude is waiting for your input", notification_type: "idle_prompt" }), json, "/api/notice");
+    const stream = await get(port, "/api/stream");
+    const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.rail.notices).toEqual([expect.objectContaining({ kind: "idle", text: "flyd: Claude is waiting for your input" })]);
+  });
+
+  it("ships a Notification hook that forwards to Flyd and never fails the hook, even with Flyd down", async () => {
+    const hookScript = fileURLToPath(new URL("../../../../bin/claude-notify-to-flyd", import.meta.url));
+    const input = JSON.stringify({ hook_event_name: "Notification", session_id: "s9", cwd: "/Users/x/flyd", message: "Claude is waiting for your input", notification_type: "idle_prompt" });
+    const run = (url: string) => new Promise<number | null>((resolve) => {
+      const child = execFile(hookScript, [], { env: { ...process.env, FLYD_VIEW_URL: url } }, () => undefined);
+      child.on("exit", resolve);
+      child.stdin!.end(input);
+    });
+    const port = await start();
+    expect(await run(`http://127.0.0.1:${port}`)).toBe(0);
+    expect(server!.notices.list()).toEqual([expect.objectContaining({ session: "s9", kind: "idle", project: "flyd" })]);
+    await server!.close();
+    expect(await run(`http://127.0.0.1:${port}`)).toBe(0);
   });
 
   it("shows what Flyd knows about the captain's taste, and lets only its own page reword or veto a rule", async () => {

@@ -1617,6 +1617,7 @@ var __name = function (f) { return f; };
     first = false;
     if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
+    notices = (update.rail && update.rail.notices) || [];
     renderBrief(update.show);
     renderActivity(update.leftColumn);
   }
@@ -1625,6 +1626,9 @@ var __name = function (f) { return f; };
   var briefEl = document.getElementById("brief");
   var needsEl = document.getElementById("needs");
   var doneEl = document.getElementById("done");
+  var noticesEl = document.getElementById("notices");
+  // Notices other tools sent instead of macOS notifications, newest first.
+  var notices = [];
   var briefFilled = false;
   var lastBrief = null;
   var needsAt = Number(store("flyd-needs-at")) || 0;
@@ -1911,7 +1915,12 @@ var __name = function (f) { return f; };
     setNeeds((decisions || calls).map(function (item) { return item.id; }));
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-    briefFilled = !doneEl.hidden;
+    drawList(noticesEl, "Notices", notices.slice().reverse().map(function (notice) {
+      return { id: "notice:" + notice.id, headline: notice.text, at: notice.at, kind: notice.kind, count: notice.count };
+    }), function (item) {
+      return [item.kind === "attention" ? "Needs you" : "Done", item.count ? (item.count === 2 ? "twice" : item.count + " times") : "", item.at ? ago(item.at) : ""].filter(Boolean).join(" · ");
+    });
+    briefFilled = !doneEl.hidden || !noticesEl.hidden;
     briefEl.hidden = !briefFilled;
     showRail();
   }
@@ -4386,6 +4395,7 @@ ${LEFT_HTML}
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="rail-pane">
   <div class="brief" id="brief" hidden>
+    <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
   </div>
   </div>

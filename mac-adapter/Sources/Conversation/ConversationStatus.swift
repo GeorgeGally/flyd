@@ -15,10 +15,16 @@ struct ConversationStatusPayload: Decodable, Equatable {
         /// The line says the answer failed, not that work is under way.
         let failed: Bool?
     }
+    /// A notice another tool sent Flyd instead of a macOS notification, that needs him.
+    struct Notice: Decodable, Equatable {
+        let id: String
+        let text: String
+    }
     let session: String
     let working: Bool
     let reply: Reply?
     let waiting: Waiting?
+    let notice: Notice?
 }
 
 /// What the island should do for a status change. Pure, so it is testable.
@@ -41,6 +47,10 @@ enum ConversationStatusDecision: Equatable {
         if !newSession, decisions.isEmpty, let waiting = current.waiting, waiting.failed == true,
            waiting.id != previous?.waiting?.id || previous?.waiting?.failed != true {
             decisions.append(.announce(waiting.text, .reply))
+        }
+        // A notice that needs him (a permission prompt, a usage limit) rings once; a repeat keeps its id.
+        if !newSession, let notice = current.notice, notice.id != previous?.notice?.id {
+            decisions.append(.announce("Needs you: \(notice.text)", .decision))
         }
         if current.working {
             if previous?.working != true || newSession { decisions.append(.showWorking) }

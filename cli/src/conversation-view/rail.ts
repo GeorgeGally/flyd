@@ -109,11 +109,25 @@ export interface RailProject {
   repos: string[];
 }
 
+/** A notice another tool sent Flyd instead of a macOS notification, as the column shows it. */
+export interface RailNotice {
+  id: string;
+  kind: "attention" | "idle";
+  /** "flyd: Claude is waiting for your input". */
+  text: string;
+  /** When it last came. */
+  at: string;
+  /** How many times it came, when more than once. */
+  count?: number;
+}
+
 export interface Rail {
   conversations: RailConversation[];
   artefacts: RailArtefact[];
   /** What Flyd remembers that applies here, and what it is taking in now. */
   memory?: RailMemories;
+  /** Notices from other tools, oldest first. */
+  notices?: RailNotice[];
 }
 
 /** How far back a named preview still counts as what we are talking about. */
