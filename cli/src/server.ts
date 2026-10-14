@@ -1900,6 +1900,8 @@ export function stopServer(): Promise<void> {
       return;
     }
 
+    for (const subscriber of notificationSubscribers) subscriber.end();
+    notificationSubscribers.clear();
     serverInstance.close((err) => {
       serverInstance = null;
       if (err) {
