@@ -69,6 +69,22 @@ describe("pasted code in the captain's messages", () => {
 });
 
 describe("SnapshotDiffer", () => {
+  it("turns actionable numbered replies into an artefact pointer while keeping short replies conversational", () => {
+    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Keep the specific redirect rules above the general rule.";
+    const differ = new SnapshotDiffer();
+    const update = differ.next({ messages: [{ id: "answer", role: "assistant", text: steps, answers: "note:redirects" }], working: false });
+    expect(update.messages[0]?.html).toContain("Open the redirect steps in Artefacts.");
+    expect(update.messages[0]?.artifact).toMatchObject({ title: "Redirect steps", steps: [
+      "Delete the existing catch-all rule.",
+      "Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.",
+      "Keep the specific redirect rules above the general rule.",
+    ] });
+
+    const plain = differ.next({ messages: [{ id: "plain", role: "assistant", text: "Yes, the specific rules should stay above the general rule.", answers: "note:redirects" }], working: false });
+    expect(plain.messages[0]?.html).toContain("Yes, the specific rules should stay above the general rule.");
+    expect(plain.messages[0]?.artifact).toBeUndefined();
+  });
+
   it("sends each message once and again only when its text changes", () => {
     const differ = new SnapshotDiffer();
     const first = differ.next({ messages: [{ id: "a", role: "user", text: "hi" }], working: true });

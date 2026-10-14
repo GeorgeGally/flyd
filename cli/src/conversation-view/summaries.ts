@@ -152,6 +152,21 @@ export function isActionable(text: string): boolean {
   return ACT_ON.test(text.replace(/`[^`]*`/g, ""));
 }
 
+export interface ReplyArtefact {
+  title: string;
+  steps: string[];
+}
+
+export function replyArtefact(text: string): ReplyArtefact | undefined {
+  const steps = text.split("\n").flatMap((line) => {
+    const match = /^\s*\d+[.)]\s+(.+)$/.exec(line);
+    return match ? [inline(match[1]!)] : [];
+  });
+  if (steps.length < 2 || !steps.every((step) => /^(?:add|delete|remove|keep|move|set|enter|copy|paste|replace|choose|select|open|click|save|check|run|update|clear|install|create|turn|enable|disable|send|reply|review|compare)\b/i.test(step))) return undefined;
+  const title = /\bredirect\b/i.test(text) ? "Redirect steps" : "Steps to follow";
+  return { title, steps };
+}
+
 /** Whether a reply is routine chatter: short, with no question or numbered report. */
 export function isRoutine(text: string): boolean {
   const body = bodyOf(text);

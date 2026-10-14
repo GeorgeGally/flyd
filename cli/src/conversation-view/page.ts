@@ -1869,6 +1869,11 @@ var __name = function (f) { return f; };
       box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
     }
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (card.steps && card.steps.length) {
+      var steps = el("ol", "rail-card-steps");
+      card.steps.forEach(function (step) { steps.appendChild(el("li", "", step)); });
+      box.appendChild(steps);
+    }
     if (server && server.command) {
       var served = el("p", "rail-card-server" + (server.own === false ? " rail-card-server--copy" : ""));
       served.appendChild(el("span", "", [server.command, server.folder].filter(Boolean).join(" · ")));

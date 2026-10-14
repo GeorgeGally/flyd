@@ -4,6 +4,7 @@ import type { WorkState } from "./executive.js";
 import type { RailMemories } from "./memory.js";
 import { capitalise, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
+import { replyArtefact } from "./summaries.js";
 
 // Flyd's right column: one scrolling list of what he is talking about and what
 // came back. His questions each carry their answer below it, and a preview of
@@ -64,6 +65,7 @@ export interface RailArtefact {
   id: string;
   title: string;
   line?: string;
+  steps?: string[];
   url?: string;
   /** A live local URL to show inline in the column. */
   preview?: string;
@@ -484,8 +486,13 @@ export function composeRail(
       };
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
+  const replyArtefacts: RailArtefact[] = exchanges.flatMap(({ answer }) => {
+    if (!answer) return [];
+    const artifact = replyArtefact(answer.text);
+    return artifact ? [{ id: `reply:${answer.id}`, title: artifact.title, steps: artifact.steps }] : [];
+  });
   // One row per message: each with its own answer, never folded into its neighbours.
-  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card) };
+  return { conversations: threadReplies(conversations), artefacts: railCards([...replyArtefacts, ...artefacts], previews, attached, card) };
 }
 
 /** Each reply under the conversation it answers, a reply to a reply under the same one; a reply whose answer is gone stands alone. Pure. */

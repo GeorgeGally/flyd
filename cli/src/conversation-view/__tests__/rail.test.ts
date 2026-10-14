@@ -139,6 +139,22 @@ describe("outcomeFirst", () => {
 });
 
 describe("composeRail", () => {
+  it("puts actionable assistant replies in the Artefacts list as readable steps", () => {
+    const rail = composeRail([{
+      question: { id: "note:redirect", role: "user", text: "What should I do with these redirects?" },
+      answer: { id: "reply:redirect", role: "assistant", answers: "note:redirect", text: "1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Keep the specific redirect rules above the general rule." },
+    }], []);
+    expect(rail.artefacts).toContainEqual({
+      id: "reply:reply:redirect",
+      title: "Redirect steps",
+      steps: [
+        "Delete the existing catch-all rule.",
+        "Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.",
+        "Keep the specific redirect rules above the general rule.",
+      ],
+    });
+  });
+
   const artefacts: RailArtefact[] = [{ id: "landed:x", title: "Christmas Nuanu map", line: "just landed" }];
 
   it("puts each answer below its question, with the reply's own preview under it", () => {

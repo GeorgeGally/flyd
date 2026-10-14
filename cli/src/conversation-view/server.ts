@@ -20,7 +20,7 @@ import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -97,6 +97,7 @@ export interface RenderedMessage {
   compare?: { html: string; pending?: boolean };
   /** The reply hands the captain something to act on: the page never folds it behind its summary. */
   expanded?: boolean;
+  artifact?: ReplyArtefact;
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
   timestamp?: string;
@@ -290,6 +291,12 @@ export class SnapshotDiffer {
         : !message.answers ? this.summarize(message, newest.has(message.id), handled)
           : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id), handled)
             : { body: message.text };
+      const artifact = message.role === "assistant" ? replyArtefact(message.text) : undefined;
+      if (artifact) {
+        parts.body = `Open the ${artifact.title.toLowerCase()} in Artefacts.`;
+        delete parts.summary;
+        delete parts.expanded;
+      }
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
       if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), handled);
@@ -302,7 +309,7 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -318,6 +325,7 @@ export class SnapshotDiffer {
         ...(parts.compare ? { compare: parts.compare } : {}),
         ...(routine ? { routine: true } : {}),
         ...(expanded ? { expanded: true } : {}),
+        ...(artifact ? { artifact } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),
@@ -714,7 +722,12 @@ export class ConversationViewServer {
         ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
         ...(item.at ? { at: item.at } : {}),
       }));
-    const artefacts: RailArtefact[] = [...sites, ...composeArtefact(this.feed.current(), { project })
+    const reported: RailArtefact[] = snapshot.messages.flatMap((message) => {
+      if (message.role !== "assistant" || message.answers) return [];
+      const artifact = replyArtefact(message.text);
+      return artifact ? [{ id: `reply:${message.id}`, title: artifact.title, steps: artifact.steps }] : [];
+    });
+    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,
