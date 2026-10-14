@@ -454,7 +454,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* The right column: his conversations with their answers, and artefacts beside them. */
 .rail {
   position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
-  display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--faint);
+  display: flex; flex-direction: column; background: var(--bg);
   box-shadow: -18px 0 44px rgba(0, 0, 0, 0.22); font-size: 0.62em;
 }
 .rail[hidden] { display: none; }
@@ -466,19 +466,25 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 }
 .rail-hide:hover { color: var(--fg); }
 .rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rail-tabs { display: flex; gap: 20px; padding: 14px 18px 10px; }
+.rail-tabs button { padding: 0 0 5px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 13px/1.2 var(--mono); cursor: pointer; }
+.rail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.rail-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rail-pane[hidden] { display: none; }
 /* The top of the column: one decision that needs him, the jobs under way, and what got done. */
 .brief { flex: none; max-height: 62%; overflow-y: auto; padding: 18px 18px 6px; border-bottom: 1px solid var(--faint); }
 .brief[hidden], .brief > [hidden] { display: none; }
 .brief > section + section { margin-top: 22px; }
 .brief-top { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; padding-right: 32px; }
-.brief-label { margin: 0; font: 600 13px/1.2 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.brief-label { margin: 0; font: 600 13px/1.2 var(--mono); letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
 .needs .brief-label { color: var(--k-call); }
 .needs-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font: 500 13px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .needs-nav button { font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; transition: color 140ms ease; }
 .needs-nav button:hover { color: var(--fg); }
 .needs-nav button:disabled { opacity: 0.35; cursor: default; }
 .needs-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.needs-meta { margin: 0 0 4px; font: 400 12px/1.4 var(--mono); color: var(--muted); }
+.needs-meta { margin: 0 0 4px; font: 400 12px/1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .needs-head { margin: 0; font: 500 18px/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .needs-detail { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .needs-rec { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); font: 400 15px/1.5 var(--sans); color: var(--strong); text-wrap: pretty; }
@@ -520,7 +526,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-talk:not(.open) > .rail-a * { display: inline; margin: 0; }
 .rail-talk:not(.open) > .reply { display: none; }
 .rail-talk.is-done:not(.open) > .rail-q { color: var(--muted); font-weight: 400; }
-.rail-card { margin: 0 0 16px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
+.rail-card { margin: 0 0 22px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
 .rail-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: 500 14px/1.3 var(--mono); color: var(--fg); }
 .rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
 .rail-card p { margin: 0; padding: 0 12px 10px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
@@ -537,7 +543,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card-whose::before { content: "✓ "; }
 .rail-card-server--copy .rail-card-whose { color: var(--accent); }
 .rail-card-server--copy .rail-card-whose::before { content: "! "; }
-.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
+.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 /* A framed page is laid out at a desktop width and scaled down whole, like a
    screenshot of it: the narrow card never reflows it. The script sets --fit. */
 .rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; border-top: 1px solid var(--faint); background: #fff; }
@@ -641,7 +647,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .receipt.outcome { overflow-wrap: anywhere; }
 .receipt a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
-.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
+.msg.aside { color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
@@ -667,7 +673,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .body code { font: 0.84em var(--mono); background: var(--tint); padding: 0.12em 0.36em; border-radius: 5px; }
 .body pre { background: var(--tint); padding: 0.7em 0.85em; border-radius: 0.3em; overflow-x: auto; margin: 0 0 1em; font: 0.72em/1.6 var(--mono); }
 .body pre code { background: none; padding: 0; font: inherit; color: var(--fg); font-weight: 400; }
-.body blockquote { margin: 0 0 1em; padding: 0 0 0 1em; border-left: 2px solid var(--faint); color: var(--muted); }
+.body blockquote { margin: 0 0 1em; padding: 0; color: var(--muted); }
 .body hr { border: 0; border-top: 1px solid var(--faint); margin: 1.6em 0; }
 .body table { border-collapse: collapse; width: 100%; margin: 0.4em 0 1.1em; font-size: 0.8em; display: block; overflow-x: auto; }
 .body th { text-align: left; font: 500 0.82em var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
@@ -675,7 +681,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* A reply on several pieces of work, as Flyd shows it: grouped by what each
    asks of him, a coloured light per piece, the line itself opens the work.
    Flat, the artefact's colours; nothing framed. */
-.status-card { margin: 1.3em 0 1.4em; display: flex; flex-direction: column; gap: 1.3em; }
+.status-card { margin: 1.5em 0 1.6em; display: flex; flex-direction: column; gap: 1.7em; }
 .status-card:last-child { margin-bottom: 0; }
 /* A rail: the state on the left, its work on the right, like a title card. */
 .sc-group { --k: var(--k-news); display: grid; grid-template-columns: 7.2em minmax(0, 1fr); column-gap: 1.2em; align-items: baseline; }
@@ -690,7 +696,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
   animation: sc-in 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms);
 }
 .sc-what { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6em; }
-.sc-led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--k); transform: translateY(-0.12em); }
+.sc-led { display: none; }
 .sc-what .sc-led { align-self: center; transform: none; opacity: 0.5; transition: opacity 140ms ease; }
 .sc-what .sc-led:hover, .sc-what .sc-led:focus-visible { opacity: 1; outline: 0; }
 .sc-group.k-call .sc-row > .sc-led { box-shadow: 0 0 0 4px color-mix(in srgb, var(--k) 20%, transparent); animation: sc-pulse 2.4s ease-in-out infinite; }
@@ -745,7 +751,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .passage.open { width: min(520px, calc(100vw - 32px)); max-width: min(520px, calc(100vw - 32px)); }
 .passage-card { padding: 14px 18px 16px; }
 .passage .reply-head { margin-bottom: 10px; }
-.passage-quote { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 2px solid var(--accent); font: 400 17px/1.45 var(--sans); color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.passage-quote { margin: 0 0 12px; padding: 0; font: 400 17px/1.45 var(--sans); color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .passage .reply-row { align-items: center; gap: 12px; }
 .passage .reply-input { min-height: 34px; font-size: 19px; line-height: 26px; padding: 4px 0; color: var(--strong); background: transparent; border: 0; border-radius: 0; }
 .passage .reply-input:focus { outline: none; }
@@ -799,7 +805,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .auto-undo:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 .auto-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .choice { animation: none; } }
-.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--faint); }
+.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; }
 .rail-replies .rail-talk { margin: 0 0 12px; }
 .sc-ask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.5em; }
 .sc-ask-input { flex: 1; min-width: 8em; font: 400 0.82em/1.4 var(--sans); color: var(--fg); background: var(--tint); border: 0; border-radius: 8px; padding: 8px 10px; resize: none; }
@@ -838,7 +844,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .summary > :last-child { margin-bottom: 0; }
 .summary p { margin: 0 0 0.5em; }
 .summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
-.compare { margin-top: 0.5em; padding-left: 0.8em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.86em; }
+.compare { margin-top: 0.5em; padding-left: 0.8em; color: var(--muted); font-size: 0.86em; }
 .compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .compare p { margin: 0; }
 .more {
@@ -1633,6 +1639,16 @@ var __name = function (f) { return f; };
   // The right column: his conversations with their answers, and artefacts beside them.
   var railEl = document.getElementById("rail");
   var railBody = document.getElementById("rail-body");
+  var artefactBody = document.getElementById("artefact-body");
+  var railTab = store("flyd-rail-tab") || "artefacts";
+  function selectRailTab(tab) {
+    railTab = tab;
+    store("flyd-rail-tab", tab);
+    document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.setAttribute("aria-selected", String(button.getAttribute("data-rail-tab") === tab)); });
+    document.querySelectorAll("[data-rail-pane]").forEach(function (pane) { pane.hidden = pane.getAttribute("data-rail-pane") !== tab; });
+  }
+  document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.addEventListener("click", function () { selectRailTab(button.getAttribute("data-rail-tab")); }); });
+  selectRailTab(railTab === "detail" ? "detail" : "artefacts");
   var railSignature = null;
   var railHidden = store("flyd-rail") === "off";
   function railRoot() { return document.documentElement; }
@@ -2441,18 +2457,19 @@ var __name = function (f) { return f; };
     if (signature === railSignature) { showRail(); return; }
     railSignature = signature;
     var next = el("div");
+    var nextArtefacts = el("div");
     var talks = rail.conversations || [];
     // Chat order: the newest message last, at the bottom, which stays in view
     // unless he has scrolled up to read.
     var pinned = !railBody.firstElementChild || railBody.scrollHeight - railBody.scrollTop - railBody.clientHeight < 40;
     var cards = rail.artefacts || [];
     if (cards.length) {
-      next.appendChild(el("div", "rail-section", "Artefacts"));
-      cards.forEach(function (card) { next.appendChild(railCard(card)); });
+      cards.forEach(function (card) { nextArtefacts.appendChild(railCard(card)); });
     }
     if (talks.length) next.appendChild(el("div", "rail-section", "Conversations"));
     talks.forEach(function (talk) { next.appendChild(railTalk(talk)); });
     patch(railBody, Array.prototype.slice.call(next.children));
+    patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
     railFilled = talks.length > 0 || cards.length > 0;
     showRail();
     if (pinned) railBody.scrollTop = railBody.scrollHeight;
@@ -4061,12 +4078,18 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 </div>
 <aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
+  <nav class="rail-tabs" aria-label="Sidebar view"><button type="button" data-rail-tab="artefacts" aria-selected="true">Artefacts</button><button type="button" data-rail-tab="detail" aria-selected="false">Detailed view</button></nav>
+  <div class="rail-pane" data-rail-pane="artefacts">
   <div class="brief" id="brief" hidden>
     <section class="needs" id="needs" hidden aria-label="Needs you"></section>
     <section class="brief-list" id="underway" hidden aria-label="Under way"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
   </div>
-  <div class="rail-body" id="rail-body"></div>
+  <div class="rail-body" id="artefact-body"></div>
+  </div>
+  <div class="rail-pane" data-rail-pane="detail" hidden>
+    <div class="rail-body" id="rail-body"></div>
+  </div>
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>

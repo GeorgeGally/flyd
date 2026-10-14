@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
+import { ANSWERING } from "../living.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { AnswerInterpreter } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
@@ -71,9 +72,11 @@ describe("routeMessage", () => {
     expect(await routeMessage({ ...input, text: "fix the island filter" }, ask("FIRSTMATE"))).toBe("firstmate");
   });
 
-  it("keeps slash commands, screenshots, documents and anything unsure with firstmate", async () => {
+  it("keeps work attachments and anything unsure with firstmate, but lets Flyd answer image questions", async () => {
     expect(await routeMessage({ ...input, command: "review" }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, images: 1 }, ask("FLYD"))).toBe("firstmate");
+    expect(await routeMessage({ ...input, text: "what is usb overdrive?", images: 1 }, ask("FLYD"))).toBe("flyd");
+    expect(await routeMessage({ ...input, text: "fix this screenshot", images: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, files: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage(input, ask(new Error("no key")))).toBe("firstmate");
     expect(await routeMessage(input, ask("maybe"))).toBe("firstmate");
@@ -91,7 +94,7 @@ describe("routeMessage", () => {
     // An old conversation, or one firstmate is having, keeps the old default.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(45) } }, timedOut, 20)).toBe("firstmate");
     expect(await routeMessage({ ...followUp, previous: { owner: "firstmate", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
-    // A router that answers still decides, and attachments still go to firstmate.
+    // A router that answers still decides; an image does not turn a plain question into work.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask("FIRSTMATE"))).toBe("firstmate");
     expect(await routeMessage({ ...followUp, images: 1, previous: { owner: "flyd", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
   });
@@ -128,7 +131,7 @@ describe("FlydDesk", () => {
     const turn = deferred();
     const desk = new FlydDesk({ dir, answer: turn.answer });
     const sent = desk.ask("  whats there to do in bkk tonight?  ");
-    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Working on it" }]);
+    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: ANSWERING }]);
 
     turn.resolve("Tonight, sir: art bangkok at Siam Paragon.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
@@ -150,7 +153,7 @@ describe("FlydDesk", () => {
       return new Promise<string>((res) => { resolve = res; });
     } });
     desk.ask("what models is flyd using?");
-    expect(desk.exchanges()[0]!.waiting).toBe("Working on it");
+    expect(desk.exchanges()[0]!.waiting).toBe(ANSWERING);
     step!("Checking my own setup");
     expect(desk.exchanges()[0]!.waiting).toBe("Checking my own setup");
     step!("Searching the web: gpt-realtime-2.1 release notes…");
@@ -268,9 +271,9 @@ esac
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Working on it");
+    expect(sent.waiting).toBe("Queued for a next step");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Queued for a next step");
 
     // Firstmate reads the note, then busies itself with other work: that work's step is not this note's line.
     const inbox = join(home, "state", "inbox");

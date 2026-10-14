@@ -87,8 +87,8 @@ export async function routeMessage(
   timeoutMs = ROUTE_TIMEOUT_MS,
   options: DeskRoutingOptions = {},
 ): Promise<Route> {
-  // Attachments are read by firstmate; Flyd's own turn only sees words.
-  if (input.command || input.images > 0 || (input.files ?? 0) > 0 || !input.text.trim()) return "firstmate";
+  const plainQuestion = /^(?:what|who|whose|where|when|why|which|how)\b/i.test(input.text.trim()) && /\?\s*$/.test(input.text.trim());
+  if (input.command || (input.files ?? 0) > 0 || !input.text.trim() || (input.images > 0 && !plainQuestion)) return "firstmate";
   if (/\bwhatsapp\b/i.test(input.text) && isAccountIntent(input.text)) return "flyd";
   const started = Date.now();
   const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");
