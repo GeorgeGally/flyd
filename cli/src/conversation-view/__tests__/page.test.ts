@@ -1181,6 +1181,17 @@ describe("header and artefact view", () => {
     select(outside.firstChild!, 0, 3);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(pop.hidden).toBe(true);
+    // Switching conversation with the card open still sends it about the one he picked from.
+    select(document.querySelector(".msg.assistant .body p")!.firstChild!, 4, 10);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
+    input.value = "Slower";
+    open("other", [{ id: "o1", role: "assistant", html: "<p>Elsewhere</p>" }]);
+    await settle();
+    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const later = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(later.at(-1)).toEqual({ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Slower" });
   });
 
   it("shows phone-width work on a phone, where a click on a spot sends a comment with the page and the spot", async () => {

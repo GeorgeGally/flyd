@@ -1871,8 +1871,8 @@ var __name = function (f) { return f; };
       var range = selection.getRangeAt(0);
       var msg = messageOf(range.commonAncestorContainer);
       var text = selection.toString().replace(/[ \\t]+\\n/g, "\\n").trim();
-      if (!msg || !text) return null;
-      return { range: range.cloneRange(), text: text.slice(0, PASSAGE_CHARS), from: msg.classList.contains("user") ? "user" : "assistant" };
+      if (!msg || !text || !current) return null;
+      return { session: current, range: range.cloneRange(), text: text.slice(0, PASSAGE_CHARS), from: msg.classList.contains("user") ? "user" : "assistant" };
     }
     function place() {
       if (!picked) return;
@@ -1958,11 +1958,11 @@ var __name = function (f) { return f; };
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = input.value.trim();
-      if (!text || !picked || !current || sending) return;
+      if (!text || !picked || sending) return;
       sending = true;
       send.disabled = true;
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, passage: { quote: picked.text, from: picked.from }, text: text }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: picked.session, passage: { quote: picked.text, from: picked.from }, text: text }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () {
           input.value = "";
