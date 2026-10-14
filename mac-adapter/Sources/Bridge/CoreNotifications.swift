@@ -21,9 +21,12 @@ struct CoreNotificationPayload: Decodable, Equatable {
     }
 
     /// Whether a notification may take the island from `phase`; otherwise it waits its turn.
+    /// The conversation's own answering state (`.status(_, .working)`) holds it back too: while
+    /// Flyd is answering, the spinner already says so and a second "Flyd" notification is noise.
+    /// The notification is not lost — it shows once the island is free.
     static func canShow(over phase: DictationPill.Phase?) -> Bool {
         switch phase {
-        case .listening, .working, .thinking, .failed, .notification, .status(_, .decision), .status(_, .reply):
+        case .listening, .working, .thinking, .failed, .notification, .status(_, .working), .status(_, .decision), .status(_, .reply):
             return false
         default:
             return true

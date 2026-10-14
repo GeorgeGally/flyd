@@ -21,10 +21,11 @@ final class CoreNotificationsTests: XCTestCase {
 }
 
 final class CoreNotificationTurnTests: XCTestCase {
-    func testANotificationWaitsForDictationAFailureAndTheOneShowingButNotARoutineStatus() {
+    func testANotificationWaitsForDictationAStatusAFailureAndTheOneShowing() {
         XCTAssertTrue(CoreNotificationPayload.canShow(over: nil))
         XCTAssertTrue(CoreNotificationPayload.canShow(over: .inserted))
-        XCTAssertTrue(CoreNotificationPayload.canShow(over: .status("", .working)))
+        // Flyd answering is its own state: the notification waits rather than doubling it.
+        XCTAssertFalse(CoreNotificationPayload.canShow(over: .status("", .working)))
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .listening))
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .working))
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .failed("Microphone permission required")))
