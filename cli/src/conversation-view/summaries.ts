@@ -165,17 +165,26 @@ export function isActionable(text: string): boolean {
 }
 
 /**
- * A reply's top-level numbered steps, outside code blocks, each with the lines
- * under it (sub-bullets, wrapped text) folded in; and the text before the first.
+ * A reply's top-level numbered steps, never a numbered line inside a code
+ * block, each with the lines under it (sub-bullets, wrapped text, its code)
+ * folded in; and the text before the first.
  */
 function stepsOf(text: string): { intro: string; steps: string[] } {
   const intro: string[] = [];
   const steps: string[][] = [];
   let open = false;
   let blank = false;
-  for (const line of text.replace(/```[\s\S]*?```/g, "").split("\n")) {
-    const item = /^\d+[.)]\s+(.*)$/.exec(line);
-    if (item) {
+  let fenced = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      blank = false;
+      continue;
+    }
+    const item = !fenced && /^\d+[.)]\s+(.*)$/.exec(line);
+    if (fenced) {
+      if (open && line.trim()) steps.at(-1)!.push(line.trim());
+    } else if (item) {
       steps.push([item[1]!]);
       open = true;
       blank = false;

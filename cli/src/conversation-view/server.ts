@@ -77,6 +77,8 @@ const STATUS_SESSION_CHECK_MS = 5_000;
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 /** One attachment, base64-encoded, as it is added to the box. */
 const MAX_DRAFT_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+/** Reply steps kept in the column's Artefacts: the newest few. */
+const MAX_REPLY_ARTEFACTS = 3;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
 
@@ -738,9 +740,10 @@ export class ConversationViewServer {
         ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
         ...(item.at ? { at: item.at } : {}),
       }));
-    // The same replies the window points here, each once.
+    // The same replies the window points here, each once, newest first and few enough to leave room for the rest.
     const reported = new Map<string, RailArtefact>();
-    for (const message of snapshot.messages) {
+    for (const message of [...snapshot.messages].reverse()) {
+      if (reported.size >= MAX_REPLY_ARTEFACTS) break;
       const artifact = message.role === "assistant" && !reported.has(`reply:${message.id}`) ? artefactOf(message.text, this.summaries?.artefacts) : undefined;
       if (artifact) reported.set(`reply:${message.id}`, { id: `reply:${message.id}`, title: artifact.title, steps: artifact.steps });
     }

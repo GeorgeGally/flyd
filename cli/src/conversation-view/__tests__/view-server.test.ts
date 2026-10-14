@@ -791,6 +791,26 @@ describe("ConversationViewServer", () => {
     expect(update.messages.find((m: { id: string }) => m.id === "note-reply:1791720009-eeeeee")?.artifact?.title).toBe("Fix the aicanetwork.com redirects");
   });
 
+  it("keeps the newest replies' steps in the column's Artefacts, newest first", async () => {
+    const how = (n: number) => assistantText(`Captain, fix site ${n}.\n\n1. Delete rule ${n}.\n2. Add rule ${n}.`);
+    const port = await start(undefined, [captain("one"), how(1), captain("two"), how(2), captain("three"), how(3), captain("four"), how(4)]);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const titles = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:")).map((card: { title: string }) => card.title);
+    expect(titles).toEqual(["Fix site 4", "Fix site 3", "Fix site 2"]);
+  });
+
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {
     const inbox = new MemoryInbox();
     const lines = [

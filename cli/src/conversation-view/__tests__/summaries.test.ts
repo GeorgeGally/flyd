@@ -148,6 +148,10 @@ describe("replyArtefact", () => {
     } });
   });
 
+  it("keeps a step's code block in the step", () => {
+    expect(replyArtefact("1. Run:\n```\nnpm run build\n```\n2. Restart Core.")?.artefact.steps).toEqual(["Run: npm run build", "Restart Core."]);
+  });
+
   it("leaves numbered lines inside a code block alone", () => {
     expect(replyArtefact("Captain, the script is ready.\n\n```\n1. add one\n2. add two\n```")).toBeUndefined();
   });
