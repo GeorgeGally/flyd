@@ -3221,24 +3221,34 @@ var __name = function (f) { return f; };
   }
 
   // While Flyd restarts after an update the view is gone for a few seconds: a
-  // message sent then waits and goes out when it is back, quietly. Only a
-  // view still unreachable after this long says it was not sent.
+  // message sent then waits and goes out when it is back, quietly. A view that
+  // answers straight after the send failed may already have it, so that one is
+  // never sent again on its own. Only a view still unreachable after this long
+  // says it was not sent.
   var SEND_RETRY_MS = 60000;
+  function post(payload) {
+    return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true);
+  }
+  function read(response) {
+    return response.json().then(function (data) {
+      if (!response.ok) throw new Error(data.error || "not sent");
+      return data;
+    });
+  }
+  function reachable() {
+    return fetch("/api/token").then(function () { return true; }, function () { return false; });
+  }
   function deliver(payload) {
     var started = Date.now();
-    function attempt(wait) {
-      return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
-        return response.json().then(function (data) {
-          if (!response.ok) throw new Error(data.error || "not sent");
-          return data;
-        });
-      }, function (error) {
-        // fetch rejects only when nothing answered at all; an answer with an error is never retried.
-        if (Date.now() - started + wait > SEND_RETRY_MS) throw new Error("Flyd is not answering");
-        return new Promise(function (resolve) { setTimeout(resolve, wait); }).then(function () { return attempt(Math.min(wait * 2, 8000)); });
+    function whenBack(wait) {
+      if (Date.now() - started + wait > SEND_RETRY_MS) return Promise.reject(new Error("Flyd is not answering"));
+      return new Promise(function (resolve) { setTimeout(resolve, wait); }).then(reachable).then(function (up) {
+        return up ? post(payload).then(read) : whenBack(Math.min(wait * 2, 8000));
       });
     }
-    return attempt(1000);
+    return post(payload).then(read, function () {
+      return reachable().then(function (up) { return up ? { unsure: true } : whenBack(1000); });
+    });
   }
 
   // Push-to-talk from Flyd.app: the words appear in the box as they are
@@ -3335,41 +3345,57 @@ var __name = function (f) { return f; };
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
-    deliver(payload).then(function (sent) {
-      sendsInFlight -= 1;
-      // Landed: the draft it came from goes, unless he has started another.
-      if (!input.value && !attachments.length) saveDraftNow();
-      blip();
-      // Inside Flyd.app the notch island says "sent".
-      try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
-      // Kept until the message shows up in the conversation itself.
-      if (nodes.has(sent.id)) {
-        el.remove();
-        if (sent.warning) {
-          warnings.set(sent.id, "saved, but not passed on yet");
-          showWarning(nodes.get(sent.id), warnings.get(sent.id));
+    function send() {
+      deliver(payload).then(function (sent) {
+        sendsInFlight -= 1;
+        if (sent.unsure) {
+          var line = el.querySelector(".state");
+          line.classList.add("still");
+          living(line, "may not have sent - tap to resend");
+          el.addEventListener("click", function resend() {
+            el.removeEventListener("click", resend);
+            line.classList.remove("still");
+            living(line, ${JSON.stringify(RECEIVED)});
+            sendsInFlight += 1;
+            send();
+          });
+          return;
         }
-        return;
-      }
-      var state = el.querySelector(".state");
-      if (latestSession && current !== latestSession) {
-        // Firstmate answers in its live session; the note is shown there.
-        state.classList.add("still");
-        living(state, "Sent. It shows in the latest session");
-        return;
-      }
-      el.dataset.wait = sent.id;
-      awaiting.add(sent.id);
-      if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
-      living(state, warnings.get(sent.id) || sent.waiting || "Sent");
-      carried.set(sent.id, state.dataset.line || state.textContent);
-    }).catch(function (error) {
-      sendsInFlight -= 1;
-      el.classList.add("failed");
-      el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
-      el.addEventListener("click", function () { el.remove(); });
-      if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
-    });
+        // Landed: the draft it came from goes, unless he has started another.
+        if (!input.value && !attachments.length) saveDraftNow();
+        blip();
+        // Inside Flyd.app the notch island says "sent".
+        try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
+        // Kept until the message shows up in the conversation itself.
+        if (nodes.has(sent.id)) {
+          el.remove();
+          if (sent.warning) {
+            warnings.set(sent.id, "saved, but not passed on yet");
+            showWarning(nodes.get(sent.id), warnings.get(sent.id));
+          }
+          return;
+        }
+        var state = el.querySelector(".state");
+        if (latestSession && current !== latestSession) {
+          // Firstmate answers in its live session; the note is shown there.
+          state.classList.add("still");
+          living(state, "Sent. It shows in the latest session");
+          return;
+        }
+        el.dataset.wait = sent.id;
+        awaiting.add(sent.id);
+        if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
+        living(state, warnings.get(sent.id) || sent.waiting || "Sent");
+        carried.set(sent.id, state.dataset.line || state.textContent);
+      }).catch(function (error) {
+        sendsInFlight -= 1;
+        el.classList.add("failed");
+        el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
+        el.addEventListener("click", function () { el.remove(); });
+        if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
+      });
+    }
+    send();
   });
   restoreDraft();
 

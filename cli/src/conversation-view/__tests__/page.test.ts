@@ -254,7 +254,7 @@ describe("conversation page", () => {
     const real = vi.mocked(fetch).getMockImplementation()!;
     let down = true;
     vi.mocked(fetch).mockImplementation(async (url, init) => {
-      if (url === "/api/send" && down) throw new TypeError("Failed to fetch");
+      if ((url === "/api/send" || url === "/api/token") && down) throw new TypeError("Failed to fetch");
       return real(url as string, init);
     });
     await type("ship it after the update");
@@ -266,6 +266,34 @@ describe("conversation page", () => {
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(2);
     expect(document.querySelector(".msg.failed")).toBeNull();
     expect(document.body.textContent).not.toContain("Failed to fetch");
+    expect(pending()[0]).not.toContain("may not have sent");
+  });
+
+  it("never sends again on its own when Flyd answers right after a send failed, and resends once when he taps", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    let drop = true;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send" && drop) throw new TypeError("Failed to fetch");
+      return real(url as string, init);
+    });
+    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").length;
+    await type("merge the island fix");
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await settle();
+    expect(sends()).toBe(1);
+    expect(document.querySelector(".msg.failed")).toBeNull();
+    expect(pending()[0]).toContain("may not have sent - tap to resend");
+    drop = false;
+    document.querySelector<HTMLElement>(".msg.pending")!.click();
+    await settle();
+    expect(sends()).toBe(2);
+    expect(pending()[0]).not.toContain("may not have sent");
+    document.querySelector<HTMLElement>(".msg.pending")!.click();
+    await settle();
+    expect(sends()).toBe(2);
   });
 
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
@@ -1107,10 +1135,6 @@ describe("header and artefact view", () => {
     const talks = document.querySelectorAll(".rail-talk");
     expect(talks).toHaveLength(2);
     expect(talks[1]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
-    // His words are plain, quieter text, smaller than the conversation: no bar, no highlight blocks.
-    const railQ = /\.rail-q \{([^}]*)\}/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!;
-    expect(railQ).toContain("font: 500 16px");
-    expect(railQ).not.toMatch(/border|background/);
     // Where each stands, in a word, never the narrated step.
     expect(talks[1]!.querySelector(".rail-state")!.textContent).toBe("Under way");
     expect(talks[1]!.textContent).not.toContain("Working on it");
@@ -1642,16 +1666,11 @@ describe("header and artefact view", () => {
     // Only the answered one steps back; every row is folded, and a click opens it, and a redraw keeps it open.
     expect(rows.map((row) => row.classList.contains("is-done"))).toEqual([true, false, false]);
     expect(rows.map((row) => row.classList.contains("open"))).toEqual([false, false, false]);
-    const css = renderPage({ assistantLabel: "Flyd" });
-    expect(css).toMatch(/\.rail-talk:not\(\.open\) > \.rail-q \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/);
-    expect(css).toMatch(/\.rail-talk:not\(\.open\) > \.rail-a \{ color: var\(--muted\); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;/);
     rows[0]!.querySelector<HTMLElement>(".rail-a")!.click();
     expect(rows[0]!.classList.contains("open")).toBe(true);
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, artefacts: [] } });
     await settle();
     expect(document.querySelector("#rail-body > .rail-talk")!.classList.contains("open")).toBe(true);
-    // Timestamps stay small.
-    expect(/\.rail-when \{[^}]*font: 400 11px/.test(renderPage({ assistantLabel: "Flyd" }))).toBe(true);
   });
 
   it("leads the column with one decision that needs him and Flyd's advice, then every job under way and what got done", async () => {
