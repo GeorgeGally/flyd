@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { brief, renderBriefing, statusCardHtml, statusSummaryHtml, withoutChatter, withoutStubs } from "../executive.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { SnapshotDiffer } from "../server.js";
-import { headlineOf, statusOf } from "../status.js";
+import { asksForDecision, headlineOf, statusOf } from "../status.js";
 import { CORRECTION, FOUR_READY, MISSED_NOTES, STILL_WAITING, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
 
 const STUB = /github\.com|\bPRs?\b|#\d+|pull\/\d+|fm\/|\b[0-9a-f]{7}\b|\d+\/\d+/;
@@ -98,7 +98,11 @@ describe("Flyd's executive voice", () => {
     const settled = inFlydsVoice(WHERE_EVERYTHING_STANDS).replace(/\*\*Reinstall blocked[^\n]*\n\n/, "");
     expect(headlineOf(settled)).toBe("Drag-and-drop for documents, plus 4 more");
     expect(statusOf({ messages: [{ id: "r2", role: "assistant", text: `${settled}\n\nOk to reinstall now.` }], working: false }).reply)
-      .toMatchObject({ headline: "Drag-and-drop for documents, plus 4 more", asks: false });
+      .toMatchObject({ headline: "Ok to reinstall now, plus 5 more", asks: true });
+    const hold = `${settled}\n\nSay "don't merge" and I'll hold.`;
+    expect(statusOf({ messages: [{ id: "r3", role: "assistant", text: hold }], working: false }).reply).toMatchObject({ headline: "Don't merge? Plus 5 more", asks: true });
+    expect(asksForDecision(hold)).toBe(true);
+    expect(statusOf({ messages: [{ id: "r4", role: "assistant", text: settled }], working: false }).reply).toMatchObject({ asks: false });
     const long = `Sir, where things stand.\n\n- The menu bar fix is merged.\n- ${"The deals page now loads the newest twelve deals first and pages the rest ".repeat(2)}is merged.`;
     expect(headlineOf(long)).toMatch(/…, plus 1 more$/);
     expect(headlineOf(long).length).toBeLessThanOrEqual(72);

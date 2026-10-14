@@ -1,5 +1,5 @@
 import { escapeHtml, renderMarkdown } from "./markdown.js";
-import { capitalise, clip, inline, sentences } from "./summaries.js";
+import { authorSummary, capitalise, clip, inline, sentences } from "./summaries.js";
 
 // Flyd talks to him like an executive briefing: outcomes, what they lead to
 // and the one thing asked of him, in prose. Firstmate's engineering stubs (PR
@@ -371,12 +371,17 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
   return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
 }
 
-const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|your (?:call|decision|word|ok|go-ahead)|needs? your)\b/i;
+/** What asks him something: a question, or a call for his decision. */
+const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to|approve)\b/i;
 
-/** Every sentence after a reply's opening paragraph that asks something of him. */
-export function asksIn(prose: string): string[] {
-  const [, ...rest] = prose.split(/\n\s*\n/);
-  return rest.flatMap((paragraph) => sentences(inline(paragraph)).filter((sentence) => ASKS.test(sentence)));
+function asking(paragraph: string): string[] {
+  return sentences(inline(paragraph)).filter((sentence) => ASKS.test(sentence));
+}
+
+/** Every sentence of a reply that asks something of him: its own » summary, then its prose. */
+export function asksIn(text: string): string[] {
+  const prose = brief(text).prose.replace(FENCED, "");
+  return [authorSummary(text)?.summary ?? "", ...prose.split(/\n\s*\n/)].flatMap(asking);
 }
 
 /**
@@ -388,18 +393,18 @@ export function asksIn(prose: string): string[] {
 export function statusSummaryHtml(text: string, reading?: string): string | undefined {
   const { prose, items } = brief(text);
   if (items.length === 0) return undefined;
-  const [opening = ""] = prose.split(/\n\s*\n/);
-  const asks = asksIn(prose);
+  const [opening = "", ...rest] = prose.split(/\n\s*\n/);
+  const asks = rest.flatMap(asking);
   const lead = reading ? renderBriefing(reading) : renderMarkdown(opening);
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }
 
-const SAY_WORDS = /\bsay\s*["“']([^"”']+)["”']/i;
+const SAY_WORDS = /\bsay\s*(?:"([^"]+)"|“([^”]+)”|'([^']+)')/i;
 
 /** The decision the asks name, plainest first: 'Say "drop the local edit" and I'll…' → "Drop the local edit?", else a question, else any ask. */
 function decisionOf(asks: string[]): string | undefined {
   const say = asks.map((sentence) => SAY_WORDS.exec(sentence)).find(Boolean);
-  if (say) return `${capitalise(say[1]!.trim().replace(/[.!?,;:]+$/, ""))}?`;
+  if (say) return `${capitalise((say[1] ?? say[2] ?? say[3]!).trim().replace(/[.!?,;:]+$/, ""))}?`;
   return asks.find((sentence) => /\?$/.test(sentence)) ?? asks[0];
 }
 

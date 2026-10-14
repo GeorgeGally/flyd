@@ -22,13 +22,9 @@ export interface ConversationStatus {
 const WORKING_STALE_MS = 10 * 60 * 1000;
 const HEADLINE_CHARS = 72;
 
-/** The reply's closing words ask the captain something: a question, or a call for his decision. */
+/** The reply asks the captain something: a question, or a call for his decision. */
 export function asksForDecision(text: string): boolean {
-  const prose = text.replace(/```[\s\S]*?```/g, "").trim();
-  const last = prose.split(/\n\s*\n/).filter((block) => block.trim()).pop() ?? "";
-  const summary = authorSummary(text)?.summary ?? "";
-  const asking = /\b(do you want|would you like|should i|shall i|want me to|which (one|option|do you)|your call|your decision|needs? your (decision|call|ok|approval)|ok to|okay to|approve)\b|\bsay ["“]\w+/i;
-  return /\?/.test(last) || /\?/.test(summary) || asking.test(last) || asking.test(summary) || brief(text).items.some((item) => item.state === "needs");
+  return asksIn(text).length > 0 || brief(text).items.some((item) => item.state === "needs");
 }
 
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\b/g;
@@ -63,8 +59,8 @@ export function headlineOf(text: string): string {
 /** The island's line for a reply, and whether that line names a decision of his. */
 function readingOf(text: string): { headline: string; asks: boolean } {
   // A report on several pieces of work reads as where they stand.
-  const { items, prose } = brief(text);
-  if (items.length >= 2) return statusHeadline(items, asksIn(prose), HEADLINE_CHARS);
+  const { items } = brief(text);
+  if (items.length >= 2) return statusHeadline(items, asksIn(text), HEADLINE_CHARS);
   const asks = asksForDecision(text);
   const said = withoutStubs(text);
   const own = authorSummary(said)?.summary;
