@@ -3,6 +3,7 @@ import { escapeHtml } from "./markdown.js";
 import { installComposerPredictions } from "./composer-predictions-client.js";
 import { RECEIVED } from "./living.js";
 import { UNREAD_AFTER_MS } from "./note-receipts.js";
+import { PASSAGE_CHARS } from "./replies.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -716,6 +717,33 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .reply-input::placeholder { color: var(--muted); }
 .reply-send { font: 700 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .reply-note { flex-basis: 100%; font: 400 13px/1.4 var(--mono); color: var(--muted); }
+/* Words he selects in a message take a comment: a small frosted Comment by the
+   selection, then the same card as a reply, quoting them. It fades in where it stands. */
+.passage {
+  position: fixed; z-index: 40; max-width: min(460px, calc(100vw - 32px)); opacity: 0; transition: opacity 140ms ease;
+  border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--tint) 70%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.3); backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+}
+.passage.shown { opacity: 1; }
+.passage[hidden], .passage-card[hidden], .passage-open[hidden] { display: none; }
+.passage-open { display: block; font: 500 16px/1 var(--sans); color: var(--fg); background: transparent; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; transition: color 140ms ease; }
+.passage-open:hover { color: var(--accent); }
+.passage-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.passage.open { width: min(520px, calc(100vw - 32px)); max-width: min(520px, calc(100vw - 32px)); }
+.passage-card { padding: 14px 18px 16px; }
+.passage .reply-head { margin-bottom: 10px; }
+.passage-quote { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 2px solid var(--accent); font: 400 17px/1.45 var(--sans); color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.passage .reply-row { align-items: center; gap: 12px; }
+.passage .reply-input { min-height: 34px; font-size: 19px; line-height: 26px; padding: 4px 0; color: var(--strong); background: transparent; border: 0; border-radius: 0; }
+.passage .reply-input:focus { outline: none; }
+.passage .reply-send { flex: none; height: 36px; padding: 0 16px; font: 600 15px/1 var(--sans); letter-spacing: 0; text-transform: none; border-radius: 8px; transition: background-color 140ms ease, opacity 140ms ease; }
+.passage .reply-send:disabled { opacity: 0.5; cursor: default; }
+.passage .reply-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.passage .reply-note { display: block; margin-top: 10px; font: 400 15px/1.4 var(--sans); }
+.passage .reply-note[hidden] { display: none; }
+/* The words he is commenting on stay marked while the card is open. */
+::highlight(passage) { background-color: var(--sel-bg); color: var(--sel-fg); }
 .reply-ref { display: block; margin: 0 0 0.3em; font: 400 0.72em/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
 /* A question a reply put to him: the question, one tap per option, or his own
    words. Said to him, so never muted as an update; it fades in, nothing moves. */
@@ -1790,6 +1818,164 @@ var __name = function (f) { return f; };
     });
     return box;
   }
+  // Words he selects in a message take a comment: a small Comment button by
+  // the selection, then a card that quotes them, his words and Send. It goes
+  // to whoever is doing the work, naming the conversation the words came from.
+  var PASSAGE_CHARS = ${PASSAGE_CHARS};
+  function passageComments() {
+    var pop = el("div", "passage");
+    pop.hidden = true;
+    var opener = el("button", "passage-open", "Comment");
+    opener.type = "button";
+    var form = el("form", "passage-card");
+    form.hidden = true;
+    var head = el("div", "reply-head");
+    head.appendChild(el("span", "reply-kicker", "Comment"));
+    var close = el("button", "reply-close", "Close");
+    close.type = "button";
+    head.appendChild(close);
+    var quote = el("blockquote", "passage-quote");
+    var input = el("textarea", "reply-input passage-input");
+    input.rows = 1;
+    input.maxLength = 4000;
+    input.placeholder = "What about it?";
+    input.setAttribute("aria-label", "Your comment on the selected words");
+    var send = el("button", "reply-send", "Send");
+    send.type = "submit";
+    var row = el("div", "reply-row");
+    row.appendChild(input);
+    row.appendChild(send);
+    var note = el("span", "reply-note");
+    note.setAttribute("role", "status");
+    note.hidden = true;
+    form.appendChild(head);
+    form.appendChild(quote);
+    form.appendChild(row);
+    form.appendChild(note);
+    pop.appendChild(opener);
+    pop.appendChild(form);
+    document.body.appendChild(pop);
+    // What he selected: the words, whose they were, and where they sit on screen.
+    var picked = null;
+    var sending = false;
+    var marks = window.CSS && CSS.highlights && typeof Highlight === "function" ? CSS.highlights : null;
+    function messageOf(node) {
+      var at = node && (node.nodeType === 1 ? node : node.parentElement);
+      if (!at || at.closest("textarea, input, form, button")) return null;
+      var msg = at.closest(".msg");
+      return msg && main.contains(msg) ? msg : null;
+    }
+    function selected() {
+      var selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+      var range = selection.getRangeAt(0);
+      var msg = messageOf(range.commonAncestorContainer);
+      var text = selection.toString().replace(/[ \\t]+\\n/g, "\\n").trim();
+      if (!msg || !text || !current) return null;
+      return { session: current, range: range.cloneRange(), text: text.slice(0, PASSAGE_CHARS), from: msg.classList.contains("user") ? "user" : "assistant" };
+    }
+    function place() {
+      if (!picked) return;
+      // A redraw of the message drops the selection; an open card stays where it was.
+      if (!picked.range.startContainer.isConnected) { if (form.hidden) hide(); return; }
+      // Comment sits over the first line he selected, the card under the last,
+      // each starting where his selection starts and kept in the conversation's column.
+      var lines = picked.range.getClientRects();
+      var first = lines.length ? lines[0] : picked.range.getBoundingClientRect();
+      var whole = picked.range.getBoundingClientRect();
+      var width = pop.offsetWidth;
+      var height = pop.offsetHeight;
+      var edge = Math.min(window.innerWidth - 16, main.getBoundingClientRect().right || window.innerWidth);
+      var left = Math.max(16, Math.min(first.left, edge - width));
+      var top = form.hidden ? first.top - height - 8 : whole.bottom + 12;
+      if (form.hidden && top < 64) top = whole.bottom + 8;
+      if (!form.hidden && top + height > window.innerHeight - 16) top = first.top - height - 12;
+      pop.style.left = Math.round(left) + "px";
+      pop.style.top = Math.round(Math.max(16, Math.min(top, window.innerHeight - height - 16))) + "px";
+    }
+    function mark(on) {
+      if (!marks) return;
+      if (on && picked) marks.set("passage", new Highlight(picked.range)); else marks.delete("passage");
+    }
+    function say(text) { note.textContent = text; note.hidden = !text; }
+    function hide() {
+      pop.hidden = true;
+      pop.classList.remove("shown", "open");
+      form.hidden = true;
+      opener.hidden = false;
+      picked = null;
+      say("");
+      mark(false);
+    }
+    function offer(pick) {
+      picked = pick;
+      opener.hidden = false;
+      form.hidden = true;
+      pop.hidden = false;
+      place();
+      requestAnimationFrame(function () { pop.classList.add("shown"); });
+    }
+    function check() {
+      if (!form.hidden || sending) return;
+      var pick = selected();
+      if (pick) offer(pick); else hide();
+    }
+    var pending = 0;
+    document.addEventListener("selectionchange", function () {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(check);
+    });
+    // Pressing Comment keeps the selection it is about.
+    opener.addEventListener("mousedown", function (event) { event.preventDefault(); });
+    opener.addEventListener("click", function () {
+      if (!picked) return;
+      quote.textContent = picked.text;
+      input.value = "";
+      say("");
+      send.disabled = false;
+      opener.hidden = true;
+      form.hidden = false;
+      pop.classList.add("open");
+      mark(true);
+      place();
+      input.focus();
+    });
+    close.addEventListener("click", hide);
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); hide(); return; }
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !pop.hidden && form.hidden) hide();
+    });
+    // A click elsewhere puts the card away unless he has started writing.
+    document.addEventListener("mousedown", function (event) {
+      if (pop.hidden || pop.contains(event.target) || sending) return;
+      if (form.hidden || !input.value.trim()) hide();
+    });
+    window.addEventListener("scroll", place, { passive: true });
+    window.addEventListener("resize", place);
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = input.value.trim();
+      if (!text || !picked || sending) return;
+      sending = true;
+      send.disabled = true;
+      say("Sending…");
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: picked.session, passage: { quote: picked.text, from: picked.from }, text: text }) }, true)
+        .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
+        .then(function () {
+          input.value = "";
+          say("Sent to Flyd");
+          var selection = window.getSelection();
+          if (selection) selection.removeAllRanges();
+          setTimeout(function () { if (!input.value.trim()) hide(); }, 1600);
+        })
+        .catch(function (error) { send.disabled = false; say("Not sent: " + (error.message || "try again")); })
+        .then(function () { sending = false; });
+    });
+  }
+  if (SEND_TOKEN) passageComments();
   // An answer Flyd gave for him by one of his standing rules says so in one
   // line, with the rule; Undo tells the session to hold off until he answers.
   function wireAuto(target, message, said) {

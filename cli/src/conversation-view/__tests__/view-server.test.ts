@@ -457,6 +457,21 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent).toHaveLength(1);
   });
 
+  it("sends his comment on words he selected to firstmate, quoting them and naming the conversation", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const sent = await post(port, JSON.stringify({ session: "s1", passage: { quote: "Hi, Captain.", from: "assistant" }, text: "Too formal." }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[0]!.text).toMatch(/^Comment on a passage of \w+'s reply in the conversation (?:"[^"]+" \(session s1\)|session s1):\n\n> Hi, Captain\.\n\nToo formal\.$/);
+    // A passage of a message, whose it was, and words.
+    expect((await post(port, JSON.stringify({ session: "s1", passage: { quote: " ", from: "assistant" }, text: "x" }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", passage: { quote: "x".repeat(2001), from: "user" }, text: "x" }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", passage: { quote: "Hi", from: "someone" }, text: "x" }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ session: "s1", passage: { quote: "Hi", from: "user" }, text: " " }), headers)).status).toBe(400);
+    expect(inbox.sent).toHaveLength(1);
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {

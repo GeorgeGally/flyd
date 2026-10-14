@@ -1138,6 +1138,62 @@ describe("header and artefact view", () => {
     expect(sheet.hidden).toBe(true);
   });
 
+  it("offers a comment on words he selects in a message, and sends it quoting them", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "a1", role: "assistant", html: "<p>The island runs from the notch.</p>" }, { id: "u1", role: "user", html: "<p>Ship it</p>" }]);
+    await settle();
+    const pop = document.querySelector<HTMLElement>(".passage")!;
+    const words = document.querySelector(".msg.assistant .body p")!.firstChild!;
+    const select = (node: Node, start: number, end: number) => {
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, end);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    };
+    // Nothing until he selects something in a message.
+    expect(pop.hidden).toBe(true);
+    select(words, 4, 10);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(pop.hidden).toBe(false);
+    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(true);
+    pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
+    expect(pop.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
+    expect(pop.querySelector(".passage-quote")!.textContent).toBe("island");
+    const input = pop.querySelector<HTMLTextAreaElement>(".passage-input")!;
+    input.value = "Faster";
+    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(sent).toEqual([{ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Faster" }]);
+    expect(pop.querySelector(".reply-note")!.textContent).toBe("Sent to Flyd");
+    pop.querySelector<HTMLButtonElement>(".reply-close")!.click();
+    expect(pop.hidden).toBe(true);
+    // His own words take one too, and say they were his.
+    select(document.querySelector(".msg.user .body")!, 0, 1);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(pop.hidden).toBe(false);
+    // Words selected outside a message take none.
+    const outside = document.body.appendChild(document.createElement("p"));
+    outside.textContent = "Not a message";
+    select(outside.firstChild!, 0, 3);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(pop.hidden).toBe(true);
+    // Switching conversation with the card open still sends it about the one he picked from.
+    select(document.querySelector(".msg.assistant .body p")!.firstChild!, 4, 10);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    pop.querySelector<HTMLButtonElement>(".passage-open")!.click();
+    input.value = "Slower";
+    open("other", [{ id: "o1", role: "assistant", html: "<p>Elsewhere</p>" }]);
+    await settle();
+    pop.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const later = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(later.at(-1)).toEqual({ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Slower" });
+  });
+
   it("shows phone-width work on a phone, where a click on a spot sends a comment with the page and the spot", async () => {
     load("");
     await settle();
