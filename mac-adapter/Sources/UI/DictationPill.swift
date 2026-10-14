@@ -20,6 +20,7 @@ final class DictationPill: NSObject {
         case thinking(String)
         case inserted
         case notice(String)
+        case notification(String, String)
         case failed(String)
         /// The firstmate conversation at a glance (ConversationStatus). Clickable.
         case status(String, StatusTone)
@@ -337,6 +338,8 @@ final class DictationPill: NSObject {
         switch phase {
         case .listening, .working, .inserted, .status(_, .working), .status(_, .sent):
             return nil
+        case .notification(let title, let body):
+            return Message(meta: "Flyd", title: title, body: body)
         case .thinking(let question):
             return Message(meta: "You asked", title: quoted(question), body: nil)
         case .status(let text, .progress):
@@ -367,6 +370,8 @@ final class DictationPill: NSObject {
         case .notice(let text), .failed(let text):
             let words = text.split(whereSeparator: \.isWhitespace).count
             return min(maxHold, max(autoHideDelay, 0.6 + 0.24 * Double(words)))
+        case .notification(let title, let body):
+            return min(maxHold, max(autoHideDelay, 0.6 + 0.24 * Double((title + body).split(whereSeparator: \.isWhitespace).count)))
         case .status(_, let tone):
             return tone.holdSeconds
         }
@@ -381,7 +386,7 @@ final class DictationPill: NSObject {
     /// elements and one springs smoothly into another, the strip unfolding from that point.
     static func islandPath(in rect: NSRect, shoulder: CGFloat, cornerRadius: CGFloat, step: CGPoint? = nil, closed: Bool = true) -> CGPath {
         let s = max(0, min(shoulder, rect.width / 4, rect.height / 2))
-        let left = rect.minX + s, right = rect.maxX - s
+        let left = rect.minX + s, right = rect.maxX - (step.map { $0.y > rect.minY + 1 } == true ? 0 : s)
         let top = rect.maxY, bottom = rect.minY
         // A squircle-ish corner: the curve starts earlier and eases in, like a continuous corner.
         func reach(_ radius: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
@@ -404,7 +409,7 @@ final class DictationPill: NSObject {
             let inner = max(0, min(10, (ledge - bottom) / 2, (right - step.x) / 2))
             let a = reach(min(cornerRadius, compactCornerRadius), width: step.x - inner - left, height: top - s - ledge)
             let b = reach(cornerRadius, width: (right - step.x) / 2, height: ledge - inner - bottom)
-            let r = reach(cornerRadius, width: (right - step.x) / 2, height: top - s - bottom)
+            let r: CGFloat = 0
             path.addLine(to: CGPoint(x: left, y: ledge + a))
             corner(to: CGPoint(x: left + a, y: ledge), from: CGPoint(x: left, y: ledge + a), horizontalFirst: false)
             path.addLine(to: CGPoint(x: step.x - inner, y: ledge))

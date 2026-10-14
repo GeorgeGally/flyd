@@ -210,8 +210,10 @@ function acquireLock(path: string): boolean {
 
 export async function notifyMac(title: string, message: string): Promise<void> {
   if (process.platform !== "darwin") return;
-  const script = "on run argv\n display notification (item 2 of argv) with title (item 1 of argv)\nend run";
-  await execFileAsync("osascript", ["-e", script, title, message.replace(/\s+/g, " ").slice(0, 220)], { timeout: 10_000 });
+  const url = new URL("flyd://notify");
+  url.searchParams.set("title", title);
+  url.searchParams.set("message", message.replace(/\s+/g, " ").slice(0, 220));
+  await execFileAsync("open", [url.toString()], { timeout: 10_000 });
 }
 
 export interface RunDueDependencies {

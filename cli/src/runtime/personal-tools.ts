@@ -464,7 +464,8 @@ async function runMacAction(
       case "notify": {
         const text = String(input.text ?? "").trim();
         if (!text) return "Error: notify needs text";
-        await osascript("on run argv\n display notification (item 1 of argv) with title \"Flyd\"\nend run", [text.slice(0, 220)]);
+        const { notifyMac } = await import("./agenda.js");
+        await notifyMac("Flyd", text.slice(0, 220));
         return "Notification shown";
       }
       case "clipboard_read": {
