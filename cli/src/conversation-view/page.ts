@@ -485,18 +485,16 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .needs .scene-ask { margin-top: 14px; max-width: none; gap: 10px; }
 .needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 .brief-list ul { margin: 0; padding: 0; list-style: none; }
-.brief-list li { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--faint); }
-.brief-list li:first-child { border-top: 0; padding-top: 0; }
-/* One quiet line each: the whole line is its title, shown on hover. */
-.brief-line { flex: 1; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brief-list ul { display: grid; gap: 10px; }
+.brief-list li { display: block; min-width: 0; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+/* Each item gets the quiet raised treatment used by conversation cards. */
+.brief-eyebrow { margin: 0 0 6px; font: 500 11px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.brief-line { display: block; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
-.brief-meta { flex: none; max-width: 34%; font: 400 12px/1.6 var(--mono); color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#done li { display: block; padding: 10px 0 11px; }
-#done li:first-child { padding-top: 0; }
-#done .brief-line { display: block; font: 500 15px/1.4 var(--sans); color: var(--strong); white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; overflow-wrap: anywhere; }
-#done .brief-meta { display: block; max-width: none; margin-top: 4px; font: 400 11px/1.4 var(--mono); text-align: left; overflow: visible; text-overflow: clip; white-space: normal; }
-#underway li::before { content: ""; flex: none; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--k-live); animation: breathe 1.6s ease-in-out infinite; }
+.brief-meta { display: block; margin-top: 6px; font: 400 11px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+#done .brief-line { font-weight: 500; color: var(--strong); }
+#underway .brief-eyebrow { color: var(--k-live); }
 .brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -1562,6 +1560,7 @@ var __name = function (f) { return f; };
   }
   function briefItem(item, meta) {
     var li = el("li");
+    li.appendChild(el("p", "brief-eyebrow", item.started ? "Under way" : "Done"));
     var line = el("span", "brief-line");
     var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
     if (link) {

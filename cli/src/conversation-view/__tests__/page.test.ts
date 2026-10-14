@@ -1847,11 +1847,13 @@ describe("header and artefact view", () => {
     expect(needs.querySelector(".needs-nav")).toBeNull();
     // Under way: one line per job, its project and how long it has run.
     const job = document.querySelector("#underway li")!;
+    expect(job.querySelector(".brief-eyebrow")!.textContent).toBe("Under way");
     expect(job.querySelector(".brief-line")!.textContent).toBe("A worker is shrinking the island.");
     expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · 25 min");
     // Done: one line each, the newest few until he asks for all.
     expect(document.querySelectorAll("#done li")).toHaveLength(3);
     const doneRow = document.querySelector("#done li")!;
+    expect(doneRow.querySelector(".brief-eyebrow")!.textContent).toBe("Done");
     expect(doneRow.querySelector(".brief-line")!.textContent).toBe(outcome);
     expect(doneRow.querySelector(".brief-line a")!.getAttribute("href")).toBe("https://example.com/pr/1");
     expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("GNM · 25m ago");
