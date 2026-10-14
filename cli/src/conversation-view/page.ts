@@ -2186,7 +2186,7 @@ var __name = function (f) { return f; };
         return item.kind === "file" && ["image/png", "image/jpeg", "image/gif", "image/webp"].indexOf(item.type) !== -1 ? item.getAsFile() : null;
       }).filter(Boolean);
       if (!files.length) return;
-      event.preventDefault();
+      if (!Array.prototype.some.call(event.clipboardData.items, function (item) { return item.kind === "string" && item.type === "text/plain"; })) event.preventDefault();
       files.forEach(function (file) {
         if (images.length >= 4) { state.error = "4 images at most"; paint(); return; }
         if (file.size > ${MAX_IMAGE_BYTES}) { state.error = "Images must be under " + Math.round(${MAX_IMAGE_BYTES} / 1048576) + "MB"; paint(); return; }
@@ -3192,7 +3192,7 @@ var __name = function (f) { return f; };
           var shape = shapeOf(img.naturalWidth, img.naturalHeight);
           if (shape) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); return; }
         }
-        if (look.device) aimAtContent(img);
+        if (look.device) { img.dataset.aim = "1"; aimAtContent(img); }
       });
       node.appendChild(img);
       node.addEventListener("click", function () { openImage(look.src); });
@@ -3244,6 +3244,7 @@ var __name = function (f) { return f; };
     var frame = img.getBoundingClientRect();
     var w = img.naturalWidth, h = img.naturalHeight;
     if (!frame.width || !frame.height || !w || !h) return;
+    img.style.objectPosition = "";
     var seen = w * frame.height / frame.width;
     if (h <= seen * 1.05) return;
     var cols = 96, rows = Math.max(2, Math.min(600, Math.round(cols * h / w)));
@@ -3278,6 +3279,10 @@ var __name = function (f) { return f; };
     at = Math.max(0, at - Math.round(span * 0.06));
     img.style.objectPosition = "center " + (at / (rows - span) * 100).toFixed(1) + "%";
   }
+  function aimShown() {
+    if (onShow()) sceneEl.querySelectorAll(".device img[data-aim]").forEach(aimAtContent);
+  }
+  window.addEventListener("resize", aimShown);
   // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
   function deviceOf(name) {
     name = String(name || "").toLowerCase();
@@ -3515,6 +3520,7 @@ var __name = function (f) { return f; };
       root.setAttribute("data-screen", "show");
       showEl.hidden = false;
       showEl.classList.remove("off");
+      aimShown();
       if (animate && !reduced) {
         showEl.classList.remove("power");
         void showEl.offsetWidth;

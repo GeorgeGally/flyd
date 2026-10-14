@@ -993,7 +993,8 @@ describe("header and artefact view", () => {
       value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }, { kind: "string", type: "text/plain", getAsFile: () => null }] },
     });
     chat.dispatchEvent(paste);
-    expect(paste.defaultPrevented).toBe(true);
+    // Text copied with the picture still lands in the box.
+    expect(paste.defaultPrevented).toBe(false);
     for (let i = 0; i < 20 && !document.querySelector(".art-chat-images img"); i += 1) await settle();
     const images = document.querySelector<HTMLElement>(".scene-ask .art-chat-images")!;
     expect(images.hidden).toBe(false);
