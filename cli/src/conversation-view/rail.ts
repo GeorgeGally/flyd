@@ -434,10 +434,17 @@ export function composeRail(
   return { conversations: groupTopics(threadReplies(conversations)), artefacts: railCards(artefacts, previews, attached, card) };
 }
 
+/** Who is answering a message: Flyd ("ask:") or firstmate ("note:"). */
+function handlerOf(id: string): string {
+  return /^(ask|note):/.exec(id)?.[1] ?? "";
+}
+
 /**
  * His messages sent one close behind another, as one topic: each that came
- * within TOPIC_GAP_MS of the one before joins it. A reply to an answer that
- * scrolled away, or a message with no time, stands alone. Pure.
+ * within TOPIC_GAP_MS of the one before joins it, when the same one of us is
+ * answering both: a topic shows its newest message's line, so a note to
+ * firstmate never puts its status under a question Flyd answered. A reply to
+ * an answer that scrolled away, or a message with no time, stands alone. Pure.
  */
 export function groupTopics(conversations: RailConversation[], gap = TOPIC_GAP_MS): RailConversation[] {
   const out: RailConversation[] = [];
@@ -445,7 +452,7 @@ export function groupTopics(conversations: RailConversation[], gap = TOPIC_GAP_M
   for (const conversation of conversations) {
     const at = conversation.at ? Date.parse(conversation.at) : NaN;
     const head = out.at(-1);
-    if (head && !conversation.replyTo && !Number.isNaN(at) && at >= last && at - last <= gap) {
+    if (head && !conversation.replyTo && handlerOf(head.id) === handlerOf(conversation.id) && !Number.isNaN(at) && at >= last && at - last <= gap) {
       out[out.length - 1] = { ...head, sameTopic: [...(head.sameTopic ?? []), conversation] };
     } else out.push(conversation);
     last = at;

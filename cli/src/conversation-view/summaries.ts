@@ -292,16 +292,23 @@ export function findXaiKey(env: NodeJS.ProcessEnv = process.env, home = homedir(
   }
 }
 
-/** The providers to try, in order, from whatever keys this machine has. */
-export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
+/** The summary models to try, in order, from whatever keys this machine has; the keys never leave this function. */
+export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string } = {}): Array<{ provider: "xai" | "anthropic"; model: string; key: string }> {
   const env = options.env ?? process.env;
   if (env.FLYD_VIEW_SUMMARIES === "0") return [];
-  const providers: SummaryProvider[] = [];
+  const models: Array<{ provider: "xai" | "anthropic"; model: string; key: string }> = [];
   const xai = findXaiKey(env, options.home);
-  if (xai) providers.push(xaiProvider(xai, env.FLYD_VIEW_XAI_MODEL?.trim() || "grok-4-fast-non-reasoning", options.fetchFn));
+  if (xai) models.push({ provider: "xai", model: env.FLYD_VIEW_XAI_MODEL?.trim() || "grok-4-fast-non-reasoning", key: xai });
   const anthropic = env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
-  if (anthropic) providers.push(anthropicProvider(anthropic, env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5-20251001", options.fetchFn));
-  return providers;
+  if (anthropic) models.push({ provider: "anthropic", model: env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5-20251001", key: anthropic });
+  return models;
+}
+
+/** The providers to try, in order, from whatever keys this machine has. */
+export function defaultProviders(options: { env?: NodeJS.ProcessEnv; home?: string; anthropicKey?: string; fetchFn?: FetchFn } = {}): SummaryProvider[] {
+  return summaryModels(options).map(({ provider, model, key }) => provider === "xai"
+    ? xaiProvider(key, model, options.fetchFn)
+    : anthropicProvider(key, model, options.fetchFn));
 }
 
 export function defaultSummaryCache(): string {

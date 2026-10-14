@@ -46,15 +46,19 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
   }
 }
 
-/** Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions. */
-const answerAsFlyd: Answerer = async (question, history) => {
+/**
+ * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
+ * Each step it takes is said under his question as it happens.
+ */
+const answerAsFlyd: Answerer = async (question, history, onStep) => {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
   ]);
   const situation = await loadAgentSituation().catch(() => null);
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
+  onStep?.("Remembering what I know about this");
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  return respondToConversation({ message: question, history, memory, situation, crossRepo, onToken: () => {} });
+  return respondToConversation({ message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
 function openInBrowser(url: string): void {

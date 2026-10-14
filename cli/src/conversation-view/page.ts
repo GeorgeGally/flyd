@@ -599,9 +599,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
-/* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long. */
+/* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long.
+   Once firstmate has said the outcome, the outcome takes this line, in the same quiet face. */
 .receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .receipt.late { color: var(--k-waiting); }
+.receipt.outcome { overflow-wrap: anywhere; }
+.receipt a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
 .msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
@@ -1137,11 +1140,15 @@ var __name = function (f) { return f; };
     receipt(el, message);
     if (warnings.has(message.id)) showWarning(el, warnings.get(message.id));
   }
-  // A note to firstmate says whether firstmate has read it: "sent", then "read by firstmate".
+  // A note to firstmate says whether firstmate has read it: "sent", then "read by firstmate"; then the outcome
+  // firstmate said in its own chat, on the same line in the same face.
   var UNREAD_AFTER_MS = ${UNREAD_AFTER_MS};
+  function outcomeOf(message) { return message.role === "user" && message.settled && message.waiting ? message.waiting : ""; }
   function receipt(el, message) {
     var line = el.querySelector(":scope > .receipt");
-    if (!message.receipt) { if (line) line.remove(); delete el.dataset.receipt; return; }
+    var outcome = outcomeOf(message);
+    if (outcome) el.dataset.outcome = outcome; else delete el.dataset.outcome;
+    if (!message.receipt && !outcome) { if (line) line.remove(); delete el.dataset.receipt; return; }
     if (!line) {
       line = document.createElement("span");
       line.className = "receipt";
@@ -1150,11 +1157,19 @@ var __name = function (f) { return f; };
     var own = el.querySelectorAll(":scope > .body, :scope > .docs, :scope > .shots:not(.reply-shots)");
     var mine = own[own.length - 1];
     if (mine.nextSibling !== line) mine.after(line);
-    el.dataset.receipt = message.receipt;
+    if (message.receipt) el.dataset.receipt = message.receipt; else delete el.dataset.receipt;
     el.dataset.note = message.id;
     receiptLine(el, line);
   }
   function receiptLine(el, line) {
+    var outcome = el.dataset.outcome;
+    line.classList.toggle("outcome", !!outcome);
+    if (outcome) {
+      line.classList.remove("late");
+      if (line.dataset.line !== outcome) { line.dataset.line = outcome; linkLine(line, outcome); }
+      return;
+    }
+    delete line.dataset.line;
     var read = el.dataset.receipt === "read";
     var age = el.dataset.ts ? Date.now() - new Date(el.dataset.ts).getTime() : 0;
     // A note firstmate answered was read, even if the acknowledgement never came.
@@ -1173,23 +1188,25 @@ var __name = function (f) { return f; };
     unreadEl.hidden = !unread.count;
     unreadEl.textContent = unread.count ? unread.text : "";
   }
-  // A question waits for its own answer; firstmate's session lines are relayed updates.
+  // A question waits for its own answer; firstmate's session lines are relayed updates. Once firstmate said the
+  // outcome (it sits on the receipt line), the living line carries on only while work on this message does.
   function pairing(el, message) {
     var queued = el.querySelector(":scope > .queued");
-    if (!message.waiting) { if (queued) queued.remove(); }
+    var line = outcomeOf(message) ? message.doing || "" : message.waiting;
+    if (!line) { if (queued) queued.remove(); queued = null; }
     else if (!queued) {
       queued = document.createElement("span");
       queued.className = "queued";
       queued.setAttribute("role", "status");
       // Picks up where the optimistic copy's line left off: no jump.
-      setLine(queued, carried.get(message.id) || message.waiting);
+      setLine(queued, carried.get(message.id) || line);
       carried.delete(message.id);
       el.appendChild(queued);
-      living(queued, message.waiting);
-    } else living(queued, message.waiting);
-    if (queued && message.waiting) {
+      living(queued, line);
+    } else living(queued, line);
+    if (queued) {
       queued.classList.toggle("still", !!message.waitingFailed);
-      queued.classList.toggle("settled", !!message.settled);
+      queued.classList.toggle("settled", false);
     }
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
@@ -1601,10 +1618,12 @@ var __name = function (f) { return f; };
     }
     return box;
   }
-  // One memory as a card: the sentence, and "Learned" over what it took in while we talked.
+  // One memory as a card: the sentence, and over what it took in while we talked, what kind of thing it is:
+  // "Learned" only for a rule or preference he taught it; work that got done is "Shipped", never a lesson.
+  var KICKERS = { taste: "Learned", shipped: "Shipped", capture: "Noted", memory: "Remembered" };
   function railMemory(memory, fresh) {
     var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
-    if (fresh) card.appendChild(el("p", "rail-mem-kicker", "Learned"));
+    if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
     card.appendChild(el("p", "rail-mem-text", memory.title));
     return card;
   }

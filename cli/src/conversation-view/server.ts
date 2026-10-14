@@ -93,6 +93,8 @@ export interface RenderedMessage {
   waiting?: string;
   waitingFailed?: boolean;
   settled?: boolean;
+  /** Under a settled outcome: what is still being done on this message. */
+  doing?: string;
   answers?: string;
   aside?: boolean;
   /** His reply to an answer: the question it replies to, and his words there as quoted. */
@@ -278,7 +280,7 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -297,7 +299,7 @@ export class SnapshotDiffer {
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),
-        ...(message.waiting && message.settled ? { settled: true } : {}),
+        ...(message.waiting && message.settled ? { settled: true, ...(message.doing ? { doing: message.doing } : {}) } : {}),
         ...(message.answers ? { answers: message.answers } : {}),
         ...(message.aside ? { aside: true } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo, ...(message.replyQuote ? { replyQuote: message.replyQuote } : {}) } : {}),

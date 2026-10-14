@@ -65,8 +65,13 @@ export interface TurnPlan {
 // hidden on routes that shouldn't change anything, so the model isn't
 // tempted; tools with a read action (todos list, schedule list, reminders
 // list) stay visible and the gate stops their writes.
-const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task"];
+const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task", "pass_on_question"];
 const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task"];
+// A question Flyd can't answer from what it can look up goes to the agent who
+// can (code and repos to the coding boss, research to the knowledge boss) in
+// the same turn, rather than an offer to look that leaves him to ask again.
+// The agent answers and changes nothing, so an answer turn still can't.
+const PASS_ON = ["pass_on_question"];
 // George telling Flyd about his own work ("I'm not working on X anymore"):
 // recording it is hearing him, not changing anything, so wherever the tool is
 // in sight its correction runs. Blocked, the model went hunting through mail
@@ -84,9 +89,9 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
   switch (route) {
     case "answer":
       return {
-        route, source, cover, allows: new Set(["read"]), handoffs: new Set(), budget: null,
-        hidden: new Set(CHANGE_ONLY),
-        instruction: "This turn is an answer. Look up what you need, then answer him. Don't start work or change anything; if doing something would clearly help, offer it in one line.",
+        route, source, cover, allows: new Set(["read"]), handoffs: new Set(PASS_ON), budget: null,
+        hidden: new Set(CHANGE_ONLY.filter((name) => !PASS_ON.includes(name))),
+        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then tell him in a line that it's being looked into. Don't start work or change anything; if doing something would clearly help, offer it in one line.",
       };
     case "clarify":
       return {
@@ -155,6 +160,11 @@ export function planBudget<B extends TurnBudget>(defaults: B, plan: TurnPlan | n
   return { ...defaults, iterations: Math.min(defaults.iterations, plan.budget.iterations), toolCalls: Math.min(defaults.toolCalls, plan.budget.toolCalls) };
 }
 
+/** The Jev release that routes chat turns: FLYD_JEV_MODEL, else the pinned release the thresholds were benched on. */
+export function turnRouteJevModel(): string {
+  return process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL;
+}
+
 /**
  * The route from Jev (`chat_turn_route`, benched in the System-1 replay suite):
  * a confident answer decides the turn; below the threshold it only stands in
@@ -183,7 +193,7 @@ export async function routeWithJev(
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
   const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
   const state = projectJevState({ utterance: message, conversation_recap: recap });
-  const result = await evaluatePredicates(state, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL }, familyEgress("chat"));
+  const result = await evaluatePredicates(state, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: turnRouteJevModel() }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return {
@@ -243,7 +253,7 @@ export const CODE_TOOLS = new Set(["read_file", "grep", "list_files", "git_log",
  */
 export function offCode(codeTurn: boolean, name: string, input: Record<string, unknown>, repoRoots: string[]): string | null {
   if (codeTurn) return null;
-  const why = "Skipped (not this turn): he's talking about the project, not its code. Answer from what you know about it (His projects); if the code would really help, offer to look.";
+  const why = "Skipped (not this turn): he's talking about the project, not its code. Answer from what you know about it (His projects); if only the code can answer it, pass the question on with pass_on_question now rather than offering to look.";
   if (CODE_TOOLS.has(name)) return why;
   if (name !== "bash") return null;
   if (String(input.repo ?? "").trim()) return why;

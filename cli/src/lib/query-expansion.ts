@@ -32,12 +32,22 @@ async function queryOpenAI(prompt: string, model: string): Promise<string> {
   return res.choices[0].message.content ?? "";
 }
 
+/**
+ * The model that rewrites a search when qmd's on-device expansion fails:
+ * Flyd's default model when it speaks OpenAI's API, else gpt-4o-mini; none
+ * without an OpenAI key (the search then runs on his words as typed).
+ */
+export function queryExpansionModel(model?: string): string | null {
+  if (!getKey("OPENAI_API_KEY")) return null;
+  const m = model ?? defaultModel();
+  return usesOpenAITransport(m) ? m : "gpt-4o-mini";
+}
+
 export async function expandQuery(
   query: string,
   model?: string,
 ): Promise<ExpandedQuery[]> {
-  const apiKey = getKey("OPENAI_API_KEY");
-  if (!apiKey) {
+  if (!getKey("OPENAI_API_KEY")) {
     // No API key — return original query as fallback
     return [
       { type: "lex", query },
@@ -47,10 +57,7 @@ export async function expandQuery(
 
   try {
     const prompt = EXPANSION_PROMPT.replace("{query}", query);
-    const m = model ?? defaultModel();
-    const result = usesOpenAITransport(m)
-      ? await queryOpenAI(prompt, m)
-      : await queryOpenAI(prompt, "gpt-4o-mini");
+    const result = await queryOpenAI(prompt, queryExpansionModel(model)!);
 
     const lines = result.trim().split("\n");
     const expanded: ExpandedQuery[] = [];

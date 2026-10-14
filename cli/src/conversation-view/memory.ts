@@ -11,7 +11,8 @@ import type { ConversationMessage } from "./types.js";
 // here learns, edits or forgets. The column's pure half (composeMemory) takes
 // what the reader read and the conversation, and always gives the same column.
 
-export type MemoryKind = "taste" | "capture" | "memory";
+/** A taste rule (a durable rule or preference he taught Flyd), a capture, a memory line, or a note of work that shipped. */
+export type MemoryKind = "taste" | "capture" | "memory" | "shipped";
 
 export interface RailMemory {
   id: string;
@@ -163,11 +164,12 @@ export function entryId(entry: MemoryEntry): string {
 }
 
 function entryMemory(entry: MemoryEntry): RailMemory {
+  const shipped = entry.section === "Shipped";
   return {
     id: entryId(entry),
-    kind: "memory",
+    kind: shipped ? "shipped" : "memory",
     title: clip(entry.text, MAX_TITLE),
-    line: `Memory · ${entry.section}`,
+    line: shipped ? "Shipped" : `Memory · ${entry.section}`,
     ...(entry.text.length > MAX_TITLE ? { detail: entry.text } : {}),
     ...(entry.date ? { at: entry.date } : {}),
   };

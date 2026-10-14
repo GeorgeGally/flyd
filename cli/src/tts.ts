@@ -6,6 +6,11 @@ const CONVERSATIONAL_TTS_INSTRUCTIONS =
 
 export class TtsNotConfiguredError extends Error {}
 
+/** The speech-out model: FLYD_TTS_MODEL, else the default. */
+export function ttsModel(): string {
+  return process.env.FLYD_TTS_MODEL || DEFAULT_TTS_MODEL;
+}
+
 export function prepareSpeechText(text: string): string {
   return text
     .trim()
@@ -27,7 +32,7 @@ export function buildSpeechRequestBody(text: string): {
   instructions?: string;
   response_format: "aac";
 } {
-  const model = process.env.FLYD_TTS_MODEL || DEFAULT_TTS_MODEL;
+  const model = ttsModel();
   const body: {
     model: string;
     voice: string;

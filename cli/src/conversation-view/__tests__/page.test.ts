@@ -167,12 +167,33 @@ describe("conversation page", () => {
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     const question = { id: "note:5", role: "user", html: "<p>ship it</p>" };
     stream.emit("update", { order: ["u1", "note:5"], messages: [{ ...question, waiting: "Done and live on https://christmas.example.com/vendors. See [the board](https://example.com/b)", settled: true }], working: false });
-    const links = Array.from(document.querySelectorAll(".queued a")) as HTMLAnchorElement[];
+    const links = Array.from(document.querySelectorAll(".receipt.outcome a")) as HTMLAnchorElement[];
     expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.target])).toEqual([
       ["https://christmas.example.com/vendors", "https://christmas.example.com/vendors", "_blank"],
       ["the board", "https://example.com/b", "_blank"],
     ]);
-    expect(document.querySelector(".queued")!.textContent).toBe("Done and live on https://christmas.example.com/vendors. See the board");
+    expect(document.querySelector(".receipt.outcome")!.textContent).toBe("Done and live on https://christmas.example.com/vendors. See the board");
+  });
+
+  it("puts firstmate's outcome on the read line, in its quiet face, and keeps the running line while work carries on", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const question = { id: "note:6", role: "user", html: "<p>next-word guessing is terrible</p>", receipt: "read" };
+    stream.emit("update", { order: ["u1", "note:6"], messages: [{ ...question, waiting: "Looking at it" }], working: true, lastActivity: new Date().toISOString() });
+    const note = document.querySelector('[data-id="note:6"]') ?? document.querySelectorAll(".msg")[1]!;
+    expect(note.querySelector(":scope > .receipt")!.textContent).toBe("read by firstmate");
+
+    stream.emit("update", { order: ["u1", "note:6"], messages: [{ ...question, waiting: "I've logged the poor next-word guessing as a Flyd fix.", settled: true, doing: "Writing the fix brief" }], working: true, lastActivity: new Date().toISOString() });
+    const lines = note.querySelectorAll(":scope > .receipt");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe("I've logged the poor next-word guessing as a Flyd fix.");
+    expect(lines[0]!.classList.contains("outcome")).toBe(true);
+    expect(note.querySelector(":scope > .queued")!.textContent).toBe("Writing the fix brief");
+
+    stream.emit("update", { order: ["u1", "note:6"], messages: [{ ...question, waiting: "I've logged the poor next-word guessing as a Flyd fix.", settled: true }], working: false });
+    expect(note.querySelector(":scope > .queued")).toBeNull();
+    expect(note.querySelector(":scope > .receipt")!.textContent).toBe("I've logged the poor next-word guessing as a Flyd fix.");
   });
 
   it("stills a line that says the answer failed, and keeps the working dots", async () => {
@@ -1293,6 +1314,26 @@ describe("header and artefact view", () => {
     expect([...document.querySelectorAll(".rail-mem-text")].map((node) => node.textContent)).toEqual(["Gallery opens at ten.", "Animate text TV-style: a clean fade in place."]);
     expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent).join(" ")).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
     expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
+  });
+
+  it("labels work that got done as shipped, and keeps \"Learned\" for a rule or preference he taught it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 120_000).toISOString();
+    const remembering = [
+      { id: "memory:13-oct", kind: "shipped", title: "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.", line: "Shipped", at },
+      { id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere", at },
+      { id: "memory:bloom", kind: "memory", title: "George wants Bloom finished and hosted.", line: "Memory · Commitments", at },
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [], memory: { remembers: [], remembering } } });
+    await settle();
+    const kickers = Object.fromEntries([...document.querySelectorAll(".rail-mem--new")].map((card) => [card.querySelector(".rail-mem-text")!.textContent, card.querySelector(".rail-mem-kicker")!.textContent]));
+    expect(kickers).toEqual({
+      "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.": "Shipped",
+      "Animate text TV-style: a clean fade in place.": "Learned",
+      "George wants Bloom finished and hosted.": "Remembered",
+    });
   });
 
   it("keeps the rail in chat order, newest message at the bottom, pinned there unless he scrolled up", async () => {

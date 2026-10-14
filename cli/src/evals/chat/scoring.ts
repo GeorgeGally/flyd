@@ -131,6 +131,11 @@ export function median(values: number[]): number {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+/** The chat-eval judge: FLYD_EVAL_JUDGE_MODEL, else the fixed default, so model comparisons stay apples to apples. */
+export function evalJudgeModel(): string {
+  return process.env.FLYD_EVAL_JUDGE_MODEL?.trim() || "openai:gpt-5.6-sol";
+}
+
 export function buildJudgePrompt(testCase: ChatEvalCase, answer: string, today: string): string {
   const history = (testCase.history ?? []).map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n");
   return [

@@ -198,6 +198,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "speaking_style":
     case "background_task":
     case "start_knowledge_task":
+    case "pass_on_question":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
     case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
@@ -235,6 +236,8 @@ function describe(name: string, input: Record<string, unknown>): string {
     case "whatsapp_send": return `send WhatsApp draft ${clip(String(input.id ?? ""), 40)}`;
     case "start_knowledge_task":
       return `research "${clip(String(input.outcome ?? ""), 80)}"`;
+    case "pass_on_question":
+      return `pass on the question "${clip(String(input.question ?? ""), 80)}"`;
     case "domain_work":
       return input.action === "ask" ? `ask a domain boss: "${clip(String(input.question ?? ""), 80)}"` : `inspect domain work ${clip(String(input.id ?? ""), 40)}`;
     default: return `use ${name}`;

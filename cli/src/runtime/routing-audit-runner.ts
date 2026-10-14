@@ -1,8 +1,9 @@
 import { FLYD_DIR } from "../lib/config.js";
-import { evaluatePredicates, JEV_PINNED_MODEL } from "../cognition/system-one/jev.js";
+import { evaluatePredicates } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor } from "../cognition/system-one/registry.js";
 import { EgressPolicyGateway } from "../intelligence/egress-policy-gateway.js";
 import { runRoutingAudit, routingHash, type RoutingCase, type RoutingDecision } from "./routing-learning.js";
+import { turnRouteJevModel } from "./turn-plan.js";
 
 /** Same registry/client as production, but no tools, managers or dispatch. */
 export async function replayRoutingCase(entry: RoutingCase): Promise<RoutingDecision> {
@@ -15,7 +16,7 @@ export async function replayRoutingCase(entry: RoutingCase): Promise<RoutingDeci
   if (!apiKey) throw new Error("Jev is not configured");
   const ids = ["chat_turn_route", "chat_turn_domain", "chat_turn_needs_code"];
   const result = await evaluatePredicates(state, ids.map((id) => questionFor(id)),
-    { apiKey, model: process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL, timeoutMs: 3_000 }, familyEgress("chat"));
+    { apiKey, model: turnRouteJevModel(), timeoutMs: 3_000 }, familyEgress("chat"));
   const route = result.answers.chat_turn_route;
   const domain = result.answers.chat_turn_domain;
   if (!result.ok || !route?.choice || route.confidence < predicateThreshold("chat_turn_route")) throw new Error("Replay abstained");
