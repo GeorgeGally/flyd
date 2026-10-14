@@ -488,13 +488,13 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-list ul { display: grid; gap: 10px; }
 .brief-list li { display: block; min-width: 0; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
 /* Each item gets the quiet raised treatment used by conversation cards. */
-.brief-eyebrow { margin: 0 0 6px; font: 500 11px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.brief-list li::before { content: ""; float: left; width: 6px; height: 6px; margin: 7px 8px 0 0; border-radius: 50%; background: var(--k-live); }
 .brief-line { display: block; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
 .brief-meta { display: block; margin-top: 6px; font: 400 11px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
-#underway .brief-eyebrow { color: var(--k-live); }
+#done li::before { background: var(--k-landed); }
 .brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -1560,7 +1560,6 @@ var __name = function (f) { return f; };
   }
   function briefItem(item, meta) {
     var li = el("li");
-    li.appendChild(el("p", "brief-eyebrow", item.started ? "Under way" : "Done"));
     var line = el("span", "brief-line");
     var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
     if (link) {
