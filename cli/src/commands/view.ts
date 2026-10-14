@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
+import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
 import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-answers.js";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
@@ -140,7 +141,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const autoAnswers = wantsInbox && process.env.FLYD_AUTO_ANSWER !== "0"
     ? new AutoAnswers({ preferences: recordedPreferences, logFile: defaultAutoAnswerLog() })
     : undefined;
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers, undefined, new ActivityReader());
+  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers, undefined, new ActivityReader());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

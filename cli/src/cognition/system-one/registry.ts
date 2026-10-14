@@ -23,7 +23,8 @@ export type PredicateFamily =
   | "model_routing"
   | "council"
   | "chat"
-  | "self_review";
+  | "self_review"
+  | "presentation";
 
 /**
  * - `production`: asked by a production call site when Jev is enabled.
@@ -414,6 +415,15 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.85, use: "recorded", failureMode: "skip_mutation",
     projection: SELF_REVIEW_PROJECTION, evaluatorVersion: "cos_off_voice.v1", status: "production",
     consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
+  },
+
+  // ── presentation (conversation-view/artefact-judge.ts) ────────────────
+  {
+    id: "reply_is_artefact", family: "presentation", type: "noul",
+    instructions: "`reply` is an answer relayed to George in Flyd's conversation window. Is it mainly numbered steps he will carry out himself (settings to change, rules to add or delete, things to click, copy or run), so it is better kept as a checklist he works through than read once as a message? An explanation, a report of work already done, a list of options or findings, or advice to think about: no.",
+    threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
+    projection: ["reply"], evaluatorVersion: "reply_is_artefact.v1", status: "production",
+    consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered steps the deterministic rule (summaries.ts replyArtefact) leaves unclear; ≥ threshold shows it as an artefact, else (or Jev off/failing) as text",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

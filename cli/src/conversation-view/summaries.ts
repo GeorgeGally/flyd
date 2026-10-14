@@ -141,15 +141,59 @@ export interface ReplyDigest {
 const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
 
 /**
+ * A numbered step that tells him what to do: an imperative, after an optional
+ * "Then", "Next" or the place to do it ("In MyKinsta, delete…").
+ */
+const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|keep|move|set|enter|copy|paste|put|type|replace|choose|select|pick|open|click|go|save|check|run|update|change|edit|clear|install|create|make|turn|enable|disable|send|reply|review|compare|use|leave|point|switch|drag|log)\b/i;
+
+/** Every numbered step of a reply carries out an instruction, and there are at least two. */
+function allSteps(steps: string[]): boolean {
+  return steps.length >= 2 && steps.every((step) => STEP.test(step));
+}
+
+/**
  * Whether the reply hands the captain something to act on: a code block, a
- * table, or an instruction to him to paste, add, run or set what it contains.
- * Such a reply opens with its body shown under the summary; the deliverable
- * is the point.
+ * table, an instruction to him to paste, add, run or set what it contains, or
+ * numbered steps to carry out. Such a reply opens with its body shown under
+ * the summary; the deliverable is the point.
  */
 export function isActionable(text: string): boolean {
   if (/^\s*```/m.test(text)) return true;
   if (/^\s*\|.*\|\s*\n\s*\|[\s:|-]*-[\s:|-]*\|?\s*$/m.test(text)) return true;
+  if (allSteps(stepsOf(text).steps)) return true;
   return ACT_ON.test(text.replace(/`[^`]*`/g, ""));
+}
+
+/**
+ * A reply's top-level numbered steps, outside code blocks, each with the lines
+ * under it (sub-bullets, wrapped text) folded in; and the text before the first.
+ */
+function stepsOf(text: string): { intro: string; steps: string[] } {
+  const intro: string[] = [];
+  const steps: string[][] = [];
+  let open = false;
+  let blank = false;
+  for (const line of text.replace(/```[\s\S]*?```/g, "").split("\n")) {
+    const item = /^\d+[.)]\s+(.*)$/.exec(line);
+    if (item) {
+      steps.push([item[1]!]);
+      open = true;
+      blank = false;
+    } else if (!line.trim()) {
+      blank = true;
+    } else if (open && (!blank || /^\s/.test(line))) {
+      steps.at(-1)!.push(line.trim().replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
+      blank = false;
+    } else {
+      open = false;
+      blank = false;
+      if (steps.length === 0) intro.push(line);
+    }
+  }
+  return {
+    intro: inline(intro.join(" ")),
+    steps: steps.map(([head, ...rest]) => inline(rest.length ? `${head}${/:$/.test(head!.trim()) ? " " : "; "}${rest.join("; ")}` : head!)),
+  };
 }
 
 export interface ReplyArtefact {
@@ -157,14 +201,16 @@ export interface ReplyArtefact {
   steps: string[];
 }
 
-export function replyArtefact(text: string): ReplyArtefact | undefined {
-  const steps = text.split("\n").flatMap((line) => {
-    const match = /^\s*\d+[.)]\s+(.+)$/.exec(line);
-    return match ? [inline(match[1]!)] : [];
-  });
-  if (steps.length < 2 || !steps.every((step) => /^(?:add|delete|remove|keep|move|set|enter|copy|paste|replace|choose|select|open|click|save|check|run|update|clear|install|create|turn|enable|disable|send|reply|review|compare)\b/i.test(step))) return undefined;
-  const title = /\bredirect\b/i.test(text) ? "Redirect steps" : "Steps to follow";
-  return { title, steps };
+/**
+ * The steps a reply hands him, as an artefact to work from. `clear` when every
+ * step is one to carry out (the same rule `isActionable` reads); otherwise the
+ * steps are a candidate Flyd judges. None under two steps.
+ */
+export function replyArtefact(text: string): { artefact: ReplyArtefact; clear: boolean } | undefined {
+  const { intro, steps } = stepsOf(text);
+  if (steps.length < 2) return undefined;
+  const lead = sentences(intro.replace(SALUTATION, ""))[0]?.replace(/[.:!]+$/, "").trim();
+  return { artefact: { title: lead ? clip(capitalise(lead), 70) : "Steps to follow", steps }, clear: allSteps(steps) };
 }
 
 /** Whether a reply is routine chatter: short, with no question or numbered report. */

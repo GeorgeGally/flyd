@@ -23,6 +23,7 @@ import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
+import type { ArtefactJudge } from "./artefact-judge.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
@@ -124,6 +125,8 @@ export interface SummaryOptions {
   summarizer?: ReplySummarizer;
   /** Flyd's own reading of firstmate's answer to one of his notes. */
   interpreter?: AnswerInterpreter;
+  /** Flyd's call on replies whose steps the rules leave unclear: artefact or text. */
+  artefacts?: ArtefactJudge;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -181,6 +184,12 @@ function briefOf(text: string, handled?: Handled): NonNullable<RenderedMessage["
 /** Of a reply's questions, the ones Flyd already answered for him. */
 type Handled = (text: string) => boolean;
 
+/** The artefact a reply hands him: by the rule when it is clear, else once Flyd's judge has said so. */
+function artefactOf(text: string, judge?: ArtefactJudge): ReplyArtefact | undefined {
+  const call = replyArtefact(text);
+  return call && (call.clear || judge?.cached(text) === true) ? call.artefact : undefined;
+}
+
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
@@ -192,6 +201,11 @@ export class SnapshotDiffer {
     if (message.answers?.startsWith("note:")) return this.summaries?.interpreter?.cached(message.text);
     const model = this.summaries?.summarizer?.cached(message.text);
     return model && !isRoutineAnswer(model) ? inFlydsVoice(model) : undefined;
+  }
+
+  /** Asks Flyd's judge about a reply in the background; the stream re-renders when it answers. */
+  private judge(judge: ArtefactJudge, text: string): void {
+    void judge.request(text).then(() => this.summaries?.onSummary?.());
   }
 
   /** Starts a model summary in the background; the stream re-renders when it lands. */
@@ -284,19 +298,21 @@ export class SnapshotDiffer {
       if (message.undoes) takenBack.add(asked);
       else if (message.answeredFor && takenBack.has(asked)) undone.add(message.id);
     }
+    const judge = this.summaries?.artefacts;
     for (const message of snapshot.messages) {
+      // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
+      const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
+      if (call && !call.clear && judge && newest.has(message.id) && judge.cached(message.text) === undefined) this.judge(judge, message.text);
+      const artifact = call ? artefactOf(message.text, judge) : undefined;
+      // No summary is asked for a reply that may yet be an artefact.
+      const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
-        : !message.answers ? this.summarize(message, newest.has(message.id), handled)
-          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id), handled)
-            : { body: message.text };
-      const artifact = message.role === "assistant" ? replyArtefact(message.text) : undefined;
-      if (artifact) {
-        parts.body = `Open the ${artifact.title.toLowerCase()} in Artefacts.`;
-        delete parts.summary;
-        delete parts.expanded;
-      }
+        : artifact ? { body: message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} steps, kept in Artefacts.`), source: "flyd" } }
+          : !message.answers ? this.summarize(message, fresh, handled)
+            : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh, handled)
+              : { body: message.text };
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
       if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), handled);
@@ -425,7 +441,7 @@ export class ConversationViewServer {
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
@@ -722,12 +738,13 @@ export class ConversationViewServer {
         ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
         ...(item.at ? { at: item.at } : {}),
       }));
-    const reported: RailArtefact[] = snapshot.messages.flatMap((message) => {
-      if (message.role !== "assistant" || message.answers) return [];
-      const artifact = replyArtefact(message.text);
-      return artifact ? [{ id: `reply:${message.id}`, title: artifact.title, steps: artifact.steps }] : [];
-    });
-    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
+    // The same replies the window points here, each once.
+    const reported = new Map<string, RailArtefact>();
+    for (const message of snapshot.messages) {
+      const artifact = message.role === "assistant" && !reported.has(`reply:${message.id}`) ? artefactOf(message.text, this.summaries?.artefacts) : undefined;
+      if (artifact) reported.set(`reply:${message.id}`, { id: `reply:${message.id}`, title: artifact.title, steps: artifact.steps });
+    }
+    const artefacts: RailArtefact[] = [...sites, ...reported.values(), ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,

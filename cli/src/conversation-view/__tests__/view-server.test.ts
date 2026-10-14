@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
@@ -14,6 +14,7 @@ import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
+import { ArtefactJudge } from "../artefact-judge.js";
 import { unreadNotes } from "../note-receipts.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
@@ -69,12 +70,13 @@ describe("pasted code in the captain's messages", () => {
 });
 
 describe("SnapshotDiffer", () => {
-  it("turns actionable numbered replies into an artefact pointer while keeping short replies conversational", () => {
-    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Keep the specific redirect rules above the general rule.";
+  it("points an actionable numbered reply at Artefacts and keeps the whole reply behind it", () => {
+    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Keep the specific redirect rules above the general rule.\n\nOrder matters: specifics stay above.";
     const differ = new SnapshotDiffer();
     const update = differ.next({ messages: [{ id: "answer", role: "assistant", text: steps, answers: "note:redirects" }], working: false });
-    expect(update.messages[0]?.html).toContain("Open the redirect steps in Artefacts.");
-    expect(update.messages[0]?.artifact).toMatchObject({ title: "Redirect steps", steps: [
+    expect(update.messages[0]?.summary).toEqual({ html: "<p><strong>Update the redirect rules in Kinsta</strong>: 3 steps, kept in Artefacts.</p>\n", source: "flyd" });
+    expect(update.messages[0]?.html).toContain("Order matters: specifics stay above.");
+    expect(update.messages[0]?.artifact).toEqual({ title: "Update the redirect rules in Kinsta", steps: [
       "Delete the existing catch-all rule.",
       "Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.",
       "Keep the specific redirect rules above the general rule.",
@@ -151,6 +153,60 @@ describe("SnapshotDiffer summaries", () => {
     const summarizer = new ReplySummarizer({ providers: [{ name: "fake", summarize: answer }], cacheFile });
     return { summarizer, landed: () => landed, onSummary: () => (landed += 1) };
   }
+
+  function jev(probability: number): { judge: ArtefactJudge; release: () => void; asked: () => number } {
+    let asked = 0;
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    const fetchFn = (async () => {
+      asked += 1;
+      await answered;
+      return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: { reply_is_artefact: { type: "noul", noul: probability } }, usage: { input_tokens: 10, output_tokens: 1 } }) };
+    }) as unknown as typeof fetch;
+    return { judge: new ArtefactJudge({ apiKey: "test", fetchFn }), release, asked: () => asked };
+  }
+  const unclear = "Captain, for the aicanetwork.com redirects:\n\n1. Order: the specific rules stay first.\n2. The general rule ^/(.*)$ → https://capfive.com/$1 goes last as a 301.\n3. Delete the old ^/$ catch-all.";
+
+  it("asks no model summary for a reply the rule makes an artefact", () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "x"));
+    const reply = `Captain, the redirect fix.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.\n\n${long}`;
+    const [rendered] = new SnapshotDiffer(model).next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact?.steps).toHaveLength(2);
+    expect(calls).toBe(0);
+  });
+
+  it("lets Flyd's judge decide unclear steps, holding the summary until it has", async () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "x"));
+    const { judge, release, asked } = jev(0.92);
+    const differ = new SnapshotDiffer({ ...model, artefacts: judge });
+    const reply = `${unclear}\n\n${long}`;
+    const first = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(first.artifact).toBeUndefined();
+    expect(asked()).toBe(1);
+    release();
+    await vi.waitFor(() => expect(model.landed()).toBe(1));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.artifact?.title).toBe("For the aicanetwork.com redirects");
+    expect(judged.html).toContain("Delete the old ^/$ catch-all.");
+    expect(calls).toBe(0);
+    expect(asked()).toBe(1);
+  });
+
+  it("keeps unclear steps as text when Flyd's judge says so", async () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "Redirects explained."));
+    const { judge, release } = jev(0.2);
+    const differ = new SnapshotDiffer({ ...model, artefacts: judge });
+    const reply = `${unclear}\n\n${long}`;
+    differ.next({ messages: [message("r1", reply)], working: false });
+    release();
+    await vi.waitFor(() => expect(model.landed()).toBeGreaterThanOrEqual(1));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.artifact).toBeUndefined();
+    await vi.waitFor(() => expect(calls).toBe(1));
+  });
 
   it("leads with the reply's own » summary and keeps the rest as the reply, without calling a model", () => {
     let calls = 0;
@@ -703,6 +759,36 @@ describe("ConversationViewServer", () => {
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
     const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
     expect(unread).toEqual({ count: 1, oldest: old, text: "You have 1 note still waiting — sent 12 min ago." });
+  });
+
+  it("lists a reply's steps in the column's Artefacts once, as the window points to them", async () => {
+    const inbox = new MemoryInbox();
+    const lines = [captain("hello"), assistantText("Hi, **Captain**.")];
+    const old = new Date(Date.parse(JSON.parse(lines[0]!).timestamp) + 500).toISOString();
+    const reply = "Captain, fix the aicanetwork.com redirects.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.";
+    inbox.notes = () => [{
+      question: { id: "note:1791720009-eeeeee", role: "user" as const, text: "so what do i do here?", timestamp: old, receipt: "read" as const },
+      handoff: "queued" as const,
+      waiting: "",
+      answer: { id: "note-reply:1791720009-eeeeee", role: "assistant" as const, text: reply, answers: "note:1791720009-eeeeee" },
+    }];
+    const port = await start(inbox, lines);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const cards = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:"));
+    expect(cards).toEqual([{ id: "reply:note-reply:1791720009-eeeeee", title: "Fix the aicanetwork.com redirects", steps: ["In MyKinsta, delete the ^/$ rule.", "Then add ^/(.*)$ → https://capfive.com/$1 as a 301."] }]);
+    expect(update.messages.find((m: { id: string }) => m.id === "note-reply:1791720009-eeeeee")?.artifact?.title).toBe("Fix the aicanetwork.com redirects");
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {

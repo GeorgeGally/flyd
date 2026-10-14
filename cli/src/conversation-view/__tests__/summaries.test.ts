@@ -12,6 +12,7 @@ import {
   isActionable,
   isRoutine,
   isRoutineAnswer,
+  replyArtefact,
   ReplySummarizer,
   SUMMARY_PROMPT,
   xaiProvider,
@@ -126,6 +127,37 @@ describe("isActionable", () => {
     expect(isActionable("Captain, the spacing is fixed on About. I'll use this spacing on the other pages next.")).toBe(false);
     expect(isActionable("Captain, the copyright line is now set in the footer, and the old plugin stays in use in production for now.")).toBe(false);
     expect(isActionable("Captain, the `menu` bar is fixed.")).toBe(false);
+  });
+});
+
+describe("replyArtefact", () => {
+  it("makes steps to carry out an artefact, whether a step starts with the place, \"Then\" or the verb", () => {
+    const reply = "Captain, here is how to fix the aicanetwork.com redirects.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.\n3. Keep the specific rules above it.";
+    expect(replyArtefact(reply)).toEqual({ clear: true, artefact: {
+      title: "Here is how to fix the aicanetwork.com redirects",
+      steps: ["In MyKinsta, delete the ^/$ rule.", "Then add ^/(.*)$ → https://capfive.com/$1 as a 301.", "Keep the specific rules above it."],
+    } });
+    expect(isActionable(reply)).toBe(true);
+  });
+
+  it("folds each step's sub-bullets and wrapped lines into it, and leaves a closing note to the reply", () => {
+    const reply = "1. Add a rule:\n - Source: ^/(.*)$\n - Destination: https://capfive.com/$1\n2. Delete the old catch-all.\n\nNote: order matters, keep specifics above.";
+    expect(replyArtefact(reply)).toEqual({ clear: true, artefact: {
+      title: "Steps to follow",
+      steps: ["Add a rule: Source: ^/(.*)$; Destination: https://capfive.com/$1", "Delete the old catch-all."],
+    } });
+  });
+
+  it("leaves numbered lines inside a code block alone", () => {
+    expect(replyArtefact("Captain, the script is ready.\n\n```\n1. add one\n2. add two\n```")).toBeUndefined();
+  });
+
+  it("leaves steps that are not all instructions for Flyd to judge", () => {
+    const call = replyArtefact("1. Order: the specific rules go first.\n2. Delete the catch-all.");
+    expect(call?.clear).toBe(false);
+    expect(call?.artefact.steps).toEqual(["Order: the specific rules go first.", "Delete the catch-all."]);
+    expect(replyArtefact("1. Fixed the footer.\n2. Merged the hero change.")?.clear).toBe(false);
+    expect(replyArtefact("Delete the catch-all rule.")).toBeUndefined();
   });
 });
 
