@@ -23,9 +23,9 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
 - The model sees the draft plus at most ten recent human conversation messages
   (the newest four capped at 1,500 characters, older ones at 400), so a guess
   can continue the thing being discussed. No project state, retrieval, profile,
-  clipboard, screens,
-  attachments, relayed updates or backstage wake messages. Obvious credential
-  drafts are excluded and credential-containing context messages omitted.
+  clipboard, screens, attachments, relayed updates or backstage wake messages.
+  Obvious credential drafts are excluded and credential-containing context
+  messages omitted.
 - The model returns a confidence with each suggestion; below 0.55 the box shows
   nothing, since a wrong guess costs more than no guess.
 - Provider calls have a 1.5 second deadline (Claude Haiku answers in about 0.9–1.3s), 96 output-token ceiling, 12-word /
@@ -40,9 +40,8 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
 
 While Flyd's Claude is on and under its monthly cap (see
 `docs/product/flyd-models.md`), predictions use Claude Haiku 5.5 with thinking
-off. The conversation rides in a cached system block, so
-every keystroke after the first re-reads them from cache and only the draft is
-new input. Past the cap, or with `FLYD_CLAUDE=0`, it falls back to:
+off. The conversation rides in a cached system block, so every keystroke after
+the first re-reads it from cache and only the draft is new input. Past the cap, or with `FLYD_CLAUDE=0`, it falls back to:
 
 ```dotenv
 OPENROUTER_API_KEY=...
