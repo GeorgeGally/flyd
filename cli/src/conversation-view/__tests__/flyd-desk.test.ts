@@ -65,18 +65,15 @@ describe("routeMessage", () => {
     if (answer instanceof Error) throw answer;
     return answer;
   };
-  const input = { text: "whats there to do in bkk tonight? i see there is an art festival?", images: 0, recent: [] };
+  const input = { text: "whats there to do in bkk tonight? i see there is an art festival?", recent: [] };
 
   it("sends a general question to Flyd and software work to firstmate, as the model says", async () => {
     expect(await routeMessage(input, ask("FLYD"))).toBe("flyd");
     expect(await routeMessage({ ...input, text: "fix the island filter" }, ask("FIRSTMATE"))).toBe("firstmate");
   });
 
-  it("keeps work attachments and anything unsure with firstmate, but lets Flyd answer image questions", async () => {
+  it("keeps slash commands, documents and anything unsure with firstmate", async () => {
     expect(await routeMessage({ ...input, command: "review" }, ask("FLYD"))).toBe("firstmate");
-    expect(await routeMessage({ ...input, images: 1 }, ask("FLYD"))).toBe("firstmate");
-    expect(await routeMessage({ ...input, text: "what is usb overdrive?", images: 1 }, ask("FLYD"))).toBe("flyd");
-    expect(await routeMessage({ ...input, text: "fix this screenshot", images: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, files: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage(input, ask(new Error("no key")))).toBe("firstmate");
     expect(await routeMessage(input, ask("maybe"))).toBe("firstmate");
@@ -94,9 +91,8 @@ describe("routeMessage", () => {
     // An old conversation, or one firstmate is having, keeps the old default.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(45) } }, timedOut, 20)).toBe("firstmate");
     expect(await routeMessage({ ...followUp, previous: { owner: "firstmate", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
-    // A router that answers still decides; an image does not turn a plain question into work.
+    // A router that answers still decides.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask("FIRSTMATE"))).toBe("firstmate");
-    expect(await routeMessage({ ...followUp, images: 1, previous: { owner: "flyd", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
   });
 
   it("tells the router that questions about Flyd itself are Flyd's", () => {
@@ -143,6 +139,19 @@ describe("FlydDesk", () => {
       { role: "user", content: "whats there to do in bkk tonight?" },
       { role: "assistant", content: "Tonight, sir: art bangkok at Siam Paragon." },
     ]);
+  });
+
+  it("hands the screenshots he attached to Flyd's answer", async () => {
+    const seen: unknown[] = [];
+    const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, images) => {
+      seen.push(images);
+      return "That is a 404 from the preview server.";
+    } });
+    const image = { mediaType: "image/png", data: "iVBORw0KGgo=" };
+    desk.ask("Is this normal", [image]);
+    desk.ask("and this?");
+    await until(() => (desk.exchanges().every((exchange) => exchange.answer) ? true : undefined));
+    expect(seen).toEqual([[image], undefined]);
   });
 
   it("says what Flyd is doing the moment it changes, then its answer", async () => {

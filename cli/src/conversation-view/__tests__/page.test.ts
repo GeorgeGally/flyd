@@ -215,7 +215,7 @@ describe("conversation page", () => {
     expect(line.classList.contains("still")).toBe(false);
   });
 
-  it("says under each note whether firstmate has read it, and never puts the assistant's backlog over the box", async () => {
+  it("says under each note whether firstmate has read it, and warns over the box when notes sit unread", async () => {
     load("");
     await settle();
     const fresh = new Date(Date.now() - 60_000).toISOString();
@@ -237,17 +237,21 @@ describe("conversation page", () => {
     stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:1", role: "user", html: "<p>fix the footer</p>", timestamp: old, receipt: "read", shots: ["/tmp/footer.png"] }], working: false });
     expect(receipt("note:1")!.previousElementSibling!.className).toBe("body");
 
-    // No bar counting unread notes over the box: that is the assistant's backlog, not his.
-    expect(document.getElementById("unread")).toBeNull();
-    expect(document.querySelector(".composer")!.textContent).not.toMatch(/has not read/);
+    const banner = document.getElementById("unread")!;
+    expect(banner.hidden).toBe(true);
+    stream.emit("unread", { count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 10 min ago." });
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toBe("Firstmate has not read 1 note you sent 10 min ago.");
 
-    // Acknowledged: the note reads as read.
+    // Acknowledged: the note reads as read, and the warning goes.
     stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:3", role: "user", html: "<p>and the logo</p>", timestamp: old, receipt: "read" }], working: false });
+    stream.emit("unread", { count: 0 });
     expect(receipt("note:3")!.textContent).toBe("read by firstmate");
     expect(receipt("note:3")!.classList.contains("late")).toBe(false);
+    expect(banner.hidden).toBe(true);
   });
 
-  it("holds a message sent while Flyd restarts and sends it when the view is back, with no error", async () => {
+  it("never sends again on its own when Flyd is gone, and gives his words back to send himself", async () => {
     load("");
     await settle();
     open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
@@ -258,15 +262,12 @@ describe("conversation page", () => {
       return real(url as string, init);
     });
     await type("ship it after the update");
-    expect(document.querySelector(".msg.pending.failed")).toBeNull();
-    expect(pending()[0]).not.toContain("not sent");
+    expect(pending()[0]).toContain("not sent");
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("ship it after the update");
     down = false;
     await new Promise((resolve) => setTimeout(resolve, 1_100));
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(2);
-    expect(document.querySelector(".msg.failed")).toBeNull();
-    expect(document.body.textContent).not.toContain("Failed to fetch");
-    expect(pending()[0]).not.toContain("may not have sent");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
   });
 
   it("never sends again on its own when Flyd answers right after a send failed, and resends once when he taps", async () => {
@@ -415,7 +416,7 @@ describe("conversation page", () => {
     expect(document.querySelectorAll(".msg")).toHaveLength(1);
   });
 
-  it("never titles the window with the conversation's first topic, long since moved on from", async () => {
+  it("names the conversation by its topic in the picker and the window title", async () => {
     vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [{ id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z" }, SESSIONS[1]] }) : json({})));
     load("");
     await settle();
@@ -423,10 +424,9 @@ describe("conversation page", () => {
     stream.emit("session", { id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
     await settle();
     const options = [...(document.getElementById("picker") as HTMLSelectElement).options].map((option) => option.textContent);
-    expect(options[0]).toBe("Latest");
+    expect(options[0]).toBe("Compund engineering skill review");
     expect(options[1]).toMatch(/^Older {2}·/);
-    expect(document.title).toBe("Flyd");
-    expect(document.querySelector("header")!.textContent).not.toContain("Compund");
+    expect(document.title).toBe("Compund engineering skill review · Flyd");
   });
 
   it("says where a message sent from an older session will show", async () => {
@@ -1530,35 +1530,59 @@ describe("header and artefact view", () => {
     expect(note.querySelector(".auto-undo")).toBeNull();
   });
 
-  it("keeps what Flyd learned out of the conversation, as plain lines under preferences", async () => {
+  it("shows what Flyd remembers here folded at the top, and what it learned as a card in the conversation, each one plain sentence", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const memory = {
+      project: "GNM",
+      remembering: [{ id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere · seen 4 times", detail: "Animate text TV-style.\n\nLearned from:\n“should be TV style fade in. no pop.” — 2026-10-10", at: new Date(Date.now() - 120_000).toISOString() }],
+      remembers: [{ id: "capture:2026-10-10-17-37-34.md", kind: "capture", title: "Gallery opens at ten.", line: "Capture · GNM" }],
+    };
+    const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    const learnedAt = memory.remembering[0]!.at;
+    const before = new Date(Date.parse(learnedAt) - 60_000).toISOString();
+    const after = new Date(Date.parse(learnedAt) + 60_000).toISOString();
+    update({ conversations: [{ id: "q1", question: "should be TV style fade in. no pop.", answer: "Done.", at: before }, { id: "q2", question: "and the footer", answer: "Done.", at: after }], artefacts: [], memory });
+    await settle();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    const sections = [...document.querySelectorAll(".rail-section")].map((node) => node.textContent);
+    expect(sections).toEqual(["Remembers · GNM 1", "Conversations"]);
+    // What it already holds is folded under one line until he opens it, and stays as he left it.
+    const held = document.querySelector<HTMLDetailsElement>(".rail-held")!;
+    expect(held.open).toBe(false);
+    held.open = true;
+    held.dispatchEvent(new Event("toggle"));
+    expect(localStorage.getItem("flyd-rail-held")).toBe("open");
+    // What it learned is a card in the stream, right after the message it learned it from.
+    const order = [...document.getElementById("rail-body")!.children].map((node) => node.className);
+    expect(order).toEqual(["rail-held", "rail-section", "rail-talk", "rail-mem rail-mem--new", "rail-talk"]);
+    const card = document.querySelector(".rail-mem--new")!;
+    expect(card.querySelector(".rail-mem-kicker")!.textContent).toBe("Learned");
+    // One sentence each: no kind/scope/seen/age line, no "Learned from" quote, no dates.
+    expect([...document.querySelectorAll(".rail-mem-text")].map((node) => node.textContent)).toEqual(["Gallery opens at ten.", "Animate text TV-style: a clean fade in place."]);
+    expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent).join(" ")).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
+    expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
+  });
+
+  it("labels work that got done as shipped, and keeps \"Learned\" for a rule or preference he taught it", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const at = new Date(Date.now() - 120_000).toISOString();
-    const memory = {
-      project: "GNM",
-      remembering: [
-        { id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere · seen 4 times", detail: "Learned from:\n“no pop.” — 2026-10-10", at },
-        { id: "memory:13-oct", kind: "shipped", title: "13 Oct: GNM's home hero fits short laptops.", line: "Shipped", at },
-      ],
-      remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "Capture · GNM" }],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [{ id: "q1", question: "and the footer", answer: "Done." }], artefacts: [], memory } });
+    const remembering = [
+      { id: "memory:13-oct", kind: "shipped", title: "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.", line: "Shipped", at },
+      { id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere", at },
+      { id: "memory:bloom", kind: "memory", title: "George wants Bloom finished and hosted.", line: "Memory · Commitments", at },
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [], memory: { remembers: [], remembering } } });
     await settle();
-    // Nothing learned shows in the column: no "Learned" card, no "Remembers" fold.
-    const rail = document.getElementById("rail")!;
-    expect(rail.querySelector(".rail-mem, .rail-held")).toBeNull();
-    expect(rail.textContent).not.toMatch(/Learned|Remembers|TV-style|Gallery/);
-    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Conversations"]);
-    // Under preferences: each a plain line with what kind of thing it is, nothing else.
-    const learned = document.getElementById("prefs-learned")!;
-    expect(learned.hidden).toBe(false);
-    expect([...learned.querySelectorAll("li")].map((item) => [item.querySelector("span")!.textContent, item.lastChild!.textContent])).toEqual([
-      ["Learned", "Animate text TV-style: a clean fade in place."],
-      ["Shipped", "13 Oct: GNM's home hero fits short laptops."],
-      ["Remembers · GNM", "Gallery opens at ten."],
-    ]);
-    expect(learned.textContent).not.toMatch(/seen 4 times|Learned from|2026-10-10/);
+    const kickers = Object.fromEntries([...document.querySelectorAll(".rail-mem--new")].map((card) => [card.querySelector(".rail-mem-text")!.textContent, card.querySelector(".rail-mem-kicker")!.textContent]));
+    expect(kickers).toEqual({
+      "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.": "Shipped",
+      "Animate text TV-style: a clean fade in place.": "Learned",
+      "George wants Bloom finished and hosted.": "Remembered",
+    });
   });
 
   it("keeps the rail in chat order, newest message at the bottom, pinned there unless he scrolled up", async () => {
@@ -1573,7 +1597,7 @@ describe("header and artefact view", () => {
     Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
     update([{ id: "q1", question: "first", answer: "One." }]);
     await settle();
-    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Conversations"]);
+    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Remembers · GNM 1", "Conversations"]);
     expect(body.scrollTop).toBe(1000);
     height = 1200;
     update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", waiting: "Working on it" }]);
@@ -1764,13 +1788,13 @@ describe("header and artefact view", () => {
     expect(document.querySelector("#rail-body > .rail-talk")!.classList.contains("open")).toBe(true);
   });
 
-  it("leads the column with one decision that needs him and Flyd's advice, then every job under way and what got done", async () => {
+  it("leads the column with one decision that needs him and its recommended choice, then every job under way and what got done", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const started = new Date(Date.now() - 25 * 60_000).toISOString();
     const calls = [
-      { id: "call:a", kind: "call", headline: "Pick the vendor step layout.", why: "", project: "GNM (Good Neighbours Market)", detail: "Six layouts are built.", recommendation: "I'd pick the label column: it is the smallest change.", decision: { task: "a", question: "Pick one", choices: [] } },
+      { id: "call:a", kind: "call", headline: "Pick the vendor step layout.", why: "", project: "GNM (Good Neighbours Market)", detail: "Six layouts are built.", decision: { task: "a", question: "Pick one", choices: [] } },
       { id: "call:b", kind: "call", headline: "Keep the Jev rule?", why: "", decision: { task: "b", question: "Keep or remove", choices: ["Keep", "Remove"], recommended: "Keep" } },
     ];
     const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
@@ -1779,10 +1803,10 @@ describe("header and artefact view", () => {
     await settle();
     expect(document.getElementById("rail")!.hidden).toBe(false);
     const needs = document.getElementById("needs")!;
-    // One at a time: the first, with its advice and a way to answer, and how many wait.
+    // One at a time: the first, with a way to answer, and how many wait; no recommendation it never recorded.
     expect(needs.querySelector(".needs-head")!.textContent).toBe("Pick the vendor step layout.");
     expect(needs.querySelector(".needs-meta")!.textContent).toBe("GNM");
-    expect(needs.querySelector(".needs-rec")!.textContent).toBe("RecommendedI'd pick the label column: it is the smallest change.");
+    expect(needs.querySelector(".needs-rec")).toBeNull();
     expect(needs.querySelector(".needs-nav")!.textContent).toContain("1 of 2");
     expect(needs.querySelector("textarea")).not.toBeNull();
     needs.querySelector<HTMLButtonElement>('[aria-label="The next one"]')!.click();

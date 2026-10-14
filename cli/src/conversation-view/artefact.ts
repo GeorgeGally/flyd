@@ -545,7 +545,6 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(asked ? { detail: row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
-    ...(kind === "call" && row.said?.recommend ? { recommendation: row.said.recommend } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
       ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
       : {}),

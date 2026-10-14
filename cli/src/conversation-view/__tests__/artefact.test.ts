@@ -6,7 +6,7 @@ import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted,
+  doneItems, underwayItems, workerStarted,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -286,12 +286,6 @@ describe("the conversation's lists", () => {
     expect(doneItems(landed).map((item) => item.headline)).toEqual(["New", "Old"]);
     expect(doneItems(landed, {}, 1)).toHaveLength(1);
     expect(underwayItems({ ...fleet, unavailable: "no snapshot" })).toEqual([]);
-  });
-
-  it("carries Flyd's advice on each call", () => {
-    const fleet = parseBearings(BEARINGS);
-    const voiced = { ...fleet, calls: fleet.calls.map((row) => ({ ...row, said: { headline: "Jev needs your call.", line: "Keep or remove it.", recommend: "I'd keep it for now." } })) };
-    expect(callItems(voiced)[0]).toMatchObject({ headline: "Jev needs your call.", recommendation: "I'd keep it for now." });
   });
 });
 

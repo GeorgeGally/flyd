@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { ANSWERING } from "./living.js";
-import type { ConversationMessage, Exchange, SentMessage } from "./types.js";
+import type { ConversationMessage, Exchange, ImageUpload, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 
@@ -82,13 +82,13 @@ export function continuing(previous: { owner: Route; at?: string } | undefined, 
  * dropped on the floor.
  */
 export async function routeMessage(
-  input: { text: string; images: number; files?: number; command?: string; recent: ConversationMessage[]; sessionId?: string; previous?: { owner: Route; at?: string } },
+  input: { text: string; files?: number; command?: string; recent: ConversationMessage[]; sessionId?: string; previous?: { owner: Route; at?: string } },
   complete: Complete,
   timeoutMs = ROUTE_TIMEOUT_MS,
   options: DeskRoutingOptions = {},
 ): Promise<Route> {
-  const plainQuestion = /^(?:what|who|whose|where|when|why|which|how)\b/i.test(input.text.trim()) && /\?\s*$/.test(input.text.trim());
-  if (input.command || (input.files ?? 0) > 0 || !input.text.trim() || (input.images > 0 && !plainQuestion)) return "firstmate";
+  // Documents are read by firstmate; a screenshot goes with his words to whoever they are for.
+  if (input.command || (input.files ?? 0) > 0 || !input.text.trim()) return "firstmate";
   if (/\bwhatsapp\b/i.test(input.text) && isAccountIntent(input.text)) return "flyd";
   const started = Date.now();
   const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");
@@ -153,8 +153,8 @@ interface AskRecord {
   error?: string;
 }
 
-/** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void) => Promise<string>;
+/** Flyd's own answer to a question, given the window's earlier questions and answers and any screenshots he attached; `onStep` says what it is doing as it goes. */
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void, images?: ImageUpload[]) => Promise<string>;
 
 export function defaultAsksDir(): string {
   return join(homedir(), ".flyd", "view", "asks");
@@ -218,7 +218,7 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string): SentMessage {
+  ask(text: string, images?: ImageUpload[]): SentMessage {
     const record: AskRecord = { id: `${Date.now()}-${randomBytes(4).toString("hex")}`, at: new Date().toISOString(), text: text.trim() };
     const history = this.records()
       .filter((earlier) => earlier.answer)
@@ -233,7 +233,7 @@ export class FlydDesk {
       const line = step.replace(/\s+/g, " ").trim();
       if (line && this.inFlight.has(record.id)) this.steps.set(record.id, clipKeepingLinks(line.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
     };
-    void this.answerer(record.text, history, onStep)
+    void this.answerer(record.text, history, onStep, images?.length ? images : undefined)
       .then((answer) => {
         if (!answer.trim()) throw new Error("no answer came back");
         this.write({ ...record, answer: answer.trim(), answeredAt: new Date().toISOString() });

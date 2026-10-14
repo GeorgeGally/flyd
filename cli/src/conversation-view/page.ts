@@ -85,7 +85,7 @@ header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 
 header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 header .air.on { color: var(--k-live, var(--accent)); }
 header .air.on::before { background: currentColor; opacity: 1; }
-/* The session picker: "Latest", or an earlier conversation by its first topic and day. */
+/* The session picker doubles as the title. */
 header .picker { flex: 1; min-width: 0; display: flex; }
 header select {
   font: inherit; color: var(--fg); background: transparent; border: 0; border-radius: 6px;
@@ -431,14 +431,6 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
   font: 400 15px/1.35 var(--sans); animation: choice-in 160ms ease both;
 }
 .prefs[hidden] { display: none; }
-.prefs { max-height: calc(100vh - 64px); overflow-y: auto; }
-/* What Flyd took in lately: plain lines, out of the conversation, here when he wants them. */
-.prefs-learned { margin: 6px 0 0; padding: 4px 0 6px; border-top: 1px solid var(--faint); }
-.prefs-learned[hidden] { display: none; }
-.prefs-learned ul { margin: 0; padding: 0 12px; list-style: none; }
-.prefs-learned li { padding: 7px 0; font: 400 14px/1.45 var(--sans); color: var(--fg); overflow-wrap: anywhere; }
-.prefs-learned li + li { border-top: 1px solid var(--faint); }
-.prefs-learned li span { display: block; font: 500 11px/1.4 var(--mono); color: var(--muted); }
 .prefs-title { margin: 0; padding: 10px 12px 6px; font: 600 13px/1.2 var(--sans); color: var(--muted); }
 .prefs button {
   display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
@@ -598,6 +590,24 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* The screenshot behind an answer leads it, a size to read at a glance. */
 .rail-shots { margin: 8px 0 0; }
 .rail-shots .shot img { max-height: 15em; max-width: 100%; }
+/* What Flyd remembers: a card each, one plain sentence. What it learned while
+   we talked sits in the conversation where it learned it. */
+/* A raised surface with no outline: the fill alone sets each card apart. */
+.rail-mem { margin: 0 0 24px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+.rail-body > .rail-mem + .rail-talk { border-top: 0; }
+.rail-mem-kicker { margin: 0 0 6px; font: 500 12px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
+/* What it already holds here: folded under one line at the top until he opens it. */
+.rail-held > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; transition: color 140ms ease; }
+.rail-held > summary::-webkit-details-marker { display: none; }
+.rail-held > summary::after { content: "›"; font-size: 15px; transition: transform 180ms ease; }
+.rail-held[open] > summary::after { transform: rotate(90deg); }
+.rail-held > summary:hover { color: var(--fg); }
+.rail-held > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.rail-held-count { font-weight: 500; font-variant-numeric: tabular-nums; }
+.rail-held .rail-mem { margin-bottom: 12px; padding: 10px 12px; }
+.rail-held .rail-mem-text { font-size: 15px; color: var(--fg); }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -900,6 +910,14 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font-size: 0.8em;
 }
 .composer[hidden] { display: none; }
+/* Notes firstmate has left unread too long: said plainly over the message box. */
+.composer .unread {
+  display: flex; align-items: flex-start; gap: 0.55em; margin: 0 0 0.6em -0.75em; padding: 0.5em 0.75em;
+  border-radius: 0.4em; font: 500 0.82em/1.45 var(--sans); color: var(--k-waiting);
+  background: color-mix(in srgb, var(--k-waiting) 14%, var(--bg));
+}
+.composer .unread::before { content: ""; flex: none; width: 0.42em; height: 0.42em; margin-top: 0.52em; border-radius: 50%; background: currentColor; }
+.composer .unread[hidden] { display: none; }
 .composer .row {
   position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
@@ -1239,6 +1257,11 @@ var __name = function (f) { return f; };
   setInterval(function () {
     main.querySelectorAll(".msg > .receipt").forEach(function (line) { receiptLine(line.parentNode, line); });
   }, 15000);
+  var unreadEl = document.getElementById("unread");
+  function showUnread(unread) {
+    unreadEl.hidden = !unread.count;
+    unreadEl.textContent = unread.count ? unread.text : "";
+  }
   // A question waits for its own answer; firstmate's session lines are relayed updates. Once firstmate said the
   // outcome (it sits on the receipt line), the living line carries on only while work on this message does.
   function pairing(el, message) {
@@ -1588,7 +1611,7 @@ var __name = function (f) { return f; };
     var question = call.decision && call.decision.question;
     var detail = call.detail && call.detail !== call.headline ? call.detail : question && question !== call.headline ? question : "";
     if (detail) needsEl.appendChild(el("p", "needs-detail", sentence(capital(detail))));
-    var advice = call.decision && call.decision.recommended ? "I'd pick " + call.decision.recommended + "." : call.recommendation;
+    var advice = call.decision && call.decision.recommended ? "I'd pick " + call.decision.recommended + "." : "";
     if (advice) {
       var rec = el("p", "needs-rec");
       rec.appendChild(el("b", "", "Recommended"));
@@ -1841,28 +1864,29 @@ var __name = function (f) { return f; };
     }
     return box;
   }
-  // What Flyd took in lately, and what it already holds here: plain lines under
-  // preferences, never cards in the conversation. Learning happens quietly.
-  var KINDS = { taste: "Learned", shipped: "Shipped", capture: "Noted", memory: "Remembered" };
-  var prefsLearned = document.getElementById("prefs-learned");
-  var prefsLearnedList = document.getElementById("prefs-learned-list");
-  var learnedSignature = "";
-  function renderLearned(memory) {
-    var lately = ((memory && memory.remembering) || []).slice().sort(function (a, b) { return timeOf(b.at) - timeOf(a.at); });
+  // One memory as a card: the sentence, and over what it took in while we talked, what kind of thing it is:
+  // "Learned" only for a rule or preference he taught it; work that got done is "Shipped", never a lesson.
+  var KICKERS = { taste: "Learned", shipped: "Shipped", capture: "Noted", memory: "Remembered" };
+  function railMemory(memory, fresh) {
+    var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
+    if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
+    card.appendChild(el("p", "rail-mem-text", memory.title));
+    return card;
+  }
+  // What Flyd already holds here, folded under one line at the top; he opens it when he wants it.
+  var heldOpen = store("flyd-rail-held") === "open";
+  function renderHeld(memory, into) {
     var held = (memory && memory.remembers) || [];
-    var items = lately.map(function (item) { return [KINDS[item.kind] || "Remembered", item.title]; })
-      .concat(held.map(function (item) { return ["Remembers" + (memory.project ? " · " + memory.project : ""), item.title]; }));
-    var signature = JSON.stringify(items);
-    if (signature === learnedSignature) return;
-    learnedSignature = signature;
-    prefsLearnedList.textContent = "";
-    items.forEach(function (item) {
-      var li = el("li");
-      li.appendChild(el("span", "", item[0]));
-      li.appendChild(document.createTextNode(item[1]));
-      prefsLearnedList.appendChild(li);
-    });
-    prefsLearned.hidden = !items.length;
+    if (!held.length) return false;
+    var box = keyed(el("details", "rail-held"), "held");
+    box.open = heldOpen;
+    var summary = el("summary", "rail-section", "Remembers" + (memory.project ? " · " + memory.project : ""));
+    summary.appendChild(el("span", "rail-held-count", " " + held.length));
+    box.appendChild(summary);
+    held.forEach(function (item) { box.appendChild(railMemory(item, false)); });
+    box.addEventListener("toggle", function () { heldOpen = box.open; store("flyd-rail-held", heldOpen ? "open" : "closed"); });
+    into.appendChild(box);
+    return true;
   }
   function timeOf(iso) { var at = iso ? Date.parse(iso) : NaN; return isNaN(at) ? Infinity : at; }
   // Rebuilding the column on every update reloads each framed page, so a live
@@ -2451,9 +2475,8 @@ var __name = function (f) { return f; };
   }
   function renderRail(rail) {
     lastRail = rail;
-    renderLearned(rail && rail.memory);
     if (!rail) { railFilled = false; showRail(); return; }
-    var signature = JSON.stringify([rail.conversations, rail.artefacts, Array.from(talksOpen)]);
+    var signature = JSON.stringify([rail.conversations, rail.artefacts, rail.memory, Array.from(talksOpen)]);
     if (signature === railSignature) { showRail(); return; }
     railSignature = signature;
     var next = el("div");
@@ -2462,15 +2485,24 @@ var __name = function (f) { return f; };
     // Chat order: the newest message last, at the bottom, which stays in view
     // unless he has scrolled up to read.
     var pinned = !railBody.firstElementChild || railBody.scrollHeight - railBody.scrollTop - railBody.clientHeight < 40;
+    var held = renderHeld(rail.memory, next);
     var cards = rail.artefacts || [];
     if (cards.length) {
       cards.forEach(function (card) { nextArtefacts.appendChild(railCard(card)); });
     }
+    // What Flyd learned while we talked sits in the conversation, after the message it learned it from.
+    var learned = ((rail.memory && rail.memory.remembering) || []).slice().sort(function (a, b) { return timeOf(a.at) - timeOf(b.at); });
+    var told = 0;
     if (talks.length) next.appendChild(el("div", "rail-section", "Conversations"));
-    talks.forEach(function (talk) { next.appendChild(railTalk(talk)); });
+    talks.forEach(function (talk) {
+      var start = talk.at ? Date.parse(talk.at) : NaN;
+      while (told < learned.length && timeOf(learned[told].at) < start) next.appendChild(railMemory(learned[told++], true));
+      next.appendChild(railTalk(talk));
+    });
+    while (told < learned.length) next.appendChild(railMemory(learned[told++], true));
     patch(railBody, Array.prototype.slice.call(next.children));
     patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
-    railFilled = talks.length > 0 || cards.length > 0;
+    railFilled = talks.length > 0 || cards.length > 0 || held || learned.length > 0;
     showRail();
     if (pinned) railBody.scrollTop = railBody.scrollHeight;
   }
@@ -2786,12 +2818,12 @@ var __name = function (f) { return f; };
       if (current !== session.id && typingPredictions) typingPredictions.reset();
       current = session.id;
       assistant = session.assistantLabel;
-      // A transcript's title is fixed at its first message; the talk moves on, so the window names only who answers.
-      document.title = session.assistantLabel;
+      document.title = session.title + " · " + session.assistantLabel;
       if (picker.value !== session.id) loadSessions();
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
+    source.addEventListener("unread", function (event) { showUnread(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
       // The browser retries a dropped stream by itself, but gives up for good
@@ -2829,8 +2861,7 @@ var __name = function (f) { return f; };
       sessions.forEach(function (session, index) {
         var option = document.createElement("option");
         option.value = session.id;
-        // The newest is just "Latest": its title was its first topic, long since moved on from.
-        option.textContent = index === 0 ? "Latest" : session.title + "  ·  " + dayOf(session.updatedAt);
+        option.textContent = session.title + (index === 0 ? "" : "  ·  " + dayOf(session.updatedAt));
         picker.appendChild(option);
       });
       if (current) picker.value = current;
@@ -3282,34 +3313,17 @@ var __name = function (f) { return f; };
     } catch (e) { /* sound is a nicety */ }
   }
 
-  // While Flyd restarts after an update the view is gone for a few seconds: a
-  // message sent then waits and goes out when it is back, quietly. A view that
-  // answers straight after the send failed may already have it, so that one is
-  // never sent again on its own. Only a view still unreachable after this long
-  // says it was not sent.
-  var SEND_RETRY_MS = 60000;
-  function post(payload) {
-    return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true);
-  }
-  function read(response) {
-    return response.json().then(function (data) {
-      if (!response.ok) throw new Error(data.error || "not sent");
-      return data;
-    });
-  }
-  function reachable() {
-    return fetch("/api/token").then(function () { return true; }, function () { return false; });
-  }
+  // A send whose answer never came may still have landed: when the view answers
+  // straight after, he is told it may not have sent and resends it himself;
+  // when it does not, it was not sent.
   function deliver(payload) {
-    var started = Date.now();
-    function whenBack(wait) {
-      if (Date.now() - started + wait > SEND_RETRY_MS) return Promise.reject(new Error("Flyd is not answering"));
-      return new Promise(function (resolve) { setTimeout(resolve, wait); }).then(reachable).then(function (up) {
-        return up ? post(payload).then(read) : whenBack(Math.min(wait * 2, 8000));
+    return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || "not sent");
+        return data;
       });
-    }
-    return post(payload).then(read, function () {
-      return reachable().then(function (up) { return up ? { unsure: true } : whenBack(1000); });
+    }, function (error) {
+      return fetch("/api/token").then(function () { return { unsure: true }; }, function () { throw error; });
     });
   }
 
@@ -4071,10 +4085,6 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
-  <div class="prefs-learned" id="prefs-learned" hidden>
-    <p class="prefs-title">What Flyd learned lately</p>
-    <ul id="prefs-learned-list"></ul>
-  </div>
 </div>
 <aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
@@ -4121,6 +4131,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
+    <p class="unread" id="unread" role="alert" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">

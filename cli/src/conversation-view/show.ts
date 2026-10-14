@@ -53,8 +53,6 @@ export interface ShowItem {
   at?: string;
   /** When its worker started: how long a job has been under way. */
   started?: string;
-  /** For a call: what Flyd advises he decide, in its own words. */
-  recommendation?: string;
   /** Pull requests it names. */
   links?: ShowLink[];
   /** The web page the work changed: a button that opens it. */

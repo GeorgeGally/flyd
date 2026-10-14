@@ -136,14 +136,6 @@ const CHATTER = [
   /^the (?:screenshots?|pages?|previews?|before[- ]and[- ]after shots?) (?:are|is) open(?: in [\w ]+)?[.!]?$/i,
 ];
 
-/**
- * A paragraph that recounts his notes still waiting ("Five of your earlier
- * notes are still unanswered: …"). The column lists every note with where it
- * stands, so a reply never says it again; the whole paragraph goes, since the
- * sentences after its lead only list those notes.
- */
-const NOTES_RECAP = /^(?:(?:separately|also|meanwhile|and|by the way),?\s+)?(?:(?:all|the other)\s+)?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|some|a few)\s+(?:of\s+)?(?:your\s+)?(?:earlier\s+|other\s+|older\s+)?notes?\b(?:\s+(?:you sent\s+)?(?:from\s+)?(?:earlier|before|today|this morning))?\s+(?:are|is)\s+(?:still\s+)?(?:waiting|unanswered|open|pending|unread|unhandled|not (?:yet )?(?:handled|answered|read))\b/i;
-
 /** A reply with its machinery narration taken out: whole sentences only, code blocks left as written. */
 export function withoutChatter(text: string): string {
   return text
@@ -151,7 +143,6 @@ export function withoutChatter(text: string): string {
     .map((part, index) => (index % 2 === 1 ? part : part.split("\n").flatMap((line) => {
       const item = /^(\s*(?:[-*+]|\d+[.)])\s+|\s*)/.exec(line)![0];
       const said = line.slice(item.length);
-      if (NOTES_RECAP.test(inline(said.split(/(?<=[.!?:])\s+/)[0] ?? "").trim())) return [];
       const kept = said.split(/(?<=[.!?])\s+/).filter((sentence) => !CHATTER.some((pattern) => pattern.test(inline(sentence).trim())));
       if (kept.length === said.split(/(?<=[.!?])\s+/).length) return [line];
       return kept.join(" ").trim() ? [`${item}${kept.join(" ")}`] : [];

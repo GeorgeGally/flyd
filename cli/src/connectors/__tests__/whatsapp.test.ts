@@ -51,7 +51,7 @@ describe("WhatsApp personal transport", () => {
     expect(extractWhatsAppMessage({ key: { id: "x", remoteJid: "123@s.whatsapp.net" }, message: { audioMessage: { ptt: true } } })).toMatchObject({ kind: "audio", text: "[audio: content not downloaded]" });
   });
   it("uses Flyd's interface and policy, not Firstmate or an unclassified read tool", async () => {
-    expect(await routeMessage({ text: "Read my WhatsApp messages", images: 0, recent: [] }, async () => "FIRSTMATE")).toBe("flyd");
+    expect(await routeMessage({ text: "Read my WhatsApp messages", recent: [] }, async () => "FIRSTMATE")).toBe("flyd");
     expect(isAccountIntent("Tell Erica on WhatsApp I am late")).toBe(true);
     expect(classifyToolCall("whatsapp_send", {})).toBe("outward");
     expect(marksTurnUntrusted("whatsapp_read")).toBe(true);
