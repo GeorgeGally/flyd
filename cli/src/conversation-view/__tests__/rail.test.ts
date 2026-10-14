@@ -141,6 +141,13 @@ describe("outcomeFirst", () => {
 describe("composeRail", () => {
   const artefacts: RailArtefact[] = [{ id: "landed:x", title: "Christmas Nuanu map", line: "just landed" }];
 
+  it("never cuts a card the window points to, and fills the rest of the column in order", () => {
+    const many: RailArtefact[] = Array.from({ length: 12 }, (_, index) => ({ id: `site:${index}`, title: `Site ${index}` }));
+    const reply: RailArtefact = { id: "reply:r1", title: "Fix the redirects", steps: ["Delete the rule.", "Add the rule."] };
+    const rail = composeRail([], [...many, reply], [], { kept: new Set(["reply:r1"]) });
+    expect(rail.artefacts.map((card) => card.id)).toEqual([...many.slice(0, 9).map((card) => card.id), "reply:r1"]);
+  });
+
   it("puts each answer below its question, with the reply's own preview under it", () => {
     const rail = composeRail(
       [

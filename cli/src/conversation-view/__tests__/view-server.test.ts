@@ -809,6 +809,10 @@ describe("ConversationViewServer", () => {
     const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     const titles = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:")).map((card: { title: string }) => card.title);
     expect(titles).toEqual(["Fix site 4", "Fix site 3", "Fix site 2"]);
+    // The window points only those replies to Artefacts; the oldest is told as text.
+    const pointed = update.messages.filter((m: { artifact?: { title: string } }) => m.artifact).map((m: { artifact: { title: string } }) => m.artifact.title);
+    expect(pointed).toEqual(["Fix site 2", "Fix site 3", "Fix site 4"]);
+    expect(JSON.stringify(update.messages)).not.toContain("Fix site 1</strong>: 2 steps, kept in Artefacts");
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {

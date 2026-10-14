@@ -186,10 +186,20 @@ function briefOf(text: string, handled?: Handled): NonNullable<RenderedMessage["
 /** Of a reply's questions, the ones Flyd already answered for him. */
 type Handled = (text: string) => boolean;
 
-/** The artefact a reply hands him: by the rule when it is clear, else once Flyd's judge has said so. */
-function artefactOf(text: string, judge?: ArtefactJudge): ReplyArtefact | undefined {
-  const call = replyArtefact(text);
-  return call && (call.clear || judge?.cached(text) === true) ? call.artefact : undefined;
+/**
+ * The replies whose steps the column's Artefacts keeps, by message id: the
+ * newest few the rule calls clear or Flyd's judge has said are artefacts. The
+ * window points only these there.
+ */
+function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Map<string, ReplyArtefact> {
+  const kept = new Map<string, ReplyArtefact>();
+  for (const message of [...messages].reverse()) {
+    if (kept.size >= MAX_REPLY_ARTEFACTS) break;
+    if (message.role !== "assistant" || kept.has(message.id)) continue;
+    const call = replyArtefact(message.text);
+    if (call && (call.clear || judge?.cached(message.text) === true)) kept.set(message.id, call.artefact);
+  }
+  return kept;
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -301,11 +311,12 @@ export class SnapshotDiffer {
       else if (message.answeredFor && takenBack.has(asked)) undone.add(message.id);
     }
     const judge = this.summaries?.artefacts;
+    const kept = railReplies(snapshot.messages, judge);
     for (const message of snapshot.messages) {
       // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
       const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
       if (call && !call.clear && judge && newest.has(message.id) && judge.cached(message.text) === undefined) this.judge(judge, message.text);
-      const artifact = call ? artefactOf(message.text, judge) : undefined;
+      const artifact = kept.get(message.id);
       // No summary is asked for a reply that may yet be an artefact.
       const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
@@ -740,14 +751,9 @@ export class ConversationViewServer {
         ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
         ...(item.at ? { at: item.at } : {}),
       }));
-    // The same replies the window points here, each once, newest first and few enough to leave room for the rest.
-    const reported = new Map<string, RailArtefact>();
-    for (const message of [...snapshot.messages].reverse()) {
-      if (reported.size >= MAX_REPLY_ARTEFACTS) break;
-      const artifact = message.role === "assistant" && !reported.has(`reply:${message.id}`) ? artefactOf(message.text, this.summaries?.artefacts) : undefined;
-      if (artifact) reported.set(`reply:${message.id}`, { id: `reply:${message.id}`, title: artifact.title, steps: artifact.steps });
-    }
-    const artefacts: RailArtefact[] = [...sites, ...reported.values(), ...composeArtefact(this.feed.current(), { project })
+    // The same replies the window points here, each once, newest first.
+    const reported: RailArtefact[] = [...railReplies(snapshot.messages, this.summaries?.artefacts)].map(([id, artifact]) => ({ id: `reply:${id}`, title: artifact.title, steps: artifact.steps }));
+    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,
@@ -794,6 +800,7 @@ export class ConversationViewServer {
       return { ...rest, waiting: "", answered: true, state: state === "needs" ? "needs" : state === "underway" ? "underway" : "done" };
     });
     const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
+      kept: new Set(reported.map((card) => card.id)),
       live: (url) => this.previews.state(url),
       phone: phoneWork(snapshot.messages),
       known: (preview) => board.get(preview.url) ?? preview,
