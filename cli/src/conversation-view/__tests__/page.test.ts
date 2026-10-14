@@ -1823,7 +1823,11 @@ describe("header and artefact view", () => {
       { id: "call:b", kind: "call", headline: "Keep the Jev rule?", why: "", decision: { task: "b", question: "Keep or remove", choices: ["Keep", "Remove"], recommended: "Keep" } },
     ];
     const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
-    const done = [1, 2, 3, 4].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started }));
+    const outcome = "The Block42 logo is now on the Good Neighbours Market homepage, with the full outcome readable";
+    const done = [
+      { id: "landed:1", kind: "landed", headline: outcome, why: "", at: started, project: "GNM (Good Neighbours Market)", open: { url: "https://example.com/pr/1" } },
+      ...[2, 3, 4].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started })),
+    ];
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], calls, underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
     expect(document.getElementById("rail")!.hidden).toBe(false);
@@ -1847,6 +1851,10 @@ describe("header and artefact view", () => {
     expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · 25 min");
     // Done: one line each, the newest few until he asks for all.
     expect(document.querySelectorAll("#done li")).toHaveLength(3);
+    const doneRow = document.querySelector("#done li")!;
+    expect(doneRow.querySelector(".brief-line")!.textContent).toBe(outcome);
+    expect(doneRow.querySelector(".brief-line a")!.getAttribute("href")).toBe("https://example.com/pr/1");
+    expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("GNM · 25m ago");
     document.querySelector<HTMLButtonElement>("#done .brief-more")!.click();
     expect(document.querySelectorAll("#done li")).toHaveLength(4);
     // Nothing waiting, running or done: the top of the column goes.
