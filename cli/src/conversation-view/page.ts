@@ -882,6 +882,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .msg.failed .state.queued { color: #d0574c; }
 .msg.failed.pending > * { opacity: 1; }
 .queued.still::before { animation: none; opacity: 0.5; }
+.msg .resend { all: unset; cursor: pointer; font: 400 0.82em/1.45 var(--sans); color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 /* Firstmate's outcome, said in its own chat: the work is settled, so the dot rests. */
 .queued.settled::before { animation: none; opacity: 0.5; }
 
@@ -1409,6 +1410,16 @@ var __name = function (f) { return f; };
     void line.offsetWidth;
     line.classList.add("swap");
   }
+  function plainWords(text) { return text.replace(/\\s+/g, " ").trim(); }
+  // A message whose send was in doubt has landed when a new note of his says the same words.
+  function arrived(el) {
+    if (!el.dataset.words) return false;
+    var found = false;
+    nodes.forEach(function (node, id) {
+      if (!found && !el.knownIds.has(id) && node.classList.contains("user") && plainWords(node.querySelector(".body").textContent) === el.dataset.words) found = true;
+    });
+    return found;
+  }
   function refreshWorking() {
     var recent = lastActivity && Date.now() - new Date(lastActivity).getTime() < 10 * 60 * 1000;
     // While his newest message's own line says what is happening, the dots would only repeat it.
@@ -1435,6 +1446,7 @@ var __name = function (f) { return f; };
     });
     main.querySelectorAll(".msg.pending").forEach(function (el) {
       if (el.dataset.wait && update.order.indexOf(el.dataset.wait) !== -1) { awaiting.delete(el.dataset.wait); el.remove(); }
+      else if (el.classList.contains("unsure") && arrived(el)) el.remove();
     });
     var keep = new Set(update.order);
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
@@ -3333,6 +3345,8 @@ var __name = function (f) { return f; };
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, sending);
+    el.knownIds = new Set(nodes.keys());
+    el.dataset.words = plainWords(text);
     refreshWorking();
     sendsInFlight += 1;
     input.value = "";
@@ -3349,16 +3363,24 @@ var __name = function (f) { return f; };
       deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
         if (sent.unsure) {
+          if (arrived(el)) { el.remove(); return; }
           var line = el.querySelector(".state");
+          el.classList.add("unsure");
           line.classList.add("still");
-          living(line, "may not have sent - tap to resend");
-          el.addEventListener("click", function resend() {
-            el.removeEventListener("click", resend);
+          living(line, "may not have sent -");
+          var resend = document.createElement("button");
+          resend.type = "button";
+          resend.className = "resend";
+          resend.textContent = "tap to resend";
+          resend.addEventListener("click", function () {
+            resend.remove();
+            el.classList.remove("unsure");
             line.classList.remove("still");
             living(line, ${JSON.stringify(RECEIVED)});
             sendsInFlight += 1;
             send();
           });
+          line.after(resend);
           return;
         }
         // Landed: the draft it came from goes, unless he has started another.

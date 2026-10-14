@@ -272,7 +272,7 @@ describe("conversation page", () => {
   it("never sends again on its own when Flyd answers right after a send failed, and resends once when he taps", async () => {
     load("");
     await settle();
-    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     const real = vi.mocked(fetch).getMockImplementation()!;
     let drop = true;
     vi.mocked(fetch).mockImplementation(async (url, init) => {
@@ -285,15 +285,28 @@ describe("conversation page", () => {
     await settle();
     expect(sends()).toBe(1);
     expect(document.querySelector(".msg.failed")).toBeNull();
-    expect(pending()[0]).toContain("may not have sent - tap to resend");
+    expect(pending()[0]).toContain("may not have sent");
+    // Selecting or clicking his words does not resend; only the resend control does.
+    document.querySelector<HTMLElement>(".msg.pending .body")!.click();
+    await settle();
+    expect(sends()).toBe(1);
     drop = false;
-    document.querySelector<HTMLElement>(".msg.pending")!.click();
+    document.querySelector<HTMLElement>(".msg.pending .resend")!.click();
     await settle();
     expect(sends()).toBe(2);
     expect(pending()[0]).not.toContain("may not have sent");
-    document.querySelector<HTMLElement>(".msg.pending")!.click();
+    expect(document.querySelector(".msg.pending .resend")).toBeNull();
+
+    // A note that did land clears its doubtful copy, so it can never be sent twice.
+    drop = true;
+    await type("land the  sidebar\nfix");
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
     await settle();
-    expect(sends()).toBe(2);
+    expect(sends()).toBe(3);
+    expect(pending().some((line) => line.includes("may not have sent"))).toBe(true);
+    stream.emit("update", { order: ["u1", "note:9"], messages: [{ id: "note:9", role: "user", html: "<p>land the sidebar fix</p>" }], working: true });
+    expect(pending().some((line) => line.includes("may not have sent"))).toBe(false);
+    expect(document.querySelector(".msg.pending .resend")).toBeNull();
   });
 
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
