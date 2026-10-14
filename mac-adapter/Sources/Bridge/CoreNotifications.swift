@@ -19,6 +19,16 @@ struct CoreNotificationPayload: Decodable, Equatable {
         }
         return (notifications, rest)
     }
+
+    /// Whether a notification may take the island from `phase`; otherwise it waits its turn.
+    static func canShow(over phase: DictationPill.Phase?) -> Bool {
+        switch phase {
+        case .listening, .working, .thinking, .failed, .notification, .status(_, .decision):
+            return false
+        default:
+            return true
+        }
+    }
 }
 
 /// Flyd's notifications, from Core's authenticated loopback feed, shown in the notch island. Never takes focus.
@@ -29,6 +39,7 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var buffer = ""
+    private var waiting: [CoreNotificationPayload] = []
 
     func start() {
         guard session == nil else { return }
@@ -37,6 +48,15 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
         configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
         connect()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.showNext() }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func showNext() {
+        let island = DictationPill.shared
+        guard !waiting.isEmpty, CoreNotificationPayload.canShow(over: island.currentPhase) else { return }
+        let next = waiting.removeFirst()
+        island.show(.notification(next.title, next.message))
     }
 
     private func connect() {
@@ -51,9 +71,8 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
         guard dataTask === task, let text = String(data: data, encoding: .utf8) else { return }
         let parsed = CoreNotificationPayload.parse(buffer + text)
         buffer = parsed.rest
-        for notification in parsed.notifications where !DictationPill.shared.isBusyWithVoice {
-            DictationPill.shared.show(.notification(notification.title, notification.message))
-        }
+        waiting += parsed.notifications
+        showNext()
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
