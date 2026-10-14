@@ -45,8 +45,8 @@ describe("typing prediction on Claude", () => {
     expect(predictionModel()).toBe("openrouter:inception/mercury-2.5");
   });
 
-  it("sends the conversation and his projects as a cached block and only the draft as new text", async () => {
-    const input: PredictionInput = { session: "s", draft: "yes, fix", messages: conversation, work: "- Flyd: the Mac presence" };
+  it("sends the conversation as a cached block and only the draft as new text", async () => {
+    const input: PredictionInput = { session: "s", draft: "yes, fix", messages: conversation };
     const output = await completePrediction(predictionPrompt(input), "anthropic:claude-haiku-5-5", new AbortController().signal, input);
     expect(output).toMatchObject({ text: " the island filter", confidence: 0.9 });
     const [request] = sent;
@@ -55,24 +55,22 @@ describe("typing prediction on Claude", () => {
     const system = request.system as Array<{ text: string; cache_control?: unknown }>;
     expect(system[1].cache_control).toEqual({ type: "ephemeral" });
     expect(system[1].text).toContain("filter routine replies");
-    expect(system[1].text).toContain("Flyd: the Mac presence");
     expect(system[1].text).not.toContain("yes, fix");
     expect(JSON.stringify(request.messages)).toContain("yes, fix");
   });
 
   it("shows nothing when the model is unsure", async () => {
     const root = join(dir, "composer");
-    const unsure = new ComposerPredictions({ root, work: () => "", provider: async () => ({ text: " maybe this", confidence: 0.3 }) });
+    const unsure = new ComposerPredictions({ root, provider: async () => ({ text: " maybe this", confidence: 0.3 }) });
     expect(await unsure.predict({ session: "s", draft: "can you", messages: conversation })).toBeNull();
-    const sure = new ComposerPredictions({ root, work: () => "", provider: async () => ({ text: " check the island", confidence: 0.8 }) });
+    const sure = new ComposerPredictions({ root, provider: async () => ({ text: " check the island", confidence: 0.8 }) });
     expect((await sure.predict({ session: "s2", draft: "can you", messages: conversation }))?.suffix).toBe(" check the island");
   });
 
-  it("gives the model what he is working on alongside the conversation", async () => {
-    let seen: PredictionInput | undefined;
-    const predictions = new ComposerPredictions({ root: join(dir, "c"), work: () => "- Bloom: gallery show", provider: async (_p, _s, input) => { seen = input; return { text: "" }; } });
+  it("gives the model the conversation and draft only", async () => {
+    let prompt = "";
+    const predictions = new ComposerPredictions({ root: join(dir, "c"), provider: async (p) => { prompt = p; return { text: "" }; } });
     await predictions.predict({ session: "s", draft: "send the", messages: conversation });
-    expect(seen?.work).toBe("- Bloom: gallery show");
-    expect(seen?.messages).toHaveLength(2);
+    expect(Object.keys(JSON.parse(prompt)).sort()).toEqual(["conversation", "unfinished_user_message"]);
   });
 });
