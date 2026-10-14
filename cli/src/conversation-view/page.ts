@@ -2086,6 +2086,7 @@ var __name = function (f) { return f; };
     // What he selected: the words, whose they were, and where they sit on screen.
     var picked = null;
     var sending = false;
+    var selecting = false;
     var marks = window.CSS && CSS.highlights && typeof Highlight === "function" ? CSS.highlights : null;
     function messageOf(node) {
       var at = node && (node.nodeType === 1 ? node : node.parentElement);
@@ -2144,12 +2145,18 @@ var __name = function (f) { return f; };
       requestAnimationFrame(function () { pop.classList.add("shown"); });
     }
     function check() {
-      if (!form.hidden || sending) return;
+      if (!form.hidden || sending || selecting) return;
       var pick = selected();
       if (pick) offer(pick); else hide();
     }
     var pending = 0;
     document.addEventListener("selectionchange", function () {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(check);
+    });
+    document.addEventListener("pointerdown", function (event) { selecting = !!messageOf(event.target); });
+    document.addEventListener("pointerup", function () {
+      selecting = false;
       cancelAnimationFrame(pending);
       pending = requestAnimationFrame(check);
     });
