@@ -298,9 +298,9 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox.send(text, images, command?.name, files);
   }
 
-  async sendDecision(text: string): Promise<SentMessage> {
+  async sendDecision(text: string, images?: ImageUpload[]): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
-    return this.inbox.send(text);
+    return this.inbox.send(text, images);
   }
 
   /** Skills and commands, re-read at most once a minute. */

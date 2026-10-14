@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -342,6 +342,16 @@ describe("ConversationViewServer", () => {
     const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
     expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
     expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
+    // A screenshot he pasted into the box goes with his words, saved where firstmate reads images.
+    await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map" }, text: "Like this", images: [{ mediaType: "image/png", data: PNG }] }), headers);
+    const withImage = readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8");
+    expect(withImage).toMatch(/^About the artefact "Christmas Nuanu map"\n\nLike this\n\n\[image: (.+\.png)\]$/);
+    expect(existsSync(/\[image: (.+)\]/.exec(withImage)![1]!)).toBe(true);
+    // A picture alone says enough about an artefact; an answer to a decision still needs words.
+    expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
+    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toMatch(/^About the artefact "Map"\n\n\[image: .+\.png\]$/);
+    expect((await post(port, JSON.stringify({ decision: "visuals", text: "", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(400);
+    expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "Hi", images: "nope" }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { task: "x" }, text: "Hi" }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "" }), headers)).status).toBe(400);
   });

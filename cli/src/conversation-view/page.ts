@@ -187,7 +187,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /*
  * The work, as large as the stage allows. A desktop capture sits in a browser,
  * a phone capture in a phone (both shown from the top of the page, as a device
- * would); with both, the phone stands in front of the browser. Anything else
+ * would, unless the top is nearly empty; see aimAtContent); with both, the phone stands in front of the browser. Anything else
  * (artwork, a tablet without its name) keeps its own shape, never cropped.
  */
 .scene-shot { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 16px; }
@@ -238,26 +238,38 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .choice-pick:disabled:not([aria-pressed="true"]) { opacity: .45; cursor: default; }
 .choice-pick:disabled:not([aria-pressed="true"]):hover { color: var(--fg); border-color: var(--faint); }
 .scene-ask :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-/* The chat box at the foot of every artefact: one quiet line until he types into it. */
-.art-chat { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-/* It grows with what he types, never with focus: a box that shrank as SEND
-   took the click moved SEND out from under the pointer, and nothing went. */
-.art-chat-input {
-  flex: 1; min-width: 8em; min-height: 40px; max-height: 10em; box-sizing: border-box; field-sizing: content; overflow: auto;
-  font: 400 16px/1.45 var(--sans); color: var(--fg); background: var(--tint); border: 1px solid var(--faint); border-radius: 8px;
-  padding: 8px 12px; resize: none; transition: border-color 140ms ease, box-shadow 140ms ease;
+/* The chat box at the foot of every artefact: one field like the reply card,
+   his words and Send inside it on one row, any pasted images above them. */
+.art-chat { display: flex; flex-direction: column; gap: 8px; }
+/* A question's own answer box, one step at a time, is the same field. */
+.art-chat-field, .scene-ask .step-free {
+  padding: 6px 6px 6px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--tint)); transition: border-color 140ms ease;
 }
-.art-chat-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.art-chat-field:focus-within, .scene-ask .step-free:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.art-chat-row { display: flex; align-items: flex-end; gap: 8px; }
+/* It grows with what he types, never with focus: a box that shrank as Send
+   took the click moved Send out from under the pointer, and nothing went. */
+.art-chat-input {
+  flex: 1; min-width: 8em; min-height: 32px; max-height: 10em; box-sizing: border-box; field-sizing: content; overflow: auto;
+  font: 400 16px/22px var(--sans); color: var(--strong); background: transparent; border: 0; border-radius: 0;
+  padding: 5px 0; resize: none;
+}
+.art-chat-input:focus { outline: none; }
 .art-chat-input::placeholder { color: var(--muted); }
-.art-chat-send { height: 40px; font: 700 12px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 0 16px; cursor: pointer; transition: opacity 140ms ease; }
+.art-chat-send { flex: none; height: 32px; font: 600 14px/1 var(--sans); letter-spacing: 0; text-transform: none; color: var(--bg); background: var(--accent); border: 0; border-radius: 6px; padding: 0 14px; cursor: pointer; transition: opacity 140ms ease; }
 .art-chat-send:disabled { opacity: .4; cursor: default; }
 .art-chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.art-chat-images { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 8px 6px 0; }
+.art-chat-images[hidden] { display: none; }
+.art-chat-images .attachment img { max-width: 160px; max-height: 64px; cursor: zoom-in; }
+.art-chat-images .attachment button { border: 0; cursor: pointer; }
 .art-chat-receipt { flex-basis: 100%; margin: 0; font: 400 14px/1.4 var(--sans); color: var(--muted); }
 .art-chat-receipt.sent { color: var(--fg); }
 .art-chat-receipt.sent::before { content: "✓ "; color: var(--accent); }
 .art-chat-receipt:empty { display: none; }
 .art-chat-receipt.problem { color: var(--k-waiting); }
-.art-chat--receipt .art-chat-input, .art-chat--receipt .art-chat-send { display: none; }
+.art-chat--receipt .art-chat-field { display: none; }
 .scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }
 .scene-ask .step-review { font-size: clamp(16px, 1.2vw, 19px); }
 .scene-meta .closed { color: var(--muted); font-style: italic; }
@@ -450,7 +462,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
 /* Each conversation in the column is a card, like what Flyd remembers. */
-.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
+.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
@@ -529,11 +541,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-shots .shot img { max-height: 15em; max-width: 100%; }
 /* What Flyd remembers: a card each, one plain sentence. What it learned while
    we talked sits in the conversation where it learned it. */
-.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
+/* A raised surface with no outline: the fill alone sets each card apart. */
+.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
 .rail-mem-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
 .rail-mem-kicker::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.rail-mem--new { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
+.rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
 /* What it already holds here: folded under one line at the top until he opens it. */
 .rail-held > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; transition: color 140ms ease; }
 .rail-held > summary::-webkit-details-marker { display: none; }
@@ -546,8 +559,17 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-held .rail-mem-text { font-size: 15px; color: var(--fg); }
 /* Several messages on one topic: one entry, his words together, the newest answer under them. */
 .rail-topic { margin: 0 0 18px; }
+/* His notes together are marked the way his messages are: the text highlighted
+   like a selection, line by line, with no bar beside them. The side shadows
+   give every wrapped line the same inset; the padding keeps them inside the card. */
+.rail-q-group { padding: 0 0.6em; border-left: 0; border-radius: 0; background: none; line-height: 1.9; overflow-wrap: anywhere; }
 .rail-q-group p { margin: 0; }
-.rail-q-group p + p { margin-top: 7px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.rail-q-group p + p { margin-top: 10px; }
+.rail-q-group .hl {
+  padding: 0.36em 0; background: var(--sel-bg); color: var(--sel-fg);
+  box-shadow: 0.6em 0 0 var(--sel-bg), -0.6em 0 0 var(--sel-bg);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
 .rail-topic-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .rail-topic-toggle:hover { color: var(--fg); }
 .rail-topic-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -2053,7 +2075,11 @@ var __name = function (f) { return f; };
     }
     var newest = all[all.length - 1];
     var asked = el("div", "rail-q rail-q-group");
-    all.forEach(function (one) { asked.appendChild(el("p", "", sentence(capital(one.question)))); });
+    all.forEach(function (one) {
+      var note = el("p");
+      note.appendChild(el("span", "hl", sentence(capital(one.question))));
+      asked.appendChild(note);
+    });
     wrap.appendChild(asked);
     wrap.appendChild(toggle);
     talkAnswer(wrap, newest);
@@ -2115,8 +2141,14 @@ var __name = function (f) { return f; };
     input.value = state.text || "";
     var send = el("button", "art-chat-send", "Send");
     send.type = "submit";
-    // Pressing SEND leaves the caret in the box, so nothing in the row moves under the click.
+    // Pressing Send leaves the caret in the box, so nothing in the row moves under the click.
     send.addEventListener("mousedown", function (event) { event.preventDefault(); });
+    // Screenshots he pastes into the box go with his words about this artefact;
+    // a reply to an answer has no room for them, so it takes words only.
+    var takesImages = !!(target.about || target.decision);
+    var images = [];
+    var thumbs = el("div", "art-chat-images");
+    thumbs.hidden = true;
     var receipt = el("p", "art-chat-receipt");
     receipt.setAttribute("role", "status");
     receipt.setAttribute("aria-live", "polite");
@@ -2126,9 +2158,50 @@ var __name = function (f) { return f; };
       receipt.textContent = state.error || (state.receipt === "read" ? "Flyd has it" : state.receipt === "sent" ? "Sent to Flyd" : state.receipt === "sending" ? "Sending…" : "");
       receipt.classList.toggle("problem", !!state.error);
       receipt.classList.toggle("sent", !state.error && (state.receipt === "sent" || state.receipt === "read"));
-      send.disabled = state.receipt === "sending" || !input.value.trim();
+      // A picture alone says enough about an artefact; an answer still needs words.
+      send.disabled = state.receipt === "sending" || !(input.value.trim() || (target.about && images.length));
       if (chat.onPaint) chat.onPaint();
     }
+    function paintImages() {
+      thumbs.textContent = "";
+      images.forEach(function (image, index) {
+        var item = el("div", "attachment");
+        var img = el("img");
+        img.src = image.url;
+        img.alt = "Pasted image " + (index + 1);
+        img.addEventListener("click", function () { openImage(image.url); });
+        item.appendChild(img);
+        var remove = el("button", "", "×");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "Remove image");
+        remove.addEventListener("mousedown", function (event) { event.preventDefault(); });
+        remove.addEventListener("click", function () { images.splice(index, 1); paintImages(); paint(); });
+        item.appendChild(remove);
+        thumbs.appendChild(item);
+      });
+      thumbs.hidden = images.length === 0;
+    }
+    if (takesImages) input.addEventListener("paste", function (event) {
+      var files = Array.prototype.map.call((event.clipboardData && event.clipboardData.items) || [], function (item) {
+        return item.kind === "file" && ["image/png", "image/jpeg", "image/gif", "image/webp"].indexOf(item.type) !== -1 ? item.getAsFile() : null;
+      }).filter(Boolean);
+      if (!files.length) return;
+      if (!Array.prototype.some.call(event.clipboardData.items, function (item) { return item.kind === "string" && item.type === "text/plain"; })) event.preventDefault();
+      files.forEach(function (file) {
+        if (images.length >= 4) { state.error = "4 images at most"; paint(); return; }
+        if (file.size > ${MAX_IMAGE_BYTES}) { state.error = "Images must be under " + Math.round(${MAX_IMAGE_BYTES} / 1048576) + "MB"; paint(); return; }
+        var reader = new FileReader();
+        reader.onload = function () {
+          if (images.length >= 4) return;
+          var url = String(reader.result);
+          images.push({ url: url, mediaType: file.type, data: url.slice(url.indexOf(",") + 1) });
+          state.error = "";
+          paintImages();
+          paint();
+        };
+        reader.readAsDataURL(file);
+      });
+    });
     // Firstmate reads a note by acknowledging it; until then the line says only that it was sent.
     function watch() {
       if (watching || !state.note || state.receipt !== "sent") return;
@@ -2144,12 +2217,18 @@ var __name = function (f) { return f; };
       state.receipt = "sending";
       state.error = "";
       paint();
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ text: text }, target)) }, true)
+      var sending = takesImages ? images.slice() : [];
+      var body = Object.assign({ text: text }, target);
+      if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
           state.receipt = "sent";
           state.note = result.data.id;
+          // Only what went is cleared: one pasted while it was on its way stays for the next.
+          images = images.filter(function (image) { return sending.indexOf(image) === -1; });
+          paintImages();
           if (done) done();
           save();
           paint();
@@ -2164,11 +2243,17 @@ var __name = function (f) { return f; };
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = input.value.trim();
-      if (send.disabled || !text) return;
+      if (send.disabled) return;
       deliver(text, function () { input.value = ""; state.text = ""; });
     });
-    form.appendChild(input);
-    form.appendChild(send);
+    // One field: his pasted images over his words, Send inside it on the same row.
+    var field = el("div", "art-chat-field");
+    var row = el("div", "art-chat-row");
+    row.appendChild(input);
+    row.appendChild(send);
+    field.appendChild(thumbs);
+    field.appendChild(row);
+    form.appendChild(field);
     form.appendChild(receipt);
     var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
     paint();
@@ -3101,10 +3186,13 @@ var __name = function (f) { return f; };
       var img = el("img");
       img.alt = "Screenshot: " + box.title;
       img.src = look.src;
-      // A capture without a device in its name is placed by its shape once it loads.
-      if (!look.device) img.addEventListener("load", function () {
-        var shape = shapeOf(img.naturalWidth, img.naturalHeight);
-        if (shape && !look.device) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); }
+      img.addEventListener("load", function () {
+        // A capture without a device in its name is placed by its shape once it loads.
+        if (!look.device) {
+          var shape = shapeOf(img.naturalWidth, img.naturalHeight);
+          if (shape) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); return; }
+        }
+        if (look.device) { img.dataset.aim = "1"; aimAtContent(img); }
       });
       node.appendChild(img);
       node.addEventListener("click", function () { openImage(look.src); });
@@ -3148,6 +3236,53 @@ var __name = function (f) { return f; };
     }
     sceneEl.appendChild(figure);
   }
+  // A full-page capture taller than its frame shows from the top, as a device
+  // would, unless the top is nearly empty (a form centred low on a tall page
+  // left the browser frame a blank colour): then the frame moves down to the
+  // stretch of the page with the most on it.
+  function aimAtContent(img) {
+    var frame = img.getBoundingClientRect();
+    var w = img.naturalWidth, h = img.naturalHeight;
+    if (!frame.width || !frame.height || !w || !h) return;
+    img.style.objectPosition = "";
+    var seen = w * frame.height / frame.width;
+    if (h <= seen * 1.05) return;
+    var cols = 96, rows = Math.max(2, Math.min(600, Math.round(cols * h / w)));
+    var pixels;
+    try {
+      var canvas = document.createElement("canvas");
+      canvas.width = cols;
+      canvas.height = rows;
+      var ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, cols, rows);
+      pixels = ctx.getImageData(0, 0, cols, rows).data;
+    } catch (_) { return; }
+    // How much is drawn on each row: the change in brightness from pixel to pixel.
+    function lum(x, y) { var i = (y * cols + x) * 4; return pixels[i] * .3 + pixels[i + 1] * .59 + pixels[i + 2] * .11; }
+    var busy = [];
+    for (var y = 0; y < rows; y++) {
+      var sum = 0;
+      for (var x = 1; x < cols; x++) sum += Math.abs(lum(x, y) - lum(x - 1, y)) + (y ? Math.abs(lum(x, y) - lum(x, y - 1)) : 0);
+      busy.push(sum);
+    }
+    var span = Math.max(1, Math.min(rows, Math.round(rows * seen / h)));
+    var run = 0;
+    for (var i = 0; i < span; i++) run += busy[i];
+    var top = run, best = run, at = 0;
+    for (var start = 1; start + span <= rows; start++) {
+      run += busy[start + span - 1] - busy[start - 1];
+      if (run > best) { best = run; at = start; }
+    }
+    // The top stays when it holds a fair share of what the page shows at its busiest.
+    if (top >= best * 0.6 || rows === span) return;
+    // A little of what is above it stays in view, so the content does not start at the frame's very edge.
+    at = Math.max(0, at - Math.round(span * 0.06));
+    img.style.objectPosition = "center " + (at / (rows - span) * 100).toFixed(1) + "%";
+  }
+  function aimShown() {
+    if (onShow()) sceneEl.querySelectorAll(".device img[data-aim]").forEach(aimAtContent);
+  }
+  window.addEventListener("resize", aimShown);
   // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
   function deviceOf(name) {
     name = String(name || "").toLowerCase();
@@ -3385,6 +3520,7 @@ var __name = function (f) { return f; };
       root.setAttribute("data-screen", "show");
       showEl.hidden = false;
       showEl.classList.remove("off");
+      aimShown();
       if (animate && !reduced) {
         showEl.classList.remove("power");
         void showEl.offsetWidth;
