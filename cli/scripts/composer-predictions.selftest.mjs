@@ -46,7 +46,7 @@ test('prediction prompt is bounded current-thread text with no system facts or r
     { id: 'secret', role: 'user', text: 'password=abc' }, { id: 'aside', role: 'assistant', text: 'unrelated', aside: true },
     ...Array.from({ length: 20 }, (_, i) => ({ id: String(i), role: 'user', text: String(i) + 'x'.repeat(2000) }))
   ] }));
-  assert.equal(p.conversation.length, 6); assert.ok(p.conversation.every(m => m.text.length <= 400)); assert.equal(p.unfinished_user_message, 'implement it');
+  assert.equal(p.conversation.length, 10); assert.ok(p.conversation.slice(0, -4).every(m => m.text.length <= 400)); assert.ok(p.conversation.slice(-4).every(m => m.text.length <= 1500)); assert.equal(p.unfinished_user_message, 'implement it');
   assert.ok(!JSON.stringify(p).includes('password'));
 });
 test('bounded suggestions keep leading spaces, reject protocols and avoid split words', () => {
