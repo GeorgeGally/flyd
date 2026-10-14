@@ -1,5 +1,5 @@
 import { escapeHtml, renderMarkdown } from "./markdown.js";
-import { authorSummary, capitalise, clip, inline, sentences } from "./summaries.js";
+import { authorSummary, capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 
 // Flyd talks to him like an executive briefing: outcomes, what they lead to
 // and the one thing asked of him, in prose. Firstmate's engineering stubs (PR
@@ -376,7 +376,7 @@ const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|wa
 
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
 export function asking(paragraph: string): string[] {
-  const said = sentences(inline(paragraph));
+  const said = sentences(inline(paragraph)).map((sentence) => sentence.replace(SALUTATION, ""));
   return said.filter((sentence, index) => ASKS.test(sentence) && !(/\?$/.test(sentence) && /^(?:yes|no)\b/i.test(said[index + 1] ?? "")));
 }
 
@@ -402,7 +402,7 @@ export function statusSummaryHtml(text: string, reading?: string): string | unde
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }
 
-const SAY_WORDS = /\bsay\s*(?:"([^"]+)"|“([^”]+)”|'([^']+)')/i;
+const SAY_WORDS = /\bsay\s*(?:"([^"]+)"|“([^”]+)”|'(.+?)'(?![A-Za-z]))/i;
 
 /** The decision the asks name, plainest first: 'Say "drop the local edit" and I'll…' → "Drop the local edit?", else a question, else any ask. */
 export function decisionOf(asks: string[]): string | undefined {

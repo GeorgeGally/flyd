@@ -102,6 +102,7 @@ describe("Flyd's executive voice", () => {
     const hold = `${settled}\n\nSay "don't merge" and I'll hold.`;
     expect(statusOf({ messages: [{ id: "r3", role: "assistant", text: hold }], working: false }).reply).toMatchObject({ headline: "Don't merge? Plus 5 more", asks: true });
     expect(asksForDecision(hold)).toBe(true);
+    expect(headlineOf(`${settled}\n\nSay 'don't merge' and I'll hold.`)).toBe("Don't merge? Plus 5 more");
     expect(statusOf({ messages: [{ id: "r4", role: "assistant", text: settled }], working: false }).reply).toMatchObject({ asks: false });
     const long = `Sir, where things stand.\n\n- The menu bar fix is merged.\n- ${"The deals page now loads the newest twelve deals first and pages the rest ".repeat(2)}is merged.`;
     expect(headlineOf(long)).toMatch(/…, plus 1 more$/);

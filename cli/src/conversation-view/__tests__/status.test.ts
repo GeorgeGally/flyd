@@ -55,6 +55,8 @@ describe("conversation status for the island", () => {
     expect(asksForDecision("The stats are centred and committed.")).toBe(false);
     expect(asksForDecision('Four Flyd changes in one batch.\n\nSay "go" and one worker builds them.')).toBe(true);
     expect(asksForDecision("Two pages landed.\n\nApprove the apply page and I'll merge it.")).toBe(true);
+    expect(forCaptain("Captain, approve the apply page and I'll merge it.", new Set())).toBe(true);
+    expect(asksForDecision("Sir, decide which hero we ship.")).toBe(true);
     expect(forCaptain("Stale wake on the deals page. Was it the old timer? Yes, nothing to do.", new Set())).toBe(false);
     expect(forCaptain("Holding the bump until CI is green, then I'll approve it.", new Set())).toBe(false);
     expect(asksForDecision("Sir, the menu bar landed.\n\nDo you want the island next?\n\nThe docs are updated.")).toBe(false);
