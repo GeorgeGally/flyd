@@ -1,14 +1,14 @@
 import AppKit
 
 /// Dictation status grown out of the MacBook notch: a black island flush with the notch
-/// whose wings carry the live dot and level bars. For a message it spreads to both edges of
-/// the screen and hangs below the menu bar, so the message can be set large and use the
-/// whole width. Screens without a notch get the same island at the top centre.
+/// whose wings carry the live dot and level bars. For a message it runs from the middle of
+/// the notch to the screen's right edge and hangs below the menu bar, so the message can be
+/// set large and use that width. Screens without a notch get the same island at the top centre.
 /// It never takes focus, so the app George is dictating into stays frontmost and receives the paste.
 ///
 /// The panel is a fixed transparent canvas around the notch; the island itself is a shape
 /// path (flared shoulders into the menu bar, continuous corners) that springs between the
-/// notch, the compact wings and the full-width message strip.
+/// notch, the compact wings and the message strip out to the right edge.
 final class DictationPill: NSObject {
     /// One island for dictation and voice questions, so they never draw over each other.
     static let shared = DictationPill()
@@ -70,14 +70,16 @@ final class DictationPill: NSObject {
     static let notchCornerRadius: CGFloat = 9
     static let opticalLift: CGFloat = 2
 
-    /// Message strip: spans the screen edge to edge and hangs below the menu bar, a small
-    /// state label over the message set large in Flyd's display face, so it reads at a
-    /// glance from a normal sitting distance. Every message gets the same strip and the same
-    /// type size; a longer one truncates rather than resizing either.
+    /// Message strip: runs from the notch's middle to the screen's right edge and hangs below
+    /// the menu bar, a small state label over the message set large in Flyd's display face, so
+    /// it reads at a glance from a normal sitting distance. Every message gets the same strip
+    /// and the same type size; a longer one truncates rather than resizing either.
     static let stripInset: CGFloat = 26
     static let stripTopPadding: CGFloat = 18
-    /// Under a notch the message runs beneath it, so its first line clears the notch by this.
+    /// Under a notch the message's first line sits this far below the notch's bottom edge.
     static let notchClearance: CGFloat = 6
+    /// Under a notch the label and the message start just past the notch's right edge, this far from it.
+    static let labelNotchGap: CGFloat = 12
     /// A little more than the top: the last line's descenders leave room the eye counts as space.
     static let stripBottomPadding: CGFloat = 20
     static let stripCornerRadius: CGFloat = 22
@@ -85,7 +87,7 @@ final class DictationPill: NSObject {
     /// Tight: the label belongs to the message under it.
     static let labelGap: CGFloat = 2
     static let bodyGap: CGFloat = 6
-    /// The state label: monospaced caps, tracked out, like the rest of Flyd's state readouts.
+    /// The state label: monospaced caps, lightly tracked, like the rest of Flyd's state readouts.
     static let labelFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
     /// The message, on up to two lines; with a body under it, the title takes one and the body the other.
     static let titleFont = displayFont(28)
@@ -153,8 +155,9 @@ final class DictationPill: NSObject {
     }
 
     /// Flush with the top edge. Compact: centred on the notch at notch height, wings either
-    /// side; the frame includes the shoulders. With a message: the screen's full width, down to
-    /// the strip's height (padding included).
+    /// side; the frame includes the shoulders. With a message: from the notch's middle (the
+    /// screen's, without one) to the screen's right edge, down to the strip's height (padding
+    /// included).
     static func islandFrame(screen: NSRect, notch: NSRect?, strip: NSSize?) -> NSRect {
         let height = notch?.height ?? fallbackHeight
         let shoulder = compactShoulder
@@ -165,7 +168,18 @@ final class DictationPill: NSObject {
             return NSRect(x: x.rounded(), y: screen.maxY - height, width: width, height: height)
         }
         let stripHeight = max(height, strip.height)
-        return NSRect(x: screen.minX, y: screen.maxY - stripHeight, width: screen.width, height: stripHeight)
+        let x = stripMinX(screen: screen, notch: notch)
+        return NSRect(x: x, y: screen.maxY - stripHeight, width: screen.maxX - x, height: stripHeight)
+    }
+
+    /// Where the message strip starts: under the middle of the notch, or the screen's top centre.
+    static func stripMinX(screen: NSRect, notch: NSRect?) -> CGFloat {
+        min(max((notch?.midX ?? screen.midX).rounded(), screen.minX), screen.maxX)
+    }
+
+    /// Width of the message strip on a screen.
+    static func stripWidth(screen: NSRect, notch: NSRect?) -> CGFloat {
+        screen.maxX - stripMinX(screen: screen, notch: notch)
     }
 
     /// Collapsed into the notch itself: where the island grows from and shrinks back to.
@@ -180,7 +194,7 @@ final class DictationPill: NSObject {
     /// strip plus its shadow, so the island can change shape without the window moving under it.
     static func canvasFrame(screen: NSRect, notch: NSRect?) -> NSRect {
         let compact = islandFrame(screen: screen, notch: notch, strip: nil)
-        let strip = islandFrame(screen: screen, notch: notch, strip: NSSize(width: screen.width, height: stripHeight(notch: notch)))
+        let strip = islandFrame(screen: screen, notch: notch, strip: NSSize(width: stripWidth(screen: screen, notch: notch), height: stripHeight(notch: notch)))
         let minX = max(min(compact.minX, strip.minX) - shadowMargin, screen.minX)
         let maxX = min(max(compact.maxX, strip.maxX) + shadowMargin, screen.maxX)
         let height = max(compact.height, strip.height) + shadowMargin
@@ -203,9 +217,16 @@ final class DictationPill: NSObject {
     }
 
     /// Space above the label. Under a notch, enough that the message's first line clears it;
-    /// the label itself sits at the screen's left, beside the notch.
+    /// the label itself sits beside the notch (see `labelInset(notch:)`).
     static func stripTopPadding(notch: NSRect?) -> CGFloat {
         max(stripTopPadding, (notch?.height ?? 0) + notchClearance - labelRowHeight - labelGap)
+    }
+
+    /// Where the label and the message start in the strip: past the half of the notch the strip
+    /// runs under, so the notch never hides them; at the strip's inset without a notch.
+    static func labelInset(notch: NSRect?) -> CGFloat {
+        guard let notch else { return stripInset }
+        return max(stripInset, (notch.width / 2).rounded() + labelNotchGap)
     }
 
     /// The strip's one height on a screen: the label over two lines of the message, in padding.
@@ -213,12 +234,12 @@ final class DictationPill: NSObject {
         ceil(stripTopPadding(notch: notch) + labelRowHeight + labelGap + CGFloat(titleLines) * lineHeight(titleFont) + stripBottomPadding)
     }
 
-    /// Lays out a message in a strip `width` wide (the screen's) and `stripHeight(notch:)` tall.
+    /// Lays out a message in a strip `width` wide (see `stripWidth`) and `stripHeight(notch:)` tall.
     /// The title truncates past two lines at a word and breaks into even lines, so a second
     /// line never holds a single word; a body takes the title's second line.
     static func stripLayout(for message: Message, width: CGFloat, notch: NSRect? = nil) -> StripLayout {
         let width = max(0, width)
-        let textWidth = max(0, width - 2 * stripInset)
+        let textWidth = max(0, width - labelInset(notch: notch) - stripInset)
         let title = block(title(message.title), width: textWidth, maxLines: message.body == nil ? titleLines : 1)
         let body = message.body.map { block(Self.body($0), width: textWidth, maxLines: 1) }
         var content = labelRowHeight + labelGap + title.size.height
@@ -290,10 +311,10 @@ final class DictationPill: NSObject {
         return style
     }
 
-    /// The state label, in tracked-out caps.
+    /// The state label, in caps tracked no wider than 0.04em.
     static func label(_ text: String, color: NSColor) -> NSAttributedString {
         NSAttributedString(string: text.uppercased(), attributes: [
-            .font: labelFont, .foregroundColor: color, .kern: 1.6, .paragraphStyle: paragraph(labelFont)
+            .font: labelFont, .foregroundColor: color, .kern: 0.04 * labelFont.pointSize, .paragraphStyle: paragraph(labelFont)
         ])
     }
 
@@ -423,13 +444,13 @@ final class DictationPill: NSObject {
         let growing = !(panel.isVisible && panel.frame == canvas)
 
         let notchFrame = Self.collapsedFrame(screen: screen.frame, notch: notch)
-        let stripSize = configure(for: phase, width: screen.frame.width, notch: notch)
+        let stripSize = configure(for: phase, width: Self.stripWidth(screen: screen.frame, notch: notch), notch: notch)
         let target = Self.islandFrame(screen: screen.frame, notch: notch, strip: stripSize)
         let local = target.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
         let collapsed = notchFrame.offsetBy(dx: -canvas.minX, dy: -canvas.minY)
-        // One height everywhere, so the strip unfolds from under the notch to both edges.
+        // One height everywhere, so the strip unfolds from under the notch out to the right edge.
         let step = CGPoint(x: collapsed.midX, y: local.minY)
-        // Edge to edge there is no menu bar beside it to flare into.
+        // It starts under the notch and ends at the screen's edge: no menu bar beside it to flare into.
         let shoulder = stripSize == nil ? Self.compactShoulder : 0
         let radius = stripSize == nil ? Self.compactCornerRadius : Self.stripCornerRadius
         layoutContent(in: local, notch: notch)
@@ -653,21 +674,22 @@ final class DictationPill: NSObject {
         let rowMidY = top - Self.labelRowHeight / 2
         // A voice question's spinner moves out of the (now hidden) left wing into the dot's place.
         let slot = metaDot.isHidden ? Self.glyphSize : Self.metaDotSize
-        metaDot.frame.origin = NSPoint(x: inset, y: (rowMidY - Self.metaDotSize / 2).rounded())
+        let labelInset = Self.labelInset(notch: notch)
+        metaDot.frame.origin = NSPoint(x: labelInset, y: (rowMidY - Self.metaDotSize / 2).rounded())
         if metaDot.isHidden {
-            spinner?.frame.origin = NSPoint(x: stripX + inset, y: (rect.minY + rowMidY - Self.glyphSize / 2).rounded())
+            spinner?.frame.origin = NSPoint(x: stripX + labelInset, y: (rect.minY + rowMidY - Self.glyphSize / 2).rounded())
         }
         let labelHeight = Self.lineHeight(Self.labelFont)
-        let labelX = inset + slot + Self.metaDotGap
+        let labelX = labelInset + slot + Self.metaDotGap
         metaLabel.frame = NSRect(x: labelX, y: (rowMidY - labelHeight / 2).rounded(),
                                  width: max(0, strip.frame.width - labelX - inset), height: labelHeight)
         top -= Self.labelRowHeight + Self.labelGap
         let title = layout.title.size
-        titleText.frame = NSRect(x: inset, y: top - title.height, width: title.width, height: title.height)
+        titleText.frame = NSRect(x: labelInset, y: top - title.height, width: title.width, height: title.height)
         top -= title.height
         if let body = layout.body?.size {
             top -= Self.bodyGap
-            bodyText.frame = NSRect(x: inset, y: top - body.height, width: body.width, height: body.height)
+            bodyText.frame = NSRect(x: labelInset, y: top - body.height, width: body.width, height: body.height)
         }
     }
 

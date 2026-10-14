@@ -12,12 +12,28 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(frame, NSRect(x: 562, y: 950, width: 388, height: 32))
     }
 
-    func testSpansTheScreenEdgeToEdgeAndHangsBelowTheMenuBarForAMessage() {
+    func testRunsFromTheMiddleToTheRightEdgeAndHangsBelowTheMenuBarForAMessage() {
         let frame = DictationPill.islandFrame(screen: macBook, notch: notch, strip: NSSize(width: 400, height: 120))
-        XCTAssertEqual(frame, NSRect(x: 0, y: 982 - 120, width: 1512, height: 120))
+        XCTAssertEqual(frame, NSRect(x: 756, y: 982 - 120, width: 756, height: 120))
+        XCTAssertEqual(DictationPill.stripWidth(screen: macBook, notch: notch), 756)
         let external = NSRect(x: 1512, y: -200, width: 1920, height: 1080)
         XCTAssertEqual(DictationPill.islandFrame(screen: external, notch: nil, strip: NSSize(width: 400, height: 120)),
-                       NSRect(x: 1512, y: 880 - 120, width: 1920, height: 120))
+                       NSRect(x: 2472, y: 880 - 120, width: 960, height: 120))
+    }
+
+    func testTheLabelSitsPastTheNotchTheStripStartsUnder() {
+        let inset = DictationPill.labelInset(notch: notch)
+        // The strip starts at the notch's middle, so the label clears its right half.
+        XCTAssertGreaterThanOrEqual(DictationPill.stripMinX(screen: macBook, notch: notch) + inset, notch.maxX)
+        XCTAssertEqual(DictationPill.labelInset(notch: nil), DictationPill.stripInset)
+    }
+
+    func testTheMessageSharesTheLabelsLeftEdgeAndFitsBesideIt() {
+        let width = DictationPill.stripWidth(screen: macBook, notch: notch)
+        let inset = DictationPill.labelInset(notch: notch)
+        let layout = DictationPill.stripLayout(for: .init(meta: "Reply", title: String(repeating: "a much longer message ", count: 20), body: "Open Flyd settings and check the voice setup"), width: width, notch: notch)
+        XCTAssertLessThanOrEqual(layout.title.size.width, width - inset - DictationPill.stripInset)
+        XCTAssertLessThanOrEqual(layout.body?.size.width ?? .infinity, width - inset - DictationPill.stripInset)
     }
 
     func testTheMessageClearsTheNotchItRunsUnder() {
@@ -41,7 +57,7 @@ final class DictationPillTests: XCTestCase {
         XCTAssertGreaterThan(DictationPill.stripHeight(notch: notch), notch.height)
     }
 
-    func testTheStripIsAsWideAsTheScreen() {
+    func testTheStripTakesTheWidthItIsGiven() {
         let layout = DictationPill.stripLayout(for: .init(meta: "Reply", title: "PR 92 is green.", body: nil), width: 1920)
         XCTAssertEqual(layout.size.width, 1920)
         XCTAssertEqual(layout.size.height, DictationPill.stripHeight(notch: nil))
@@ -78,14 +94,14 @@ final class DictationPillTests: XCTestCase {
 
     func testNeverWiderThanTheScreen() {
         let frame = DictationPill.islandFrame(screen: NSRect(x: 0, y: 0, width: 300, height: 500), notch: nil, strip: NSSize(width: 400, height: 34))
-        XCTAssertEqual(frame, NSRect(x: 0, y: 466, width: 300, height: 34))
+        XCTAssertEqual(frame, NSRect(x: 150, y: 466, width: 150, height: 34))
     }
 
     func testCanvasHoldsTheWingsTheStripAndItsShadow() {
         let canvas = DictationPill.canvasFrame(screen: macBook, notch: notch)
         let compact = DictationPill.islandFrame(screen: macBook, notch: notch, strip: nil)
         let strip = DictationPill.islandFrame(screen: macBook, notch: notch,
-                                              strip: NSSize(width: macBook.width, height: DictationPill.stripHeight(notch: notch)))
+                                              strip: NSSize(width: DictationPill.stripWidth(screen: macBook, notch: notch), height: DictationPill.stripHeight(notch: notch)))
         XCTAssertTrue(canvas.contains(compact))
         XCTAssertTrue(canvas.contains(strip))
         XCTAssertEqual(canvas.maxY, macBook.maxY)
