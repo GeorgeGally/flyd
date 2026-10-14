@@ -20,6 +20,7 @@ bundle: build
 	mkdir -p "$(APP_DIR)/Contents/Resources"
 	cp "$(EXECUTABLE)" "$(APP_DIR)/Contents/MacOS/$(APP_NAME)"
 	cp Resources/Info.plist "$(APP_DIR)/Contents/Info.plist"
+	cp Resources/AppIcon.icns "$(APP_DIR)/Contents/Resources/AppIcon.icns"
 	/usr/libexec/PlistBuddy -c "Add :FlydRepoRoot string $(REPO_ROOT)" "$(APP_DIR)/Contents/Info.plist" 2>/dev/null || \
 		/usr/libexec/PlistBuddy -c "Set :FlydRepoRoot $(REPO_ROOT)" "$(APP_DIR)/Contents/Info.plist"
 	@if [ -n "$(FLYD_CODESIGN_IDENTITY)" ]; then \
