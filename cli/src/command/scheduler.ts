@@ -22,10 +22,12 @@ export const HANDLE_IT_YOURSELF = [
 /**
  * A run that asks George to settle how the work is built or run goes back to
  * its boss instead of reaching him (the chief-of-staff standard: bring him
- * only his decisions). Once only: if the boss asks again, it reaches him.
+ * only his decisions). Once only, keyed on Flyd's own note: the run stays
+ * unannounced, so the boss's next reply reaches him whatever it says.
+ * Only a boss that replies (FirstMate) is sent anything back.
  */
 async function returnedToBoss(run: DomainRun, send: typeof sendRunMessage): Promise<boolean> {
-  if (run.status !== "needs_decision" || !run.result) return false;
+  if (run.status !== "needs_decision" || !run.result || run.transport.kind !== "firstmate") return false;
   if (run.messages?.some((message) => message.from === "flyd")) return false;
   const brief = plainBrief(run.result.brief);
   if (!handsHimInternalDecision(brief)) return false;
@@ -34,7 +36,6 @@ async function returnedToBoss(run: DomainRun, send: typeof sendRunMessage): Prom
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: `I need your decision: ${brief}` }, [{
     requirement: "decisions_handled", reason: "an implementation call; returned to the work instead of reaching him", quote: brief.slice(0, 240), by: "check",
   }]);
-  saveDomainRun({ ...(outcome.run ?? run), notified: true });
   return true;
 }
 

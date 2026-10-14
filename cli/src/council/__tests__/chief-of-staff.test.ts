@@ -8,7 +8,8 @@ import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
 import { parseDomainResult } from "../../command/result.js";
 import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
-import { readDomainRun } from "../../command/store.js";
+import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
+import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import type { DomainRun } from "../../command/types.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
@@ -28,6 +29,18 @@ function jev(answers: Record<string, number>, sink: Array<{ state: Record<string
 }
 
 describe("the chief-of-staff checks", () => {
+  let jevSetting: string | undefined;
+
+  beforeEach(() => {
+    jevSetting = process.env.FLYD_SELF_REVIEW_JEV;
+    process.env.FLYD_SELF_REVIEW_JEV = "1";
+  });
+
+  afterEach(() => {
+    if (jevSetting === undefined) delete process.env.FLYD_SELF_REVIEW_JEV;
+    else process.env.FLYD_SELF_REVIEW_JEV = jevSetting;
+  });
+
   it("passes an outcome-first reply in Flyd's voice", async () => {
     expect(checkSaid({ surface: "chat", text: GOOD, asked: "is dark mode done on GNM?" })).toEqual([]);
     const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
@@ -72,6 +85,24 @@ describe("the chief-of-staff checks", () => {
     expect(await judgeSaid({ surface: "relay", text: subtle }, { apiKey: "test", fetchFn: jev({ cos_outcome_first: 0.9, cos_internal_decision: 0.6 }) })).toEqual([]);
     // A developer's own key never turns a test into a live Jev call.
     expect(await judgeSaid({ surface: "relay", text: subtle }, { fetchFn: jev({ cos_internal_decision: 0.99 }) })).toEqual([]);
+  });
+
+  it("sends nothing to Jev unless opted in, and never anything built from his accounts", async () => {
+    const subtle = "There are two ways we could run the nightly check, a cron entry or the Core tick; which would you prefer?";
+    const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+    delete process.env.FLYD_SELF_REVIEW_JEV;
+    expect(await judgeSaid({ surface: "relay", text: subtle }, { apiKey: "test", fetchFn: jev({ cos_internal_decision: 0.99 }, sink) })).toEqual([]);
+    process.env.FLYD_SELF_REVIEW_JEV = "0";
+    expect(await judgeSaid({ surface: "relay", text: subtle }, { apiKey: "test", fetchFn: jev({ cos_internal_decision: 0.99 }, sink) })).toEqual([]);
+    expect(sink).toEqual([]);
+
+    process.env.FLYD_SELF_REVIEW_JEV = "1";
+    const fetchFn = jev({ cos_internal_decision: 0.99 }, sink);
+    await reviewSaid({ surface: "chat", text: "Nothing urgent today; two invitations, both declined last week.", tools: ["email_search: 3 results", "email_read: ok"] }, { apiKey: "test", fetchFn });
+    await reviewSaid({ surface: "chat", text: "Sarah's email says the venue moved to Thursday." }, { apiKey: "test", fetchFn });
+    await reviewSaid({ surface: "relay", text: "Thursday works for the venue.", asked: "what did Sarah say on WhatsApp?" }, { apiKey: "test", fetchFn });
+    await reviewSaid({ surface: "chat", text: "The budget sheet in your Drive shows R12,400 left this month." }, { apiKey: "test", fetchFn });
+    expect(sink).toEqual([]);
   });
 
   it("holds George's voice to the phrases his own files rule out", () => {
@@ -125,12 +156,59 @@ describe("before display", () => {
     });
     expect(shown).toEqual([]);
     expect(sent).toEqual([{ body: HANDLE_IT_YOURSELF, kind: "decision", from: "flyd" }]);
-    expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
+    expect(readDomainRun("domain-cos-1")?.notified).toBeUndefined();
     expect(readVerdicts().find((verdict) => verdict.source === "domain:domain-cos-1")).toMatchObject({ held: true, shortfalls: [{ requirement: "decisions_handled" }] });
 
     // Asked again after Flyd sent it back: now it is his.
     const again = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "m1", kind: "decision" as const, body: HANDLE_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
     await notifyRun(again, async (_title, message) => { shown.push(message); }, async () => { throw new Error("not again"); });
+    expect(shown).toEqual([`I need your decision: ${INTERNAL_DECISION}`]);
+  });
+
+  it("brings George the boss's next reply after sending it back, even the same question again", async () => {
+    const brief = INTERNAL_DECISION;
+    const ask = JSON.stringify({ status: "needs_decision", brief });
+    const original = { id: "note-1", request_id: "domain-cos-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-14T01:00:00.000Z", body: ask, cursor: "000000000001" } };
+    const handled: unknown[] = [original];
+    const sentNotes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") {
+        sentNotes.push(String(options.input));
+        return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" };
+      }
+      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    saveDomainRun({ ...decisionRun(brief), status: "accepted", result: undefined, transport: { kind: "firstmate", requestId: "domain-cos-1", externalId: "note-1" } });
+    const shown: string[] = [];
+    const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { shown.push(message); }, (input) => import("../../command/messages.js").then(({ sendRunMessage }) => sendRunMessage({ ...input, transport })));
+
+    await syncFirstmateDomainRuns({ transport, onChanged });
+    expect(shown).toEqual([]);
+    expect(sentNotes).toHaveLength(1);
+    // Nothing new from the boss: still nothing for George.
+    expect(await syncFirstmateDomainRuns({ transport, onChanged })).toEqual([]);
+    expect(shown).toEqual([]);
+
+    const flydNote = readDomainRun("domain-cos-1")!.messages!.find((message) => message.from === "flyd")!;
+    handled.push({ id: "note-2", request_id: flydNote.id, acknowledged: true, reply: { id: "note-2", at: "2026-10-14T02:00:00.000Z", body: ask, cursor: "000000000002" } });
+    await syncFirstmateDomainRuns({ transport, onChanged });
+    expect(shown).toEqual([`I need your decision: ${brief}`]);
+    expect(sentNotes).toHaveLength(1);
+    expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
+  });
+
+  it("brings George a decision about his money even when it mentions how the work runs", async () => {
+    const shown: string[] = [];
+    const brief = "Do you want me to retry the Stripe payment or cancel the subscription?";
+    await notifyRun(decisionRun(brief), async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
+    expect(shown).toEqual([`I need your decision: ${brief}`]);
+  });
+
+  it("does not send a decision back to a boss that never replies", async () => {
+    const shown: string[] = [];
+    const run: DomainRun = { ...decisionRun(INTERNAL_DECISION), owner: "Librarian", request: { ...decisionRun(INTERNAL_DECISION).request, domain: "knowledge" }, transport: { kind: "native", requestId: "domain-cos-1" } };
+    await notifyRun(run, async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
     expect(shown).toEqual([`I need your decision: ${INTERNAL_DECISION}`]);
   });
 

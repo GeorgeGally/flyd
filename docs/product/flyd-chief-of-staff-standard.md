@@ -49,14 +49,22 @@ standard here and there together.
   `cos_wants_artefact`, `cos_off_voice`; declared in
   `cli/src/cognition/system-one/registry.ts` and benched by the System-1 replay
   suite). A decided answer at the 0.8 threshold that breaks the standard is a
-  shortfall; an unsure one is not. `FLYD_SELF_REVIEW_JEV=0` turns the
-  judgments off; the checks still run.
+  shortfall; an unsure one is not. Sending Flyd's words to TypeSafe is
+  opt-in: only `FLYD_SELF_REVIEW_JEV=1` (with `TYPESAFE_API_KEY`) turns the
+  judgments on. Even then, a text built from email, Drive or WhatsApp (a turn
+  that used those tools, or words that speak of mail, documents, messages or
+  chats) is never sent; when unsure, it stays local. The checks run locally
+  either way.
 - **Caught before display where that is possible.**
   - A notification that only says work is happening is not shown.
   - A domain run that asks George for an implementation call goes back to its
     boss, marked as Flyd's own note (not George's wording, no new authority),
-    to settle it and report the outcome. If the boss asks again, the decision
-    reaches George.
+    to settle it and report the outcome. Only FirstMate, which replies, is
+    sent one back. Whatever the boss replies next reaches George, including
+    the same question asked again. A decision that touches his money, his
+    name or an outward step (paying, charging, refunds, subscriptions,
+    renewals, cancelling, invoices, contracts, signing, publishing, sending,
+    merging) always reaches him, even when it also mentions how the work runs.
   - Both are recorded as held verdicts.
 - **What is read.** Chat turns (the journal), the conversation window's
   answers and relayed updates, the work cards' headlines, agenda results,

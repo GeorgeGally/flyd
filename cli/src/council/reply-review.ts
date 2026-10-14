@@ -119,7 +119,7 @@ export function collectSaid(sources: ReviewSources): Captured[] {
   const out: Captured[] = [];
 
   for (const turn of readJournalSince(since, sources.flydDir ? join(flydDir, "journal") : journalDir())) {
-    if (turn.assistant.trim()) out.push({ at: turn.at, surface: "chat", source: `journal:${turn.id}`, text: turn.assistant, asked: turn.user });
+    if (turn.assistant.trim()) out.push({ at: turn.at, surface: "chat", source: `journal:${turn.id}`, text: turn.assistant, asked: turn.user, ...(turn.tools?.length ? { tools: turn.tools } : {}) });
   }
 
   const asks = join(flydDir, "view", "asks");
@@ -235,7 +235,7 @@ export async function runReplyReview(deps: ReviewDependencies = {}): Promise<Rev
   const review = deps.review ?? ((said: Said, voice: VoiceRules) => reviewSaid(said, { rules: voice }));
   const verdicts: Verdict[] = [];
   for (const [id, item] of batch) {
-    const shortfalls = await review({ surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}) }, rules).catch(() => []);
+    const shortfalls = await review({ surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}), ...(item.tools ? { tools: item.tools } : {}) }, rules).catch(() => []);
     verdicts.push({
       id, at: item.at, reviewedAt: now.toISOString(), surface: item.surface, source: item.source,
       text: item.text.slice(0, TEXT_CHARS), ...(item.asked ? { asked: item.asked.slice(0, 200) } : {}), shortfalls,

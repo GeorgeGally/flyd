@@ -368,7 +368,9 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   // ── self-review (council/chief-of-staff.ts) ───────────────────────────
   // One request per thing Flyd said, after the deterministic checks found
-  // nothing; a shortfall becomes self-improvement evidence, never a block.
+  // nothing, and only when FLYD_SELF_REVIEW_JEV=1; a shortfall becomes
+  // self-improvement evidence. Holding a message before display is left to
+  // the deterministic screen.
   // cos_wants_artefact gates at 0.7: on the bench its negatives sit at or
   // under 0.08 and a six-part status reads 0.74.
   ...([
@@ -380,7 +382,7 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     id, family: "self_review", type: "noul", instructions, criteria,
     threshold, use: "recorded", failureMode: "skip_mutation",
     projection: SELF_REVIEW_PROJECTION, evaluatorVersion: `${id}.v1`, status: "production",
-    consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; it never blocks or rewrites what George sees",
+    consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
   })),
   {
     id: "cos_off_voice", family: "self_review", type: "noul",
@@ -390,7 +392,7 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     // (0.88); the concrete failures he named separate cleanly (>= 0.92 vs <= 0.73).
     threshold: 0.85, use: "recorded", failureMode: "skip_mutation",
     projection: SELF_REVIEW_PROJECTION, evaluatorVersion: "cos_off_voice.v1", status: "production",
-    consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; it never blocks or rewrites what George sees",
+    consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

@@ -58,6 +58,8 @@ export interface Said {
   text: string;
   /** What George said that this answers, when known. */
   asked?: string;
+  /** The tools the turn used ("name: outcome" lines), when known. */
+  tools?: string[];
 }
 
 export interface Shortfall {
@@ -135,7 +137,7 @@ const ASKS_HIM = /\b(needs? your (?:call|decision|ok|okay|approval|sign-?off|inp
 /** …about how the work is built or run, which is not his to decide. */
 const INTERNAL_MATTER = /\b(config|feature flag|flag|guard|gate|refactor|tests?|lint|ci|pipeline|branch|rebase|retry|push back|implementation|schema|migration|timeout|threshold|regex|prompt|turn-end|hooks?|endpoint|dependency|worktree|supervisor|daemon|inbox)\b/i;
 /** Outward or irreversible: these stay his even when they sound technical. */
-const HIS_DECISION = /\b(merge|land|ship|publish|deploy|release|send|email|post|delete|pay|buy|spend|price|cost|budget|invoice|client|sign|contract)\b/i;
+const HIS_DECISION = /\b(merge|land|ship|publish|deploy|release|send|email|post|delete|buy|spend|price|cost|budget|client|pay\w*|charg\w*|refund\w*|subscri\w*|renew\w*|cancel\w*|invoice\w*|contract\w*|sign\w*)\b/i;
 
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const LIST_ITEM = /^\s*(?:[-*+•]|\d+[.)])\s+/;
@@ -149,10 +151,13 @@ function backstageWord(text: string): string | undefined {
  * An implementation or process call handed to George, by wording alone: one
  * sentence both asks him and is about how the work is built or run. Sentence
  * by sentence, so "I'll bring you only what needs your decision" after a
- * paragraph about a guard is not read as asking him about the guard.
+ * paragraph about a guard is not read as asking him about the guard. Anything
+ * that touches his money, his name or an outward step stays his.
  */
 export function handsHimInternalDecision(text: string): boolean {
-  return prose(text).split(/(?<=[.!?])\s+|\n+/).some((sentence) => ASKS_HIM.test(sentence) && INTERNAL_MATTER.test(sentence) && !HIS_DECISION.test(sentence));
+  const plain = prose(text);
+  if (HIS_DECISION.test(plain)) return false;
+  return plain.split(/(?<=[.!?])\s+|\n+/).some((sentence) => ASKS_HIM.test(sentence) && INTERNAL_MATTER.test(sentence));
 }
 
 /** Only says something is happening: "Working on it", "Remembering what I know about this". */
@@ -228,15 +233,26 @@ export function selfReviewJevModel(): string {
   return process.env.FLYD_JEV_MODEL ?? JEV_PINNED_MODEL;
 }
 
+/** Email, Drive and WhatsApp content, or talk of it: none of it leaves the machine for a judgment. */
+const CONNECTOR_TOOL = /^\s*(?:connected_accounts|email_\w+|drive_\w+|whatsapp_\w+)\b/i;
+const CONNECTOR_CONTENT = /\b(e-?mails?|gmail|inbox|mailbox|dreamhost|drafts?|google drive|drive|google docs?|docs?|sheets?|slides|whatsapp|messages?|messaged|texted|chats?|threads?|attachments?|subject|cc|replied|wrote)\b/i;
+
+/** May this text be sent to Jev: only when nothing in it or its turn came from his accounts. */
+export function mayJudgeRemotely(said: Said): boolean {
+  if (said.tools?.some((line) => CONNECTOR_TOOL.test(line))) return false;
+  return !CONNECTOR_CONTENT.test(said.text) && !CONNECTOR_CONTENT.test(said.asked ?? "");
+}
+
 /**
  * The judgment half: every applicable question about one text in a single
- * Jev request. Empty when Jev is off, unconfigured or fails; the checks
- * still stand on their own.
+ * Jev request. Off unless FLYD_SELF_REVIEW_JEV=1, and never for anything
+ * built from his email, Drive or WhatsApp. Empty when off, unconfigured or
+ * failing; the checks still stand on their own.
  */
 export async function judgeSaid(said: Said, options: JudgeOptions = {}): Promise<Shortfall[]> {
   // Tests pass their own key; a developer's real one never makes a test call Jev.
   const apiKey = options.apiKey ?? (process.env.VITEST ? undefined : process.env.TYPESAFE_API_KEY);
-  if (!apiKey || process.env.FLYD_SELF_REVIEW_JEV === "0") return [];
+  if (!apiKey || process.env.FLYD_SELF_REVIEW_JEV !== "1" || !mayJudgeRemotely(said)) return [];
   const judged = JUDGED.filter((item) => item.surfaces.includes(said.surface));
   const state = {
     text: said.text.slice(0, 4_000),
