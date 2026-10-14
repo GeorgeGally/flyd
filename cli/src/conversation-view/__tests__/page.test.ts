@@ -1616,7 +1616,8 @@ describe("header and artefact view", () => {
     const stream = open("latest", []);
     const memory = { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] };
     const update = (conversations: unknown[]) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations, artefacts: [], memory } });
-    const body = document.getElementById("rail-body")!;
+    // The detail pane scrolls as one column, so it is the pane that stays pinned.
+    const body = document.getElementById("rail-body")!.parentElement!;
     let height = 1000;
     Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => height });
     Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });

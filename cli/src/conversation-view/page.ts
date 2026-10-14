@@ -462,10 +462,11 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-tabs button { padding: 0 0 5px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 13px/1.2 var(--mono); cursor: pointer; }
 .rail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 .rail-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+/* Each pane scrolls as one column: the brief and the body move together under the pinned tabs. */
 .rail-pane[hidden] { display: none; }
 /* The top of the column: one decision that needs him, the jobs under way, and what got done. */
-.brief { flex: none; max-height: 62%; overflow-y: auto; padding: 18px 18px 6px; border-bottom: 1px solid var(--faint); }
+.brief { flex: none; padding: 18px 18px 6px; border-bottom: 1px solid var(--faint); }
 .brief[hidden], .brief > [hidden] { display: none; }
 .brief > section + section { margin-top: 22px; }
 .brief-top { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; padding-right: 32px; }
@@ -496,7 +497,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 18px 40px; }
+.rail-body { flex: 1 0 auto; padding: 8px 18px 40px; }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 /* One row per message he sent: his words plainly, where it stands, and its own answer under it. */
 .rail-talk { margin: 0; }
@@ -2490,7 +2491,8 @@ var __name = function (f) { return f; };
     var talks = rail.conversations || [];
     // Chat order: the newest message last, at the bottom, which stays in view
     // unless he has scrolled up to read.
-    var pinned = !railBody.firstElementChild || railBody.scrollHeight - railBody.scrollTop - railBody.clientHeight < 40;
+    var detailPane = railBody.parentElement;
+    var pinned = !railBody.firstElementChild || detailPane.scrollHeight - detailPane.scrollTop - detailPane.clientHeight < 40;
     var held = renderHeld(rail.memory, next);
     var cards = rail.artefacts || [];
     if (cards.length) {
@@ -2510,7 +2512,7 @@ var __name = function (f) { return f; };
     patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
     railFilled = talks.length > 0 || cards.length > 0 || held || learned.length > 0;
     showRail();
-    if (pinned) railBody.scrollTop = railBody.scrollHeight;
+    if (pinned) detailPane.scrollTop = detailPane.scrollHeight;
   }
   // A folded row opens with a click on its words or its answer, and stays open across updates.
   railBody.addEventListener("click", function (event) {
