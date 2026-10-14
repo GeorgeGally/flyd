@@ -32,11 +32,24 @@ export async function sendDomainMessage(input: {
   const candidates = activeDomainRuns(input.domain);
   if (candidates.length === 0) return { delivered: false, reason: "no_active_run" };
   if (candidates.length !== 1) return { delivered: false, reason: "ambiguous_active_runs" };
-  const run = candidates[0]!;
+  return sendRunMessage({ run: candidates[0]!, kind: input.kind, body, ...(input.transport ? { transport: input.transport } : {}) });
+}
+
+/** Delivers one message to a known run's domain boss, once. */
+export async function sendRunMessage(input: {
+  run: DomainRun;
+  kind: DomainMessageKind;
+  body: string;
+  from?: "flyd";
+  transport?: FirstmateDomainTransport;
+}): Promise<DomainMessageOutcome> {
+  const { run } = input;
+  const body = input.body.trim();
+  if (!body) return { delivered: false, reason: "delivery_failed", error: "Empty domain message" };
   const id = messageId(run, input.kind, body);
   if (run.messages?.some((message) => message.id === id && message.deliveredAt)) return { delivered: true, run };
 
-  const pending: DomainMessage = { id, kind: input.kind, body, at: new Date().toISOString() };
+  const pending: DomainMessage = { id, kind: input.kind, body, at: new Date().toISOString(), ...(input.from ? { from: input.from } : {}) };
   const withPending: DomainRun = {
     ...run,
     messages: [...(run.messages ?? []).filter((message) => message.id !== id), pending],
@@ -44,7 +57,7 @@ export async function sendDomainMessage(input: {
   };
   saveDomainRun(withPending);
 
-  if (input.domain === "coding" && run.transport.kind === "firstmate") {
+  if (run.request.domain === "coding" && run.transport.kind === "firstmate") {
     try {
       const receipt = await (input.transport ?? new FirstmateDomainTransport()).sendMessage(run, pending);
       const delivered: DomainMessage = { ...pending, deliveredAt: new Date().toISOString(), externalId: receipt.externalId };
@@ -64,7 +77,7 @@ export async function sendDomainMessage(input: {
 
   // Native bosses consume durable messages from the DomainRun on their next
   // manager wake. This is still lossless, but is not a live specialist interrupt.
-  if (input.domain === "knowledge" && run.owner === "Librarian") {
+  if (run.request.domain === "knowledge" && run.owner === "Librarian") {
     const delivered: DomainMessage = { ...pending, deliveredAt: new Date().toISOString() };
     const next = { ...withPending, messages: withPending.messages!.map((message) => message.id === id ? delivered : message), updatedAt: delivered.deliveredAt! };
     saveDomainRun(next);

@@ -9,18 +9,20 @@ import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 import { listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { routingFailureEvidence } from "../runtime/routing-learning.js";
+import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
 // evidence of where it fell short — /flyd-fix corrections, failed chat
 // evals, advisories George waved away, moments he pushed back in
-// conversation, crew tasks that failed — and asks an improver, in the
+// conversation, crew tasks that failed, and its own words read back against
+// the chief-of-staff standard (council/reply-review.ts) — and asks an improver, in the
 // Critic's measured voice, to pick ONE concrete, testable change. That
 // change goes to the coding crew on a branch of the Flyd repo, verified by
 // the repo's own checks. Nothing lands without George's /land.
 
 export interface Evidence {
   id: string;
-  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain";
+  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain" | "review";
   at: string;
   text: string;
 }
@@ -216,6 +218,10 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
     }
   }
 
+  // What George was shown that fell short of the chief-of-staff standard,
+  // one item per broken requirement with its newest examples.
+  evidence.push(...reviewEvidence(since, sources.flydDir ? join(flydDir, "self-review") : selfReviewDir()));
+
   return evidence.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
 }
 
@@ -223,7 +229,7 @@ export function improverPrompt(evidence: Evidence[], attempts: Attempt[], today:
   return [
     "You are Flyd's Critic, turned on Flyd itself: a measured, fair-minded engineer who wants Flyd to serve George better.",
     "Flyd is George's personal agent (TypeScript Core in cli/src; AGENTS.md describes the architecture).",
-    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; answer checks cli/src/runtime/honesty-check.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; retry limits cli/src/runtime/repeat-guard.ts; background jobs cli/src/runtime/background-jobs.ts; done_when checks cli/src/runtime/acceptance.ts; coding crew cli/src/crew/crew.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json.",
+    "Where things live: chat system prompt and turn budgets cli/src/runtime/conversation-responder.ts; answer checks cli/src/runtime/honesty-check.ts; tools cli/src/runtime/personal-tools.ts and assistant-tools.ts; tool approval cli/src/runtime/tool-policy.ts; retry limits cli/src/runtime/repeat-guard.ts; background jobs cli/src/runtime/background-jobs.ts; done_when checks cli/src/runtime/acceptance.ts; coding crew cli/src/crew/crew.ts; agent loop cli/src/lib/llm.ts; council (Librarian, Critic, Strategist, Muse, Scout) cli/src/council/; chat eval cases cli/src/evals/chat/cases.json; the chief-of-staff standard and its checks cli/src/council/chief-of-staff.ts (self-review records in cli/src/council/reply-review.ts); the conversation window's status line cli/src/conversation-view/living.ts and its relayed updates cli/src/conversation-view/interpret.ts; domain-run notifications cli/src/command/notice.ts.",
     "Name only files from that list or describe the behaviour; never invent paths.",
     `Today is ${today}. Below is recent evidence of where Flyd fell short.`,
     "",

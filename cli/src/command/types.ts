@@ -70,6 +70,8 @@ export interface DomainMessage {
   id: string;
   kind: DomainMessageKind;
   body: string;
+  /** Flyd's own note to the boss rather than George's wording; it carries no authority from him. */
+  from?: "flyd";
   at: string;
   deliveredAt?: string;
   externalId?: string;

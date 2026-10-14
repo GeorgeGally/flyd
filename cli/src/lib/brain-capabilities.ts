@@ -15,6 +15,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "crew", integration: "runtime", description: "Dispatch, supervise, verify, and land OpenCode crewmates working in isolated worktrees.", mutatesArchive: false },
   { id: "skills", integration: "runtime", description: "How-to skills loaded into a chat turn when it fits; list, or import one of George's Claude/OpenCode skills.", mutatesArchive: false },
   { id: "improve", integration: "runtime", description: "Human-gated self-improvement: gather shortfall evidence, pick one fix, hand it to the crew for a verified branch.", mutatesArchive: false },
+  { id: "scorecard", integration: "runtime", description: "Self-review against the chief-of-staff standard: read back what George was shown, then a short scorecard of where Flyd fell short.", mutatesArchive: false },
   { id: "scout", integration: "runtime", description: "Personal news: ranked editions, pre-emptive must-know alerts, and sources that evolve with feedback.", mutatesArchive: false },
   { id: "council", integration: "runtime", description: "Run and inspect the council: Librarian curation, Critic and Strategist advisories, Muse.", mutatesArchive: false },
   { id: "agenda", integration: "runtime", description: "Schedule, run, and review Flyd's proactive follow-ups and recurring briefings.", mutatesArchive: false },

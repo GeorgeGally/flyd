@@ -37,6 +37,7 @@ import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { unreadNotes, unreadWarning } from "./note-receipts.js";
+import { noteSaid } from "../council/reply-review.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -1134,9 +1135,13 @@ export class ConversationViewServer {
     let sent = "";
     const emit = () => {
       if (!latest) return;
-      const status = JSON.stringify({ session: session.id, ...statusOf(latest) });
+      const current = statusOf(latest);
+      const status = JSON.stringify({ session: session.id, ...current });
       if (status === sent) return;
       sent = status;
+      // What the island and the line under his message say, kept for Flyd's self-review.
+      if (current.activity) noteSaid({ surface: "status", text: current.activity });
+      if (current.waiting && !current.waiting.failed) noteSaid({ surface: "status", text: current.waiting.text });
       res.write(`event: status\ndata: ${status}\n\n`);
     };
     const follower = this.source.follow(session.id, (snapshot) => {

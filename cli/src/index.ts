@@ -101,6 +101,16 @@ program
   });
 
 program
+  .command("scorecard")
+  .description("How Flyd is living up to its chief-of-staff standard: reads back what you were shown since last time, then a short scorecard")
+  .option("--days <n>", "how far back the scorecard looks", "7")
+  .action(async (options: { days: string }) => {
+    const { runReplyReview, scorecard } = await import("./council/reply-review.js");
+    await runReplyReview();
+    process.stdout.write(scorecard({ days: Math.max(1, Number(options.days) || 7) }));
+  });
+
+program
   .command("skills")
   .description("Flyd's how-to skills, loaded into a chat turn when it fits: list | import <name> (from ~/.claude/skills or ~/.config/opencode/skills)")
   .argument("[action]", "list or import")
