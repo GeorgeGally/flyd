@@ -68,6 +68,22 @@ export function undoNote(target: string, question: string, answer: string): stri
   return `[Captain is replying from Flyd to ${target} — your question: "${quoted(question)}"; he takes back the answer Flyd gave for him ("${quoted(answer)}") and will answer himself. Hold off until he does.]\n\nHold off on that; I'll answer this one myself.`;
 }
 
+/** The longest passage he can comment on, in characters. */
+export const PASSAGE_CHARS = 2000;
+
+/**
+ * His comment on a passage he selected in one message of a conversation: it
+ * names the conversation and whose words they were and quotes the passage
+ * whole, so whoever reads it knows what "this" is without the screen. Pure.
+ */
+export function passageNote(passage: { quote: string; from: "user" | "assistant"; assistant: string; conversation: { id: string; title?: string } }, words: string): string {
+  const whose = passage.from === "user" ? "my message" : `${passage.assistant}'s reply`;
+  const title = passage.conversation.title?.trim();
+  const where = title && title !== passage.conversation.id ? `"${title}" (session ${passage.conversation.id})` : `session ${passage.conversation.id}`;
+  const quote = passage.quote.trim().replace(/\n{3,}/g, "\n\n").split("\n").map((line) => `> ${line}`.trimEnd()).join("\n");
+  return `Comment on a passage of ${whose} in the conversation ${where}:\n\n${quote}\n\n${words.trim()}`;
+}
+
 /** A message with its reply line read: his own words, and what they answer. Pure. */
 export function readReply(message: ConversationMessage): ConversationMessage {
   const found = MARKER.exec(message.text);

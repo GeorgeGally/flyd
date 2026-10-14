@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readReply, replyNote, threaded } from "../replies.js";
+import { passageNote, readReply, replyNote, threaded } from "../replies.js";
 import { threadReplies, type RailConversation } from "../rail.js";
 import type { Exchange } from "../types.js";
 
@@ -36,5 +36,15 @@ describe("replies to an answer", () => {
     expect(threads.map((conversation) => conversation.id)).toEqual(["a", "b", "e"]);
     expect(threads[0]!.replies!.map((reply) => reply.id)).toEqual(["c", "d"]);
     expect(threads[1]!.replies).toBeUndefined();
+  });
+});
+
+describe("a comment on a passage he selected", () => {
+  it("names the conversation and whose words they were, and quotes the passage whole", () => {
+    const conversation = { id: "s1", title: "Island tweaks" };
+    expect(passageNote({ quote: "  The island runs\n\n\n\nfrom the notch.  ", from: "assistant", assistant: "Flyd", conversation }, " Make it faster. "))
+      .toBe('Comment on a passage of Flyd\'s reply in the conversation "Island tweaks" (session s1):\n\n> The island runs\n>\n> from the notch.\n\nMake it faster.');
+    expect(passageNote({ quote: "Ship it", from: "user", assistant: "Flyd", conversation: { id: "s1" } }, "I meant tomorrow"))
+      .toBe("Comment on a passage of my message in the conversation session s1:\n\n> Ship it\n\nI meant tomorrow");
   });
 });

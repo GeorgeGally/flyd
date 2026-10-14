@@ -29,7 +29,7 @@ import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHO
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
-import { answerNote, replyNote } from "./replies.js";
+import { answerNote, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
 import { choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
@@ -886,7 +886,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown; about?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -935,6 +935,10 @@ export class ConversationViewServer {
       await this.sendAbout(res, payload.about, payload.text, images as ImageUpload[]);
       return;
     }
+    if (payload.passage !== undefined) {
+      await this.commentOnPassage(res, payload.session, payload.passage, payload.text);
+      return;
+    }
     const files = payload.files ?? [];
     const validFiles = Array.isArray(files) && files.every((file) =>
       typeof file === "object" && file !== null &&
@@ -972,6 +976,27 @@ export class ConversationViewServer {
       const note = phoneCommentNote({ url, x: comment.x, y: comment.y, text: comment.text, ...(typeof comment.element === "string" && comment.element.trim() ? { element: comment.element.trim() } : {}) });
       const sent = await this.source.send(session, note, [], [], "firstmate");
       sendJson(res, 200, sent);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** His comment on a passage he selected in a message: to firstmate, quoting it and naming the conversation. */
+  private async commentOnPassage(res: ServerResponse, session: unknown, raw: unknown, text: unknown): Promise<void> {
+    const passage = typeof raw === "object" && raw !== null ? raw as { quote?: unknown; from?: unknown } : {};
+    if (typeof session !== "string" || !session || typeof passage.quote !== "string" || !passage.quote.trim() || passage.quote.length > PASSAGE_CHARS ||
+        (passage.from !== "user" && passage.from !== "assistant")) {
+      sendJson(res, 400, { error: `expected { session, passage: { quote, from: "user" | "assistant" }, text } with a passage of at most ${PASSAGE_CHARS} characters` });
+      return;
+    }
+    if (typeof text !== "string" || !text.trim() || text.length > 4000) {
+      sendJson(res, 400, { error: "Enter a comment of at most 4000 characters" });
+      return;
+    }
+    try {
+      const title = (await this.source.listSessions()).find((summary) => summary.id === session)?.title;
+      const note = passageNote({ quote: passage.quote, from: passage.from, assistant: this.source.assistantLabel, conversation: { id: session, ...(title ? { title } : {}) } }, text);
+      sendJson(res, 200, await this.source.send(session, note, [], [], "firstmate"));
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
