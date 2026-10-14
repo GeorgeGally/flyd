@@ -167,7 +167,11 @@ export interface StatusItem {
   ask?: string;
 }
 
-const NEEDS = /\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|your (?:call|decision|word|ok|go-ahead|approval)|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok)|approve)\b/i;
+/** His word asked for, as NEEDS and ASKS both read it. */
+const YOUR_CALL = "your (?:call|decision|word|ok|go-ahead|approval)";
+/** "Approve the page" or "you decide" asks him; "I'll approve it" does not. */
+const DECIDE = "(?:^|[.!?:;]\\s+|\\b(?:you|please)\\s+)(?:approve|decide)\\b";
+const NEEDS = new RegExp(`\\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|${YOUR_CALL}|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok))\\b|${DECIDE}`, "i");
 /** "Say "X" to keep it" is an ask, but only when it leads the line, not mid-sentence quoted text. */
 const SAY_ASK = /(?:^|[:;.]\s+)say\s*["“']/i;
 const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:merge|land|ship)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
@@ -372,8 +376,8 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
   return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
 }
 
-/** What asks him something: a question, or a call for his decision ("I'll approve it" is not one). */
-const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to)\b|(?:^|\b(?:you|please)\s+)(?:approve|decide)\b/i;
+/** What asks him something: a question, or a call for his decision. */
+const ASKS = new RegExp(`\\?|\\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|${YOUR_CALL}|needs? your|ok to|okay to)\\b|${DECIDE}`, "i");
 
 /** A sentence in a work item that asks him for something, as the item's state reads it. */
 function asksOfItem(sentence: string): boolean {

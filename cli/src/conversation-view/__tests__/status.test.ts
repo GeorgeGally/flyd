@@ -63,6 +63,9 @@ describe("conversation status for the island", () => {
     expect(statusOf({ messages: [{ id: "r7", role: "assistant", text: "- Menu bar fix is merged. Waiting on you for the island.\n- Docs are merged." }], working: false }).reply)
       .toMatchObject({ headline: "Waiting on you for the island, plus 1 more", asks: true });
     expect(headlineOf("- Island fix is merged, so the apply page is blocked.\n- Docs are merged.")).toBe("The apply page is blocked, plus 1 more");
+    const plan = "- Island fix is merged; I'll approve the follow-up once green.\n- Docs are merged.";
+    expect(statusOf({ messages: [{ id: "r8", role: "assistant", text: plan }], working: false }).reply).toMatchObject({ asks: false });
+    expect(forCaptain(plan, new Set())).toBe(false);
     expect(headlineOf("- Island fix is merged, so the apply page is blocked. Approve the island next.\n- Docs are merged.")).toBe("The apply page is blocked, plus 1 more");
     expect(headlineOf(`- ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(4)}Approve the island next.\n- Docs are merged.`)).toBe("Approve the island next, plus 1 more");
     expect(statusOf({ messages: [{ id: "r9", role: "assistant", text: `» ${"The deals page now loads the newest twelve deals first and pages the rest in. ".repeat(2)}Want me to ship it?` }], working: false }).reply)
