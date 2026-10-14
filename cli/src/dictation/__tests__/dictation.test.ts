@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Project } from "../../council/projects.js";
@@ -104,10 +104,6 @@ describe("Flyd's name", () => {
     const prompt = transcriptionPrompt(vocabularyTerms(null, []));
     expect(prompt).not.toMatch(/floyd/i);
     for (const name of ["Flyd", "Jev", "CapFive", "radarboy3000"]) expect(prompt).toContain(name);
-    // Every voice path (push-to-talk, dictation, LIVE) builds its prompt with transcriptionPrompt.
-    for (const file of ["../vocabulary.ts", "../../transcription.ts", "../../realtime-session.ts"]) {
-      expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(/floyd/i);
-    }
   });
 
   it("turns a heard Floyd into Flyd, but keeps the band", () => {
@@ -115,9 +111,9 @@ describe("Flyd's name", () => {
     expect(flydNameBackstop("Play Pink Floyd, Floyd")).toBe("Play Pink Floyd, Flyd");
   });
 
-  it("applies to dictation even without rules", async () => {
-    const result = await finishDictation("Ask Floyd about it", { target: ghostty, audioSeconds: 5, rules: [], vocabulary: [], model: "" });
-    expect(result.text).toBe("Ask Flyd about it");
+  it("leaves a dictated Floyd alone without rules", async () => {
+    const result = await finishDictation("Reply to Floyd about it", { target: ghostty, audioSeconds: 5, rules: [], vocabulary: [], model: "" });
+    expect(result.text).toBe("Reply to Floyd about it");
   });
 });
 

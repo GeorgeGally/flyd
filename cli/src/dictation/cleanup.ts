@@ -47,8 +47,8 @@ export function applyRules(text: string, rules: ReplacementRule[]): string {
   }, text);
 }
 
-// Transcribers still hear "Floyd" now and then. Every voice purpose ends with
-// this fix, sparing the band.
+// Transcribers still hear "Floyd" now and then. Push-to-talk, where Flyd is the
+// one addressed, ends with this fix, sparing the band; dictation never does.
 const FLOYD = /(?<![\p{L}\p{N}_])(?<!\bpink\s+)floyd(?![\p{L}\p{N}_])/giu;
 
 /** Whole-word, case-insensitive Floyd → Flyd, except "Pink Floyd". */
@@ -146,7 +146,7 @@ export async function finishDictation(transcript: string, options: FinishDictati
   const profile = dictationProfile(options.target);
   if (isSilenceHallucination(transcript, options.audioSeconds)) return { text: "", profile };
 
-  const ruled = flydNameBackstop(applyRules(transcript, options.rules));
+  const ruled = applyRules(transcript, options.rules);
   const deterministic = deterministicCleanup(ruled, profile);
   const model = options.model ?? dictationModel();
   if (!model || !deterministic || !needsModel(ruled, profile)) return { text: deterministic, profile };
