@@ -1265,13 +1265,13 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
     await settle();
     const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
-    expect(figure.textContent).toBe("2 need you");
+    expect(figure.textContent).toBe("2 decisions for you");
     // Only the figure that has a list behind it opens one.
     expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
     figure.click();
     const sheet = document.getElementById("calls")!;
     expect(sheet.hidden).toBe(false);
-    expect(document.getElementById("calls-title")!.textContent).toBe("2 need you");
+    expect(document.getElementById("calls-title")!.textContent).toBe("2 decisions for you");
     const items = sheet.querySelectorAll(".call");
     expect(items).toHaveLength(2);
     expect(items[0]!.querySelector(".call-head")!.textContent).toBe("Publish the apply page?");

@@ -388,16 +388,17 @@ export function statusSummaryHtml(text: string, reading?: string): string | unde
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }
 
-/** The status in a few words for the island: "Two need you · one under way · three landed". */
+/**
+ * The status in a sentence for the island, as a chief of staff would put it:
+ * the decision waiting on him, else the newest result, else what is moving,
+ * then "plus 2 more" for the rest. Each item speaks in its own words.
+ */
 export function statusHeadline(items: StatusItem[]): string {
-  const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-  const count = (state: WorkState) => items.filter((item) => item.state === state).reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
-  const parts: string[] = [];
-  const needs = count("needs");
-  const underway = count("underway");
-  const landed = count("landed");
-  if (needs) parts.push(`${WORDS[needs] ?? needs} ${needs === 1 ? "needs" : "need"} you`);
-  if (underway) parts.push(`${WORDS[underway] ?? underway} under way`);
-  if (landed) parts.push(`${WORDS[landed] ?? landed} landed`);
-  return capitalise(parts.join(" · "));
+  const lead = items.find((item) => item.state === "needs")
+    ?? [...items].reverse().find((item) => item.state === "landed")
+    ?? items[0];
+  if (!lead) return "";
+  const said = (lead.ask ?? lead.text).replace(/\s+/g, " ").trim();
+  const rest = items.length - 1;
+  return rest ? `${capitalise(said.replace(/[.]$/, ""))}, plus ${rest} more` : capitalise(said);
 }

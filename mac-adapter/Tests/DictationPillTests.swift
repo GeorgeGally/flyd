@@ -204,7 +204,7 @@ final class DictationPillTests: XCTestCase {
         )
         XCTAssertEqual(
             DictationPill.message(for: .status("Needs you: Merge it?", .decision)),
-            DictationPill.Message(meta: "Needs you", title: "Merge it?", body: nil)
+            DictationPill.Message(meta: "Your decision", title: "Merge it?", body: nil)
         )
         XCTAssertEqual(DictationPill.holdDuration(for: .status("Merge it?", .decision)), 10)
         XCTAssertNil(DictationPill.holdDuration(for: .status("", .working)))

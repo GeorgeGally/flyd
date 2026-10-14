@@ -92,10 +92,10 @@ describe("Flyd's executive voice", () => {
     expect(statusSummaryHtml("Sir, the stats are centred and pushed.")).toBeUndefined();
   });
 
-  it("tells the island where the work stands, and that it needs him", () => {
-    expect(headlineOf(inFlydsVoice(WHERE_EVERYTHING_STANDS))).toBe("Two under way · three landed");
+  it("tells the island the one thing that matters most, in its own words", () => {
+    expect(headlineOf(inFlydsVoice(WHERE_EVERYTHING_STANDS))).toBe("Drag-and-drop for documents, plus 4 more");
     const status = statusOf({ messages: [{ id: "r1", role: "assistant", text: inFlydsVoice(FOUR_READY) }], working: false });
-    expect(status.reply).toMatchObject({ headline: "Four need you", asks: true });
+    expect(status.reply).toMatchObject({ headline: "The island redesign, plus 3 more", asks: true });
     expect(headlineOf("Captain, PR 58 (https://github.com/GeorgeGally/flyd/pull/58) merged.")).not.toMatch(STUB);
   });
 
