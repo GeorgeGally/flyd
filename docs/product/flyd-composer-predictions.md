@@ -28,7 +28,7 @@ apps, rewrite dictation, or automatically draft complete follow-up messages.
   drafts are excluded and credential-containing context messages omitted.
 - The model returns a confidence with each suggestion; below 0.55 the box shows
   nothing, since a wrong guess costs more than no guess.
-- Provider calls have a 1.2 second deadline, 96 output-token ceiling, 12-word /
+- Provider calls have a 1.5 second deadline (Claude Haiku answers in about 0.9–1.3s), 96 output-token ceiling, 12-word /
   160-character visible ceiling, no tools, no retries and no paid fallback.
   Global request spacing is at least 650 ms, at most two active calls and 600
   requests per process-hour. Provider errors cool down for 30 seconds.
