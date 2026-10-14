@@ -315,7 +315,8 @@ export class SnapshotDiffer {
     for (const message of snapshot.messages) {
       // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
       const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
-      if (call && !call.clear && judge && newest.has(message.id) && judge.cached(message.text) === undefined) this.judge(judge, message.text);
+      // Asked once: a re-render while the verdict is out must not ask again, or each answer re-renders and asks forever.
+      if (call && !call.clear && judge && newest.has(message.id) && judge.cached(message.text) === undefined && !judge.pending(message.text)) this.judge(judge, message.text);
       const artifact = kept.get(message.id);
       // No summary is asked for a reply that may yet be an artefact.
       const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));

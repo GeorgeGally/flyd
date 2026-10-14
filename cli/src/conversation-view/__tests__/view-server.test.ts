@@ -194,6 +194,23 @@ describe("SnapshotDiffer summaries", () => {
     expect(asked()).toBe(1);
   });
 
+  it("re-renders while the judge is out without asking it again", async () => {
+    const { judge, release, asked } = jev(0.92);
+    let renders = 0;
+    const reply = `${unclear}\n\n${long}`;
+    const snapshot = { messages: [message("r1", reply)], working: false };
+    // The stream re-renders on every landed answer, as ConversationViewServer does.
+    const differ: SnapshotDiffer = new SnapshotDiffer({ artefacts: judge, onSummary: () => { renders += 1; if (renders < 50) differ.next(snapshot); } });
+    differ.next(snapshot);
+    differ.next(snapshot);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(renders).toBe(0);
+    expect(asked()).toBe(1);
+    release();
+    await vi.waitFor(() => expect(renders).toBe(1));
+    expect(differ.next(snapshot).messages).toEqual([]);
+  });
+
   it("keeps unclear steps as text when Flyd's judge says so", async () => {
     let calls = 0;
     const model = withModel(async () => (calls++, "Redirects explained."));
