@@ -108,8 +108,8 @@ final class DictationPillTests: XCTestCase {
         XCTAssertGreaterThan(strip.minY, canvas.minY)
     }
 
-    func testMessageTypeIsLargeAndTheSameSizeForEveryMessage() {
-        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 28)
+    func testMessageTypeIsTheSameSizeForEveryMessage() {
+        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 18)
         let short = DictationPill.stripLayout(for: .init(meta: "Reply", title: "Done.", body: nil), width: 1000)
         let long = DictationPill.stripLayout(for: .init(meta: "Reply", title: String(repeating: "word ", count: 80), body: nil), width: 1000)
         for layout in [short, long] {

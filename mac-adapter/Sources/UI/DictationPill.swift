@@ -71,30 +71,30 @@ final class DictationPill: NSObject {
     static let opticalLift: CGFloat = 2
 
     /// Message strip: runs from the notch's middle to the screen's right edge and hangs below
-    /// the menu bar, a small state label over the message set large in Flyd's display face, so
-    /// it reads at a glance from a normal sitting distance. Every message gets the same strip
+    /// the menu bar as a quiet strip: a small state label over the message in Flyd's display face,
+    /// still readable at a glance. Every message gets the same strip
     /// and the same type size; a longer one truncates rather than resizing either.
-    static let stripInset: CGFloat = 26
-    static let stripTopPadding: CGFloat = 18
+    static let stripInset: CGFloat = 18
+    static let stripTopPadding: CGFloat = 10
     /// Under a notch the message's first line sits this far below the notch's bottom edge.
-    static let notchClearance: CGFloat = 6
+    static let notchClearance: CGFloat = 4
     /// Under a notch the label and the message start just past the notch's right edge, this far from it.
     static let labelNotchGap: CGFloat = 12
     /// A little more than the top: the last line's descenders leave room the eye counts as space.
-    static let stripBottomPadding: CGFloat = 20
-    static let stripCornerRadius: CGFloat = 22
-    static let labelRowHeight: CGFloat = 16
+    static let stripBottomPadding: CGFloat = 12
+    static let stripCornerRadius: CGFloat = 16
+    static let labelRowHeight: CGFloat = 13
     /// Tight: the label belongs to the message under it.
     static let labelGap: CGFloat = 2
-    static let bodyGap: CGFloat = 6
+    static let bodyGap: CGFloat = 4
     /// The state label: monospaced caps, lightly tracked, like the rest of Flyd's state readouts.
-    static let labelFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
+    static let labelFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
     /// The message, on up to two lines; with a body under it, the title takes one and the body the other.
-    static let titleFont = displayFont(28)
-    static let bodyFont = NSFont(name: "HelveticaNeue", size: 18) ?? .systemFont(ofSize: 18)
+    static let titleFont = displayFont(20)
+    static let bodyFont = NSFont(name: "HelveticaNeue", size: 14) ?? .systemFont(ofSize: 14)
     static let titleLines = 2
-    private static let metaDotSize: CGFloat = 8
-    private static let metaDotGap: CGFloat = 9
+    private static let metaDotSize: CGFloat = 6
+    private static let metaDotGap: CGFloat = 7
 
     private static let dotSize: CGFloat = 11
     /// The level bars read low beside the dot, so they sit a little higher than it.
