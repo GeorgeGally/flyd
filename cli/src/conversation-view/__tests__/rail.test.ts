@@ -282,6 +282,10 @@ describe("one row per message", () => {
     expect(railState({ answer: assistant("a", "Agreed. Each note gets a row tagged done, under way or needs you.", "q") })).toBe("done");
     expect(railState({ answer: assistant("a", "The fix is under way; a worker is running the checks.", "q") })).toBe("underway");
     expect(railState({ answer: assistant("a", "Merged. The checks were running for a while.", "q") })).toBe("done");
+    for (const text of ["Your Rails dev server is running on port 3000.", "USB Overdrive is a driver being sold since 2000.", "Running the tests showed 3 failures."]) {
+      expect(railState({ answer: assistant("a", text, "q") })).toBe("done");
+    }
+    expect(railState({ answer: assistant("a", "The checks are still running.", "ask:1") })).toBe("done");
     expect(railState({ answered: true })).toBe("done");
     expect(railState({})).toBe("underway");
     expect(railState({ answered: true, state: "underway" })).toBe("underway");

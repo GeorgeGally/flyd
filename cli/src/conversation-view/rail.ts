@@ -1,6 +1,6 @@
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
-import { stateOf, type WorkState } from "./executive.js";
+import type { WorkState } from "./executive.js";
 import type { RailMemories } from "./memory.js";
 import { capitalise, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
@@ -255,14 +255,23 @@ export function plainNote(text: string): { words: string; about?: { title: strin
  */
 const ASKS_HIM = /\?\s*$|\b(?:your (?:call|decision|go-ahead|approval)|do you want|would you like|should i\b|shall i\b|want me to|say the word)\b/i;
 
-/** Where an exchange stands: an answer that asks him something needs him; one that leads with work still going is under way; any other answer is done; else it is under way. Pure. */
+/** A lead sentence saying the work it reports on is still going, not a fact that merely has an -ing word in it. */
+const STILL_GOING = /\b(?:under ?way|in progress|still (?:going|running|working|in (?:its )?(?:checks|review))|working on (?:it|this|that)|queued|in flight|(?:is|are) (?:now )?in (?:its |their )?(?:checks|review))\b/i;
+
+/**
+ * Where an exchange stands: an answer that asks him something needs him; a
+ * report on work whose lead says it is still going is under way; any other
+ * answer is done (Flyd's own answers are answers, never work); else it is
+ * under way. Pure.
+ */
 export function railState(exchange: { answer?: ConversationMessage; answered?: boolean; state?: RailState }): RailState {
   if (exchange.state) return exchange.state;
   const answer = exchange.answer?.text.trim();
   if (answer) {
     const plain = answer.replace(/```[\s\S]*?```/g, "");
     if (ASKS_HIM.test(plain)) return "needs";
-    return stateOf(sentences(inline(plain))[0] ?? "") === "underway" ? "underway" : "done";
+    if (exchange.answer!.answers?.startsWith("ask:")) return "done";
+    return STILL_GOING.test(sentences(inline(plain))[0] ?? "") ? "underway" : "done";
   }
   return exchange.answered ? "done" : "underway";
 }
