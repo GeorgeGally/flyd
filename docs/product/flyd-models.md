@@ -8,7 +8,7 @@ same answer in code.
 ## What must be set
 
 Nothing beyond the key. With `CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY`) in
-`flyd/.env`, chat, quick jobs, typing prediction and the coding crew all move
+`flyd/.env`, chat, quick jobs and typing prediction all move
 to Claude with the defaults below. The one exception: a **user-level key**
 (`sk-ant-usr…`, not scoped to a workspace) is rejected by the API unless each
 request names a workspace, so such a key also needs `CLAUDE_WORKSPACE_ID`
