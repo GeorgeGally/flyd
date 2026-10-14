@@ -95,6 +95,12 @@ describe("Claude request shape", () => {
     expect(readSpendLedger().bySource.quick.calls).toBe(1);
   });
 
+  it("runs quick jobs on Haiku when FLYD_MODEL is unset", async () => {
+    vi.stubEnv("FLYD_MODEL", "");
+    expect(await quickQuery("route this")).toBe("final answer");
+    expect(state.calls[0].params.model).toBe("claude-haiku-5-5");
+  });
+
   it("keeps a low temperature for older Claude models", async () => {
     await quickQuery("x", { model: "anthropic:claude-sonnet-4-6" });
     expect(state.calls[0].params.temperature).toBe(0.2);

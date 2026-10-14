@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, 
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { apiModelId, claudeChatModel, FLYD_DIR } from "../lib/config.js";
+import { FLYD_DIR } from "../lib/config.js";
 import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
@@ -251,15 +251,9 @@ export function crewOpenCodeConfig(claude: boolean): Record<string, unknown> {
     : CREW_OPENCODE_CONFIG;
 }
 
-/**
- * The crewmate's model: FLYD_CREW_MODEL when set, else Claude Sonnet while
- * Flyd's Claude is on and under its monthly cap, else OpenCode's own default.
- */
+/** The crewmate's model: FLYD_CREW_MODEL when set, else OpenCode's own default. */
 export function crewModel(): string | undefined {
-  const configured = process.env.FLYD_CREW_MODEL?.trim();
-  if (configured) return configured;
-  const claude = claudeChatModel();
-  return claude ? `anthropic/${apiModelId(claude)}` : undefined;
+  return process.env.FLYD_CREW_MODEL?.trim() || undefined;
 }
 
 /**

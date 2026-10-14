@@ -25,13 +25,10 @@ function step(input: number, output: number, read = 0): string {
 }
 
 describe("crew on Claude", () => {
-  it("runs crewmates on Claude Sonnet by default, FLYD_CREW_MODEL when set, OpenCode's default when Claude is off", () => {
-    expect(crewModel()).toBe("anthropic/claude-sonnet-5-5");
-    vi.stubEnv("FLYD_CREW_MODEL", "opencode-go/deepseek-v4.1-flash");
-    expect(crewModel()).toBe("opencode-go/deepseek-v4.1-flash");
-    vi.stubEnv("FLYD_CREW_MODEL", "");
-    vi.stubEnv("FLYD_CLAUDE", "0");
+  it("leaves crewmates on OpenCode's own default even with Claude on, FLYD_CREW_MODEL when set", () => {
     expect(crewModel()).toBeUndefined();
+    vi.stubEnv("FLYD_CREW_MODEL", "anthropic/claude-sonnet-5-5");
+    expect(crewModel()).toBe("anthropic/claude-sonnet-5-5");
   });
 
   it("tells OpenCode the workspace of a user-level key", () => {

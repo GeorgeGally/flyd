@@ -238,7 +238,6 @@ export async function query(
 ): Promise<string> {
   const fixture = fixtureResponse(prompt);
   if (fixture !== null) return fixture;
-  const m = model ?? defaultModel();
   if (system) system = withoutCacheBreak(system);
   const enriched = await enrichResolutionPromptWithEvidence(prompt, system);
   const resolvedPrompt = enriched.prompt;
@@ -249,13 +248,13 @@ export async function query(
   if (options.chain) {
     response = (await runWithModelFailover(options.chain, once)).result;
   } else if (apiKey) {
-    response = await queryOpenAIWithConfig(resolvedPrompt, m, system, apiKey, baseURL, options);
+    response = await queryOpenAIWithConfig(resolvedPrompt, model ?? defaultModel(), system, apiKey, baseURL, options);
   } else if (model && model !== defaultModel()) {
     // A caller that picked a specific non-default model gets exactly that model.
-    response = await once(m);
+    response = await once(model);
   } else {
     // Default-model callers get the same provider failover as chat.
-    response = (await runWithModelFailover([m, ...fallbackModelChain()], once)).result;
+    response = (await runWithModelFailover([model ?? defaultModel(), ...fallbackModelChain()], once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
   return response;
