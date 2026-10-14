@@ -1410,16 +1410,33 @@ var __name = function (f) { return f; };
     void line.offsetWidth;
     line.classList.add("swap");
   }
-  // A message whose send was in doubt has landed when a note of his the page had not
-  // seen arrives, written no earlier than the send, that no other send was told is its own.
+  // A message whose send was in doubt has landed when, with no other note of his on its
+  // way, a note the page had not seen arrives, written no earlier than the send, that no
+  // other send was told is its own, carrying what he sent: his words with only markdown
+  // taken out, or as many pictures and files and no words.
   var delivered = new Set();
+  var notesOut = 0;
+  function letters(text) { return text.toLowerCase().replace(/[^a-z0-9]/g, ""); }
+  function carries(typed, shown) {
+    if (shown.length < typed.length * 0.6) return false;
+    var at = 0;
+    for (var i = 0; i < typed.length && at < shown.length; i += 1) if (typed[i] === shown[at]) at += 1;
+    return at === shown.length;
+  }
   function arrived(el) {
+    if (notesOut) return false;
     var found = false;
     nodes.forEach(function (node, id) {
-      if (found || el.knownIds.has(id) || delivered.has(id) || !node.classList.contains("user")) return;
-      found = !node.dataset.ts || new Date(node.dataset.ts).getTime() >= el.sentAt - 5000;
+      if (found || el.knownIds.has(id) || delivered.has(id) || !node.classList.contains("user") || !node.dataset.ts) return;
+      if (new Date(node.dataset.ts).getTime() < el.sentAt - 5000) return;
+      var shown = letters(node.querySelector(".body").textContent);
+      var attached = node.querySelectorAll(":scope > .shots:not(.reply-shots) .shot, :scope > .docs .doc").length;
+      found = el.typed ? !!shown && carries(el.typed, shown) : !shown && attached === el.attached;
     });
     return found;
+  }
+  function clearLanded() {
+    main.querySelectorAll(".msg.pending.unsure").forEach(function (el) { if (arrived(el)) el.remove(); });
   }
   function refreshWorking() {
     var recent = lastActivity && Date.now() - new Date(lastActivity).getTime() < 10 * 60 * 1000;
@@ -1447,8 +1464,8 @@ var __name = function (f) { return f; };
     });
     main.querySelectorAll(".msg.pending").forEach(function (el) {
       if (el.dataset.wait && update.order.indexOf(el.dataset.wait) !== -1) { awaiting.delete(el.dataset.wait); el.remove(); }
-      else if (el.classList.contains("unsure") && arrived(el)) el.remove();
     });
+    clearLanded();
     var keep = new Set(update.order);
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
     var cursor = main.firstElementChild;
@@ -1725,7 +1742,7 @@ var __name = function (f) { return f; };
       try {
         var comment = { url: card.url || card.preview, x: spot.x, y: spot.y, text: text.value };
         if (spot.element) comment.element = spot.element;
-        var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ session: current, comment: comment }) });
+        var response = await authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, comment: comment }) }, true);
         var sent = await response.json();
         if (!response.ok) throw new Error(sent.error || "Not sent");
         pin.classList.add("sent");
@@ -2887,13 +2904,28 @@ var __name = function (f) { return f; };
   window.addEventListener("pagehide", function () { if (draftTimer) saveDraftNow(true); });
   // A token from before the view restarted is swapped for the current one, once.
   function authed(path, init, retry) {
+    if (path !== "/api/send") return tokenFetch(path, init, retry);
+    notesOut += 1;
+    return tokenFetch(path, init, retry).then(function (response) {
+      return response.clone().json().catch(function () { return null; }).then(function (data) {
+        notesOut -= 1;
+        if (response.ok && data && data.id) delivered.add(data.id);
+        clearLanded();
+        return response;
+      });
+    }, function (error) {
+      notesOut -= 1;
+      throw error;
+    });
+  }
+  function tokenFetch(path, init, retry) {
     var headers = Object.assign({}, init.headers || {}, { "x-flyd-view-token": SEND_TOKEN });
     return fetch(path, Object.assign({}, init, { headers: headers })).then(function (response) {
       if (response.status !== 403 || !retry) return response;
       return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
         if (!data.token) return response;
         SEND_TOKEN = data.token;
-        return authed(path, init, false);
+        return tokenFetch(path, init, false);
       });
     });
   }
@@ -3358,6 +3390,8 @@ var __name = function (f) { return f; };
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
+    el.typed = letters(text);
+    el.attached = sending.length;
     function send() {
       el.knownIds = new Set(nodes.keys());
       el.sentAt = Date.now();
@@ -3384,7 +3418,6 @@ var __name = function (f) { return f; };
           line.after(resend);
           return;
         }
-        delivered.add(sent.id);
         // Landed: the draft it came from goes, unless he has started another.
         if (!input.value && !attachments.length) saveDraftNow();
         blip();

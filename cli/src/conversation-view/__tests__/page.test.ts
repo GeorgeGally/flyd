@@ -343,7 +343,49 @@ describe("conversation page", () => {
     lands("note:12", "", new Date().toISOString(), { images: ["t12.0"] });
     expect(doubtful()).toBeNull();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(3);
-  });
+  }, 15_000);
+
+  it("keeps a doubtful send's resend control when only some other note of his lands", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    let drop = true;
+    let release: () => void = () => {};
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send" && drop) throw new TypeError("Failed to fetch");
+      if (url === "/api/send") {
+        await new Promise<void>((resolve) => (release = resolve));
+        return json({ id: "note:21", timestamp: new Date().toISOString() });
+      }
+      return real(url as string, init);
+    });
+    const order = ["u1"];
+    const doubtful = () => document.querySelector(".msg.pending .resend");
+    function lands(id: string, html: string, timestamp?: string): void {
+      order.push(id);
+      stream.emit("update", { order: [...order], messages: [{ id, role: "user", html, timestamp }], working: true });
+    }
+    await type("deploy the gnm mailer");
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await settle();
+    expect(doubtful()).not.toBeNull();
+
+    // His answer to a decision, from its own box, is a different note.
+    lands("note:20", "<p>On \"Which layout?\": the second one</p>", new Date().toISOString());
+    expect(doubtful()).not.toBeNull();
+    // A second note of his streams in before its own send has answered, then the answer comes.
+    drop = false;
+    await type("and the island too");
+    lands("note:21", "<p>and the island too</p>", new Date().toISOString());
+    expect(doubtful()).not.toBeNull();
+    release();
+    await settle();
+    expect(doubtful()).not.toBeNull();
+    // A note with no time cannot be told apart from an old one.
+    lands("note:22", "<p>deploy the gnm mailer</p>");
+    expect(doubtful()).not.toBeNull();
+  }, 15_000);
 
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
