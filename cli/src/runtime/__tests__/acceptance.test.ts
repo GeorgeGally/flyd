@@ -33,10 +33,10 @@ describe("acceptance", () => {
   });
 
   it("knows a concrete reference from an assertion", () => {
-    for (const cited of ["design DAGk3x9QbZ1", "see https://canva.com/d/1", "in ~/DIR/mixes", "wrote compare.md", "`ls` shows it", "exit code 0", "in mixes/ now"]) {
+    for (const cited of ["design DAGk3x9QbZ1", "see https://canva.com/d/1", "in ~/DIR/mixes", "wrote compare.md", "`ls` shows it", "exit code 0", "in mixes/ now", "job 9423ba28", "id 123e4567-e89b-12d3-a456-426614174000"]) {
       expect(citesEvidence(cited)).toBe(true);
     }
-    for (const claim of ["it's all done", "imported and looks great", "and/or later", "the check passed"]) expect(citesEvidence(claim)).toBe(false);
+    for (const claim of ["it's all done", "imported and looks great", "and/or later", "the check passed", "Imported the 12-slide deck into Canva.", "24-pages", "top-10-picks", "the v2-final cut", "a 15-minute talk"]) expect(citesEvidence(claim)).toBe(false);
   });
 
   it("keeps a met verdict only when evidence backs it, and judges the blocker clause apart", () => {
@@ -47,6 +47,8 @@ describe("acceptance", () => {
     expect(unresolvedItems(asserted)).toEqual(["the deck is in Canva: nothing concrete shows it (no file, command output, link or id)"]);
     const blocked = evaluateDoneWhen({ criteria, report: "The import failed: `canva import` returned HTTP 401.", verdicts: parseVerdicts(["a", "b"], "UNMET 1: none\nMET 2: notes.md") });
     expect(doneWhenStatus(blocked)).toBe("blocked");
+    const unrelated = evaluateDoneWhen({ criteria, report: "Fixed the error in src/deck.ts. A blocker in notes.md failed.", verdicts: parseVerdicts(["a", "b"], "UNMET 1: none\nMET 2: notes.md") });
+    expect(doneWhenStatus(unrelated)).toBe("short");
     const cited = evaluateDoneWhen({ criteria, report: "The deck is in Canva as design DAGk3x9QbZ1.", verdicts });
     expect(doneWhenStatus(cited)).toBe("done");
     const leftover = evaluateDoneWhen({ criteria, report: "The deck is in Canva as design DAGk3x9QbZ1.", verdicts, leftovers: [{ pid: 9, command: "python3 -m http.server" }] });

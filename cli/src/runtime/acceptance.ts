@@ -81,7 +81,8 @@ const EVIDENCE = [
   /\b[\w.-]+\/(?=[\s"'`),:;]|$)/,
   /\b[\w-]+(?:\/[\w.-]+)*\.(?:html?|css|[cm]?[jt]sx?|json|md|txt|csv|log|pdf|png|jpe?g|gif|webp|svg|mp[34]|wav|m4a|mov|py|sh|ya?ml|toml|pptx?|docx?|xlsx?|key|zip)\b/i,
   /`[^`\n]+`/,
-  /\b(?=[\w-]*\d)(?=[\w-]*[a-z])[a-z0-9][\w-]{7,}\b/i,
+  /(?<![\w-])(?=\w*\d)(?=\w*[a-z])\w{8,}(?![\w-])/i,
+  /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i,
   /\b(?:exit(?:ed)?(?: with)?(?: code| status)?|HTTP|status|pid) ?:? ?\d{1,6}\b/i,
 ];
 
@@ -99,13 +100,13 @@ function sentences(report: string): string[] {
   return report.split(/\n+|(?<=[.!?])\s+(?=[A-Z`"'(])/).map((line) => line.trim()).filter(Boolean);
 }
 
-/** The report's sentences about this point that cite something checkable. */
-function reportEvidence(clause: string, report: string, onlyPoint: boolean): string | undefined {
+/** The report's first sentence about this point that cites something checkable and passes the test. */
+function reportEvidence(clause: string, report: string, onlyPoint: boolean, test: (line: string) => boolean = () => true): string | undefined {
   const about = stems(clause);
-  return sentences(report).find((line) => citesEvidence(line) && (onlyPoint || [...stems(line)].some((stem) => about.has(stem))));
+  return sentences(report).find((line) => test(line) && citesEvidence(line) && (onlyPoint || [...stems(line)].some((stem) => about.has(stem))));
 }
 
-const BLOCKER_WORDS = /\b(?:blocked|blocker|couldn'?t|could not|can'?t|cannot|unable|failed|fails|denied|refused|rejected|missing|no access|not allowed|forbidden|unauthori[sz]ed|error)\b/i;
+const BLOCKER_WORDS = /\b(?:blocked|blocker|couldn'?t|could not|can'?t|cannot|unable|failed|fails|denied|refused|rejected|no access|not allowed|forbidden|unauthori[sz]ed)\b/i;
 
 /** A process the job started that outlived it: a tunnel, a server. */
 export interface LeftoverProcess { pid: number; command: string }
@@ -140,7 +141,7 @@ export function evaluateDoneWhen(input: DoneWhenEvidence): AcceptanceCheck[] {
     const why = verdict && !verdict.met ? verdict.note : "nothing concrete shows it (no file, command output, link or id)";
     if (blocker) {
       // Blocked is its own claim: a report that only says it worked never satisfies it.
-      const named = sentences(input.report).find((line) => BLOCKER_WORDS.test(line) && citesEvidence(line));
+      const named = reportEvidence(success, input.report, onlyPoint, (line) => BLOCKER_WORDS.test(line));
       if (named) return { criterion: success, met: false, blocked: true, note: `${why}; blocked: ${named}` };
     }
     return { criterion: success, met: false, note: why };
