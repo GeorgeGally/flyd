@@ -30,7 +30,8 @@ export interface InboxEntry {
   itemId: string;
   task: string;
   at: string;
-  status: "ok" | "failed";
+  /** short/blocked: a background job that ended without meeting its done_when. */
+  status: "ok" | "short" | "blocked" | "failed";
   result: string;
   read: boolean;
 }

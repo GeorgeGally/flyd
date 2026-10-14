@@ -23,6 +23,7 @@ import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
 import { learnInBackground } from "./profile-learning.js";
 import { createRepeatGuard } from "./repeat-guard.js";
+import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
 import { projectsPromptBlock } from "../council/projects.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
@@ -515,6 +516,8 @@ function createToolHandler(
   fetchFn: FetchLike = fetch,
   readOnly = false,
   assistantContext: AssistantToolContext = {},
+  /** A background job's builder turn: its shell commands are registered to the job. */
+  jobId?: string,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -677,9 +680,12 @@ function createToolHandler(
         const seconds = Math.min(1_800, Math.max(10, Number(input.timeout_seconds) || 60));
         const clipOutput = (text: string) => (text.length > 8000 ? `${text.slice(0, 8000)}\n... (truncated)` : text);
         try {
-          const { stdout } = await execFileAsync("/bin/bash", ["-c", command], {
-            cwd: repoRoot, encoding: "utf8", timeout: seconds * 1000, maxBuffer: 4 * 1024 * 1024,
-          });
+          // A job's commands run in a group registered to it, so a server or tunnel it leaves running is caught.
+          const { stdout } = jobId
+            ? await runJobShell(jobId, command, { cwd: repoRoot, timeoutMs: seconds * 1000, maxBuffer: 4 * 1024 * 1024 })
+            : await execFileAsync("/bin/bash", ["-c", command], {
+              cwd: repoRoot, encoding: "utf8", timeout: seconds * 1000, maxBuffer: 4 * 1024 * 1024,
+            });
           return clipOutput(String(stdout ?? ""));
         } catch (e) {
           const err = e as { stderr?: unknown; stdout?: unknown };
@@ -1118,7 +1124,7 @@ export async function respondToConversation(
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     userMessage: input.message,
     onCodingHandoff: input.onCodingHandoff,
-  });
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1]);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();

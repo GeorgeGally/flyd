@@ -30,11 +30,108 @@ function nextDone(): Promise<JobResult> {
   return new Promise((resolve) => jobEvents.once("done", resolve));
 }
 
+describe("done_when gate", () => {
+  const canva: JobContract = {
+    task: "import the pitch deck into Canva",
+    doneWhen: ["the deck is imported into Canva as an editable design, or if blocked, report one specific blocker with evidence"],
+  };
+
+  async function finish(job: JobContract, deps: Omit<Parameters<typeof startBackgroundJob>[1], "dir">) {
+    const done = nextDone();
+    const id = startBackgroundJob(job, { ...deps, dir });
+    const result = await done;
+    return { result, record: listJobs(dir).find((entry) => entry.id === id)! };
+  }
+
+  it("ends a self-declared success with a false predicate not-done, citing the clause", async () => {
+    const verify = vi.fn(async (_message: string) => "UNMET 1: no design with that name in the Canva account");
+    const { result, record } = await finish(canva, { run: async () => "All done! The deck is imported into Canva and looks great.", verify });
+    expect(result.status).toBe("short");
+    expect(record.status).toBe("short");
+    expect(record.unresolved).toEqual(["the deck is imported into Canva as an editable design: no design with that name in the Canva account"]);
+    // The blocker clause is judged apart: the checker only ever sees the success clause.
+    expect(verify.mock.calls[0][0]).toContain("1. the deck is imported into Canva as an editable design\n");
+    expect(verify.mock.calls[0][0]).not.toContain("if blocked");
+  });
+
+  it("doesn't count a success claim for a Canva import without evidence", async () => {
+    const { result, record } = await finish(canva, { run: async () => "Imported the deck into Canva, it's all set.", verify: async () => "MET 1: it's in Canva" });
+    expect(result.status).not.toBe("ok");
+    expect(record.status).toBe("short");
+    expect(record.unresolved?.[0]).toMatch(/^the deck is imported into Canva as an editable design: /);
+  });
+
+  it("counts the same claim once it cites a design id or command output", async () => {
+    const verify = async () => "MET 1: it's in Canva";
+    const byId = await finish(canva, { run: async () => "Imported the deck into Canva as design DAGk3x9QbZ1.", verify });
+    expect(byId.result.status).toBe("ok");
+    expect(byId.record).toMatchObject({ status: "ok", unresolved: [] });
+    const byOutput = await finish(canva, { run: async () => "Imported the deck into Canva: `canva import deck.pdf` printed `created design`.", verify });
+    expect(byOutput.record.status).toBe("ok");
+  });
+
+  it("still succeeds when every point is met with evidence", async () => {
+    const { result, record } = await finish(contract, {
+      run: async () => "Two sets in ~/DIR/mixes/set-3 and set-4; ~/DIR/mixes/compare.md judges each against the last.",
+      verify: async () => "MET 1: ls ~/DIR/mixes shows set-3/ and set-4/\nMET 2: compare.md ranks set-4 over set-3",
+    });
+    expect(result.status).toBe("ok");
+    expect(record).toMatchObject({ status: "ok", attempts: 1, unresolved: [] });
+  });
+
+  it("records an honest, evidenced blocker as blocked, not succeeded", async () => {
+    const { result, record } = await finish(canva, {
+      run: async () => "I couldn't import it: `canva import deck.pdf` failed with HTTP 403, the token lacks design:write.",
+      verify: async () => "UNMET 1: nothing was imported",
+    });
+    expect(result.status).toBe("blocked");
+    expect(record.status).toBe("blocked");
+    expect(record.unresolved?.[0]).toContain("blocked: I couldn't import it");
+  });
+
+  it("flags a job that finishes with a process it started still running", async () => {
+    const leftovers = vi.fn(() => [{ pid: 4242, command: "cloudflared tunnel --url http://localhost:8000" }]);
+    const { result, record } = await finish(canva, {
+      run: async () => "Imported the deck into Canva as design DAGk3x9QbZ1.",
+      verify: async () => "MET 1: design DAGk3x9QbZ1 is in the account",
+      leftovers,
+    });
+    expect(result.status).toBe("short");
+    expect(result.result).toContain("nothing it started is left running (still running: pid 4242 `cloudflared tunnel");
+    expect(record.unresolved).toEqual([expect.stringMatching(/^nothing it started is left running: still running: pid 4242/)]);
+    expect(leftovers).toHaveBeenCalledWith(record.id);
+  });
+
+  it("finds what a job's shell commands left running by their registered process group", async () => {
+    const { registerJobProcessGroup, jobLeftovers } = await import("../background-jobs.js");
+    expect(jobLeftovers("nojob", () => { throw new Error("must not list processes"); })).toEqual([]);
+    registerJobProcessGroup("abc12345", 700);
+    const table = () => [
+      { pid: 701, pgid: 700, command: "python3 -m http.server 8000" },
+      { pid: 702, pgid: 1, command: "unrelated" },
+    ];
+    expect(jobLeftovers("abc12345", table)).toEqual([{ pid: 701, command: "python3 -m http.server 8000" }]);
+  });
+
+  it("runs a job's shell command in its own registered group and finds what it left behind", async () => {
+    const { runJobShell, jobLeftovers } = await import("../background-jobs.js");
+    const { stdout } = await runJobShell("feedface", "sleep 30 >/dev/null 2>&1 & echo started", { cwd: dir, timeoutMs: 10_000, maxBuffer: 1024 });
+    expect(stdout.trim()).toBe("started");
+    const left = jobLeftovers("feedface");
+    try {
+      expect(left).toEqual([expect.objectContaining({ command: "sleep 30" })]);
+    } finally {
+      for (const process_ of left) { try { process.kill(process_.pid, "SIGKILL"); } catch { /* already gone */ } }
+    }
+    await expect(runJobShell("feedface", "exit 3", { cwd: dir, timeoutMs: 10_000, maxBuffer: 1024 })).rejects.toThrow(/^Command failed: .*exit code 3/);
+  });
+});
+
 describe("background jobs", () => {
   it("returns at once, checks the work independently, and brings back a verified result", async () => {
     let finish: (value: string) => void = () => {};
     const run = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
-    const verify = vi.fn(async () => "MET 1: two folders in mixes/\nMET 2: report compares both");
+    const verify = vi.fn(async () => "MET 1: two folders in mixes/\nMET 2: mixes/compare.md ranks the second higher");
     const deliver = vi.fn(async () => undefined);
     const done = nextDone();
     const id = startBackgroundJob(contract, { run, verify, deliver, dir });
@@ -49,13 +146,13 @@ describe("background jobs", () => {
 
   it("sends unmet points back to the builder once, then says plainly what is still short", async () => {
     const run = vi.fn(async (_message: string) => "Made one set.");
-    const verify = vi.fn(async () => "MET 1: sets exist\nUNMET 2: no comparison anywhere");
+    const verify = vi.fn(async () => "MET 1: set-a/ is in mixes/\nUNMET 2: no comparison anywhere");
     const done = nextDone();
     startBackgroundJob(contract, { run, verify, dir });
     const result = await done;
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1][0]).toContain("no comparison anywhere");
-    expect(result.status).toBe("ok");
+    expect(result.status).toBe("short");
     expect(result.result).toContain("still short on: each set is judged against the last one (no comparison anywhere)");
     expect(listJobs(dir)[0]).toMatchObject({ status: "short", attempts: 2 });
   });
@@ -86,7 +183,7 @@ describe("background jobs", () => {
 
   it("lists jobs with how many points were met", async () => {
     const done = nextDone();
-    startBackgroundJob(contract, { run: async () => "ok", verify: async () => "MET 1: a\nUNMET 2: no comparison", dir });
+    startBackgroundJob(contract, { run: async () => "ok", verify: async () => "MET 1: two folders in mixes/\nUNMET 2: no comparison", dir });
     await done;
     expect(describeJobs(listJobs(dir))).toMatch(/short · 1\/2 points met .*\n    ✗ each set is judged against the last one: no comparison/);
   });
@@ -99,10 +196,19 @@ describe("background jobs", () => {
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it("caps how many jobs run at once", () => {
-    const never = () => new Promise<string>(() => undefined);
-    for (let index = 0; index < MAX_RUNNING_JOBS; index += 1) startBackgroundJob({ ...contract, task: `job ${index}` }, { run: never, dir });
-    expect(() => startBackgroundJob(contract, { run: never, dir })).toThrow(/already running/);
+  it("caps how many jobs run at once", async () => {
+    let release: (value: string) => void = () => {};
+    const held = new Promise<string>((resolve) => { release = resolve; });
+    const finished = new Promise<void>((resolve) => {
+      let left = MAX_RUNNING_JOBS;
+      const onDone = () => { left -= 1; if (!left) { jobEvents.off("done", onDone); resolve(); } };
+      jobEvents.on("done", onDone);
+    });
+    for (let index = 0; index < MAX_RUNNING_JOBS; index += 1) startBackgroundJob({ ...contract, task: `job ${index}` }, { run: () => held, dir });
+    expect(() => startBackgroundJob(contract, { run: () => held, dir })).toThrow(/already running/);
+    // Let them finish so no job outlives the test.
+    release("ok");
+    await finished;
   });
 
   it("reports jobs a restart cut off instead of losing them", async () => {
