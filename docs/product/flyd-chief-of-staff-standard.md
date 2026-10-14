@@ -53,7 +53,9 @@ standard here and there together.
   opt-in: only `FLYD_SELF_REVIEW_JEV=1` (with `TYPESAFE_API_KEY`) turns the
   judgments on. Even then, a text built from email, Drive or WhatsApp (a turn
   that used those tools, or words that speak of mail, documents, messages or
-  chats) is never sent; when unsure, it stays local. The checks run locally
+  chats) is never sent; when unsure, it stays local. Window answers, agenda
+  results and notifications keep no record of the tools behind them, so they
+  are never sent. The checks run locally
   either way.
 - **Caught before display where that is possible.**
   - A notification that only says work is happening is not shown.

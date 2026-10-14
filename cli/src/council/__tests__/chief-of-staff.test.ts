@@ -261,4 +261,25 @@ describe("the review pass", () => {
     expect(card).toContain("Real status, never a placeholder · 1");
     expect(card.split("\n").length).toBeLessThan(16);
   });
+
+  it("never sends window answers, agenda results or notifications to Jev, whose tools are not recorded", async () => {
+    const briefing = "Nothing urgent: Sarah confirmed Thursday at 7; the R4,000 venue deposit is due Friday.";
+    writeFileSync(join(flydDir, "view", "asks", "a1.json"), JSON.stringify({ id: "a1", at: "2026-10-14T08:10:00.000Z", text: "anything I should know?", answer: briefing, answeredAt: "2026-10-14T08:10:05.000Z" }));
+    writeFileSync(join(flydDir, "inbox.jsonl"), `${JSON.stringify({ id: "r1", itemId: "i1", at: "2026-10-14T08:30:00.000Z", task: "Morning briefing", status: "ok", result: `${briefing} Enjoy the day.` })}\n`);
+    mkdirSync(reviewDir, { recursive: true });
+    writeFileSync(join(reviewDir, "said.jsonl"), `${JSON.stringify({ at: "2026-10-14T08:40:00.000Z", surface: "notification", source: "notification", text: "Sarah confirmed Thursday at 7." })}\n`);
+    writeFileSync(join(flydDir, "view", "interpretations.json"), "{}");
+    const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+    const previous = process.env.FLYD_SELF_REVIEW_JEV;
+    process.env.FLYD_SELF_REVIEW_JEV = "1";
+    try {
+      const review = (said: Parameters<typeof checkSaid>[0], rules: { banned: string[] }) => reviewSaid(said, { rules, apiKey: "test", fetchFn: jev({ cos_outcome_first: 0.96 }, sink) });
+      const result = await runReplyReview({ flydDir, dir: reviewDir, now: () => new Date("2026-10-14T09:00:00.000Z"), review, rules: { banned: [] } });
+      expect(result.reviewed).toBe(4);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_SELF_REVIEW_JEV;
+      else process.env.FLYD_SELF_REVIEW_JEV = previous;
+    }
+    expect(sink.map((request) => request.state.text)).toEqual([GOOD]);
+  });
 });

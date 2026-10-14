@@ -60,6 +60,8 @@ export interface Said {
   asked?: string;
   /** The tools the turn used ("name: outcome" lines), when known. */
   tools?: string[];
+  /** Answered with his whole toolset but no record of which tools: it may hold his email, Drive or WhatsApp. */
+  toolsUnknown?: true;
 }
 
 export interface Shortfall {
@@ -239,7 +241,7 @@ const CONNECTOR_CONTENT = /\b(e-?mails?|gmail|inbox|mailbox|dreamhost|drafts?|go
 
 /** May this text be sent to Jev: only when nothing in it or its turn came from his accounts. */
 export function mayJudgeRemotely(said: Said): boolean {
-  if (said.tools?.some((line) => CONNECTOR_TOOL.test(line))) return false;
+  if (said.toolsUnknown || said.tools?.some((line) => CONNECTOR_TOOL.test(line))) return false;
   return !CONNECTOR_CONTENT.test(said.text) && !CONNECTOR_CONTENT.test(said.asked ?? "");
 }
 

@@ -128,7 +128,7 @@ export function collectSaid(sources: ReviewSources): Captured[] {
       const ask = readJson<{ id?: string; at?: string; text?: string; answer?: string; answeredAt?: string }>(join(asks, name));
       const at = ask?.answeredAt ?? ask?.at;
       if (!ask?.answer?.trim() || !at || at <= since) continue;
-      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? "") });
+      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? ""), toolsUnknown: true });
     }
   }
 
@@ -145,12 +145,12 @@ export function collectSaid(sources: ReviewSources): Captured[] {
 
   for (const row of readJsonl<{ id?: string; itemId?: string; at?: string; task?: string; status?: string; result?: string }>(join(flydDir, "inbox.jsonl"))) {
     if (row.status === "ok" && row.result?.trim() && row.at && row.at > since) {
-      out.push({ at: row.at, surface: "chat", source: `agenda:${row.id ?? row.itemId ?? row.at}`, text: row.result, asked: row.task });
+      out.push({ at: row.at, surface: "chat", source: `agenda:${row.id ?? row.itemId ?? row.at}`, text: row.result, asked: row.task, toolsUnknown: true });
     }
   }
 
   for (const row of readJsonl<Captured>(join(sources.dir ?? selfReviewDir(), "said.jsonl"))) {
-    if (row.text && row.at > since) out.push(row);
+    if (row.text && row.at > since) out.push(row.surface === "notification" ? { ...row, toolsUnknown: true } : row);
   }
   return out;
 }
@@ -235,7 +235,7 @@ export async function runReplyReview(deps: ReviewDependencies = {}): Promise<Rev
   const review = deps.review ?? ((said: Said, voice: VoiceRules) => reviewSaid(said, { rules: voice }));
   const verdicts: Verdict[] = [];
   for (const [id, item] of batch) {
-    const shortfalls = await review({ surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}), ...(item.tools ? { tools: item.tools } : {}) }, rules).catch(() => []);
+    const shortfalls = await review({ surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}), ...(item.tools ? { tools: item.tools } : {}), ...(item.toolsUnknown ? { toolsUnknown: true as const } : {}) }, rules).catch(() => []);
     verdicts.push({
       id, at: item.at, reviewedAt: now.toISOString(), surface: item.surface, source: item.source,
       text: item.text.slice(0, TEXT_CHARS), ...(item.asked ? { asked: item.asked.slice(0, 200) } : {}), shortfalls,
