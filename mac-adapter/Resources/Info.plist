@@ -16,15 +16,6 @@
 	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>flyd</string>
-			</array>
-		</dict>
-	</array>
 	<key>LSUIElement</key>
 	<true/>
 	<key>CFBundleInfoDictionaryVersion</key>

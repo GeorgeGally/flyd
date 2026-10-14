@@ -384,9 +384,10 @@ final class DictationPill: NSObject {
     /// joined by a rounded inner corner. When `step.y` is at the bottom the island is one height
     /// and the step folds flat into the bottom edge at `step.x`, so every outline has the same
     /// elements and one springs smoothly into another, the strip unfolding from that point.
-    static func islandPath(in rect: NSRect, shoulder: CGFloat, cornerRadius: CGFloat, step: CGPoint? = nil, closed: Bool = true) -> CGPath {
+    /// `squareRight` squares the bottom-right corner, for a strip that runs to the screen's edge.
+    static func islandPath(in rect: NSRect, shoulder: CGFloat, cornerRadius: CGFloat, step: CGPoint? = nil, squareRight: Bool = false, closed: Bool = true) -> CGPath {
         let s = max(0, min(shoulder, rect.width / 4, rect.height / 2))
-        let left = rect.minX + s, right = rect.maxX - (step.map { $0.y > rect.minY + 1 } == true ? 0 : s)
+        let left = rect.minX + s, right = rect.maxX - s
         let top = rect.maxY, bottom = rect.minY
         // A squircle-ish corner: the curve starts earlier and eases in, like a continuous corner.
         func reach(_ radius: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
@@ -409,7 +410,7 @@ final class DictationPill: NSObject {
             let inner = max(0, min(10, (ledge - bottom) / 2, (right - step.x) / 2))
             let a = reach(min(cornerRadius, compactCornerRadius), width: step.x - inner - left, height: top - s - ledge)
             let b = reach(cornerRadius, width: (right - step.x) / 2, height: ledge - inner - bottom)
-            let r: CGFloat = 0
+            let r = squareRight ? 0 : reach(cornerRadius, width: (right - step.x) / 2, height: top - s - bottom)
             path.addLine(to: CGPoint(x: left, y: ledge + a))
             corner(to: CGPoint(x: left + a, y: ledge), from: CGPoint(x: left, y: ledge + a), horizontalFirst: false)
             path.addLine(to: CGPoint(x: step.x - inner, y: ledge))
@@ -419,10 +420,11 @@ final class DictationPill: NSObject {
             path.addLine(to: CGPoint(x: right - r, y: bottom))
             corner(to: CGPoint(x: right, y: bottom + r), from: CGPoint(x: right - r, y: bottom), horizontalFirst: true)
         } else {
-            let r = reach(cornerRadius, width: right - left, height: top - s - bottom)
-            let fold = CGPoint(x: min(max(step?.x ?? (left + right) / 2, left + r), right - r), y: bottom)
-            path.addLine(to: CGPoint(x: left, y: bottom + r))
-            corner(to: CGPoint(x: left + r, y: bottom), from: CGPoint(x: left, y: bottom + r), horizontalFirst: false)
+            let l = reach(cornerRadius, width: right - left, height: top - s - bottom)
+            let r = squareRight ? 0 : l
+            let fold = CGPoint(x: min(max(step?.x ?? (left + right) / 2, left + l), right - r), y: bottom)
+            path.addLine(to: CGPoint(x: left, y: bottom + l))
+            corner(to: CGPoint(x: left + l, y: bottom), from: CGPoint(x: left, y: bottom + l), horizontalFirst: false)
             path.addLine(to: fold)
             path.addQuadCurve(to: fold, control: fold)
             path.addLine(to: fold)
@@ -469,14 +471,14 @@ final class DictationPill: NSObject {
         island?.alphaValue = 1
 
         if FlydPalette.reduceMotion {
-            setShape(in: local, shoulder: shoulder, radius: radius, step: step, animated: false)
+            setShape(in: local, shoulder: shoulder, radius: radius, step: step, squareRight: stripSize != nil, animated: false)
             if growing {
                 island?.alphaValue = 0
                 fade(island, to: 1)
             }
             self.strip?.alphaValue = 1
         } else {
-            setShape(in: local, shoulder: shoulder, radius: radius, step: step, animated: true)
+            setShape(in: local, shoulder: shoulder, radius: radius, step: step, squareRight: stripSize != nil, animated: true)
             if stripSize != nil { revealStrip() }
         }
         if phase == .inserted || Self.isSent(phase) {
@@ -699,9 +701,9 @@ final class DictationPill: NSObject {
     }
 
     /// Moves every layer that traces the island to a new outline, springing there unless told not to.
-    private func setShape(in rect: NSRect, shoulder: CGFloat, radius: CGFloat, step: CGPoint, animated: Bool, collapsing: Bool = false) {
-        let filled = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step)
-        let outline = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step, closed: false)
+    private func setShape(in rect: NSRect, shoulder: CGFloat, radius: CGFloat, step: CGPoint, squareRight: Bool = false, animated: Bool, collapsing: Bool = false) {
+        let filled = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step, squareRight: squareRight)
+        let outline = Self.islandPath(in: rect, shoulder: shoulder, cornerRadius: radius, step: step, squareRight: squareRight, closed: false)
         for layer in shapeLayers {
             let path = layer.fillColor == nil ? outline : filled
             if animated {

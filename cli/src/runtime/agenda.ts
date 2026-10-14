@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
@@ -11,7 +10,6 @@ import { FLYD_DIR } from "../lib/config.js";
 // files the result in an inbox, and notifies George. This is what makes Flyd
 // proactive instead of only answering when spoken to.
 
-const execFileAsync = promisify(execFile);
 
 export type AgendaRepeat = "none" | "hourly" | "daily" | "weekdays" | "weekly";
 
@@ -210,10 +208,17 @@ function acquireLock(path: string): boolean {
 
 export async function notifyMac(title: string, message: string): Promise<void> {
   if (process.platform !== "darwin") return;
-  const url = new URL("flyd://notify");
-  url.searchParams.set("title", title);
-  url.searchParams.set("message", message.replace(/\s+/g, " ").slice(0, 220));
-  await execFileAsync("open", [url.toString()], { timeout: 10_000 });
+  try {
+    const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
+    await fetch("http://127.0.0.1:4815/notify", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220) }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return;
+  }
 }
 
 export interface RunDueDependencies {

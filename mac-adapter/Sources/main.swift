@@ -118,6 +118,7 @@ statusItem.onOpenConversation = {
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
 ensureCoreLaunched()
+CoreNotifications.shared.start()
 
 // The Conversation window's server runs from launch, so the window opens at once.
 let conversationServer = ConversationServer.shared
@@ -140,16 +141,6 @@ NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotif
 }
 /// Opening Flyd again (Dock, Spotlight, `open -a Flyd`) shows the conversation.
 final class FlydAppDelegate: NSObject, NSApplicationDelegate {
-    func application(_ sender: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "flyd" && url.host == "notify" {
-            guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
-            guard let title = components.queryItems?.first(where: { $0.name == "title" })?.value,
-                  let message = components.queryItems?.first(where: { $0.name == "message" })?.value,
-                  !title.isEmpty, !message.isEmpty else { continue }
-            island.show(.notification(title, message))
-        }
-    }
-
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         ConversationServer.appendLog("reopen: showing the conversation")
         ConversationWindow.shared.show()
