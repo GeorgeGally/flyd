@@ -6,7 +6,7 @@ import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-ans
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
-import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
+import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
@@ -61,6 +61,22 @@ const answerAsFlyd: Answerer = async (question, history, onStep) => {
   return respondToConversation({ message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
+/** What the screenshots he attached to a question show, read by a vision model. */
+const screenshotsSeen: Seer = async (question, images, onStep) => {
+  onStep?.(images.length === 1 ? "Looking at your screenshot" : "Looking at your screenshots");
+  const { quickQuery } = await import("../lib/llm.js");
+  const prompt = [
+    `George attached ${images.length === 1 ? "this screenshot" : "these screenshots"} to his question: "${question.slice(0, 1_000)}"`,
+    "Say exactly what they show that bears on it: any text, errors, numbers and names word for word, and what is on screen. Describe only; do not answer.",
+  ].join("\n\n");
+  const seen = await quickQuery(prompt, { images: images.map((image) => `data:${image.mediaType};base64,${image.data}`) })
+    .then((text) => text.trim())
+    .catch(() => "");
+  return seen
+    ? `[What the screenshot he attached shows: ${seen}]`
+    : "[He attached a screenshot that could not be read; say so if the answer depends on it.]";
+};
+
 function openInBrowser(url: string): void {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
   execFile(command, [url], () => {});
@@ -85,7 +101,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
     ...(wantsInbox ? {
       desk: {
-        desk: new FlydDesk({ answer: answerAsFlyd }),
+        desk: new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen }),
         complete,
       },
     } : {}),

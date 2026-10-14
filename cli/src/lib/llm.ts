@@ -68,7 +68,7 @@ const TOOL_CEILING_NOTE =
 
 export interface QueryOptions {
   json?: boolean;
-  /** Base64-encoded JPEG images (no data: prefix) attached to the user message. */
+  /** Images attached to the user message: base64 JPEG, or a `data:<type>;base64,` URL for another type. */
   images?: string[];
   /** Which spend bucket a Claude call counts against. */
   source?: string;
@@ -207,12 +207,17 @@ function isSerializedToolProtocol(text: string | null | undefined): boolean {
 const SERIALIZED_TOOL_PROTOCOL_RETRY =
   "The previous response was internal tool protocol markup, not user-facing text. Do not render or repeat it. Use the function-call API for a tool, or answer the user directly from the evidence already available.";
 
+function imagePart(image: string): { mediaType: string; data: string } {
+  const url = /^data:([^;,]+);base64,/.exec(image);
+  return url ? { mediaType: url[1]!, data: image.slice(url[0].length) } : { mediaType: "image/jpeg", data: image };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function openAIUserContent(prompt: string, images?: string[]): any {
   if (!images?.length) return prompt;
   return [
     { type: "text", text: prompt },
-    ...images.map((b64) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } })),
+    ...images.map(imagePart).map(({ mediaType, data }) => ({ type: "image_url", image_url: { url: `data:${mediaType};base64,${data}` } })),
   ];
 }
 
@@ -220,9 +225,9 @@ function openAIUserContent(prompt: string, images?: string[]): any {
 function anthropicUserContent(prompt: string, images?: string[]): any {
   if (!images?.length) return prompt;
   return [
-    ...images.map((b64) => ({
+    ...images.map(imagePart).map(({ mediaType, data }) => ({
       type: "image",
-      source: { type: "base64", media_type: "image/jpeg", data: b64 },
+      source: { type: "base64", media_type: mediaType, data },
     })),
     { type: "text", text: prompt },
   ];

@@ -10,14 +10,14 @@ function note(id: string, handoff: Exchange["handoff"], text = "fix it", answere
 const HANDOFF = /firstmate|passing|is on it|one moment|let me check|got it|who should/i;
 
 describe("the living line", () => {
-  it("never announces routing or a handoff, only that the work is under way", () => {
+  it("names the queue state without announcing routing or a handoff", () => {
     expect(RECEIVED).toBe(WORKING);
-    expect(ANSWERING).toBe(WORKING);
-    expect(WORKING).toBe("Working on it");
-    expect(handoffLine("queued")).toBe(WORKING);
-    expect(handoffLine("taken")).toBe(WORKING);
+    expect(ANSWERING).toBe("Looking this up");
+    expect(WORKING).toBe("Queued");
+    expect(handoffLine("queued")).toBe("Queued for a next step");
+    expect(handoffLine("taken")).toBe("Waiting for a clear next step");
     // A step only shows once the work has started, never while the note is still on its way.
-    expect(handoffLine("queued", { activity: "Run the tests" })).toBe(WORKING);
+    expect(handoffLine("queued", { activity: "Run the tests" })).toBe("Queued for a next step");
     for (const line of [RECEIVED, ANSWERING, handoffLine("queued"), handoffLine("taken")]) expect(line).not.toMatch(HANDOFF);
   });
 
@@ -34,24 +34,19 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
     expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
     expect(handoffLine("queued", { text: "set the timeout to 5s" })).toBe("Setting the timeout to 5s");
-    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Working on it");
+    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Queued for a next step");
   });
 
   it("never quotes his words back when they are not a task Flyd is doing", () => {
-    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "tell firstmate to fix the footer" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "get the crew to land it" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "/deploy staging" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "can you show me the logs" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "fix my site" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "fix what I'm seeing on the island" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "fix the bug I am seeing" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "check what I've changed today" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "update the copy we'll ship on our site" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "/ce-code-review fix the branch" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "fix it" })).toBe(WORKING);
-    expect(handoffLine("queued", { text: "ok" })).toBe(WORKING);
+    expect(handoffLine("queued", { text: "what is usb overdrive?" })).toBe("Looking up usb overdrive");
+    expect(handoffLine("queued", { text: "who's playing at art bangkok?" })).toBe("Queued for a next step");
+    for (const text of ["what is the notch island doing wrong?", "Did you push it?", "can you deploy it?", "why did the build fail?", "is this normal?", "what is it?"]) {
+      expect(handoffLine("queued", { text })).toBe("Queued for a next step");
+    }
+    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe("Queued for a next step");
+    for (const text of ["tell firstmate to fix the footer", "get the crew to land it", "/deploy staging", "can you show me the logs", "fix my site", "fix what I'm seeing on the island", "fix the bug I am seeing", "check what I've changed today", "update the copy we'll ship on our site", "/ce-code-review fix the branch", "fix it", "ok"]) {
+      expect(handoffLine("queued", { text })).toBe("Queued for a next step");
+    }
     expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);
   });
 
@@ -61,7 +56,7 @@ describe("the living line", () => {
       [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: ANSWERING }],
       { activity: "Shrinking hero on short screens, verify" },
     );
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, WORKING, WORKING, "", WORKING]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Looking this up"]);
   });
 
   it("keeps the running line under an outcome while work on that note carries on", () => {
@@ -89,6 +84,6 @@ describe("the living line", () => {
       activity: "Editing the styles",
       workingOn: ["note:b"],
     });
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual([WORKING, "Editing the styles", WORKING]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Editing the styles", "Queued for a next step"]);
   });
 });

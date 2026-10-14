@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
+import { ANSWERING } from "../living.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { AnswerInterpreter } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
@@ -64,16 +65,15 @@ describe("routeMessage", () => {
     if (answer instanceof Error) throw answer;
     return answer;
   };
-  const input = { text: "whats there to do in bkk tonight? i see there is an art festival?", images: 0, recent: [] };
+  const input = { text: "whats there to do in bkk tonight? i see there is an art festival?", recent: [] };
 
   it("sends a general question to Flyd and software work to firstmate, as the model says", async () => {
     expect(await routeMessage(input, ask("FLYD"))).toBe("flyd");
     expect(await routeMessage({ ...input, text: "fix the island filter" }, ask("FIRSTMATE"))).toBe("firstmate");
   });
 
-  it("keeps slash commands, screenshots, documents and anything unsure with firstmate", async () => {
+  it("keeps slash commands, documents and anything unsure with firstmate", async () => {
     expect(await routeMessage({ ...input, command: "review" }, ask("FLYD"))).toBe("firstmate");
-    expect(await routeMessage({ ...input, images: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, files: 1 }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage(input, ask(new Error("no key")))).toBe("firstmate");
     expect(await routeMessage(input, ask("maybe"))).toBe("firstmate");
@@ -91,9 +91,8 @@ describe("routeMessage", () => {
     // An old conversation, or one firstmate is having, keeps the old default.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(45) } }, timedOut, 20)).toBe("firstmate");
     expect(await routeMessage({ ...followUp, previous: { owner: "firstmate", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
-    // A router that answers still decides, and attachments still go to firstmate.
+    // A router that answers still decides.
     expect(await routeMessage({ ...followUp, previous: { owner: "flyd", at: minutesAgo(2) } }, ask("FIRSTMATE"))).toBe("firstmate");
-    expect(await routeMessage({ ...followUp, images: 1, previous: { owner: "flyd", at: minutesAgo(2) } }, timedOut, 20)).toBe("firstmate");
   });
 
   it("tells the router that questions about Flyd itself are Flyd's", () => {
@@ -128,7 +127,7 @@ describe("FlydDesk", () => {
     const turn = deferred();
     const desk = new FlydDesk({ dir, answer: turn.answer });
     const sent = desk.ask("  whats there to do in bkk tonight?  ");
-    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: "Working on it" }]);
+    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: ANSWERING }]);
 
     turn.resolve("Tonight, sir: art bangkok at Siam Paragon.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
@@ -142,6 +141,40 @@ describe("FlydDesk", () => {
     ]);
   });
 
+  it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
+    const asked: Array<[string, unknown]> = [];
+    const desk = new FlydDesk({
+      dir,
+      see: async (question, images) => `[shows: a 404 page for ${question} (${images.length})]`,
+      answer: async (question, history) => {
+        asked.push([question, history]);
+        return "That is a 404 from the preview server.";
+      },
+    });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const sent = desk.ask("is this normal?", [{ mediaType: "image/png", data: png }]);
+    await until(() => (desk.exchanges()[0]?.answer ? true : undefined));
+    const [exchange] = desk.exchanges();
+    expect(asked[0]![0]).toBe("is this normal?\n\n[shows: a 404 page for is this normal? (1)]");
+    expect(exchange!.question.id).toBe(sent.id);
+    expect(exchange!.question.text).toBe("is this normal?");
+    expect(exchange!.question.images).toHaveLength(1);
+    expect(desk.image(exchange!.question.images![0]!)?.mediaType).toBe("image/png");
+    expect(desk.image("a../../etc/passwd")).toBeNull();
+
+    // A follow-up, even from a desk read again after a restart, still knows what the screenshot showed.
+    const again = new FlydDesk({ dir, answer: async (question, history) => {
+      asked.push([question, history]);
+      return "Yes.";
+    } });
+    again.ask("and how do I fix it?");
+    await until(() => (asked.length === 2 ? true : undefined));
+    expect(asked[1]![1]).toEqual([
+      { role: "user", content: "is this normal?\n\n[shows: a 404 page for is this normal? (1)]" },
+      { role: "assistant", content: "That is a 404 from the preview server." },
+    ]);
+  });
+
   it("says what Flyd is doing the moment it changes, then its answer", async () => {
     let step: ((line: string) => void) | undefined;
     let resolve!: (text: string) => void;
@@ -150,7 +183,7 @@ describe("FlydDesk", () => {
       return new Promise<string>((res) => { resolve = res; });
     } });
     desk.ask("what models is flyd using?");
-    expect(desk.exchanges()[0]!.waiting).toBe("Working on it");
+    expect(desk.exchanges()[0]!.waiting).toBe(ANSWERING);
     step!("Checking my own setup");
     expect(desk.exchanges()[0]!.waiting).toBe("Checking my own setup");
     step!("Searching the web: gpt-realtime-2.1 release notes…");
@@ -268,9 +301,9 @@ esac
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Working on it");
+    expect(sent.waiting).toBe("Queued for a next step");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Working on it");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Queued for a next step");
 
     // Firstmate reads the note, then busies itself with other work: that work's step is not this note's line.
     const inbox = join(home, "state", "inbox");

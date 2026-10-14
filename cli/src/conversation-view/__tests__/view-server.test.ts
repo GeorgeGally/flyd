@@ -706,6 +706,12 @@ describe("ConversationViewServer", () => {
     });
     const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
     expect(unread).toMatchObject({ count: 1, oldest: old });
+    // The column shows each note's own recorded answer, never a chat paragraph that seemed to be about it.
+    const rows = Object.fromEntries(update.rail.conversations.map((talk: { id: string; answer?: string; state?: string }) => [talk.id, [talk.answer, talk.state]]));
+    expect(rows["note:1791720001-aaaaaa"]).toEqual([undefined, "done"]);
+    expect(rows["note:1791720002-bbbbbb"]).toEqual(["Renamed it to Plans.", "done"]);
+    expect(rows["note:1791720004-dddddd"]).toEqual([undefined, "underway"]);
+    expect(JSON.stringify(update.rail)).not.toContain("footer links are fixed");
   });
 
   it("counts a note a crewmate is working on as read by firstmate", () => {

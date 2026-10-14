@@ -275,7 +275,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         .reduce<ConversationMessage | undefined>((newest, question) => (!newest || Date.parse(question.timestamp ?? "") > Date.parse(newest.timestamp ?? "") ? question : newest), undefined);
       const previous = last ? { owner: last.id.startsWith("ask:") ? "flyd" as const : "firstmate" as const, ...(last.timestamp ? { at: last.timestamp } : {}) } : undefined;
       const route = to ?? await routeMessage(
-        { text, images: images?.length ?? 0, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
+        { text, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
             const { query } = await import("../lib/llm.js");
@@ -283,7 +283,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
           }
           : this.desk.complete,
       );
-      if (route === "flyd") return this.desk.desk.ask(text);
+      if (route === "flyd") return this.desk.desk.ask(text, images);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
@@ -322,11 +322,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   /**
    * "t<offset>.<n>": the n-th pasted image of the transcript line at that
    * byte offset, read back from the transcript. "f<name>": an image the
-   * captain sent from the view, from firstmate's inbox images.
+   * captain sent from the view, from firstmate's inbox images. "a<name>": a
+   * screenshot kept with a question Flyd answered.
    */
   async image(sessionId: string, imageId: string): Promise<ImageData | null> {
     const path = this.sessionPath(sessionId);
     if (imageId.startsWith("f")) return this.inbox?.image(imageId) ?? null;
+    if (imageId.startsWith("a")) return this.desk?.desk.image(imageId) ?? null;
     return transcriptImage(path, imageId);
   }
 

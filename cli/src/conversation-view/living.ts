@@ -9,12 +9,12 @@ import type { Exchange } from "./types.js";
 // his message asks for (with the project he named), else only that it is under way. His
 // own words are never quoted back unless they read as a task Flyd is doing.
 
-/** The quiet line from the moment he sends until something more is known. */
-export const WORKING = "Working on it";
+/** The quiet line from the moment he sends until something more is known: it is queued to happen. */
+export const WORKING = "Queued";
 /** The page shows this the moment he sends. */
 export const RECEIVED = WORKING;
-/** Flyd is answering it itself. */
-export const ANSWERING = WORKING;
+/** Flyd is answering it itself, before its first step is known. */
+export const ANSWERING = "Looking this up";
 const ACTIVITY_CHARS = 90;
 
 /** Where a note to firstmate stands: written to its inbox, or read by firstmate. */
@@ -31,17 +31,31 @@ const GERUND: Record<string, string> = {
 const BACKSTAGE = /\b(?:firstmate|first mate|crew|crewmates?|workers?|helpers?|help|agents?|claude|opencode|codex|staff|team)\b/i;
 const FIRST_PERSON = /\b(?:i|me|my|mine|myself|we|us|our|ours|ourselves)\b/i;
 const POLITE = /^(?:(?:hey|hi|ok|okay|so|and|also|now|then|please|pls|can you|could you|would you|will you|i(?:'d| would) like you to|i want you to|i need you to|let's|lets|go ahead and|just)\s+)+/i;
+const VAGUE = /^(?:it|this|that|them|these|those|there)$/i;
+/** "how do I fix X" asks for the same work as "fix X". */
+const HOW_TO = /^how\s+(?:do|does|can|could|would|should)\s+(?:i|we|you|one)\s+/i;
+/** A question asking what something is: "what is …", "who's …", "where are …". */
+const WHAT_IS = /^(?:what|who|whose|where|which|when)(?:'s|s|\s+(?:is|are|was|were))\s+/i;
+/** A remainder that is a clause, not a thing to look up: it starts with a pronoun, or something in it is going on. */
+const CLAUSE = /^(?:it|this|that|they|them|he|she|we|you|i|there|these|those)\b|(?:^|\s)\w+ing\b/i;
 
 /** The concrete thing in his message, in Flyd's words: "fix the footer on GNM" → "Fixing the footer on GNM". */
 function subjectOf(text: string): string {
   const first = text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
   if (first.startsWith("/")) return "";
   const stripped = first.replace(POLITE, "").replace(/[?!.]+$/, "").trim();
-  const [verb = "", ...rest] = stripped.split(" ");
+  const [verb = "", ...rest] = stripped.replace(HOW_TO, "").split(" ");
   const gerund = GERUND[verb.toLowerCase()];
   const object = rest.join(" ");
-  if (!gerund || !object || /^(?:it|this|that|them|these|those)$/i.test(object) || BACKSTAGE.test(object) || FIRST_PERSON.test(object)) return "";
-  return clip(`${gerund} ${object}`);
+  if (gerund && object && !VAGUE.test(object) && !BACKSTAGE.test(object) && !FIRST_PERSON.test(object)) return clip(`${gerund} ${object}`);
+  return questionTopic(first);
+}
+
+/** What a plain question is about, in Flyd's words: "what is usb overdrive?" → "Looking up usb overdrive". */
+function questionTopic(first: string): string {
+  if (!/\?\s*$/.test(first) || !WHAT_IS.test(first)) return "";
+  const rest = first.replace(/[?!.]+$/, "").replace(WHAT_IS, "").trim();
+  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(`Looking up ${rest}`) : "";
 }
 
 /** The project his message names, by his own name for it. */
@@ -59,7 +73,7 @@ function projectIn(text: string, projects: string[]): string | undefined {
 export function handoffLine(handoff: Handoff, details: { activity?: string; text?: string; projects?: string[] } = {}): string {
   const activity = handoff === "taken" && details.activity ? clip(details.activity) : "";
   if (activity) return upperFirst(activity);
-  const subject = (details.text ? subjectOf(details.text) : "") || WORKING;
+  const subject = (details.text ? subjectOf(details.text) : "") || (handoff === "queued" ? "Queued for a next step" : "Waiting for a clear next step");
   const project = details.text ? projectIn(details.text, details.projects ?? []) : undefined;
   return project && !new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(subject) ? `${project}: ${subject}` : subject;
 }

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { watch, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
@@ -27,6 +28,8 @@ export interface ArtefactRow {
   task?: string;
   /** When the task last reported, as an ISO time. */
   at?: string;
+  /** When its worker started, as an ISO time. */
+  started?: string;
   /** Screenshots the task saved, as paths under its data directory. */
   shots?: string[];
   /** The data directory the screenshots are in, when it is not the task's own (a call's lab, say). */
@@ -121,7 +124,7 @@ export function plainStep(doing: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
   const said: Array<[RegExp, string]> = [
-    [/^harness busy\b.*$/i, "Working on it now"],
+    [/^harness busy\b.*$/i, "A worker is on it"],
     [/^harness state unavailable\b.*$/i, "No word from the worker"],
     [/^run passed: PR open\b.*$/i, "PR open; its checks passed"],
     [/^run failed\b.*$/i, "The run failed"],
@@ -281,6 +284,8 @@ function wholeLabel(label: string, full: string): string {
 
 export interface TaskExtra {
   at?: string;
+  /** When its worker was started, from the task's own record. */
+  started?: string;
   shots?: string[];
   /** When the newest of those screenshots was taken. */
   shotAt?: string;
@@ -323,6 +328,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
     if (extra?.at) next.at = extra.at;
+    if (extra?.started) next.started = extra.started;
     if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) next.shots = extra.shots;
     else if (entry) {
@@ -538,6 +544,7 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
     ...(asked ? { detail: row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
+    ...(row.started ? { started: row.started } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
       ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
       : {}),
@@ -557,6 +564,30 @@ function withLink(url: string | undefined): Partial<ShowItem> {
 export function callItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
   return fleet.calls.flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Every job a worker is on right now, the longest running first. Pure. */
+export function underwayItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const since = (row: ArtefactRow) => (row.started ? Date.parse(row.started) : Number.POSITIVE_INFINITY);
+  return [...fleet.live].sort((a, b) => since(a) - since(b)).flatMap((row, index) => rowItem("live", `live-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** How many finished jobs the conversation's Done list names. */
+export const DONE_LIMIT = 8;
+
+/** Work that landed, newest first, one line each. Pure. */
+export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}, limit = DONE_LIMIT): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
+  return [...fleet.landed].sort((a, b) => when(b) - when(a)).slice(0, limit)
+    .flatMap((row, index) => rowItem("landed", `landed-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** When a task's worker was started: firstmate stamps its spawn as `spawn_gen=s<epoch>.…` in the task's meta. Pure. */
+export function workerStarted(meta: string): string | undefined {
+  const epoch = /^spawn_gen=s(\d{9,11})\b/m.exec(meta)?.[1];
+  return epoch ? new Date(Number(epoch) * 1000).toISOString() : undefined;
 }
 
 /** Compose the panel's items from the four inputs, in priority order. Pure. */
@@ -616,7 +647,8 @@ export function withVoice(
   const next: FleetArtefact = { ...fleet };
   const unsaid: VoiceItem[] = [];
   for (const [field, limit, kind] of VOICED) {
-    const shown = new Set(shownRows(fleet[field], ARTEFACT_LIMITS[limit]));
+    // Every call and every job under way is said: the conversation lists them all, not just the panel's few.
+    const shown = new Set(shownRows(fleet[field], field === "calls" || field === "live" ? Number.POSITIVE_INFINITY : ARTEFACT_LIMITS[limit]));
     next[field] = fleet[field].map((row) => {
       if (!shown.has(row)) return row;
       const item = voiceItem(row, kind);
@@ -658,12 +690,22 @@ function reason(error: unknown): string {
   return message.replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
 }
 
+/** After a job reports, how long to wait for its other records to settle before reading the fleet again. */
+const REPORT_SETTLE_MS = 2_000;
+/** The fleet is read at most this often when jobs report: the bearings script is not free. */
+const REPORT_GAP_MS = 15_000;
+
 /** Runs the bearings script and reads the other three inputs. Bounded; never throws. */
 export class ArtefactFeed {
   private inputs: ArtefactInputs = EMPTY_ARTEFACT;
   /** Screenshots the page may load, by task: only files listed here are ever served. */
   private shots = new Map<string, Set<string>>();
   private timer?: NodeJS.Timeout;
+  private watcher?: FSWatcher;
+  private soon?: NodeJS.Timeout;
+  private lastRefresh = 0;
+  /** A job reported while the fleet was being read: read it again when that read is done. */
+  private again = false;
   private refreshing = false;
   private generation = 0;
   /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
@@ -743,6 +785,12 @@ export class ArtefactFeed {
       const extra: TaskExtra = {};
       const status = join(home, "state", `${task}.status`);
       try {
+        const started = workerStarted(await readFile(join(home, "state", `${task}.meta`), "utf8"));
+        if (started) extra.started = started;
+      } catch {
+        // No record of the worker: no start time to show.
+      }
+      try {
         extra.at = (await stat(status)).mtime.toISOString();
         const last = (await readFile(status, "utf8")).trim().split("\n").at(-1) ?? "";
         if (last) extra.note = statusNote(last);
@@ -774,8 +822,13 @@ export class ArtefactFeed {
   }
 
   async refresh(): Promise<void> {
-    if (this.refreshing) return;
+    if (this.refreshing) {
+      this.again = true;
+      return;
+    }
     this.refreshing = true;
+    this.again = false;
+    this.lastRefresh = Date.now();
     try {
       const { backlog, archive, memory, news, taste } = this.paths();
       const [bearings, backlogText, archiveText, memoryText, newsText, tasteText] = await Promise.all([
@@ -819,6 +872,37 @@ export class ArtefactFeed {
       if (voice && unsaid.length) void this.say(voice, enriched, unsaid, generation);
     } finally {
       this.refreshing = false;
+      if (this.again) this.refreshSoon();
+    }
+  }
+
+  /**
+   * A job reported (firstmate appends a status line, or records a new worker):
+   * the fleet is read again within seconds, not at the next two-minute tick.
+   */
+  private refreshSoon(): void {
+    if (this.soon) return;
+    const wait = Math.max(REPORT_SETTLE_MS, this.lastRefresh + REPORT_GAP_MS - Date.now());
+    this.soon = setTimeout(() => {
+      this.soon = undefined;
+      void this.refresh();
+    }, wait);
+    this.soon.unref?.();
+  }
+
+  /** Reads the fleet again as soon as a job reports; start() does this, and tests call it directly. */
+  followReports(): void {
+    try {
+      this.watcher = watch(join(this.paths().home, "state"), (_event, name) => {
+        if (name && /\.(?:status|meta)$/.test(String(name))) this.refreshSoon();
+      });
+      this.watcher.on("error", () => {
+        this.watcher?.close();
+        this.watcher = undefined;
+      });
+      this.watcher.unref?.();
+    } catch {
+      // No state folder to watch: the timer alone keeps the fleet fresh.
     }
   }
 
@@ -844,10 +928,15 @@ export class ArtefactFeed {
     void this.refresh();
     this.timer = setInterval(() => void this.refresh(), this.options.intervalMs ?? 120_000);
     this.timer.unref?.();
+    this.followReports();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    if (this.soon) clearTimeout(this.soon);
+    this.soon = undefined;
+    this.watcher?.close();
+    this.watcher = undefined;
   }
 }

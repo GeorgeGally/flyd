@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderBriefing } from "../executive.js";
-import { composeRail, conversationPreviews, groupTopics, loopbackPage, negationsIn, normalizeLoopback, outcomeFirst, phoneCommentNote, phoneWork, previewCard, previewsIn, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
+import { composeRail, conversationPreviews, loopbackPage, negationsIn, normalizeLoopback, outcomeFirst, phoneCommentNote, phoneWork, plainNote, previewCard, previewsIn, railState, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
 import type { ConversationMessage } from "../types.js";
 
 const user = (id: string, text: string, at = "2026-10-10T17:24:00Z"): ConversationMessage => ({ id, role: "user", text, timestamp: at });
@@ -264,49 +264,44 @@ describe("the server behind a live preview", () => {
   });
 });
 
-describe("groupTopics", () => {
+describe("one row per message", () => {
   const at = (minute: number) => `2026-10-12T09:${String(minute).padStart(2, "0")}:00Z`;
 
-  it("takes his messages sent close behind one another as one topic, and a long pause as a new one", () => {
-    const grouped = groupTopics([
-      { id: "q1", question: "put taste in preferences", at: at(0) },
-      { id: "q2", question: "and full and light", at: at(4) },
-      { id: "q3", question: "we don't need them on the main menu", at: at(12) },
-      { id: "q4", question: "is the site live?", at: at(40) },
-    ]);
-    expect(grouped.map((talk) => talk.id)).toEqual(["q1", "q4"]);
-    expect(grouped[0]!.sameTopic!.map((talk) => talk.id)).toEqual(["q2", "q3"]);
-    expect(grouped[1]!.sameTopic).toBeUndefined();
-  });
-
-  it("never folds a note to firstmate under a question Flyd answered, so neither shows the other's line", () => {
-    const grouped = groupTopics([
-      { id: "ask:1", question: "what models is flyd using?", answer: "Chat runs on opencode-go/deepseek-v4.1-flash.", at: at(0) },
-      { id: "note:2", question: "well why didn't u read the config?", waiting: "Shrinking hero on short screens, verify", at: at(2) },
-      { id: "note:3", question: "and why isn't this in memory?", waiting: "Working on it", at: at(3) },
-    ]);
-    expect(grouped.map((talk) => talk.id)).toEqual(["ask:1", "note:2"]);
-    expect(grouped[0]!.sameTopic).toBeUndefined();
-    expect(grouped[1]!.sameTopic!.map((talk) => talk.id)).toEqual(["note:3"]);
-  });
-
-  it("leaves a reply, and a message with no time, standing alone", () => {
-    const grouped = groupTopics([
-      { id: "q1", question: "first", at: at(0) },
-      { id: "q2", question: "about that answer", at: at(1), replyTo: "gone" },
-      { id: "q3", question: "no time" },
-      { id: "q4", question: "after it", at: at(2) },
-    ]);
-    expect(grouped.map((talk) => talk.id)).toEqual(["q1", "q2", "q3", "q4"]);
-  });
-
-  it("groups in the column itself", () => {
+  it("keeps every message its own row with its own answer, however close behind the last it came", () => {
     const rail = composeRail([
       { question: user("q1", "make the header sticky", at(0)), answer: assistant("a1", "Sticky now.", "q1") },
       { question: user("q2", "and darker", at(3)), waiting: "Working on it" },
     ], []);
-    expect(rail.conversations).toHaveLength(1);
-    expect(rail.conversations[0]!.sameTopic).toMatchObject([{ id: "q2", waiting: "Working on it" }]);
+    expect(rail.conversations.map((talk) => [talk.id, talk.answer, talk.state])).toEqual([["q1", "Sticky now.", "done"], ["q2", undefined, "underway"]]);
+  });
+
+  it("says where each stands: an answer that asks him something needs him, any other is done, none is under way", () => {
+    expect(railState({ answer: assistant("a", "Both are live now.", "q") })).toBe("done");
+    expect(railState({ answer: assistant("a", "It's built. Want me to merge it?", "q") })).toBe("needs");
+    expect(railState({ answer: assistant("a", "Ready, it waits on your go-ahead.", "q") })).toBe("needs");
+    expect(railState({ answer: assistant("a", "Agreed. Each note gets a row tagged done, under way or needs you.", "q") })).toBe("done");
+    expect(railState({ answer: assistant("a", "The fix is under way; a worker is running the checks.", "q") })).toBe("underway");
+    expect(railState({ answer: assistant("a", "Merged. The checks were running for a while.", "q") })).toBe("done");
+    for (const text of ["Your Rails dev server is running on port 3000.", "USB Overdrive is a driver being sold since 2000.", "Running the tests showed 3 failures."]) {
+      expect(railState({ answer: assistant("a", text, "q") })).toBe("done");
+    }
+    expect(railState({ answer: assistant("a", "The checks are still running.", "ask:1") })).toBe("done");
+    expect(railState({ answered: true })).toBe("done");
+    expect(railState({})).toBe("underway");
+    expect(railState({ answered: true, state: "underway" })).toBe("underway");
+  });
+
+  it("names the artefact or decision a note was about, linked, and never shows the task id or raw page line", () => {
+    const note = 'About the artefact "Flyd island notification spans from screen middle to the right edge"\nTask: flyd-island-half\nPage: https://github.com/GeorgeGally/flyd/pull/139\n\nthe island is too tall and big.';
+    expect(plainNote(note)).toEqual({
+      words: "the island is too tall and big.",
+      about: { title: "Flyd island notification spans from screen middle to the right edge", url: "https://github.com/GeorgeGally/flyd/pull/139" },
+    });
+    expect(plainNote("Answer to pending decision gnm-sell-step-pick: Pick a layout\nQuestion: Which one?\n\n3")).toEqual({ words: "3", about: { title: "Pick a layout" } });
+    expect(plainNote("just words")).toEqual({ words: "just words" });
+    const rail = composeRail([{ question: user("note:1", note, at(0)), waiting: "" }], []);
+    expect(rail.conversations[0]).toMatchObject({ question: "the island is too tall and big.", about: { title: expect.stringContaining("Flyd island") } });
+    expect(JSON.stringify(rail.conversations[0])).not.toMatch(/Task: |Page: /);
   });
 });
 

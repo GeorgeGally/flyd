@@ -52,9 +52,13 @@ export interface RailConversation {
   replyQuote?: string;
   /** His replies to this answer, and theirs, oldest first, threaded under it. */
   replies?: RailConversation[];
-  /** His next messages on the same topic, sent close behind this one, oldest first: one entry in the column. */
-  sameTopic?: RailConversation[];
+  /** Where his message stands, in a word: answered, still being worked on, or waiting on him. */
+  state?: RailState;
+  /** The artefact or decision his message was about, named (and linked) in place of the lines that addressed it. */
+  about?: { title: string; url?: string };
 }
+
+export type RailState = "done" | "underway" | "needs";
 
 export interface RailArtefact {
   id: string;
@@ -113,8 +117,6 @@ export const PREVIEW_SCAN = 12;
 export const MAX_RAIL_CONVERSATIONS = 40;
 export const MAX_RAIL_ARTEFACTS = 10;
 export const MAX_RAIL_PREVIEWS = 4;
-/** Messages he sends within this long of the last one are taken as one topic. */
-export const TOPIC_GAP_MS = 10 * 60_000;
 
 /** A loopback URL he named: the site we are looking at, never a remote page. */
 const LOOPBACK = /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?(?:\/[^\s)"'<>\]]*)?/g;
@@ -224,6 +226,54 @@ export function phoneCommentNote(comment: { url: string; x: number; y: number; e
 /** His question as a rail row, whole. Pure. */
 function question(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 2_000);
+}
+
+/** The lines the window put in front of his words so firstmate knows what they are about. */
+const ABOUT_ARTEFACT = /^About the artefact "([^"\n]*)"\n(?:Task: [^\n]*\n)?(?:Page: (\S+)\n)?/;
+const ABOUT_DECISION = /^Answer to pending decision [\w.-]+: ([^\n]*)\n(?:Question: [^\n]*\n)?/;
+
+/**
+ * His words as he wrote them, and what they were about: the window's addressing
+ * lines ("About the artefact …", "Task: …", "Page: https://…") are plumbing he
+ * never typed, so they become the thing's name, linked. Pure.
+ */
+export function plainNote(text: string): { words: string; about?: { title: string; url?: string } } {
+  const artefact = ABOUT_ARTEFACT.exec(text);
+  if (artefact) {
+    const url = artefact[2] && /^https?:\/\//.test(artefact[2]) ? artefact[2] : undefined;
+    return { words: text.slice(artefact[0].length).trim(), about: { title: artefact[1]!.trim(), ...(url ? { url } : {}) } };
+  }
+  const decision = ABOUT_DECISION.exec(text);
+  if (decision) return { words: text.slice(decision[0].length).trim(), about: { title: decision[1]!.trim() } };
+  return { words: text };
+}
+
+/**
+ * An answer that hands something back to him: it ends on a question, or asks
+ * him outright. Words that only talk about asks ("tagged done, under way or
+ * needs you") are not one.
+ */
+const ASKS_HIM = /\?\s*$|\b(?:your (?:call|decision|go-ahead|approval)|do you want|would you like|should i\b|shall i\b|want me to|say the word)\b/i;
+
+/** A lead sentence saying the work it reports on is still going, not a fact that merely has an -ing word in it. */
+const STILL_GOING = /\b(?:under ?way|in progress|still (?:going|running|working|in (?:its )?(?:checks|review))|working on (?:it|this|that)|queued|in flight|(?:is|are) (?:now )?in (?:its |their )?(?:checks|review))\b/i;
+
+/**
+ * Where an exchange stands: an answer that asks him something needs him; a
+ * report on work whose lead says it is still going is under way; any other
+ * answer is done (Flyd's own answers are answers, never work); else it is
+ * under way. Pure.
+ */
+export function railState(exchange: { answer?: ConversationMessage; answered?: boolean; state?: RailState }): RailState {
+  if (exchange.state) return exchange.state;
+  const answer = exchange.answer?.text.trim();
+  if (answer) {
+    const plain = answer.replace(/```[\s\S]*?```/g, "");
+    if (ASKS_HIM.test(plain)) return "needs";
+    if (exchange.answer!.answers?.startsWith("ask:")) return "done";
+    return STILL_GOING.test(sentences(inline(plain))[0] ?? "") ? "underway" : "done";
+  }
+  return exchange.answered ? "done" : "underway";
 }
 
 /** The same-origin src the page loads a local screenshot from. */
@@ -395,7 +445,7 @@ export interface RailOptions {
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
 export function composeRail(
-  exchanges: Array<{ question: ConversationMessage; answer?: ConversationMessage; waiting?: string; answered?: boolean }>,
+  exchanges: Array<{ question: ConversationMessage; answer?: ConversationMessage; waiting?: string; answered?: boolean; state?: RailState }>,
   artefacts: RailArtefact[],
   previews: RailPreview[] = [],
   options: RailOptions = {},
@@ -416,10 +466,13 @@ export function composeRail(
       const shown = previewsIn(said).slice(0, MAX_RAIL_PREVIEWS);
       const html = answer ? options.voice?.(answer) : undefined;
       const shots = (answer?.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
+      const note = plainNote(exchange.question.text.trim());
       return {
         id: exchange.question.id,
         // An answer Flyd gave for him by a standing rule of his is Flyd's, not his own words.
-        question: exchange.question.answeredFor !== undefined ? `Answered for you: ${question(exchange.question.text)}` : question(exchange.question.text),
+        question: exchange.question.answeredFor !== undefined ? `Answered for you: ${question(note.words)}` : question(note.words),
+        ...(note.about ? { about: note.about } : {}),
+        state: railState(exchange),
         ...(shots.length ? { shots } : {}),
         ...(answer?.page ? { page: answer.page } : {}),
         ...(answer ? { answer: outcomeFirst(spoken(answer.text)) } : {}),
@@ -431,33 +484,8 @@ export function composeRail(
       };
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
-  return { conversations: groupTopics(threadReplies(conversations)), artefacts: railCards(artefacts, previews, attached, card) };
-}
-
-/** Who is answering a message: Flyd ("ask:") or firstmate ("note:"). */
-function handlerOf(id: string): string {
-  return /^(ask|note):/.exec(id)?.[1] ?? "";
-}
-
-/**
- * His messages sent one close behind another, as one topic: each that came
- * within TOPIC_GAP_MS of the one before joins it, when the same one of us is
- * answering both: a topic shows its newest message's line, so a note to
- * firstmate never puts its status under a question Flyd answered. A reply to
- * an answer that scrolled away, or a message with no time, stands alone. Pure.
- */
-export function groupTopics(conversations: RailConversation[], gap = TOPIC_GAP_MS): RailConversation[] {
-  const out: RailConversation[] = [];
-  let last = NaN;
-  for (const conversation of conversations) {
-    const at = conversation.at ? Date.parse(conversation.at) : NaN;
-    const head = out.at(-1);
-    if (head && !conversation.replyTo && handlerOf(head.id) === handlerOf(conversation.id) && !Number.isNaN(at) && at >= last && at - last <= gap) {
-      out[out.length - 1] = { ...head, sameTopic: [...(head.sameTopic ?? []), conversation] };
-    } else out.push(conversation);
-    last = at;
-  }
-  return out;
+  // One row per message: each with its own answer, never folded into its neighbours.
+  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card) };
 }
 
 /** Each reply under the conversation it answers, a reply to a reply under the same one; a reply whose answer is gone stands alone. Pure. */

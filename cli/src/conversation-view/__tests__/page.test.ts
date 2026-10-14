@@ -251,6 +251,143 @@ describe("conversation page", () => {
     expect(banner.hidden).toBe(true);
   });
 
+  it("never sends again on its own when Flyd is gone, and gives his words back to send himself", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    let down = true;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if ((url === "/api/send" || url === "/api/token") && down) throw new TypeError("Failed to fetch");
+      return real(url as string, init);
+    });
+    await type("ship it after the update");
+    expect(pending()[0]).toContain("not sent");
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("ship it after the update");
+    down = false;
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
+  });
+
+  it("never sends again on its own when Flyd answers right after a send failed, and resends once when he taps", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    let drop = true;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send" && drop) throw new TypeError("Failed to fetch");
+      return real(url as string, init);
+    });
+    const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").length;
+    await type("merge the island fix");
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await settle();
+    expect(sends()).toBe(1);
+    expect(document.querySelector(".msg.failed")).toBeNull();
+    expect(pending()[0]).toContain("may not have sent");
+    // Selecting or clicking his words does not resend; only the resend control does.
+    document.querySelector<HTMLElement>(".msg.pending .body")!.click();
+    await settle();
+    expect(sends()).toBe(1);
+    drop = false;
+    document.querySelector<HTMLElement>(".msg.pending .resend")!.click();
+    await settle();
+    expect(sends()).toBe(2);
+    expect(pending()[0]).not.toContain("may not have sent");
+    expect(document.querySelector(".msg.pending .resend")).toBeNull();
+  });
+
+  it("clears a doubtful send when his new note lands, however it was written, and never for an older message", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send") throw new TypeError("Failed to fetch");
+      return real(url as string, init);
+    });
+    const order = ["u1"];
+    const doubtful = () => document.querySelector(".msg.pending .resend");
+    async function sendUnsure(send: () => Promise<void>): Promise<void> {
+      await send();
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await settle();
+      expect(doubtful()).not.toBeNull();
+    }
+    function lands(id: string, html: string, timestamp: string, extra: Record<string, unknown> = {}): void {
+      order.push(id);
+      stream.emit("update", { order: [...order], messages: [{ id, role: "user", html, timestamp, ...extra }], working: true });
+    }
+
+    await sendUnsure(() => type("fix **the** sidebar"));
+    // An older message of his that only now shows up is not this one.
+    lands("note:old", "<p>something from this morning</p>", "2026-10-05T08:00:00.000Z");
+    expect(doubtful()).not.toBeNull();
+    lands("note:10", "<p>fix <strong>the</strong> sidebar</p>", new Date().toISOString());
+    expect(doubtful()).toBeNull();
+
+    await sendUnsure(() => type("- one\n- two"));
+    lands("note:11", "<ul><li>one</li><li>two</li></ul>", new Date().toISOString());
+    expect(doubtful()).toBeNull();
+
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    await sendUnsure(async () => {
+      const paste = new Event("paste", { cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+      document.getElementById("input")!.dispatchEvent(paste);
+      for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+      document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+    });
+    lands("note:12", "", new Date().toISOString(), { images: ["t12.0"] });
+    expect(doubtful()).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(3);
+  }, 15_000);
+
+  it("keeps a doubtful send's resend control when only some other note of his lands", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    let drop = true;
+    let release: () => void = () => {};
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send" && drop) throw new TypeError("Failed to fetch");
+      if (url === "/api/send") {
+        await new Promise<void>((resolve) => (release = resolve));
+        return json({ id: "note:21", timestamp: new Date().toISOString() });
+      }
+      return real(url as string, init);
+    });
+    const order = ["u1"];
+    const doubtful = () => document.querySelector(".msg.pending .resend");
+    function lands(id: string, html: string, timestamp?: string): void {
+      order.push(id);
+      stream.emit("update", { order: [...order], messages: [{ id, role: "user", html, timestamp }], working: true });
+    }
+    await type("deploy the gnm mailer");
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await settle();
+    expect(doubtful()).not.toBeNull();
+
+    // His answer to a decision, from its own box, is a different note.
+    lands("note:20", "<p>On \"Which layout?\": the second one</p>", new Date().toISOString());
+    expect(doubtful()).not.toBeNull();
+    // A second note of his streams in before its own send has answered, then the answer comes.
+    drop = false;
+    await type("and the island too");
+    lands("note:21", "<p>and the island too</p>", new Date().toISOString());
+    expect(doubtful()).not.toBeNull();
+    release();
+    await settle();
+    expect(doubtful()).not.toBeNull();
+    // A note with no time cannot be told apart from an old one.
+    lands("note:22", "<p>deploy the gnm mailer</p>");
+    expect(doubtful()).not.toBeNull();
+  }, 15_000);
+
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
     load("");
     await settle();
@@ -277,6 +414,19 @@ describe("conversation page", () => {
     open("older", [{ id: "o1", role: "assistant", html: "<p>old reply</p>" }]);
     expect(pending()).toEqual([]);
     expect(document.querySelectorAll(".msg")).toHaveLength(1);
+  });
+
+  it("names the conversation by its topic in the picker and the window title", async () => {
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [{ id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z" }, SESSIONS[1]] }) : json({})));
+    load("");
+    await settle();
+    const stream = FakeEventSource.instances.at(-1)!;
+    stream.emit("session", { id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
+    await settle();
+    const options = [...(document.getElementById("picker") as HTMLSelectElement).options].map((option) => option.textContent);
+    expect(options[0]).toBe("Compund engineering skill review");
+    expect(options[1]).toMatch(/^Older {2}·/);
+    expect(document.title).toBe("Compund engineering skill review · Flyd");
   });
 
   it("says where a message sent from an older session will show", async () => {
@@ -588,16 +738,17 @@ describe("conversation page", () => {
     expect(reply.querySelector(".more")!.textContent).toBe("as written");
   });
 
-  it("shows what the assistant is doing in small text under the dots, and clears it when it stops", async () => {
+  it("shows only the dots while the assistant works, never a narrated step under them", async () => {
     load("");
     await settle();
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>fix the cards</p>" }]);
     const recent = new Date().toISOString();
-    stream.emit("update", { order: ["u1"], messages: [], working: true, activity: "Recolouring the cards", lastActivity: recent });
-    expect(document.getElementById("working")!.hidden).toBe(false);
-    expect(document.getElementById("doing")!.textContent).toBe("Recolouring the cards");
-    stream.emit("update", { order: ["u1"], messages: [], working: false, lastActivity: recent });
-    expect(document.getElementById("doing")!.textContent).toBe("");
+    stream.emit("update", { order: ["u1"], messages: [], working: true, activity: "Checking GNM deploy path and mailer setup", lastActivity: recent });
+    const working = document.getElementById("working")!;
+    expect(working.hidden).toBe(false);
+    expect(working.querySelector(".dots")).not.toBeNull();
+    expect(working.textContent).toBe("");
+    expect(document.getElementById("stream")!.textContent).not.toContain("Checking GNM deploy path");
   });
 
   it("opens a reply with something to act on, and mutes routine ones", async () => {
@@ -1075,9 +1226,10 @@ describe("header and artefact view", () => {
     const talks = document.querySelectorAll(".rail-talk");
     expect(talks).toHaveLength(2);
     expect(talks[1]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
-    // His questions stand out: a gold bar on a soft tint, a little larger than the answers.
-    expect(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) })).toMatch(/\.rail-q \{[^}]*border-left: 3px solid var\(--accent\)[^}]*background: color-mix\(in srgb, var\(--accent\) 12%, transparent\)[^}]*font: 500 18\.5px/);
-    expect(talks[1]!.querySelector(".rail-wait")!.textContent).toBe("Working on it");
+    // Where each stands, in a word, never the narrated step.
+    expect(talks[1]!.querySelector(".rail-state")!.textContent).toBe("Under way");
+    expect(talks[1]!.textContent).not.toContain("Working on it");
+    expect(talks[0]!.querySelector(".rail-state")!.textContent).toBe("Done");
     expect(talks[0]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
     const shot = talks[0]!.querySelector<HTMLImageElement>(".rail-shot")!;
     expect(shot.src).toContain("/api/rail-image?path=%2FUsers%2Fme%2Fafter.png");
@@ -1538,7 +1690,7 @@ describe("header and artefact view", () => {
     landedByDay: [{ day: "2026-10-09", count: 2 }, { day: "2026-10-10", count: 1 }],
     items: [
       { id: "call:jev", kind: "call", headline: "Review the Jev decision log", why: "", detail: "Captain decides keep or remove" },
-      { id: "live:a", kind: "live", headline: "Header controls", why: "", detail: "Working on it now", project: "Flyd",
+      { id: "live:a", kind: "live", headline: "Header controls", why: "", detail: "A worker is on it", project: "Flyd",
         shots: [{ src: "/api/artefact-shot?task=a&file=after.png", label: "after.png" }], links: [{ label: "flyd #85", url: "https://github.com/GeorgeGally/flyd/pull/85" }] },
       { id: "news:memory-0", kind: "news", headline: "Bloom gets finished", why: "from your memory" },
     ],
@@ -1550,7 +1702,7 @@ describe("header and artefact view", () => {
     const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
     expect(controls).toEqual(["preferences", "artefact"]);
     const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"], #prefs button[role="switch"]')).map((button) => button.id);
-    expect(switches).toEqual(["flip", "mode", "theme"]);
+    expect(switches).toEqual(["flip", "mode", "theme", "rail-toggle"]);
     const flip = document.getElementById("flip")!;
     expect(flip.getAttribute("aria-checked")).toBe("false");
     flip.click();
@@ -1573,7 +1725,7 @@ describe("header and artefact view", () => {
     opener.click();
     expect(prefs.hidden).toBe(false);
     expect(opener.getAttribute("aria-expanded")).toBe("true");
-    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Taste"]);
+    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Side column", "Taste"]);
     // A switch inside keeps it open; Escape or a click elsewhere closes it.
     document.getElementById("theme")!.click();
     expect(prefs.hidden).toBe(false);
@@ -1604,41 +1756,78 @@ describe("header and artefact view", () => {
     expect(site.hidden).toBe(false);
   });
 
-  it("groups his messages on one topic into one rail entry, the newest answer under them, each answer on demand", async () => {
+  it("shows one row per note: answered ones step back with their answer folded, open ones stay prominent", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const rail = {
-      conversations: [{
-        id: "q1", question: "put taste in preferences", answer: "Moved.", at: "2026-10-12T09:00:00Z",
-        sameTopic: [
-          { id: "q2", question: "and full and light", answer: "Moved too.", at: "2026-10-12T09:02:00Z" },
-          { id: "q3", question: "not on the main menu", waiting: "Working on it", at: "2026-10-12T09:03:00Z" },
-        ],
-      }],
+      conversations: [
+        { id: "note:1", question: "put taste in preferences", answer: "Moved.", state: "done", at: "2026-10-12T09:00:00Z" },
+        { id: "note:2", question: "the island is too tall and big.", about: { title: "Flyd island spans to the right edge", url: "https://github.com/GeorgeGally/flyd/pull/139" }, state: "underway", at: "2026-10-12T09:02:00Z" },
+        { id: "note:3", question: "which layout?", answer: "Built both. Which do you want?", state: "needs", at: "2026-10-12T09:03:00Z" },
+      ],
       artefacts: [],
     };
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
     await settle();
-    const topic = document.querySelector(".rail-topic")!;
-    expect([...topic.querySelectorAll(".rail-q-group p")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
-    // His notes together are highlighted like his messages, each one's text in a highlight run.
-    expect([...topic.querySelectorAll(".rail-q-group p > .hl")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
-    expect(topic.querySelector(".rail-wait")!.textContent).toBe("Working on it");
-    expect(topic.querySelector(".rail-a")).toBeNull();
-    const toggle = topic.querySelector<HTMLButtonElement>(".rail-topic-toggle")!;
-    expect(toggle.textContent).toBe("Show all 3 separately");
-    toggle.click();
-    const opened = document.querySelector(".rail-topic")!;
-    expect(opened.classList.contains("open")).toBe(true);
-    expect([...opened.querySelectorAll(".rail-talk .rail-q")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
-    expect([...opened.querySelectorAll(".rail-a")].map((node) => node.textContent)).toEqual(["Moved.", "Moved too."]);
-    // A redraw keeps it open.
+    const rows = [...document.querySelectorAll<HTMLElement>("#rail-body > .rail-talk")];
+    expect(rows.map((row) => row.querySelector(".rail-state")!.textContent)).toEqual(["Done", "Under way", "Needs you"]);
+    expect(document.querySelector(".rail-topic, .rail-topic-toggle")).toBeNull();
+    // An artefact note names the artefact, linked; no task id, no raw page line.
+    const about = rows[1]!.querySelector<HTMLAnchorElement>(".rail-about a")!;
+    expect(about.textContent).toBe("Flyd island spans to the right edge ↗");
+    expect(about.href).toBe("https://github.com/GeorgeGally/flyd/pull/139");
+    expect(rows[1]!.textContent).not.toMatch(/Task:|Page:/);
+    // Only the answered one steps back; every row is folded, and a click opens it, and a redraw keeps it open.
+    expect(rows.map((row) => row.classList.contains("is-done"))).toEqual([true, false, false]);
+    expect(rows.map((row) => row.classList.contains("open"))).toEqual([false, false, false]);
+    rows[0]!.querySelector<HTMLElement>(".rail-a")!.click();
+    expect(rows[0]!.classList.contains("open")).toBe(true);
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, artefacts: [] } });
     await settle();
-    expect(document.querySelector(".rail-topic")!.classList.contains("open")).toBe(true);
-    opened.querySelector<HTMLButtonElement>(".rail-topic-toggle")!.click();
-    expect(document.querySelector(".rail-topic")!.classList.contains("open")).toBe(false);
+    expect(document.querySelector("#rail-body > .rail-talk")!.classList.contains("open")).toBe(true);
+  });
+
+  it("leads the column with one decision that needs him and its recommended choice, then every job under way and what got done", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const started = new Date(Date.now() - 25 * 60_000).toISOString();
+    const calls = [
+      { id: "call:a", kind: "call", headline: "Pick the vendor step layout.", why: "", project: "GNM (Good Neighbours Market)", detail: "Six layouts are built.", decision: { task: "a", question: "Pick one", choices: [] } },
+      { id: "call:b", kind: "call", headline: "Keep the Jev rule?", why: "", decision: { task: "b", question: "Keep or remove", choices: ["Keep", "Remove"], recommended: "Keep" } },
+    ];
+    const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
+    const done = [1, 2, 3, 4].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], calls, underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    const needs = document.getElementById("needs")!;
+    // One at a time: the first, with a way to answer, and how many wait; no recommendation it never recorded.
+    expect(needs.querySelector(".needs-head")!.textContent).toBe("Pick the vendor step layout.");
+    expect(needs.querySelector(".needs-meta")!.textContent).toBe("GNM");
+    expect(needs.querySelector(".needs-rec")).toBeNull();
+    expect(needs.querySelector(".needs-nav")!.textContent).toContain("1 of 2");
+    expect(needs.querySelector("textarea")).not.toBeNull();
+    needs.querySelector<HTMLButtonElement>('[aria-label="The next one"]')!.click();
+    expect(needs.querySelector(".needs-head")!.textContent).toBe("Keep the Jev rule?");
+    expect(needs.querySelector(".needs-rec")!.textContent).toBe("RecommendedI'd pick Keep.");
+    // The shown call stays shown across updates; answered and gone, the next takes its place.
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], calls: [calls[1]], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    expect(needs.querySelector(".needs-head")!.textContent).toBe("Keep the Jev rule?");
+    expect(needs.querySelector(".needs-nav")).toBeNull();
+    // Under way: one line per job, its project and how long it has run.
+    const job = document.querySelector("#underway li")!;
+    expect(job.querySelector(".brief-line")!.textContent).toBe("A worker is shrinking the island.");
+    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · 25 min");
+    // Done: one line each, the newest few until he asks for all.
+    expect(document.querySelectorAll("#done li")).toHaveLength(3);
+    document.querySelector<HTMLButtonElement>("#done .brief-more")!.click();
+    expect(document.querySelectorAll("#done li")).toHaveLength(4);
+    // Nothing waiting, running or done: the top of the column goes.
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    expect(document.getElementById("brief")!.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(true);
   });
 
   it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {

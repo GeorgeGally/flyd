@@ -6,6 +6,7 @@ import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
+  doneItems, underwayItems, workerStarted,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -29,7 +30,7 @@ describe("parseBearings", () => {
     expect(fleet.generated).toBe("2026-10-09T10:56:01Z");
     expect(fleet.unavailable).toBeUndefined();
     expect(fleet.calls).toEqual([{ label: "Review the Jev decision log: keep or remove it?", task: "jev" }]);
-    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "Working on it now", repo: "flyd" }]);
+    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "A worker is on it", repo: "flyd" }]);
     expect(fleet.ready).toEqual([{
       label: "Flyd: island filter", task: "b", detail: "PR open; its checks passed", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/70", status: "PR open",
     }]);
@@ -266,7 +267,52 @@ describe("composeArtefact", () => {
   });
 });
 
+describe("the conversation's lists", () => {
+  it("knows when a worker started from firstmate's spawn stamp", () => {
+    expect(workerStarted("window=x\nspawn_gen=s1791950032.91729.30301\n")).toBe(new Date(1791950032 * 1000).toISOString());
+    expect(workerStarted("window=x\n")).toBeUndefined();
+  });
+
+  it("lists every job under way, longest running first, and what landed, newest first", () => {
+    const fleet = parseBearings({ ...BEARINGS, in_flight: [
+      { id: "a", state: "working", repo: "flyd", name: "Flyd: shrink the island", doing: "harness busy" },
+      { id: "b", state: "working", repo: "gnm", name: "Good Neighbours: design report", doing: "harness busy" },
+      { id: "c", state: "paused", repo: "gnm", name: "Paused work", doing: "paused" },
+    ] });
+    fleet.live[0]!.started = "2026-10-14T03:50:00Z";
+    fleet.live[1]!.started = "2026-10-14T03:10:00Z";
+    expect(underwayItems(fleet).map((item) => [item.task, item.started])).toEqual([["b", "2026-10-14T03:10:00Z"], ["a", "2026-10-14T03:50:00Z"]]);
+    const landed = { ...fleet, landed: [{ label: "Old", task: "o", at: "2026-10-12T00:00:00Z" }, { label: "New", task: "n", at: "2026-10-14T00:00:00Z" }] };
+    expect(doneItems(landed).map((item) => item.headline)).toEqual(["New", "Old"]);
+    expect(doneItems(landed, {}, 1)).toHaveLength(1);
+    expect(underwayItems({ ...fleet, unavailable: "no snapshot" })).toEqual([]);
+  });
+});
+
 describe("ArtefactFeed", () => {
+  it("reads the fleet again within seconds when a job reports, not at the next tick", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-follow-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [] }));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.live).toEqual([]);
+    const refreshed = new Promise<void>((resolve) => feed.onRefresh(resolve));
+    feed.followReports();
+    try {
+      writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "new", state: "working", repo: "flyd", name: "A new job", doing: "harness busy" }] }));
+      writeFileSync(join(home, "state", "new.meta"), "spawn_gen=s1791950032.1.1\n");
+      writeFileSync(join(home, "state", "new.status"), "working: started\n");
+      await refreshed;
+      expect(feed.current().fleet!.live).toMatchObject([{ task: "new", started: new Date(1791950032 * 1000).toISOString() }]);
+    } finally {
+      feed.stop();
+    }
+  }, 30_000);
+
   it("reads memory, news and taste, and reports a missing snapshot honestly", async () => {
     const dir = mkdtempSync(join(tmpdir(), "artefact-feed-"));
     writeFileSync(join(dir, "MEMORY.md"), "## Commitments\n- Ship the artefact panel.\n");
@@ -350,7 +396,7 @@ describe("ArtefactFeed", () => {
 
     read("Drag and drop documents", "harness busy");
     await feed.refresh();
-    const first = { kind: "under way", title: "Drag and drop documents", detail: "Working on it now", project: "flyd" };
+    const first = { kind: "under way", title: "Drag and drop documents", detail: "A worker is on it", project: "flyd" };
     answers.shift()!(JSON.stringify([{ id: voiceKey(first), headline: "Documents will drop straight into the window.", line: "Nothing for you yet." }]));
     await settle();
     expect(feed.current().fleet!.live[0]!.said?.headline).toBe("Documents will drop straight into the window.");

@@ -446,29 +446,79 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* The right column: his conversations with their answers, and artefacts beside them. */
 .rail {
   position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
-  display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--faint);
+  display: flex; flex-direction: column; background: var(--bg);
   box-shadow: -18px 0 44px rgba(0, 0, 0, 0.22); font-size: 0.62em;
 }
 .rail[hidden] { display: none; }
 :root[data-rail="on"] main { margin-right: calc(min(430px, 34vw) + 1.5em); }
 :root[data-rail="on"] .composer .row { margin-right: calc(min(430px, 34vw) + 1.875em); }
-.rail-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 12px 16px; border-bottom: 1px solid var(--faint);
-  font: 600 15px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
+.rail-hide {
+  position: absolute; top: 10px; right: 10px; z-index: 1; font: 500 14px/1 var(--sans); color: var(--muted);
+  background: transparent; border: 0; cursor: pointer; padding: 6px 8px; border-radius: 6px; transition: color 140ms ease;
 }
-.rail-head button { font: inherit; color: var(--muted); background: transparent; border: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
-.rail-head button:hover { color: var(--fg); }
-.rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 40px; }
+.rail-hide:hover { color: var(--fg); }
+.rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rail-tabs { display: flex; gap: 20px; padding: 14px 18px 10px; }
+.rail-tabs button { padding: 0 0 5px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 13px/1.2 var(--mono); cursor: pointer; }
+.rail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.rail-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rail-pane[hidden] { display: none; }
+/* The top of the column: one decision that needs him, the jobs under way, and what got done. */
+.brief { flex: none; max-height: 62%; overflow-y: auto; padding: 18px 18px 6px; border-bottom: 1px solid var(--faint); }
+.brief[hidden], .brief > [hidden] { display: none; }
+.brief > section + section { margin-top: 22px; }
+.brief-top { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; padding-right: 32px; }
+.brief-label { margin: 0; font: 600 13px/1.2 var(--mono); letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
+.needs .brief-label { color: var(--k-call); }
+.needs-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font: 500 13px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.needs-nav button { font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; transition: color 140ms ease; }
+.needs-nav button:hover { color: var(--fg); }
+.needs-nav button:disabled { opacity: 0.35; cursor: default; }
+.needs-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.needs-meta { margin: 0 0 4px; font: 400 12px/1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.needs-head { margin: 0; font: 500 18px/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.needs-detail { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+.needs-rec { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); font: 400 15px/1.5 var(--sans); color: var(--strong); text-wrap: pretty; }
+.needs-rec b { display: block; margin-bottom: 2px; font: 600 12px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--accent); }
+.needs .call-link { display: inline-block; margin: 10px 14px 0 0; font: 500 14px/1.4 var(--sans); color: var(--link); text-decoration: none; }
+.needs .scene-ask { margin-top: 14px; max-width: none; gap: 10px; }
+.needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
+.brief-list ul { margin: 0; padding: 0; list-style: none; }
+.brief-list li { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--faint); }
+.brief-list li:first-child { border-top: 0; padding-top: 0; }
+/* One quiet line each: the whole line is its title, shown on hover. */
+.brief-line { flex: 1; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brief-line a { color: inherit; text-decoration: none; }
+.brief-line a:hover { color: var(--link); }
+.brief-meta { flex: none; max-width: 34%; font: 400 12px/1.6 var(--mono); color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#underway li::before { content: ""; flex: none; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--k-live); animation: breathe 1.6s ease-in-out infinite; }
+.brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
+.brief-more:hover { color: var(--fg); }
+.brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 18px 40px; }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
-.rail-talk { margin: 0 0 18px; }
-/* Each conversation in the column is a card, like what Flyd remembers. */
-.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
-.rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
-.rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
-.rail-when { margin: 6px 0 0; font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail-card { margin: 0 0 16px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
+/* One row per message he sent: his words plainly, where it stands, and its own answer under it. */
+.rail-talk { margin: 0; }
+.rail-body > .rail-talk { padding: 14px 0 15px; border-top: 1px solid var(--faint); }
+.rail-body > .rail-section + .rail-talk { border-top: 0; padding-top: 4px; }
+.rail-q { margin: 0; font: 500 16px/1.45 var(--sans); color: var(--strong); white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
+.rail-about { margin: 0 0 3px; font: 400 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.rail-about a { color: var(--link); text-decoration: none; }
+.rail-about a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.rail-a { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rail-when { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-state { font: 500 12px/1.4 var(--sans); }
+.rail-state--needs { color: var(--k-call); }
+.rail-state--underway { color: var(--k-live); }
+/* Scannable at a glance: each message is one line, its answer at most two faded
+   lines; a click on the row opens the whole of both. Answered ones step back further. */
+.rail-talk:not(.open) > .rail-q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.rail-talk:not(.open) > .rail-a { color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
+.rail-talk:not(.open) > .rail-a * { display: inline; margin: 0; }
+.rail-talk:not(.open) > .reply { display: none; }
+.rail-talk.is-done:not(.open) > .rail-q { color: var(--muted); font-weight: 400; }
+.rail-card { margin: 0 0 22px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
 .rail-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: 500 14px/1.3 var(--mono); color: var(--fg); }
 .rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
 .rail-card p { margin: 0; padding: 0 12px 10px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
@@ -485,7 +535,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card-whose::before { content: "✓ "; }
 .rail-card-server--copy .rail-card-whose { color: var(--accent); }
 .rail-card-server--copy .rail-card-whose::before { content: "! "; }
-.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
+.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
 /* A framed page is laid out at a desktop width and scaled down whole, like a
    screenshot of it: the narrow card never reflows it. The script sets --fit. */
 .rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; border-top: 1px solid var(--faint); background: #fff; }
@@ -543,9 +593,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* What Flyd remembers: a card each, one plain sentence. What it learned while
    we talked sits in the conversation where it learned it. */
 /* A raised surface with no outline: the fill alone sets each card apart. */
-.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
-.rail-mem-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
-.rail-mem-kicker::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.rail-mem { margin: 0 0 24px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+.rail-body > .rail-mem + .rail-talk { border-top: 0; }
+.rail-mem-kicker { margin: 0 0 6px; font: 500 12px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
 .rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
 /* What it already holds here: folded under one line at the top until he opens it. */
@@ -556,30 +606,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-held > summary:hover { color: var(--fg); }
 .rail-held > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .rail-held-count { font-weight: 500; font-variant-numeric: tabular-nums; }
-.rail-held .rail-mem { margin-bottom: 8px; padding: 10px 12px; }
+.rail-held .rail-mem { margin-bottom: 12px; padding: 10px 12px; }
 .rail-held .rail-mem-text { font-size: 15px; color: var(--fg); }
-/* Several messages on one topic: one entry, his words together, the newest answer under them. */
-.rail-topic { margin: 0 0 18px; }
-/* His notes together are marked the way his messages are: the text highlighted
-   like a selection, line by line, with no bar beside them. The side shadows
-   give every wrapped line the same inset; the padding keeps them inside the card. */
-.rail-q-group { padding: 0 0.6em; border-left: 0; border-radius: 0; background: none; line-height: 1.9; overflow-wrap: anywhere; }
-.rail-q-group p { margin: 0; }
-.rail-q-group p + p { margin-top: 10px; }
-.rail-q-group .hl {
-  padding: 0.36em 0; background: var(--sel-bg); color: var(--sel-fg);
-  box-shadow: 0.6em 0 0 var(--sel-bg), -0.6em 0 0 var(--sel-bg);
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
-}
-.rail-topic-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
-.rail-topic-toggle:hover { color: var(--fg); }
-.rail-topic-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.rail-topic-toggle::after { content: "›"; transition: transform 180ms ease; }
-.rail-topic.open > .rail-topic-toggle::after { transform: rotate(90deg); }
-.rail-topic-each { margin: 10px 0 0; padding-left: 12px; border-left: 2px solid var(--faint); }
-.rail-topic-each .rail-talk { margin: 0 0 14px; }
-.rail-topic-each .rail-talk:last-child { margin-bottom: 0; }
-.rail-topic-each .rail-q { font-size: 16px; }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -621,7 +649,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .queued a, .rail-wait a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap, #underway li::before { animation: none; } }
 /* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long.
    Once firstmate has said the outcome, the outcome takes this line, in the same quiet face. */
 .receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
@@ -629,7 +657,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .receipt.outcome { overflow-wrap: anywhere; }
 .receipt a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
-.msg.aside { padding-left: 0.9em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.92em; }
+.msg.aside { color: var(--muted); font-size: 0.92em; }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
@@ -655,7 +683,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .body code { font: 0.84em var(--mono); background: var(--tint); padding: 0.12em 0.36em; border-radius: 5px; }
 .body pre { background: var(--tint); padding: 0.7em 0.85em; border-radius: 0.3em; overflow-x: auto; margin: 0 0 1em; font: 0.72em/1.6 var(--mono); }
 .body pre code { background: none; padding: 0; font: inherit; color: var(--fg); font-weight: 400; }
-.body blockquote { margin: 0 0 1em; padding: 0 0 0 1em; border-left: 2px solid var(--faint); color: var(--muted); }
+.body blockquote { margin: 0 0 1em; padding: 0; color: var(--muted); }
 .body hr { border: 0; border-top: 1px solid var(--faint); margin: 1.6em 0; }
 .body table { border-collapse: collapse; width: 100%; margin: 0.4em 0 1.1em; font-size: 0.8em; display: block; overflow-x: auto; }
 .body th { text-align: left; font: 500 0.82em var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
@@ -663,7 +691,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* A reply on several pieces of work, as Flyd shows it: grouped by what each
    asks of him, a coloured light per piece, the line itself opens the work.
    Flat, the artefact's colours; nothing framed. */
-.status-card { margin: 1.3em 0 1.4em; display: flex; flex-direction: column; gap: 1.3em; }
+.status-card { margin: 1.5em 0 1.6em; display: flex; flex-direction: column; gap: 1.7em; }
 .status-card:last-child { margin-bottom: 0; }
 /* A rail: the state on the left, its work on the right, like a title card. */
 .sc-group { --k: var(--k-news); display: grid; grid-template-columns: 7.2em minmax(0, 1fr); column-gap: 1.2em; align-items: baseline; }
@@ -678,7 +706,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
   animation: sc-in 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms);
 }
 .sc-what { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.6em; }
-.sc-led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--k); transform: translateY(-0.12em); }
+.sc-led { display: none; }
 .sc-what .sc-led { align-self: center; transform: none; opacity: 0.5; transition: opacity 140ms ease; }
 .sc-what .sc-led:hover, .sc-what .sc-led:focus-visible { opacity: 1; outline: 0; }
 .sc-group.k-call .sc-row > .sc-led { box-shadow: 0 0 0 4px color-mix(in srgb, var(--k) 20%, transparent); animation: sc-pulse 2.4s ease-in-out infinite; }
@@ -733,7 +761,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .passage.open { width: min(520px, calc(100vw - 32px)); max-width: min(520px, calc(100vw - 32px)); }
 .passage-card { padding: 14px 18px 16px; }
 .passage .reply-head { margin-bottom: 10px; }
-.passage-quote { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 2px solid var(--accent); font: 400 17px/1.45 var(--sans); color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.passage-quote { margin: 0 0 12px; padding: 0; font: 400 17px/1.45 var(--sans); color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .passage .reply-row { align-items: center; gap: 12px; }
 .passage .reply-input { min-height: 34px; font-size: 19px; line-height: 26px; padding: 4px 0; color: var(--strong); background: transparent; border: 0; border-radius: 0; }
 .passage .reply-input:focus { outline: none; }
@@ -787,9 +815,8 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .auto-undo:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 .auto-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .choice { animation: none; } }
-.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; border-left: 2px solid var(--faint); }
+.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; }
 .rail-replies .rail-talk { margin: 0 0 12px; }
-.rail-replies .rail-q { font-size: 16px; }
 .sc-ask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.5em; }
 .sc-ask-input { flex: 1; min-width: 8em; font: 400 0.82em/1.4 var(--sans); color: var(--fg); background: var(--tint); border: 0; border-radius: 8px; padding: 8px 10px; resize: none; }
 .sc-ask-input::placeholder { color: var(--muted); }
@@ -807,9 +834,6 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .working { margin-top: 1em; }
 .working[hidden] { display: none; }
 .working .dots { height: 20px; display: flex; gap: 7px; align-items: center; }
-/* What the assistant is doing now, small and quiet under the dots. */
-.working .doing { display: block; margin-top: 0.3em; font: 13px/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.working .doing:empty { display: none; }
 .working i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: breathe 1.4s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: .18s; } .working i:nth-child(3) { animation-delay: .36s; }
 @keyframes breathe { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
@@ -830,7 +854,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .summary > :last-child { margin-bottom: 0; }
 .summary p { margin: 0 0 0.5em; }
 .summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
-.compare { margin-top: 0.5em; padding-left: 0.8em; border-left: 2px solid var(--faint); color: var(--muted); font-size: 0.86em; }
+.compare { margin-top: 0.5em; padding-left: 0.8em; color: var(--muted); font-size: 0.86em; }
 .compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .compare p { margin: 0; }
 .more {
@@ -874,6 +898,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .msg.failed .state.queued { color: #d0574c; }
 .msg.failed.pending > * { opacity: 1; }
 .queued.still::before { animation: none; opacity: 0.5; }
+.msg .resend { all: unset; cursor: pointer; font: 400 0.82em/1.45 var(--sans); color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 /* Firstmate's outcome, said in its own chat: the work is settled, so the dot rests. */
 .queued.settled::before { animation: none; opacity: 0.5; }
 
@@ -991,7 +1016,6 @@ var __name = function (f) { return f; };
 (function () {
   var main = document.getElementById("stream");
   var working = document.getElementById("working");
-  var doing = document.getElementById("doing");
   var jump = document.getElementById("jump");
   var whenEl = document.getElementById("when");
   var picker = document.getElementById("picker");
@@ -1415,6 +1439,34 @@ var __name = function (f) { return f; };
     void line.offsetWidth;
     line.classList.add("swap");
   }
+  // A message whose send was in doubt has landed when, with no other note of his on its
+  // way, a note the page had not seen arrives, written no earlier than the send, that no
+  // other send was told is its own, carrying what he sent: his words with only markdown
+  // taken out, or as many pictures and files and no words.
+  var delivered = new Set();
+  var notesOut = 0;
+  function letters(text) { return text.toLowerCase().replace(/[^a-z0-9]/g, ""); }
+  function carries(typed, shown) {
+    if (shown.length < typed.length * 0.6) return false;
+    var at = 0;
+    for (var i = 0; i < typed.length && at < shown.length; i += 1) if (typed[i] === shown[at]) at += 1;
+    return at === shown.length;
+  }
+  function arrived(el) {
+    if (notesOut) return false;
+    var found = false;
+    nodes.forEach(function (node, id) {
+      if (found || el.knownIds.has(id) || delivered.has(id) || !node.classList.contains("user") || !node.dataset.ts) return;
+      if (new Date(node.dataset.ts).getTime() < el.sentAt - 5000) return;
+      var shown = letters(node.querySelector(".body").textContent);
+      var attached = node.querySelectorAll(":scope > .shots:not(.reply-shots) .shot, :scope > .docs .doc").length;
+      found = el.typed ? !!shown && carries(el.typed, shown) : !shown && attached === el.attached;
+    });
+    return found;
+  }
+  function clearLanded() {
+    main.querySelectorAll(".msg.pending.unsure").forEach(function (el) { if (arrived(el)) el.remove(); });
+  }
   function refreshWorking() {
     var recent = lastActivity && Date.now() - new Date(lastActivity).getTime() < 10 * 60 * 1000;
     // While his newest message's own line says what is happening, the dots would only repeat it.
@@ -1442,6 +1494,7 @@ var __name = function (f) { return f; };
     main.querySelectorAll(".msg.pending").forEach(function (el) {
       if (el.dataset.wait && update.order.indexOf(el.dataset.wait) !== -1) { awaiting.delete(el.dataset.wait); el.remove(); }
     });
+    clearLanded();
     var keep = new Set(update.order);
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
     var cursor = main.firstElementChild;
@@ -1460,7 +1513,6 @@ var __name = function (f) { return f; };
     main.appendChild(working);
     document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
     isWorking = update.working;
-    doing.textContent = update.working && update.activity ? update.activity : "";
     if (update.context) { usage.context = update.context; renderUsage(); }
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
@@ -1470,12 +1522,156 @@ var __name = function (f) { return f; };
     first = false;
     if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
+    renderBrief(update.show);
     renderRail(update.rail);
   }
+
+  // The top of the column, Flyd as chief of staff: the one decision that needs
+  // him, with what Flyd advises; every job a worker is on now; and what got
+  // done, one line each. Read from firstmate's own records on every update.
+  var briefEl = document.getElementById("brief");
+  var needsEl = document.getElementById("needs");
+  var underwayEl = document.getElementById("underway");
+  var doneEl = document.getElementById("done");
+  var briefFilled = false;
+  var lastBrief = null;
+  var needsAt = Number(store("flyd-needs-at")) || 0;
+  var needsShown = "";
+  var needsDrawn = "";
+  var doneAll = false;
+  var DONE_FEW = 3;
+  function running(iso) {
+    var minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (isNaN(minutes)) return "";
+    if (minutes < 1) return "just started";
+    if (minutes < 60) return minutes + " min";
+    var hours = Math.round(minutes / 60);
+    return hours < 24 ? hours + " h" : Math.round(hours / 24) + (Math.round(hours / 24) === 1 ? " day" : " days");
+  }
+  // "GNM (Good Neighbours Market)" is GNM on a line this small.
+  function shortName(project) { return project ? String(project).replace(/\\s*\\([^)]*\\)\\s*$/, "") : ""; }
+  function briefTop(label, extra) {
+    var top = el("div", "brief-top");
+    top.appendChild(el("h2", "brief-label", label));
+    if (extra) top.appendChild(extra);
+    return top;
+  }
+  function briefItem(item, meta) {
+    var li = el("li");
+    var line = el("span", "brief-line");
+    var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
+    if (link) {
+      var a = el("a", "", item.headline);
+      a.href = link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      line.appendChild(a);
+    } else line.textContent = item.headline;
+    line.title = item.headline;
+    li.appendChild(line);
+    var said = [shortName(item.project), meta].filter(Boolean).join(" · ");
+    if (said) li.appendChild(el("span", "brief-meta", said));
+    return li;
+  }
+  function drawNeeds(calls) {
+    if (!calls.length) { needsEl.hidden = true; needsEl.textContent = ""; needsDrawn = ""; needsShown = ""; return; }
+    // The same call stays while it is there; once answered, the next one takes its place.
+    var index = calls.findIndex(function (call) { return call.id === needsShown; });
+    if (index < 0) index = Math.min(needsAt, calls.length - 1);
+    needsAt = index;
+    needsShown = calls[index].id;
+    store("flyd-needs-at", String(index));
+    var call = calls[index];
+    var key = JSON.stringify([call, index, calls.length]);
+    needsEl.hidden = false;
+    if (key === needsDrawn) return;
+    needsDrawn = key;
+    needsEl.textContent = "";
+    var nav = null;
+    if (calls.length > 1) {
+      nav = el("span", "needs-nav");
+      var back = el("button", "", "‹");
+      back.type = "button";
+      back.setAttribute("aria-label", "The one before");
+      back.disabled = index === 0;
+      var forward = el("button", "", "›");
+      forward.type = "button";
+      forward.setAttribute("aria-label", "The next one");
+      forward.disabled = index === calls.length - 1;
+      back.addEventListener("click", function () { needsShown = calls[Math.max(0, index - 1)].id; drawNeeds(calls); });
+      forward.addEventListener("click", function () { needsShown = calls[Math.min(calls.length - 1, index + 1)].id; drawNeeds(calls); });
+      nav.appendChild(back);
+      nav.appendChild(el("span", "", (index + 1) + " of " + calls.length));
+      nav.appendChild(forward);
+    }
+    needsEl.appendChild(briefTop("Needs you", nav));
+    var meta = [shortName(call.project), call.at ? ago(call.at) : ""].filter(Boolean).join(" · ");
+    if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
+    needsEl.appendChild(el("h3", "needs-head", call.headline));
+    var question = call.decision && call.decision.question;
+    var detail = call.detail && call.detail !== call.headline ? call.detail : question && question !== call.headline ? question : "";
+    if (detail) needsEl.appendChild(el("p", "needs-detail", sentence(capital(detail))));
+    var advice = call.decision && call.decision.recommended ? "I'd pick " + call.decision.recommended + "." : "";
+    if (advice) {
+      var rec = el("p", "needs-rec");
+      rec.appendChild(el("b", "", "Recommended"));
+      rec.appendChild(document.createTextNode(advice));
+      needsEl.appendChild(rec);
+    }
+    (call.links || []).forEach(function (link) {
+      if (link.closed) return;
+      var a = el("a", "call-link", link.label + " ↗");
+      a.href = link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      needsEl.appendChild(a);
+    });
+    if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
+  }
+  function drawList(section, label, items, meta, few) {
+    section.textContent = "";
+    section.hidden = !items.length;
+    if (!items.length) return;
+    section.appendChild(briefTop(label));
+    var list = el("ul");
+    var shown = few && !doneAll ? items.slice(0, few) : items;
+    shown.forEach(function (item) { list.appendChild(briefItem(item, meta(item))); });
+    section.appendChild(list);
+    if (few && items.length > few) {
+      var more = el("button", "brief-more", doneAll ? "Show fewer" : "Show all " + items.length);
+      more.type = "button";
+      more.addEventListener("click", function () { doneAll = !doneAll; renderBrief(lastBrief); });
+      section.appendChild(more);
+    }
+  }
+  function renderBrief(show) {
+    lastBrief = show || null;
+    var calls = (show && show.calls) || [];
+    var underway = (show && show.underway) || [];
+    var done = (show && show.done) || [];
+    drawNeeds(calls);
+    drawList(underwayEl, "Under way", underway, function (item) { return item.started ? running(item.started) : ""; });
+    drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
+    briefFilled = calls.length + underway.length + done.length > 0;
+    briefEl.hidden = !briefFilled;
+    showRail();
+  }
+  // How long each job has run moves on with the clock, not only with updates.
+  setInterval(function () { if (lastBrief) renderBrief(lastBrief); }, 60000);
 
   // The right column: his conversations with their answers, and artefacts beside them.
   var railEl = document.getElementById("rail");
   var railBody = document.getElementById("rail-body");
+  var artefactBody = document.getElementById("artefact-body");
+  var railTab = store("flyd-rail-tab") || "artefacts";
+  function selectRailTab(tab) {
+    railTab = tab;
+    store("flyd-rail-tab", tab);
+    document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.setAttribute("aria-selected", String(button.getAttribute("data-rail-tab") === tab)); });
+    document.querySelectorAll("[data-rail-pane]").forEach(function (pane) { pane.hidden = pane.getAttribute("data-rail-pane") !== tab; });
+  }
+  document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.addEventListener("click", function () { selectRailTab(button.getAttribute("data-rail-tab")); }); });
+  selectRailTab(railTab === "detail" ? "detail" : "artefacts");
   var railSignature = null;
   var railHidden = store("flyd-rail") === "off";
   function railRoot() { return document.documentElement; }
@@ -1585,7 +1781,7 @@ var __name = function (f) { return f; };
       try {
         var comment = { url: card.url || card.preview, x: spot.x, y: spot.y, text: text.value };
         if (spot.element) comment.element = spot.element;
-        var response = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ session: current, comment: comment }) });
+        var response = await authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, comment: comment }) }, true);
         var sent = await response.json();
         if (!response.ok) throw new Error(sent.error || "Not sent");
         pin.classList.add("sent");
@@ -1732,18 +1928,50 @@ var __name = function (f) { return f; };
     // The picture of the result leads; the words follow.
     if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
     if (talk.page) wrap.appendChild(pageButton(talk.page, "rail-open"));
+    // Its own answer only; where it stands is the word over it, never a narrated step.
     if (talk.answerHtml) {
       var answer = el("div", "rail-a rail-a-md");
       answer.innerHTML = talk.answerHtml;
       wrap.appendChild(answer);
     } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
-    else if (talk.answered) wrap.appendChild(el("p", "rail-wait", "Answered"));
-    else if (talk.waiting) { var wait = el("p", "rail-wait"); linkLine(wait, talk.waiting); wrap.appendChild(wait); }
   }
   function talkRest(wrap, talk) {
     (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
-    if (talk.at) wrap.appendChild(el("div", "rail-when", ago(talk.at)));
     if (SEND_TOKEN && (talk.answer || talk.answerHtml || talk.answered)) wrap.appendChild(replyBox(talk.id, "rail"));
+  }
+  var STATES = { done: "Done", underway: "Under way", needs: "Needs you" };
+  // Where a message stands, in a word, and when he sent it: both small.
+  function talkWhen(talk) {
+    var line = el("div", "rail-when");
+    var state = talk.state || (talk.answer || talk.answerHtml || talk.answered ? "done" : "underway");
+    line.appendChild(el("span", "rail-state rail-state--" + state, STATES[state] || ""));
+    if (talk.at) {
+      line.appendChild(el("span", "", "·"));
+      line.appendChild(el("span", "", ago(talk.at)));
+    }
+    return line;
+  }
+  // His words as he wrote them; what they were about (an artefact, a decision) named and linked over them.
+  function talkHead(wrap, talk) {
+    if (talk.about) {
+      var about = el("p", "rail-about");
+      if (talk.about.url) {
+        var link = el("a", "", talk.about.title + " ↗");
+        link.href = talk.about.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        about.appendChild(link);
+      } else about.textContent = talk.about.title;
+      wrap.appendChild(about);
+    }
+    if (talk.question) wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
+    wrap.appendChild(talkWhen(talk));
+  }
+  // Every row is folded to a line and two until he opens it (see the column's click handler); answered ones step back.
+  var talksOpen = new Set();
+  function talkFold(wrap, talk) {
+    if ((talk.state || "") === "done") wrap.classList.add("is-done");
+    if (talksOpen.has(talk.id)) wrap.classList.add("open");
   }
 
   // His reply to one answer, in a box under it. The box is drawn from its
@@ -2220,15 +2448,17 @@ var __name = function (f) { return f; };
     var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
     // A reply whose answer has scrolled out of the column says what it answers.
     if (talk.replyQuote) wrap.appendChild(el("span", "reply-ref", "Replying to “" + talk.replyQuote + "”"));
-    wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
+    talkHead(wrap, talk);
     talkAnswer(wrap, talk);
+    talkFold(wrap, talk);
     talkRest(wrap, talk);
     if (talk.replies && talk.replies.length) {
       var thread = keyed(el("div", "rail-replies"), "replies:" + talk.id, true);
       talk.replies.forEach(function (reply) {
         var sub = keyed(el("div", "rail-talk"), "talk:" + reply.id, true);
-        sub.appendChild(el("p", "rail-q", sentence(capital(reply.question))));
+        talkHead(sub, reply);
         talkAnswer(sub, reply);
+        talkFold(sub, reply);
         talkRest(sub, reply);
         thread.appendChild(sub);
       });
@@ -2236,49 +2466,21 @@ var __name = function (f) { return f; };
     }
     return wrap;
   }
-  // Several messages on one topic: his words together, the newest answer under
-  // them; opened, each message with its own answer.
-  var topicsOpen = new Set();
   var lastRail = null;
-  function railTopic(talk) {
-    var all = [talk].concat(talk.sameTopic);
-    var open = topicsOpen.has(talk.id);
-    var wrap = keyed(el("div", "rail-topic" + (open ? " open" : "")), "topic:" + talk.id, true);
-    var toggle = el("button", "rail-topic-toggle", open ? "Show together" : "Show all " + all.length + " separately");
-    toggle.type = "button";
-    toggle.setAttribute("aria-expanded", String(open));
-    toggle.addEventListener("click", function () {
-      if (topicsOpen.has(talk.id)) topicsOpen.delete(talk.id); else topicsOpen.add(talk.id);
-      railSignature = null;
-      renderRail(lastRail);
-    });
-    if (open) {
-      var each = el("div", "rail-topic-each");
-      all.forEach(function (one) { each.appendChild(railTalk(one)); });
-      wrap.appendChild(toggle);
-      wrap.appendChild(each);
-      return wrap;
-    }
-    var newest = all[all.length - 1];
-    var asked = el("div", "rail-q rail-q-group");
-    all.forEach(function (one) {
-      var note = el("p");
-      note.appendChild(el("span", "hl", sentence(capital(one.question))));
-      asked.appendChild(note);
-    });
-    wrap.appendChild(asked);
-    wrap.appendChild(toggle);
-    talkAnswer(wrap, newest);
-    talkRest(wrap, newest);
-    return wrap;
+  var railFilled = false;
+  // The column shows when it has something: a call, a job, done work, or his messages; unless he hid it.
+  function showRail() {
+    railEl.hidden = railHidden || !(railFilled || briefFilled);
+    setRail(railOn());
   }
   function renderRail(rail) {
     lastRail = rail;
-    if (!rail) { railEl.hidden = true; setRail(false); return; }
-    var signature = JSON.stringify(rail);
-    if (signature === railSignature) { railEl.hidden = railHidden; setRail(railOn()); return; }
+    if (!rail) { railFilled = false; showRail(); return; }
+    var signature = JSON.stringify([rail.conversations, rail.artefacts, rail.memory, Array.from(talksOpen)]);
+    if (signature === railSignature) { showRail(); return; }
     railSignature = signature;
     var next = el("div");
+    var nextArtefacts = el("div");
     var talks = rail.conversations || [];
     // Chat order: the newest message last, at the bottom, which stays in view
     // unless he has scrolled up to read.
@@ -2286,8 +2488,7 @@ var __name = function (f) { return f; };
     var held = renderHeld(rail.memory, next);
     var cards = rail.artefacts || [];
     if (cards.length) {
-      next.appendChild(el("div", "rail-section", "Artefacts"));
-      cards.forEach(function (card) { next.appendChild(railCard(card)); });
+      cards.forEach(function (card) { nextArtefacts.appendChild(railCard(card)); });
     }
     // What Flyd learned while we talked sits in the conversation, after the message it learned it from.
     var learned = ((rail.memory && rail.memory.remembering) || []).slice().sort(function (a, b) { return timeOf(a.at) - timeOf(b.at); });
@@ -2296,17 +2497,33 @@ var __name = function (f) { return f; };
     talks.forEach(function (talk) {
       var start = talk.at ? Date.parse(talk.at) : NaN;
       while (told < learned.length && timeOf(learned[told].at) < start) next.appendChild(railMemory(learned[told++], true));
-      next.appendChild(talk.sameTopic && talk.sameTopic.length ? railTopic(talk) : railTalk(talk));
+      next.appendChild(railTalk(talk));
     });
     while (told < learned.length) next.appendChild(railMemory(learned[told++], true));
     patch(railBody, Array.prototype.slice.call(next.children));
-    railEl.hidden = railHidden || (!talks.length && !cards.length && !held && !learned.length);
-    setRail(railOn());
+    patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
+    railFilled = talks.length > 0 || cards.length > 0 || held || learned.length > 0;
+    showRail();
     if (pinned) railBody.scrollTop = railBody.scrollHeight;
   }
-  document.getElementById("rail-hide").addEventListener("click", function () {
-    railHidden = true; store("flyd-rail", "off"); railEl.hidden = true; setRail(false);
+  // A folded row opens with a click on its words or its answer, and stays open across updates.
+  railBody.addEventListener("click", function (event) {
+    var hit = event.target instanceof Element ? event.target.closest(".rail-talk:not(.open) > .rail-q, .rail-talk:not(.open) > .rail-a") : null;
+    if (!hit || (event.target instanceof Element && event.target.closest("a"))) return;
+    var talk = hit.parentElement;
+    talksOpen.add(String(talk.dataset.key || "").replace(/^talk:/, ""));
+    talk.classList.add("open");
   });
+  function hideRail(hidden) {
+    railHidden = hidden;
+    store("flyd-rail", hidden ? "off" : "on");
+    railToggle.setAttribute("aria-checked", String(!hidden));
+    showRail();
+  }
+  var railToggle = document.getElementById("rail-toggle");
+  railToggle.setAttribute("aria-checked", String(!railHidden));
+  railToggle.addEventListener("click", function () { hideRail(!railHidden); });
+  document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
 
   // The chat box at the foot of every artefact: his words about that one thing go
   // to firstmate naming it, and the line under the box says where they are in
@@ -2735,13 +2952,28 @@ var __name = function (f) { return f; };
   window.addEventListener("pagehide", function () { if (draftTimer) saveDraftNow(true); });
   // A token from before the view restarted is swapped for the current one, once.
   function authed(path, init, retry) {
+    if (path !== "/api/send") return tokenFetch(path, init, retry);
+    notesOut += 1;
+    return tokenFetch(path, init, retry).then(function (response) {
+      return response.clone().json().catch(function () { return null; }).then(function (data) {
+        notesOut -= 1;
+        if (response.ok && data && data.id) delivered.add(data.id);
+        clearLanded();
+        return response;
+      });
+    }, function (error) {
+      notesOut -= 1;
+      throw error;
+    });
+  }
+  function tokenFetch(path, init, retry) {
     var headers = Object.assign({}, init.headers || {}, { "x-flyd-view-token": SEND_TOKEN });
     return fetch(path, Object.assign({}, init, { headers: headers })).then(function (response) {
       if (response.status !== 403 || !retry) return response;
       return fetch("/api/token").then(function (r) { return r.json(); }).then(function (data) {
         if (!data.token) return response;
         SEND_TOKEN = data.token;
-        return authed(path, init, false);
+        return tokenFetch(path, init, false);
       });
     });
   }
@@ -3081,12 +3313,17 @@ var __name = function (f) { return f; };
     } catch (e) { /* sound is a nicety */ }
   }
 
+  // A send whose answer never came may still have landed: when the view answers
+  // straight after, he is told it may not have sent and resends it himself;
+  // when it does not, it was not sent.
   function deliver(payload) {
     return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
       return response.json().then(function (data) {
         if (!response.ok) throw new Error(data.error || "not sent");
         return data;
       });
+    }, function (error) {
+      return fetch("/api/token").then(function () { return { unsure: true }; }, function () { throw error; });
     });
   }
 
@@ -3184,41 +3421,69 @@ var __name = function (f) { return f; };
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
-    deliver(payload).then(function (sent) {
-      sendsInFlight -= 1;
-      // Landed: the draft it came from goes, unless he has started another.
-      if (!input.value && !attachments.length) saveDraftNow();
-      blip();
-      // Inside Flyd.app the notch island says "sent".
-      try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
-      // Kept until the message shows up in the conversation itself.
-      if (nodes.has(sent.id)) {
-        el.remove();
-        if (sent.warning) {
-          warnings.set(sent.id, "saved, but not passed on yet");
-          showWarning(nodes.get(sent.id), warnings.get(sent.id));
+    el.typed = letters(text);
+    el.attached = sending.length;
+    function send() {
+      el.knownIds = new Set(nodes.keys());
+      el.sentAt = Date.now();
+      deliver(payload).then(function (sent) {
+        sendsInFlight -= 1;
+        if (sent.unsure) {
+          if (arrived(el)) { el.remove(); return; }
+          var line = el.querySelector(".state");
+          el.classList.add("unsure");
+          line.classList.add("still");
+          living(line, "may not have sent -");
+          var resend = document.createElement("button");
+          resend.type = "button";
+          resend.className = "resend";
+          resend.textContent = "tap to resend";
+          resend.addEventListener("click", function () {
+            resend.remove();
+            el.classList.remove("unsure");
+            line.classList.remove("still");
+            living(line, ${JSON.stringify(RECEIVED)});
+            sendsInFlight += 1;
+            send();
+          });
+          line.after(resend);
+          return;
         }
-        return;
-      }
-      var state = el.querySelector(".state");
-      if (latestSession && current !== latestSession) {
-        // Firstmate answers in its live session; the note is shown there.
-        state.classList.add("still");
-        living(state, "Sent. It shows in the latest session");
-        return;
-      }
-      el.dataset.wait = sent.id;
-      awaiting.add(sent.id);
-      if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
-      living(state, warnings.get(sent.id) || sent.waiting || "Sent");
-      carried.set(sent.id, state.dataset.line || state.textContent);
-    }).catch(function (error) {
-      sendsInFlight -= 1;
-      el.classList.add("failed");
-      el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
-      el.addEventListener("click", function () { el.remove(); });
-      if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
-    });
+        // Landed: the draft it came from goes, unless he has started another.
+        if (!input.value && !attachments.length) saveDraftNow();
+        blip();
+        // Inside Flyd.app the notch island says "sent".
+        try { window.webkit.messageHandlers.flyd.postMessage({ sent: true }); } catch (e) { /* in a browser */ }
+        // Kept until the message shows up in the conversation itself.
+        if (nodes.has(sent.id)) {
+          el.remove();
+          if (sent.warning) {
+            warnings.set(sent.id, "saved, but not passed on yet");
+            showWarning(nodes.get(sent.id), warnings.get(sent.id));
+          }
+          return;
+        }
+        var state = el.querySelector(".state");
+        if (latestSession && current !== latestSession) {
+          // Firstmate answers in its live session; the note is shown there.
+          state.classList.add("still");
+          living(state, "Sent. It shows in the latest session");
+          return;
+        }
+        el.dataset.wait = sent.id;
+        awaiting.add(sent.id);
+        if (sent.warning) warnings.set(sent.id, "saved, but not passed on yet");
+        living(state, warnings.get(sent.id) || sent.waiting || "Sent");
+        carried.set(sent.id, state.dataset.line || state.textContent);
+      }).catch(function (error) {
+        sendsInFlight -= 1;
+        el.classList.add("failed");
+        el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
+        el.addEventListener("click", function () { el.remove(); });
+        if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
+      });
+    }
+    send();
   });
   restoreDraft();
 
@@ -3623,7 +3888,7 @@ var __name = function (f) { return f; };
   function renderDoing() {
     if (!lastScreen) return;
     showDoing.classList.toggle("on", !!lastScreen.live);
-    showDoing.textContent = lastScreen.live ? (lastScreen.doing || "Working on it") : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
+    showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
   }
   function renderShow(next, boxes) {
     lastScreen = next;
@@ -3818,15 +4083,27 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <p class="prefs-title">Preferences</p>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
-<aside class="rail" id="rail" hidden aria-label="Your conversations, artefacts and what Flyd remembers">
-  <div class="rail-head"><span>Your conversations</span><button id="rail-hide" type="button" aria-label="Hide the column">✕</button></div>
-  <div class="rail-body" id="rail-body"></div>
+<aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
+  <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
+  <nav class="rail-tabs" aria-label="Sidebar view"><button type="button" data-rail-tab="artefacts" aria-selected="true">Artefacts</button><button type="button" data-rail-tab="detail" aria-selected="false">Detailed view</button></nav>
+  <div class="rail-pane" data-rail-pane="artefacts">
+  <div class="brief" id="brief" hidden>
+    <section class="needs" id="needs" hidden aria-label="Needs you"></section>
+    <section class="brief-list" id="underway" hidden aria-label="Under way"></section>
+    <section class="brief-list" id="done" hidden aria-label="Done"></section>
+  </div>
+  <div class="rail-body" id="artefact-body"></div>
+  </div>
+  <div class="rail-pane" data-rail-pane="detail" hidden>
+    <div class="rail-body" id="rail-body"></div>
+  </div>
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
-  <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span><span class="doing" id="doing"></span></div>
+  <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
