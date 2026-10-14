@@ -4,9 +4,19 @@ import XCTest
 final class CoreNotificationsTests: XCTestCase {
     func testReadsNotificationsFromTheFeedAndKeepsAPartialEvent() {
         let stream = ": connected\n\nevent: notification\ndata: {\"title\":\"Agenda done\",\"message\":\"The meeting is at 9.\"}\n\nevent: notification\ndata: {\"title\":\"Sc"
-        let parsed = CoreNotificationPayload.parse(stream)
+        let parsed = CoreNotificationPayload.parse(Data(stream.utf8))
         XCTAssertEqual(parsed.notifications, [CoreNotificationPayload(title: "Agenda done", message: "The meeting is at 9.")])
-        XCTAssertEqual(parsed.rest, "event: notification\ndata: {\"title\":\"Sc")
+        XCTAssertEqual(parsed.rest, Data("event: notification\ndata: {\"title\":\"Sc".utf8))
+    }
+
+    func testANotificationSplitInsideACharacterStillArrivesWhole() {
+        let event = Data("event: notification\ndata: {\"title\":\"Scout — today\",\"message\":\"Three new reads\"}\n\n".utf8)
+        let dash = event.firstRange(of: Data("—".utf8))!
+        let first = CoreNotificationPayload.parse(event[..<(dash.lowerBound + 1)])
+        XCTAssertEqual(first.notifications, [])
+        let second = CoreNotificationPayload.parse(first.rest + event[(dash.lowerBound + 1)...])
+        XCTAssertEqual(second.notifications, [CoreNotificationPayload(title: "Scout — today", message: "Three new reads")])
+        XCTAssertEqual(second.rest, Data())
     }
 }
 

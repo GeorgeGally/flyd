@@ -207,17 +207,24 @@ function acquireLock(path: string): boolean {
 }
 
 export async function notifyMac(title: string, message: string): Promise<void> {
-  if (process.platform !== "darwin") return;
+  await deliverNotification(title, message);
+}
+
+export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
   try {
     const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
-    await fetch("http://127.0.0.1:4815/notify", {
+    const response = await fetch("http://127.0.0.1:4815/notify", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220) }),
       signal: AbortSignal.timeout(10_000),
     });
+    if (!response.ok) return false;
+    const { delivered } = await response.json() as { delivered?: number };
+    return (delivered ?? 0) > 0;
   } catch {
-    return;
+    return false;
   }
 }
 

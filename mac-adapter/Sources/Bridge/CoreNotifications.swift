@@ -5,12 +5,12 @@ struct CoreNotificationPayload: Decodable, Equatable {
     let message: String
 
     /// The notifications in a chunk of Core's /notifications event stream, and what is left over.
-    static func parse(_ buffer: String) -> (notifications: [CoreNotificationPayload], rest: String) {
+    static func parse(_ buffer: Data) -> (notifications: [CoreNotificationPayload], rest: Data) {
         var rest = buffer
         var notifications: [CoreNotificationPayload] = []
-        while let end = rest.range(of: "\n\n") {
-            let event = String(rest[..<end.lowerBound])
-            rest = String(rest[end.upperBound...])
+        while let end = rest.range(of: Data("\n\n".utf8)) {
+            let event = String(decoding: rest[..<end.lowerBound], as: UTF8.self)
+            rest = Data(rest[end.upperBound...])
             guard event.contains("event: notification"),
                   let line = event.split(separator: "\n").first(where: { $0.hasPrefix("data: ") }),
                   let payload = try? JSONDecoder().decode(CoreNotificationPayload.self, from: Data(line.dropFirst(6).utf8))
@@ -38,7 +38,7 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
     private let url = URL(string: "http://127.0.0.1:4815/notifications")!
     private var session: URLSession?
     private var task: URLSessionDataTask?
-    private var buffer = ""
+    private var buffer = Data()
     private var waiting: [CoreNotificationPayload] = []
 
     func start() {
@@ -62,14 +62,14 @@ final class CoreNotifications: NSObject, URLSessionDataDelegate {
     private func connect() {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(AdapterAuth.shared.credential())", forHTTPHeaderField: "Authorization")
-        buffer = ""
+        buffer = Data()
         task = session?.dataTask(with: request)
         task?.resume()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard dataTask === task, let text = String(data: data, encoding: .utf8) else { return }
-        let parsed = CoreNotificationPayload.parse(buffer + text)
+        guard dataTask === task else { return }
+        let parsed = CoreNotificationPayload.parse(buffer + data)
         buffer = parsed.rest
         waiting += parsed.notifications
         showNext()

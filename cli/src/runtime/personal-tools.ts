@@ -464,9 +464,8 @@ async function runMacAction(
       case "notify": {
         const text = String(input.text ?? "").trim();
         if (!text) return "Error: notify needs text";
-        const { notifyMac } = await import("./agenda.js");
-        await notifyMac("Flyd", text.slice(0, 220));
-        return "Notification shown";
+        const { deliverNotification } = await import("./agenda.js");
+        return await deliverNotification("Flyd", text.slice(0, 220)) ? "Notification shown" : "Notification not delivered: Flyd.app isn't connected";
       }
       case "clipboard_read": {
         const { stdout } = await execFileAsync("pbpaste", [], { timeout: 5_000, maxBuffer: 1024 * 1024 });
