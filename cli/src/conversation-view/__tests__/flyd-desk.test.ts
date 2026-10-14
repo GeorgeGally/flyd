@@ -141,17 +141,38 @@ describe("FlydDesk", () => {
     ]);
   });
 
-  it("hands the screenshots he attached to Flyd's answer", async () => {
-    const seen: unknown[] = [];
-    const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, images) => {
-      seen.push(images);
-      return "That is a 404 from the preview server.";
+  it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
+    const asked: Array<[string, unknown]> = [];
+    const desk = new FlydDesk({
+      dir,
+      see: async (question, images) => `[shows: a 404 page for ${question} (${images.length})]`,
+      answer: async (question, history) => {
+        asked.push([question, history]);
+        return "That is a 404 from the preview server.";
+      },
+    });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const sent = desk.ask("is this normal?", [{ mediaType: "image/png", data: png }]);
+    await until(() => (desk.exchanges()[0]?.answer ? true : undefined));
+    const [exchange] = desk.exchanges();
+    expect(asked[0]![0]).toBe("is this normal?\n\n[shows: a 404 page for is this normal? (1)]");
+    expect(exchange!.question.id).toBe(sent.id);
+    expect(exchange!.question.text).toBe("is this normal?");
+    expect(exchange!.question.images).toHaveLength(1);
+    expect(desk.image(exchange!.question.images![0]!)?.mediaType).toBe("image/png");
+    expect(desk.image("a../../etc/passwd")).toBeNull();
+
+    // A follow-up, even from a desk read again after a restart, still knows what the screenshot showed.
+    const again = new FlydDesk({ dir, answer: async (question, history) => {
+      asked.push([question, history]);
+      return "Yes.";
     } });
-    const image = { mediaType: "image/png", data: "iVBORw0KGgo=" };
-    desk.ask("Is this normal", [image]);
-    desk.ask("and this?");
-    await until(() => (desk.exchanges().every((exchange) => exchange.answer) ? true : undefined));
-    expect(seen).toEqual([[image], undefined]);
+    again.ask("and how do I fix it?");
+    await until(() => (asked.length === 2 ? true : undefined));
+    expect(asked[1]![1]).toEqual([
+      { role: "user", content: "is this normal?\n\n[shows: a 404 page for is this normal? (1)]" },
+      { role: "assistant", content: "That is a 404 from the preview server." },
+    ]);
   });
 
   it("says what Flyd is doing the moment it changes, then its answer", async () => {

@@ -3888,7 +3888,7 @@ var __name = function (f) { return f; };
   function renderDoing() {
     if (!lastScreen) return;
     showDoing.classList.toggle("on", !!lastScreen.live);
-    showDoing.textContent = lastScreen.live ? (lastScreen.doing || "Working on it") : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
+    showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
   }
   function renderShow(next, boxes) {
     lastScreen = next;

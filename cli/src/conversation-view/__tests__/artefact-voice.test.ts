@@ -102,10 +102,10 @@ describe("withVoice", () => {
     });
     const { fleet: voiced, unsaid } = withVoice(fleet, (item) =>
       item.kind === "needs you" ? { headline: "Jev's trial is up; does it stay?", line: "Keep it or drop it." } : undefined);
-    expect(unsaid).toEqual([{ kind: "under way", title: "Flyd: drag and drop documents into the window", detail: "Working on it now", project: "flyd" }]);
+    expect(unsaid).toEqual([{ kind: "under way", title: "Flyd: drag and drop documents into the window", detail: "A worker is on it", project: "flyd" }]);
     const items = composeArtefact({ fleet: voiced, memories: [], news: [], taste: [] });
     expect(items[0]).toMatchObject({ kind: "call", headline: "Jev's trial is up; does it stay?", detail: "Keep it or drop it." });
-    expect(items[1]).toMatchObject({ kind: "live", headline: "Drag and drop documents into the window", detail: "Working on it now" });
+    expect(items[1]).toMatchObject({ kind: "live", headline: "Drag and drop documents into the window", detail: "A worker is on it" });
   });
 
   it("shows source evidence rather than unmatched cached words", () => {

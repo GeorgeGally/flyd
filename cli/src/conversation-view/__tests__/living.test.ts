@@ -38,7 +38,11 @@ describe("the living line", () => {
   });
 
   it("never quotes his words back when they are not a task Flyd is doing", () => {
-    expect(handoffLine("queued", { text: "what is the notch island doing wrong?" })).toBe("Looking up the notch island doing wrong");
+    expect(handoffLine("queued", { text: "what is usb overdrive?" })).toBe("Looking up usb overdrive");
+    expect(handoffLine("queued", { text: "who's playing at art bangkok?" })).toBe("Queued for a next step");
+    for (const text of ["what is the notch island doing wrong?", "Did you push it?", "can you deploy it?", "why did the build fail?", "is this normal?", "what is it?"]) {
+      expect(handoffLine("queued", { text })).toBe("Queued for a next step");
+    }
     expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe("Queued for a next step");
     for (const text of ["tell firstmate to fix the footer", "get the crew to land it", "/deploy staging", "can you show me the logs", "fix my site", "fix what I'm seeing on the island", "fix the bug I am seeing", "check what I've changed today", "update the copy we'll ship on our site", "/ce-code-review fix the branch", "fix it", "ok"]) {
       expect(handoffLine("queued", { text })).toBe("Queued for a next step");

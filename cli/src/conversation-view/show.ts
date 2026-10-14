@@ -355,11 +355,13 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
 
   // What is moving right now.
   const status = statusOf(snapshot, now);
+  // What is moving, in words: the step being taken, else the job a worker is on, else only that work is under way.
+  const doing = status.working ? tidy(status.activity ?? underwayItems(inputs.artefact?.fleet)[0]?.headline ?? "Work is under way") : "";
   if (status.working) {
     items.push({
       id: "live",
       kind: "live",
-      headline: tidy(status.activity ?? "Working on it"),
+      headline: doing,
       why: `${assistant} is on it now`,
       ...(snapshot.lastActivity ? { at: snapshot.lastActivity } : {}),
     });
@@ -423,7 +425,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
     ...(fleet?.generated ? { read: fleet.generated } : {}),
     live: status.working,
-    ...(status.working && status.activity ? { doing: tidy(status.activity) } : {}),
+    ...(doing ? { doing } : {}),
   };
 }
 

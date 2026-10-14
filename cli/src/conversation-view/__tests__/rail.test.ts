@@ -280,6 +280,8 @@ describe("one row per message", () => {
     expect(railState({ answer: assistant("a", "It's built. Want me to merge it?", "q") })).toBe("needs");
     expect(railState({ answer: assistant("a", "Ready, it waits on your go-ahead.", "q") })).toBe("needs");
     expect(railState({ answer: assistant("a", "Agreed. Each note gets a row tagged done, under way or needs you.", "q") })).toBe("done");
+    expect(railState({ answer: assistant("a", "The fix is under way; a worker is running the checks.", "q") })).toBe("underway");
+    expect(railState({ answer: assistant("a", "Merged. The checks were running for a while.", "q") })).toBe("done");
     expect(railState({ answered: true })).toBe("done");
     expect(railState({})).toBe("underway");
     expect(railState({ answered: true, state: "underway" })).toBe("underway");

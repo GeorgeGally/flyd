@@ -278,11 +278,11 @@ describe("firstmate's replies to notes", () => {
     writeNote("", "1791516064-ZGKFlI", "2026-10-09T03:21:04Z", question);
     const inbox = new FirstmateInbox({ home });
     let merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});
-    expect(merged.map((m) => [m.id, m.waiting])).toEqual([["note:1791516064-ZGKFlI", "Working on it"], ["t1", undefined]]);
+    expect(merged.map((m) => [m.id, m.waiting])).toEqual([["note:1791516064-ZGKFlI", "Queued for a next step"], ["t1", undefined]]);
 
     mkdirSync(join(home, "state", "inbox", "handled"));
     renameSync(join(home, "state", "inbox", "1791516064-ZGKFlI.note"), join(home, "state", "inbox", "handled", "1791516064-ZGKFlI.note"));
-    expect(mergeNotes([], inbox.notes(), {})[0]!.waiting).toBe("Working on it");
+    expect(mergeNotes([], inbox.notes(), {})[0]!.waiting).toBe("Waiting for a clear next step");
 
     writeReply("1791516064-ZGKFlI", "2026-10-09T03:22:45Z", 1, "Tonight: art bangkok.");
     merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});

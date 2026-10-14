@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { ANSWERING } from "./living.js";
-import type { ConversationMessage, Exchange, ImageUpload, SentMessage } from "./types.js";
+import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
+import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 
@@ -148,13 +149,27 @@ interface AskRecord {
   id: string;
   at: string;
   text: string;
+  /** Its screenshots, as image ids kept beside the asks. */
+  images?: string[];
+  /** What those screenshots show, read once and kept for the answer and every follow-up. */
+  seen?: string;
   answer?: string;
   answeredAt?: string;
   error?: string;
 }
 
-/** Flyd's own answer to a question, given the window's earlier questions and answers and any screenshots he attached; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void, images?: ImageUpload[]) => Promise<string>;
+/** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void) => Promise<string>;
+
+/** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
+export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string) => void) => Promise<string>;
+
+/** A question with what its screenshots show, as Flyd's turn reads it. */
+function asAsked(record: AskRecord): string {
+  return record.seen ? `${record.text}\n\n${record.seen}` : record.text;
+}
+
+const ASK_IMAGE = /^a(\d+-[0-9a-f]+-\d+\.(?:png|jpg|gif|webp))$/;
 
 export function defaultAsksDir(): string {
   return join(homedir(), ".flyd", "view", "asks");
@@ -163,6 +178,7 @@ export function defaultAsksDir(): string {
 export class FlydDesk {
   private readonly dir: string;
   private readonly answerer: Answerer;
+  private readonly see?: Seer;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
   /** What Flyd is doing on each question it is answering, said the moment it changes. */
@@ -170,8 +186,9 @@ export class FlydDesk {
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
-  constructor(options: { answer: Answerer; dir?: string }) {
+  constructor(options: { answer: Answerer; see?: Seer; dir?: string }) {
     this.answerer = options.answer;
+    this.see = options.see;
     this.dir = options.dir ?? defaultAsksDir();
   }
 
@@ -218,13 +235,15 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string, images?: ImageUpload[]): SentMessage {
-    const record: AskRecord = { id: `${Date.now()}-${randomBytes(4).toString("hex")}`, at: new Date().toISOString(), text: text.trim() };
+  ask(text: string, images: ImageUpload[] = []): SentMessage {
+    const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const kept = this.keepImages(id, images);
+    let record: AskRecord = { id, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
     const history = this.records()
       .filter((earlier) => earlier.answer)
       .slice(-HISTORY_EXCHANGES)
       .flatMap((earlier) => [
-        { role: "user" as const, content: earlier.text },
+        { role: "user" as const, content: asAsked(earlier) },
         { role: "assistant" as const, content: earlier.answer! },
       ]);
     this.write(record);
@@ -233,7 +252,16 @@ export class FlydDesk {
       const line = step.replace(/\s+/g, " ").trim();
       if (line && this.inFlight.has(record.id)) this.steps.set(record.id, clipKeepingLinks(line.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
     };
-    void this.answerer(record.text, history, onStep, images?.length ? images : undefined)
+    const answering = images.length && this.see
+      ? this.see(record.text, images, onStep).then((seen) => {
+        if (seen.trim()) {
+          record = { ...record, seen: seen.trim() };
+          this.write(record);
+        }
+        return this.answerer(asAsked(record), history, onStep);
+      })
+      : this.answerer(record.text, history, onStep);
+    void answering
       .then((answer) => {
         if (!answer.trim()) throw new Error("no answer came back");
         this.write({ ...record, answer: answer.trim(), answeredAt: new Date().toISOString() });
@@ -248,9 +276,38 @@ export class FlydDesk {
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: ANSWERING };
   }
 
+  /** Checks and keeps the screenshots of a question beside the asks; returns their image ids. */
+  private keepImages(id: string, images: ImageUpload[]): string[] {
+    if (images.length > MAX_IMAGES) throw new Error(`At most ${MAX_IMAGES} images per message`);
+    const decoded = images.map((image) => {
+      const bytes = Buffer.from(image.data, "base64");
+      if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) throw new Error(`Images must be under ${MAX_IMAGE_BYTES / (1024 * 1024)}MB`);
+      const type = sniffImage(bytes);
+      if (!type) throw new Error("Only PNG, JPEG, GIF and WebP images can be sent");
+      return { bytes, type };
+    });
+    if (!decoded.length) return [];
+    mkdirSync(join(this.dir, "images"), { recursive: true });
+    return decoded.map(({ bytes, type }, index) => {
+      const name = `${id}-${index}.${type.ext}`;
+      writeFileSync(join(this.dir, "images", name), bytes, { mode: 0o600, flag: "wx" });
+      return `a${name}`;
+    });
+  }
+
+  /** A screenshot kept with a question, by its image id; null when it is not one of ours. */
+  image(imageId: string): ImageData | null {
+    const name = ASK_IMAGE.exec(imageId)?.[1];
+    const path = name ? join(this.dir, "images", name) : "";
+    if (!path || !existsSync(path)) return null;
+    const data = readFileSync(path);
+    const type = sniffImage(data);
+    return type ? { mediaType: type.mediaType, data } : null;
+  }
+
   exchanges(): Exchange[] {
     return this.records().map((record) => {
-      const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at };
+      const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}) };
       if (record.answer) {
         return {
           question,

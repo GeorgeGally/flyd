@@ -322,11 +322,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   /**
    * "t<offset>.<n>": the n-th pasted image of the transcript line at that
    * byte offset, read back from the transcript. "f<name>": an image the
-   * captain sent from the view, from firstmate's inbox images.
+   * captain sent from the view, from firstmate's inbox images. "a<name>": a
+   * screenshot kept with a question Flyd answered.
    */
   async image(sessionId: string, imageId: string): Promise<ImageData | null> {
     const path = this.sessionPath(sessionId);
     if (imageId.startsWith("f")) return this.inbox?.image(imageId) ?? null;
+    if (imageId.startsWith("a")) return this.desk?.desk.image(imageId) ?? null;
     return transcriptImage(path, imageId);
   }
 

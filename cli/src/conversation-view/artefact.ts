@@ -124,7 +124,7 @@ export function plainStep(doing: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
   const said: Array<[RegExp, string]> = [
-    [/^harness busy\b.*$/i, "Working on it now"],
+    [/^harness busy\b.*$/i, "A worker is on it"],
     [/^harness state unavailable\b.*$/i, "No word from the worker"],
     [/^run passed: PR open\b.*$/i, "PR open; its checks passed"],
     [/^run failed\b.*$/i, "The run failed"],

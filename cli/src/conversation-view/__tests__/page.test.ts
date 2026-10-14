@@ -1690,7 +1690,7 @@ describe("header and artefact view", () => {
     landedByDay: [{ day: "2026-10-09", count: 2 }, { day: "2026-10-10", count: 1 }],
     items: [
       { id: "call:jev", kind: "call", headline: "Review the Jev decision log", why: "", detail: "Captain decides keep or remove" },
-      { id: "live:a", kind: "live", headline: "Header controls", why: "", detail: "Working on it now", project: "Flyd",
+      { id: "live:a", kind: "live", headline: "Header controls", why: "", detail: "A worker is on it", project: "Flyd",
         shots: [{ src: "/api/artefact-shot?task=a&file=after.png", label: "after.png" }], links: [{ label: "flyd #85", url: "https://github.com/GeorgeGally/flyd/pull/85" }] },
       { id: "news:memory-0", kind: "news", headline: "Bloom gets finished", why: "from your memory" },
     ],

@@ -30,7 +30,7 @@ describe("parseBearings", () => {
     expect(fleet.generated).toBe("2026-10-09T10:56:01Z");
     expect(fleet.unavailable).toBeUndefined();
     expect(fleet.calls).toEqual([{ label: "Review the Jev decision log: keep or remove it?", task: "jev" }]);
-    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "Working on it now", repo: "flyd" }]);
+    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "A worker is on it", repo: "flyd" }]);
     expect(fleet.ready).toEqual([{
       label: "Flyd: island filter", task: "b", detail: "PR open; its checks passed", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/70", status: "PR open",
     }]);
@@ -396,7 +396,7 @@ describe("ArtefactFeed", () => {
 
     read("Drag and drop documents", "harness busy");
     await feed.refresh();
-    const first = { kind: "under way", title: "Drag and drop documents", detail: "Working on it now", project: "flyd" };
+    const first = { kind: "under way", title: "Drag and drop documents", detail: "A worker is on it", project: "flyd" };
     answers.shift()!(JSON.stringify([{ id: voiceKey(first), headline: "Documents will drop straight into the window.", line: "Nothing for you yet." }]));
     await settle();
     expect(feed.current().fleet!.live[0]!.said?.headline).toBe("Documents will drop straight into the window.");

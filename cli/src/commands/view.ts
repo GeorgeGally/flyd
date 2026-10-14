@@ -6,8 +6,7 @@ import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-ans
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
-import { FlydDesk, type Answerer, type Complete } from "../conversation-view/flyd-desk.js";
-import type { ImageUpload } from "../conversation-view/types.js";
+import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
@@ -51,7 +50,7 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
  * Each step it takes is said under his question as it happens.
  */
-const answerAsFlyd: Answerer = async (question, history, onStep, images) => {
+const answerAsFlyd: Answerer = async (question, history, onStep) => {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
   ]);
@@ -59,12 +58,11 @@ const answerAsFlyd: Answerer = async (question, history, onStep, images) => {
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this");
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  const message = images?.length ? `${question}\n\n${await screenshotsSeen(question, images, onStep)}` : question;
-  return respondToConversation({ message, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
+  return respondToConversation({ message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
-/** What the screenshots he attached to a question show, read by a vision model, for Flyd's turn, which takes words only. */
-async function screenshotsSeen(question: string, images: ImageUpload[], onStep?: (step: string) => void): Promise<string> {
+/** What the screenshots he attached to a question show, read by a vision model. */
+const screenshotsSeen: Seer = async (question, images, onStep) => {
   onStep?.(images.length === 1 ? "Looking at your screenshot" : "Looking at your screenshots");
   const { quickQuery } = await import("../lib/llm.js");
   const prompt = [
@@ -77,7 +75,7 @@ async function screenshotsSeen(question: string, images: ImageUpload[], onStep?:
   return seen
     ? `[What the screenshot he attached shows: ${seen}]`
     : "[He attached a screenshot that could not be read; say so if the answer depends on it.]";
-}
+};
 
 function openInBrowser(url: string): void {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
@@ -103,7 +101,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
     ...(wantsInbox ? {
       desk: {
-        desk: new FlydDesk({ answer: answerAsFlyd }),
+        desk: new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen }),
         complete,
       },
     } : {}),

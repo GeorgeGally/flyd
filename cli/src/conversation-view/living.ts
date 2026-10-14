@@ -34,10 +34,10 @@ const POLITE = /^(?:(?:hey|hi|ok|okay|so|and|also|now|then|please|pls|can you|co
 const VAGUE = /^(?:it|this|that|them|these|those|there)$/i;
 /** "how do I fix X" asks for the same work as "fix X". */
 const HOW_TO = /^how\s+(?:do|does|can|could|would|should)\s+(?:i|we|you|one)\s+/i;
-/** A question's opening: "what is …", "where did …", "why …". */
-const QUESTION = /^(?:what|who|whose|where|when|why|which|how)(?:'s|s)?\s+(?:is|are|was|were|do|does|did|can|could|would|should|will|may|might|has|have|had)?\s*/i;
-/** A yes/no question's opening: "is …", "can you …", "does it …". */
-const YES_NO = /^(?:is|are|was|were|do|does|did|can|could|would|should|will|may|might|has|have|had)\s+/i;
+/** A question asking what something is: "what is …", "who's …", "where are …". */
+const WHAT_IS = /^(?:what|who|whose|where|which|when)(?:'s|s|\s+(?:is|are|was|were))\s+/i;
+/** A remainder that is a clause, not a thing to look up: it starts with a pronoun, or something in it is going on. */
+const CLAUSE = /^(?:it|this|that|they|them|he|she|we|you|i|there|these|those)\b|(?:^|\s)\w+ing\b/i;
 
 /** The concrete thing in his message, in Flyd's words: "fix the footer on GNM" → "Fixing the footer on GNM". */
 function subjectOf(text: string): string {
@@ -53,10 +53,9 @@ function subjectOf(text: string): string {
 
 /** What a plain question is about, in Flyd's words: "what is usb overdrive?" → "Looking up usb overdrive". */
 function questionTopic(first: string): string {
-  if (!/\?\s*$/.test(first)) return "";
-  const rest = first.replace(/[?!.]+$/, "").replace(HOW_TO, "").replace(QUESTION, "").replace(YES_NO, "")
-    .replace(/^(?:please|hey|hi|ok|okay|so|and|also|now|then)\s+/i, "").replace(/^(?:i|we|you|me|us)\s+/i, "").trim();
-  return rest && !VAGUE.test(rest) && !BACKSTAGE.test(rest) ? clip(`Looking up ${rest}`) : "";
+  if (!/\?\s*$/.test(first) || !WHAT_IS.test(first)) return "";
+  const rest = first.replace(/[?!.]+$/, "").replace(WHAT_IS, "").trim();
+  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(`Looking up ${rest}`) : "";
 }
 
 /** The project his message names, by his own name for it. */
