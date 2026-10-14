@@ -94,7 +94,7 @@ describe("Flyd's executive voice", () => {
 
   it("tells the island the one thing that matters most, in its own words", () => {
     const stands = statusOf({ messages: [{ id: "r0", role: "assistant", text: inFlydsVoice(WHERE_EVERYTHING_STANDS) }], working: false });
-    expect(stands.reply).toMatchObject({ headline: "Drop the local edit? Plus 5 more", asks: true });
+    expect(stands.reply).toMatchObject({ headline: "Drag-and-drop for documents, plus 4 more", asks: false });
     const settled = inFlydsVoice(WHERE_EVERYTHING_STANDS).replace(/\*\*Reinstall blocked[^\n]*\n\n/, "");
     expect(headlineOf(settled)).toBe("Drag-and-drop for documents, plus 4 more");
     expect(statusOf({ messages: [{ id: "r2", role: "assistant", text: `${settled}\n\nOk to reinstall now.` }], working: false }).reply)

@@ -371,17 +371,20 @@ export function renderBriefing(text: string, titles: Partial<Record<WorkState, s
   return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
 }
 
-/** What asks him something: a question, or a call for his decision. */
-const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to|approve)\b/i;
+/** What asks him something: a question, or a call for his decision ("I'll approve it" is not one). */
+const ASKS = /\?|\b(?:say ["“']|do you want|would you like|should i|shall i|want me to|which (?:one|option|do you)|your (?:call|decision|word|ok|go-ahead|approval)|needs? your|ok to|okay to)\b|(?:^|\b(?:you|please)\s+)(?:approve|decide)\b/i;
 
-function asking(paragraph: string): string[] {
-  return sentences(inline(paragraph)).filter((sentence) => ASKS.test(sentence));
+/** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
+export function asking(paragraph: string): string[] {
+  const said = sentences(inline(paragraph));
+  return said.filter((sentence, index) => ASKS.test(sentence) && !(/\?$/.test(sentence) && /^(?:yes|no)\b/i.test(said[index + 1] ?? "")));
 }
 
-/** Every sentence of a reply that asks something of him: its own » summary, then its prose. */
+/** The sentences of a reply that ask something of him, from its own » summary, its opening and its closing paragraph. */
 export function asksIn(text: string): string[] {
-  const prose = brief(text).prose.replace(FENCED, "");
-  return [authorSummary(text)?.summary ?? "", ...prose.split(/\n\s*\n/)].flatMap(asking);
+  const paragraphs = brief(text).prose.replace(FENCED, "").split(/\n\s*\n/).filter((paragraph) => paragraph.trim());
+  const ends = paragraphs.length > 1 ? [paragraphs[0]!, paragraphs.at(-1)!] : paragraphs;
+  return [authorSummary(withoutStubs(text))?.summary ?? "", ...ends].flatMap(asking);
 }
 
 /**
@@ -402,7 +405,7 @@ export function statusSummaryHtml(text: string, reading?: string): string | unde
 const SAY_WORDS = /\bsay\s*(?:"([^"]+)"|“([^”]+)”|'([^']+)')/i;
 
 /** The decision the asks name, plainest first: 'Say "drop the local edit" and I'll…' → "Drop the local edit?", else a question, else any ask. */
-function decisionOf(asks: string[]): string | undefined {
+export function decisionOf(asks: string[]): string | undefined {
   const say = asks.map((sentence) => SAY_WORDS.exec(sentence)).find(Boolean);
   if (say) return `${capitalise((say[1] ?? say[2] ?? say[3]!).trim().replace(/[.!?,;:]+$/, ""))}?`;
   return asks.find((sentence) => /\?$/.test(sentence)) ?? asks[0];

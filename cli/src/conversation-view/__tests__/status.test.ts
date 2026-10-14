@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksForDecision, headlineOf, statusOf } from "../status.js";
+import { asksForDecision, forCaptain, headlineOf, statusOf } from "../status.js";
 import { ABOUT_FIXES } from "./fixtures/replies.js";
 
 describe("conversation status for the island", () => {
@@ -49,9 +49,15 @@ describe("conversation status for the island", () => {
     expect(asksForDecision("Done.\n\nDo you want me to push it?")).toBe(true);
     expect(asksForDecision("» Two options for the hero — your call.\n\n- A\n- B")).toBe(true);
     expect(asksForDecision("I can keep a minimum size on phones. Should I?")).toBe(true);
+    expect(statusOf({ messages: [{ id: "r1", role: "assistant", text: "Sir, the menu bar fix is merged.\n\nWant me to ship the island next?" }], working: false }).reply)
+      .toMatchObject({ headline: "Want me to ship the island next?", asks: true });
     expect(asksForDecision("Pushed.\n\n```js\nif (x?.y) {}\n```\n\nAll green.")).toBe(false);
     expect(asksForDecision("The stats are centred and committed.")).toBe(false);
     expect(asksForDecision('Four Flyd changes in one batch.\n\nSay "go" and one worker builds them.')).toBe(true);
+    expect(asksForDecision("Two pages landed.\n\nApprove the apply page and I'll merge it.")).toBe(true);
+    expect(forCaptain("Stale wake on the deals page. Was it the old timer? Yes, nothing to do.", new Set())).toBe(false);
+    expect(forCaptain("Holding the bump until CI is green, then I'll approve it.", new Set())).toBe(false);
+    expect(asksForDecision("Sir, the menu bar landed.\n\nDo you want the island next?\n\nThe docs are updated.")).toBe(false);
   });
 
   it("is working only while the turn is open and recently active, and names the newest reply", () => {

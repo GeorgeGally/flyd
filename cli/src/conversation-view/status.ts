@@ -1,5 +1,5 @@
 import { plainLinks } from "./line-links.js";
-import { asksIn, brief, statusHeadline, withoutStubs } from "./executive.js";
+import { asking, asksIn, brief, decisionOf, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -58,18 +58,25 @@ export function headlineOf(text: string): string {
 
 /** The island's line for a reply, and whether that line names a decision of his. */
 function readingOf(text: string): { headline: string; asks: boolean } {
+  const asks = asksIn(text);
   // A report on several pieces of work reads as where they stand.
   const { items } = brief(text);
-  if (items.length >= 2) return statusHeadline(items, asksIn(text), HEADLINE_CHARS);
-  const asks = asksForDecision(text);
+  if (items.length >= 2) return statusHeadline(items, asks, HEADLINE_CHARS);
   const said = withoutStubs(text);
   const own = authorSummary(said)?.summary;
+  // A decision of his is named as the decision, never put on a result.
+  const decision = decisionOf(asks);
+  if (decision) return { headline: fit(own && asking(own).length ? own : decision), asks: true };
   const digest = own ? null : digestReply(said);
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label)) ?? [];
-  const headline = (own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)).replace(/\s+/g, " ").trim();
-  if (headline.length <= HEADLINE_CHARS) return { headline, asks };
+  return { headline: fit(own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)), asks: false };
+}
+
+function fit(text: string): string {
+  const headline = text.replace(/\s+/g, " ").trim();
+  if (headline.length <= HEADLINE_CHARS) return headline;
   const cut = headline.slice(0, HEADLINE_CHARS);
-  return { headline: `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`, asks };
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).trimEnd()}…`;
 }
 
 export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): ConversationStatus {
