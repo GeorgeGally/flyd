@@ -48,9 +48,10 @@ standard here and there together.
   (`cos_outcome_first`, `cos_placeholder`, `cos_internal_decision`,
   `cos_wants_artefact`, `cos_off_voice`; declared in
   `cli/src/cognition/system-one/registry.ts` and benched by the System-1 replay
-  suite). A decided answer at the 0.8 threshold that breaks the standard is a
-  shortfall; an unsure one is not. Sending Flyd's words to TypeSafe is
-  opt-in: only `FLYD_SELF_REVIEW_JEV=1` (with `TYPESAFE_API_KEY`) turns the
+  suite). The registry owns each predicate's threshold. A decided answer
+  that breaks the standard is a shortfall; an unsure one is not. Sending
+  Flyd's words to TypeSafe is opt-in: only `FLYD_SELF_REVIEW_JEV=1`
+  (with `TYPESAFE_API_KEY`) turns the
   judgments on. Even then, a text built from email, Drive or WhatsApp (a turn
   that used those tools, or words that speak of mail, documents, messages or
   chats) is never sent; when unsure, it stays local. Window answers, agenda
@@ -82,4 +83,6 @@ standard here and there together.
 - `flyd scorecard` reads back anything new and prints a short scorecard: how
   many of the last week's texts met the standard, and the newest example of
   each shortfall.
-- `FLYD_SELF_REVIEW=0` turns the whole review off.
+- `FLYD_SELF_REVIEW=0` disables collection, verdict recording and review
+  passes. The deterministic before-display checks still hold placeholder
+  notifications and return internal implementation calls to FirstMate.
