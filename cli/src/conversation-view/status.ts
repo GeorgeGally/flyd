@@ -48,9 +48,10 @@ export function forCaptain(text: string, named: ReadonlySet<string>): boolean {
 }
 
 /**
- * A few words for the island. The reply's own » summary, else the labels of
- * its numbered points (so a three-part report names all three), else its lead
- * sentence without the salutation.
+ * A few words for the island. A report on several pieces of work reads as
+ * where they stand; else the decision it asks of him; else the reply's own
+ * » summary, else the labels of its numbered points (so a three-part report
+ * names all three), else its lead sentence without the salutation.
  */
 export function headlineOf(text: string): string {
   return readingOf(text).headline;
