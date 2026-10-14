@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -597,6 +597,25 @@ describe("ConversationViewServer", () => {
       expect((await get(port, "/api/prediction-status")).status).toBe(403);
       expect((await get(port, "/api/prediction-status?token=" + viewToken)).status).toBe(200);
       expect((await post(port, JSON.stringify({ session: "s1", draft: "x".repeat(2001) }), headers, "/api/predict")).status).toBe(400);
+    } finally { predictions.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("bases the next prediction on a message just sent and its reply", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-prediction-fresh-"));
+    let prompt = "", clock = Date.now();
+    // Each guess is a minute apart: well inside the old five-minute cache, clear of the request throttle.
+    const predictions = new ComposerPredictions({ root, now: () => (clock += 60_000), provider: async (p) => { prompt = p; return { text: " and check the tests" }; } });
+    const inbox = new MemoryInbox();
+    try {
+      const port = await start(inbox, [captain("change the composer"), assistantText("I can do that.")], predictions);
+      const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+      expect((await post(port, JSON.stringify({ session: "s1", draft: "implement it" }), headers, "/api/predict")).status).toBe(200);
+      expect(prompt).not.toContain("rename the footer");
+      expect((await post(port, JSON.stringify({ session: "s1", text: "rename the footer" }), headers)).status).toBe(200);
+      appendFileSync(join(dir!, "s1.jsonl"), assistantText("Renamed it to Colophon.") + "\n");
+      expect((await post(port, JSON.stringify({ session: "s1", draft: "now move it" }), headers, "/api/predict")).status).toBe(200);
+      expect(prompt).toContain("rename the footer");
+      expect(prompt).toContain("Renamed it to Colophon.");
     } finally { predictions.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
