@@ -65,6 +65,9 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         }).catch(() => undefined);
         const { backfillArchive } = await import("../council/investigator.js");
         await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
+        // Read back what George was shown against the chief-of-staff standard; shortfalls feed the improver.
+        const { runReplyReview } = await import("../council/reply-review.js");
+        await runReplyReview().catch(() => undefined);
         const { runSelfImprovement } = await import("../crew/self-improve.js");
         await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
         const { scoutTick } = await import("../council/scout.js");

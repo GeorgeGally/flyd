@@ -212,7 +212,18 @@ export async function notifyMac(title: string, message: string): Promise<void> {
 }
 
 export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  // A notification that only says work is happening carries nothing: kept
+  // from George and recorded against the chief-of-staff standard instead.
+  const { screenBeforeDisplay } = await import("../council/chief-of-staff.js");
+  const { noteSaid, recordHeld } = await import("../council/reply-review.js");
+  const screened = screenBeforeDisplay({ surface: "notification", text: message });
+  const placeholder = screened.shortfalls.filter((item) => item.requirement === "real_status");
+  if (placeholder.length) {
+    recordHeld({ surface: "notification", source: "notification", text: message }, placeholder);
+    return false;
+  }
   if (process.platform !== "darwin") return false;
+  noteSaid({ surface: "notification", text: message });
   try {
     const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
     const response = await fetch("http://127.0.0.1:4815/notify", {

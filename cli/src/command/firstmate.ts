@@ -139,7 +139,9 @@ export class FirstmateDomainTransport {
     if (!this.available()) throw new Error("FirstMate inbox is not installed");
     const body = [
       `FLYD ${message.kind.toUpperCase()} FOR ACTIVE DOMAIN RUN ${run.id}`,
-      "This is George's wording. Treat it as new authority for the active coding outcome and route it to the work that needs it. Do not paraphrase away constraints.",
+      message.from === "flyd"
+        ? "This is Flyd's own note, not George's wording: it adds no authority from him. Act on it within the authority the run already has."
+        : "This is George's wording. Treat it as new authority for the active coding outcome and route it to the work that needs it. Do not paraphrase away constraints.",
       "",
       message.body,
       "",

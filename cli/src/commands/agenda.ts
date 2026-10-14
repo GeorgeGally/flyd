@@ -151,6 +151,9 @@ export async function runAgendaCommand(
       const { backfillArchive } = await import("../council/investigator.js");
       await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
       if (learned.status !== "not_due") process.stdout.write(`${new Date().toISOString()} investigator: ${learned.status}\n`);
+      const { runReplyReview } = await import("../council/reply-review.js");
+      const review = await runReplyReview().catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}`, reviewed: 0, shortfalls: 0 }));
+      if (review.reviewed || review.status !== "reviewed") process.stdout.write(`${new Date().toISOString()} self-review: ${review.status}, ${review.reviewed} reviewed, ${review.shortfalls} short\n`);
       const { runSelfImprovement } = await import("../crew/self-improve.js");
       const improved = await runSelfImprovement({
         complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
