@@ -118,6 +118,7 @@ statusItem.onOpenConversation = {
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
 ensureCoreLaunched()
+CoreNotifications.shared.start()
 
 // The Conversation window's server runs from launch, so the window opens at once.
 let conversationServer = ConversationServer.shared

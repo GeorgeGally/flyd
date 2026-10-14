@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
@@ -11,7 +10,6 @@ import { FLYD_DIR } from "../lib/config.js";
 // files the result in an inbox, and notifies George. This is what makes Flyd
 // proactive instead of only answering when spoken to.
 
-const execFileAsync = promisify(execFile);
 
 export type AgendaRepeat = "none" | "hourly" | "daily" | "weekdays" | "weekly";
 
@@ -209,9 +207,25 @@ function acquireLock(path: string): boolean {
 }
 
 export async function notifyMac(title: string, message: string): Promise<void> {
-  if (process.platform !== "darwin") return;
-  const script = "on run argv\n display notification (item 2 of argv) with title (item 1 of argv)\nend run";
-  await execFileAsync("osascript", ["-e", script, title, message.replace(/\s+/g, " ").slice(0, 220)], { timeout: 10_000 });
+  await deliverNotification(title, message);
+}
+
+export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  try {
+    const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
+    const response = await fetch("http://127.0.0.1:4815/notify", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220) }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return false;
+    const { delivered } = await response.json() as { delivered?: number };
+    return (delivered ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 export interface RunDueDependencies {

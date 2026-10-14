@@ -155,6 +155,8 @@ function sendUnauthorized(res: ServerResponse) {
   res.end(JSON.stringify({ error: "Unauthorized" }));
 }
 
+const notificationSubscribers = new Set<ServerResponse>();
+
 const intentHistory: Array<{ intent: string; timestamp: string }> = [];
 interface ResolvedContext {
   intent: string;
@@ -1270,6 +1272,30 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
         }).catch(() => sendJson(res, 400, { error: "WhatsApp operation failed; do not retry a send without checking the conversation" }));
         break;
       }
+      case "/notify": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        void parseBody(req).then(raw => {
+          const body = JSON.parse(raw) as { title?: unknown; message?: unknown };
+          if (typeof body.title !== "string" || typeof body.message !== "string" || !body.title.trim() || !body.message.trim()) {
+            sendJson(res, 400, { error: "Missing title or message" });
+            return;
+          }
+          const data = JSON.stringify({ title: body.title.slice(0, 120), message: body.message.slice(0, 220) });
+          for (const subscriber of notificationSubscribers) subscriber.write(`event: notification\ndata: ${data}\n\n`);
+          sendJson(res, 202, { delivered: notificationSubscribers.size });
+        }).catch(() => sendJson(res, 400, { error: "Invalid JSON" }));
+        break;
+      }
+      case "/notifications": {
+        if (!checkAuth(req)) { sendUnauthorized(res); break; }
+        if (req.method !== "GET") { sendJson(res, 405, { error: "Method not allowed" }); break; }
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+        res.write(": connected\n\n");
+        notificationSubscribers.add(res);
+        req.on("close", () => notificationSubscribers.delete(res));
+        break;
+      }
       case "/manifest":
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         handleManifest(req, res);
@@ -1874,6 +1900,8 @@ export function stopServer(): Promise<void> {
       return;
     }
 
+    for (const subscriber of notificationSubscribers) subscriber.end();
+    notificationSubscribers.clear();
     serverInstance.close((err) => {
       serverInstance = null;
       if (err) {

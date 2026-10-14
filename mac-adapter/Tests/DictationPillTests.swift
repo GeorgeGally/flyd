@@ -143,6 +143,8 @@ final class DictationPillTests: XCTestCase {
         let long = DictationPill.holdDuration(for: .failed("The microphone stopped before Flyd heard anything, so try holding the keys a little longer")) ?? 0
         XCTAssertGreaterThan(long, 3)
         XCTAssertEqual(DictationPill.holdDuration(for: .notice(String(repeating: "word ", count: 200))), 6)
+        XCTAssertEqual(DictationPill.message(for: .notification("Agenda done", "The meeting is at 9.")),
+                       DictationPill.Message(meta: "Flyd", title: "Agenda done", body: "The meeting is at 9."))
     }
 
     func testIslandOutlinesShareTheirShapeSoTheySpring() {
@@ -154,6 +156,17 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(Self.elementCount(wings), Self.elementCount(strip))
         XCTAssertEqual(strip.boundingBoxOfPath.maxY, 982)
         XCTAssertEqual(strip.boundingBoxOfPath.minY, 862)
+    }
+
+    func testTheMessageStripIsSquareWhereItMeetsTheScreensRightEdge() {
+        let frame = DictationPill.islandFrame(screen: macBook, notch: notch, strip: NSSize(width: 400, height: 120))
+        let step = CGPoint(x: notch.midX, y: frame.minY)
+        let square = DictationPill.islandPath(in: frame, shoulder: 0, cornerRadius: DictationPill.stripCornerRadius, step: step, squareRight: true)
+        let rounded = DictationPill.islandPath(in: frame, shoulder: 0, cornerRadius: DictationPill.stripCornerRadius, step: step)
+        XCTAssertEqual(Self.elementCount(square), Self.elementCount(rounded))
+        XCTAssertTrue(square.contains(CGPoint(x: frame.maxX - 1, y: frame.minY + 1)))
+        XCTAssertFalse(rounded.contains(CGPoint(x: frame.maxX - 1, y: frame.minY + 1)))
+        XCTAssertFalse(square.contains(CGPoint(x: frame.minX + 1, y: frame.minY + 1)))
     }
 
     func testThePartOverTheNotchStaysNotchHeightBesideTheStrip() {
