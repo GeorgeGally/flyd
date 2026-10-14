@@ -20,6 +20,13 @@ describe("parseVoice", () => {
     expect(said.get("a")!.line).not.toMatch(/captain/i);
     expect(parseVoice("no json here", new Set(["a"])).size).toBe(0);
   });
+
+  it("keeps Flyd's advice on a call when it gives one", () => {
+    const raw = '[{"id":"a","headline":"Jev needs your keep-or-remove call.","line":"Decide whether the rule stays.","recommend":"I\'d keep it for now, since nothing given favours removing it."},{"id":"b","headline":"The island is being shrunk.","line":"A worker is on it."}]';
+    const said = parseVoice(raw, new Set(["a", "b"]));
+    expect(said.get("a")!.recommend).toBe("I'd keep it for now, since nothing given favours removing it.");
+    expect(said.get("b")!.recommend).toBeUndefined();
+  });
 });
 
 describe("voicePrompt", () => {

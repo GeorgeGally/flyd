@@ -17,14 +17,14 @@ import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
 import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageUpload } from "./types.js";
+import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { renderBriefing, statusSummaryHtml } from "./executive.js";
+import { renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
-import type { Rail } from "./rail.js";
+import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
@@ -36,7 +36,6 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
-import { unreadNotes, unreadWarning } from "./note-receipts.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -695,8 +694,22 @@ export class ConversationViewServer {
     ];
     // A question still under way says in the column what its line says in the window.
     const lines = new Map(snapshot.messages.filter((message) => message.role === "user" && message.waiting).map((message) => [message.id, message.waiting!]));
-    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working)
-      .map((exchange) => (!exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange));
+    const recorded = this.source.exchanges?.() ?? [];
+    const formal = new Map(recorded.map((exchange) => [exchange.question.id, exchange.answer]));
+    const exchanges = withFollowUps(recorded, snapshot.followUps ?? {}, snapshot.working).map((exchange): Exchange & { state?: RailState } => {
+      const waiting = !exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange;
+      if (!exchange.question.id.startsWith("note:") || !exchange.answer) return waiting;
+      // A note's answer in the column is the reply firstmate recorded for it; a chat paragraph that only
+      // seemed to be about it is not shown there, though it still says where the note stands.
+      const own = formal.get(exchange.question.id);
+      if (own) {
+        const seen = exchange.answer;
+        return { ...exchange, answer: { ...own, ...(!own.shots?.length && seen.shots?.length ? { shots: seen.shots } : {}), ...(!own.page && seen.page ? { page: seen.page } : {}) } };
+      }
+      const { answer, ...rest } = exchange;
+      const state = stateOf(answer.text);
+      return { ...rest, waiting: "", answered: true, state: state === "needs" ? "needs" : state === "underway" ? "underway" : "done" };
+    });
     const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
       live: (url) => this.previews.state(url),
       phone: phoneWork(snapshot.messages),
@@ -1156,16 +1169,6 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
-    // Notes firstmate has left unread too long: a warning over the composer, checked on every update and heartbeat.
-    let unreadSent = "";
-    const emitUnread = () => {
-      if (closed) return;
-      const unread = unreadNotes(this.source.exchanges?.() ?? []);
-      const data = unread ? { count: unread.count, oldest: unread.oldest, text: unreadWarning(unread) } : { count: 0 };
-      if (JSON.stringify(data) === unreadSent) return;
-      unreadSent = JSON.stringify(data);
-      sseEvent(res, "unread", data);
-    };
     const differ = new SnapshotDiffer(this.summaries
       ? {
           ...this.summaries,
@@ -1189,7 +1192,6 @@ export class ConversationViewServer {
         this.cachePredictionContext(session.id, snapshot.messages);
         this.autoAnswer(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
-        emitUnread();
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
@@ -1206,7 +1208,6 @@ export class ConversationViewServer {
     });
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
-      emitUnread();
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {

@@ -3,7 +3,7 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
-import { callItems, composeArtefact, fleetCounts, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { callItems, composeArtefact, doneItems, fleetCounts, underwayItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -51,6 +51,10 @@ export interface ShowItem {
   /** Screenshots of the work, newest "after" shots first. */
   shots?: ShowShot[];
   at?: string;
+  /** When its worker started: how long a job has been under way. */
+  started?: string;
+  /** For a call: what Flyd advises he decide, in its own words. */
+  recommendation?: string;
   /** Pull requests it names. */
   links?: ShowLink[];
   /** The web page the work changed: a button that opens it. */
@@ -73,6 +77,10 @@ export interface ShowScreen {
   counts: Partial<Record<ShowKind, number>>;
   /** Every call that needs him, as many as counts.call says, each with its question to answer. */
   calls?: ShowItem[];
+  /** Every job a worker is on right now, the longest running first. */
+  underway?: ShowItem[];
+  /** Work that landed, newest first. */
+  done?: ShowItem[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
   /** When firstmate's fleet snapshot was read. */
@@ -404,12 +412,16 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   }
   // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
   const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
+  const underway = underwayItems(fleet, { project: projectOfRepo });
+  const done = doneItems(fleet, { project: projectOfRepo });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
     items: chosen,
     counts,
     ...(calls.length ? { calls } : {}),
+    ...(underway.length ? { underway } : {}),
+    ...(done.length ? { done } : {}),
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
     ...(fleet?.generated ? { read: fleet.generated } : {}),
     live: status.working,

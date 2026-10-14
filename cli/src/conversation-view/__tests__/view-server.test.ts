@@ -639,7 +639,7 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
-  it("streams each note's receipt and a warning when firstmate has left notes unread past three minutes", async () => {
+  it("streams each note's receipt, and keeps the unread count underneath without putting it on his screen", async () => {
     const inbox = new MemoryInbox();
     const old = new Date(Date.now() - 12 * 60_000).toISOString();
     inbox.notes = () => [
@@ -653,7 +653,7 @@ describe("ConversationViewServer", () => {
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
           text += chunk;
-          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
         });
       });
       req.on("error", reject);
@@ -662,8 +662,9 @@ describe("ConversationViewServer", () => {
     const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     const receipts = Object.fromEntries(update.messages.filter((m: { receipt?: string }) => m.receipt).map((m: { id: string; receipt: string }) => [m.id, m.receipt]));
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
-    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
-    expect(unread).toEqual({ count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 12 min ago." });
+    // The window shows no bar of the assistant's backlog; what records it is still there underneath.
+    expect(body).not.toContain("event: unread");
+    expect(unreadNotes(server!["source"].exchanges!())).toMatchObject({ count: 1, oldest: old });
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {
@@ -690,7 +691,7 @@ describe("ConversationViewServer", () => {
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
           text += chunk;
-          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
         });
       });
       req.on("error", reject);
@@ -704,8 +705,13 @@ describe("ConversationViewServer", () => {
       "note:1791720003-cccccc": "read",
       "note:1791720004-dddddd": "sent",
     });
-    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
-    expect(unread).toMatchObject({ count: 1, oldest: old });
+    expect(unreadNotes(server!["source"].exchanges!())).toMatchObject({ count: 1, oldest: old });
+    // The column shows each note's own recorded answer, never a chat paragraph that seemed to be about it.
+    const rows = Object.fromEntries(update.rail.conversations.map((talk: { id: string; answer?: string; state?: string }) => [talk.id, [talk.answer, talk.state]]));
+    expect(rows["note:1791720001-aaaaaa"]).toEqual([undefined, "done"]);
+    expect(rows["note:1791720002-bbbbbb"]).toEqual(["Renamed it to Plans.", "done"]);
+    expect(rows["note:1791720004-dddddd"]).toEqual([undefined, "underway"]);
+    expect(JSON.stringify(update.rail)).not.toContain("footer links are fixed");
   });
 
   it("counts a note a crewmate is working on as read by firstmate", () => {

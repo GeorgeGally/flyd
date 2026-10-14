@@ -173,4 +173,10 @@ describe("what he needs to know", () => {
     expect(withoutChatter("```\nA worker is building this now.\n```")).toBe("```\nA worker is building this now.\n```");
     expect(withoutChatter("I'll tell you what failed: the relay stopped.")).toBe("I'll tell you what failed: the relay stopped.");
   });
+
+  it("never recounts his notes still waiting: the column already lists each one", () => {
+    const reply = "Quick win: run the refresh.\n\nSeparately, five of your notes from earlier are still waiting. They cover the advise tool and the border. I haven't handled any of them yet.\n\nFive of your earlier notes are still unanswered: the advise tool, the border.\n\nAll five of your notes are dealt with.";
+    expect(withoutChatter(reply)).toBe("Quick win: run the refresh.\n\nAll five of your notes are dealt with.");
+    expect(withoutChatter("Your notes were great.")).toBe("Your notes were great.");
+  });
 });
