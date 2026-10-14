@@ -972,6 +972,46 @@ describe("header and artefact view", () => {
     ]);
   });
 
+  it("takes a screenshot pasted into an artefact's chat box, shows it before sending, and sends it with his words", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "landed:map", kind: "landed", headline: "Christmas Nuanu map", why: "", task: "gnm-xmas-map", shots: [{ src: "/desk.png", label: "desktop-1440.png" }] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+    const send = document.querySelector<HTMLButtonElement>(".scene-ask .art-chat-send")!;
+    // His words and Send sit in one field, Send in sentence case.
+    expect(chat.closest(".art-chat-field .art-chat-row")).not.toBeNull();
+    expect(send.closest(".art-chat-row")).not.toBeNull();
+    expect(send.textContent).toBe("Send");
+    expect(send.disabled).toBe(true);
+    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }, { kind: "string", type: "text/plain", getAsFile: () => null }] },
+    });
+    chat.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(true);
+    for (let i = 0; i < 20 && !document.querySelector(".art-chat-images img"); i += 1) await settle();
+    const images = document.querySelector<HTMLElement>(".scene-ask .art-chat-images")!;
+    expect(images.hidden).toBe(false);
+    expect(images.querySelectorAll(".attachment img")).toHaveLength(1);
+    // A picture alone is enough to send about an artefact.
+    expect(send.disabled).toBe(false);
+    chat.value = "Like this";
+    chat.dispatchEvent(new Event("input"));
+    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
+      { text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, images: [{ mediaType: "image/png", data }] },
+    ]);
+    // Once it went, the box is empty again.
+    expect(images.hidden).toBe(true);
+    expect(images.querySelectorAll(".attachment")).toHaveLength(0);
+  });
+
   it("shows the work on devices: the desktop capture in a browser with the phone in front, artwork at its own shape", async () => {
     load("");
     await settle();
@@ -1525,6 +1565,8 @@ describe("header and artefact view", () => {
     await settle();
     const topic = document.querySelector(".rail-topic")!;
     expect([...topic.querySelectorAll(".rail-q-group p")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
+    // His notes together are highlighted like his messages, each one's text in a highlight run.
+    expect([...topic.querySelectorAll(".rail-q-group p > .hl")].map((node) => node.textContent)).toEqual(["Put taste in preferences.", "And full and light.", "Not on the main menu."]);
     expect(topic.querySelector(".rail-wait")!.textContent).toBe("Working on it");
     expect(topic.querySelector(".rail-a")).toBeNull();
     const toggle = topic.querySelector<HTMLButtonElement>(".rail-topic-toggle")!;

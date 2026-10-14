@@ -897,6 +897,10 @@ export class ConversationViewServer {
       await this.undo(res, payload.session, payload.undo);
       return;
     }
+    const images = payload.images ?? [];
+    const validImages = Array.isArray(images) && images.every((image) =>
+      typeof image === "object" && image !== null &&
+      typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
     if (payload.decision !== undefined) {
       const call = this.feed.current().fleet?.calls.find((row) => row.task === payload.decision);
       if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {
@@ -907,8 +911,12 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
       }
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
+        return;
+      }
       try {
-        const sent = await this.source.sendDecision(`Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`);
+        const sent = await this.source.sendDecision(`Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`, images as ImageUpload[]);
         sendJson(res, 200, { ...sent, waiting: "Sent to firstmate" });
       } catch (error) {
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
@@ -920,13 +928,13 @@ export class ConversationViewServer {
       return;
     }
     if (payload.about !== undefined) {
-      await this.sendAbout(res, payload.about, payload.text);
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
+        return;
+      }
+      await this.sendAbout(res, payload.about, payload.text, images as ImageUpload[]);
       return;
     }
-    const images = payload.images ?? [];
-    const validImages = Array.isArray(images) && images.every((image) =>
-      typeof image === "object" && image !== null &&
-      typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
     const files = payload.files ?? [];
     const validFiles = Array.isArray(files) && files.every((file) =>
       typeof file === "object" && file !== null &&
@@ -972,9 +980,10 @@ export class ConversationViewServer {
   /**
    * His words about one artefact, from the chat box at its foot: straight to
    * firstmate as a note that names the artefact (its title, task and page), so
-   * firstmate knows what "this" is without the screen.
+   * firstmate knows what "this" is without the screen. Images he pasted into
+   * the box go with it.
    */
-  private async sendAbout(res: ServerResponse, about: unknown, text: unknown): Promise<void> {
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = []): Promise<void> {
     const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
     const title = field(card.title);
@@ -982,7 +991,7 @@ export class ConversationViewServer {
       sendJson(res, 400, { error: "expected { about: { title, task?, url? }, text }" });
       return;
     }
-    if (typeof text !== "string" || !text.trim() || text.length > 4000) {
+    if (typeof text !== "string" || (!text.trim() && !images.length) || text.length > 4000) {
       sendJson(res, 400, { error: "Enter a message of at most 4000 characters" });
       return;
     }
@@ -994,7 +1003,8 @@ export class ConversationViewServer {
     const url = field(card.url);
     const named = [`About the artefact "${title}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : [])].join("\n");
     try {
-      sendJson(res, 200, { ...await this.source.sendDecision(`${named}\n\n${text.trim()}`), waiting: "Sent to firstmate" });
+      const words = text.trim();
+      sendJson(res, 200, { ...await this.source.sendDecision(words ? `${named}\n\n${words}` : named, images), waiting: "Sent to firstmate" });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
