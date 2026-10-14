@@ -30,5 +30,6 @@ final class CoreNotificationTurnTests: XCTestCase {
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .failed("Microphone permission required")))
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .notification("Agenda done", "The meeting is at 9.")))
         XCTAssertFalse(CoreNotificationPayload.canShow(over: .status("Needs you: pick one", .decision)))
+        XCTAssertFalse(CoreNotificationPayload.canShow(over: .status("firstmate replied", .reply)))
     }
 }

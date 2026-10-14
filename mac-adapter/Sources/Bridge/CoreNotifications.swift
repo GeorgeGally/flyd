@@ -23,7 +23,7 @@ struct CoreNotificationPayload: Decodable, Equatable {
     /// Whether a notification may take the island from `phase`; otherwise it waits its turn.
     static func canShow(over phase: DictationPill.Phase?) -> Bool {
         switch phase {
-        case .listening, .working, .thinking, .failed, .notification, .status(_, .decision):
+        case .listening, .working, .thinking, .failed, .notification, .status(_, .decision), .status(_, .reply):
             return false
         default:
             return true
