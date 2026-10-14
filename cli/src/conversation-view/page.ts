@@ -484,17 +484,15 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .needs .call-link { display: inline-block; margin: 10px 14px 0 0; font: 500 14px/1.4 var(--sans); color: var(--link); text-decoration: none; }
 .needs .scene-ask { margin-top: 14px; max-width: none; gap: 10px; }
 .needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
-.brief-list ul { margin: 0; padding: 0; list-style: none; }
-.brief-list ul { display: grid; gap: 10px; }
-.brief-list li { display: block; min-width: 0; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+.brief-list ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 /* Each item gets the quiet raised treatment used by conversation cards. */
-.brief-list li::before { content: ""; float: left; width: 6px; height: 6px; margin: 7px 8px 0 0; border-radius: 50%; background: var(--k-live); }
+.brief-list li { display: block; min-width: 0; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+#underway li::before { content: ""; float: left; width: 6px; height: 6px; margin: 7px 8px 0 0; border-radius: 50%; background: var(--k-live); }
 .brief-line { display: block; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
 .brief-meta { display: block; margin-top: 6px; font: 400 11px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
-#done li::before { background: var(--k-landed); }
 .brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -651,7 +649,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .queued a, .rail-wait a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .queued.swap { animation: swap 280ms cubic-bezier(.2,.7,.2,1); }
 @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap, #underway li::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
 /* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long.
    Once firstmate has said the outcome, the outcome takes this line, in the same quiet face. */
 .receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
@@ -1569,7 +1567,6 @@ var __name = function (f) { return f; };
       a.rel = "noopener noreferrer";
       line.appendChild(a);
     } else line.textContent = item.headline;
-    line.title = item.headline;
     li.appendChild(line);
     var said = [shortName(item.project), meta].filter(Boolean).join(" · ");
     if (said) li.appendChild(el("span", "brief-meta", said));
