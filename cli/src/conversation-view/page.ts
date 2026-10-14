@@ -462,7 +462,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
 .rail-talk { margin: 0 0 18px; }
 /* Each conversation in the column is a card, like what Flyd remembers. */
-.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
+.rail-body > .rail-talk, .rail-body > .rail-topic { padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
 .rail-q { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); font: 500 18.5px/1.4 var(--sans); color: var(--strong); }
 .rail-a { margin: 6px 0 0; font: 400 16px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rail-wait { margin: 6px 0 0; font: 400 15px/1.4 var(--sans); color: var(--muted); }
@@ -541,11 +541,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-shots .shot img { max-height: 15em; max-width: 100%; }
 /* What Flyd remembers: a card each, one plain sentence. What it learned while
    we talked sits in the conversation where it learned it. */
-.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border: 1px solid var(--faint); border-radius: 10px; background: var(--tint); }
+/* A raised surface with no outline: the fill alone sets each card apart. */
+.rail-mem { margin: 0 0 18px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
 .rail-mem-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
 .rail-mem-kicker::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.rail-mem--new { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
+.rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
 /* What it already holds here: folded under one line at the top until he opens it. */
 .rail-held > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; transition: color 140ms ease; }
 .rail-held > summary::-webkit-details-marker { display: none; }
