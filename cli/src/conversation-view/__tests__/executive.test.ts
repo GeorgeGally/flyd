@@ -163,7 +163,7 @@ describe("needs you: only real questions, each answerable", () => {
       state: "needs",
       text: "Auth fix merged",
       detail: "The migration then failed on prod and needs your call: roll back or patch forward?",
-      ask: "Auth fix merged: The migration then failed on prod and needs your call: roll back or patch forward?",
+      ask: "The migration then failed on prod and needs your call: roll back or patch forward?",
     });
     const html = statusCardHtml(items);
     expect(shown(html)).toContain("roll back or patch forward?");

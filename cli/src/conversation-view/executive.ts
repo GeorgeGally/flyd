@@ -163,7 +163,7 @@ export interface StatusItem {
   project?: string;
   /** What follows from it ("being updated, will merge when green"), quieter under the line. */
   detail?: string;
-  /** For work that needs him: the question it puts to him, which his answer in place names. */
+  /** For work that needs him: the sentence that asks him, as the item says it. */
   ask?: string;
 }
 
@@ -208,7 +208,7 @@ function itemOf(raw: string, state: WorkState): StatusItem {
   const detail = rest ? clip(rest, DETAIL_CHARS) : "";
   const asked = state === "needs" ? after.find(asksOfItem) : undefined;
   const project = projectOf(urls[0]);
-  return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: `${text}: ${clip(asked, DETAIL_CHARS)}` } : {}) };
+  return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
 }
 
 /** Longer than this, what an item says after its line is clipped at a word. */
@@ -350,7 +350,7 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
       const project = named && item.project ? `<span class="sc-project">${escapeHtml(item.project)}</span>` : "";
       const detail = item.detail ? `<span class="sc-detail">${escapeHtml(item.detail)}</span>` : "";
       // A question he can answer right here; the page puts a reply box under it.
-      const ask = state === "needs" ? ` data-ask="${escapeHtml(item.ask ?? item.text)}"` : "";
+      const ask = state === "needs" ? ` data-ask="${escapeHtml(item.ask ? `${item.text}: ${clip(item.ask, DETAIL_CHARS)}` : item.text)}"` : "";
       return `<li class="sc-row" style="--i:${index++}"${ask}><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
     });
     const count = mine.reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
@@ -428,7 +428,7 @@ export function decisionOf(asks: string[]): string | undefined {
  */
 export function statusHeadline(items: StatusItem[], asks: string[], limit: number): { headline: string; asks: boolean } {
   const needs = items.find((item) => item.state === "needs");
-  const question = needs ? decisionOf(sentences(needs.detail ?? "").filter(asksOfItem)) : decisionOf(asks);
+  const question = needs ? decisionOf(needs.ask ? [needs.ask] : []) : decisionOf(asks);
   const lead = needs ?? [...items].reverse().find((item) => item.state === "landed") ?? items[0];
   const said = (question ?? lead?.text ?? "").replace(/\s+/g, " ").trim();
   const rest = question && !needs ? items.length : items.length - 1;
