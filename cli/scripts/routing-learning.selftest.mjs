@@ -191,9 +191,9 @@ test("live confident Jev skips fallback; uncertain ownership invokes it once", a
   assert.equal(await routeMessage(input, complete, 100, { mode: "live", predict: async () => fast({ decided: false }) }), "flyd");
   assert.equal(calls, 1);
 });
-test("explicit commands and screenshots never invoke the classifiers", async () => {
+test("explicit commands and attached documents never invoke the classifiers", async () => {
   const forbidden = async () => { throw Error("called"); };
-  for (const input of [{ text: "/review", command: "review", images: 0, recent: [] }, { text: "look", images: 1, recent: [] }]) {
+  for (const input of [{ text: "/review", command: "review", recent: [] }, { text: "look", files: 1, recent: [] }]) {
     assert.equal(await routeMessage(input, forbidden, 10, { mode: "live", predict: forbidden }), "firstmate");
   }
 });
