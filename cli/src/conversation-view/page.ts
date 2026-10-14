@@ -1410,13 +1410,14 @@ var __name = function (f) { return f; };
     void line.offsetWidth;
     line.classList.add("swap");
   }
-  function plainWords(text) { return text.replace(/\\s+/g, " ").trim(); }
-  // A message whose send was in doubt has landed when a new note of his says the same words.
+  // A message whose send was in doubt has landed when a note of his the page had not
+  // seen arrives, written no earlier than the send, that no other send was told is its own.
+  var delivered = new Set();
   function arrived(el) {
-    if (!el.dataset.words) return false;
     var found = false;
     nodes.forEach(function (node, id) {
-      if (!found && !el.knownIds.has(id) && node.classList.contains("user") && plainWords(node.querySelector(".body").textContent) === el.dataset.words) found = true;
+      if (found || el.knownIds.has(id) || delivered.has(id) || !node.classList.contains("user")) return;
+      found = !node.dataset.ts || new Date(node.dataset.ts).getTime() >= el.sentAt - 5000;
     });
     return found;
   }
@@ -3345,8 +3346,6 @@ var __name = function (f) { return f; };
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, sending);
-    el.knownIds = new Set(nodes.keys());
-    el.dataset.words = plainWords(text);
     refreshWorking();
     sendsInFlight += 1;
     input.value = "";
@@ -3360,6 +3359,8 @@ var __name = function (f) { return f; };
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });
     function send() {
+      el.knownIds = new Set(nodes.keys());
+      el.sentAt = Date.now();
       deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
         if (sent.unsure) {
@@ -3383,6 +3384,7 @@ var __name = function (f) { return f; };
           line.after(resend);
           return;
         }
+        delivered.add(sent.id);
         // Landed: the draft it came from goes, unless he has started another.
         if (!input.value && !attachments.length) saveDraftNow();
         blip();

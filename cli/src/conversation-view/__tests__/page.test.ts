@@ -272,7 +272,7 @@ describe("conversation page", () => {
   it("never sends again on its own when Flyd answers right after a send failed, and resends once when he taps", async () => {
     load("");
     await settle();
-    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     const real = vi.mocked(fetch).getMockImplementation()!;
     let drop = true;
     vi.mocked(fetch).mockImplementation(async (url, init) => {
@@ -296,17 +296,53 @@ describe("conversation page", () => {
     expect(sends()).toBe(2);
     expect(pending()[0]).not.toContain("may not have sent");
     expect(document.querySelector(".msg.pending .resend")).toBeNull();
+  });
 
-    // A note that did land clears its doubtful copy, so it can never be sent twice.
-    drop = true;
-    await type("land the  sidebar\nfix");
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+  it("clears a doubtful send when his new note lands, however it was written, and never for an older message", async () => {
+    load("");
     await settle();
-    expect(sends()).toBe(3);
-    expect(pending().some((line) => line.includes("may not have sent"))).toBe(true);
-    stream.emit("update", { order: ["u1", "note:9"], messages: [{ id: "note:9", role: "user", html: "<p>land the sidebar fix</p>" }], working: true });
-    expect(pending().some((line) => line.includes("may not have sent"))).toBe(false);
-    expect(document.querySelector(".msg.pending .resend")).toBeNull();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/send") throw new TypeError("Failed to fetch");
+      return real(url as string, init);
+    });
+    const order = ["u1"];
+    const doubtful = () => document.querySelector(".msg.pending .resend");
+    async function sendUnsure(send: () => Promise<void>): Promise<void> {
+      await send();
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await settle();
+      expect(doubtful()).not.toBeNull();
+    }
+    function lands(id: string, html: string, timestamp: string, extra: Record<string, unknown> = {}): void {
+      order.push(id);
+      stream.emit("update", { order: [...order], messages: [{ id, role: "user", html, timestamp, ...extra }], working: true });
+    }
+
+    await sendUnsure(() => type("fix **the** sidebar"));
+    // An older message of his that only now shows up is not this one.
+    lands("note:old", "<p>something from this morning</p>", "2026-10-05T08:00:00.000Z");
+    expect(doubtful()).not.toBeNull();
+    lands("note:10", "<p>fix <strong>the</strong> sidebar</p>", new Date().toISOString());
+    expect(doubtful()).toBeNull();
+
+    await sendUnsure(() => type("- one\n- two"));
+    lands("note:11", "<ul><li>one</li><li>two</li></ul>", new Date().toISOString());
+    expect(doubtful()).toBeNull();
+
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    await sendUnsure(async () => {
+      const paste = new Event("paste", { cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+      document.getElementById("input")!.dispatchEvent(paste);
+      for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+      document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+    });
+    lands("note:12", "", new Date().toISOString(), { images: ["t12.0"] });
+    expect(doubtful()).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(3);
   });
 
   it("swaps the optimistic copy for the delivered note when it arrives", async () => {
