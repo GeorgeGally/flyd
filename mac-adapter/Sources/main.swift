@@ -117,6 +117,7 @@ statusItem.onOpenConversation = {
 }
 SystemAudioMute.recoverAfterLaunch()
 statusItem.start()
+NotificationBridge.shared.start()
 ensureCoreLaunched()
 
 // The Conversation window's server runs from launch, so the window opens at once.

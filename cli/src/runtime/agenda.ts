@@ -1,17 +1,14 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
+import { showMacNotification } from "./mac-notifications.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
 // later — follow-ups, recurring briefings, checks on something pending. A
 // background runner (launchd and/or Core) executes due items as agent turns,
 // files the result in an inbox, and notifies George. This is what makes Flyd
 // proactive instead of only answering when spoken to.
-
-const execFileAsync = promisify(execFile);
 
 export type AgendaRepeat = "none" | "hourly" | "daily" | "weekdays" | "weekly";
 
@@ -209,9 +206,7 @@ function acquireLock(path: string): boolean {
 }
 
 export async function notifyMac(title: string, message: string): Promise<void> {
-  if (process.platform !== "darwin") return;
-  const script = "on run argv\n display notification (item 2 of argv) with title (item 1 of argv)\nend run";
-  await execFileAsync("osascript", ["-e", script, title, message.replace(/\s+/g, " ").slice(0, 220)], { timeout: 10_000 });
+  await showMacNotification(title, message);
 }
 
 export interface RunDueDependencies {
