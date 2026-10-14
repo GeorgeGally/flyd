@@ -1346,6 +1346,31 @@ describe("header and artefact view", () => {
     expect(later.at(-1)).toEqual({ session: "latest", passage: { quote: "island", from: "assistant" }, text: "Slower" });
   });
 
+  it("keeps a real copyable selection when the comment control appears", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "a1", role: "assistant", html: "<p>The island runs from the notch.</p>" }]);
+    await settle();
+    const words = document.querySelector(".msg.assistant .body p")!.firstChild!;
+    const pop = document.querySelector<HTMLElement>(".passage")!;
+    const range = document.createRange();
+    range.setStart(words, 4);
+    range.setEnd(words, 10);
+    document.querySelector(".msg.assistant")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    await settle();
+    expect(pop.hidden).toBe(true);
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(pop.hidden).toBe(false);
+    expect(window.getSelection()!.toString()).toBe("island");
+    const copy = new Event("copy", { cancelable: true });
+    document.dispatchEvent(copy);
+    expect(copy.defaultPrevented).toBe(false);
+  });
+
   it("shows phone-width work on a phone, where a click on a spot sends a comment with the page and the spot", async () => {
     load("");
     await settle();
