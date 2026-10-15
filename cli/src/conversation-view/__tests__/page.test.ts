@@ -1751,7 +1751,7 @@ describe("header and artefact view", () => {
     opener.click();
     expect(prefs.hidden).toBe(false);
     expect(opener.getAttribute("aria-expanded")).toBe("true");
-    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Side column", "Taste"]);
+    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Side column", "Routines", "Taste"]);
     // A switch inside keeps it open; Escape or a click elsewhere closes it.
     document.getElementById("theme")!.click();
     expect(prefs.hidden).toBe(false);

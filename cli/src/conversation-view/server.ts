@@ -1,3 +1,5 @@
+import { RoutineArtefacts } from "./routines.js";
+import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -405,6 +407,7 @@ export class ConversationViewServer {
     private readonly memory?: MemoryReader,
     /** Answers firstmate's routine questions by his standing rules; without it every question waits for him. */
     private readonly autoAnswers?: AutoAnswers,
+    private readonly routines = new RoutineArtefacts(),
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -447,6 +450,19 @@ export class ConversationViewServer {
       return;
     }
     const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (url.pathname === "/api/routines") {
+      await this.routineAction(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/routines") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+        "referrer-policy": "no-referrer",
+      });
+      res.end(renderRoutinesPage(this.token));
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/whatsapp") {
       const origin = req.headers.origin;
       if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
@@ -882,6 +898,48 @@ export class ConversationViewServer {
     else sendJson(res, 400, { error: "expected { key, draft: { text, selectionStart, selectionEnd, attachments } }" });
   }
 
+  /** Each run enters the existing router; definitions cannot dispatch tools directly. */
+  private async routineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) ||
+        !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    if (req.method === "GET") { sendJson(res, 200, this.routines.list()); return; }
+    if (req.method !== "POST") { sendJson(res, 405, { error: "method not allowed" }); return; }
+    try {
+      const payload = JSON.parse(await readBody(req, 24 * 1024));
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid request");
+      if (payload.action === "save") {
+        sendJson(res, 200, { routine: this.routines.save(payload) });
+        return;
+      }
+      if (payload.action === "dismiss" && typeof payload.id === "string") this.routines.dismiss(payload.id);
+      else if (payload.action === "enabled" && typeof payload.enabled === "boolean") this.routines.enable(payload.enabled);
+      else if (payload.action === "erase") this.routines.erase();
+      else if (payload.action === "run") {
+        if (!this.source.canSend) { sendJson(res, 405, { error: "read-only" }); return; }
+        if (typeof payload.id !== "string" || typeof payload.session !== "string" || typeof payload.requestId !== "string" ||
+            !Number.isInteger(payload.revision) || !payload.inputs || typeof payload.inputs !== "object" || Array.isArray(payload.inputs)) {
+          throw new Error("Invalid run");
+        }
+        const session = payload.session === "latest" ? (await this.source.listSessions())[0]?.id : payload.session;
+        if (!session) throw new Error("Open a conversation before running a routine.");
+        const claimed = this.routines.claim(payload.id, payload.revision, session, payload.requestId, payload.inputs);
+        if (!claimed.fresh) { sendJson(res, 200, claimed); return; }
+        let receipt: string | undefined;
+        try { receipt = (await this.source.send(claimed.run.session, claimed.run.text, [], [])).id; }
+        catch { /* May have been delivered. Never repeat this run's dispatch. */ }
+        sendJson(res, 200, { run: this.routines.settle(claimed.run, receipt) });
+        return;
+      } else throw new Error("Unknown routine action");
+      sendJson(res, 200, { ok: true });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : "Routine unavailable" });
+    }
+  }
+
   private async send(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!this.source.canSend) {
       sendJson(res, 405, { error: "read-only" });
@@ -970,7 +1028,12 @@ export class ConversationViewServer {
       const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
       this.predictionContexts.delete(payload.session);
       this.predictions.remember(payload.text);
-      sendJson(res, 200, sent);
+      let routineSuggestion = false;
+      if (!sent.warning && (images as ImageUpload[]).length === 0 && (files as FileUpload[]).length === 0) {
+        try { routineSuggestion = Boolean(this.routines.observe(payload.session, sent.id, payload.text)); }
+        catch { /* A delivered message stays delivered if discovery fails. */ }
+      }
+      sendJson(res, 200, { ...sent, ...(routineSuggestion ? { routineSuggestion: true } : {}) });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }

@@ -40,3 +40,4 @@ process.env.FLYD_OPENCODE_PATH = "/usr/bin/false";
 process.env.FLYD_FIRSTMATE_HOME = join(sandbox, "firstmate");
 
 process.env.FLYD_CONNECTOR_DIR ??= join(sandbox, "connectors");
+process.env.FLYD_ROUTINES_DB ??= join(sandbox, "routines.sqlite");

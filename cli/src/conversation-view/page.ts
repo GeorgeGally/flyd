@@ -1059,6 +1059,8 @@ var __name = function (f) { return f; };
     // The heights change everywhere: stay on the latest message, or on the one he was reading.
     keepPlace(function () { applyMode(next); });
   });
+  document.getElementById("routine-suggestion").addEventListener("click", function (event) { event.preventDefault(); location.href = "/routines?session=" + encodeURIComponent(current || "latest"); });
+  document.getElementById("routines-link").addEventListener("click", function () { location.href = "/routines?session=" + encodeURIComponent(current || "latest"); });
   document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN); });
   themeBtn.addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
@@ -3328,6 +3330,10 @@ var __name = function (f) { return f; };
     return authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: payload }, true).then(function (response) {
       return response.json().then(function (data) {
         if (!response.ok) throw new Error(data.error || "not sent");
+        if (data.routineSuggestion) {
+          document.querySelector("#routines-link .prefs-about").textContent = "A repeated request is ready to keep";
+          document.getElementById("routine-suggestion").hidden = false;
+        }
         return data;
       });
     }, function (error) {
@@ -4092,6 +4098,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
 <aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
@@ -4116,6 +4123,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
 <div class="problem" id="problem"></div>
+<a id="routine-suggestion" href="/routines" hidden style="position:fixed;bottom:150px;right:24px;font-size:14px;color:var(--accent);padding:12px;background:var(--tint);border-radius:12px">Keep this repeated request as a routine →</a>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
   <div class="ambient" id="ambient" aria-hidden="true"></div>
   <div class="tv">
