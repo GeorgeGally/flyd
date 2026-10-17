@@ -1,6 +1,7 @@
 import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmate-inbox.js";
 import { escapeHtml } from "./markdown.js";
 import { installComposerPredictions } from "./composer-predictions-client.js";
+import { LEFT_BUTTON, LEFT_HTML, LEFT_PREFERENCE, LEFT_SCRIPT, LEFT_STYLE } from "./left-column.js";
 import { RECEIVED } from "./living.js";
 import { UNREAD_AFTER_MS } from "./note-receipts.js";
 import { PASSAGE_CHARS } from "./replies.js";
@@ -1007,7 +1008,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   .msg.fresh, .working i { animation: none; }
   html { scroll-behavior: auto; }
 }
-` + SHOW_STYLE;
+` + LEFT_STYLE + SHOW_STYLE;
 
 // Core runs under tsx/esbuild with keepNames, so a function inlined with
 // toString() can carry __name(...) calls; without this shim they throw and
@@ -1528,6 +1529,7 @@ var __name = function (f) { return f; };
     renderSite(update.page);
     renderBrief(update.show);
     renderRail(update.rail);
+    renderActivity(update.leftColumn);
   }
 
   // The top of the column, Flyd as chief of staff: the one decision that needs
@@ -2535,6 +2537,7 @@ var __name = function (f) { return f; };
   railToggle.setAttribute("aria-checked", String(!railHidden));
   railToggle.addEventListener("click", function () { hideRail(!railHidden); });
   document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
+${LEFT_SCRIPT}
 
   // The chat box at the foot of every artefact: his words about that one thing go
   // to firstmate naming it, and the line under the box says where they are in
@@ -4090,7 +4093,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
   <span class="controls">
-    <a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
+    ${LEFT_BUTTON}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
     <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
@@ -4099,10 +4102,12 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
+  ${LEFT_PREFERENCE}
   <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
+${LEFT_HTML}
 <aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <nav class="rail-tabs" aria-label="Sidebar view"><button type="button" data-rail-tab="artefacts" aria-selected="true">Artefacts</button><button type="button" data-rail-tab="detail" aria-selected="false">Detailed view</button></nav>

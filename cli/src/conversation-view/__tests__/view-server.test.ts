@@ -7,6 +7,7 @@ import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
+import { ActivityReader } from "../activity.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
@@ -632,6 +633,28 @@ describe("ConversationViewServer", () => {
     expect(stream.body).toContain("event: session");
     const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(update.messages.map((m: { html: string }) => m.html)).toEqual(["<p>hello</p>\n", "<p>Hi, <strong>Captain</strong>.</p>\n"]);
+  });
+
+  it("streams Flyd's own activity for the left column, and not at all without a reader", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-activity-"));
+    const home = join(dir, "flyd-home");
+    mkdirSync(join(home, "logs"), { recursive: true });
+    writeFileSync(join(home, "logs", "agenda.log"), `${new Date(Date.now() - 5 * 60_000).toISOString()} scout: watch: 0 must-know\n`);
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi.")].join("\n") + "\n");
+    const source = () => new ClaudeCodeTranscriptSource({ projectDir: dir!, assistantLabel: "firstmate" });
+    server = new ConversationViewServer(source(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, new ActivityReader({ dir: home }));
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const update = JSON.parse((await get(port, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.leftColumn.now).toEqual([]);
+    expect(update.leftColumn.recent).toMatchObject([{ title: "Watched the news for you", line: "Nothing urgent." }]);
+    await server.close();
+
+    server = new ConversationViewServer(source());
+    const bare = await server.listen(0);
+    viewToken = JSON.parse((await get(bare, "/api/token")).body).token;
+    const without = JSON.parse((await get(bare, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(without.leftColumn).toBeUndefined();
   });
 
   it("rejects an unauthenticated stream before exposing artefact data", async () => {

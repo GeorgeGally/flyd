@@ -31,6 +31,7 @@ import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } fro
 import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
+import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
@@ -134,6 +135,8 @@ export interface ShowOptions {
   readings?: () => BoxReadings;
   /** Flyd's right column: his conversations, their answers and the artefacts beside them. */
   rail?: (snapshot: ConversationSnapshot) => Rail;
+  /** Flyd's left column: what it is doing now and has done lately. */
+  leftColumn?: () => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
 }
@@ -154,6 +157,8 @@ interface StreamUpdate {
   boxes: Box[];
   /** The right column: his conversations with their answers, and artefacts beside them. */
   rail?: Rail;
+  /** The left column: what Flyd is doing now and has done lately. */
+  leftColumn?: ActivityPanel;
   /** The page the work is on now, kept in the header whenever there is one. */
   page?: CurrentPage;
 }
@@ -336,6 +341,7 @@ export class SnapshotDiffer {
       show: show.calls ? { ...show, calls: show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call)) } : show,
       boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
+      ...(this.show?.leftColumn ? { leftColumn: this.show.leftColumn() } : {}),
       ...(page ? { page } : {}),
     };
   }
@@ -410,6 +416,8 @@ export class ConversationViewServer {
     /** Answers firstmate's routine questions by his standing rules; without it every question waits for him. */
     private readonly autoAnswers?: AutoAnswers,
     private readonly routines = new RoutineArtefacts(),
+    /** Flyd's own activity records, read for the left column; without it the column is not offered. */
+    private readonly activity?: ActivityReader,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -1293,6 +1301,7 @@ export class ConversationViewServer {
         artefact: () => this.feed.current(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
         rail: (snapshot) => this.rail(snapshot),
+        ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
       });
     const follower = this.source.follow(
@@ -1317,6 +1326,10 @@ export class ConversationViewServer {
     const stopMemory = this.memory?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
+    // Flyd did or started something: the left column's cards change.
+    const stopActivity = this.activity?.onChange(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
       emitUnread();
@@ -1328,6 +1341,7 @@ export class ConversationViewServer {
       stopFeed();
       stopPreviews();
       stopMemory?.();
+      stopActivity?.();
       follower.close();
       this.predictionContexts.delete(session.id);
     });
