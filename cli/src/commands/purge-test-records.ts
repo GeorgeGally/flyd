@@ -27,18 +27,6 @@ const FIXTURE_SESSION = [
   /^sim-[a-z]+-\d+$/,
 ];
 
-/** Canned assistant replies from the conversation-responder test doubles. */
-const FIXTURE_REPLIES = new Set([
-  "done",
-  "model answer",
-  "general answer",
-  "inspected",
-  "Inspection denied.",
-  "Inspected safely.",
-  "Inspected the complete runtime.",
-  "inspect the GNM site and repo before advising",
-]);
-
 /**
  * Prompts that only test suites send, each found literally in the repo's
  * tests. A genuine message can share the wording, so a row only counts when it
@@ -139,7 +127,7 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
     else if (testInvocations.has(p.invocationId)) mark(row.sequence, "chat outcomes of test invocations");
   }
 
-  // 2. Conversation memory: fixture sessions, the test project, canned replies.
+  // 2. Conversation memory: fixture sessions, the test project, fixture prompts.
   const cognition = rows(`SELECT sequence, captured_at, source_id, kind, payload_json FROM personal_events WHERE source_id = 'chat.cognition'`);
   const doomedUsers = new Set<string>();
   const keptUsers = new Set<string>();
@@ -155,8 +143,7 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
       const c = p.conversation;
       const test = isFixtureSession(c.sessionId)
         || conversationBurst.has(row.sequence)
-        || (Array.isArray(c.projectIds) && c.projectIds.includes(TEST_PROJECT))
-        || FIXTURE_REPLIES.has(String(c.assistant ?? ""));
+        || (Array.isArray(c.projectIds) && c.projectIds.includes(TEST_PROJECT));
       if (test) { mark(row.sequence, "fixture conversations"); doomedUsers.add(norm(c.user)); }
       else keptUsers.add(norm(c.user));
     } else if (row.kind === "observation" && p.relation?.to === TEST_PROJECT && String(p.relation.from).startsWith("topic:")) {

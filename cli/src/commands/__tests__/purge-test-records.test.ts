@@ -94,4 +94,27 @@ describe("purgeTestRecords", () => {
     expect(after.readFrom(0).map((e) => (e.payload as any).sessionId)).toEqual(["genuine-1", "genuine-2"]);
     after.close();
   });
+
+  it("keeps a genuine conversation whose reply is a canned string, with its beliefs and relations", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purge-"));
+    const dbPath = join(dir, "intelligence.sqlite");
+    const store = new IntelligenceEventStore({ path: dbPath });
+    const db = (store as any).db;
+    let n = 0;
+    const add = (kind: string, payload: Record<string, unknown>) => db.prepare(
+      `INSERT INTO personal_events (id, schema_version, kind, source_id, captured_at, consent_json, retention_class, provenance, idempotency_key, payload_domain, payload_json)
+       VALUES (?, 1, ?, 'chat.cognition', '2026-10-18T10:00:00Z', '{}', 'durable', 'test', ?, 'x', ?)`,
+    ).run(`c${n}`, kind, `ck${n++}`, JSON.stringify(payload));
+    add("observation", { conversation: { sessionId: "20261018-real", user: "summarise the release notes", assistant: "done", projectIds: ["project:flyd"] } });
+    add("inferred_belief", { entity: { id: "topic:ccc" }, attribute: "fact", value: "summarise the release notes" });
+    add("observation", { relation: { from: "topic:ccc", type: "part_of", to: "project:flyd" } });
+    store.close();
+
+    const report = await purgeTestRecords({ dbPath, rebuild: false });
+    expect(report.totalDeleted).toBe(0);
+
+    const after = new IntelligenceEventStore({ path: dbPath });
+    expect(after.count()).toBe(3);
+    after.close();
+  });
 });
