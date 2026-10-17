@@ -30,6 +30,13 @@ describe("staffLine", () => {
     expect(staffLine("If the review passes it gets merged.").kind).toBe("absorbed");
   });
 
+  it("does not read a landing that only describes what it names as news", () => {
+    expect(staffLine("Everything that has landed is already running: I restart Flyd after each merge.").kind).toBe("absorbed");
+    expect(staffLine("What landed earlier was the header fix.").kind).toBe("absorbed");
+    expect(staffLine("The fix which shipped yesterday needed a follow-up.").kind).toBe("absorbed");
+    expect(staffLine("The island fix is merged: https://github.com/o/r/pull/3")).toMatchObject({ kind: "landed", url: "https://github.com/o/r/pull/3" });
+  });
+
   it("reads a landing in its own clause, whatever follows it", () => {
     expect(staffLine("Merged the logo fix after the review passed.")).toEqual({ kind: "landed", line: "Merged the logo fix after the review passed." });
     expect(staffLine("Merged the logo fix after the review passed. https://github.com/o/r/pull/9")).toMatchObject({ kind: "landed", line: "Merged the logo fix after the review passed." });
