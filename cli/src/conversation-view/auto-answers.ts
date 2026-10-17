@@ -71,7 +71,7 @@ const RULES: StandingRule[] = [
     id: "obvious-follow-up",
     preferences: TAKE_CONTROL,
     // "Do you want the command that lets…", "Want me to add tests for it?", "Shall I fix the other two?"
-    asks: /\b(?:do you want|would you like|want me to|shall (?:i|we)|should (?:i|we)|ok(?:ay)? to)\b.*\b(?:command|tool|fix|tests?|checks?|script|feature|helper|add|build|make|write|wire|implement|finish|continue|carry on)\b/i,
+    asks: /\b(?:do you want|would you like|want me to|shall (?:i|we)|should (?:i|we)|ok(?:ay)? to)\b.*\b(?:command|tool|fix|tests?|checks?|script|feature|helper|add|build|make|write|wire|implement|update|upgrade|finish|continue|carry on)\b/i,
     holds: (question) => !LANDS.test(question) && !NOT_GREEN.test(question),
     answer: "Yes",
   },
@@ -100,8 +100,10 @@ const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|rev
 const COMMUNICATES = /\b(?:messag(?:e|es|ed|ing)|dm|notif(?:y|ies|ied|ying)|ping(?:s|ed|ing)?|email(?:s|ed|ing)?|send(?:s|ing)?|sent|slack(?:s|ed|ing)?|comment(?:s|ed|ing)?|forward(?:s|ed|ing)?|cc|invit(?:e|es|ed|ing)|respond(?:s|ed|ing)?|repl(?:y|ies|ied|ying)|reach(?:es|ing)? out|post(?:s|ed|ing)?|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ed|ing)|text(?:s|ed|ing)?|remind\w*)\b/gi;
 /** People, or a public place, a message reaches. */
 const RECIPIENT = /\b(?:team\w*|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|manager|colleagues?|everyone|everybody|someone|anyone|people|users|folks|guys|issue|thread|channel|forum|public(?:ly)?)\b/i;
-/** A person named as the one it goes to: right after the verb ("email Sam") or after to or with. */
-const NAMED = /^\s*(?:(?:\S+\s+){0,3}?(?:to|with)\s+)?(?:@\w+|(?!(?:Flyd|Firstmate|GitHub|Git|Node)\b)[A-Z][a-z]+)/;
+/** A person named as the one it goes to, right after the verb ("email Sam") or after to or with. */
+const NAMED = /^\s*(?:(?:\S+\s+){0,3}?(?:to|with)\s+)?(?:@\w+|(?!(?:Flyd|Firstmate|GitHub|Git)\b)[A-Z][a-z]+)/;
+/** Verbs aimed at a person: only after one is a capitalised name someone, not a tool or a platform. */
+const TO_A_PERSON = /^(?:email|dm|messag|text|ping|tell|told|cc|invit|forward|slack|notif|remind|repl)/i;
 /** Him, her or them reached directly; after write, update or post they are as likely branches or files. */
 const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 
@@ -109,7 +111,7 @@ const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 function speaksForHim(question: string): boolean {
   for (const verb of question.matchAll(COMMUNICATES)) {
     const after = question.slice(verb.index + verb[0].length).split(/[?.,;!]|\band\b/)[0]!;
-    if (RECIPIENT.test(after) || NAMED.test(after)) return true;
+    if (RECIPIENT.test(after) || (TO_A_PERSON.test(verb[0]) && NAMED.test(after))) return true;
     if (!/^(?:writ|updat|post)/i.test(verb[0]) && PRONOUN.test(after)) return true;
   }
   return false;

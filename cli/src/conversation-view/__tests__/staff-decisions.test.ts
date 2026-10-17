@@ -251,6 +251,10 @@ describe("Flyd decides its staff's routine questions", () => {
       "Shall I rebase the branches and update them?",
       "Shall I post an update about the push?",
       "Shall I push and update it to Node 22?",
+      "Shall I write Playwright tests?",
+      "Shall I update React?",
+      "Shall I push and post the build to Vercel?",
+      "Shall I commit and update Vitest?",
     ]) {
       const [note] = await answered(reply(`Everything is green.\n\n${question}`));
       expect(note?.replyQuote, question).toBe(question);
