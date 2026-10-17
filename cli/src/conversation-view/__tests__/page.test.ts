@@ -2408,4 +2408,25 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
   });
+
+  it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const old: Record<string, number> = { "landed:gone": Date.now() - 4 * day, "landed:still": Date.now() - 4 * day };
+    for (let index = 0; index < 400; index += 1) old[`landed:recent-${index}`] = Date.now() - day - index;
+    localStorage.setItem("flyd-done-seen", JSON.stringify(old));
+    load("");
+    await settle();
+    const done = [
+      { id: "landed:still", kind: "landed", headline: "Seen days ago.", why: "", at: new Date().toISOString() },
+      { id: "landed:new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
+    ];
+    open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    const seen = JSON.parse(localStorage.getItem("flyd-done-seen")!) as Record<string, number>;
+    expect(Object.keys(seen)).toHaveLength(300);
+    expect(seen["landed:gone"]).toBeUndefined();
+    expect(seen["landed:still"]).toBe(old["landed:still"]);
+    expect(seen["landed:new"]).toBeDefined();
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
+  });
 });

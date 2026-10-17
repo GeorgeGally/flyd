@@ -1660,13 +1660,33 @@ var __name = function (f) { return f; };
   // What he has put away is kept by the shared cards (cardGone); a Done item he has seen fades on its own after a day.
   var SEEN_FOR_MS = 24 * 60 * 60 * 1000;
   function itemKey(item) { return item.id || item.headline; }
-  function stillShown(item, done) {
+  /** A Done item no longer listed is forgotten once it is this old. */
+  var SEEN_KEPT_MS = 3 * SEEN_FOR_MS;
+  // Only the newest few hundred are kept; old ones have long left the column anyway.
+  function newest(times, first) {
+    var kept = {};
+    var rank = function (key) { return first && first[key] ? 1 : 0; };
+    Object.keys(times).sort(function (a, b) { return rank(b) - rank(a) || times[b] - times[a]; }).slice(0, 300).forEach(function (key) { kept[key] = times[key]; });
+    return kept;
+  }
+  function seenDone(items) {
+    var seen = cardRead("flyd-done-seen");
+    var now = Date.now();
+    var listed = {};
+    items.forEach(function (item) {
+      var key = itemKey(item);
+      listed[key] = true;
+      if (!seen[key]) seen[key] = now;
+    });
+    Object.keys(seen).forEach(function (key) { if (!listed[key] && now - seen[key] > SEEN_KEPT_MS) delete seen[key]; });
+    seen = newest(seen, listed);
+    store("flyd-done-seen", JSON.stringify(seen));
+    return seen;
+  }
+  function stillShown(item, seen) {
     var key = itemKey(item);
     if (cardGone(key)) return false;
-    if (!done) return true;
-    var seen = cardRead("flyd-done-seen");
-    if (!seen[key]) { seen[key] = Date.now(); store("flyd-done-seen", JSON.stringify(seen)); return true; }
-    return Date.now() - seen[key] < SEEN_FOR_MS;
+    return !seen || Date.now() - seen[key] < SEEN_FOR_MS;
   }
   function briefItem(item, meta) {
     var kind = item.kind || "note";
@@ -1766,7 +1786,8 @@ var __name = function (f) { return f; };
     if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
   }
   function drawList(section, label, items, meta, few) {
-    items = items.filter(function (item) { return stillShown(item, label === "Done"); });
+    var seen = label === "Done" && items.length ? seenDone(items) : null;
+    items = items.filter(function (item) { return stillShown(item, seen); });
     section.textContent = "";
     section.hidden = !items.length;
     if (!items.length) return;
