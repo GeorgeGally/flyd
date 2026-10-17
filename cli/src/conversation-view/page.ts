@@ -1659,7 +1659,8 @@ var __name = function (f) { return f; };
   }
   // What he has put away is kept by the shared cards (cardGone); a Done item he has seen fades on its own after a day.
   var SEEN_FOR_MS = 24 * 60 * 60 * 1000;
-  function itemKey(item) { return item.id || item.headline; }
+  // A card with no task of its own is named only by its place in the list, so it is kept by its words instead.
+  function itemKey(item) { return item.task ? item.id : item.headline; }
   /** A Done item no longer listed is forgotten once it is this old. */
   var SEEN_KEPT_MS = 3 * SEEN_FOR_MS;
   // Only the newest few hundred are kept; old ones have long left the column anyway.
@@ -1684,9 +1685,8 @@ var __name = function (f) { return f; };
     return seen;
   }
   function stillShown(item, seen) {
-    var key = itemKey(item);
-    if (cardGone(key)) return false;
-    return !seen || Date.now() - seen[key] < SEEN_FOR_MS;
+    if (item.task && cardGone(item.id)) return false;
+    return !seen || Date.now() - seen[itemKey(item)] < SEEN_FOR_MS;
   }
   function briefItem(item, meta) {
     var kind = item.kind || "note";
@@ -1719,15 +1719,17 @@ var __name = function (f) { return f; };
       thumb.appendChild(img);
       li.appendChild(thumb);
     }
-    var close = el("button", "card-dismiss", "✕");
-    close.type = "button";
-    close.setAttribute("aria-label", "Hide this");
-    close.addEventListener("click", function () {
-      cardDismiss(itemKey(item));
-      li.classList.add("leaving");
-      setTimeout(function () { renderBrief(lastBrief); }, 220);
-    });
-    li.appendChild(close);
+    if (item.task) {
+      var close = el("button", "card-dismiss", "✕");
+      close.type = "button";
+      close.setAttribute("aria-label", "Hide this");
+      close.addEventListener("click", function () {
+        cardDismiss(item.id);
+        li.classList.add("leaving");
+        setTimeout(function () { renderBrief(lastBrief); }, 220);
+      });
+      li.appendChild(close);
+    }
     return li;
   }
   function drawNeeds(calls) {

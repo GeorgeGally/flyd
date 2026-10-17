@@ -2378,14 +2378,14 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     const stream = open("latest", []);
     const done = [
-      { id: "landed:left", kind: "landed", headline: "Flyd now has a left column.", why: "", at: new Date().toISOString() },
-      { id: "landed:island", kind: "landed", headline: "The island text is readable again.", why: "", at: new Date().toISOString() },
+      { id: "landed:left", task: "left", kind: "landed", headline: "Flyd now has a left column.", why: "", at: new Date().toISOString() },
+      { id: "landed:island", task: "island", kind: "landed", headline: "The island text is readable again.", why: "", at: new Date().toISOString() },
     ];
     const update = { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } };
     stream.emit("update", update);
     await settle();
     expect(document.querySelectorAll("#done li")).toHaveLength(2);
-    document.querySelector<HTMLButtonElement>("#done li .brief-dismiss")!.click();
+    document.querySelector<HTMLButtonElement>("#done li .card-dismiss")!.click();
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["The island text is readable again."]);
     // A reload keeps it hidden.
@@ -2401,8 +2401,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     load("");
     await settle();
     const done = [
-      { id: "landed:old", kind: "landed", headline: "Seen yesterday.", why: "", at: new Date().toISOString() },
-      { id: "landed:new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
+      { id: "landed:old", task: "old", kind: "landed", headline: "Seen yesterday.", why: "", at: new Date().toISOString() },
+      { id: "landed:new", task: "new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
     ];
     open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
@@ -2417,8 +2417,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     load("");
     await settle();
     const done = [
-      { id: "landed:still", kind: "landed", headline: "Seen days ago.", why: "", at: new Date().toISOString() },
-      { id: "landed:new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
+      { id: "landed:still", task: "still", kind: "landed", headline: "Seen days ago.", why: "", at: new Date().toISOString() },
+      { id: "landed:new", task: "new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
     ];
     open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
