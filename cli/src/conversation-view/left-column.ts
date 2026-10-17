@@ -3,11 +3,11 @@
 // markup and script; the script runs inside the page's closure and borrows its
 // el(), ago(), patch() and store().
 
-/** Where the inline column starts to fit beside the chat and the right column. */
+/** Where the column starts to open by itself: wide enough for it, the chat and the right column. */
 export const LEFT_INLINE_MIN = 1480;
 
 export const LEFT_STYLE = `
-/* The left column: what Flyd is doing, in the same quiet cards as the right. */
+/* The left column: what Flyd is doing, in the same quiet cards as the right. Open by default only where it fits beside the chat. */
 :root { --left-w: min(300px, 22vw); }
 .left {
   position: fixed; top: 52px; left: 0; bottom: 0; width: var(--left-w); z-index: 6;
@@ -37,17 +37,14 @@ export const LEFT_STYLE = `
 .left-more:hover { color: var(--fg); }
 .left-more[hidden] { display: none; }
 
-/* Wide enough, the column sits beside the chat; the chat narrows to fit and otherwise stays centred between the two columns. */
-@media (min-width: 1480px) {
-  :root[data-left="inline"] main { margin-left: max(calc(var(--left-w) + 1.5em), calc(50% + var(--left-w) / 2 - 18.75em)); }
-  :root[data-left="inline"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + var(--left-w) / 2 - 23.4em)); margin-right: 0; }
-  :root[data-left="inline"][data-rail="on"] main { margin-left: max(calc(var(--left-w) + 1.5em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 18.75em)); }
-  :root[data-left="inline"][data-rail="on"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 23.4em)); margin-right: calc(min(430px, 34vw) + 1.875em); }
+/* Open, the column takes its width off the chat, which narrows to fit and otherwise stays centred between the two columns; it never sits under it. */
+@media (min-width: 721px) {
+  :root[data-left="open"] main { margin-left: max(calc(var(--left-w) + 1.5em), calc(50% + var(--left-w) / 2 - 18.75em)); }
+  :root[data-left="open"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + var(--left-w) / 2 - 23.4em)); margin-right: 0; }
+  :root[data-left="open"][data-rail="on"] main { margin-left: max(calc(var(--left-w) + 1.5em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 18.75em)); }
+  :root[data-left="open"][data-rail="on"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 23.4em)); margin-right: calc(min(430px, 34vw) + 1.875em); }
 }
-/* Narrower, it is a drawer over the chat, opened from the header; on a phone it is the screen. */
-@media (max-width: 1479px) {
-  .left { width: min(340px, 86vw); }
-}
+/* On a phone it is the screen. */
 @media (max-width: 720px) {
   .left { width: 100vw; z-index: 7; }
   .left-tab { padding-right: 56px; }
@@ -83,7 +80,7 @@ export const LEFT_SCRIPT = `
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function setLeft() {
     var on = !!leftPanel && leftIsOpen();
-    document.documentElement.setAttribute("data-left", on ? (leftWide && leftWide.matches ? "inline" : "drawer") : "off");
+    document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
     leftOpenEl.hidden = !leftPanel;
     leftOpenEl.setAttribute("aria-pressed", String(on));
@@ -131,7 +128,7 @@ export const LEFT_SCRIPT = `
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   document.getElementById("left-hide").addEventListener("click", function () { chooseLeft(false); });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !leftEl.hidden && document.documentElement.getAttribute("data-left") === "drawer" && prefs.hidden) chooseLeft(false);
+    if (event.key === "Escape" && !leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);
   // Times in the cards move on while nothing else does.

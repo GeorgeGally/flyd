@@ -1935,7 +1935,7 @@ describe("header and artefact view", () => {
     expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
   });
 
-  it("shows Flyd's own activity in a left column that is a drawer on a narrow window, and stays shut until asked", async () => {
+  it("shows Flyd's own activity in a left column that stays shut on a narrow window until asked", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -1952,7 +1952,7 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-left")).toBe("off");
     document.getElementById("left-open")!.click();
     expect(left.hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-left")).toBe("drawer");
+    expect(document.documentElement.getAttribute("data-left")).toBe("open");
     expect(localStorage.getItem("flyd-left")).toBe("on");
     const cards = (id: string) => Array.from(document.querySelectorAll(`#${id} .left-card`));
     expect(cards("left-now")).toHaveLength(1);
@@ -1970,14 +1970,14 @@ describe("header and artefact view", () => {
     await settle();
     const stream = open("latest", []);
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at: new Date(Date.now() - 9 * 60_000).toISOString() }] } });
-    expect(document.documentElement.getAttribute("data-left")).toBe("inline");
+    expect(document.documentElement.getAttribute("data-left")).toBe("open");
     expect(document.querySelector("#left-now .left-title")!.textContent).toBe("Nothing under way right now.");
     expect(document.querySelector("#left-now .left-meta")!.textContent).toBe("Last active 9m ago");
     // He can still put it away; it stays away.
     document.getElementById("left-hide")!.click();
     expect(document.documentElement.getAttribute("data-left")).toBe("off");
     document.getElementById("left-toggle")!.click();
-    expect(document.documentElement.getAttribute("data-left")).toBe("inline");
+    expect(document.documentElement.getAttribute("data-left")).toBe("open");
   });
 
   it("folds the earlier activity to a few cards and opens the rest on request", async () => {
