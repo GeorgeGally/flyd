@@ -793,29 +793,29 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 /* A relayed staff update: a compact card, never a paragraph. A dot and a word for the kind of news, one line, its link. */
 .msg.carded { color: var(--fg); }
 .msg.carded > .summary, .msg.carded > .aside-label, .msg.carded-decision .choice-q { display: none; }
-.card { display: flex; gap: 18px; align-items: flex-start; padding: 16px 20px 17px; border-radius: 14px; background: var(--tint); animation: choice-in 380ms ease both; }
-.card-text { flex: 1; min-width: 0; }
-.card-meta { display: flex; align-items: center; gap: 8px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.card-meta::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.card-landed .card-meta::before { background: #7ec699; }
-.card-decision .card-meta::before { background: var(--accent); }
-.card-blocker .card-meta::before { background: #d0574c; }
-.card-line { margin: 8px 0 0; font: 500 19px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
-.card-link:hover { color: var(--strong); }
-.card-thumb { flex: none; margin: 0; }
-.card-text > .card-line:first-child { margin-top: 0; }
+.msg .card { display: flex; gap: 18px; align-items: flex-start; padding: 16px 20px 17px; border-radius: 14px; background: var(--tint); animation: choice-in 380ms ease both; }
+.msg .card-text { flex: 1; min-width: 0; }
+.msg .card-meta { display: flex; align-items: center; gap: 8px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.msg .card-meta::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.msg .card-landed .card-meta::before { background: #7ec699; }
+.msg .card-decision .card-meta::before { background: var(--accent); }
+.msg .card-blocker .card-meta::before { background: #d0574c; }
+.msg .card-line { margin: 8px 0 0; font: 500 19px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.msg .card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
+.msg .card-link:hover { color: var(--strong); }
+.msg .card-thumb { flex: none; margin: 0; }
+.msg .card-text > .card-line:first-child { margin-top: 0; }
 .outcomes { display: grid; gap: 10px; }
 .outcomes-lead { margin: 0 0 4px; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
-.card-compact { padding: 14px 18px 15px; }
-.card-compact .card-line { margin-top: 6px; font-size: 17px; }
-.card-compact .card-meta + .card-line { margin-top: 6px; }
-.card-compact .card-text > .card-line:first-child { margin-top: 0; }
-.card-sub { margin: 4px 0 0; font: 400 15px/1.45 var(--sans); color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
-.card-underway .card-meta::before { background: var(--k-live); }
-.card-needs .card-meta::before { background: var(--accent); }
-.card-stuck .card-meta::before { background: #d0574c; }
-.card-thumb .shot img { width: 104px; height: 68px; object-fit: cover; border-radius: 8px; }
+.msg .card-compact { padding: 14px 18px 15px; }
+.msg .card-compact .card-line { margin-top: 6px; font-size: 17px; }
+.msg .card-compact .card-meta + .card-line { margin-top: 6px; }
+.msg .card-compact .card-text > .card-line:first-child { margin-top: 0; }
+.msg .card-sub { margin: 4px 0 0; font: 400 15px/1.45 var(--sans); color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+.msg .card-underway .card-meta::before { background: var(--k-live); }
+.msg .card-needs .card-meta::before { background: var(--accent); }
+.msg .card-stuck .card-meta::before { background: #d0574c; }
+.msg .card-thumb .shot img { width: 104px; height: 68px; object-fit: cover; border-radius: 8px; }
 .msg.carded > .more { margin-top: 8px; }
 .msg.carded .choice { margin-top: 10px; }
 .choice { margin-top: 0.9em; padding: 0.85em 1em 0.95em; border-radius: 12px; background: var(--tint); animation: choice-in 380ms ease both; }

@@ -38,6 +38,8 @@ describe("staffLine", () => {
   });
 
   it("reads a landing in its own clause, whatever follows it", () => {
+    expect(staffLine("All of that has landed: https://github.com/o/r/pull/5")).toMatchObject({ kind: "landed", url: "https://github.com/o/r/pull/5" });
+    expect(staffLine("The header fix is green and that merged: https://github.com/o/r/pull/6")).toMatchObject({ kind: "landed", url: "https://github.com/o/r/pull/6" });
     expect(staffLine("Merged the logo fix after the review passed.")).toEqual({ kind: "landed", line: "Merged the logo fix after the review passed." });
     expect(staffLine("Merged the logo fix after the review passed. https://github.com/o/r/pull/9")).toMatchObject({ kind: "landed", line: "Merged the logo fix after the review passed." });
     expect(staffLine("Merged. https://github.com/o/r/pull/1")).toMatchObject({ kind: "landed", line: "Merged." });
