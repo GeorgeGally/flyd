@@ -163,6 +163,15 @@ describe("notices keep the one voice", () => {
     expect(captainNotice(run("The worktree holds 2 files."))).toBe("Update — 2 files.");
     expect(captainNotice(run("Firstmate has not read 2 notes you sent; the oldest has waited 57 min.")))
       .toBe("Update — 2 notes, 57 min.");
+    const counted: Array<[string, string]> = [
+      ["Firstmate finished 2/3 jobs.", "Update — 2/3 jobs."],
+      ["The crewmate worked 2-3 hours on the island fix.", "Update — 2-3 hours."],
+      ["Firstmate: 3/4 tests pass.", "Update — 3/4 tests."],
+      ["Firstmate waited 1.5 h.", "Update — 1.5 h."],
+    ];
+    for (const [reply, expected] of counted) {
+      expect(captainNotice(run(reply)), reply).toBe(expected);
+    }
   });
 });
 
