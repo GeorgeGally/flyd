@@ -213,6 +213,7 @@ function sessionArgs(runtime: SessionRuntime): string[] {
   return ["run", SESSION_PROMPT];
 }
 
+/** Appends one JSONL line per FirstMate session launch attempt to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
