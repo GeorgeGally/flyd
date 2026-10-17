@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
@@ -37,6 +37,8 @@ vi.mock("../../lib/qmd.js", async () => ({
   updateRaw: vi.fn().mockResolvedValue(undefined),
   embedRaw: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock("../../command/coding.js", () => ({ dispatchCodingDomain: vi.fn() }));
 
 beforeEach(() => {
   mkdirSync(plansDir, { recursive: true });
@@ -101,5 +103,61 @@ describe("runPlan", () => {
     expect(llm.query).toHaveBeenCalled();
     const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(prompt).toContain("TypeScript types");
+  });
+
+  it("gives the planner a bounded excerpt of each recalled capture and the project's context", async () => {
+    const llm = await import("../../lib/llm.js");
+    const qmd = await import("../../lib/qmd.js");
+    const config = await import("../../lib/config.js");
+    writeFileSync(join(rawDir, "auth-note.md"), `---\nsource: capture\n---\nAuth tokens must expire after one hour. ${"padding ".repeat(200)}`, "utf8");
+    (qmd.search as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ path: "auth-note.md", score: 80 }]);
+    const { runPlan } = await import("../plan.js");
+    await runPlan("auth tokens");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    expect(prompt).toContain("Auth tokens must expire after one hour.");
+    expect(prompt.length).toBeLessThan(4000);
+    expect(prompt).toContain(`Project: ${config.PROJECT.name}`);
+    expect(prompt).toContain(`Repository folder: ${config.PROJECT.path}`);
+  });
+
+  it("keeps recalled captures for a one-word topic", async () => {
+    const llm = await import("../../lib/llm.js");
+    const qmd = await import("../../lib/qmd.js");
+    writeFileSync(join(rawDir, "onboarding-note.md"), "---\nsource: capture\n---\nNew users see a welcome checklist on onboarding.", "utf8");
+    (qmd.search as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ path: "onboarding-note.md", score: 70 }]);
+    const { runPlan } = await import("../plan.js");
+    await runPlan("onboarding");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    expect(prompt).toContain("New users see a welcome checklist on onboarding.");
+  });
+
+  it("asks for the fixed plan shape, with done_when per phase", async () => {
+    const llm = await import("../../lib/llm.js");
+    const { runPlan } = await import("../plan.js");
+    await runPlan("TypeScript types");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    for (const heading of ["## Outcome", "## Files to touch", "## Approval gates", "**Done when:**", "## Phase 1"]) {
+      expect(prompt).toContain(heading);
+    }
+  });
+
+  it("records the project, repo path, status and created date in the frontmatter", async () => {
+    const { runPlan } = await import("../plan.js");
+    await runPlan("user auth");
+    const files = readdirSync(plansDir).filter((f) => f.endsWith(".md"));
+    const content = readFileSync(join(plansDir, files[0]), "utf8");
+    expect(content).toMatch(/^project: .+$/m);
+    expect(content).toMatch(/^repo_path: .+$/m);
+    expect(content).toMatch(/^status: draft$/m);
+    expect(content).toMatch(/^created: \d{4}-\d{2}-\d{2}$/m);
+  });
+
+  it("writes only a draft plan and hands nothing off", async () => {
+    const coding = await import("../../command/coding.js");
+    const { runPlan } = await import("../plan.js");
+    await runPlan("ship the plan");
+    expect(coding.dispatchCodingDomain).not.toHaveBeenCalled();
+    const files = readdirSync(plansDir).filter((f) => f.endsWith(".md"));
+    expect(readFileSync(join(plansDir, files[0]), "utf8")).toContain("status: draft");
   });
 });

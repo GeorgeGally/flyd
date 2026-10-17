@@ -3592,7 +3592,7 @@ ${LEFT_SCRIPT}
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   // What each kind is called on screen.
-  var WORDS = { call: "needs you", live: "under way", ready: "waiting to land", landed: "landed", waiting: "held up", next: "up next", news: "also", clear: "all clear", warn: "coming up" };
+  var WORDS = { call: "needs you", live: "under way", ready: "waiting to land", landed: "landed", waiting: "held up", next: "up next", plan: "plan", news: "also", clear: "all clear", warn: "coming up" };
   // The screen is for showing the work: pictured stories lead, then his calls.
   var RANK = { pictured: 0, call: 1, note: 2, alert: 3, story: 4 };
   var DWELL = 9000;

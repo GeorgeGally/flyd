@@ -14,8 +14,8 @@ import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 // latest word from the fleet), each one headline in Flyd's words. Pure: the
 // same snapshot, clock, readings and projects always pick the same things.
 
-/** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued. */
-export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "news" | "clear";
+/** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued; plan: a plan he made. */
+export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "plan" | "news" | "clear";
 
 export interface ShowLink {
   label: string;
@@ -400,7 +400,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const asked = items.filter((item) => item.kind === "call");
   const chosen = [...asked, ...siteItems, ...artefact, ...items.filter((item) => item.kind !== "call")]
     .slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS + siteItems.length);
-  if (chosen.every((item) => item.kind === "next")) {
+  if (chosen.every((item) => item.kind === "next" || item.kind === "plan")) {
     const taste = inputs.artefact?.taste?.[0];
     if (taste) chosen.push({ id: "taste", kind: "news", headline: taste, why: "what I'm learning about your taste" });
     else chosen.push({ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" });

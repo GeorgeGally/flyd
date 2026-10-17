@@ -2,6 +2,8 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { PLANS_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
+import { findPlan as findPlanFile, planHandoff } from "../lib/plans.js";
+import { dispatchCodingDomain, type CodingDispatchInput } from "../command/coding.js";
 
 function listPlans(): { filename: string; topic: string; status: string; timestamp: string }[] {
   if (!existsSync(PLANS_DIR)) return [];
@@ -23,28 +25,7 @@ function listPlans(): { filename: string; topic: string; status: string; timesta
 }
 
 function findPlan(query: string): string | null {
-  if (!existsSync(PLANS_DIR)) return null;
-  const files = readdirSync(PLANS_DIR).filter((f) => f.endsWith(".md")).sort().reverse();
-  const q = query.toLowerCase();
-
-  for (const f of files) {
-    if (f.toLowerCase().includes(q)) {
-      return join(PLANS_DIR, f);
-    }
-  }
-
-  // Search by topic in frontmatter
-  for (const f of files) {
-    try {
-      const content = readFileSync(join(PLANS_DIR, f), "utf8");
-      const { metadata } = parse(content);
-      if (String(metadata.topic ?? "").toLowerCase().includes(q)) {
-        return join(PLANS_DIR, f);
-      }
-    } catch { /* skip */ }
-  }
-
-  return null;
+  return findPlanFile(query)?.path ?? null;
 }
 
 function printChecklist(content: string): void {
@@ -96,7 +77,16 @@ function printChecklist(content: string): void {
   console.log(body.trim());
 }
 
-export async function runWork(query?: string): Promise<void> {
+export interface WorkOptions {
+  /** Hand the named plan to a fresh coding session; it never lands anything by itself. */
+  start?: boolean;
+  /** How a plan is handed over; injected in tests. */
+  dispatch?: (input: CodingDispatchInput) => Promise<unknown>;
+}
+
+export async function runWork(query?: string, options: WorkOptions = {}): Promise<void> {
+  if (options.start) return startPlan(query, options.dispatch ?? dispatchCodingDomain);
+
   const plans = listPlans();
 
   if (!plans.length) {
@@ -134,4 +124,26 @@ export async function runWork(query?: string): Promise<void> {
 
   const content = readFileSync(found, "utf8");
   printChecklist(content);
+}
+
+/**
+ * Hand a named plan to a fresh coding session: its task, its files and its repo
+ * folder. Only this explicit command starts work; creating a plan never does.
+ * Landing still needs George's /land.
+ */
+async function startPlan(query: string | undefined, dispatch: (input: CodingDispatchInput) => Promise<unknown>): Promise<void> {
+  if (!query) {
+    console.log("name a plan to start — 'flyd work --start <topic>'");
+    return;
+  }
+  const plan = findPlanFile(query);
+  if (!plan) {
+    console.log(`no plan found matching "${query}"`);
+    console.log("run 'flyd work --list' to see all plans");
+    return;
+  }
+  const handoff = planHandoff(plan);
+  console.log(`starting "${plan.topic}" in ${handoff.project.root}\n`);
+  await dispatch(handoff);
+  console.log("\nhanded to a fresh coding session — landing still needs your /land");
 }

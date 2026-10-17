@@ -2,8 +2,9 @@ import { execFile } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
-import { FLYD_DIR } from "../lib/config.js";
+import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { readPlans, type Plan } from "../lib/plans.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
@@ -63,13 +64,25 @@ export interface ArtefactNews {
   why?: string;
 }
 
-/** The four inputs, already read and bounded. */
+/** A plan George made, already read and bounded: its outcome and its checkable points. */
+export interface PlanArtefact {
+  id: string;
+  headline: string;
+  /** Its done_when points, one line, when it has them — a plan in progress shows them. */
+  points?: string;
+  status?: string;
+  at?: string;
+}
+
+/** The inputs, already read and bounded. */
 export interface ArtefactInputs {
   fleet?: FleetArtefact;
   memories: string[];
   news: ArtefactNews[];
   /** Top taste rules: they shape wording; shown only when nothing else exists. */
   taste: string[];
+  /** Plans he made, newest first. */
+  plans?: PlanArtefact[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
 }
@@ -609,7 +622,34 @@ export function workerStarted(meta: string): string | undefined {
   return epoch ? new Date(Number(epoch) * 1000).toISOString() : undefined;
 }
 
-/** Compose the panel's items from the four inputs, in priority order. Pure. */
+/** How many plans the artefact shows at once. */
+export const PLAN_LIMIT = 3;
+/** Points a plan's card line carries before it stops being glanceable. */
+const PLAN_POINTS = 4;
+const PLAN_POINTS_CHARS = 240;
+
+/** How long a plan stays on the panel after it was made. */
+const PLAN_SHOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const PLAN_CLOSED = new Set(["done", "abandoned"]);
+
+/** The plans he made this week that are still open, bounded for the panel: outcome, and the checkable points when it has them. Pure. */
+export function planArtefacts(plans: Plan[], now: number): PlanArtefact[] {
+  return plans.filter((plan) => {
+    const created = Date.parse(plan.created);
+    return !PLAN_CLOSED.has(plan.status.toLowerCase()) && now - created < PLAN_SHOWN_MS;
+  }).map((plan) => {
+    const line = plan.phases.flatMap((phase) => phase.doneWhen).slice(0, PLAN_POINTS).join("; ").slice(0, PLAN_POINTS_CHARS);
+    return {
+      id: plan.filename,
+      headline: plan.outcome || plan.topic,
+      ...(line ? { points: line } : {}),
+      ...(plan.status ? { status: plan.status } : {}),
+      ...(plan.created ? { at: plan.created } : {}),
+    };
+  });
+}
+
+/** Compose the panel's items from the inputs, in priority order. Pure. */
 export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions = {}): ShowItem[] {
   const items: ShowItem[] = [];
   const add = (kind: ShowKind, id: string, headline: string, why: string, extra: Partial<ShowItem> = {}): void => {
@@ -634,6 +674,12 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   rowsOf("next", fleet?.next);
   inputs.memories.slice(0, 1).forEach((line, index) => add("news", `memory-${index}`, line, "from your memory"));
   inputs.news.slice(0, 1).forEach((item, index) => add("news", `news-${index}`, item.title, item.why || "from the news", withLink(item.url)));
+  // Plans he made come last: they wait on his /land, so they never lead urgent work.
+  (inputs.plans ?? []).slice(0, PLAN_LIMIT).forEach((plan) => add("plan", plan.id, plan.headline, "a plan you made", {
+    ...(plan.points ? { detail: plan.points } : {}),
+    ...(plan.status ? { status: plan.status } : {}),
+    ...(plan.at ? { at: plan.at } : {}),
+  }));
   return items;
 }
 
@@ -737,6 +783,8 @@ export class ArtefactFeed {
       memoryFile?: string;
       newsFile?: string;
       tasteFile?: string;
+      /** The plans folder; under vitest the real one is never read unless a test passes this. */
+      plansDir?: string;
       /** Flyd's model, to say each row in its own words. */
       voice?: ArtefactVoice;
       intervalMs?: number;
@@ -763,6 +811,7 @@ export class ArtefactFeed {
       memory: this.options.memoryFile ?? join(FLYD_DIR, "MEMORY.md"),
       news: this.options.newsFile ?? join(FLYD_DIR, "scout", "edition-latest.json"),
       taste: this.options.tasteFile ?? join(FLYD_DIR, "TASTE.md"),
+      plans: this.options.plansDir ?? (process.env.VITEST ? join(home, "no-plans") : PLANS_DIR),
     };
   }
 
@@ -849,7 +898,7 @@ export class ArtefactFeed {
     this.again = false;
     this.lastRefresh = Date.now();
     try {
-      const { backlog, archive, memory, news, taste } = this.paths();
+      const { backlog, archive, memory, news, taste, plans: plansDir } = this.paths();
       const [bearings, backlogText, archiveText, memoryText, newsText, tasteText] = await Promise.all([
         this.readFleet(),
         ArtefactFeed.text(backlog),
@@ -886,6 +935,7 @@ export class ArtefactFeed {
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
+        plans: planArtefacts(readPlans(plansDir), Date.now()),
       };
       for (const listener of this.listeners) listener();
       if (voice && unsaid.length) void this.say(voice, enriched, unsaid, generation);

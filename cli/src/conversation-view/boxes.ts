@@ -86,7 +86,7 @@ export const RAIN_LIKELY_PERCENT = 60;
 export const RAIN_HOURS = 6;
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const STORY_KINDS: ShowKind[] = ["landed", "live", "ready", "waiting", "news"];
+const STORY_KINDS: ShowKind[] = ["landed", "live", "ready", "waiting", "plan", "news"];
 
 function shotsOf(item: ShowItem, prefix: string): Box[] {
   return (item.shots ?? []).slice(0, SHOTS_PER_STORY).map((shot, index) => ({
