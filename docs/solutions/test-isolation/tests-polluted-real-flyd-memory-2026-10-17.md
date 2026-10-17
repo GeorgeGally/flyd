@@ -40,7 +40,7 @@ conflict lines of every full prompt context (~16K tokens for a four-word questio
   at most three real conflicts reach a prompt.
 - `flyd ask` answers through the chat model chain with failover and fails loudly instead of printing the context.
   `hasApiKey` now asks `resolveModelConnection`, and a bare model under
-  `FLYD_PROVIDER=commandcode|openrouter` resolves to that provider (same model, no `.env` change).
+  `FLYD_PROVIDER=commandcode` resolves via CommandCode (same model, no `.env` change).
 
 ## Prevention
 

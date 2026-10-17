@@ -265,14 +265,14 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
  * The provider a model is served by when it names one: a qualified id
- * ("commandcode:deepseek/…"), or a bare id under FLYD_PROVIDER=commandcode or
- * openrouter, which have no model-name prefix of their own to infer from.
+ * ("commandcode:deepseek/…"), or a bare id under FLYD_PROVIDER=commandcode,
+ * which has no model-name prefix of its own to infer from.
  */
 function explicitProvider(model: string): string | null {
   const qualified = qualifiedModelProvider(model);
   if (qualified) return qualified;
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
-  return provider === "commandcode" || provider === "openrouter" ? provider : null;
+  return provider === "commandcode" ? "commandcode" : null;
 }
 
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
