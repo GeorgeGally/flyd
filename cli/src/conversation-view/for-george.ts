@@ -71,10 +71,13 @@ const NEXT_STEP = /^(?:(?:so |and )?(?:i['’]?ll|i will|we['’]?ll|we will|nex
 
 /** Where a clause turns: punctuation, or a word that opens the next one ("…after the review passed"). */
 const CLAUSE = /[;—–]|\b(?:but|once|when|after|before|until|unless|if|because|while)\b/gi;
+/** "Everything that has landed…": the verb describes what it names, not news that it happened. */
+const RELATIVE = /\b(?:that|which|what|whatever)\s+(?:(?:has|have|had)\s+)?(?:been\s+)?$/i;
 
 /** Whether some match of `verb` says it happened, read in its own clause only. */
 function happened(sentence: string, verb: RegExp): boolean {
   for (const match of sentence.matchAll(new RegExp(verb.source, "gi"))) {
+    if (RELATIVE.test(sentence.slice(0, match.index))) continue;
     let start = 0;
     let end = sentence.length;
     for (const turn of sentence.matchAll(CLAUSE)) {
