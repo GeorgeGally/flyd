@@ -80,8 +80,10 @@ describe("UnreadNoteWatcher", () => {
   });
 });
 
+const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i;
+
 describe("the unread warning on its way to George", () => {
-  it("reaches him scrubbed, through the real notification boundary, keeping the counts and the wait", async () => {
+  async function delivered(exchanges: Exchange[]): Promise<Array<{ title: string; message: string }>> {
     const home = mkdtempSync(join(tmpdir(), "flyd-note-home-"));
     mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
     writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
@@ -95,13 +97,9 @@ describe("the unread warning on its way to George", () => {
       return { ok: true, json: async () => ({ delivered: 1 }) };
     }));
     try {
-      const exchanges = [note("a", 64 * 60_000, "sent"), note("b", 5 * 60_000, "sent")];
       const watcher = new UnreadNoteWatcher(() => exchanges, deliverNotification, () => NOW);
       expect(await watcher.check()).toBe(true);
-      expect(bodies).toHaveLength(1);
-      expect(bodies[0]!.message).not.toMatch(/firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i);
-      expect(bodies[0]!.message).toContain("2 notes");
-      expect(bodies[0]!.message).toContain("1 h 4 min");
+      return bodies;
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
@@ -109,5 +107,21 @@ describe("the unread warning on its way to George", () => {
       else process.env.HOME = previousHome;
       rmSync(home, { recursive: true, force: true });
     }
+  }
+
+  it("reaches him scrubbed, through the real notification boundary, keeping the counts and the multi-unit wait", async () => {
+    const bodies = await delivered([note("a", 64 * 60_000, "sent"), note("b", 5 * 60_000, "sent")]);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.message).not.toMatch(BACKSTAGE);
+    expect(bodies[0]!.message).toContain("2 notes");
+    expect(bodies[0]!.message).toContain("1 h 4 min");
+  });
+
+  it("delivers the exact '2 notes ... 57 min' warning with both facts and no backstage term", async () => {
+    const bodies = await delivered([note("a", 57 * 60_000, "sent"), note("b", 5 * 60_000, "sent")]);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.message).not.toMatch(BACKSTAGE);
+    expect(bodies[0]!.message).toContain("2 notes");
+    expect(bodies[0]!.message).toContain("57 min");
   });
 });

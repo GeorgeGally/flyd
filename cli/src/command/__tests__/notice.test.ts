@@ -95,6 +95,7 @@ describe("notices keep the one voice", () => {
   it("scrubs every backstage term on every notice path, keeping the outcome", () => {
     const cases: Array<[string, string]> = [
       ["Firstmate has not read 3 notes you sent.", "3 notes"],
+      ["Firstmate has not read 2 notes you sent; the oldest has waited 57 min.", "57 min"],
       ["Firstmate has not read 13 notes you sent; the oldest has waited 1 h 4 min.", "1 h 4 min"],
       ["Firstmate has not read 1 note you sent 4 min ago.", "1 note"],
       ["The crewmate finished 2 jobs.", "2 jobs"],

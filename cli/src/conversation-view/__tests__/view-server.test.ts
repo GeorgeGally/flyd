@@ -663,7 +663,7 @@ describe("ConversationViewServer", () => {
     const receipts = Object.fromEntries(update.messages.filter((m: { receipt?: string }) => m.receipt).map((m: { id: string; receipt: string }) => [m.id, m.receipt]));
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
     const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
-    expect(unread).toEqual({ count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 12 min ago." });
+    expect(unread).toEqual({ count: 1, oldest: old, text: "You have 1 note still waiting — sent 12 min ago." });
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {
