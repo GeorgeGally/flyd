@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FirstmateDomainTransport, firstmateRequestBody, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { DomainRequest, DomainRun } from "../types.js";
@@ -38,6 +38,70 @@ describe("FirstMate domain transport", () => {
     expect(body).toContain("No, keep the abstraction. Fix where it is called.");
     expect(body).toContain("detailed_report");
     expect(body).toContain("fm-inbox.sh reply");
+  });
+
+  it("starts a session only when the inbox cannot receive work and no harness is live", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (script) => {
+      calls.push(script);
+      return { stdout: "", stderr: "" };
+    };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result.started).toBe(true);
+    expect(calls).toEqual(["claude"]);
+  });
+
+  it("does not start a second session while a harness is live", async () => {
+    const exec = vi.fn<FirstmateExec>();
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: true },
+      recordAttempt: vi.fn(),
+    });
+    expect(result).toEqual({ started: false });
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("tries the next runtime when the first reports a usage limit", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => {
+      calls.push(runtime);
+      if (runtime === "claude") return { stdout: "Claude usage limit reached", stderr: "" };
+      return { stdout: "started", stderr: "" };
+    };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result.started).toBe(true);
+    expect(calls).toEqual(["claude", "codex"]);
+  });
+
+  it("returns one plain failure after every runtime fails", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result).toEqual({ started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." });
+    expect(calls).toEqual(["claude", "codex", "opencode"]);
+  });
+
+  it("returns a plain failed run when no runtime can start", async () => {
+    const exec: FirstmateExec = async (_script, args) => {
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      if (args[0] === "note") return { stdout: JSON.stringify({ id: "note-1", saved: true, acknowledged: false }), stderr: "" };
+      throw new Error("not installed");
+    };
+    const run = await new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }).submit(request());
+    expect(run).toMatchObject({ status: "failed", notified: true, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." });
   });
 
   it("submits with an idempotent request id", async () => {

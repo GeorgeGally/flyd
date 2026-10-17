@@ -277,7 +277,7 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       byRequirement.set(shortfall.requirement, list);
     }
   }
-  return [...byRequirement.entries()].map(([id, hits]) => {
+  const verdictEvidence = [...byRequirement.entries()].map(([id, hits]) => {
     hits.sort((a, b) => b.verdict.at.localeCompare(a.verdict.at));
     const newest = hits[0]!;
     const examples = hits.slice(0, 3).map(({ verdict, shortfall }) => `${verdict.surface}${verdict.held ? ", held before display" : ""}: "${shortfall.quote.slice(0, 160)}" (${shortfall.reason})`);
@@ -289,6 +289,14 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       text: `Flyd's self-review: ${hits.length} thing${hits.length === 1 ? "" : "s"} George was shown broke "${rule.title}" (${rule.rule}) Newest: ${examples.join(" | ")}`.slice(0, 900),
     };
   });
+  const sessions = readJsonl<{ at?: string; runtime?: string; outcome?: string }>(join(dir, "firstmate-session.jsonl"))
+    .flatMap((attempt) => !attempt.at || attempt.at < since ? [] : [{
+      id: `firstmate-session:${attempt.at}:${attempt.runtime}:${attempt.outcome}`,
+      kind: "domain" as const,
+      at: attempt.at,
+      text: `FirstMate session launch via ${attempt.runtime ?? "unknown runtime"}: ${attempt.outcome ?? "unknown outcome"}.`,
+    }]);
+  return [...verdictEvidence, ...sessions];
 }
 
 const SURFACE_WORDS: Record<Surface, string> = { chat: "answer", status: "status line", notification: "notification", relay: "update" };

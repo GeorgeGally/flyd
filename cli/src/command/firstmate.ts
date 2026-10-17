@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { execFile, spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { FLYD_DIR } from "../lib/config.js";
 import { parseDomainResult, validateDomainHandoff } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
@@ -56,6 +57,7 @@ async function defaultExec(script: string, args: string[], options: {
 export interface FirstmateReadiness {
   available: boolean;
   canReceive: boolean | "unknown";
+  liveHarness?: boolean;
   reason?: string;
 }
 
@@ -83,10 +85,11 @@ export class FirstmateDomainTransport {
     if (!this.available()) return { available: false, canReceive: false, reason: "FirstMate inbox is not installed" };
     try {
       const { stdout } = await this.exec(this.script, ["ready"], { env: this.env(), timeout: 5_000 });
-      const parsed = JSON.parse(stdout) as { can_receive?: boolean | "unknown"; wake_consumer?: { reason?: string } };
+      const parsed = JSON.parse(stdout) as { can_receive?: boolean | "unknown"; lock?: { live_harness?: boolean }; wake_consumer?: { reason?: string } };
       return {
         available: true,
         canReceive: parsed.can_receive === true ? true : parsed.can_receive === false ? false : "unknown",
+        liveHarness: parsed.lock?.live_harness === true,
         ...(parsed.wake_consumer?.reason ? { reason: parsed.wake_consumer.reason } : {}),
       };
     } catch (error) {
@@ -98,8 +101,6 @@ export class FirstmateDomainTransport {
     if (request.domain !== "coding") throw new Error("FirstMate currently owns only the coding domain");
     const readiness = await this.ready();
     if (!readiness.available) throw new Error(readiness.reason ?? "FirstMate is unavailable");
-    if (readiness.canReceive === false) throw new Error(`FirstMate cannot receive work right now${readiness.reason ? `: ${readiness.reason}` : ""}`);
-
     const body = firstmateRequestBody(request);
     let stdout = "";
     try {
@@ -132,6 +133,12 @@ export class FirstmateDomainTransport {
       transport: { kind: "firstmate", requestId: request.id, externalId: receipt.id },
     };
     saveDomainRun(run);
+    if (!receipt.acknowledged) {
+      const session = await this.startSession(undefined, (failure) => failFirstmateRun(run, failure));
+      if (session.failure) {
+        return failedFirstmateRun(run, session.failure, true);
+      }
+    }
     return run;
   }
 
@@ -170,6 +177,154 @@ export class FirstmateDomainTransport {
     });
     return JSON.parse(stdout) as FirstmateReceipts;
   }
+
+  startSession(readiness?: FirstmateReadiness, onFailure?: (failure: string) => void): Promise<{ started: boolean; failure?: string }> {
+    return startFirstmateSession({ home: this.home, script: this.script, exec: this.exec, readiness, onFailure });
+  }
+}
+
+type SessionRuntime = "claude" | "codex" | "opencode";
+
+const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. Then handle the unread inbox notes, verify the requested work, and publish each stable outcome or genuine decision with bin/fm-inbox.sh reply. Do not send messages to George; Flyd relays replies.";
+const launchingHomes = new Set<string>();
+
+function sessionRuntimes(env = process.env): SessionRuntime[] {
+  const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
+  const values = configured?.length ? configured : ["claude", "codex", "opencode"];
+  return values.filter((value): value is SessionRuntime => value === "claude" || value === "codex" || value === "opencode");
+}
+
+function sessionArgs(runtime: SessionRuntime): string[] {
+  if (runtime === "claude") return ["-p", SESSION_PROMPT];
+  if (runtime === "codex") return ["exec", "--full-auto", SESSION_PROMPT];
+  return ["run", SESSION_PROMPT];
+}
+
+function recordSessionAttempt(entry: Record<string, unknown>): void {
+  try {
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    appendFileSync(path, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch {
+    return;
+  }
+}
+
+export async function startFirstmateSession(options: {
+  home: string;
+  script: string;
+  exec: FirstmateExec;
+  readiness?: FirstmateReadiness;
+  env?: NodeJS.ProcessEnv;
+  recordAttempt?: (entry: Record<string, unknown>) => void;
+  onFailure?: (failure: string) => void;
+}): Promise<{ started: boolean; failure?: string }> {
+  const record = options.recordAttempt ?? recordSessionAttempt;
+  const ready = options.readiness ?? await (async () => {
+    const { stdout } = await options.exec(options.script, ["ready"], { env: { ...process.env, FM_HOME: options.home }, timeout: 5_000 });
+    const parsed = JSON.parse(stdout) as { can_receive?: boolean; lock?: { live_harness?: boolean } };
+    return { available: true, canReceive: parsed.can_receive === true, liveHarness: parsed.lock?.live_harness === true };
+  })().catch(() => ({ available: true, canReceive: "unknown" as const }));
+  if (ready.canReceive !== false || ready.liveHarness) return { started: false };
+  const runtimes = sessionRuntimes(options.env);
+  if (options.exec === defaultExec) {
+    if (launchingHomes.has(options.home)) return { started: false };
+    launchingHomes.add(options.home);
+    return launchDetachedFirstmateSession(options.home, runtimes, record, options.onFailure, () => launchingHomes.delete(options.home));
+  }
+  for (const runtime of runtimes) {
+    try {
+      const result = await options.exec(runtime, sessionArgs(runtime), { env: { ...process.env, ...options.env }, timeout: 30_000 });
+      const output = `${result.stdout}\n${result.stderr}`;
+      if (/usage limit|rate limit|quota exceeded|overloaded/i.test(output)) {
+        record({ runtime, outcome: "usage_limited", detail: output.slice(-500) });
+        continue;
+      }
+      record({ runtime, outcome: "started" });
+      return { started: true };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      record({ runtime, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
+    }
+  }
+  return { started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." };
+}
+
+function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: ((failure: string) => void) | undefined, release: () => void): Promise<{ started: boolean; failure?: string }> {
+  return new Promise((resolve) => {
+    let handedOff = false;
+    const attempt = (index: number): void => {
+      const runtime = runtimes[index];
+      if (!runtime) {
+        release();
+        const failure = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
+        if (handedOff) onFailure?.(failure);
+        else resolve({ started: false, failure });
+        return;
+      }
+      let output = "";
+      let settled = false;
+      const child = spawn(runtime, sessionArgs(runtime), { cwd: home, env: { ...process.env, FM_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout?.on("data", (chunk: Buffer | string) => { output += chunk.toString(); });
+      child.stderr?.on("data", (chunk: Buffer | string) => { output += chunk.toString(); });
+      child.once("error", (error) => {
+        if (settled) return;
+        settled = true;
+        record({ runtime, outcome: "failed", detail: error.message.slice(0, 500) });
+        attempt(index + 1);
+      });
+      child.once("spawn", () => {
+        handedOff = true;
+        child.unref();
+        record({ runtime, outcome: "started" });
+        resolve({ started: true });
+      });
+      child.once("close", (code) => {
+        const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
+        if (limited || code !== 0) {
+          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
+          if (!settled) {
+            settled = true;
+            attempt(index + 1);
+          }
+        } else {
+          release();
+        }
+      });
+    };
+    attempt(0);
+  });
+}
+
+function failedFirstmateRun(run: DomainRun, failure: string, notified = false): DomainRun {
+  const now = new Date().toISOString();
+  const failed: DomainRun = {
+    ...run,
+    status: "failed",
+    failure,
+    notified,
+    updatedAt: now,
+    result: {
+      format: "raw",
+      brief: failure,
+      detailedReport: failure,
+      decisionsMade: [],
+      unresolvedQuestions: [],
+      risks: [],
+      evidence: [],
+      artifacts: [],
+      specialistOutputs: [],
+      raw: [failure],
+      informationLossRisk: "high",
+    },
+  };
+  saveDomainRun(failed);
+  return failed;
+}
+
+function failFirstmateRun(run: DomainRun, failure: string): void {
+  const failed = failedFirstmateRun(run, failure);
+  void import("./scheduler.js").then(({ notifyRun }) => notifyRun(failed)).catch(() => undefined);
 }
 
 interface FirstmateReply {
@@ -181,6 +336,7 @@ interface FirstmateReply {
 
 interface FirstmateNote {
   id: string;
+  at?: string;
   request_id?: string | null;
   acknowledged?: boolean;
   reply?: FirstmateReply | null;
@@ -242,6 +398,16 @@ export async function syncFirstmateDomainRuns(options: {
     receipts = await transport.receipts();
   } catch {
     return [];
+  }
+  const oldUnread = (receipts.pending ?? []).some((note) => note.at && Date.now() - Date.parse(note.at) > 3 * 60_000);
+  if (oldUnread) {
+    const readiness = await transport.ready();
+    if (readiness.canReceive === false && !readiness.liveHarness) {
+      const pending = receipts.pending ?? [];
+      const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
+      const session = await transport.startSession(readiness, waitingRun ? (failure) => failFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
+      if (session.failure && waitingRun) failFirstmateRun(waitingRun, session.failure);
+    }
   }
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];

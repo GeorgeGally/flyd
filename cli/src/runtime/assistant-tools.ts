@@ -280,6 +280,7 @@ export async function runAssistantTool(
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
             transport: firstmate,
           });
+          if (run.status === "failed") return run.failure ?? "I couldn't start the work right now. I'll keep it safe and try again when I can.";
           context.onCodingHandoff?.(outcome);
           return `Coding work accepted (run ${run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
         }
@@ -326,6 +327,7 @@ export async function runAssistantTool(
             ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
             transport: firstmate,
           });
+          if (run.status === "failed") return run.failure ?? "I couldn't start the work right now. I'll keep it safe and try again when I can.";
           return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");

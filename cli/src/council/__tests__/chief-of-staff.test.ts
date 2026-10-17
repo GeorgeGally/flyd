@@ -240,6 +240,17 @@ describe("the review pass", () => {
 
   afterEach(() => rmSync(flydDir, { recursive: true, force: true }));
 
+  it("includes FirstMate launch attempts in the self-improvement evidence", () => {
+    mkdirSync(reviewDir, { recursive: true });
+    writeFileSync(join(reviewDir, "firstmate-session.jsonl"), `${JSON.stringify({ at: "2026-10-14T08:30:00.000Z", runtime: "claude", outcome: "usage_limited" })}\n`);
+    expect(reviewEvidence("2026-10-01T00:00:00.000Z", reviewDir)).toContainEqual({
+      id: "firstmate-session:2026-10-14T08:30:00.000Z:claude:usage_limited",
+      kind: "domain",
+      at: "2026-10-14T08:30:00.000Z",
+      text: "FirstMate session launch via claude: usage_limited.",
+    });
+  });
+
   it("reviews each thing George was shown once and feeds the improver", async () => {
     const now = () => new Date("2026-10-14T09:00:00.000Z");
     const review = async (said: Parameters<typeof checkSaid>[0]) => checkSaid(said);
