@@ -33,8 +33,8 @@ interface StandingRule {
 
 const FLYD_PULL = /https:\/\/github\.com\/[\w.-]+\/flyd\/pull\/\d+/i;
 const ANY_PULL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/gi;
-/** The work is not green: its checks, tests, build or CI failing, conflicts, or checks still running. A merge or sync waits for him. */
-const NOT_GREEN = /\b(?:(?:tests?|checks?|builds?|ci|lint|typecheck|specs?|suite|pipeline|it|branch|work|change|pr)\b(?:\s+\w+){0,2}?\s+(?:fail\w*|red|broken|broke)|fail\w*\s+(?:(?:in|on|of)\s+)?(?:the\s+)?(?:\w+\s+)?(?:tests?|checks?|builds?|ci|lint|specs?)|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b/i;
+/** The work is not green: a failure of any kind, red, conflicts, checks still running, or the work itself broken. A merge or sync waits for him. */
+const NOT_GREEN = /\b(?:fail(?:ed|ing|s|ures?)?|red|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b|\b(?:work|builds?|tests?|checks?|ci|main|branch|it|suite|pipeline)\b(?:\s+\w+){0,2}?\s+(?:broken|broke)\b|\bbroken\s+(?:builds?|tests?|checks?|ci|main|branch)\b/i;
 /** A merge is only ever settled by the merge rule, which reads whether the work is green. */
 const LANDS = /\b(?:merge|land)\b/i;
 /** He asked his staff to take control rather than hand problems back: what lets Flyd settle the routine. */
@@ -100,8 +100,8 @@ const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|rev
 const COMMUNICATES = /\b(?:messag(?:e|es|ed|ing)|dm|notif(?:y|ies|ied|ying)|ping(?:s|ed|ing)?|email(?:s|ed|ing)?|send(?:s|ing)?|sent|slack(?:s|ed|ing)?|comment(?:s|ed|ing)?|forward(?:s|ed|ing)?|cc|invit(?:e|es|ed|ing)|respond(?:s|ed|ing)?|repl(?:y|ies|ied|ying)|reach(?:es|ing)? out|post(?:s|ed|ing)?|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ed|ing)|text(?:s|ed|ing)?|remind\w*)\b/gi;
 /** People, or a public place, a message reaches. */
 const RECIPIENT = /\b(?:team\w*|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|manager|colleagues?|everyone|everybody|someone|anyone|people|users|folks|guys|issue|thread|channel|forum|public(?:ly)?)\b/i;
-/** A person named as the one it goes to. */
-const NAMED = /^\s*(?:\S+\s+){0,3}?(?:to|with)\s+(?!(?:Flyd|Firstmate|GitHub|Git)\b)[A-Z][a-z]+/;
+/** A person named as the one it goes to: right after the verb ("email Sam") or after to or with. */
+const NAMED = /^\s*(?:(?:\S+\s+){0,3}?(?:to|with)\s+)?(?:@\w+|(?!(?:Flyd|Firstmate|GitHub|Git|Node)\b)[A-Z][a-z]+)/;
 /** Him, her or them reached directly; after write, update or post they are as likely branches or files. */
 const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 
@@ -109,8 +109,7 @@ const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 function speaksForHim(question: string): boolean {
   for (const verb of question.matchAll(COMMUNICATES)) {
     const after = question.slice(verb.index + verb[0].length).split(/[?.,;!]|\band\b/)[0]!;
-    const reach = after.trim().split(/\s+/).slice(0, 5).join(" ");
-    if (RECIPIENT.test(reach) || NAMED.test(after)) return true;
+    if (RECIPIENT.test(after) || NAMED.test(after)) return true;
     if (!/^(?:writ|updat|post)/i.test(verb[0]) && PRONOUN.test(after)) return true;
   }
   return false;

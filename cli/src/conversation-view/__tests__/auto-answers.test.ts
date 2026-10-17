@@ -46,6 +46,9 @@ describe("settledBy", () => {
 
   it("leaves him anything that is not green, not Flyd's, or not a yes-or-no", () => {
     expect(settle(reply(MERGE.replace("all its checks are green", "one check is failing")))).toBeNull();
+    for (const report of ["Vitest: 2 failed, 140 passed.", "Checks: 4/5 passed, 1 failing.", "The e2e run failed.", "1 failure."]) {
+      expect(settle(reply(`${report}\n\nShall I merge https://github.com/GeorgeGally/flyd/pull/5?`)), report).toBeNull();
+    }
     expect(settle(reply("The Christmas site change is ready: https://github.com/GeorgeGally/good_neighbours/pull/40\n\nShould I merge it?"))).toBeNull();
     expect(settle(reply("Checks are green on the Flyd change. Should I merge now or wait for your review?"))).toBeNull();
   });

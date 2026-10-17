@@ -160,6 +160,10 @@ describe("Flyd decides its staff's routine questions", () => {
       "Shall I sync and text the team?",
       "Shall I sync and reach out to the team?",
       "Shall I push and invite the reviewers?",
+      "Shall I push it and email Sam?",
+      "Shall I push and DM Alex?",
+      "Shall I push it and message Sarah the summary?",
+      "Shall I push it and send the summary to the whole team?",
     ]) {
       const asked = reply(`Everything is green.\n\n${question}`);
       expect(await answered(asked), question).toEqual([]);
@@ -246,6 +250,7 @@ describe("Flyd decides its staff's routine questions", () => {
       "Shall I add a ping check?",
       "Shall I rebase the branches and update them?",
       "Shall I post an update about the push?",
+      "Shall I push and update it to Node 22?",
     ]) {
       const [note] = await answered(reply(`Everything is green.\n\n${question}`));
       expect(note?.replyQuote, question).toBe(question);
@@ -253,9 +258,11 @@ describe("Flyd decides its staff's routine questions", () => {
   });
 
   it("keeps a push his when the reply says the work is failing", async () => {
-    const asked = reply("The rebase left two tests failing.\n\nShall I push it to main?");
-    expect(await answered(asked)).toEqual([]);
-    expect(openChoice([asked])?.choice.question).toBe("Shall I push it to main?");
+    for (const report of ["The rebase left two tests failing.", "Checks: 4/5 passed, 1 failing.", "Vitest: 2 failed, 140 passed.", "The e2e run failed.", "1 failure.", "The build is broken."]) {
+      const asked = reply(`${report}\n\nShall I push it to main?`);
+      expect(await answered(asked), report).toEqual([]);
+      expect(openChoice([asked])?.choice.question, report).toBe("Shall I push it to main?");
+    }
   });
 
   it("takes back one answer without marking its sibling answer undone", async () => {
