@@ -1,4 +1,4 @@
-import { sameQuestion } from "./executive.js";
+import { itemAsks, itemQuestion, sameQuestion } from "./executive.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
@@ -158,38 +158,6 @@ function yesToAll(question: string): string {
 /** One option per listed item: "Only 1: Press feedback". */
 function onlyOne(item: Listed): string {
   return clip(`Only ${item.number ? `${item.number}: ` : ""}${item.label}`, OPTION_CHARS + 8);
-}
-
-/** An item that is a question of its own: "whether to …", "if …", or one whose question leads it. */
-const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
-const TRAILING_LINK = /\s*(?:\[[^\]]*\]\([^)\s]*\)|<?https?:\/\/\S+>?)[\s.,;]*$/;
-
-/**
- * What a listed item asks: the item without the link it ends on, or, when it
- * leads with its question and then says why ("Shall I push it? Until then, …"),
- * that question alone.
- */
-function itemAsked(text: string): string {
-  let bare = text.trim();
-  while (TRAILING_LINK.test(bare)) bare = bare.replace(TRAILING_LINK, "").trim();
-  const [first = bare] = sentences(bare);
-  return ITEM_ASKS.test(bare) || !ITEM_ASKS.test(first) ? bare : first;
-}
-
-function itemAsks(text: string): boolean {
-  return ITEM_ASKS.test(itemAsked(text));
-}
-/** "whether Flyd's sidebar should show …": who, the verb that asks, and the rest. */
-const WHETHER_SUBJECT = /^(?:whether|if)\s+(.+?)\s+(should|can|could|will|would|is|are|was|were|do|does|did|has|have|may|might|must)\s+(.+)$/i;
-
-/** A listed item as the question it is: "whether to discard X" → "Discard X?". */
-function itemQuestion(text: string): string {
-  const bare = itemAsked(text).replace(/[.;:,!?]+$/, "").trim();
-  const subject = WHETHER_SUBJECT.exec(bare);
-  const asked = /^(?:whether|if)\s+to\s+/i.test(bare) ? bare.replace(/^(?:whether|if)\s+to\s+/i, "")
-    : subject ? `${subject[2]!} ${subject[1]!} ${subject[3]!}`
-      : bare.replace(/^(?:whether|if)\s+/i, "");
-  return capitalise(inFlydsVoice(`${asked}?`));
 }
 
 /** One question as a step: its alternatives, nothing to tap when it asks which, else yes or no. */

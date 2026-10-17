@@ -133,6 +133,48 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(sameQuestion("Go for it?", "Do it?")).toBe(false);
     expect(sameQuestion("Shall I push it?", "Shall I push it?")).toBe(true);
     expect(sameQuestion("whether to push the local commit", "Push the local commit?")).toBe(true);
+    // The card line and the quote in its answer are read the same way: stubs gone, "whether …" reordered.
+    expect(sameQuestion("Shall I push?", "Shall I push the fm/decide-authority branch?")).toBe(true);
+    expect(sameQuestion('Whether the sidebar label should read "Market"', "Should the sidebar label read 'Market'?")).toBe(true);
+  });
+
+  it("shows a question handled when the card's line and its answer's quote are worded differently", async () => {
+    const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. Shall I push the fm/decide-authority branch?\n2. Shall I delete the old branches?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push the fm/decide-authority branch?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    // The push is handled; the delete is still his, on the card and in the box alike.
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
+  });
+
+  it("shows a question put as 'whether …' handled once Flyd answers it", async () => {
+    const asked = reply(`All green.\n\nStill waiting on you:\n- whether the sidebar label should read "Market"\n- whether to delete the old branches`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Should the sidebar label read 'Market'?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Delete the old branches?");
+  });
+
+  it("keeps a message or post to other people his, and decides one addressed to its own staff", async () => {
+    for (const question of [
+      "Shall I message the team about the push?",
+      "Shall I post an update about the push?",
+      "Shall I notify the client that it shipped?",
+      "Shall I email him the summary?",
+    ]) {
+      const asked = reply(`The work is green.\n\n${question}`);
+      expect(await answered(asked), question).toEqual([]);
+      expect(openChoice([asked])?.choice.question, question).toBe(question);
+    }
+    const internal = reply("Everything is green.\n\nDo you want the command that lets firstmate message Flyd and get a real reply?");
+    const [note] = await answered(internal);
+    expect(note?.answeredFor).toBe("George expects assistants/agents to take control of situations and solve problems autonomously rather than sending problems back to him");
   });
 
   it("takes back one answer without marking its sibling answer undone", async () => {

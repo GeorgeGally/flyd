@@ -91,9 +91,16 @@ const RULES: StandingRule[] = [
 
 /**
  * Never answered for him, whatever a rule says: what cannot be taken back,
- * costs, goes public, speaks for him to other people or touches access.
+ * costs, goes public or touches access.
  */
-const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|email|send|post (?:it|this|that|them|to|on)|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
+const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
+/**
+ * Speaks for him to other people: a message sent, posted or announced, unless
+ * the one it reaches is Flyd or the staff Flyd itself runs. Messages between
+ * them are Flyd's to decide.
+ */
+const SPEAKS_FOR_HIM = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)|posts?|posting|posted)\b/i;
+const OWN_STAFF = /\b(?:flyd|first ?mate|crew ?mates?|the (?:coding )?(?:staff|crew|agents?|workers?)|subagents?|its own staff|itself)\b/i;
 /** A taste or strategy call: his to make even when it is reversible. */
 const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
 /** Firstmate wants his own word on it. */
@@ -138,7 +145,7 @@ export function settledBy(message: ConversationMessage, asked: Asked, preference
   // A yes-or-no question only, put by firstmate, not by Flyd's own desk.
   if (!asked.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
   const question = asked.question;
-  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text)) return null;
+  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text) || (SPEAKS_FOR_HIM.test(question) && !OWN_STAFF.test(question))) return null;
   for (const rule of RULES) {
     if (!rule.asks.test(question)) continue;
     for (const preference of rule.preferences) {

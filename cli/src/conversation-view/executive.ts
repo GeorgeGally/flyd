@@ -1,3 +1,4 @@
+import { inFlydsVoice } from "./flyd-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import { authorSummary, capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 
@@ -280,9 +281,50 @@ export interface Briefing {
 
 const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2, handled: 3 };
 
-/** The words that carry a question, for telling two wordings of it apart. */
+/** An item that is a question of its own: "whether to …", "if …", or one whose question leads it. */
+const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
+const TRAILING_LINK = /\s*(?:\[[^\]]*\]\([^)\s]*\)|<?https?:\/\/\S+>?)[\s.,;]*$/;
+/** "whether Flyd's sidebar should show …": who, the verb that asks, and the rest. */
+const WHETHER_SUBJECT = /^(?:whether|if)\s+(.+?)\s+(should|can|could|will|would|is|are|was|were|do|does|did|has|have|may|might|must)\s+(.+)$/i;
+
+/**
+ * What a listed item asks: the item without the link it ends on, or, when it
+ * leads with its question and then says why ("Shall I push it? Until then, …"),
+ * that question alone.
+ */
+function itemAsked(text: string): string {
+  let bare = text.trim();
+  while (TRAILING_LINK.test(bare)) bare = bare.replace(TRAILING_LINK, "").trim();
+  const [first = bare] = sentences(bare);
+  return ITEM_ASKS.test(bare) || !ITEM_ASKS.test(first) ? bare : first;
+}
+
+export function itemAsks(text: string): boolean {
+  return ITEM_ASKS.test(itemAsked(text));
+}
+
+/** A listed item as the question it is: "whether to discard X" → "Discard X?". */
+export function itemQuestion(text: string): string {
+  const bare = itemAsked(text).replace(/[.;:,!?]+$/, "").trim();
+  const subject = WHETHER_SUBJECT.exec(bare);
+  const asked = /^(?:whether|if)\s+to\s+/i.test(bare) ? bare.replace(/^(?:whether|if)\s+to\s+/i, "")
+    : subject ? `${subject[2]!} ${subject[1]!} ${subject[3]!}`
+      : bare.replace(/^(?:whether|if)\s+/i, "");
+  return capitalise(inFlydsVoice(`${asked}?`));
+}
+
+/** Longer than this, a question's wording is compared over its lead only; the card clips its line at 140. */
+const QUESTION_CHARS = 140;
+
+/**
+ * The words that carry a question, for telling two wordings of it apart. Both
+ * wordings are read the same way first — stubs and chatter out, then read as
+ * the question it is — so the card's line and the quote in Flyd's answer to it
+ * line up whatever stubs, lead-in or voice each of them carries. Pure.
+ */
 function wordsOf(text: string): string[] {
-  return inline(text).toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+  const said = clip(itemQuestion(withoutStubs(withoutChatter(text))), QUESTION_CHARS);
+  return inline(said).toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((word) => word.length > 2);
 }
 
 /**
