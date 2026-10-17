@@ -555,10 +555,10 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-phone { padding: 14px 0 16px; }
 .rail-phone-screen {
   position: relative; width: min(236px, 70%); aspect-ratio: 390 / 844; margin: 0 auto; overflow: hidden;
-  border-radius: 26px; background: #fff; box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--faint), 0 14px 32px rgba(0, 0, 0, 0.28);
+  border-radius: 26px; background: var(--bg); box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--faint), 0 14px 32px rgba(0, 0, 0, 0.28);
 }
 .rail-phone-frame {
-  position: absolute; top: 0; left: 0; width: 390px; height: 844px; border: 0; background: #fff; display: block;
+  position: absolute; top: 0; left: 0; width: 390px; height: 844px; border: 0; background: transparent; display: block;
   transform: scale(var(--fit, 0.6)); transform-origin: 0 0;
 }
 .rail-phone-pins { position: absolute; inset: 0; pointer-events: none; }

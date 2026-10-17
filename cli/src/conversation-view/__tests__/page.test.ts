@@ -1937,35 +1937,80 @@ describe("header and artefact view", () => {
 });
 
 describe("the side column's type", () => {
-  const css = /<style>([\s\S]*?)<\/style>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!;
-  const rules = [...css.matchAll(/(^|\n)((?:\.rail|\.brief|\.needs)[^{\n]*)\{([^}]*)\}/g)].map((match) => ({ selector: match[2]!.trim(), body: match[3]! }));
+  // These drive the real page and read the computed style of what it rendered,
+  // rather than matching text in the page's CSS. happy-dom resolves the page's
+  // own stylesheet (font family and size, borders, backgrounds) onto the live
+  // DOM; a property the stylesheet leaves unset (letter-spacing, text-transform)
+  // it reports empty, which is asserted as "nothing set" rather than a value.
+  const SANS = /sans-serif|system-ui|-apple-system/;
+  const MONO = /mono|Menlo|Consolas|SF Mono/i;
+  const WHITE = /^#f{3}(?:f{3})?$|^rgba?\(\s*255\s*,\s*255\s*,\s*255\b/i;
 
-  it("covers the column's rules", () => {
-    expect(rules.length).toBeGreaterThan(40);
-  });
-  it("sets every label in one sans family, in sentence case", () => {
-    for (const { selector, body } of rules) {
-      expect(body, selector).not.toContain("var(--mono)");
-      expect(body, selector).not.toContain("text-transform");
+  async function drawColumn(): Promise<void> {
+    const html = renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) });
+    document.head.innerHTML = /<style>[\s\S]*?<\/style>/.exec(html)![0]!;
+    load("", html);
+    await settle();
+    const stream = open("latest", []);
+    const started = new Date(Date.now() - 25 * 60_000).toISOString();
+    stream.emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      show: {
+        title: "", summary: "", live: false, counts: {}, items: [],
+        calls: [{ id: "call:a", kind: "call", headline: "Pick the vendor step layout.", why: "", project: "GNM", detail: "Six layouts are built.", decision: { task: "a", question: "Pick one", choices: [] } }],
+        underway: [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }],
+        done: [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM" }],
+      },
+      rail: {
+        conversations: [{ id: "q1", question: "make a playlist", answer: "Nine tracks.", state: "done", at: "2026-10-10T12:46:56Z" }],
+        artefacts: [
+          { id: "preview:http://127.0.0.1:8097/", title: "Live preview", line: "127.0.0.1:8097/", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/" },
+          { id: "live:http://127.0.0.1:8097/phone", title: "Phone preview", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/", phone: true },
+        ],
+        memory: { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] },
+      },
+    });
+    await settle();
+  }
+
+  const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+
+  it("sets every label in the column in one sans family, in sentence case at 13px or more", async () => {
+    await drawColumn();
+    for (const selector of [".brief-label", ".needs-meta", ".needs-head", ".brief-meta", ".rail-tabs button", ".rail-section", ".rail-when", ".rail-card-head"]) {
+      const cs = style(selector);
+      expect(cs.fontFamily, selector).toMatch(SANS);
+      expect(cs.fontFamily, selector).not.toMatch(MONO);
+      expect(cs.textTransform === "" || cs.textTransform === "none", `${selector} text-transform`).toBe(true);
+      const spacing = parseFloat(cs.letterSpacing);
+      expect(Number.isNaN(spacing) || spacing <= parseFloat(cs.fontSize) * 0.04 + 0.01, `${selector} letter-spacing`).toBe(true);
+      expect(parseFloat(cs.fontSize), `${selector} font-size`).toBeGreaterThanOrEqual(13);
     }
   });
-  it("tracks no wider than .04em and sets nothing under 13px", () => {
-    for (const { selector, body } of rules) {
-      for (const match of body.matchAll(/letter-spacing:\s*(-?[\d.]+)em/g)) expect(Number(match[1]), selector).toBeLessThanOrEqual(0.04);
-      for (const match of body.matchAll(/font:\s*(?:\w+\s+)?(\d+(?:\.\d+)?)px/g)) expect(Number(match[1]), selector).toBeGreaterThanOrEqual(13);
+
+  it("sets the top bar and the empty page in the same sans", async () => {
+    await drawColumn();
+    for (const selector of ["header", "header .site", "header .controls a", ".empty"]) {
+      expect(style(selector).fontFamily, selector).toMatch(SANS);
+      expect(style(selector).fontFamily, selector).not.toMatch(MONO);
     }
   });
-  it("sets the top bar and the empty page in the same sans, and never lets a preview card show white", () => {
-    const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-    for (const selector of ["header", ".empty", "header .site"]) {
-      expect(rule(selector), selector).toContain("var(--sans)");
-      expect(rule(selector), selector).not.toContain("var(--mono)");
+
+  it("gives the column one container style: no bordered boxes", async () => {
+    await drawColumn();
+    for (const selector of [".rail-card", ".brief-list li", ".rail-mem"]) {
+      const cs = style(selector);
+      const border = parseFloat(cs.borderTopWidth);
+      expect(Number.isNaN(border) || border === 0, `${selector} border`).toBe(true);
+      expect(cs.borderTopLeftRadius, `${selector} radius`).toBe("12px");
     }
-    for (const selector of [".rail-frame-box", ".rail-frame"]) expect(rule(selector), selector).not.toMatch(/background:\s*#fff/i);
   });
-  it("gives the column one container style: no bordered boxes", () => {
-    for (const { selector, body } of rules.filter((rule) => /^\.(?:rail-card|brief-list li|rail-mem)\b/.test(rule.selector))) {
-      expect(body, selector).not.toMatch(/\bborder:\s*1px/);
+
+  it("never lets a preview card show white, desktop or phone", async () => {
+    await drawColumn();
+    for (const selector of [".rail-frame-box", ".rail-phone-screen", ".rail-frame", ".rail-phone-frame"]) {
+      const background = style(selector).backgroundColor;
+      expect(background === "" || background === "transparent" || background === "none" || !WHITE.test(background), `${selector} background ${background}`).toBe(true);
     }
   });
 });

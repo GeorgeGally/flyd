@@ -216,6 +216,8 @@ export interface BacklogEntry {
   notes?: string;
   /** Why a hold is open: for a captain hold, the concrete ask. */
   hold?: string;
+  /** The day the task was opened, from its `since` tag: how long a hold has waited. */
+  since?: string;
   /** The day it finished, for done items. */
   finished?: string;
   /** The pull request (or other link) the row names. */
@@ -262,12 +264,14 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
     if (!title) continue;
     const finished = [tags.get("merged"), tags.get("done"), tags.get("landed")].find((value) => value && /^\d{4}-\d{2}-\d{2}/.test(value));
     const hold = holdReason(tags.get("hold") ?? "");
+    const since = tags.get("since");
     const url = rest.match(PR_URL)?.[0] ?? rest.match(/https?:\/\/[^\s()]+/)?.[0];
     current = {
       title,
       ...(url ? { url } : {}),
       ...(tags.get("repo") ? { repo: tags.get("repo") } : {}),
       ...(hold ? { hold } : {}),
+      ...(since && /^\d{4}-\d{2}-\d{2}/.test(since) ? { since: since.slice(0, 10) } : {}),
       ...(row[1] === "x" && finished ? { finished: finished.slice(0, 10) } : {}),
     };
     entries.set(row[2]!, current);
@@ -319,9 +323,9 @@ export const STALE_CALL_MS = 3 * 24 * 60 * 60 * 1000;
 /** Whether a hold is a decision still waiting on him: not a read-me or reminder, and not an old hold with no question to answer. Pure. */
 export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
   if (NOT_A_DECISION.test(row.label) || (row.detail && NOT_A_DECISION.test(row.detail))) return false;
+  if (row.choices?.length) return true;
   const touched = row.at ? Date.parse(row.at) : Number.NaN;
-  if (row.choices?.length || Number.isNaN(touched)) return true;
-  return now - touched <= STALE_CALL_MS;
+  return !Number.isNaN(touched) && now - touched <= STALE_CALL_MS;
 }
 
 /** Bearings' rows with the backlog's full words, last-report times and screenshots. Pure. */
@@ -342,6 +346,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
     if (extra?.at) next.at = extra.at;
+    else if (call && entry?.since) next.at = entry.since;
     if (extra?.started) next.started = extra.started;
     if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) next.shots = extra.shots;
