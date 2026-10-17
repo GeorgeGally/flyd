@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { hasApiKey, defaultModel, RAW_DIR, WIKI_DIR } from "../lib/config.js";
+import { chatModelChain, RAW_DIR, WIKI_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { getStaleness, stalenessSummary, type StalenessResult } from "../lib/staleness.js";
@@ -33,7 +33,7 @@ import {
 } from "../lib/librarian.js";
 import { verifyEvidence, type VerifierEntry } from "../lib/librarian-verifier.js";
 import { compileContext } from "../cognition/context-compiler.js";
-import { formatCompiledContext } from "../cognition/context-format.js";
+import { formatCompiledContext, isStaleRepoClaim } from "../cognition/context-format.js";
 
 export interface RetrievedEntry extends BaseEntry {
   fullPath: string;
@@ -230,57 +230,76 @@ function formatEvidence(entries: RetrievedEntry[], scored?: ScoredEvidence[]): s
   return lines.join("\n");
 }
 
-export async function runAsk(
-  question: string,
-  model?: string,
-  opts?: { deep?: boolean; librarian?: boolean },
-): Promise<void> {
-  const m = model ?? defaultModel();
-  const compiled = await compileContext({
-    intent: question,
-    projectRoot: process.cwd(),
-    capabilities: ["ask", "memory", "git", "current-state"],
-  });
-  const formatted = formatCompiledContext(compiled);
+const ASK_SYSTEM = `You are Flyd's personal intelligence. Answer from the supplied Flyd cognitive context.
+Treat CURRENT/NOW state as authoritative for present-tense questions. Historical or expired claims may explain the past but must not become current advice.
+When claims conflict, expose the uncertainty. Never claim a historical task is still active unless current state explicitly carries it forward.
+Answer directly and naturally.`;
 
-  const evidenceLines = [
-    ...compiled.memory.current.slice(0, 8).map((claim) =>
+/** Short evidence trailer: what the answer rested on, bounded, without conflict dumps. */
+function evidenceSummaryFor(compiled: Awaited<ReturnType<typeof compileContext>>, deep?: boolean): string {
+  const lines = [
+    ...compiled.memory.current.filter((claim) => !isStaleRepoClaim(claim)).slice(0, 8).map((claim) =>
       `[current] ${claim.entityId} · ${claim.attribute}: ${claim.value} [${claim.authority}]`
     ),
     ...compiled.memory.relevant.slice(0, 8).map((item) =>
       `[memory] ${item.source} relevance=${item.relevance.toFixed(2)} :: ${item.content}`
     ),
-    ...(opts?.deep
+    ...(deep
       ? compiled.memory.historical.slice(0, 8).map((claim) =>
           `[historical:${claim.temporalStatus}] ${claim.entityId} · ${claim.attribute}: ${claim.value}`
         )
       : []),
-    ...compiled.memory.conflicts.map((conflict) =>
-      `[conflict] ${conflict.entityId} · ${conflict.attribute}: ${conflict.claims.join(" ↔ ")}`
-    ),
-  ];
-  const evidenceSummary = evidenceLines.length ? evidenceLines.join("\n") : "No relevant cognitive evidence.";
+  ].map((line) => (line.length > 300 ? `${line.slice(0, 299)}…` : line));
+  return lines.length ? lines.join("\n") : "No relevant cognitive evidence.";
+}
 
-  if (!hasApiKey(m)) {
-    console.log(`context:\n${formatted}\n\nevidence:\n${evidenceSummary}`);
-    return;
-  }
-
-  const system = `You are Flyd's personal intelligence. Answer from the supplied Flyd cognitive context.
-Treat CURRENT/NOW state as authoritative for present-tense questions. Historical or expired claims may explain the past but must not become current advice.
-When claims conflict, expose the uncertainty. Never claim a historical task is still active unless current state explicitly carries it forward.
-Answer directly and naturally.`;
-
-  const prompt = `${formatted}
+/**
+ * Answer a question from compiled Flyd context with a real model call: the
+ * chat chain (Claude, the configured chat model, fallbacks) with failover, or
+ * exactly the model the caller named. It never degrades to printing context:
+ * if no model answers, the failure is raised.
+ */
+export async function askFlyd(
+  question: string,
+  opts: { model?: string; deep?: boolean; librarian?: boolean } = {},
+): Promise<{ answer: string; evidence: string; chain: string[] }> {
+  const chain = opts.model ? [opts.model] : chatModelChain();
+  const compiled = await compileContext({
+    intent: question,
+    projectRoot: process.cwd(),
+    capabilities: ["ask", "memory", "git", "current-state"],
+  });
+  const prompt = `${formatCompiledContext(compiled)}
 
 QUESTION:
 ${question}
 
-${opts?.librarian ? "The caller requested librarian diagnostics; be especially explicit about conflicts, freshness, and temporal validity." : ""}`;
+${opts.librarian ? "The caller requested librarian diagnostics; be especially explicit about conflicts, freshness, and temporal validity." : ""}`;
 
-  const answer = await query(prompt, m, system);
-  console.log(answer);
-  console.log(`\n---\nevidence:\n${evidenceSummary}`);
+  let answer: string;
+  try {
+    answer = await query(prompt, undefined, ASK_SYSTEM, undefined, undefined, { chain, source: "chat" });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`No model answered (tried ${chain.join(", ")}): ${reason}`);
+  }
+  if (!answer.trim()) throw new Error(`The model returned an empty answer (tried ${chain.join(", ")})`);
+  return { answer, evidence: evidenceSummaryFor(compiled, opts.deep), chain };
+}
+
+export async function runAsk(
+  question: string,
+  model?: string,
+  opts?: { deep?: boolean; librarian?: boolean },
+): Promise<void> {
+  try {
+    const { answer, evidence } = await askFlyd(question, { model, deep: opts?.deep, librarian: opts?.librarian });
+    console.log(answer);
+    console.log(`\n---\nevidence:\n${evidence}`);
+  } catch (error) {
+    console.error(`flyd ask failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }
 
 // Re-export shared functions for backward compatibility (index.ts librarian command)

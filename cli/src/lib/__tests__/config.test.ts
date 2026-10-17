@@ -124,6 +124,38 @@ describe("Flyd directory configuration", () => {
     expect(() => config.resolveModelConnection()).toThrow(/OPENCODE_API_KEY/);
   });
 
+  it("resolves a bare model under FLYD_PROVIDER=commandcode to CommandCode, keeping the same model", async () => {
+    vi.stubEnv("FLYD_MODEL", "deepseek/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_CHAT_MODEL", "");
+    vi.stubEnv("FLYD_PROVIDER", "commandcode");
+    vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
+    vi.stubEnv("FLYD_MODEL_API_KEY", "");
+    vi.stubEnv("FLYD_MODEL_BASE_URL", "");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+    const connection = config.resolveModelConnection(config.defaultModel());
+
+    expect(connection.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(connection.apiKey).toBe("cc-key");
+    expect(connection.baseURL).toBe("https://api.commandcode.ai/provider/v1");
+    expect(config.usesOpenAITransport("deepseek/deepseek-v4.1-flash")).toBe(true);
+    expect(config.hasApiKey()).toBe(true);
+  });
+
+  it("hasApiKey follows provider-qualified models and missing keys", async () => {
+    vi.stubEnv("FLYD_PROVIDER", "");
+    vi.stubEnv("FLYD_MODEL_API_KEY", "");
+    vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.resetModules();
+
+    const config = await import("../config.js");
+
+    expect(config.hasApiKey("commandcode:deepseek/deepseek-v4.1-flash")).toBe(true);
+    expect(config.hasApiKey("openai:gpt-5.6-luna")).toBe(false);
+  });
+
   it("fails loudly for an unsupported provider instead of reaching for Anthropic", async () => {
     vi.stubEnv("FLYD_MODEL", "some-model");
     vi.stubEnv("FLYD_CHAT_MODEL", "");

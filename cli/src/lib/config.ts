@@ -263,8 +263,20 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
+/**
+ * The provider a model is served by when it names one: a qualified id
+ * ("commandcode:deepseek/…"), or a bare id under FLYD_PROVIDER=commandcode,
+ * which has no model-name prefix of its own to infer from.
+ */
+function explicitProvider(model: string): string | null {
   const qualified = qualifiedModelProvider(model);
+  if (qualified) return qualified;
+  const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
+  return provider === "commandcode" ? "commandcode" : null;
+}
+
+export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
+  const qualified = explicitProvider(model);
   if (qualified) return qualifiedConnection(qualified, model);
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
@@ -311,21 +323,19 @@ export function zodiacSign(): string | null {
   return getKey("FLYD_ZODIAC_SIGN")?.trim().toLowerCase() || null;
 }
 
+/** True when a connection (provider, endpoint and key) can be resolved for the model right now. */
 export function hasApiKey(model?: string): boolean {
-  const m = model ?? defaultModel();
-  if (getKey("FLYD_MODEL_API_KEY")) return true;
-  const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
-  if (opencodeProviderFor(m, provider)) {
-    return Boolean(getKey("OPENCODE_API_KEY") || getKey("OPENCODE_API"));
+  try {
+    resolveModelConnection(model ?? defaultModel());
+    return true;
+  } catch {
+    return false;
   }
-  if (provider === "openai" || isOpenAIModel(m)) return !!getKey("OPENAI_API_KEY");
-  if (provider === "anthropic" || !provider) return !!claudeApiKey();
-  return false;
 }
 
 /** True when the model is served over an OpenAI-compatible chat API. */
 export function usesOpenAITransport(model: string): boolean {
-  const qualified = qualifiedModelProvider(model);
+  const qualified = explicitProvider(model);
   if (qualified === "commandcode") return !commandCodeUsesMessages(model);
   if (qualified) return qualified !== "anthropic";
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";

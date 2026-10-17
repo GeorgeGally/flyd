@@ -6,6 +6,10 @@ import { join } from "node:path";
 // read or written by tests. Point every personal store at a throwaway dir;
 // tests that need one set their own path explicitly.
 const sandbox = mkdtempSync(join(tmpdir(), "flyd-test-home-"));
+// Everything that resolves ~/.flyd itself (intelligence.sqlite, present and
+// projection stores, directives) follows FLYD_DIR. It is forced, not defaulted:
+// an inherited FLYD_DIR from a running Core must not point tests at live data.
+process.env.FLYD_DIR = join(sandbox, "flyd-home");
 process.env.FLYD_USER_PROFILE ??= join(sandbox, "USER.md");
 process.env.FLYD_MEMORY_DIR ??= join(sandbox, "memory-home");
 process.env.FLYD_JOURNAL_DIR ??= join(sandbox, "journal");
