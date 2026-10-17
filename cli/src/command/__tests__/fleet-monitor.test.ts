@@ -229,6 +229,24 @@ describe("Flyd's watch on its coding staff", () => {
     expect(text).not.toMatch(/firstmate|fm-inbox|crewmate/i);
   });
 
+  const headerFor = async (readiness: Record<string, unknown>): Promise<string> => {
+    ready = readiness;
+    const snapshot = await monitor(() => T0).read();
+    return describeStaff({ snapshot, concerns: [] }, T0).split("\n")[0]!;
+  };
+
+  it("reads nobody at home when no lock is held or no harness is live, not busy", async () => {
+    expect(await headerFor({ lock: { state: "free" }, wake_consumer: { state: "unknown" }, can_receive: false })).toContain("nobody is looking after the coding work right now");
+    expect(await headerFor({ lock: { state: "stale" }, can_receive: false })).toContain("nobody is looking after the coding work right now");
+    expect(await headerFor({ lock: { state: "held", pid: 4242, live_harness: false }, wake_consumer: { state: "healthy" }, can_receive: true })).toContain("nobody is looking after the coding work right now");
+  });
+
+  it("reads a live lock holder by whether it takes work, and an unknown lock as unclear", async () => {
+    expect(await headerFor({ lock: { state: "held", pid: 4242, live_harness: true }, wake_consumer: { state: "healthy" }, can_receive: false })).toContain("not taking new work right now");
+    expect(await headerFor({ lock: { state: "held", pid: 4242, live_harness: true }, wake_consumer: { state: "healthy" }, can_receive: true })).toContain("on duty");
+    expect(await headerFor({ lock: { state: "weird" }, wake_consumer: { state: "unknown" } })).toContain("status unclear");
+  });
+
   it("finds the session that holds the staff's lock, reusing one read for 30 s", async () => {
     writeFileSync(join(sessions, "4242.json"), JSON.stringify({ sessionId: "live-session-1" }));
     let now = T0;

@@ -362,6 +362,42 @@ describe("FirstMate domain transport", () => {
     expect(sent).toEqual([prose]);
   });
 
+  it("still tells George when a stale re-read is a decision or a failure, silent only on done", async () => {
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const legacy = (id: string, prose: string): DomainRun => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt: "2026-10-12T00:00:00.000Z",
+      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+      result: parseDomainResult(prose).result,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+    });
+    const decided = "status=needs_decision: the copy change is ready; publishing the new pricing page is your call.";
+    const broke = "status=failed: the deploy failed and rolled back.";
+    const done = "Done: the footer link now opens the right page.";
+    saveDomainRun(legacy("domain-decided", decided));
+    saveDomainRun(legacy("domain-broke", broke));
+    saveDomainRun(legacy("domain-done", done));
+    const handled = [["domain-decided", decided], ["domain-broke", broke], ["domain-done", done]].map(([id, body]) => ({
+      id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body, cursor: "1" },
+    }));
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const sent: string[] = [];
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      judge: async (reply) => reply.startsWith("status=needs_decision") ? "needs_decision" : reply.startsWith("status=failed") ? "failed" : "completed",
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+    const byId = Object.fromEntries(changed.map((run) => [run.id, run]));
+    expect(byId["domain-decided"]!.status).toBe("needs_decision");
+    expect(byId["domain-broke"]!.status).toBe("failed");
+    expect(byId["domain-done"]!.status).toBe("completed");
+    expect(sent.some((message) => message.includes("the copy change is ready"))).toBe(true);
+    expect(sent.some((message) => message.includes("the deploy failed"))).toBe(true);
+    expect(sent.some((message) => message.includes("footer link"))).toBe(false);
+    expect(listDomainRuns().find((run) => run.id === "domain-done")?.notified).toBe(true);
+  });
+
   it.each([
     ["Captain, shipshape.", []],
     ["Captain, got it — fixed the typo and pushed to main.", ["Got it — fixed the typo and pushed to main."]],

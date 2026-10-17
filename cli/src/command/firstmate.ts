@@ -506,7 +506,7 @@ export async function syncFirstmateDomainRuns(options: {
         : "completed";
       const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
       const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
-      next = { ...next, status, ...(stale ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
+      next = { ...next, status, ...(stale && status === "completed" ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
       statusUnclear = outcome === "unclear";
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;

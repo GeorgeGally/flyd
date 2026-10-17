@@ -231,7 +231,14 @@ export function describeStaff(view: StaffView, now = Date.now()): string {
   const { snapshot, concerns } = view;
   if (!snapshot.available) return "The coding staff isn't installed on this Mac.";
   const lines: string[] = [];
-  const reachable = snapshot.readiness.canReceive === false ? "not taking new work right now" : snapshot.readiness.canReceive === true ? "on duty" : "status unclear";
+  const { lock, liveHarness, canReceive } = snapshot.readiness;
+  const reachable = lock === "free" || liveHarness === false
+    ? "nobody is looking after the coding work right now"
+    : lock === "unknown"
+      ? "status unclear"
+      : canReceive === false
+        ? "not taking new work right now"
+        : "on duty";
   lines.push(`Coding staff: ${reachable}.`);
   const working = snapshot.workers.filter((worker) => !DECIDING.has(worker.state));
   const waiting = snapshot.workers.filter((worker) => DECIDING.has(worker.state));
