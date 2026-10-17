@@ -167,6 +167,8 @@ export interface StatusItem {
   detail?: string;
   /** For work that needs him: the sentence that asks him, as the item says it. */
   ask?: string;
+  /** The item's whole sentence, before its line is clipped for display: what a handled question is matched on. */
+  sentence?: string;
 }
 
 /** His word asked for, as NEEDS and ASKS both read it. */
@@ -248,7 +250,7 @@ function itemOf(raw: string, state: WorkState): StatusItem {
   const detail = rest ? clip(rest, DETAIL_CHARS) : "";
   const asked = state === "needs" ? after.find(asksOfItem) : undefined;
   const project = projectOf(urls[0]);
-  return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
+  return { text, state, urls, sentence: first, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
 }
 
 /** Longer than this, what an item says after its line is clipped at a word. */
@@ -370,7 +372,7 @@ export function briefing(text: string, handled?: (text: string) => boolean): Bri
   // A card under two items is no card: the lone status stays in the prose, said as written.
   if (lifted.items.length < 2) return { prose: scan(text, false).prose, items: [] };
   // A question Flyd already answered for him is no longer his: it shows as handled.
-  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.text) ? { ...item, state: "handled" as const } : item));
+  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.sentence ?? item.text) ? { ...item, state: "handled" as const } : item));
   return { prose: lifted.prose, items: items.sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
 }
 

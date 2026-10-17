@@ -150,6 +150,18 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
   });
 
+  it("shows a question handled when its line carries a clause its answer does not", async () => {
+    const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. Shall I push it, so the fixes reach the running Flyd?\n2. Shall I delete the old branches?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it, so the fixes reach the running Flyd?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    // The push is handled; the delete is still his, on the card and in the box alike.
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
+  });
+
   it("shows a question put as 'whether …' handled once Flyd answers it", async () => {
     const asked = reply(`All green.\n\nStill waiting on you:\n- whether the sidebar label should read "Market"\n- whether to delete the old branches`);
     const notes = await answered(asked);

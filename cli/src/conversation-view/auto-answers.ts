@@ -61,9 +61,10 @@ const RULES: StandingRule[] = [
   {
     id: "sync-green-work",
     preferences: [/never ask whether to sync/i, ...TAKE_CONTROL],
-    // Commit, rebase onto the latest, push, pull, fast-forward: keeping his copies in step.
-    asks: /\b(?:commit|push|rebase|sync|pull|fast-forward|on top of)\b/i,
-    holds: (question) => !NOT_GREEN.test(question),
+    // Commit, rebase onto the latest, push, pull, fast-forward: keeping his copies in
+    // step. A merge or land is the merge rule's, and "pull request" is no git pull.
+    asks: /\b(?:commit|push|rebase|sync|pull(?!\s+requests?\b)|fast-forward|on top of)\b/i,
+    holds: (question) => !LANDS.test(question) && !NOT_GREEN.test(question),
     answer: "Yes",
   },
   {

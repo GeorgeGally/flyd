@@ -25,6 +25,14 @@ describe("settledBy", () => {
     expect(settle(reply("Checks passed. Should I land the Flyd change now?"))?.rule).toBe("merge-green-flyd");
   });
 
+  it("settles a merge of a pull request by the merge rule, not as a git pull", () => {
+    expect(settle(reply("All its checks are green. Shall I merge the Flyd pull request?"))?.rule).toBe("merge-green-flyd");
+    // Not green: the merge waits, and the words "pull request" are no git pull to sync.
+    expect(settle(reply("Checks are still running.\n\nShall I merge the pull request?"))).toBeNull();
+    // A plain pull is still the sync rule's.
+    expect(settle(reply("Everything is green. Shall I pull the latest and push?"), "- Never ask whether to sync a local clone; assume it should match its remote. (2026-10-17)")?.rule).toBe("sync-green-work");
+  });
+
   it("answers starting a preview yes, so he sees the real thing", () => {
     expect(settle(reply("The menu is rebuilt. Want me to start the local preview so you can see it?"))?.rule).toBe("show-the-real-thing");
   });
