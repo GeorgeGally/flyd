@@ -231,6 +231,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly elements?: ElementShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
   private readonly shared = new Map<string, SharedSession>();
+  private readonly liveSession?: () => Promise<string | undefined>;
 
   constructor(options: {
     projectDir?: string;
@@ -247,7 +248,10 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     shots?: ReplyShots;
     /** Crops of the element each site change touched (default ~/.flyd/view/element-shots; none under tests). */
     elements?: ElementShots;
+    /** The session holding firstmate's lock: listed first, ahead of the newest-written one. */
+    liveSession?: () => Promise<string | undefined>;
   } = {}) {
+    this.liveSession = options.liveSession;
     this.shots = options.shots ?? (process.env.VITEST ? undefined : new ReplyShots());
     this.elements = options.elements ?? (process.env.VITEST ? undefined : new ElementShots());
     this.commandRoots = options.commandRoots ?? {};
@@ -494,6 +498,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       })
       .filter((session) => session.size > 0 && SESSION_ID.test(session.id) && !this.isSupervision(session.path))
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    // The session that holds firstmate's lock is the live one, whatever was written last (sessions overlap,
+    // and any other run in its folder writes there too); without a lock holder, the newest-written leads.
+    const live = await this.liveSession?.().catch(() => undefined);
+    const at = live ? sessions.findIndex((session) => session.id === live) : -1;
+    if (at > 0) sessions.unshift(...sessions.splice(at, 1));
     const listed = new Set(sessions.map((session) => session.path));
     for (const path of this.titles.keys()) if (!listed.has(path)) this.titles.delete(path);
     return sessions.map((session) => ({

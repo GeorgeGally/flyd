@@ -4,6 +4,7 @@ import { handsHimInternalDecision } from "../council/chief-of-staff.js";
 import { recordHeld } from "../council/reply-review.js";
 import { sendRunMessage } from "./messages.js";
 import { captainNotice, plainBrief } from "./notice.js";
+import { modelProseJudge, type ProseJudge } from "./result.js";
 import { saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 
@@ -28,7 +29,8 @@ export const HANDLE_IT_YOURSELF = [
  */
 async function returnedToBoss(run: DomainRun, send: typeof sendRunMessage): Promise<boolean> {
   if (run.status !== "needs_decision" || !run.result || run.transport.kind !== "firstmate") return false;
-  if (run.messages?.some((message) => message.from === "flyd")) return false;
+  // Flyd's check-ins on quiet work (fleet-monitor.ts) are questions, not this return.
+  if (run.messages?.some((message) => message.from === "flyd" && message.kind === "decision")) return false;
   const brief = plainBrief(run.result.brief);
   if (!handsHimInternalDecision(brief)) return false;
   const outcome = await send({ run, kind: "decision", body: HANDLE_IT_YOURSELF, from: "flyd" }).catch(() => ({ delivered: false, run: undefined }));
@@ -52,12 +54,19 @@ export async function notifyRun(run: DomainRun, notify?: Notify, send: typeof se
   }
 }
 
+/** Flyd's model reads prose replies from the staff; under vitest plain words do. */
+async function proseJudge(): Promise<ProseJudge | undefined> {
+  if (process.env.VITEST) return undefined;
+  const { query } = await import("../lib/llm.js");
+  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
+}
+
 export async function commandTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
     await Promise.all([
-      syncFirstmateDomainRuns({ onChanged: notifyRun }),
+      syncFirstmateDomainRuns({ onChanged: notifyRun, judge: await proseJudge() }),
       syncLibrarianDomainRuns({ onChanged: notifyRun }),
     ]);
   } finally {

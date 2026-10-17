@@ -251,6 +251,19 @@ describe("conversation page", () => {
     expect(banner.hidden).toBe(true);
   });
 
+  it("says stuck coding work over the composer, and clears it when it moves", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const banner = document.getElementById("staff")!;
+    expect(banner.hidden).toBe(true);
+    stream.emit("staff", { text: "I've heard nothing back on \"the footer\" for 3 h." });
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toBe("I've heard nothing back on \"the footer\" for 3 h.");
+    stream.emit("staff", { text: "" });
+    expect(banner.hidden).toBe(true);
+  });
+
   it("never sends again on its own when Flyd is gone, and gives his words back to send himself", async () => {
     load("");
     await settle();

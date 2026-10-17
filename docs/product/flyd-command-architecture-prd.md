@@ -162,7 +162,9 @@ Flyd remains authoritative for:
 - what reaches George;
 - retention of the returned layered report.
 
-The FirstMate fleet ledger may later enrich Present/status, but it is not the request/result authority. Durable inbox replies are the canonical handoff result.
+The FirstMate fleet ledger may later enrich Present/status, but it is not the request/result authority. Durable inbox replies are the canonical handoff result. A reply in plain prose is a valid outcome: Flyd's model reads its status (completed, needs decision, failed, still working), plain words decide when no model can, and the missing layers are noted on the run rather than holding finished work open.
+
+Flyd also watches its coding staff from Core (`cli/src/command/fleet-monitor.ts`, once a minute on the agenda scheduler, `FLYD_STAFF_MONITOR=0` off), read-only: `fm-inbox.sh ready`, `state/home-summary.json` and each worker's status log, beside Flyd's own runs. A handoff with no word back for 2 h, or a worker waiting on a decision for 30 min, first gets one note to FirstMate asking where it stands; George is told only if an hour passes with no answer, if the note cannot be left, or if nobody has held FirstMate's lock for 30 min while work is open. The last read is kept in `~/.flyd/command/staff.json`: chat reads it through `domain_work action=staff`, and the conversation view says over the message box what George has been told is stuck. The view and the island follow the session that holds FirstMate's lock (lock pid → `~/.claude/sessions/<pid>.json`), falling back to the newest-written transcript.
 
 ## 6. Routing
 

@@ -41,6 +41,7 @@ import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { unreadNotes, unreadWarning } from "./note-receipts.js";
+import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid } from "../council/reply-review.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
@@ -67,6 +68,8 @@ const RAIL_FILE_TYPES: Record<string, string> = {
   ".webm": "video/webm",
 };
 const HEARTBEAT_MS = 15_000;
+/** How often the island's status stream checks that it still follows the live session. */
+const STATUS_SESSION_CHECK_MS = 5_000;
 /** Text plus up to four attachments (screenshots or documents), base64-encoded. */
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 /** One attachment, base64-encoded, as it is added to the box. */
@@ -394,6 +397,8 @@ export class ConversationViewServer {
   private readonly token = randomBytes(24).toString("hex");
   /** Review boards and finished deliverables the fleet left in firstmate's data tree. */
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
+  /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
+  staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
 
   constructor(
     private readonly source: ConversationSource,
@@ -1247,10 +1252,23 @@ export class ConversationViewServer {
       res.write(": keep-alive\n\n");
     }, 30_000);
     tick.unref?.();
-    req.on("close", () => {
+    // Another session became the live one (a new firstmate session took the lock): end this stream, and the
+    // island reconnects to that one.
+    const moved = setInterval(() => {
+      void this.source.listSessions().then(([newest]) => {
+        if (newest && newest.id !== session.id) {
+          stop();
+          res.end();
+        }
+      }).catch(() => undefined);
+    }, STATUS_SESSION_CHECK_MS);
+    moved.unref?.();
+    const stop = () => {
       clearInterval(tick);
+      clearInterval(moved);
       follower.close();
-    });
+    };
+    req.on("close", stop);
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
@@ -1278,6 +1296,21 @@ export class ConversationViewServer {
       if (JSON.stringify(data) === unreadSent) return;
       unreadSent = JSON.stringify(data);
       sseEvent(res, "unread", data);
+    };
+    // Coding work Core found stuck: said over the composer like unread notes, only in Flyd's own window.
+    let staffSent = "";
+    const emitStaff = () => {
+      if (closed || !this.source.canSend) return;
+      let text = "";
+      try {
+        // Only what he has been told: while the staff has a nudge to answer, that stays Flyd's business.
+        text = (this.staffView()?.concerns ?? []).filter((concern) => concern.toldAt).map((concern) => concern.text).join(" ");
+      } catch {
+        text = "";
+      }
+      if (text === staffSent) return;
+      staffSent = text;
+      sseEvent(res, "staff", { text });
     };
     const differ = new SnapshotDiffer(this.summaries
       ? {
@@ -1317,9 +1350,11 @@ export class ConversationViewServer {
     const stopMemory = this.memory?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
+    emitStaff();
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
       emitUnread();
+      emitStaff();
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
     req.on("close", () => {

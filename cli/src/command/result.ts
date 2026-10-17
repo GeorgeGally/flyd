@@ -111,3 +111,52 @@ export function validateDomainHandoff(result: DomainResult): HandoffValidation {
     ? { ok: false, missing, reason: `domain handoff contract unmet: missing ${missing.join(", ")}` }
     : { ok: true };
 }
+
+/** How a reply written in plain prose left the work: the staff often answers that way instead of the JSON contract. */
+export type ProseOutcome = "completed" | "needs_decision" | "failed" | "working";
+
+/** Reads a prose reply's outcome, e.g. with Flyd's model; null when it cannot tell. */
+export type ProseJudge = (reply: string, intendedOutcome: string) => Promise<ProseOutcome | null>;
+
+const PROSE_OUTCOMES = new Set<ProseOutcome>(["completed", "needs_decision", "failed", "working"]);
+
+const STATED = /\bstatus\s*[=:]\s*(completed|needs_decision|failed|working)\b/i;
+const ASKS_HIM = /\?\s*$|\b((your|his|george['’]s) (call|decision|approval|go-ahead)|do you want|would you like|shall i|should i|want me to|needs? (you|your|him|george)|waiting (on|for) (you|your|him|george)|(please|can you|could you) (approve|confirm|decide))\b/i;
+const FAILED = /\b(failed|couldn['’]t|could not|can['’]t|cannot|unable to|blocked|broke|gave up)\b/i;
+const IN_PROGRESS = /^(on it|working on|picked (it|this) up|started|starting|in progress|queued|will (report|update|follow up))\b/i;
+
+/** The fallback when no model can read the reply: plain words, judged conservatively. */
+export function proseOutcomeByWords(reply: string): ProseOutcome {
+  const text = reply.replace(/^captain[,:!.]?\s+/i, "").trim();
+  const stated = text.match(STATED)?.[1]?.toLowerCase();
+  if (stated) return stated as ProseOutcome;
+  if (ASKS_HIM.test(text)) return "needs_decision";
+  if (FAILED.test(text)) return "failed";
+  if (IN_PROGRESS.test(text)) return "working";
+  return "completed";
+}
+
+/** Flyd's model reads what a prose reply says happened; any failure leaves it to proseOutcomeByWords. */
+export function modelProseJudge(complete: (prompt: string) => Promise<string>): ProseJudge {
+  return async (reply, intendedOutcome) => {
+    const prompt = [
+      "A member of George's coding staff replied in plain prose to work Flyd handed over. Read what the reply says happened.",
+      "",
+      `The work asked for: ${intendedOutcome.slice(0, 600)}`,
+      "",
+      "The reply:",
+      reply.slice(0, 4_000),
+      "",
+      "Answer with JSON only: {\"status\": \"completed\" | \"needs_decision\" | \"failed\" | \"working\"}",
+      "completed: the work is finished (or the question answered). needs_decision: it asks George to decide, approve or answer something before it can go on.",
+      "failed: it could not be done. working: only progress so far, the outcome is still to come.",
+    ].join("\n");
+    try {
+      const raw = await complete(prompt);
+      const status = String((JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { status?: unknown }).status ?? "");
+      return PROSE_OUTCOMES.has(status as ProseOutcome) ? status as ProseOutcome : null;
+    } catch {
+      return null;
+    }
+  };
+}

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -729,6 +729,63 @@ describe("ConversationViewServer", () => {
     ]);
     expect(unreadNotes(source.exchanges())?.ids).toEqual(["note:2"]);
   });
+
+  it("says over the composer only the stuck coding work George has been told about", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const concern = { kind: "handoff_stale" as const, since: new Date().toISOString() };
+    server!.staffView = () => ({
+      snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "held", liveHarness: true, heartbeat: "healthy", canReceive: true }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
+      concerns: [
+        { ...concern, key: "a", text: "I've heard nothing back on \"the footer\" for 3 h.", toldAt: new Date().toISOString() },
+        { ...concern, key: "b", text: "Still being asked about.", nudgedAt: new Date().toISOString() },
+      ],
+    });
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: staff")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({ text: "I've heard nothing back on \"the footer\" for 3 h." });
+  });
+
+  it("follows the session that holds firstmate's lock, not the one written last", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-live-session-"));
+    writeFileSync(join(dir, "live.jsonl"), [captain("fix it"), assistantText("On it.")].join("\n") + "\n");
+    writeFileSync(join(dir, "other.jsonl"), [captain("unrelated"), assistantText("Sure.")].join("\n") + "\n");
+    utimesSync(join(dir, "live.jsonl"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+    let live: string | undefined = "live";
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, liveSession: async () => live });
+    expect((await source.listSessions()).map((session) => session.id)).toEqual(["live", "other"]);
+    live = undefined;
+    expect((await source.listSessions()).map((session) => session.id)).toEqual(["other", "live"]);
+
+    // The island's stream ends when another session takes the lock, so it reconnects to that one.
+    live = "live";
+    server = new ConversationViewServer(source);
+    const port = await server.listen(0);
+    const ended = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: status")) live = "other";
+        });
+        res.on("end", () => resolve(text));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(JSON.parse(ended.split("event: status\ndata: ")[1]!.split("\n")[0]!).session).toBe("live");
+  }, 15_000);
 
   it("feeds the island a compact status of the newest session", async () => {
     const port = await start(undefined, [captain("push it"), assistantText("» Pushed to main. Want me to merge the PR?")]);

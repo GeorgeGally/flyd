@@ -7,7 +7,7 @@ export type DomainRunStatus =
   | "working"
   | "needs_decision"
   | "completed"
-  /** The boss claimed success but its handoff missed the brief/report/evidence contract; still open. */
+  /** Legacy: a reply that missed the layered contract was once kept open as this; such runs are read again. */
   | "incomplete"
   | "failed"
   | "cancelled";
@@ -95,7 +95,7 @@ export interface DomainRun {
   messages?: DomainMessage[];
   result?: DomainResult;
   failure?: string;
-  /** Why the latest handoff was not recorded as done (see validateDomainHandoff). */
+  /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */
   incompleteReason?: string;
   notified?: boolean;
 }

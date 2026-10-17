@@ -146,6 +146,16 @@ describe("before display", () => {
     };
   }
 
+  it("still returns an internal decision when Flyd only checked in on the run before", async () => {
+    const sent: string[] = [];
+    const run = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "c1", kind: "question" as const, body: "Reply with where it stands.", at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
+    await notifyRun(run, async () => undefined, async (input) => {
+      sent.push(input.body);
+      return { delivered: true, run: input.run };
+    });
+    expect(sent).toEqual([HANDLE_IT_YOURSELF]);
+  });
+
   it("returns a relayed internal decision to the work instead of showing it to George", async () => {
     const shown: string[] = [];
     const sent: Array<{ body: string; from?: string; kind: string }> = [];

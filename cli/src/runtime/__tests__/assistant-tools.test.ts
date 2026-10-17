@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,6 +15,33 @@ describe("assistant tools", () => {
     closeDb();
     resetWorkIndexPath();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("tells chat what the coding staff is doing, read live from a fake staff home", async () => {
+    const home = join(dir, "firstmate");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    mkdirSync(join(home, "state"), { recursive: true });
+    writeFileSync(join(home, "bin", "fm-inbox.sh"), "#!/bin/sh\nprintf '%s' '{\"lock\":{\"state\":\"held\",\"pid\":1,\"live_harness\":true},\"wake_consumer\":{\"state\":\"healthy\"},\"can_receive\":true}'\n", { mode: 0o755 });
+    writeFileSync(join(home, "state", "home-summary.json"), JSON.stringify({
+      active_children: [{ id: "footer-link", state: "working", name: "Fix the footer link" }],
+      decisions_open: [{ id: "visuals", summary: "Pick a Christmas look" }],
+      counts: { queued: 2 },
+    }));
+    const saved = { home: process.env.FLYD_FIRSTMATE_HOME, command: process.env.FLYD_COMMAND_DIR };
+    process.env.FLYD_FIRSTMATE_HOME = home;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    try {
+      const said = await runAssistantTool("domain_work", { action: "staff" });
+      expect(said).toContain("Coding staff: on duty.");
+      expect(said).toContain("Under way (1):\n- Fix the footer link");
+      expect(said).toContain("Held for George (1):\n- Pick a Christmas look");
+      expect(said).toContain("Queued next: 2.");
+    } finally {
+      for (const [key, value] of [["FLYD_FIRSTMATE_HOME", saved.home], ["FLYD_COMMAND_DIR", saved.command]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("manages the confirmed to-do list", async () => {
