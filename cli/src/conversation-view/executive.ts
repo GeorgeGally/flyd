@@ -1,5 +1,6 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
+import { quoted } from "./replies.js";
 import { authorSummary, capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 
 // Flyd talks to him like an executive briefing: outcomes, what they lead to
@@ -152,6 +153,11 @@ export function withoutChatter(text: string): string {
     .replace(/\n{3,}/g, "\n\n");
 }
 
+/** One line as he reads it: stubs and machinery narration out. */
+function shownLine(line: string): string {
+  return withoutStubs(withoutChatter(line));
+}
+
 // ── Status card ────────────────────────────────────────────────────────────
 
 /** Needs him, under way, landed, or a question of his Flyd already answered under his standing rules. */
@@ -167,8 +173,8 @@ export interface StatusItem {
   detail?: string;
   /** For work that needs him: the sentence that asks him, as the item says it. */
   ask?: string;
-  /** The item's whole sentence, before its line is clipped for display: what a handled question is matched on. */
-  sentence?: string;
+  /** The item's whole text as listed, before its stubs are taken out: what a handled question is matched on. */
+  raw?: string;
 }
 
 /** His word asked for, as NEEDS and ASKS both read it. */
@@ -237,10 +243,10 @@ function projectOf(url: string | undefined): string | undefined {
 }
 
 /** The Markdown links of an item, then its text with them flattened. */
-function itemOf(raw: string, state: WorkState): StatusItem {
-  const urls = [...raw.matchAll(LINK)].map((match) => match[2]!);
-  const said = sentences(inline(raw));
-  const first = clip(inline(said[0] ?? inline(raw)).replace(/[,;:.]+$/, ""), 140);
+function itemOf(shown: string, state: WorkState, listed: string): StatusItem {
+  const urls = [...shown.matchAll(LINK)].map((match) => match[2]!);
+  const said = sentences(inline(shown));
+  const first = clip(inline(said[0] ?? inline(shown)).replace(/[,;:.]+$/, ""), 140);
   // "X clashed with what landed, so it's being updated" → the line, then what follows from it.
   const split = /^(.{12,}?)(?:,\s+so\s+|\s+[—–]\s+|;\s+)(.+)$/.exec(first);
   const text = capitalise(split ? split[1]! : first);
@@ -250,7 +256,7 @@ function itemOf(raw: string, state: WorkState): StatusItem {
   const detail = rest ? clip(rest, DETAIL_CHARS) : "";
   const asked = state === "needs" ? after.find(asksOfItem) : undefined;
   const project = projectOf(urls[0]);
-  return { text, state, urls, sentence: first, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
+  return { text, state, urls, raw: listed, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
 }
 
 /** Longer than this, what an item says after its line is clipped at a word. */
@@ -315,37 +321,18 @@ export function itemQuestion(text: string): string {
   return capitalise(inFlydsVoice(`${asked}?`));
 }
 
-/** Longer than this, a question's wording is compared over its lead only; the card clips its line at 140. */
-const QUESTION_CHARS = 140;
-
 /**
- * The words that carry a question, for telling two wordings of it apart. Both
- * wordings are read the same way first — stubs and chatter out, then read as
- * the question it is — so the card's line and the quote in Flyd's answer to it
- * line up whatever stubs, lead-in or voice each of them carries. Pure.
+ * A question as the note that answers it quotes it: the one rendering both the
+ * status card and the reply box match on, so the two can never disagree. Pure.
  */
-function wordsOf(text: string): string[] {
-  const said = clip(itemQuestion(withoutStubs(withoutChatter(text))), QUESTION_CHARS);
-  return inline(said).toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((word) => word.length > 2);
-}
-
-/**
- * Whether two wordings put the same question: the card's line for it and the
- * quote in Flyd's answer to it, say. The same words in the same order, with the
- * shorter wording the longer's tail: a lead-in dropped from the front ("whether
- * to push …" against "Push …"), never a near-copy that swaps or omits a word. Pure.
- */
-export function sameQuestion(a: string, b: string): boolean {
-  const [short, long] = [wordsOf(a), wordsOf(b)].sort((x, y) => x.length - y.length) as [string[], string[]];
-  if (short.length === 0) return false;
-  const offset = long.length - short.length;
-  return short.every((word, index) => word === long[offset + index]);
+function askedQuoted(text: string): string {
+  return quoted(itemQuestion(inline(text).trim()));
 }
 
 /** Of the questions a reply asks, the ones Flyd answered for him, by the quotes in its answers. */
 export function handledBy(quotes: Iterable<string> | undefined): ((text: string) => boolean) | undefined {
-  const said = [...(quotes ?? [])].filter(Boolean);
-  return said.length ? (text) => said.some((quote) => sameQuestion(text, quote)) : undefined;
+  const said = new Set([...(quotes ?? [])].filter(Boolean));
+  return said.size ? (text) => said.has(askedQuoted(text)) : undefined;
 }
 
 /** A short list of fragments ("the hat tilted", "buttons stay square") joined onto its lead-in. */
@@ -372,7 +359,7 @@ export function briefing(text: string, handled?: (text: string) => boolean): Bri
   // A card under two items is no card: the lone status stays in the prose, said as written.
   if (lifted.items.length < 2) return { prose: scan(text, false).prose, items: [] };
   // A question Flyd already answered for him is no longer his: it shows as handled.
-  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.sentence ?? item.text) ? { ...item, state: "handled" as const } : item));
+  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.raw ?? item.text) ? { ...item, state: "handled" as const } : item));
   return { prose: lifted.prose, items: items.sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
 }
 
@@ -396,8 +383,14 @@ function scan(text: string, lift: boolean): Briefing {
     let i = 0;
     while (i < blocks.length) {
       const block = blocks[i]!;
-      if (block.kind !== "item") {
+      if (block.kind === "blank") {
         result.push(block.line);
+        i += 1;
+        continue;
+      }
+      if (block.kind === "text") {
+        const said = shownLine(block.line);
+        if (said) result.push(said);
         i += 1;
         continue;
       }
@@ -409,23 +402,25 @@ function scan(text: string, lift: boolean): Briefing {
       const lead = leadAt >= 0 && /:\s*(?:\*\*|__)?\s*$/.test(result[leadAt]!) ? result[leadAt] : undefined;
       // A lead-in speaks for its list in its last sentence only ("…like "Merged deployed." So I've changed the approach:").
       const context = lead ? stateOf(sentences(inline(lead)).at(-1) ?? "") : null;
+      // Each item as he reads it, with its raw text kept to match a question Flyd already answered.
+      const shown = run.map(shownLine);
       // A plan is no state and takes none from its lead-in; anything else unsaid takes the lead-in's.
-      const states = run.map((item) => {
+      const states = shown.map((item) => {
         const meaning = readingOfText(inline(item));
         return meaning === "plan" ? null : meaning ?? context;
       });
       const known = states.filter(Boolean).length;
       if (lift && (known >= 2 || (known >= 1 && context !== null))) {
         const leftovers: string[] = [];
-        run.forEach((item, at) => (states[at] ? items.push(itemOf(item, states[at]!)) : leftovers.push(item)));
+        run.forEach((item, at) => (states[at] ? items.push(itemOf(shown[at]!, states[at]!, item)) : leftovers.push(shown[at]!)));
         // A lead-in that only labelled the list ("**Flyd (merged):**") goes with it.
         if (lead !== undefined && inline(lead).replace(/:\s*$/, "").split(/\s+/).length <= 5) result.splice(leadAt, 1);
         else if (lead !== undefined) result[leadAt] = lead.replace(/(?:\s+(?:for|on|to|of|with|about))?\s*:\s*(\*\*|__)?\s*$/, ".$1");
         if (leftovers.length) result.push(...listAsProse(undefined, leftovers));
         continue;
       }
-      if (lead !== undefined) result.splice(leadAt, 1, ...listAsProse(lead, run));
-      else result.push(...listAsProse(undefined, run));
+      if (lead !== undefined) result.splice(leadAt, 1, ...listAsProse(lead, shown));
+      else result.push(...listAsProse(undefined, shown));
     }
     return result.join("\n").replace(/\n{3,}/g, "\n\n");
   });
@@ -476,7 +471,7 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
 
 /** A reply as Flyd briefs him: stubs and machinery narration out, lists as prose, the work's states as card items. */
 export function brief(text: string, handled?: (text: string) => boolean): Briefing {
-  return briefing(withoutStubs(withoutChatter(text)), handled);
+  return briefing(text, handled);
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
@@ -497,7 +492,15 @@ function asksOfItem(sentence: string): boolean {
 
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
 function asking(paragraph: string): string[] {
-  const said = sentences(inline(paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, ""))).map((sentence) => sentence.replace(SALUTATION, ""));
+  // A lead-in that ends its line with ":" introduces what follows; the ask is on the lines under it.
+  const groups: string[] = [];
+  for (const line of paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, "").split("\n")) {
+    const said = line.trim();
+    const last = groups.length - 1;
+    if (last >= 0 && !/:$/.test(groups[last]!)) groups[last] = `${groups[last]} ${said}`;
+    else groups.push(said);
+  }
+  const said = groups.flatMap((group) => sentences(inline(group))).map((sentence) => sentence.replace(SALUTATION, ""));
   return said.filter((sentence, index) => ASKS.test(sentence) && !(/\?$/.test(sentence) && /^(?:yes|no)\b/i.test(said[index + 1] ?? "")));
 }
 

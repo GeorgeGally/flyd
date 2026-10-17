@@ -1,5 +1,6 @@
-import { itemAsks, itemQuestion, sameQuestion } from "./executive.js";
+import { itemAsks, itemQuestion } from "./executive.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { quoted } from "./replies.js";
 import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -290,7 +291,7 @@ function leftToHim(choice: ReplyChoice, answered: Set<string> | undefined): Repl
   if (!answered?.size) return choice;
   // An answer that quotes no question answered the reply whole.
   if (answered.has("")) return null;
-  const settled = (question: string) => [...answered].some((quote) => sameQuestion(question, quote));
+  const settled = (question: string) => answered.has(quoted(question));
   if (!choice.steps) return settled(choice.question) ? null : choice;
   const steps = choice.steps.filter((step) => !settled(step.question));
   if (steps.length === choice.steps.length) return choice;

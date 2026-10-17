@@ -96,12 +96,21 @@ const RULES: StandingRule[] = [
  */
 const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
 /**
- * Speaks for him to other people: a message sent, posted or announced, unless
- * the one it reaches is Flyd or the staff Flyd itself runs. Messages between
- * them are Flyd's to decide.
+ * Speaks for him to other people: a message sent, posted, written or announced,
+ * unless the one it reaches is Flyd or the staff Flyd itself runs. Messages
+ * between them are Flyd's to decide.
  */
-const SPEAKS_FOR_HIM = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)|posts?|posting|posted)\b/i;
-const OWN_STAFF = /\b(?:flyd|first ?mate|crew ?mates?|the (?:coding )?(?:staff|crew|agents?|workers?)|subagents?|its own staff|itself)\b/i;
+const OUTWARD = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*)\b/i;
+/** Writing to or telling people something: outward only when the one reached is not Flyd's own staff. */
+const TELLS_PEOPLE = /\b(?:writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:team|clients?|customers?|users?|people|everyone|someone|him|her|them|public|channel|group|list|subscribers?|community|stakeholders?|boss|guys|folks)\b/i;
+/** An outward word whose one it reaches is Flyd or its staff: what Flyd decides for itself. */
+const TO_OWN_STAFF = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:flyd|first ?mate|crew ?mates?|staff|crew|agents?|workers?|subagents?|itself)\b/gi;
+
+/** Whether the question speaks for him to other people: an outward word whose one it reaches is not Flyd or its own staff. */
+function speaksForHim(question: string): boolean {
+  const toOthers = question.replace(TO_OWN_STAFF, " ");
+  return OUTWARD.test(toOthers) || TELLS_PEOPLE.test(toOthers);
+}
 /** A taste or strategy call: his to make even when it is reversible. */
 const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
 /** Firstmate wants his own word on it. */
@@ -146,7 +155,7 @@ export function settledBy(message: ConversationMessage, asked: Asked, preference
   // A yes-or-no question only, put by firstmate, not by Flyd's own desk.
   if (!asked.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
   const question = asked.question;
-  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text) || (SPEAKS_FOR_HIM.test(question) && !OWN_STAFF.test(question))) return null;
+  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text) || speaksForHim(question)) return null;
   for (const rule of RULES) {
     if (!rule.asks.test(question)) continue;
     for (const preference of rule.preferences) {

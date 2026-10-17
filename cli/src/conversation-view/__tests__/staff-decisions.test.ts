@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AutoAnswers, settledBy } from "../auto-answers.js";
 import { choiceOf, openChoice } from "../choices.js";
-import { brief, sameQuestion, stateOf } from "../executive.js";
+import { brief, stateOf } from "../executive.js";
 import { readReply } from "../replies.js";
 import { SnapshotDiffer } from "../server.js";
 import { statusOf } from "../status.js";
@@ -128,14 +128,28 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I update the sidebar design?");
   });
 
-  it("tells two wordings apart by their words, not by how many they share", () => {
-    expect(sameQuestion("Shall I update the sidebar wording?", "Shall I update the sidebar design?")).toBe(false);
-    expect(sameQuestion("Go for it?", "Do it?")).toBe(false);
-    expect(sameQuestion("Shall I push it?", "Shall I push it?")).toBe(true);
-    expect(sameQuestion("whether to push the local commit", "Push the local commit?")).toBe(true);
-    // The card line and the quote in its answer are read the same way: stubs gone, "whether …" reordered.
-    expect(sameQuestion("Shall I push?", "Shall I push the fm/decide-authority branch?")).toBe(true);
-    expect(sameQuestion('Whether the sidebar label should read "Market"', "Should the sidebar label read 'Market'?")).toBe(true);
+  it("shows a listed question handled when its item runs over more than one sentence", async () => {
+    const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. The old notes are still piling up. Shall I sync the local Flyd copy?\n2. Shall I delete the old branches?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["The old notes are still piling up. Shall I sync the local Flyd copy?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    // The sync is handled; the delete is still his, on the card and in the box alike.
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
+  });
+
+  it("keeps an outward message his even when the question also names Flyd", async () => {
+    for (const question of [
+      "Shall I sync the Flyd repo and send the team the summary?",
+      "Shall I push the Flyd fix and message the team?",
+      "Shall I write the team an update about the Flyd push?",
+    ]) {
+      const asked = reply(`Everything is green.\n\n${question}`);
+      expect(await answered(asked), question).toEqual([]);
+      expect(openChoice([asked])?.choice.question, question).toBe(question);
+    }
   });
 
   it("shows a question handled when the card's line and its answer's quote are worded differently", async () => {
