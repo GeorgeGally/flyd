@@ -63,7 +63,7 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   ]);
   const situation = await loadAgentSituation().catch(() => null);
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
-  onStep?.("Remembering what I know about this");
+  onStep?.("Remembering what I know about this", { tool: "Searching memory for", argument: question });
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };

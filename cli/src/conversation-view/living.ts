@@ -1,4 +1,5 @@
 import { clipKeepingLinks } from "./line-links.js";
+import { isPlaceholderStatus } from "./status-text.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -71,7 +72,9 @@ function projectIn(text: string, projects: string[]): string | undefined {
  * says that; before then, what his message asks for, with the project when he named one.
  */
 export function handoffLine(handoff: Handoff, details: { activity?: string; text?: string; projects?: string[] } = {}): string {
-  const activity = handoff === "taken" && details.activity ? clip(details.activity) : "";
+  // A relayed activity that only says something is happening is dropped, so the living line always names the
+  // concrete thing (his message's own subject), never a placeholder.
+  const activity = handoff === "taken" && details.activity && !isPlaceholderStatus(details.activity) ? clip(details.activity) : "";
   if (activity) return upperFirst(activity);
   const subject = (details.text ? subjectOf(details.text) : "") || (handoff === "queued" ? "Queued for a next step" : "Waiting for a clear next step");
   const project = details.text ? projectIn(details.text, details.projects ?? []) : undefined;

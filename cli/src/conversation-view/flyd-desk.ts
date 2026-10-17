@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./interpret.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { ANSWERING } from "./living.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
@@ -162,13 +163,15 @@ interface AskRecord {
   answer?: string;
   answeredAt?: string;
   error?: string;
+  /** Status lines that only said something was happening, and the concrete status George was shown instead. */
+  statusSubstitutions?: Array<{ raw: string; shown: string }>;
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void, turn?: { source: ConversationTurnSource; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void }) => Promise<string>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void }) => Promise<string>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
-export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string) => void) => Promise<string>;
+export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
 
 /** A question with what its screenshots show, as Flyd's turn reads it. */
 function asAsked(record: AskRecord): string {
@@ -256,9 +259,18 @@ export class FlydDesk {
       ]);
     this.write(record);
     this.inFlight.add(record.id);
-    const onStep = (step: string): void => {
+    const onStep = (step: string, tool?: InFlightTool): void => {
       const line = step.replace(/\s+/g, " ").trim();
-      if (line && this.inFlight.has(record.id)) this.steps.set(record.id, clipKeepingLinks(line.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
+      if (!line || !this.inFlight.has(record.id)) return;
+      // The one boundary a relayed status crosses before it becomes the line under his message: a placeholder
+      // never passes; it is replaced by a status built from the tool call under way, and both are kept for review.
+      const shown = relayStatus(line, tool ?? { tool: "Looking into", argument: record.text });
+      if (!shown) return;
+      if (isPlaceholderStatus(line)) {
+        record = { ...record, statusSubstitutions: [...(record.statusSubstitutions ?? []), { raw: line, shown }] };
+        this.write(record);
+      }
+      this.steps.set(record.id, clipKeepingLinks(shown.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
     };
     const turn = {
       source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
