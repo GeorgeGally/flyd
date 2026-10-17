@@ -87,6 +87,16 @@ describe("choiceOf", () => {
     expect(choice.options).not.toContain("Here");
   });
 
+  it("offers the listed items when the ask to pick them ends in a question mark", () => {
+    const choice = choiceOf(RANKED_PICKS.replace(/here\.$/, "here?"))!;
+    expect(choice.multiple).toBe(true);
+    expect(choice.options).toHaveLength(5);
+    expect(choice.options[0]).toBe("Keep promises straight");
+    expect(choice.options).not.toContain("Pick the ones you want built");
+    expect(choice.options).not.toContain("From the page in Flyd");
+    expect(choice.options).not.toContain("Here");
+  });
+
   it("asks nothing when it says to pick the ones and listed nothing to pick from", () => {
     expect(choiceOf("Ready when you are. Pick the ones you want built, from the page in Flyd or here.")).toBeNull();
   });

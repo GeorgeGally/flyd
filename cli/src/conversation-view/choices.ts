@@ -144,6 +144,7 @@ function closingAsk(blocks: string[][]): { sentence: string; context: string; af
 /** "Should I merge now or wait for checks?": the alternatives, when each is short. */
 function alternatives(question: string): string[] {
   if (!/\?["”')\]]*$/.test(question.trim())) return [];
+  if (PICK_ONES.test(question)) return [];
   const bare = question.replace(/[?:.]+$/, "").replace(LEAD_IN, "");
   if (/\bor (?:not|so|something|anything|otherwise)\b/i.test(bare)) return [];
   const parts = bare.split(/,\s*(?:or\s+)?|\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
