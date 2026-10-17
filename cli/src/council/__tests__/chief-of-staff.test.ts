@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkSaid, judgeSaid, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
+import { checkSaid, isIdleNotice, isPlaceholder, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
 import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard } from "../reply-review.js";
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
@@ -232,6 +232,35 @@ describe("before display", () => {
   it("keeps a placeholder notification from George and records it", async () => {
     expect(await deliverNotification("Flyd", "Working on it")).toBe(false);
     expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "Working on it")).toHaveLength(1);
+  });
+});
+
+describe("notifications", () => {
+  it("never pass on a coding session idle at its prompt", async () => {
+    expect(isIdleNotice("Claude", "Claude is waiting for your input")).toBe(true);
+    expect(isIdleNotice("Claude: waiting on your input", "flyd-cos-voice")).toBe(true);
+    expect(isIdleNotice("Claude", "Claude needs your permission to use Bash")).toBe(false);
+    expect(isIdleNotice("Flyd", "The CapFive redirects are live.")).toBe(false);
+    expect(isIdleNotice("Flyd", "The DreamHost invoice needs your attention")).toBe(false);
+    expect(isIdleNotice("Agenda", "The crew is waiting for your input on the logo")).toBe(false);
+    expect(isIdleNotice("Codex", "Codex needs your attention")).toBe(true);
+    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe(false);
+  });
+
+
+  it("are one line, outcome first", () => {
+    expect(notificationLine("Sir, done. The redirects are live on capfive.com. I also checked every old address and cleared the cache.")).toBe("The redirects are live on capfive.com.");
+    const long = notificationLine(`The Good Neighbours deploy is blocked because ${"the hosting provider keeps rejecting the key ".repeat(5)}and nothing else.`);
+    expect(long.length).toBeLessThanOrEqual(NOTIFICATION_CHARS);
+    expect(long.endsWith("…")).toBe(true);
+    expect(long).not.toContain("\n");
+    expect(notificationLine("- **Island fix** merged: https://github.com/GeorgeGally/flyd/pull/162")).toBe("Island fix merged: https://github.com/GeorgeGally/flyd/pull/162");
+  });
+
+  it("skip a placeholder opening for the sentence that says something", () => {
+    expect(notificationLine("Looking into it. Your flight to Joburg moved to 14:20.")).toBe("Your flight to Joburg moved to 14:20.");
+    expect(notificationLine("Sir, you're right. The CapFive redirects are live.")).toBe("The CapFive redirects are live.");
+    expect(isPlaceholder(notificationLine("Looking into it. Still working on it."))).toBe(true);
   });
 });
 

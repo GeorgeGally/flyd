@@ -301,9 +301,9 @@ esac
       pollMs: 15,
     });
     const sent = await source.send("s1", "the good neighbours market hero is too tall");
-    expect(sent.waiting).toBe("Queued for a next step");
+    expect(sent.waiting).toBe("");
     let snapshot = await source.read("s1");
-    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("Queued for a next step");
+    expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("");
 
     // Firstmate reads the note, then busies itself with other work: that work's step is not this note's line.
     const inbox = join(home, "state", "inbox");
@@ -426,9 +426,9 @@ esac
     const question = messages.find((message) => message.id === answered.id)!;
     // The reply sits directly under its own note, in Flyd's voice.
     expect(messages[messages.indexOf(question) + 1]).toMatchObject({ role: "assistant", answers: answered.id, text: "Sir, pushed. Want me to merge?" });
-    // A note with no reply still renders, cleanly, saying what is happening to it.
+    // A note with no reply still renders, cleanly, with no line until there is something concrete to say.
     const waiting = messages.find((message) => message.id === pending.id)!;
-    expect(waiting.waiting).toBeTruthy();
+    expect(waiting.waiting ?? "").not.toMatch(/next step/i);
     expect(messages.some((message) => message.answers === pending.id)).toBe(false);
   });
 
@@ -559,9 +559,9 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(interpreter.cached(messages.find((message) => message.answers)!.text)).toContain("delete the catch-all");
   });
 
-  it("leads with Flyd's whole reading, every sentence kept, when no interpretation is coming", () => {
-    // With no model, a local digest cut each answer to a line or two and the
-    // window looked empty; now the answer reads in full, in Flyd's voice.
+  it("leads with a few short lines of the answer, its decision kept, when no interpretation is coming", () => {
+    // With no model, the answer's own words lead, held to a glance in Flyd's
+    // voice: its outcome and the decision waiting on him, with its link.
     const shown = new SnapshotDiffer().next({ messages: noteWithReply(decision), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
     expect(shown.summary).toMatchObject({ source: "brief" });
     expect(shown.summary?.pending).toBeUndefined();
@@ -569,7 +569,7 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(lead).toContain("The island filter hid two real outcomes last night along with the supervision chatter.");
     expect(lead).toContain("Decide whether to keep the filter: keeping it hides real outcomes; dropping it brings back every status ping.");
     expect(lead).not.toMatch(/captain/i);
-    expect(lead).not.toContain("github.com");
+    expect(lead).not.toContain("you're right");
   });
 
   it("falls back to the digest when the model only acknowledges or fails", async () => {
@@ -662,7 +662,7 @@ describe("supervision chatter never reaches Flyd's window", () => {
     const snapshot = await view.read("main");
     expect(snapshot.messages.map((message) => message.text).join("\n")).not.toMatch(/stale wake|routine outcome|MAIN/);
     expect(snapshot.messages.at(-1)).toMatchObject({ id: "note:1791600000-abc", waiting: "Answered", settled: true });
-    expect(statusOf(snapshot).reply?.headline).not.toMatch(/stale wake/i);
+    expect(statusOf(snapshot).reply?.headline ?? "").not.toMatch(/stale wake/i);
   });
 
   it("knows a supervision session whose first prompt outgrows the head it scans", async () => {

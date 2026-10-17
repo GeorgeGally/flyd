@@ -16,9 +16,10 @@ import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
 import { ArtefactJudge } from "../artefact-judge.js";
+import { MAX_CHARS } from "../for-george.js";
 import { unreadNotes } from "../note-receipts.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
-import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
+import { KINSTA_RULES, KINSTA_TABLE, STAFF_DECISION, STAFF_LANDED, STAFF_PROGRESS } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks, toolUse } from "./transcript-fixture.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -132,6 +133,75 @@ describe("SnapshotDiffer relays", () => {
     });
     expect(answered.order).toEqual(["note:1", "note-reply:1", "t2"]);
     expect(answered.messages.map((m) => [m.id, m.waiting, m.answers])).toEqual([["note:1", undefined, undefined], ["note-reply:1", undefined, "note:1"]]);
+  });
+
+  it("keeps a fifteen-line staff progress report from him: no message at all", () => {
+    const update = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: STAFF_PROGRESS, aside: true }], working: false });
+    expect(update.order).toEqual([]);
+    expect(update.messages).toEqual([]);
+  });
+
+  it("tells him a landed pull request in one line with its link, the staff's words behind more", () => {
+    const [landed] = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: STAFF_LANDED, aside: true }], working: false }).messages;
+    expect(landed!.summary).toEqual({ html: renderMarkdown("The island text fix is merged: https://github.com/GeorgeGally/flyd/pull/162"), source: "flyd" });
+    expect(landed!.summary!.html.match(/<p>/g)).toHaveLength(1);
+    expect(landed!.html).toContain("crewmate");
+  });
+
+  it("puts a decision only he can make to him in one line, its options as buttons", () => {
+    const [asked] = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: STAFF_DECISION, aside: true }], working: false }).messages;
+    expect(asked!.choice).toMatchObject({ options: ["The boardroom photo", "The skyline photo"], replyTo: "t1" });
+    expect(asked!.summary!.source).toBe("flyd");
+    expect(asked!.summary!.html).not.toContain("<li>");
+    expect(asked!.summary!.html.match(/<p>/g)).toHaveLength(1);
+  });
+
+  it("shows a question the staff asked twice once, where it was asked last", () => {
+    const asked = "Sir, still waiting on you: may I delete the 44,148 test-junk records from Flyd's memory? A backup is taken first.";
+    const update = new SnapshotDiffer().next({ messages: [
+      { id: "t1", role: "assistant", text: asked, aside: true },
+      { id: "t2", role: "assistant", text: `Sir, shipshape. ${asked.replace("Sir, ", "")}`, aside: true },
+    ], working: false });
+    expect(update.order).toEqual(["t2"]);
+    // Asked mid-reply, it is still answerable where it stands.
+    expect(update.messages[0]!.choice).toMatchObject({ question: "May I delete the 44,148 test-junk records from Flyd's memory?", options: ["Yes", "No"], replyTo: "t2" });
+    const answered = new SnapshotDiffer().next({ messages: [{ id: "t1", role: "assistant", text: asked, aside: true }, { id: "note:1", role: "user", text: "yes, delete it" }], working: false });
+    expect(answered.messages.find((message) => message.id === "t1")!.choice).toBeUndefined();
+  });
+
+  it("tells him an answer as one compact card: its outcome, the line under it, the rest behind more", () => {
+    const answer = "Sir, the big dark data band on the vendor admin page is gone. In its place is one slim line above the board: a small Data button, then the counts. Click the button and the full figures open below it, as before.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "u1", role: "user", text: "That data column is like so prevalent, and it shouldn't be." },
+      { id: "t1", role: "assistant", text: answer, aside: true },
+    ], working: false }).messages;
+    expect(shown!.card).toEqual({
+      kind: "landed",
+      line: "The big dark data band on the vendor admin page is gone.",
+      sub: "In its place is one slim line above the board: a small Data button, then the counts.",
+    });
+    expect(shown!.html).toContain("as before");
+  });
+
+  it("still answers him when he typed into the session himself", () => {
+    const update = new SnapshotDiffer().next({ messages: [{ id: "u1", role: "user", text: "how is the island work going?" }, { id: "t1", role: "assistant", text: STAFF_PROGRESS, aside: true }], working: false });
+    expect(update.order).toEqual(["u1", "t1"]);
+  });
+
+  it("holds Flyd's own long answer to a few lines, a short one shown whole", () => {
+    const long = "Christmas is 69 days away. " + "It falls on a Friday this year, so the long weekend runs into Monday and most shops close early on the Thursday. ".repeat(5);
+    const update = new SnapshotDiffer().next({ messages: [
+      { id: "ask:1", role: "user", text: "how many days until christmas?" },
+      { id: "ask-reply:1", role: "assistant", text: long, answers: "ask:1" },
+      { id: "ask:2", role: "user", text: "and new year?" },
+      { id: "ask-reply:2", role: "assistant", text: "76 days, sir.", answers: "ask:2" },
+    ], working: false });
+    const [first, second] = update.messages.filter((message) => message.role === "assistant");
+    expect(first!.summary!.source).toBe("flyd");
+    expect(first!.summary!.html.replace(/<[^>]+>/g, "").trim().length).toBeLessThanOrEqual(MAX_CHARS);
+    expect(first!.summary!.html).toContain("Christmas is 69 days away.");
+    expect(second!.summary).toBeUndefined();
+    expect(second!.html).toContain("76 days, sir.");
   });
 
   it("tells the page when a question's line says its answer failed", () => {
@@ -340,11 +410,11 @@ describe("SnapshotDiffer summaries", () => {
     expect(second[0]!.summary).toEqual({ html: "<p>The menu bar is a little higher and saved, not yet published.</p>\n", source: "model" });
   });
 
-  it("leads a long reply with Flyd's whole reading, not a one-line digest, when no model summary is coming", () => {
+  it("leads a long reply with a few short lines of it, the rest behind more, when no model summary is coming", () => {
     const [rendered] = new SnapshotDiffer().next({ messages: [message("r1", long)], working: false }).messages;
     expect(rendered!.summary).toMatchObject({ source: "brief" });
     expect(rendered!.summary!.pending).toBeUndefined();
-    expect(rendered!.summary!.html).toContain("the menu bar now sits ten pixels higher on every page, including the member login");
+    expect(rendered!.summary!.html).toContain("The menu bar now sits ten pixels higher on every page, including the member login");
     expect(rendered!.summary!.html).toContain("the change is committed but not pushed yet");
   });
 
@@ -353,14 +423,12 @@ describe("SnapshotDiffer summaries", () => {
     // accept #." while the four rules he had to paste sat behind "more".
     const differ = new SnapshotDiffer();
     const [rendered, table] = differ.next({ messages: [message("r1", KINSTA_RULES), message("r3", KINSTA_TABLE)], working: false }).messages;
-    // Flyd's briefing of the rules is the reply as written: shown once, nothing behind "as written".
-    expect(rendered!.summary).toBeUndefined();
-    expect(rendered!.expanded).toBeUndefined();
+    // A few lines lead; the rules he has to paste show open under them, never folded behind "as written".
+    expect(rendered).toMatchObject({ summary: { source: "brief" }, expanded: true });
     expect(rendered!.html).toContain("Set each to 301 and All domains");
     expect(rendered!.html).toContain("^/members-and-firms/?$");
-    // The table's briefing differs from its words: the briefing leads, folded, the words one tap away.
-    expect(table).toMatchObject({ summary: { source: "brief" } });
-    expect(table!.expanded).toBeUndefined();
+    // The table too: its lines lead, the table shows open under them.
+    expect(table).toMatchObject({ summary: { source: "brief" }, expanded: true });
     expect(table!.summary!.html).toContain("Add these in the dialog you showed");
     expect(table!.summary!.html).not.toBe(table!.html);
     expect(table!.html).toContain("https://capfive.com/professionals/");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asksForDecision, forCaptain, headlineOf, statusOf } from "../status.js";
-import { ABOUT_FIXES } from "./fixtures/replies.js";
+import { ABOUT_FIXES, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS } from "./fixtures/replies.js";
 
 describe("conversation status for the island", () => {
   it("leads with the reply's own » summary, else its first sentence without the salutation, kept short", () => {
@@ -88,5 +88,41 @@ describe("conversation status for the island", () => {
     });
     expect(statusOf({ messages, working: true, lastActivity: "2026-10-06T02:00:00Z" }, now).working).toBe(false);
     expect(statusOf({ messages: [], working: false }, now)).toEqual({ working: false });
+  });
+});
+
+describe("the island and his staff's chatter", () => {
+  it("never names a progress report Flyd keeps, and names a landing by its one line", () => {
+    const quiet = statusOf({ messages: [{ id: "t1", role: "assistant", text: STAFF_PROGRESS, aside: true }], working: false });
+    expect(quiet.reply).toBeUndefined();
+    const landed = statusOf({ messages: [{ id: "t0", role: "assistant", text: STAFF_LANDED, aside: true }, { id: "t1", role: "assistant", text: STAFF_PROGRESS, aside: true }], working: false });
+    expect(landed.reply).toEqual({ id: "t0", headline: "The island text fix is merged", asks: false });
+  });
+});
+
+describe("a decision on the island is named in plain words", () => {
+  it("never turns a quoted notice into his decision", () => {
+    // The island read 'YOUR DECISION: "Claude: waiting on your input", plus 1 more'.
+    const quoted = statusOf({ messages: [{ id: "a", role: "assistant", text: PHANTOM_NOTICES }], working: false });
+    expect(quoted.reply?.asks).toBe(false);
+    expect(quoted.reply?.headline).not.toMatch(/waiting on your input|Needs your decision/);
+    // Relayed from the staff, it is chatter Flyd keeps: nothing on the island at all.
+    expect(statusOf({ messages: [{ id: "a", role: "assistant", text: PHANTOM_NOTICES, aside: true }], working: false }).reply).toBeUndefined();
+  });
+});
+
+describe("a decision already answered or done never rings the island", () => {
+  it("does not raise the clean-up question again once he said yes and it was done", () => {
+    const asked = "Sir, still waiting on you: may I delete the 44,148 test-junk records from Flyd's memory? A backup is taken first.";
+    const done = "Done: the test junk is gone from Flyd's memory. That's 44,148 records deleted, leaving 54,997 real ones, and a backup is kept.";
+    const snapshot = { messages: [
+      { id: "t1", role: "assistant" as const, text: asked, aside: true },
+      { id: "t2", role: "assistant" as const, text: asked.replace("Sir, ", "Sir, shipshape. "), aside: true },
+      { id: "note:9", role: "user" as const, text: "Yes, delete the junk." },
+      { id: "t3", role: "assistant" as const, text: done, aside: true },
+    ], working: false };
+    expect(statusOf(snapshot).reply).toMatchObject({ id: "t3", asks: false });
+    // Even with the outcome missing, the answered question is not his decision any more.
+    expect(statusOf({ ...snapshot, messages: snapshot.messages.slice(0, 3) }).reply?.asks ?? false).toBe(false);
   });
 });

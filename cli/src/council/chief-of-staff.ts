@@ -4,6 +4,7 @@ import { retiredPhrasesIn } from "../runtime/honesty-check.js";
 import { readFileSync } from "node:fs";
 import { readSoul } from "../lib/soul.js";
 import { userProfilePath } from "../lib/user-profile.js";
+import { isAcknowledgement } from "../conversation-view/summaries.js";
 
 // The standard Flyd holds its own words to: what a chief of staff puts in
 // front of George. Written down in docs/product/flyd-chief-of-staff-standard.md;
@@ -304,4 +305,45 @@ export async function reviewSaid(said: Said, options: JudgeOptions & { rules?: V
 export function screenBeforeDisplay(said: Said): { hold: boolean; shortfalls: Shortfall[] } {
   const shortfalls = checkSaid(said).filter((item) => item.requirement === "real_status" || item.requirement === "decisions_handled");
   return { hold: shortfalls.length > 0, shortfalls };
+}
+
+/** The longest notification: one line, read at a glance on the island or in a banner. */
+export const NOTIFICATION_CHARS = 140;
+/** Openings that only address or acknowledge him, or announce what follows. */
+const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:ay)?|sure|right|noted|got it|all set|update)[.!,:]\s+)?(?:here(?:'s| is) (?:your|the) [^.:!?]{1,40}[.:]\s+)?/i;
+
+/**
+ * A notification as George reads it: one line, outcome first. Markdown,
+ * lists and the opening address go; the first sentence that says something
+ * stays, cut at a word when it runs long. Pure.
+ */
+export function notificationLine(text: string): string {
+  const flat = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^\s*(?:#{1,6}\s+|[-*+•]\s+|\d+[.)]\s+|>\s*)/gm, "")
+    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  const opened = flat.replace(NOTICE_LEAD, "") || flat;
+  const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
+  const first = said.find((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence)) ?? said[0] ?? opened;
+  const line = first.length <= NOTIFICATION_CHARS ? first : `${first.slice(0, first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) > 60 ? first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) : NOTIFICATION_CHARS - 1).replace(/[\s,;:—-]+$/, "")}…`;
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/** A coding session's own idle prompt ("Claude is waiting for your input"): never George's, whoever forwards it. */
+const IDLE_NOTICE = /\b(?:is )?waiting (?:on|for) your input\b|\bneeds your attention\b/i;
+/** Who sends those notices: a coding agent's session, never Flyd or its agenda. */
+const CODING_AGENT = /\b(?:claude(?: code)?|codex|opencode)\b/i;
+
+/**
+ * Whether a notification only says a coding session is idle at its prompt.
+ * Those sessions wait while their checks run; Flyd watches them, George
+ * never needs to hear it. Pure.
+ */
+export function isIdleNotice(title: string, message: string): boolean {
+  const said = `${title} ${message}`;
+  return (/\bidle_prompt\b/i.test(said) || (IDLE_NOTICE.test(said) && CODING_AGENT.test(said))) && !/\b(?:permission|allow|approve|usage limit)\b/i.test(message);
 }

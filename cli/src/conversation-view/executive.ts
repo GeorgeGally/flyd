@@ -550,7 +550,8 @@ export function decisionOf(asks: string[]): string | undefined {
  * when the line names a decision.
  */
 export function statusHeadline(items: StatusItem[], asks: string[], limit: number): { headline: string; asks: boolean } {
-  const needs = items.find((item) => item.state === "needs");
+  // A decision is named in plain words: an item that only quotes something ("Claude: waiting on your input") is not one.
+  const needs = items.find((item) => item.state === "needs" && (item.ask !== undefined || !/^["“']/.test(item.text)));
   const question = needs ? decisionOf(needs.ask ? [needs.ask] : []) : decisionOf(asks);
   const lead = needs ?? [...items].reverse().find((item) => item.state === "landed") ?? items[0];
   const said = (question ?? lead?.text ?? "").replace(/\s+/g, " ").trim();

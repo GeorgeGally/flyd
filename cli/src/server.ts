@@ -86,6 +86,7 @@ import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
 import { materializePresentFromWork } from "./cognition/present-materializer.js";
 import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
 import { runCuratorSweep } from "./cognition/curator/reconcile.js";
+import { isIdleNotice, notificationLine } from "./council/chief-of-staff.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -1281,7 +1282,9 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
             sendJson(res, 400, { error: "Missing title or message" });
             return;
           }
-          const data = JSON.stringify({ title: body.title.slice(0, 120), message: body.message.slice(0, 220) });
+          // A coding session idle at its prompt ("Claude: waiting on your input") is never George's; one line, outcome first, for the rest.
+          if (isIdleNotice(body.title, body.message)) { sendJson(res, 202, { delivered: 0, held: "idle session" }); return; }
+          const data = JSON.stringify({ title: body.title.slice(0, 120), message: notificationLine(body.message) });
           for (const subscriber of notificationSubscribers) subscriber.write(`event: notification\ndata: ${data}\n\n`);
           sendJson(res, 202, { delivered: notificationSubscribers.size });
         }).catch(() => sendJson(res, 400, { error: "Invalid JSON" }));

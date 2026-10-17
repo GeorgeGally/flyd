@@ -113,9 +113,10 @@ function parseNote(file: string, imagesDir: string, filesDir: string): Conversat
   const record = parseRecord(file);
   if (!record) return null;
   // Flyd's command layer writes its domain-run requests and follow-ups into
-  // the same inbox, under request ids its runs own (`domain-…`). They are
-  // Flyd talking to firstmate, never something he typed.
-  if (record.header.get("request_id")?.startsWith("domain-")) return null;
+  // the same inbox, under request ids its runs own (`domain-…`), and Flyd's
+  // own notes go under `flyd-…`. They are Flyd talking to firstmate, never
+  // something he typed.
+  if (/^(?:domain|flyd)-/.test(record.header.get("request_id") ?? "")) return null;
   const id = record.header.get("id");
   const at = record.header.get("at");
   const images: string[] = [];
@@ -224,6 +225,29 @@ export class FirstmateInbox implements CaptainInbox {
     const data = readFileSync(path);
     const type = sniffImage(data);
     return type ? { mediaType: type.mediaType, data } : null;
+  }
+
+  /**
+   * Flyd's own note to firstmate, under a request id that makes it
+   * idempotent (a repeat is a replay, not a second note) and keeps it out of
+   * his window: it is never something he said.
+   */
+  sendOwn(text: string, requestId: string): Promise<void> {
+    if (!/^flyd-[A-Za-z0-9._:-]{1,120}$/.test(requestId)) return Promise.reject(new Error("Flyd's own notes need a flyd- request id"));
+    return new Promise((resolve, reject) => {
+      const child = execFile(
+        this.script,
+        ["note", "--request-id", requestId, "-"],
+        { env: { ...process.env, FM_HOME: this.home }, timeout: SEND_TIMEOUT_MS, maxBuffer: 1 << 20 },
+        (error, stdout, stderr) => {
+          // Saved (or replayed) is delivered: a failed wake after that is firstmate's to repair.
+          if (/^(?:queued|replay)\b/m.test(String(stdout))) resolve();
+          else reject(new Error(`firstmate did not take Flyd's note: ${`${stderr}`.trim().split("\n").pop() || error?.message || "no note id returned"}`));
+        },
+      );
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(text.trim().slice(0, MAX_NOTE_CHARS));
+    });
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
