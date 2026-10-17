@@ -8,6 +8,7 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [
   /\bpipelines?\b/i,
   /\bjev\b/i,
   /\b(?:Librarians?|Strategists?|Critics?|Muses?|Scouts?)\b/,
+  /\bCouncil\b/,
   /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
   /\bfm\/[\w.-]+/i,
   /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,

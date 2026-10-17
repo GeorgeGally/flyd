@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,6 +62,34 @@ describe("agenda", () => {
     expect(again.ran).toEqual([]);
     markInboxRead(paths);
     expect(unreadInbox(paths)).toEqual([]);
+  });
+
+  it("scrubs a backstage term out of the notification title through the real boundary", async () => {
+    addAgendaItem({ task: "Check the fm/island-filter branch and report", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
+    const home = mkdtempSync(join(tmpdir(), "flyd-agenda-home-"));
+    mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
+    writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
+    const previousHome = process.env.HOME;
+    const previousPlatform = process.platform;
+    process.env.HOME = home;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    const bodies: Array<{ title: string; message: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body) as { title: string; message: string });
+      return { ok: true, json: async () => ({ delivered: 1 }) };
+    }));
+    try {
+      await runDueAgenda({ paths, now: () => at("2026-09-26 08:05"), runTask: async () => "Dark mode is merged." });
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]!.title).not.toMatch(/firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline|fm\//i);
+      expect(bodies[0]!.message).toBe("Dark mode is merged.");
+    } finally {
+      vi.unstubAllGlobals();
+      Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("records a failed task instead of crashing, and skips while another runner holds the lock", async () => {

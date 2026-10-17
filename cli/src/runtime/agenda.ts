@@ -213,6 +213,7 @@ export async function notifyMac(title: string, message: string): Promise<void> {
 }
 
 export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  title = scrubBackstage(title);
   message = scrubBackstage(message);
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.

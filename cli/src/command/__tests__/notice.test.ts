@@ -101,6 +101,7 @@ describe("notices keep the one voice", () => {
       ["The crewmate finished 2 jobs.", "2 jobs"],
       ["Jev reviewed 4 requests.", "4 requests"],
       ["The Council reviewed 6 items.", "6 items"],
+      ["Council reviewed 6 items.", "6 items"],
       ["The Librarian curated 12 memories.", "12 memories"],
       ["The Librarians curated 12 memories.", "12 memories"],
       ["The Critic advised on 2 plans.", "2 plans"],
