@@ -46,6 +46,14 @@ describe("prose replies", () => {
     expect(proseOutcomeByWords(reply)).toBe(outcome);
   });
 
+  it("never calls a reply it cannot read completed", () => {
+    expect(proseOutcomeByWords("Investigated the race; the fix still needs a rebase before it can land.")).not.toBe("completed");
+  });
+
+  it("never calls an affirmative reply failed for a failure word alone", () => {
+    expect(proseOutcomeByWords("The build couldn't be greener — it's shipped and green.")).not.toBe("failed");
+  });
+
   it("asks the model what the reply says happened, and gives up on anything but a known status", async () => {
     const prompts: string[] = [];
     const judge = modelProseJudge(async (prompt) => { prompts.push(prompt); return "{\"status\": \"needs_decision\"}"; });
