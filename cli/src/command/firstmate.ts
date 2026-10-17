@@ -279,7 +279,9 @@ export async function syncFirstmateDomainRuns(options: {
       // contract is still asked for, and a reply that misses it is kept whole
       // with the gap noted, never turned from finished work into "incomplete".
       const handoff = validateDomainHandoff(parsed.result);
-      const status = parsed.status ?? await proseOutcome(reply.body!, run, options.judge);
+      // Only prose is read as prose: a structured reply that omits the optional
+      // status is done, as it always was, with its missing layers noted separately.
+      const status = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, options.judge) : "completed");
       const { notified, failure, incompleteReason: _previous, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
@@ -296,7 +298,9 @@ export async function syncFirstmateDomainRuns(options: {
     } else if (run.status === "incomplete" && run.result) {
       // Recorded before prose counted as an outcome: read again what it said.
       // One older than a day is history, kept but not announced now.
-      const status = await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, options.judge);
+      const status = run.result.format === "raw"
+        ? await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, options.judge)
+        : "completed";
       const stale = nowMs() - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
       next = { ...next, status, ...(stale ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
     }
