@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FlydDesk } from "../flyd-desk.js";
-import { answeringLine, handoffLine, livened } from "../living.js";
+import { answeringLine, handoffLine, livened, memoryLookup } from "../living.js";
 import { isPlaceholderStatus, relayStatus, statusFromTool } from "../status-text.js";
 import type { Exchange } from "../types.js";
 
@@ -54,28 +54,52 @@ describe("the status line George is shown", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  const aRelay = (question: string): { desk: FlydDesk; sent: { id: string }; step: (line: string, tool?: { tool: string; argument?: string }) => void } => {
+  const aRelay = (question: string): { desk: FlydDesk; sent: { id: string }; asked: string; step: (line: string, tool?: { tool: string; argument?: string }) => void } => {
     let step!: (line: string, tool?: { tool: string; argument?: string }) => void;
-    const desk = new FlydDesk({ dir, answer: (_question, _history, onStep) => {
+    let asked = "";
+    const desk = new FlydDesk({ dir, answer: (received, _history, onStep) => {
+      asked = received;
       step = onStep!;
       return new Promise<string>(() => {});
     } });
     const sent = desk.ask(question);
-    return { desk, sent, step };
+    return { desk, sent, asked, step };
   };
 
   it("replaces a relayed placeholder with the concrete lookup under way", () => {
-    const { desk, sent, step } = aRelay("what do you know about Canva");
-    step("Remembering what I know about this", { tool: "Searching memory for", argument: "Canva" });
+    const { desk, sent, asked, step } = aRelay("what do you know about Canva");
+    step("Remembering what I know about this", memoryLookup(asked));
     const waiting = desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
-    expect(waiting).toContain("Canva");
-    expect(waiting).not.toBe("Remembering what I know about this");
-    expect(isPlaceholderStatus(waiting)).toBe(false);
+    expect(waiting).toBe("Searching memory for Canva");
     // What was relayed and what he was shown instead are both kept, for Flyd's self-review.
     const file = readdirSync(dir).find((name) => name.endsWith(".json"))!;
     expect(JSON.parse(readFileSync(join(dir, file), "utf8")).statusSubstitutions).toEqual([
       { raw: "Remembering what I know about this", shown: "Searching memory for Canva" },
     ]);
+  });
+
+  it("names the lookup by its topic, never his words or what his screenshot shows", async () => {
+    let shown!: () => string;
+    const reached = new Promise<void>((resolve) => {
+      const desk = new FlydDesk({
+        dir,
+        see: async () => "[shows: a long settings page with many toggles and a sidebar]",
+        answer: (received, _history, onStep) => {
+          onStep!("Remembering what I know about this", memoryLookup(received));
+          resolve();
+          return new Promise<string>(() => {});
+        },
+      });
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+      const sent = desk.ask("what do you know about Canva", [{ mediaType: "image/png", data: png }]);
+      shown = () => desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
+    });
+    await reached;
+    expect(shown()).toBe("Searching memory for Canva");
+
+    const { desk, sent, asked, step } = aRelay("fix it");
+    step("Remembering what I know about this", memoryLookup(asked));
+    expect(desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting).toBe(answeringLine("fix it"));
   });
 
   it("keeps a concrete line, never the placeholder or his own words, when no tool call is known", () => {

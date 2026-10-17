@@ -1,5 +1,5 @@
 import { clipKeepingLinks } from "./line-links.js";
-import { isPlaceholderStatus } from "./status-text.js";
+import { isPlaceholderStatus, type InFlightTool } from "./status-text.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -53,8 +53,22 @@ function subjectOf(text: string): string {
 /** What a plain question is about, in Flyd's words: "what is usb overdrive?" → "Looking up usb overdrive". */
 function questionTopic(first: string): string {
   if (!/\?\s*$/.test(first) || !WHAT_IS.test(first)) return "";
-  const rest = first.replace(/[?!.]+$/, "").replace(WHAT_IS, "").trim();
-  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(`Looking up ${rest}`) : "";
+  const topic = topicOf(first);
+  return topic ? clip(`Looking up ${topic}`) : "";
+}
+
+/** The thing his question is about, bare: "what is usb overdrive?" → "usb overdrive", "what do you know about Canva" → "Canva"; "" when it names none. */
+function topicOf(text: string): string {
+  const first = (text.trim().split("\n")[0] ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  const bare = first.replace(/[?!.]+$/, "").trim();
+  const rest = WHAT_IS.test(bare) ? bare.replace(WHAT_IS, "").trim() : /\babout\s+(.+)$/i.exec(bare)?.[1]?.trim() ?? "";
+  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(rest) : "";
+}
+
+/** The memory lookup for his question, named by its topic; none when the question names no topic, so his words are never quoted back. */
+export function memoryLookup(question: string): InFlightTool | undefined {
+  const topic = topicOf(question);
+  return topic ? { tool: "Searching memory for", argument: topic } : undefined;
 }
 
 /** Flyd is answering it itself, before its first step is known: what his message asks about, never a placeholder. */
