@@ -100,16 +100,22 @@ const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|rev
  * unless the one it reaches is Flyd or the staff Flyd itself runs. Messages
  * between them are Flyd's to decide.
  */
-const OUTWARD = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*)\b/i;
+/**
+ * Sending, writing or posting at all: the act alone can speak for him, even
+ * when the one it reaches is left implicit ("post an update", "announce it").
+ */
+const OUTWARD = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|slack\w*|comment\w*(?=\s+(?:on|to|about)\b)|forward\w*|\bcc\b|invit\w*|respond\w*|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*)\b/i;
 /** Writing to or telling people something: outward only when the one reached is not Flyd's own staff. */
-const TELLS_PEOPLE = /\b(?:writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:team|clients?|customers?|users?|people|everyone|someone|him|her|them|public|channel|group|list|subscribers?|community|stakeholders?|boss|guys|folks)\b/i;
+const TELLS_PEOPLE = /\b(?:writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing)|text(?:s|ed|ing)?)\s+(?:it\s+|the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+|him\s+|them\s+|this\s+|that\s+|everyone\s+)?(?:team|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|colleagues?|everyone|someone|guys|folks|him|her|them|public)\b/i;
+/** The people a question names as the ones a message would reach: a verb no list has yet ("reach out to the team") still keeps it his. */
+const NAMES_OTHERS = /\b(?:team|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|colleagues?|everyone|someone|guys|folks|public)\b/i;
 /** An outward word whose one it reaches is Flyd or its staff: what Flyd decides for itself. */
-const TO_OWN_STAFF = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:flyd|first ?mate|crew ?mates?|staff|crew|agents?|workers?|subagents?|itself)\b/gi;
+const TO_OWN_STAFF = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|slack\w*|forward\w*|\bcc\b|invit\w*|respond\w*|text(?:s|ed|ing)?|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:flyd|first ?mate|crew ?mates?|staff|crew|agents?|workers?|subagents?|itself)\b/gi;
 
-/** Whether the question speaks for him to other people: an outward word whose one it reaches is not Flyd or its own staff. */
+/** Whether the question speaks for him to other people: a message sent, or a person named as the one it reaches, anywhere but Flyd's own staff. */
 function speaksForHim(question: string): boolean {
   const toOthers = question.replace(TO_OWN_STAFF, " ");
-  return OUTWARD.test(toOthers) || TELLS_PEOPLE.test(toOthers);
+  return OUTWARD.test(toOthers) || TELLS_PEOPLE.test(toOthers) || NAMES_OTHERS.test(toOthers);
 }
 /** A taste or strategy call: his to make even when it is reversible. */
 const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;

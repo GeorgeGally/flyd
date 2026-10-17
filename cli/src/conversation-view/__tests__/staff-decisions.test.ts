@@ -152,6 +152,33 @@ describe("Flyd decides its staff's routine questions", () => {
     }
   });
 
+  it("keeps a message to other people his whichever way it is put", async () => {
+    for (const question of [
+      "Shall I sync the repo and slack the team?",
+      "Shall I push it and comment on the issue?",
+      "Shall I commit and forward it to Sam?",
+      "Shall I sync and text the team?",
+      "Shall I sync and reach out to the team?",
+      "Shall I push and invite the reviewers?",
+    ]) {
+      const asked = reply(`Everything is green.\n\n${question}`);
+      expect(await answered(asked), question).toEqual([]);
+      expect(openChoice([asked])?.choice.question, question).toBe(question);
+    }
+  });
+
+  it("shows a listed question handled when its item carries an indented continuation", async () => {
+    const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. Shall I push it?\n  - and rebase onto latest?\n2. Shall I delete the old branches?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    // The push is handled; the delete is still his, on the card and in the box alike.
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I delete the old branches?");
+  });
+
   it("shows a question handled when the card's line and its answer's quote are worded differently", async () => {
     const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. Shall I push the fm/decide-authority branch?\n2. Shall I delete the old branches?`);
     const notes = await answered(asked);

@@ -234,6 +234,8 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
 interface Block {
   kind: "item" | "text" | "blank";
   line: string;
+  /** A listed item's own line, before an indented continuation is merged in: what a handled question is matched on. */
+  raw?: string;
 }
 
 /** The project a link belongs to, by its repository ("good-neighbours" → "Good Neighbours"). */
@@ -372,7 +374,7 @@ function scan(text: string, lift: boolean): Briefing {
     const blocks: Block[] = [];
     for (const line of lines) {
       if (!line.trim()) blocks.push({ kind: "blank", line });
-      else if (LIST_ITEM.test(line.trim()) && !/^\s{2,}/.test(line)) blocks.push({ kind: "item", line: LIST_ITEM.exec(line.trim())![1]! });
+      else if (LIST_ITEM.test(line.trim()) && !/^\s{2,}/.test(line)) blocks.push({ kind: "item", line: LIST_ITEM.exec(line.trim())![1]!, raw: LIST_ITEM.exec(line.trim())![1]! });
       else if (/^\s{2,}\S/.test(line) && blocks.length && blocks[blocks.length - 1]!.kind === "item") {
         const last = blocks[blocks.length - 1]!;
         const nested = LIST_ITEM.exec(line.trim());
@@ -394,8 +396,8 @@ function scan(text: string, lift: boolean): Briefing {
         i += 1;
         continue;
       }
-      const run: string[] = [];
-      while (i < blocks.length && blocks[i]!.kind === "item") run.push(blocks[i++]!.line);
+      const run: Block[] = [];
+      while (i < blocks.length && blocks[i]!.kind === "item") run.push(blocks[i++]!);
       // The line that introduces the list ("**Flyd (merged):**", "Still waiting on your word for:").
       let leadAt = result.length - 1;
       while (leadAt >= 0 && !result[leadAt]!.trim()) leadAt -= 1;
@@ -403,7 +405,7 @@ function scan(text: string, lift: boolean): Briefing {
       // A lead-in speaks for its list in its last sentence only ("…like "Merged deployed." So I've changed the approach:").
       const context = lead ? stateOf(sentences(inline(lead)).at(-1) ?? "") : null;
       // Each item as he reads it, with its raw text kept to match a question Flyd already answered.
-      const shown = run.map(shownLine);
+      const shown = run.map((block) => shownLine(block.line));
       // A plan is no state and takes none from its lead-in; anything else unsaid takes the lead-in's.
       const states = shown.map((item) => {
         const meaning = readingOfText(inline(item));
@@ -412,7 +414,7 @@ function scan(text: string, lift: boolean): Briefing {
       const known = states.filter(Boolean).length;
       if (lift && (known >= 2 || (known >= 1 && context !== null))) {
         const leftovers: string[] = [];
-        run.forEach((item, at) => (states[at] ? items.push(itemOf(shown[at]!, states[at]!, item)) : leftovers.push(shown[at]!)));
+        run.forEach((block, at) => (states[at] ? items.push(itemOf(shown[at]!, states[at]!, block.raw ?? block.line)) : leftovers.push(shown[at]!)));
         // A lead-in that only labelled the list ("**Flyd (merged):**") goes with it.
         if (lead !== undefined && inline(lead).replace(/:\s*$/, "").split(/\s+/).length <= 5) result.splice(leadAt, 1);
         else if (lead !== undefined) result[leadAt] = lead.replace(/(?:\s+(?:for|on|to|of|with|about))?\s*:\s*(\*\*|__)?\s*$/, ".$1");
