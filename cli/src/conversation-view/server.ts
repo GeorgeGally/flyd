@@ -806,7 +806,7 @@ export class ConversationViewServer {
     ];
     // A question still under way says in the column what its line says in the window.
     const lines = new Map(snapshot.messages.filter((message) => message.role === "user" && message.waiting).map((message) => [message.id, message.waiting!]));
-    const recorded = this.source.exchanges?.() ?? [];
+    const recorded = (this.source.exchanges?.() ?? []).filter((exchange) => !exchange.question.flydAsked);
     const formal = new Map(recorded.map((exchange) => [exchange.question.id, exchange.answer]));
     const exchanges = withFollowUps(recorded, snapshot.followUps ?? {}, snapshot.working).map((exchange): Exchange & { state?: RailState } => {
       const waiting = !exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange;

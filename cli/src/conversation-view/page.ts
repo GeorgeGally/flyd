@@ -2341,7 +2341,7 @@ var __name = function (f) { return f; };
     if (target.lastElementChild !== old) target.appendChild(old);
   }
   function choiceCard(choice, key) {
-    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false, steps: { at: 0, answers: [] } });
+    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false, picked: [], steps: { at: 0, answers: [] } });
     var state = choiceStates.get(key);
     var card = el("div", "choice");
     card.dataset.key = key;
@@ -2351,7 +2351,7 @@ var __name = function (f) { return f; };
     if (choice.steps && choice.steps.length) { card.firstChild.classList.add("choice-lead"); return stepsCard(card, choice, state); }
     var buttons = [];
     var multiple = choice.multiple === true;
-    var picked = [];
+    var picked = state.picked;
     var pickSend = null;
     if (choice.options.length) {
       var options = el("div", "choice-options");
@@ -2359,7 +2359,8 @@ var __name = function (f) { return f; };
         var button = el("button", "choice-option", option);
         button.type = "button";
         if (multiple) {
-          button.setAttribute("aria-pressed", "false");
+          var on = picked.indexOf(index) >= 0;
+          button.setAttribute("aria-pressed", on ? "true" : "false");
           button.addEventListener("click", function () {
             if (state.sent || state.sending) return;
             var at = picked.indexOf(index);
@@ -2378,7 +2379,7 @@ var __name = function (f) { return f; };
     if (multiple) {
       pickSend = el("button", "choice-send reply-send", "Send the ones you picked");
       pickSend.type = "button";
-      pickSend.disabled = true;
+      pickSend.disabled = picked.length === 0;
       pickSend.addEventListener("click", function () { deliver(picked.map(function (index) { return choice.options[index]; }).join(", ")); });
       card.appendChild(pickSend);
     }

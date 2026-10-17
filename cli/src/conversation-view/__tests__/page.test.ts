@@ -1915,6 +1915,30 @@ describe("header and artefact view", () => {
     expect([...listed.querySelectorAll(".rail-card-options li")].map((item) => item.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
   });
 
+  it("keeps the options he picked when the column redraws", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show = { title: "", summary: "", live: false, counts: {}, items: [] };
+    const choice = { question: "Pick the ones you want built", options: ["One", "Two", "Three", "Four", "Five"], replyTo: "note:9", multiple: true };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }] } });
+    await settle();
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
+    buttons[1]!.click();
+    buttons[3]!.click();
+    await settle();
+    // A later column change redraws the card.
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }, { id: "live:x", title: "Live preview", line: "x", url: "http://127.0.0.1:9000/" }] } });
+    await settle();
+    const after = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
+    expect(after.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "true", "false"]);
+    document.querySelector<HTMLButtonElement>(".rail-card .choice-send")!.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
+      { session: "latest", text: "Two, Four", replyTo: "note:9" },
+    ]);
+  });
+
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
     sendResponse = { id: "note:7", timestamp: "2026-10-05T20:02:00.000Z" };
     load("");

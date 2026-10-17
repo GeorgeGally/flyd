@@ -1018,6 +1018,9 @@ describe("ConversationViewServer", () => {
     expect(update.messages.map((m: { id: string }) => m.id)).not.toContain(chase.id);
     const shown = update.messages.filter((m: { role: string }) => m.role === "user").map((m: { html: string }) => m.html).join("\n");
     expect(shown).not.toContain("send that as an artefact");
+    // The Artefacts/Conversations column never shows the chase either.
+    expect(update.rail.conversations.map((talk: { id: string }) => talk.id)).not.toContain(chase.id);
+    expect(JSON.stringify(update.rail)).not.toContain("send that as an artefact");
   });
 
   it("does not chase again for a note already chased in an earlier session", async () => {
