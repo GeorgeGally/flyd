@@ -2,6 +2,7 @@ import { DOCUMENT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "./firstmat
 import { escapeHtml } from "./markdown.js";
 import { installComposerPredictions } from "./composer-predictions-client.js";
 import { LEFT_BUTTON, LEFT_HTML, LEFT_PREFERENCE, LEFT_SCRIPT, LEFT_STYLE } from "./left-column.js";
+import { CARD_SCRIPT } from "./cards.js";
 import { RECEIVED } from "./living.js";
 import { UNREAD_AFTER_MS } from "./note-receipts.js";
 import { PASSAGE_CHARS } from "./replies.js";
@@ -492,13 +493,12 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .needs .scene-ask { margin-top: 20px; max-width: none; gap: 10px; }
 .needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 .brief-list ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-/* One container style for the whole column: the quiet raised tint, no borders, no second box inside it. */
-.brief-list li { display: block; min-width: 0; padding: 14px 16px 15px; border-radius: 12px; background: var(--tint); }
-#underway li::before { content: ""; float: left; width: 6px; height: 6px; margin: 7px 8px 0 0; border-radius: 50%; background: var(--k-live); }
-.brief-line { display: block; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
+/* Each job and each piece of finished work is one of the shared cards: an icon for its kind, a chip, a line. */
+.brief-list li { position: relative; display: block; min-width: 0; }
+.brief-line { display: block; min-width: 0; font: 500 16px/1.4 var(--sans); color: var(--strong); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
-.brief-meta { display: block; margin-top: 6px; font: 400 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.brief-meta { display: block; margin-top: 7px; font: 500 13px/1.4 var(--sans); letter-spacing: normal; color: var(--muted); text-transform: none; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
 .brief-more { margin: 12px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
@@ -526,8 +526,13 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-talk:not(.open) > .reply { display: none; }
 .rail-talk.is-done:not(.open) > .rail-q { color: var(--muted); font-weight: 400; }
 .rail-card { margin: 0 0 24px; border-radius: 12px; background: var(--tint); overflow: hidden; }
-.rail-card-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; font: 500 15px/1.35 var(--sans); color: var(--strong); }
-.rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
+.rail-card-head { display: flex; align-items: flex-start; gap: 12px; padding: 15px 16px 11px; font: 500 15px/1.35 var(--sans); color: var(--strong); }
+.rail-card-head .card-icon { flex: none; width: 26px; height: 26px; border-radius: 8px; }
+.rail-card-head .card-icon svg { width: 15px; height: 15px; }
+.rail-card-words { flex: 1; min-width: 0; }
+.rail-card-title { display: block; margin-top: 5px; font: 500 17px/1.35 var(--sans); color: var(--strong); overflow-wrap: anywhere; text-wrap: pretty; }
+.rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; transition: color 140ms ease; }
+.rail-card-head a:hover { color: var(--strong); }
 .rail-card p { margin: 0; padding: 0 16px 12px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
 .rail-a-md { white-space: normal; }
 .rail-a-md p { margin: 0 0 8px; padding: 0; font: inherit; color: inherit; }
@@ -1567,8 +1572,14 @@ var __name = function (f) { return f; };
     return top;
   }
   function briefItem(item, meta) {
-    var li = el("li");
-    var line = el("span", "brief-line");
+    var kind = item.kind || "note";
+    var li = el("li", "card brief-card card-" + kind + " tone-" + kindOf(kind).tone);
+    li.dataset.key = item.id || item.headline;
+    li.appendChild(cardIcon(kind));
+    var text = el("div", "card-text");
+    var word = kindOf(kind).word;
+    if (word) text.appendChild(el("span", "card-meta", word));
+    var line = el("p", "card-line brief-line");
     var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
     if (link) {
       var a = el("a", "", item.headline);
@@ -1577,9 +1588,29 @@ var __name = function (f) { return f; };
       a.rel = "noopener noreferrer";
       line.appendChild(a);
     } else line.textContent = item.headline;
-    li.appendChild(line);
+    text.appendChild(line);
     var said = [shortName(item.project), meta].filter(Boolean).join(" · ");
-    if (said) li.appendChild(el("span", "brief-meta", said));
+    if (said) text.appendChild(el("span", "brief-meta", said));
+    li.appendChild(text);
+    // Its picture, when the work has one: the small thumbnail says what changed.
+    if (item.shots && item.shots.length) {
+      var thumb = el("div", "card-thumb");
+      var img = el("img", "");
+      img.src = withToken(item.shots[0].src);
+      img.alt = "";
+      img.loading = "lazy";
+      thumb.appendChild(img);
+      li.appendChild(thumb);
+    }
+    var close = el("button", "card-dismiss", "✕");
+    close.type = "button";
+    close.setAttribute("aria-label", "Hide this");
+    close.addEventListener("click", function () {
+      cardDismiss(item);
+      li.classList.add("leaving");
+      setTimeout(function () { renderBrief(lastBrief); }, 220);
+    });
+    li.appendChild(close);
     return li;
   }
   function drawNeeds(calls) {
@@ -1638,6 +1669,7 @@ var __name = function (f) { return f; };
     if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
   }
   function drawList(section, label, items, meta, few) {
+    items = items.filter(function (item) { return !cardGone(item); });
     section.textContent = "";
     section.hidden = !items.length;
     if (!items.length) return;
@@ -1655,7 +1687,7 @@ var __name = function (f) { return f; };
   }
   function renderBrief(show) {
     lastBrief = show || null;
-    var calls = (show && show.calls) || [];
+    var calls = ((show && show.calls) || []).filter(function (call) { return !cardGone(call); });
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
     drawNeeds(calls);
@@ -1808,9 +1840,14 @@ var __name = function (f) { return f; };
     box.appendChild(say);
   }
   function railCard(card) {
-    var box = keyed(el("div", "rail-card" + (card.down ? " rail-card--down" : "")), "card:" + card.id);
+    var kind = card.down ? "blocked" : card.image ? "image" : card.preview ? "preview" : "file";
+    var box = keyed(el("div", "rail-card tone-" + kindOf(kind).tone + (card.down ? " rail-card--down" : "")), "card:" + card.id);
     var head = el("div", "rail-card-head");
-    head.appendChild(el("span", "", card.title));
+    head.appendChild(cardIcon(kind));
+    var words = el("div", "rail-card-words");
+    words.appendChild(el("span", "card-meta", kindOf(kind).word));
+    words.appendChild(el("span", "rail-card-title", card.title));
+    head.appendChild(words);
     if (card.url) {
       var open = el("a", "", "open ↗");
       open.href = card.url;
@@ -2541,6 +2578,7 @@ var __name = function (f) { return f; };
   railToggle.setAttribute("aria-checked", String(!railHidden));
   railToggle.addEventListener("click", function () { hideRail(!railHidden); });
   document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
+${CARD_SCRIPT}
 ${LEFT_SCRIPT}
 
   // The chat box at the foot of every artefact: his words about that one thing go

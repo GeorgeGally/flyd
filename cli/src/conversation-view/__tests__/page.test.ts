@@ -1894,6 +1894,34 @@ describe("header and artefact view", () => {
     expect(document.getElementById("rail")!.hidden).toBe(true);
   });
 
+  it("draws each job and each piece of finished work as a typed card he can put away", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const started = new Date(Date.now() - 25 * 60_000).toISOString();
+    const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
+    const done = [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM" }];
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    // A card: an icon for what kind of thing it is, a chip that says so, then the line.
+    const job = document.querySelector("#underway li")!;
+    expect(job.classList.contains("card")).toBe(true);
+    expect(job.querySelector(".card-icon svg")).not.toBeNull();
+    expect(job.querySelector(".card-meta")!.textContent).toBe("Under way");
+    const doneRow = document.querySelector("#done li")!;
+    expect(doneRow.classList.contains("card")).toBe(true);
+    expect(doneRow.querySelector(".card-icon svg")).not.toBeNull();
+    expect(doneRow.querySelector(".card-meta")!.textContent).toBe("Done");
+    // Putting one away: a click fades it out, and it stays away through the next reading of the fleet.
+    const gone = document.querySelector("#done li .card-dismiss") as HTMLButtonElement;
+    gone.click();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    expect(document.querySelectorAll("#done li")).toHaveLength(0);
+    localStorage.removeItem("flyd-dismissed");
+  });
+
   it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {
     load("");
     await settle();

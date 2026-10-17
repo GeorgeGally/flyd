@@ -1,14 +1,17 @@
-// Flyd's left column: what Flyd itself is doing now and has done lately, as
-// quiet cards. The page assembles these three strings into its own style,
-// markup and script; the script runs inside the page's closure and borrows its
-// el(), ago(), patch() and store().
+// Flyd's left column: what Flyd itself is doing now and has done lately, as a
+// wall of short visual cards — an icon for the kind of thing, a status chip, a
+// line, and how long ago. The page assembles these three strings into its own
+// style, markup and script; the script runs inside the page's closure and
+// borrows its el(), ago(), patch() and store(), and the shared card system.
+
+import { CARD_STYLE } from "./cards.js";
 
 /** Where the column starts to open by itself: wide enough for it, the chat and the right column. */
 export const LEFT_INLINE_MIN = 1480;
 
 export const LEFT_STYLE = `
-/* The left column: what Flyd is doing, in the same quiet cards as the right. Open by default only where it fits beside the chat. */
-:root { --left-w: min(300px, 22vw); }
+/* The left column: what Flyd is doing, in the same cards as the rest of the product. Open by default only where it fits beside the chat. */
+:root { --left-w: min(320px, 23vw); }
 .left {
   position: fixed; top: 52px; left: 0; bottom: 0; width: var(--left-w); z-index: 6;
   display: flex; flex-direction: column; background: var(--bg);
@@ -16,24 +19,29 @@ export const LEFT_STYLE = `
 }
 .left[hidden] { display: none; }
 .left-hide {
-  position: absolute; top: 10px; right: 10px; z-index: 1; font: 500 14px/1 var(--sans); color: var(--muted);
-  background: transparent; border: 0; cursor: pointer; padding: 6px 8px; border-radius: 6px; transition: color 140ms ease;
+  position: absolute; top: 12px; right: 12px; z-index: 1; font: 500 14px/1 var(--sans); color: var(--muted);
+  background: transparent; border: 0; cursor: pointer; padding: 7px 9px; border-radius: 7px; transition: color 140ms ease;
 }
 .left-hide:hover { color: var(--fg); }
 .left-hide:focus-visible, .left-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.left-tab { margin: 0; padding: 14px 20px 10px; font: 500 14px/1.2 var(--sans); color: var(--accent); }
+.left-head { padding: 16px 20px 6px; }
+.left-tab { margin: 0; font: 500 15px/1.2 var(--sans); color: var(--accent); }
 .left-tab span { display: inline-block; padding-bottom: 6px; border-bottom: 1px solid var(--accent); }
-.left-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 20px 40px; }
-.left-pane > section + section { margin-top: 28px; }
-.left-label { margin: 0 0 12px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
+.left-live { margin: 14px 0 0; font: 400 15px/1.4 var(--sans); color: var(--fg); }
+.left-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 20px 40px; }
+.left-pane > section + section { margin-top: 30px; }
+.left-label { margin: 0 0 14px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
 .left-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.left-card { display: block; min-width: 0; padding: 14px 16px 15px; border-radius: 12px; background: var(--tint); }
-.left-card.is-now::before { content: ""; float: left; width: 6px; height: 6px; margin: 8px 8px 0 0; border-radius: 50%; background: var(--k-live); }
-.left-title { margin: 0; font: 500 15px/1.45 var(--sans); color: var(--strong); overflow-wrap: anywhere; text-wrap: pretty; }
-.left-line { margin: 4px 0 0; font: 400 14px/1.45 var(--sans); color: var(--fg); overflow-wrap: anywhere; text-wrap: pretty; }
-.left-meta { display: block; margin-top: 8px; font: 400 13px/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
-.left-card.is-quiet .left-title { font-weight: 400; color: var(--muted); }
-.left-more { margin: 14px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
+.left-week[hidden] { display: none; }
+/* The earlier list runs down one hairline: a card's icon tile sits on it, and the line shows in the gaps between. */
+.left-timeline { position: relative; }
+.left-timeline::before { content: ""; position: absolute; left: 33px; top: 6px; bottom: 6px; width: 1px; background: var(--faint); }
+.left-timeline > .left-card { position: relative; z-index: 1; }
+.left-timeline .card-icon { box-shadow: 0 0 0 3px var(--tint); }
+.left-card { background: var(--tint); }
+.left-card.is-quiet .card-line { font-weight: 400; color: var(--muted); }
+.left-timeline .left-card.is-quiet .card-icon { box-shadow: 0 0 0 3px var(--tint); }
+.left-more { margin: 18px 0 0; padding: 4px 0; border: 0; background: none; cursor: pointer; font: 500 14px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .left-more:hover { color: var(--fg); }
 .left-more[hidden] { display: none; }
 
@@ -49,7 +57,7 @@ export const LEFT_STYLE = `
   .left { width: 100vw; z-index: 7; }
   .left-tab { padding-right: 56px; }
 }
-`;
+` + CARD_STYLE;
 
 export const LEFT_BUTTON = `<button id="left-open" type="button" aria-pressed="false" aria-controls="left">activity</button>`;
 
@@ -57,10 +65,17 @@ export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="swi
 
 export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What Flyd is doing">
   <button class="left-hide" id="left-hide" type="button" aria-label="Hide the column">✕</button>
-  <h2 class="left-tab"><span>Activity</span></h2>
+  <div class="left-head">
+    <h2 class="left-tab"><span>Activity</span></h2>
+    <p class="left-live" id="left-live">Nothing under way.</p>
+  </div>
   <div class="left-pane">
+    <section class="left-week" id="left-week-section" aria-label="This week" hidden>
+      <h3 class="left-label">This week</h3>
+      <div class="mini-bars" id="left-week"></div>
+    </section>
     <section aria-label="Right now"><h3 class="left-label">Right now</h3><ul class="left-list" id="left-now"></ul></section>
-    <section aria-label="Earlier"><h3 class="left-label">Earlier</h3><ul class="left-list" id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
+    <section aria-label="Earlier"><h3 class="left-label">Earlier</h3><ul class="left-list left-timeline" id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
   </div>
 </aside>`;
 
@@ -70,6 +85,9 @@ export const LEFT_SCRIPT = `
   var leftNowEl = document.getElementById("left-now");
   var leftRecentEl = document.getElementById("left-recent");
   var leftMoreEl = document.getElementById("left-more");
+  var leftLiveEl = document.getElementById("left-live");
+  var leftWeekEl = document.getElementById("left-week");
+  var leftWeekSection = document.getElementById("left-week-section");
   var leftOpenEl = document.getElementById("left-open");
   var leftToggleEl = document.getElementById("left-toggle");
   var leftWide = window.matchMedia ? window.matchMedia("(min-width: ${LEFT_INLINE_MIN}px)") : null;
@@ -91,26 +109,52 @@ export const LEFT_SCRIPT = `
     store("flyd-left", leftPref);
     setLeft();
   }
+  // The week's little chart: a bar a day, straight on the column, the tallest day full height.
+  function drawWeek(week) {
+    if (!week || !week.length) { leftWeekSection.hidden = true; return; }
+    leftWeekSection.hidden = false;
+    var max = 1;
+    week.forEach(function (day) { if (day.count > max) max = day.count; });
+    var today = new Date().toISOString().slice(0, 10);
+    patch(leftWeekEl, week.map(function (day) {
+      var bar = el("i", day.day === today ? "today" : day.count ? "on" : "");
+      bar.dataset.key = day.day;
+      bar.style.height = (day.count ? Math.max(7, Math.round((day.count / max) * 36)) : 4) + "px";
+      bar.title = day.day + ": " + day.count;
+      return bar;
+    }));
+  }
   function activityCard(item, live) {
-    var card = el("li", "left-card" + (live ? " is-now" : ""));
-    card.dataset.key = item.id + "|" + (live ? "now" : "done");
-    card.appendChild(el("p", "left-title", item.title));
-    if (item.line) card.appendChild(el("p", "left-line", item.line));
-    card.appendChild(el("span", "left-meta", (live ? "Started " : "") + ago(item.at)));
-    return card;
+    return visualCard(item, {
+      className: "left-card" + (live ? " is-now" : ""),
+      key: item.id + "|" + (live ? "now" : "done"),
+      when: (live ? "Started " : "") + ago(item.at),
+      whenClass: "left-meta",
+      titleClass: "left-title",
+      dismiss: true,
+      onHide: drawActivity,
+    });
+  }
+  function quietCard(recent) {
+    var li = el("li", "card card-clear tone-quiet left-card is-quiet");
+    li.dataset.key = "quiet|" + (recent.length ? recent[0].at : "");
+    li.appendChild(cardIcon("clear"));
+    var text = el("div", "card-text");
+    var chip = el("span", "card-meta");
+    if (recent.length) chip.appendChild(el("span", "card-when left-meta", "Last active " + ago(recent[0].at)));
+    text.appendChild(chip);
+    text.appendChild(el("p", "card-line left-title", "Nothing under way right now."));
+    li.appendChild(text);
+    return li;
   }
   function drawActivity() {
     if (!leftPanel) return;
-    var now = leftPanel.now || [];
-    var recent = leftPanel.recent || [];
+    var now = (leftPanel.now || []).filter(function (item) { return !cardGone(item); });
+    var recent = (leftPanel.recent || []).filter(function (item) { return !cardGone(item); });
+    leftLiveEl.textContent = now.length ? "Working on " + now.length + (now.length === 1 ? " thing." : " things.") : "Nothing under way.";
+    drawWeek(leftPanel.week);
     var nowCards = now.map(function (item) { return activityCard(item, true); });
-    if (!nowCards.length) {
-      var quiet = el("li", "left-card is-quiet");
-      quiet.dataset.key = "quiet|" + (recent.length ? recent[0].at : "");
-      quiet.appendChild(el("p", "left-title", "Nothing under way right now."));
-      if (recent.length) quiet.appendChild(el("span", "left-meta", "Last active " + ago(recent[0].at)));
-      nowCards.push(quiet);
-    }
+    if (!nowCards.length) nowCards.push(quietCard(recent));
     patch(leftNowEl, nowCards);
     var shown = leftAll ? recent : recent.slice(0, LEFT_FEW);
     patch(leftRecentEl, shown.map(function (item) { return activityCard(item, false); }));

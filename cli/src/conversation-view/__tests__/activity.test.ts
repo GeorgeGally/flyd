@@ -124,6 +124,22 @@ describe("composeActivity", () => {
     const panel = composeActivity({ log: [], jobs: [], advice: [{ id: "9a8c7377", at: minutesAgo(30), text: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor." }], records: [] }, NOW);
     expect(panel.recent).toEqual([{ id: "thought:9a8c7377", kind: "noted", title: "Noticed something about your projects", line: "GNM's Christmas site kept absorbing days.", at: minutesAgo(30) }]);
   });
+
+  it("counts a bar a day for the week, oldest first, today last", () => {
+    const panel = composeActivity({
+      log: [],
+      jobs: [],
+      advice: [],
+      records: [
+        { kind: "noted", title: "Today", at: minutesAgo(5) },
+        { kind: "noted", title: "Also today", at: minutesAgo(90) },
+        { kind: "noted", title: "Yesterday", at: "2026-10-16T09:00:00.000Z" },
+      ],
+    }, NOW);
+    expect(panel.week).toHaveLength(7);
+    expect(panel.week.map((day) => day.day)).toEqual(["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"]);
+    expect(panel.week.map((day) => day.count)).toEqual([0, 0, 0, 0, 0, 1, 2]);
+  });
 });
 
 describe("the record file and reader", () => {

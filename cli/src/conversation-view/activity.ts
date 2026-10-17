@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { checkSaid } from "../council/chief-of-staff.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { clip, inline, sentences } from "./summaries.js";
+import type { DayCount } from "./artefact.js";
 
 // Flyd's left column: what Flyd itself is doing, as cards. Its own background
 // work (watching the news, reading back its answers, keeping memory, running
@@ -28,6 +29,8 @@ export interface ActivityPanel {
   now: ActivityItem[];
   /** What it did or decided lately, newest first. */
   recent: ActivityItem[];
+  /** How much it did on each of the last seven days, oldest first: the column's little chart. */
+  week: DayCount[];
 }
 
 /**
@@ -229,6 +232,17 @@ export interface ActivityInputs {
 
 const byNewest = (a: ActivityItem, b: ActivityItem): number => Date.parse(b.at) - Date.parse(a.at);
 
+/** How much Flyd did on each of the last seven days, oldest first. Pure. */
+export function activityByDay(items: ActivityItem[], now: number): DayCount[] {
+  const days: DayCount[] = [];
+  for (let back = 6; back >= 0; back -= 1) days.push({ day: new Date(now - back * 86_400_000).toISOString().slice(0, 10), count: 0 });
+  for (const item of items) {
+    const slot = days.find((each) => each.day === item.at.slice(0, 10));
+    if (slot) slot.count += 1;
+  }
+  return days;
+}
+
 /** The panel: what is under way, then what it did lately. Pure. */
 export function composeActivity(inputs: ActivityInputs, now: number): ActivityPanel {
   const live: ActivityItem[] = [];
@@ -254,9 +268,12 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   done.push(...written.done);
   const liveIds = new Set(live.map((item) => item.id));
   const cutoff = now - RECENT_WINDOW_MS;
+  const nowItems = live.sort(byNewest);
+  const recentItems = done.filter((item) => !liveIds.has(item.id) && Date.parse(item.at) >= cutoff && Date.parse(item.at) <= now + 60_000).sort(byNewest).slice(0, MAX_RECENT);
   return {
-    now: live.sort(byNewest),
-    recent: done.filter((item) => !liveIds.has(item.id) && Date.parse(item.at) >= cutoff && Date.parse(item.at) <= now + 60_000).sort(byNewest).slice(0, MAX_RECENT),
+    now: nowItems,
+    recent: recentItems,
+    week: activityByDay([...nowItems, ...recentItems], now),
   };
 }
 
