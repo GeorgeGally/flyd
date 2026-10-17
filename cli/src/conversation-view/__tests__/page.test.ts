@@ -92,6 +92,8 @@ async function type(text: string): Promise<void> {
   await settle();
 }
 
+const intervals: Array<ReturnType<typeof setInterval>> = [];
+
 const pending = (): string[] => Array.from(document.querySelectorAll(".msg.pending")).map((el) => el.textContent ?? "");
 
 beforeEach(() => {
@@ -101,12 +103,20 @@ beforeEach(() => {
   sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z" };
   blips = 0;
   vi.stubGlobal("EventSource", FakeEventSource);
+  // Each test loads a fresh page; an earlier page's intervals must not keep running into it.
+  const realSetInterval = globalThis.setInterval;
+  vi.stubGlobal("setInterval", (...args: Parameters<typeof setInterval>) => {
+    const id = realSetInterval(...args);
+    intervals.push(id);
+    return id;
+  });
   vi.stubGlobal("AudioContext", FakeAudioContext);
   vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json(sendResponse) : url === "/api/plan" ? json({ plan: planResponse }) : url === "/api/commands" ? json({ commands: COMMANDS }) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
   window.scrollTo = () => {};
 });
 
 afterEach(() => {
+  intervals.splice(0).forEach((id) => clearInterval(id));
   vi.unstubAllGlobals();
 });
 
@@ -711,6 +721,99 @@ describe("conversation page", () => {
     await settle();
     await wait(400);
     expect(input.value).toBe("");
+    expect(kept).toBeNull();
+  });
+
+  it("brings back an older, different draft that arrives after a message was sent", async () => {
+    let answer: ((response: Response) => void) | null = null;
+    let kept: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: unknown[] } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) return new Promise<Response>((resolve) => { answer = resolve; });
+      if (url === "/api/send") return json(sendResponse);
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "a quick question";
+    input.dispatchEvent(new Event("input"));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(input.value).toBe("");
+    // The read back lands after it, carrying what he had left in the last window.
+    answer!(json({ draft: { text: "notes from yesterday", selectionStart: 0, selectionEnd: 0, attachments: [], savedAt: 1 } }));
+    await settle();
+    expect(input.value).toBe("notes from yesterday");
+    expect(kept).toMatchObject({ text: "notes from yesterday" });
+  });
+
+  it("clears the stored draft when a doubtful send turns out to have arrived", async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let fail: ((error: Error) => void) | null = null;
+    let kept: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: unknown[] } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) return json({ draft: kept });
+      if (url === "/api/send") return new Promise<Response>((_resolve, reject) => { fail = reject; });
+      if (url === "/api/token") return json({ token: "a".repeat(48) });
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "pasted words\nacross lines";
+    input.dispatchEvent(new Event("input"));
+    await wait(350);
+    expect(kept).toMatchObject({ text: "pasted words\nacross lines" });
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    // It shows up in the conversation, but the send itself never answered.
+    stream.emit("update", { order: ["u1", "note:1"], messages: [{ id: "note:1", role: "user", html: "<p>pasted words<br>across lines</p>", timestamp: new Date().toISOString() }], working: true });
+    fail!(new TypeError("Failed to fetch"));
+    await settle();
+    expect(document.querySelector(".msg.pending")).toBeNull();
+    expect(input.value).toBe("");
+    expect(kept).toBeNull();
+  });
+
+  it("clears the stored draft when a doubtful send shows up in the conversation later", async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let kept: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: unknown[] } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) return json({ draft: kept });
+      if (url === "/api/send") throw new TypeError("Failed to fetch");
+      if (url === "/api/token") return json({ token: "a".repeat(48) });
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "pasted words\nacross lines";
+    input.dispatchEvent(new Event("input"));
+    await wait(350);
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(document.querySelector(".msg.pending .resend")).not.toBeNull();
+    expect(kept).toMatchObject({ text: "pasted words\nacross lines" });
+    stream.emit("update", { order: ["u1", "note:1"], messages: [{ id: "note:1", role: "user", html: "<p>pasted words<br>across lines</p>", timestamp: new Date().toISOString() }], working: true });
+    expect(document.querySelector(".msg.pending")).toBeNull();
     expect(kept).toBeNull();
   });
 
