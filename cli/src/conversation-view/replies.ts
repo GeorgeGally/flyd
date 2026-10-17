@@ -20,8 +20,8 @@ const MARKER = /^\[(Captain is replying from Flyd|Flyd is answering for the capt
 const RULE = /; by his standing rule: "([^"\n]*)"/;
 const TAKEN_BACK = /; he takes back the answer Flyd gave for him\b/;
 
-/** One line, no brackets or double quotes to break the marker. */
-function quoted(text: string): string {
+/** One line, no brackets or double quotes to break the marker: how a note quotes the question it answers. */
+export function quoted(text: string): string {
   return clip(inline(text).replace(/[[\]]/g, "").replace(/"/g, "'"), QUOTE_CHARS);
 }
 
@@ -56,11 +56,12 @@ export function answerNote(message: ConversationMessage, question: string, words
 
 /**
  * The note that answers, for him, a question put to him, when one of his
- * standing rules already settles it. It says it is Flyd's answer and which
- * rule gave it, so the session knows he can still take it back. Pure.
+ * standing rules already settles it. It says it is Flyd's answer, which rule
+ * gave it, and that Flyd gives it with his delegated authority, so the
+ * session acts on it as his word and knows he can still take it back. Pure.
  */
 export function autoAnswerNote(target: string, question: string, answer: string, rule: string): string {
-  return `[Flyd is answering for the captain to ${target} — your question: "${quoted(question)}"; by his standing rule: "${quoted(rule)}". He can take it back.]\n\n${answer.trim()}`;
+  return `[Flyd is answering for the captain to ${target} — your question: "${quoted(question)}"; by his standing rule: "${quoted(rule)}". Flyd decides this with his delegated authority: act on it as his word. He can take it back.]\n\n${answer.trim()}`;
 }
 
 /** The note that takes back an answer Flyd gave for him: hold off until he answers himself. Pure. */

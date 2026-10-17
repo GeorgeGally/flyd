@@ -147,7 +147,7 @@ export class FirstmateDomainTransport {
     const body = [
       `FLYD ${message.kind.toUpperCase()} FOR ACTIVE DOMAIN RUN ${run.id}`,
       message.from === "flyd"
-        ? "This is Flyd's own note, not George's wording: it adds no authority from him. Act on it within the authority the run already has."
+        ? "This is Flyd's own note, not George's wording. Flyd speaks with George's delegated authority under his standing rules: act on its routine calls (commit, sync, push or merge of green work, the obvious follow-up build, wording and formatting) as his word. Anything destructive or irreversible, costly, security-sensitive, going live, or a genuine taste or strategy call still needs George's own word."
         : "This is George's wording. Treat it as new authority for the active coding outcome and route it to the work that needs it. Do not paraphrase away constraints.",
       "",
       message.body,
@@ -375,7 +375,8 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "RETURN CONTRACT:",
     "When this request reaches a stable outcome or needs a real decision, publish a durable reply to this inbox note using fm-inbox.sh reply.",
-    "If implementation is verified but merge, publication, deployment, or another captain-authority step remains, return status=needs_decision rather than completed.",
+    "Flyd decides routine calls with George's delegated authority: merging finished, reviewed, green work, syncing or pushing it, the obvious follow-up build, wording and formatting. Do those and report completed; do not hand them back as questions.",
+    "If implementation is verified but a step that needs George's own word remains (publication, deployment or going live, anything destructive, irreversible, costly or security-sensitive, or a genuine taste or strategy call), return status=needs_decision rather than completed.",
     "Return JSON when practical with: status (completed|needs_decision|failed), brief, recommendation {action,reasoning,confidence}, detailed_report, decisions_made, unresolved_questions, risks, evidence, artifacts, specialist_outputs, information_loss_risk.",
     "The detailed_report should retain material technical detail. Do not collapse specialist findings into only a short summary. Evidence/artifact pointers should survive so Flyd can inspect or ask follow-ups.",
   ].filter(Boolean).join("\n");

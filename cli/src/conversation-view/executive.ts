@@ -153,7 +153,8 @@ export function withoutChatter(text: string): string {
 
 // ── Status card ────────────────────────────────────────────────────────────
 
-export type WorkState = "needs" | "underway" | "landed";
+/** Needs him, under way, landed, or a question of his Flyd already answered under his standing rules. */
+export type WorkState = "needs" | "underway" | "landed" | "handled";
 
 export interface StatusItem {
   text: string;
@@ -174,15 +175,49 @@ const DECIDE = "(?:^|[.!?:;]\\s+|\\b(?:you|please)\\s+)(?:approve|decide)\\b";
 const NEEDS = new RegExp(`\\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|${YOUR_CALL}|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok))\\b|${DECIDE}`, "i");
 /** "Say "X" to keep it" is an ask, but only when it leads the line, not mid-sentence quoted text. */
 const SAY_ASK = /(?:^|[:;.]\s+)say\s*["“']/i;
-const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:merge|land|ship)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
+/** A sentence put to him as a question, by its mood rather than its words: it ends asking, or opens with what asks. */
+const QUESTION = /\?["”')\]]*$|^(?:so,?\s+|and\s+)?(?:shall|should|may|can|could|would|will|do|does|did|is|are|want) (?:i|we|you|it|they|firstmate|flyd)\b/i;
+const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:be |get )?(?:merged?|land(?:ed)?|ship(?:ped)?)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
+/** What is still to be done: the future or a plan, which is never landed. */
+const PLAN = /\b(?:will|['’]ll|going to|plan(?:s|ned)? to|next,? (?:i|we)|to be)\b/i;
 const LANDED = /\b(?:merged|landed|shipped|is live|went live|released|deployed|done|finished|complete)\b/i;
+/** "Will be merged", "going to be deployed": landing still to come. */
+const WILL_LAND = /\b(?:will|['’]ll|going to|to)\s+(?:be\s+|get\s+)?(?:merged|landed|shipped|live|released|deployed|done|finished|complete)\b/i;
 const NOT_YET = /\b(?:never|not|isn't|wasn't|hasn't|unmerged|until|before)\b/i;
 
-export function stateOf(text: string): WorkState | null {
-  if (NEEDS.test(text) || SAY_ASK.test(text)) return "needs";
-  if (UNDERWAY.test(text)) return "underway";
-  if (LANDED.test(text)) return NOT_YET.test(text) ? "underway" : "landed";
+/** What one sentence says of the work: it asks him, it is moving, it is only planned, it has landed, or nothing. */
+type Meaning = WorkState | "plan";
+
+/** Quoted words are someone's example ("like "Merged deployed.""), never the state of the work. */
+function unquoted(text: string): string {
+  return text.replace(/"[^"\n]*"|“[^”\n]*”/g, "…");
+}
+
+function meaningOf(sentence: string): Meaning | null {
+  const said = unquoted(sentence).trim();
+  if (!said) return null;
+  if (QUESTION.test(said) || NEEDS.test(said) || SAY_ASK.test(said)) return "needs";
+  if (UNDERWAY.test(said)) return "underway";
+  if (LANDED.test(said) && !WILL_LAND.test(said)) return NOT_YET.test(said) ? "underway" : "landed";
+  if (PLAN.test(said)) return "plan";
   return null;
+}
+
+/**
+ * What a passage says of the work, read sentence by sentence for its meaning
+ * rather than its keywords: any sentence that asks him makes it his, though
+ * another clause says "the running Flyd"; else any that says it is moving;
+ * else any that says it landed, quoted words aside; else a plan, which is not
+ * landed, not under way, and not a state for the card.
+ */
+function readingOfText(text: string): Meaning | null {
+  const meanings = new Set(sentences(unquoted(text)).map(meaningOf));
+  return (["needs", "underway", "landed", "plan"] as const).find((meaning) => meanings.has(meaning)) ?? null;
+}
+
+export function stateOf(text: string): WorkState | null {
+  const meaning = readingOfText(text);
+  return meaning === "plan" ? null : meaning;
 }
 
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
@@ -243,7 +278,29 @@ export interface Briefing {
   items: StatusItem[];
 }
 
-const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2 };
+const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2, handled: 3 };
+
+/** The words that carry a question, for telling two wordings of it apart. */
+function wordsOf(text: string): string[] {
+  return inline(text).toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+}
+
+/**
+ * Whether two wordings put the same question: the card's line for it and the
+ * quote in Flyd's answer to it, say. Nearly every word of the shorter is in the longer. Pure.
+ */
+export function sameQuestion(a: string, b: string): boolean {
+  const [short, long] = [wordsOf(a), wordsOf(b)].sort((x, y) => x.length - y.length) as [string[], string[]];
+  if (short.length < 3) return false;
+  const pool = new Set(long);
+  return short.filter((word) => pool.has(word)).length / short.length >= 0.8;
+}
+
+/** Of the questions a reply asks, the ones Flyd answered for him, by the quotes in its answers. */
+export function handledBy(quotes: Iterable<string> | undefined): ((text: string) => boolean) | undefined {
+  const said = [...(quotes ?? [])].filter(Boolean);
+  return said.length ? (text) => said.some((quote) => sameQuestion(text, quote)) : undefined;
+}
 
 /** A short list of fragments ("the hat tilted", "buttons stay square") joined onto its lead-in. */
 function listAsProse(lead: string | undefined, items: string[]): string[] {
@@ -264,11 +321,13 @@ function listAsProse(lead: string | undefined, items: string[]): string[] {
  * (landed, under way, needs him) become status-card items when there are at
  * least two of them; every other list reads as prose.
  */
-export function briefing(text: string): Briefing {
+export function briefing(text: string, handled?: (text: string) => boolean): Briefing {
   const lifted = scan(text, true);
   // A card under two items is no card: the lone status stays in the prose, said as written.
   if (lifted.items.length < 2) return { prose: scan(text, false).prose, items: [] };
-  return { prose: lifted.prose, items: [...merge(lifted.items)].sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
+  // A question Flyd already answered for him is no longer his: it shows as handled.
+  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.text) ? { ...item, state: "handled" as const } : item));
+  return { prose: lifted.prose, items: items.sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
 }
 
 function scan(text: string, lift: boolean): Briefing {
@@ -302,8 +361,13 @@ function scan(text: string, lift: boolean): Briefing {
       let leadAt = result.length - 1;
       while (leadAt >= 0 && !result[leadAt]!.trim()) leadAt -= 1;
       const lead = leadAt >= 0 && /:\s*(?:\*\*|__)?\s*$/.test(result[leadAt]!) ? result[leadAt] : undefined;
-      const context = lead ? stateOf(lead) : null;
-      const states = run.map((item) => stateOf(inline(item)) ?? context);
+      // A lead-in speaks for its list in its last sentence only ("…like "Merged deployed." So I've changed the approach:").
+      const context = lead ? stateOf(sentences(inline(lead)).at(-1) ?? "") : null;
+      // A plan is no state and takes none from its lead-in; anything else unsaid takes the lead-in's.
+      const states = run.map((item) => {
+        const meaning = readingOfText(inline(item));
+        return meaning === "plan" ? null : meaning ?? context;
+      });
       const known = states.filter(Boolean).length;
       if (lift && (known >= 2 || (known >= 1 && context !== null))) {
         const leftovers: string[] = [];
@@ -326,6 +390,7 @@ const GROUP: Record<WorkState, { title: string; kind: string }> = {
   needs: { title: "Needs you", kind: "k-call" },
   underway: { title: "Under way", kind: "k-live" },
   landed: { title: "Landed", kind: "k-landed" },
+  handled: { title: "Handled", kind: "k-handled" },
 };
 
 function safeHref(url: string): string | null {
@@ -364,13 +429,13 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
 }
 
 /** A reply as Flyd briefs him: stubs and machinery narration out, lists as prose, the work's states as card items. */
-export function brief(text: string): Briefing {
-  return briefing(withoutStubs(withoutChatter(text)));
+export function brief(text: string, handled?: (text: string) => boolean): Briefing {
+  return briefing(withoutStubs(withoutChatter(text)), handled);
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
-export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}): string {
-  const { prose, items } = brief(text);
+export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}, handled?: (text: string) => boolean): string {
+  const { prose, items } = brief(text, handled);
   if (items.length === 0) return renderMarkdown(prose);
   const [lead, ...rest] = prose.split(/\n\s*\n/);
   return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
@@ -402,14 +467,15 @@ export function asksIn(text: string): string[] {
 /**
  * The summary of a reply that reports several pieces of work: a one-line
  * lead (Flyd's own reading when it has one, else the reply's opening), the
- * status card, then every sentence that asks something of him. Undefined
+ * status card, then every sentence that asks something of him and that Flyd
+ * has not already answered for him (`handled`). Undefined
  * when the reply is not a multi-item status.
  */
-export function statusSummaryHtml(text: string, reading?: string): string | undefined {
-  const { prose, items } = brief(text);
+export function statusSummaryHtml(text: string, reading?: string, handled?: (text: string) => boolean): string | undefined {
+  const { prose, items } = brief(text, handled);
   if (items.length === 0) return undefined;
   const [opening = "", ...rest] = prose.split(/\n\s*\n/);
-  const asks = rest.flatMap(asking);
+  const asks = rest.flatMap(asking).filter((sentence) => !handled?.(sentence));
   const lead = reading ? renderBriefing(reading) : renderMarkdown(opening);
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }

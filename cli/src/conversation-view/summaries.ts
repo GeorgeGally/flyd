@@ -33,13 +33,15 @@ export function isRoutineAnswer(text: string): boolean {
 export const SUMMARY_PROMPT =
   "You condense an engineering assistant's report for its boss, who reads it at a glance. " +
   "Keep every outcome (what changed, what was found), every decision taken and every question or ask for the boss: none may be dropped. " +
+  "His chief of staff settles routine questions in his place under his standing rules (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): say those are being handled, never that they wait on him. " +
+  "Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call waits on the boss. " +
   "Lead with what waits on the boss (a decision or question), else the overall result, in a few words, then say the rest in a few short plain-English sentences of prose, never a list. " +
   "No jargon, file names, code or tool names, and no URLs, PR or issue numbers, branch names, commit hashes or check counts: name the work by what it does. " +
   "Drop process narration, greetings and sign-offs, and progress chatter: who is doing the work, promises to report later, where a screenshot was opened. " +
   `If the message has no outcome, decision or ask (an acknowledgement, a status ping, "nothing changed", "still waiting"), reply exactly ${ROUTINE}. ` +
   "Reply with the summary only.";
 /** Bumped when SUMMARY_PROMPT changes, so cached summaries from an older prompt are asked again. */
-const PROMPT_VERSION = "4";
+const PROMPT_VERSION = "5";
 
 /** Replies shorter than this are already a summary; they show in full. */
 export const SUMMARY_MIN_CHARS = 240;

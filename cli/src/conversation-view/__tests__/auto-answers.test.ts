@@ -71,16 +71,16 @@ describe("AutoAnswers", () => {
       return { id: `note:${sent.length}`, timestamp: AT };
     };
     const auto = new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 });
-    const entry = await auto.answer("s1", open(reply(MERGE)), send);
+    const [entry] = await auto.answer("s1", open(reply(MERGE)), send);
     expect(entry).toMatchObject({ asked: "reply:b#383", target: "reply:b#383", question: "Should I merge it?", answer: "Yes", rule: "merge-green-flyd", note: "note:1" });
     expect(sent).toEqual([
-      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking". He can take it back.]\n\nYes',
+      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking". Flyd decides this with his delegated authority: act on it as his word. He can take it back.]\n\nYes',
     ]);
     // Read back, it is Flyd's answer to that question, not his own words.
     expect(readReply({ id: "note:1", role: "user", text: sent[0]! })).toMatchObject({ text: "Yes", replyTo: "reply:b#383", replyQuote: "Should I merge it?", answeredFor: "Merge green Flyd PRs without asking" });
     // Once, even across a restart.
-    expect(await auto.answer("s1", open(reply(MERGE)), send)).toBeNull();
-    expect(await new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 }).answer("s1", open(reply(MERGE)), send)).toBeNull();
+    expect(await auto.answer("s1", open(reply(MERGE)), send)).toEqual([]);
+    expect(await new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 }).answer("s1", open(reply(MERGE)), send)).toEqual([]);
     expect(sent).toHaveLength(1);
     expect(readFileSync(logFile, "utf8").trim().split("\n").map((line) => JSON.parse(line).rule)).toEqual(["merge-green-flyd"]);
   });
@@ -88,7 +88,7 @@ describe("AutoAnswers", () => {
   it("leaves a question he may already be weighing: one asked more than a few minutes ago", async () => {
     const sent: string[] = [];
     const auto = new AutoAnswers({ preferences: () => PROFILE, now: () => Date.parse(AT) + 60 * 60_000 });
-    expect(await auto.answer("s1", open(reply(MERGE)), async (note) => (sent.push(note), { id: "note:1", timestamp: AT }))).toBeNull();
+    expect(await auto.answer("s1", open(reply(MERGE)), async (note) => (sent.push(note), { id: "note:1", timestamp: AT }))).toEqual([]);
     expect(sent).toEqual([]);
   });
 

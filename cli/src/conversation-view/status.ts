@@ -1,5 +1,6 @@
 import { plainLinks } from "./line-links.js";
-import { asksIn, brief, decisionOf, statusHeadline, withoutStubs } from "./executive.js";
+import { answeredForHim, choiceTarget } from "./choices.js";
+import { asksIn, brief, decisionOf, handledBy, statusHeadline, withoutStubs } from "./executive.js";
 import { authorSummary, digestReply, isRoutine } from "./summaries.js";
 import type { ConversationSnapshot } from "./types.js";
 
@@ -57,11 +58,11 @@ export function headlineOf(text: string): string {
   return readingOf(text).headline;
 }
 
-/** The island's line for a reply, and whether that line names a decision of his. */
-function readingOf(text: string): { headline: string; asks: boolean } {
-  const asks = asksIn(text);
+/** The island's line for a reply, and whether that line names a decision of his; a question Flyd answered for him (`handled`) is not one. */
+function readingOf(text: string, handled?: (text: string) => boolean): { headline: string; asks: boolean } {
+  const asks = asksIn(text).filter((sentence) => !handled?.(sentence));
   // A report on several pieces of work reads as where they stand.
-  const { items } = brief(text);
+  const { items } = brief(text, handled);
   if (items.length >= 2) return statusHeadline(items, asks, HEADLINE_CHARS);
   // A decision of his is named as the decision, never put on a result.
   const decision = decisionOf(asks);
@@ -89,7 +90,7 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     working,
     ...(working && snapshot.activity ? { activity: snapshot.activity } : {}),
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
-    ...(reply ? { reply: { id: reply.id, ...readingOf(reply.text) } } : {}),
+    ...(reply ? { reply: { id: reply.id, ...readingOf(reply.text, handledBy(answeredForHim(snapshot.messages).get(choiceTarget(reply)))) } } : {}),
     ...(newest?.waiting ? { waiting: { id: newest.id, text: plainLinks(newest.waiting), ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
   };
 }
