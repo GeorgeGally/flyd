@@ -44,4 +44,6 @@ conflict lines of every full prompt context (~16K tokens for a four-word questio
 
 ## Prevention
 
-Any new store that resolves `~/.flyd` itself must read `FLYD_DIR` first, or a test run will fail on the guard.
+Any new store that resolves `~/.flyd` itself must read `FLYD_DIR` first. `assertNotRealFlydHome` only
+throws for the stores that call it — `IntelligenceEventStore` and the work index — so a store added
+without that call writes to the real `~/.flyd` silently instead of failing the run.
