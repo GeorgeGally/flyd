@@ -160,7 +160,7 @@ function yesToAll(question: string): string {
   return /\bboth\b/i.test(question) ? "Yes, both" : "Yes, all of them";
 }
 
-const PICK_ONES = /\b(?:pick|choose|select)\b[^.?!]{0,50}?\b(?:ones|some|these|those|any|all|each|two|three|four|five|six|\d+)\b/i;
+const PICK_ONES = /\b(?:pick|choose|select)\s+(?:the\s+)?ones\b|\bwhich\s+ones\b|\bany\s+of\s+(?:these|those)\b|\bas\s+many\s+as\b|\ball\s+that\s+apply\b/i;
 
 /** One option per listed item: "Only 1: Press feedback". */
 function onlyOne(item: Listed): string {

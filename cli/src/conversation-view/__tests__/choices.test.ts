@@ -67,6 +67,8 @@ describe("choiceOf", () => {
     expect(choiceOf("Checks are still running. Should I merge now or wait for checks?")!.options).toEqual(["Merge now", "Wait for checks"]);
     expect(choiceOf("Do you want A, B or C?")!.options).toEqual(["A", "B", "C"]);
     expect(choiceOf("Is that fine or not?")!.options).toEqual(["Yes", "No"]);
+    // A real A-or-B question that mentions a quantifier keeps its two options, not Yes/No.
+    expect(choiceOf("Should I pick the two new ones, or keep them all?")!.options).toEqual(["Pick the two new ones", "Keep them all"]);
   });
 
   it("offers one button per option listed under the question", () => {
