@@ -370,7 +370,7 @@ export class StaffMonitor {
         const run = runs.get(handoff.id);
         return run ? [[handoff.id, { progress: progressOf(run), since: handoff.lastHeard }]] : [];
       }));
-      const unreachable = snapshot.readiness.canReceive === false || snapshot.readiness.lock === "free";
+      const unreachable = snapshot.readiness.lock === "free" || snapshot.readiness.liveHarness === false;
       state.unreachableSince = unreachable ? state.unreachableSince ?? snapshot.at : undefined;
       const concerns = assessStaff(snapshot, state.unreachableSince, now);
       for (const concern of concerns) await this.act(concern, state, unreachable, now);
