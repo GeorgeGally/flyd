@@ -195,6 +195,22 @@ describe("Flyd's watch on its coding staff", () => {
     expect((await watch.tick())!.concerns).toEqual([]);
   });
 
+  it("treats a live lock holder who is not taking work as busy: nudges the staff, does not alarm George", async () => {
+    ready = { lock: { state: "held", pid: 4242, live_harness: true }, wake_consumer: { state: "healthy" }, can_receive: false };
+    summary({ active_children: [{ id: "island-text", state: "needs-decision", name: "Restore readable island text" }], decisions_open: [], counts: {} });
+    writeFileSync(join(home, "state", "island-text.status"), `needs-decision [at=${T0 / 1000}]: which size?\n`);
+    let now = T0;
+    const told: string[] = [];
+    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); } });
+    await watch.tick();
+    expect(told).toEqual([]);
+    now += UNREACHABLE_MS + MIN;
+    const view = await watch.tick();
+    expect(view!.concerns.some((concern) => concern.kind === "unreachable")).toBe(false);
+    expect(notes).toHaveLength(1);
+    expect(told).toEqual([]);
+  });
+
   it("describes the staff for chat in plain words, without machinery names", async () => {
     summary({
       active_children: [{ id: "footer-link", state: "working", name: "Fix the footer link" }],

@@ -416,7 +416,6 @@ export async function syncFirstmateDomainRuns(options: {
   /** Reads a prose reply's outcome; without one Flyd's model reads it, and only words when no model can run. */
   judge?: ProseJudge;
 } = {}): Promise<DomainRun[]> {
-  const nowMs = () => (options.now ?? (() => new Date()))().getTime();
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
   const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
@@ -506,7 +505,7 @@ export async function syncFirstmateDomainRuns(options: {
         ? await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, judge)
         : "completed";
       const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
-      const stale = nowMs() - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
+      const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
       next = { ...next, status, ...(stale ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
       statusUnclear = outcome === "unclear";
     }
