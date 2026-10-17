@@ -261,18 +261,21 @@ describe("FirstMate domain transport", () => {
     expect(sent).toEqual([prose]);
   });
 
-  it("reads a prose reply by its words when no model can judge it", async () => {
+  it("leaves a prose reply no model could judge open, and asks the staff how it ended", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
       transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
     });
     const prose = "status=needs_decision: copy swap is ready in invite.html and remind_me.html. Going live stays George's call.";
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
-      pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" } }],
-    }), stderr: "" });
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-x", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" } }] }), stderr: "" };
+    };
     const [read] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => { throw new Error("no model"); } });
-    expect(read!.status).toBe("needs_decision");
+    expect(read!.status).toBe("working");
+    expect(notes).toHaveLength(1);
   });
 
   it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
@@ -349,6 +352,7 @@ describe("FirstMate domain transport", () => {
     const changed = await syncFirstmateDomainRuns({
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
       now: () => now,
+      judge: async () => "completed" as const,
       onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
     });
     expect(changed.map((run) => [run.id, run.status, run.notified ?? false]).sort()).toEqual([
@@ -530,14 +534,21 @@ describe("FirstMate domain transport", () => {
     id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" },
   });
 
-  it("never calls an unclear prose reply done, and announces nothing for it", async () => {
+  it.each([
+    "All tests passed; zero failed.",
+    "Merged and deployed; nothing broke.",
+    "Investigated the race; the fix still needs a rebase before it can land.",
+  ])("keeps a prose reply no model can read open and silent, and asks the staff how it ended: %s", async (prose) => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
       transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
     });
-    const prose = "Investigated the race; the fix still needs a rebase before it can land.";
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" });
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-x", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" };
+    };
     const sent: string[] = [];
     const [read] = await syncFirstmateDomainRuns({
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
@@ -546,6 +557,8 @@ describe("FirstMate domain transport", () => {
     });
     expect(read!.status).toBe("working");
     expect(sent).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("needs George's decision");
   });
 
   it("never calls an affirmative prose reply failed on the newest reply", async () => {

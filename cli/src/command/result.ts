@@ -113,29 +113,16 @@ export function validateDomainHandoff(result: DomainResult): HandoffValidation {
 }
 
 /** How a reply written in plain prose left the work: the staff often answers that way instead of the JSON contract. */
-export type ProseOutcome = "completed" | "needs_decision" | "failed" | "working";
+export type ProseOutcome = "completed" | "needs_decision" | "failed" | "working" | "unclear";
 
 /** Reads a prose reply's outcome, e.g. with Flyd's model; null when it cannot tell. */
 export type ProseJudge = (reply: string, intendedOutcome: string) => Promise<ProseOutcome | null>;
 
 const PROSE_OUTCOMES = new Set<ProseOutcome>(["completed", "needs_decision", "failed", "working"]);
 
-const STATED = /\bstatus\s*[=:]\s*(completed|needs_decision|failed|working)\b/i;
-const ASKS_HIM = /\?\s*$|\b((your|his|george['’]s) (call|decision|approval|go-ahead)|do you want|would you like|shall i|should i|want me to|needs? (you|your|him|george)|waiting (on|for) (you|your|him|george)|(please|can you|could you) (approve|confirm|decide))\b/i;
-const FAILED = /\b(failed|blocked|broken|broke|gave up)\b|\b(couldn['’]t|could not|can['’]t|cannot|unable to|wasn['’]t able to)\s+(land|ship|merge|complete|finish|deploy|publish|proceed|reproduce|do\s+(it|this|that)|get\s+(it|this|that)\s+(done|working)|make\s+(it|this|that)\s+work|be\s+(done|finished|completed|merged|shipped|landed|deployed|published))\b/i;
-const IN_PROGRESS = /^(on it|working on|picked (it|this) up|started|starting|in progress|queued|will (report|update|follow up))\b/i;
-const COMPLETED = /^(done|completed|finished|shipped|landed|merged|deployed|published|released|fixed|pushed)\b/i;
-
-/** The fallback when no model can read the reply: plain words, judged conservatively. */
-export function proseOutcomeByWords(reply: string): ProseOutcome {
-  const text = reply.replace(/^captain[,:!.]?\s+/i, "").trim();
-  const stated = text.match(STATED)?.[1]?.toLowerCase();
-  if (stated) return stated as ProseOutcome;
-  if (ASKS_HIM.test(text)) return "needs_decision";
-  if (FAILED.test(text)) return "failed";
-  if (IN_PROGRESS.test(text)) return "working";
-  if (COMPLETED.test(text)) return "completed";
-  return "working";
+/** The fallback when no model can read the reply: it never guesses. Only Flyd's model or a structured reply calls work done, failed or a decision. */
+export function proseOutcomeByWords(_reply: string): ProseOutcome {
+  return "unclear";
 }
 
 /** Flyd's model reads what a prose reply says happened; any failure leaves it to proseOutcomeByWords. */

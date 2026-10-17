@@ -8,7 +8,7 @@ import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
-import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
+import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -394,11 +394,26 @@ async function proseOutcome(body: string, run: DomainRun, judge?: ProseJudge): P
   return (await judge?.(body, run.request.intendedOutcome).catch(() => null)) ?? proseOutcomeByWords(body);
 }
 
+/** Flyd's note to the staff when a reply could not be read as an outcome: it asks once for a plain one. */
+const UNREAD_REPLY_CHECK_IN = "Flyd could not tell from your last reply how this work ended. Reply with its state: completed (and what changed), needs George's decision (and your recommendation), failed (and why), or still working (and what is next).";
+
+/** One check-in per reply Flyd could not read, delivered through the same transport the run uses. */
+async function askForAClearStatus(run: DomainRun, cursor: string | undefined, transport: FirstmateDomainTransport): Promise<void> {
+  const { sendRunMessage } = await import("./messages.js");
+  await sendRunMessage({
+    run,
+    kind: "question",
+    body: cursor ? `${UNREAD_REPLY_CHECK_IN} (reply ${cursor})` : UNREAD_REPLY_CHECK_IN,
+    from: "flyd",
+    transport,
+  }).catch(() => undefined);
+}
+
 export async function syncFirstmateDomainRuns(options: {
   transport?: FirstmateDomainTransport;
   now?: () => Date;
   onChanged?: (run: DomainRun) => Promise<void> | void;
-  /** Reads a prose reply's outcome; without one, plain words decide. */
+  /** Reads a prose reply's outcome; without one, a prose reply no words can settle stays unclear. */
   judge?: ProseJudge;
 } = {}): Promise<DomainRun[]> {
   const nowMs = () => (options.now ?? (() => new Date()))().getTime();
@@ -453,15 +468,19 @@ export async function syncFirstmateDomainRuns(options: {
       .filter((item): item is FirstmateReply => Boolean(item?.body?.trim()))
       .sort((a, b) => cursorOrder(a.cursor) - cursorOrder(b.cursor))
       .at(-1);
+    // A reply Flyd cannot read as done, failed or a decision leaves the run open.
+    let statusUnclear = false;
+    let unclearFrom: string | undefined;
     if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
       const parsed = parseDomainResult(reply.body!);
       // The staff often answers in prose: its words are the outcome. The layered
       // contract is still asked for, and a reply that misses it is kept whole
       // with the gap noted, never turned from finished work into "incomplete".
       const handoff = validateDomainHandoff(parsed.result);
-      // Only prose is read as prose: a structured reply that omits the optional
-      // status is done, as it always was, with its missing layers noted separately.
-      const status = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, options.judge) : "completed");
+      // Only a structured reply's own status or Flyd's model may settle a run;
+      // prose words no model could read stay "unclear" rather than being guessed.
+      const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, options.judge) : "completed");
+      const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
@@ -475,18 +494,25 @@ export async function syncFirstmateDomainRuns(options: {
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
       };
+      if (outcome === "unclear") {
+        statusUnclear = true;
+        unclearFrom = reply.cursor;
+      }
     } else if (run.status === "incomplete" && run.result) {
       // Recorded before prose counted as an outcome: read again what it said.
       // One older than a day is history, kept but not announced now.
-      const status = run.result.format === "raw"
+      const outcome: ProseOutcome = run.result.format === "raw"
         ? await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, options.judge)
         : "completed";
+      const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
       const stale = nowMs() - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
       next = { ...next, status, ...(stale ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
+      statusUnclear = outcome === "unclear";
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     saveDomainRun(next);
     changed.push(next);
+    if (statusUnclear) await askForAClearStatus(next, unclearFrom, transport);
     await options.onChanged?.(next);
   }
   return changed;
