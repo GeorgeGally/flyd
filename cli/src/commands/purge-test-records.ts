@@ -27,27 +27,6 @@ const FIXTURE_SESSION = [
   /^sim-[a-z]+-\d+$/,
 ];
 
-/**
- * Prompts that only test suites send, each found literally in the repo's
- * tests. A genuine message can share the wording, so a row only counts when it
- * is also part of a burst (see inBurst).
- */
-const FIXTURE_INTENTS = new Set([
-  "use the tool", "use the tool on this file", "use the tool on the code in this repo",
-  "whats on my plate", "check the GNM website", "who is the head coach", "what is the weather today?",
-  "the coach said to try X", "I coach soccer on weekends", "do it", "Implement dark mode for the CLI",
-  "what should I work on next?", "What am I working on right now, and what is the one most useful next step?",
-  "what skills do i have", "what skills do you have?", "what needs to be done on DIR?", "what needs to be done on cleanx?",
-  "what is good neighbours posting", "index now", "hey coach, what should I focus on?", "check the good neighbours instagram",
-  "bring in the coach, I need life coaching", "bring in the coach", "coach, how did my week go?", "Explain how this works",
-  "what's my horoscope today?", "remember this: I prefer aisle seats", "let's just chat", "add milk to my to-do list",
-  "I'm not working on Bridgestone anymore", "can I make my 7:15 flight if I leave at 4:40?",
-]);
-
-/** The same fixture prompt from several different sessions inside this window: a test suite, not a person. */
-const BURST_WINDOW_MS = 60 * 60_000;
-const BURST_MIN_SESSIONS = 3;
-
 const TEST_PROJECT = "project:test-project";
 
 export interface PurgeReport {
@@ -73,26 +52,6 @@ function isFixtureSession(id: unknown): boolean {
   return typeof id === "string" && FIXTURE_SESSION.some((p) => p.test(id));
 }
 
-/** Rows whose text recurs from at least BURST_MIN_SESSIONS distinct sessions within BURST_WINDOW_MS. */
-function inBurst(items: Array<{ sequence: number; session: string; text: string; at: number }>): Set<number> {
-  const byText = new Map<string, typeof items>();
-  for (const item of items) {
-    const group = byText.get(item.text) ?? [];
-    group.push(item);
-    byText.set(item.text, group);
-  }
-  const burst = new Set<number>();
-  for (const group of byText.values()) {
-    group.sort((a, b) => a.at - b.at);
-    for (let i = 0; i < group.length; i++) {
-      const window = [];
-      for (let j = i; j < group.length && group[j].at - group[i].at <= BURST_WINDOW_MS; j++) window.push(group[j]);
-      if (new Set(window.map((item) => item.session)).size >= BURST_MIN_SESSIONS) for (const item of window) burst.add(item.sequence);
-    }
-  }
-  return burst;
-}
-
 function parse(row: Row): Record<string, any> {
   try { return row.payload_json ? JSON.parse(row.payload_json) : {}; } catch { return {}; }
 }
@@ -103,46 +62,35 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
   const mark = (seq: number, reason: string) => { if (!doomed.has(seq)) doomed.set(seq, reason); };
   const rows = (sql: string, ...args: unknown[]) => db.prepare(sql).all(...args) as Row[];
 
-  // 1. CLI chat transitions: fixture sessions, test model ids, and every
-  // outcome/observation that shares an invocation with such a proposal.
+  // 1. CLI chat transitions: rows that themselves carry a positive test marker
+  // (a fixture session id or a test model id), plus every outcome that shares
+  // an invocation with such a row.
   const chat = rows(`SELECT sequence, captured_at, source_id, kind, payload_json FROM personal_events WHERE source_id = 'transition.cli-chat'`);
   const testInvocations = new Set<string>();
-  const burstSessions = new Set<string>();
-  const chatBurst = inBurst(chat.flatMap((row) => {
-    const p = parse(row);
-    const intent = row.kind === "proposed_action" ? p.action?.intent : undefined;
-    return FIXTURE_INTENTS.has(intent) ? [{ sequence: row.sequence, session: String(p.sessionId), text: intent as string, at: Date.parse(row.captured_at) }] : [];
-  }));
   for (const row of chat) {
     const p = parse(row);
-    if (chatBurst.has(row.sequence)) burstSessions.add(String(p.sessionId));
-    if (row.kind === "proposed_action" && TEST_MODELS.has(p.action?.model)) testInvocations.add(p.invocationId);
-    if (isFixtureSession(p.sessionId) || chatBurst.has(row.sequence)) testInvocations.add(p.invocationId);
+    const marked = isFixtureSession(p.sessionId) || (row.kind === "proposed_action" && TEST_MODELS.has(p.action?.model));
+    if (marked && typeof p.invocationId === "string" && p.invocationId) testInvocations.add(p.invocationId);
   }
   for (const row of chat) {
     const p = parse(row);
     if (isFixtureSession(p.sessionId)) mark(row.sequence, "chat transitions in fixture sessions");
-    else if (chatBurst.has(row.sequence) || burstSessions.has(String(p.sessionId))) mark(row.sequence, "chat transitions of fixture prompts sent in bursts");
     else if (TEST_MODELS.has(p.action?.model)) mark(row.sequence, "chat transitions with a test model id");
-    else if (testInvocations.has(p.invocationId)) mark(row.sequence, "chat outcomes of test invocations");
+    else if (typeof p.invocationId === "string" && testInvocations.has(p.invocationId)) mark(row.sequence, "chat outcomes of test invocations");
   }
 
-  // 2. Conversation memory: fixture sessions, the test project, fixture prompts.
+  // 2. Conversation memory: conversations in fixture sessions or about the
+  // test project, and the beliefs/relations of their topics.
   const cognition = rows(`SELECT sequence, captured_at, source_id, kind, payload_json FROM personal_events WHERE source_id = 'chat.cognition'`);
   const doomedUsers = new Set<string>();
   const keptUsers = new Set<string>();
   const testTopics = new Set<string>();
   const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
-  const conversationBurst = inBurst(cognition.flatMap((row) => {
-    const c = row.kind === "observation" ? parse(row).conversation : undefined;
-    return c && FIXTURE_INTENTS.has(c.user) ? [{ sequence: row.sequence, session: String(c.sessionId), text: c.user as string, at: Date.parse(row.captured_at) }] : [];
-  }));
   for (const row of cognition) {
     const p = parse(row);
     if (row.kind === "observation" && p.conversation) {
       const c = p.conversation;
       const test = isFixtureSession(c.sessionId)
-        || conversationBurst.has(row.sequence)
         || (Array.isArray(c.projectIds) && c.projectIds.includes(TEST_PROJECT));
       if (test) { mark(row.sequence, "fixture conversations"); doomedUsers.add(norm(c.user)); }
       else keptUsers.add(norm(c.user));
@@ -151,17 +99,8 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
       mark(row.sequence, "topic relations to the test project");
     }
   }
-  // A phrase only counts as test-derived when no genuine conversation says it too.
+  // A phrase a fixture conversation used is test-derived unless a genuine conversation says it too.
   const fixturePhrases = new Set([...doomedUsers].filter((u) => u && !keptUsers.has(u)));
-  // Or a fixture prompt that tests re-learned over and over as the same belief.
-  const factCounts = new Map<string, number>();
-  for (const row of cognition) {
-    if (row.kind !== "inferred_belief") continue;
-    const p = parse(row);
-    if (p.attribute === "fact") factCounts.set(norm(p.value), (factCounts.get(norm(p.value)) ?? 0) + 1);
-  }
-  const fixtureIntentsLower = new Set([...FIXTURE_INTENTS].map(norm));
-  for (const [value, count] of factCounts) if (count >= 10 && fixtureIntentsLower.has(value)) fixturePhrases.add(value);
   for (const row of cognition) {
     if (row.kind !== "inferred_belief") continue;
     const p = parse(row);

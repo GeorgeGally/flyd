@@ -72,7 +72,7 @@ describe("purgeTestRecords", () => {
     expect(again.backupPath).toBeUndefined();
   });
 
-  it("removes a fixture prompt sent from several sessions in one go, but keeps a lone genuine use of it", async () => {
+  it("keeps a generic phrase sent from several sessions in an hour, and deletes only a row with a test model id", async () => {
     const dir = mkdtempSync(join(tmpdir(), "purge-"));
     const dbPath = join(dir, "intelligence.sqlite");
     const store = new IntelligenceEventStore({ path: dbPath });
@@ -83,15 +83,17 @@ describe("purgeTestRecords", () => {
        VALUES (?, 1, 'proposed_action', 'transition.cli-chat', ?, '{}', 'durable', 'test', ?, 'x', ?)`,
     ).run(`b${n}`, at, `bk${n++}`, JSON.stringify({ sessionId, invocationId: `i${n}`, action: { intent, model } }));
     for (const [i, id] of ["a1", "a2", "a3"].entries()) add(`2026-09-26T13:4${i}:00Z`, id, "what skills do i have");
+    add("2026-09-26T13:50:00Z", "a1", "Draft the invoice reminder for Friday");
     add("2026-10-02T09:00:00Z", "genuine-1", "what skills do i have");
+    add("2026-09-26T13:45:00Z", "burst-test-model", "what skills do i have", "gpt-4o-mini");
     add("2026-10-02T09:05:00Z", "genuine-2", "Draft the invoice reminder for Friday");
     store.close();
 
     const report = await purgeTestRecords({ dbPath, rebuild: false });
-    expect(report.totalDeleted).toBe(3);
+    expect(report.totalDeleted).toBe(1);
 
     const after = new IntelligenceEventStore({ path: dbPath });
-    expect(after.readFrom(0).map((e) => (e.payload as any).sessionId)).toEqual(["genuine-1", "genuine-2"]);
+    expect(after.readFrom(0).map((e) => (e.payload as any).sessionId)).toEqual(["a1", "a2", "a3", "a1", "genuine-1", "genuine-2"]);
     after.close();
   });
 

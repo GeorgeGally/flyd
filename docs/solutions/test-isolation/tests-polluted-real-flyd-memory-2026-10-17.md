@@ -30,11 +30,12 @@ conflict lines of every full prompt context (~16K tokens for a four-word questio
   The guard immediately found `work/database.ts` ignoring `FLYD_DIR`; it now follows it.
 - `flyd purge-test-records [--dry-run] [--json] [--db path]` removes rows positively identified as test output
   after a WAL-safe backup to `~/.flyd/backups/intelligence-<timestamp>.sqlite`, then rebuilds the knowledge
-  projections. Identification: test model ids (`gpt-4o-mini`, `gpt-4.6`), fixture session ids, the test project,
-  and fixture prompts (listed in `FIXTURE_INTENTS`, each a literal in the repo's tests) sent from
-  three or more sessions within an hour. Beliefs and relations are removed only when their topic is test-derived;
-  judgments and System-1 passes only when they point at a removed event. Anything ambiguous is listed under
-  "kept, worth a look". Safe to re-run; stop Core first so nothing appends mid-purge.
+  projections. Identification is a positive marker on the row itself: a test model id (`gpt-4o-mini`, `gpt-4.6`),
+  a fixture session id, or `project:test-project`. A prompt George could plausibly type is never a signal on its
+  own, however often it repeats. Outcomes are removed only through their own `invocationId` link to a marked row;
+  beliefs and relations only when their topic is test-derived; judgments and System-1 passes only when they point
+  at a removed event. Anything ambiguous is listed under "kept, worth a look". Safe to re-run; stop Core first so
+  nothing appends mid-purge.
 - The prompt context is bounded (`boundNowProjection`, per-block caps in `context-compiler.ts`): repo state
   not re-observed for 7 days is dropped rather than shown as current, evidence ids and the conflict dump are gone,
   at most three real conflicts reach a prompt.
