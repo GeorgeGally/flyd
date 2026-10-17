@@ -306,11 +306,12 @@ task
 
 program
   .command("ask <question>")
-  .description("Ask Flyd using immediate memory")
-  .option("--model <model>", "LLM model")
+  .description("Ask Flyd using immediate memory, answered by the chat model chain")
+  .option("--model <model>", "Use exactly this model (default: the chat chain with failover)")
   .option("--deep", "Use slower semantic expansion and reranking")
   .option("--librarian", "Run librarian evidence evaluation before synthesis")
-  .action((question: string, opts: { deep?: boolean; model?: string; librarian?: boolean }) =>
+  .option("--context", "Print the compiled context and evidence instead of asking a model (debugging)")
+  .action((question: string, opts: { deep?: boolean; model?: string; librarian?: boolean; context?: boolean }) =>
     runAsk(question, opts.model, opts)
   );
 
@@ -779,6 +780,17 @@ program
   .option("--forget <sourceId>", "Erase a transition source (e.g. transition.overlay) — irreversible")
   .option("--export <sourceId>", "Export every stored event for a transition source")
   .action((opts: { json?: boolean; forget?: string; export?: string }) => runTransitions(opts));
+
+program
+  .command("purge-test-records")
+  .description("One-off: remove test-generated rows (test models, fixture sessions and beliefs) from intelligence.sqlite, after a timestamped backup in ~/.flyd/backups")
+  .option("--dry-run", "Count what would be deleted; change nothing")
+  .option("--json", "Structured JSON output")
+  .option("--db <path>", "Use this intelligence.sqlite instead of ~/.flyd/intelligence.sqlite")
+  .action(async (opts: { dryRun?: boolean; json?: boolean; db?: string }) => {
+    const { runPurgeTestRecords } = await import("./commands/purge-test-records.js");
+    await runPurgeTestRecords(opts);
+  });
 
 const tasks = program
   .command("tasks")

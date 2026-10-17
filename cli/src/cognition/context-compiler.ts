@@ -11,6 +11,7 @@ import { readContextBundles } from "../lib/context-bundles.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { memoryPromptText } from "../council/memory-store.js";
 import { resolveTasteProject, tastePromptText } from "../council/taste.js";
+import { clampText } from "./context-format.js";
 
 export interface CompileContextInput {
   intent: string;
@@ -111,7 +112,13 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     taste = tastePromptText({ projects: projectsInPlay });
   } catch { omissions.push("taste_unreadable"); }
   if (taste) sources.push("TASTE.md");
-  const profileCombined = [ownProfileBlock, curatedBlock, profile, legacyProfile].filter(Boolean).join("\n\n").slice(0,24000);
+  // Each block gets its own share so one long file cannot crowd the rest out.
+  const profileCombined = [
+    clampText(ownProfileBlock, 12000),
+    clampText(curatedBlock, 5000),
+    clampText(profile, 1500),
+    clampText(legacyProfile, 1500),
+  ].filter(Boolean).join("\n\n");
 
   timings.total=Date.now()-started;
   const jevTrace = interpretation.systemOne || memory.systemOne

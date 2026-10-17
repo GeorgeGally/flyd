@@ -2,8 +2,9 @@ import Database from "better-sqlite3";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { mkdirSync, existsSync } from "fs";
+import { assertNotRealFlydHome } from "../lib/test-home-guard.js";
 
-const DB_DIR = join(homedir(), ".flyd");
+const DB_DIR = process.env.FLYD_DIR?.trim() || join(homedir(), ".flyd");
 const DEFAULT_DB_PATH = join(DB_DIR, "work-index.sqlite");
 
 let _db: Database.Database | null = null;
@@ -26,6 +27,7 @@ export function getDb(): Database.Database {
   // ponytail: lazy init is race-safe — better-sqlite3 opens synchronously,
   // so no event-loop turn occurs between the check and the assignment.
 
+  assertNotRealFlydHome(_dbPath);
   const dir = dirname(_dbPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 

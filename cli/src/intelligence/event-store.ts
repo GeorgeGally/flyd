@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
+import { assertNotRealFlydHome } from "../lib/test-home-guard.js";
 import type { ContextEnvelope } from "./context-envelope.js";
 
 /**
@@ -66,6 +67,7 @@ export class IntelligenceEventStore {
 
   constructor(options: { path?: string } = {}) {
     const path = options.path ?? defaultIntelligenceDbPath();
+    assertNotRealFlydHome(path);
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.db = new Database(path);
