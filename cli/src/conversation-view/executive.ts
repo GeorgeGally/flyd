@@ -1,4 +1,6 @@
+import { inFlydsVoice } from "./flyd-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
+import { quoted } from "./replies.js";
 import { authorSummary, capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 
 // Flyd talks to him like an executive briefing: outcomes, what they lead to
@@ -151,9 +153,15 @@ export function withoutChatter(text: string): string {
     .replace(/\n{3,}/g, "\n\n");
 }
 
+/** One line as he reads it: stubs and machinery narration out. */
+function shownLine(line: string): string {
+  return withoutStubs(withoutChatter(line));
+}
+
 // ── Status card ────────────────────────────────────────────────────────────
 
-export type WorkState = "needs" | "underway" | "landed";
+/** Needs him, under way, landed, or a question of his Flyd already answered under his standing rules. */
+export type WorkState = "needs" | "underway" | "landed" | "handled";
 
 export interface StatusItem {
   text: string;
@@ -165,6 +173,8 @@ export interface StatusItem {
   detail?: string;
   /** For work that needs him: the sentence that asks him, as the item says it. */
   ask?: string;
+  /** The item's whole text as listed, before its stubs are taken out: what a handled question is matched on. */
+  raw?: string;
 }
 
 /** His word asked for, as NEEDS and ASKS both read it. */
@@ -174,15 +184,49 @@ const DECIDE = "(?:^|[.!?:;]\\s+|\\b(?:you|please)\\s+)(?:approve|decide)\\b";
 const NEEDS = new RegExp(`\\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|${YOUR_CALL}|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok))\\b|${DECIDE}`, "i");
 /** "Say "X" to keep it" is an ask, but only when it leads the line, not mid-sentence quoted text. */
 const SAY_ASK = /(?:^|[:;.]\s+)say\s*["“']/i;
-const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:merge|land|ship)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
+/** A sentence put to him as a question, by its mood rather than its words: it ends asking, or opens with what asks. */
+const QUESTION = /\?["”')\]]*$|^(?:so,?\s+|and\s+)?(?:shall|should|may|can|could|would|will|do|does|did|is|are|want) (?:i|we|you|it|they|firstmate|flyd)\b/i;
+const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:be |get )?(?:merged?|land(?:ed)?|ship(?:ped)?)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
+/** What is still to be done: the future or a plan, which is never landed. */
+const PLAN = /\b(?:will|['’]ll|going to|plan(?:s|ned)? to|next,? (?:i|we)|to be)\b/i;
 const LANDED = /\b(?:merged|landed|shipped|is live|went live|released|deployed|done|finished|complete)\b/i;
+/** "Will be merged", "going to be deployed": landing still to come. */
+const WILL_LAND = /\b(?:will|['’]ll|going to|to)\s+(?:be\s+|get\s+)?(?:merged|landed|shipped|live|released|deployed|done|finished|complete)\b/i;
 const NOT_YET = /\b(?:never|not|isn't|wasn't|hasn't|unmerged|until|before)\b/i;
 
-export function stateOf(text: string): WorkState | null {
-  if (NEEDS.test(text) || SAY_ASK.test(text)) return "needs";
-  if (UNDERWAY.test(text)) return "underway";
-  if (LANDED.test(text)) return NOT_YET.test(text) ? "underway" : "landed";
+/** What one sentence says of the work: it asks him, it is moving, it is only planned, it has landed, or nothing. */
+type Meaning = WorkState | "plan";
+
+/** Quoted words are someone's example ("like "Merged deployed.""), never the state of the work. */
+function unquoted(text: string): string {
+  return text.replace(/"[^"\n]*"|“[^”\n]*”/g, "…");
+}
+
+function meaningOf(sentence: string): Meaning | null {
+  const said = unquoted(sentence).trim();
+  if (!said) return null;
+  if (QUESTION.test(said) || NEEDS.test(said) || SAY_ASK.test(said)) return "needs";
+  if (UNDERWAY.test(said)) return "underway";
+  if (LANDED.test(said) && !WILL_LAND.test(said)) return NOT_YET.test(said) ? "underway" : "landed";
+  if (PLAN.test(said)) return "plan";
   return null;
+}
+
+/**
+ * What a passage says of the work, read sentence by sentence for its meaning
+ * rather than its keywords: any sentence that asks him makes it his, though
+ * another clause says "the running Flyd"; else any that says it is moving;
+ * else any that says it landed, quoted words aside; else a plan, which is not
+ * landed, not under way, and not a state for the card.
+ */
+function readingOfText(text: string): Meaning | null {
+  const meanings = new Set(sentences(unquoted(text)).map(meaningOf));
+  return (["needs", "underway", "landed", "plan"] as const).find((meaning) => meanings.has(meaning)) ?? null;
+}
+
+export function stateOf(text: string): WorkState | null {
+  const meaning = readingOfText(text);
+  return meaning === "plan" ? null : meaning;
 }
 
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
@@ -190,6 +234,8 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
 interface Block {
   kind: "item" | "text" | "blank";
   line: string;
+  /** A listed item's own line, before an indented continuation is merged in: what a handled question is matched on. */
+  raw?: string;
 }
 
 /** The project a link belongs to, by its repository ("good-neighbours" → "Good Neighbours"). */
@@ -199,10 +245,10 @@ function projectOf(url: string | undefined): string | undefined {
 }
 
 /** The Markdown links of an item, then its text with them flattened. */
-function itemOf(raw: string, state: WorkState): StatusItem {
-  const urls = [...raw.matchAll(LINK)].map((match) => match[2]!);
-  const said = sentences(inline(raw));
-  const first = clip(inline(said[0] ?? inline(raw)).replace(/[,;:.]+$/, ""), 140);
+function itemOf(shown: string, state: WorkState, listed: string): StatusItem {
+  const urls = [...shown.matchAll(LINK)].map((match) => match[2]!);
+  const said = sentences(inline(shown));
+  const first = clip(inline(said[0] ?? inline(shown)).replace(/[,;:.]+$/, ""), 140);
   // "X clashed with what landed, so it's being updated" → the line, then what follows from it.
   const split = /^(.{12,}?)(?:,\s+so\s+|\s+[—–]\s+|;\s+)(.+)$/.exec(first);
   const text = capitalise(split ? split[1]! : first);
@@ -212,7 +258,7 @@ function itemOf(raw: string, state: WorkState): StatusItem {
   const detail = rest ? clip(rest, DETAIL_CHARS) : "";
   const asked = state === "needs" ? after.find(asksOfItem) : undefined;
   const project = projectOf(urls[0]);
-  return { text, state, urls, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
+  return { text, state, urls, raw: listed, ...(project ? { project } : {}), ...(detail ? { detail } : {}), ...(asked ? { ask: asked } : {}) };
 }
 
 /** Longer than this, what an item says after its line is clipped at a word. */
@@ -243,7 +289,53 @@ export interface Briefing {
   items: StatusItem[];
 }
 
-const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2 };
+const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2, handled: 3 };
+
+/** An item that is a question of its own: "whether to …", "if …", or one whose question leads it. */
+const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
+const TRAILING_LINK = /\s*(?:\[[^\]]*\]\([^)\s]*\)|<?https?:\/\/\S+>?)[\s.,;]*$/;
+/** "whether Flyd's sidebar should show …": who, the verb that asks, and the rest. */
+const WHETHER_SUBJECT = /^(?:whether|if)\s+(.+?)\s+(should|can|could|will|would|is|are|was|were|do|does|did|has|have|may|might|must)\s+(.+)$/i;
+
+/**
+ * What a listed item asks: the item without the link it ends on, or, when it
+ * leads with its question and then says why ("Shall I push it? Until then, …"),
+ * that question alone.
+ */
+function itemAsked(text: string): string {
+  let bare = text.trim();
+  while (TRAILING_LINK.test(bare)) bare = bare.replace(TRAILING_LINK, "").trim();
+  const [first = bare] = sentences(bare);
+  return ITEM_ASKS.test(bare) || !ITEM_ASKS.test(first) ? bare : first;
+}
+
+export function itemAsks(text: string): boolean {
+  return ITEM_ASKS.test(itemAsked(text));
+}
+
+/** A listed item as the question it is: "whether to discard X" → "Discard X?". */
+export function itemQuestion(text: string): string {
+  const bare = itemAsked(text).replace(/[.;:,!?]+$/, "").trim();
+  const subject = WHETHER_SUBJECT.exec(bare);
+  const asked = /^(?:whether|if)\s+to\s+/i.test(bare) ? bare.replace(/^(?:whether|if)\s+to\s+/i, "")
+    : subject ? `${subject[2]!} ${subject[1]!} ${subject[3]!}`
+      : bare.replace(/^(?:whether|if)\s+/i, "");
+  return capitalise(inFlydsVoice(`${asked}?`));
+}
+
+/**
+ * A question as the note that answers it quotes it: the one rendering both the
+ * status card and the reply box match on, so the two can never disagree. Pure.
+ */
+function askedQuoted(text: string): string {
+  return quoted(itemQuestion(inline(text).trim()));
+}
+
+/** Of the questions a reply asks, the ones Flyd answered for him, by the quotes in its answers. */
+export function handledBy(quotes: Iterable<string> | undefined): ((text: string) => boolean) | undefined {
+  const said = new Set([...(quotes ?? [])].filter(Boolean));
+  return said.size ? (text) => said.has(askedQuoted(text)) : undefined;
+}
 
 /** A short list of fragments ("the hat tilted", "buttons stay square") joined onto its lead-in. */
 function listAsProse(lead: string | undefined, items: string[]): string[] {
@@ -264,11 +356,13 @@ function listAsProse(lead: string | undefined, items: string[]): string[] {
  * (landed, under way, needs him) become status-card items when there are at
  * least two of them; every other list reads as prose.
  */
-export function briefing(text: string): Briefing {
+export function briefing(text: string, handled?: (text: string) => boolean): Briefing {
   const lifted = scan(text, true);
   // A card under two items is no card: the lone status stays in the prose, said as written.
   if (lifted.items.length < 2) return { prose: scan(text, false).prose, items: [] };
-  return { prose: lifted.prose, items: [...merge(lifted.items)].sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
+  // A question Flyd already answered for him is no longer his: it shows as handled.
+  const items = merge(lifted.items).map((item) => (item.state === "needs" && handled?.(item.raw ?? item.text) ? { ...item, state: "handled" as const } : item));
+  return { prose: lifted.prose, items: items.sort((a, b) => ORDER[a.state] - ORDER[b.state]) };
 }
 
 function scan(text: string, lift: boolean): Briefing {
@@ -280,7 +374,7 @@ function scan(text: string, lift: boolean): Briefing {
     const blocks: Block[] = [];
     for (const line of lines) {
       if (!line.trim()) blocks.push({ kind: "blank", line });
-      else if (LIST_ITEM.test(line.trim()) && !/^\s{2,}/.test(line)) blocks.push({ kind: "item", line: LIST_ITEM.exec(line.trim())![1]! });
+      else if (LIST_ITEM.test(line.trim()) && !/^\s{2,}/.test(line)) blocks.push({ kind: "item", line: LIST_ITEM.exec(line.trim())![1]!, raw: LIST_ITEM.exec(line.trim())![1]! });
       else if (/^\s{2,}\S/.test(line) && blocks.length && blocks[blocks.length - 1]!.kind === "item") {
         const last = blocks[blocks.length - 1]!;
         const nested = LIST_ITEM.exec(line.trim());
@@ -291,31 +385,46 @@ function scan(text: string, lift: boolean): Briefing {
     let i = 0;
     while (i < blocks.length) {
       const block = blocks[i]!;
-      if (block.kind !== "item") {
+      if (block.kind === "blank") {
         result.push(block.line);
         i += 1;
         continue;
       }
-      const run: string[] = [];
-      while (i < blocks.length && blocks[i]!.kind === "item") run.push(blocks[i++]!.line);
+      if (block.kind === "text") {
+        const said = shownLine(block.line);
+        if (said) result.push(said);
+        i += 1;
+        continue;
+      }
+      const run: Block[] = [];
+      while (i < blocks.length && blocks[i]!.kind === "item") run.push(blocks[i++]!);
+      const entries = run.map((block) => ({ block, shown: shownLine(block.line) })).filter((entry) => entry.shown.trim());
+      if (!entries.length) continue;
       // The line that introduces the list ("**Flyd (merged):**", "Still waiting on your word for:").
       let leadAt = result.length - 1;
       while (leadAt >= 0 && !result[leadAt]!.trim()) leadAt -= 1;
       const lead = leadAt >= 0 && /:\s*(?:\*\*|__)?\s*$/.test(result[leadAt]!) ? result[leadAt] : undefined;
-      const context = lead ? stateOf(lead) : null;
-      const states = run.map((item) => stateOf(inline(item)) ?? context);
+      // A lead-in speaks for its list in its last sentence only ("…like "Merged deployed." So I've changed the approach:").
+      const context = lead ? stateOf(sentences(inline(lead)).at(-1) ?? "") : null;
+      // Each item as he reads it, with its raw text kept to match a question Flyd already answered.
+      const shown = entries.map((entry) => entry.shown);
+      // A plan is no state and takes none from its lead-in; anything else unsaid takes the lead-in's.
+      const states = shown.map((item) => {
+        const meaning = readingOfText(inline(item));
+        return meaning === "plan" ? null : meaning ?? context;
+      });
       const known = states.filter(Boolean).length;
       if (lift && (known >= 2 || (known >= 1 && context !== null))) {
         const leftovers: string[] = [];
-        run.forEach((item, at) => (states[at] ? items.push(itemOf(item, states[at]!)) : leftovers.push(item)));
+        entries.forEach((entry, at) => (states[at] ? items.push(itemOf(shown[at]!, states[at]!, entry.block.raw ?? entry.block.line)) : leftovers.push(shown[at]!)));
         // A lead-in that only labelled the list ("**Flyd (merged):**") goes with it.
         if (lead !== undefined && inline(lead).replace(/:\s*$/, "").split(/\s+/).length <= 5) result.splice(leadAt, 1);
         else if (lead !== undefined) result[leadAt] = lead.replace(/(?:\s+(?:for|on|to|of|with|about))?\s*:\s*(\*\*|__)?\s*$/, ".$1");
         if (leftovers.length) result.push(...listAsProse(undefined, leftovers));
         continue;
       }
-      if (lead !== undefined) result.splice(leadAt, 1, ...listAsProse(lead, run));
-      else result.push(...listAsProse(undefined, run));
+      if (lead !== undefined) result.splice(leadAt, 1, ...listAsProse(lead, shown));
+      else result.push(...listAsProse(undefined, shown));
     }
     return result.join("\n").replace(/\n{3,}/g, "\n\n");
   });
@@ -326,6 +435,7 @@ const GROUP: Record<WorkState, { title: string; kind: string }> = {
   needs: { title: "Needs you", kind: "k-call" },
   underway: { title: "Under way", kind: "k-live" },
   landed: { title: "Landed", kind: "k-landed" },
+  handled: { title: "Handled", kind: "k-handled" },
 };
 
 function safeHref(url: string): string | null {
@@ -364,13 +474,13 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
 }
 
 /** A reply as Flyd briefs him: stubs and machinery narration out, lists as prose, the work's states as card items. */
-export function brief(text: string): Briefing {
-  return briefing(withoutStubs(withoutChatter(text)));
+export function brief(text: string, handled?: (text: string) => boolean): Briefing {
+  return briefing(text, handled);
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
-export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}): string {
-  const { prose, items } = brief(text);
+export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}, handled?: (text: string) => boolean): string {
+  const { prose, items } = brief(text, handled);
   if (items.length === 0) return renderMarkdown(prose);
   const [lead, ...rest] = prose.split(/\n\s*\n/);
   return `${lead?.trim() ? renderMarkdown(lead) : ""}${statusCardHtml(items, titles)}${rest.length ? renderMarkdown(rest.join("\n\n")) : ""}`;
@@ -386,7 +496,15 @@ function asksOfItem(sentence: string): boolean {
 
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
 function asking(paragraph: string): string[] {
-  const said = sentences(inline(paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, ""))).map((sentence) => sentence.replace(SALUTATION, ""));
+  // A lead-in that ends its line with ":" introduces what follows; the ask is on the lines under it.
+  const groups: string[] = [];
+  for (const line of paragraph.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, "").split("\n")) {
+    const said = line.trim();
+    const last = groups.length - 1;
+    if (last >= 0 && !/:$/.test(groups[last]!)) groups[last] = `${groups[last]} ${said}`;
+    else groups.push(said);
+  }
+  const said = groups.flatMap((group) => sentences(inline(group))).map((sentence) => sentence.replace(SALUTATION, ""));
   return said.filter((sentence, index) => ASKS.test(sentence) && !(/\?$/.test(sentence) && /^(?:yes|no)\b/i.test(said[index + 1] ?? "")));
 }
 
@@ -402,14 +520,15 @@ export function asksIn(text: string): string[] {
 /**
  * The summary of a reply that reports several pieces of work: a one-line
  * lead (Flyd's own reading when it has one, else the reply's opening), the
- * status card, then every sentence that asks something of him. Undefined
+ * status card, then every sentence that asks something of him and that Flyd
+ * has not already answered for him (`handled`). Undefined
  * when the reply is not a multi-item status.
  */
-export function statusSummaryHtml(text: string, reading?: string): string | undefined {
-  const { prose, items } = brief(text);
+export function statusSummaryHtml(text: string, reading?: string, handled?: (text: string) => boolean): string | undefined {
+  const { prose, items } = brief(text, handled);
   if (items.length === 0) return undefined;
   const [opening = "", ...rest] = prose.split(/\n\s*\n/);
-  const asks = rest.flatMap(asking);
+  const asks = rest.flatMap(asking).filter((sentence) => !handled?.(sentence));
   const lead = reading ? renderBriefing(reading) : renderMarkdown(opening);
   return `${lead}${statusCardHtml(items)}${!reading && asks.length ? renderMarkdown(asks.join(" ")) : ""}`;
 }

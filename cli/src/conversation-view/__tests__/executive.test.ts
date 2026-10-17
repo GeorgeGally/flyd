@@ -186,4 +186,11 @@ describe("what he needs to know", () => {
     expect(withoutChatter("```\nA worker is building this now.\n```")).toBe("```\nA worker is building this now.\n```");
     expect(withoutChatter("I'll tell you what failed: the relay stopped.")).toBe("I'll tell you what failed: the relay stopped.");
   });
+
+  it("drops a list item that is only narration, so no empty gap or row appears", () => {
+    // A narration-only item beside a real one leaves no empty fragment in the prose.
+    expect(brief("Status:\n- I'll let you know when it lands.\n- Rates fixed.").prose).toBe("Status: Rates fixed.");
+    // A run of only narration under a state lead makes no empty card row.
+    expect(brief("Waiting on your word for:\n- I'll let you know when it lands.\n- I'll report back.").items).toEqual([]);
+  });
 });

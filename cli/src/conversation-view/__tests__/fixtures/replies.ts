@@ -164,3 +164,19 @@ In the Flyd preview you sent, the phone picture of the admin was cut off on its 
 Still waiting on you:
 - whether to discard the old CapFive experiment branches (shader lab, truchet lab, deals pagination)
 - whether Flyd's sidebar should show newest at the top again`;
+
+/**
+ * Firstmate's 03:20 reply on 2026-10-17 that Flyd relayed to him as "needs you /
+ * under way / landed": the push question read as under way ("the running
+ * Flyd"), and the plan read as landed (a quoted "Merged deployed."). Both
+ * questions were Flyd's to answer.
+ */
+export const TWO_THINGS_WAITING = `Captain, the notification clean-up kept producing broken sentences: every fix to the word-swapping created new garbled ones, like "Merged deployed." So I've changed the approach instead of patching it a fourth time:
+- **Fix the messages where Flyd writes them.** The "notes waiting" warning will be worded properly from the start: "2 notes you sent are still waiting; the oldest has waited 57 min."
+- **Check everything else at the end.** If a notification still names an internal helper, the whole thing is replaced with a plain line that keeps the numbers. No more cutting words out of the middle of sentences.
+
+Its checks are running again.
+
+Two things are waiting on you:
+1. Shall I put today's local Flyd commit on top of GitHub's latest and push it? Until then, fixes that land won't reach the running Flyd. https://github.com/GeorgeGally/flyd/pull/158
+2. Do you want the command that lets firstmate message Flyd and get a real reply?`;

@@ -25,8 +25,19 @@ describe("settledBy", () => {
     expect(settle(reply("Checks passed. Should I land the Flyd change now?"))?.rule).toBe("merge-green-flyd");
   });
 
+  it("settles a merge of a pull request by the merge rule, not as a git pull", () => {
+    expect(settle(reply("All its checks are green. Shall I merge the Flyd pull request?"))?.rule).toBe("merge-green-flyd");
+    // Not green: the merge waits, and the words "pull request" are no git pull to sync.
+    expect(settle(reply("Checks are still running.\n\nShall I merge the pull request?"))).toBeNull();
+    // A plain pull is still the sync rule's.
+    expect(settle(reply("Everything is green. Shall I pull the latest and push?"), "- Never ask whether to sync a local clone; assume it should match its remote. (2026-10-17)")?.rule).toBe("sync-green-work");
+  });
+
   it("answers starting a preview yes, so he sees the real thing", () => {
     expect(settle(reply("The menu is rebuilt. Want me to start the local preview so you can see it?"))?.rule).toBe("show-the-real-thing");
+    // A preview asked for alongside a merge is the merge rule's, and it is not green yet.
+    expect(settle(reply("Checks are still running.\n\nShall I merge it and start the preview?"))).toBeNull();
+    expect(settle(reply("Checks are still running.\n\nShall I land it and bring the preview up?"))).toBeNull();
   });
 
   it("leaves him the question when his recorded words for the rule are gone", () => {
@@ -35,6 +46,9 @@ describe("settledBy", () => {
 
   it("leaves him anything that is not green, not Flyd's, or not a yes-or-no", () => {
     expect(settle(reply(MERGE.replace("all its checks are green", "one check is failing")))).toBeNull();
+    for (const report of ["Vitest: 2 failed, 140 passed.", "Checks: 4/5 passed, 1 failing.", "The e2e run failed.", "1 failure."]) {
+      expect(settle(reply(`${report}\n\nShall I merge https://github.com/GeorgeGally/flyd/pull/5?`)), report).toBeNull();
+    }
     expect(settle(reply("The Christmas site change is ready: https://github.com/GeorgeGally/good_neighbours/pull/40\n\nShould I merge it?"))).toBeNull();
     expect(settle(reply("Checks are green on the Flyd change. Should I merge now or wait for your review?"))).toBeNull();
   });
@@ -71,16 +85,16 @@ describe("AutoAnswers", () => {
       return { id: `note:${sent.length}`, timestamp: AT };
     };
     const auto = new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 });
-    const entry = await auto.answer("s1", open(reply(MERGE)), send);
+    const [entry] = await auto.answer("s1", open(reply(MERGE)), send);
     expect(entry).toMatchObject({ asked: "reply:b#383", target: "reply:b#383", question: "Should I merge it?", answer: "Yes", rule: "merge-green-flyd", note: "note:1" });
     expect(sent).toEqual([
-      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking". He can take it back.]\n\nYes',
+      '[Flyd is answering for the captain to reply:b#383 — your question: "Should I merge it?"; by his standing rule: "Merge green Flyd PRs without asking". Flyd decides this with his delegated authority: act on it as his word. He can take it back.]\n\nYes',
     ]);
     // Read back, it is Flyd's answer to that question, not his own words.
     expect(readReply({ id: "note:1", role: "user", text: sent[0]! })).toMatchObject({ text: "Yes", replyTo: "reply:b#383", replyQuote: "Should I merge it?", answeredFor: "Merge green Flyd PRs without asking" });
     // Once, even across a restart.
-    expect(await auto.answer("s1", open(reply(MERGE)), send)).toBeNull();
-    expect(await new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 }).answer("s1", open(reply(MERGE)), send)).toBeNull();
+    expect(await auto.answer("s1", open(reply(MERGE)), send)).toEqual([]);
+    expect(await new AutoAnswers({ preferences: () => PROFILE, logFile, now: () => Date.parse(AT) + 60_000 }).answer("s1", open(reply(MERGE)), send)).toEqual([]);
     expect(sent).toHaveLength(1);
     expect(readFileSync(logFile, "utf8").trim().split("\n").map((line) => JSON.parse(line).rule)).toEqual(["merge-green-flyd"]);
   });
@@ -88,7 +102,7 @@ describe("AutoAnswers", () => {
   it("leaves a question he may already be weighing: one asked more than a few minutes ago", async () => {
     const sent: string[] = [];
     const auto = new AutoAnswers({ preferences: () => PROFILE, now: () => Date.parse(AT) + 60 * 60_000 });
-    expect(await auto.answer("s1", open(reply(MERGE)), async (note) => (sent.push(note), { id: "note:1", timestamp: AT }))).toBeNull();
+    expect(await auto.answer("s1", open(reply(MERGE)), async (note) => (sent.push(note), { id: "note:1", timestamp: AT }))).toEqual([]);
     expect(sent).toEqual([]);
   });
 

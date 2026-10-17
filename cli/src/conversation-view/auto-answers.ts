@@ -3,60 +3,126 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { choiceTarget, type ReplyChoice } from "./choices.js";
 import { autoAnswerNote, undoNote } from "./replies.js";
-import { inline } from "./summaries.js";
+import { inline, sentences } from "./summaries.js";
 import type { ConversationMessage, SentMessage } from "./types.js";
 
-// Firstmate's routine questions, answered by Flyd for him. When firstmate puts
-// a yes-or-no question to him that one of his own recorded preferences
-// already settles ("Merge green Flyd PRs without asking"), Flyd answers it
-// through the same note path his own answer would take, and shows him a small
-// "answered for you" line he can take back. The rules are few and explicit,
-// and each holds only while his recorded words for it are still in his
-// profile: delete the line and the rule stops. Anything destructive,
-// irreversible, security-sensitive, costly or public, anything firstmate says
-// it wants his own word on, and anything no rule plainly settles stays his,
-// as a card. Every answer and every take-back is logged.
+// Flyd's authority over its staff's questions. George leads; Flyd is his chief
+// of staff and decides what is routine in his place. When firstmate puts a
+// yes-or-no question to him that his standing preferences already settle
+// (merge or sync green work, build the obvious follow-up, make a wording or
+// formatting call), Flyd answers it with his delegated authority, through the
+// same note path his own answer would take, and shows him a quiet "handled"
+// line he can take back. Each answer stands on a line of his recorded words:
+// delete the line and Flyd stops answering by it. What stays his: anything
+// destructive or irreversible, anything that costs money, touches security or
+// access, goes public or speaks for him to other people, a genuine taste or
+// strategy call, anything firstmate says only he can give, and anything no
+// rule plainly settles. Every answer and every take-back is logged.
 
-/** A rule Flyd answers by, and the recorded preference of his it stands on. */
+/** A rule Flyd answers by, and the recorded preferences of his it can stand on, most specific first. */
 interface StandingRule {
   id: string;
-  /** His recorded words that settle the question; without them in his profile, the rule is off. */
-  preference: RegExp;
+  /** His recorded words that settle the question; without any of them in his profile, the rule is off. */
+  preferences: RegExp[];
   /** The question it settles, read from the question itself. */
   asks: RegExp;
-  /** What else must hold, read from the question and the whole reply. */
-  holds?: (question: string, reply: string) => boolean;
+  /** What else must hold, read from the question, the whole reply and the recorded line it stands on. */
+  holds?: (question: string, reply: string, because: string) => boolean;
   answer: "Yes";
 }
 
 const FLYD_PULL = /https:\/\/github\.com\/[\w.-]+\/flyd\/pull\/\d+/i;
 const ANY_PULL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/gi;
-/** The work is not green: a merge waits for him. */
-const NOT_GREEN = /\b(?:fail(?:ed|ing|s|ure)?|red|broken|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b/i;
+/** The work is not green: a failure of any kind, red, conflicts, checks still running, or the work itself broken. A merge or sync waits for him. */
+const NOT_GREEN = /\b(?:fail(?:ed|ing|s|ures?)?|red|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b|\b(?:work|builds?|tests?|checks?|ci|main|branch|it|suite|pipeline)\b(?:\s+\w+){0,2}?\s+(?:broken|broke)\b|\bbroken\s+(?:builds?|tests?|checks?|ci|main|branch)\b/i;
+/** A merge is only ever settled by the merge rule, which reads whether the work is green. */
+const LANDS = /\b(?:merge|land)\b/i;
+/** He asked his staff to take control rather than hand problems back: what lets Flyd settle the routine. */
+const TAKE_CONTROL = [
+  /take control of situations|rather than sending problems back/i,
+  /does not want to be given extra work or decisions/i,
+];
+
+/** Flyd's own work, named in the question or the only work the reply links to. */
+function flyds(question: string, reply: string): boolean {
+  const pulls = reply.match(ANY_PULL) ?? [];
+  return /\bflyd\b/i.test(question) || (pulls.length > 0 && pulls.every((url) => FLYD_PULL.test(url)));
+}
 
 const RULES: StandingRule[] = [
   {
     id: "merge-green-flyd",
-    preference: /merge green flyd (?:prs|pull requests|changes) without asking/i,
+    preferences: [/merge green flyd (?:prs|pull requests|changes) without asking/i, /always merge finished, reviewed, green work without asking/i],
     asks: /\b(?:merge|land)\b/i,
-    // Flyd's own work, named in the question or the only work the reply links to, and green.
-    holds: (question, reply) => {
-      const pulls = reply.match(ANY_PULL) ?? [];
-      const flyds = /\bflyd\b/i.test(question) || (pulls.length > 0 && pulls.every((url) => FLYD_PULL.test(url)));
-      return flyds && !NOT_GREEN.test(reply);
-    },
+    // Green, and Flyd's own unless his words cover every project.
+    holds: (question, reply, because) => !NOT_GREEN.test(reply) && (flyds(question, reply) || /\ball projects\b/i.test(because)),
+    answer: "Yes",
+  },
+  {
+    id: "sync-green-work",
+    preferences: [/never ask whether to sync/i, ...TAKE_CONTROL],
+    // Commit, rebase onto the latest, push, pull, fast-forward: keeping his copies in
+    // step. A merge or land is the merge rule's, and "pull request" is no git pull.
+    asks: /\b(?:commit|push|rebase|sync|pull(?!\s+requests?\b)|fast-forward|on top of)\b/i,
+    holds: (question, reply) => !LANDS.test(question) && !NOT_GREEN.test(reply),
+    answer: "Yes",
+  },
+  {
+    id: "obvious-follow-up",
+    preferences: TAKE_CONTROL,
+    // "Do you want the command that lets…", "Want me to add tests for it?", "Shall I fix the other two?"
+    asks: /\b(?:do you want|would you like|want me to|shall (?:i|we)|should (?:i|we)|ok(?:ay)? to)\b.*\b(?:command|tool|fix|tests?|checks?|script|feature|helper|add|build|make|write|wire|implement|update|upgrade|finish|continue|carry on)\b/i,
+    holds: (question) => !LANDS.test(question) && !NOT_GREEN.test(question),
+    answer: "Yes",
+  },
+  {
+    id: "wording-and-format",
+    preferences: TAKE_CONTROL,
+    asks: /\b(?:word(?:ing|ed|s)?|phras\w*|format\w*|label|typo|spelling|capitali[sz]\w*|rename)\b/i,
+    holds: (question) => !LANDS.test(question),
     answer: "Yes",
   },
   {
     id: "show-the-real-thing",
-    preference: /start the local preview server and send him the url/i,
+    preferences: [/start the local preview server and send him the url/i],
     asks: /\b(?:start|open|run|spin up|bring up|launch)\b[^?]*\bpreview\b|\bpreview\b[^?]*\b(?:up|running|open)\b/i,
+    holds: (question) => !LANDS.test(question),
     answer: "Yes",
   },
 ];
 
-/** Never answered for him, whatever a rule says: what cannot be taken back, costs, goes public or touches access. */
-const NEVER = /\b(?:delet|remov|drop|wip|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|email|post|tweet|whatsapp|message|pay|purchas|buy|spend|cost|bill|charg|subscri|price|secret|token|password|credential|api key|permission|secur|auth|production|prod\b|public|share|firstmate|irreversibl|undo)/i;
+/**
+ * Never answered for him, whatever a rule says: what cannot be taken back,
+ * costs, goes public or touches access.
+ */
+const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
+/** A communicating verb: it speaks for him only when what follows names someone it reaches. */
+const COMMUNICATES = /\b(?:messag(?:e|es|ed|ing)|dm|notif(?:y|ies|ied|ying)|ping(?:s|ed|ing)?|email(?:s|ed|ing)?|send(?:s|ing)?|sent|slack(?:s|ed|ing)?|comment(?:s|ed|ing)?|forward(?:s|ed|ing)?|cc|invit(?:e|es|ed|ing)|respond(?:s|ed|ing)?|repl(?:y|ies|ied|ying)|reach(?:es|ing)? out|post(?:s|ed|ing)?|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ed|ing)|text(?:s|ed|ing)?|remind\w*)\b/gi;
+/** People, or a public place, a message reaches. */
+const RECIPIENT = /\b(?:team\w*|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|manager|colleagues?|everyone|everybody|someone|anyone|people|users|folks|guys|issue|thread|channel|forum|public(?:ly)?)\b/i;
+/** A person named as the one it goes to, right after the verb ("email Sam") or after to or with ("send it to Sam"). */
+const NAMED = /^\s*(?:@\w+|(?!(?:Flyd|Firstmate|GitHub|Git)\b)[A-Z][a-z]+)/;
+const NAMED_TO = /^\s*(?:\S+\s+){0,3}?(?:to|with)\s+(?:@\w+|(?!(?:Flyd|Firstmate|GitHub|Git)\b)[A-Z][a-z]+)/;
+/** Verbs aimed at a person: only after one is a capitalised name someone, not a tool or a platform. */
+const TO_A_PERSON = /^(?:email|dm|messag|text|ping|tell|told|cc|invit|forward|slack|notif|remind|repl)/i;
+/** Verbs that reach a person named after to or with, but not post or update, whose "to Vercel" is a place. */
+const SENDS_TO = /^(?:send|sent|writ|respond|reach)/i;
+/** Him, her or them reached directly; after write, update or post they are as likely branches or files. */
+const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
+
+/** Whether the question speaks for him to other people: a communicating verb aimed at a person, team or public place. */
+function speaksForHim(question: string): boolean {
+  for (const verb of question.matchAll(COMMUNICATES)) {
+    const after = question.slice(verb.index + verb[0].length).split(/[?.,;!]|\band\b/)[0]!;
+    if (RECIPIENT.test(after)) return true;
+    if (TO_A_PERSON.test(verb[0]) && (NAMED.test(after) || NAMED_TO.test(after))) return true;
+    if (SENDS_TO.test(verb[0]) && NAMED_TO.test(after)) return true;
+    if (!/^(?:writ|updat|post)/i.test(verb[0]) && PRONOUN.test(after)) return true;
+  }
+  return false;
+}
+/** A taste or strategy call: his to make even when it is reversible. */
+const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
 /** Firstmate wants his own word on it. */
 const WANTS_HIM = /\b(?:needs? your (?:go|yes|ok|okay|approval|call|decision|sign-?off|word)|want your (?:yes|go|ok|okay|approval|word)|your (?:yes|go-ahead|approval|sign-?off) first|only you can|up to you)\b/i;
 /** Only a question just asked is answered for him; an old one he may already be weighing. */
@@ -69,26 +135,43 @@ export interface Settled {
   because: string;
 }
 
-/** The recorded line that holds this preference: its rule, without its list mark, date or the gloss after a dash. */
+/**
+ * The recorded line that holds this preference: its rule, without its list
+ * mark, date or the gloss after a dash; in a long memo, the sentence that says it.
+ */
 function recordedLine(preferences: string, preference: RegExp): string | null {
   const line = preferences.split("\n").find((entry) => preference.test(entry));
   if (!line) return null;
-  return inline(line).replace(/^[-*+]\s+/, "").replace(/(?:\s*\(\d{4}-\d{2}-\d{2}\))+\s*$/, "").split(/\s+[—–]\s+/)[0]!.replace(/[.;:,]+$/, "").trim();
+  const rule = inline(line).replace(/^[-*+]\s+/, "").replace(/(?:\s*\(\d{4}-\d{2}-\d{2}\))+\s*$/, "").split(/\s+[—–]\s+/)[0]!;
+  const said = rule.length > MEMO_CHARS ? sentences(rule).find((sentence) => preference.test(sentence)) ?? rule : rule;
+  return said.replace(/[.;:,]+$/, "").trim();
+}
+
+/** Longer than this, a recorded line is a memo, quoted by the sentence that settles the question. */
+const MEMO_CHARS = 140;
+
+/** One question put to him: the sentence, and the taps that answer it. */
+export interface Asked {
+  question: string;
+  options: string[];
 }
 
 /**
- * The answer one of his standing rules gives this question, or null when no
- * rule plainly settles it or something rules it out. Pure.
+ * The answer one of his standing rules gives this question, or null when it
+ * stays his: no rule plainly settles it, or it is destructive, costly,
+ * public, a taste call, or something firstmate wants his own word on. Pure.
  */
-export function settledBy(message: ConversationMessage, choice: ReplyChoice, preferences: string): Settled | null {
+export function settledBy(message: ConversationMessage, asked: Asked, preferences: string): Settled | null {
   // A yes-or-no question only, put by firstmate, not by Flyd's own desk.
-  if (!choice.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
-  const question = choice.question;
-  if (NEVER.test(question) || WANTS_HIM.test(message.text)) return null;
+  if (!asked.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
+  const question = asked.question;
+  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text) || speaksForHim(question)) return null;
   for (const rule of RULES) {
-    if (!rule.asks.test(question) || (rule.holds && !rule.holds(question, message.text))) continue;
-    const because = recordedLine(preferences, rule.preference);
-    if (because) return { rule: rule.id, answer: rule.answer, because };
+    if (!rule.asks.test(question)) continue;
+    for (const preference of rule.preferences) {
+      const because = recordedLine(preferences, preference);
+      if (because && (!rule.holds || rule.holds(question, message.text, because))) return { rule: rule.id, answer: rule.answer, because };
+    }
   }
   return null;
 }
@@ -127,44 +210,49 @@ export class AutoAnswers {
   }
 
   /**
-   * Answers the question still open for him when a standing rule settles it,
-   * once: never again after he takes it back. Returns what it answered.
+   * Answers the questions still open for him that his standing rules settle,
+   * each once: never again after he takes it back. Of several asked at once,
+   * Flyd answers the ones it can and leaves him the rest. Returns what it answered.
    */
   async answer(
     session: string,
     open: { message: ConversationMessage; choice: ReplyChoice } | null,
     send: (note: string) => Promise<SentMessage>,
-  ): Promise<AutoAnswerEntry | null> {
-    if (!open) return null;
+  ): Promise<AutoAnswerEntry[]> {
+    if (!open) return [];
     const { message, choice } = open;
-    const target = choiceTarget(message);
-    const id = key(target, choice.question);
-    if (this.done.has(id)) return null;
     const at = Date.parse(message.timestamp ?? "");
-    if (Number.isNaN(at) || this.now() - at > ANSWER_WITHIN_MS) return null;
+    if (Number.isNaN(at) || this.now() - at > ANSWER_WITHIN_MS) return [];
     let preferences = "";
     try {
       preferences = this.preferences();
     } catch {
-      return null;
+      return [];
     }
-    const settled = settledBy(message, choice, preferences);
-    if (!settled) return null;
-    this.done.add(id);
-    const sent = await send(autoAnswerNote(target, choice.question, settled.answer, settled.because));
-    const entry: AutoAnswerEntry = {
-      at: new Date(this.now()).toISOString(),
-      session,
-      asked: message.id,
-      target,
-      question: choice.question,
-      answer: settled.answer,
-      rule: settled.rule,
-      because: settled.because,
-      note: sent.id,
-    };
-    this.write(entry);
-    return entry;
+    const target = choiceTarget(message);
+    const answered: AutoAnswerEntry[] = [];
+    for (const asked of choice.steps ?? [choice]) {
+      const id = key(target, asked.question);
+      if (this.done.has(id)) continue;
+      const settled = settledBy(message, asked, preferences);
+      if (!settled) continue;
+      this.done.add(id);
+      const sent = await send(autoAnswerNote(target, asked.question, settled.answer, settled.because));
+      const entry: AutoAnswerEntry = {
+        at: new Date(this.now()).toISOString(),
+        session,
+        asked: message.id,
+        target,
+        question: asked.question,
+        answer: settled.answer,
+        rule: settled.rule,
+        because: settled.because,
+        note: sent.id,
+      };
+      this.write(entry);
+      answered.push(entry);
+    }
+    return answered;
   }
 
   /** He takes back an answer Flyd gave for him: the session holds off until he answers. */

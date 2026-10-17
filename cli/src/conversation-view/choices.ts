@@ -1,4 +1,6 @@
+import { itemAsks, itemQuestion } from "./executive.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { quoted } from "./replies.js";
 import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -159,21 +161,6 @@ function onlyOne(item: Listed): string {
   return clip(`Only ${item.number ? `${item.number}: ` : ""}${item.label}`, OPTION_CHARS + 8);
 }
 
-/** An item that is a question of its own: "whether to …", "if …", or one that ends asking. */
-const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
-/** "whether Flyd's sidebar should show …": who, the verb that asks, and the rest. */
-const WHETHER_SUBJECT = /^(?:whether|if)\s+(.+?)\s+(should|can|could|will|would|is|are|was|were|do|does|did|has|have|may|might|must)\s+(.+)$/i;
-
-/** A listed item as the question it is: "whether to discard X" → "Discard X?". */
-function itemQuestion(text: string): string {
-  const bare = text.replace(/[.;:,!?]+$/, "").trim();
-  const subject = WHETHER_SUBJECT.exec(bare);
-  const asked = /^(?:whether|if)\s+to\s+/i.test(bare) ? bare.replace(/^(?:whether|if)\s+to\s+/i, "")
-    : subject ? `${subject[2]!} ${subject[1]!} ${subject[3]!}`
-      : bare.replace(/^(?:whether|if)\s+/i, "");
-  return capitalise(inFlydsVoice(`${asked}?`));
-}
-
 /** One question as a step: its alternatives, nothing to tap when it asks which, else yes or no. */
 function stepOf(text: string): ChoiceStep {
   const question = itemQuestion(text);
@@ -204,7 +191,7 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (!ask) return null;
   const { sentence, context, after, before } = ask;
   // A list of questions asks, whatever its lead-in ("Still waiting on you:").
-  const listAsks = after.length >= 2 && after.every((item) => ITEM_ASKS.test(item.text));
+  const listAsks = after.length >= 2 && after.every((item) => itemAsks(item.text));
   const asks = /\?["”')\]]*$/.test(sentence) || ASK_IMPERATIVE.test(sentence) || (after.length >= 2 && (leadInAsks(sentence) || (listAsks && /:$/.test(sentence))));
   if (!asks) return null;
   const question = capitalise(inFlydsVoice([context, sentence.replace(/:$/, "?")].filter(Boolean).join(" ")));
@@ -243,11 +230,12 @@ function answersIt(message: ConversationMessage, choice: ReplyChoice | null): bo
 /**
  * The reply still waiting on his choice: the newest assistant message that
  * asks him something Flyd's model did not judge routine, until he answers it.
- * His answer is his reply to it (or Flyd's, by one of his standing rules,
- * unless he took that back), anything he typed into the session itself, or a
- * note that reads as an answer ("yes", "go ahead", one of its options). A
- * note about something else does not answer it: the question stays put
- * until he does. Pure.
+ * His answer is his reply to it, anything he typed into the session itself,
+ * or a note that reads as an answer ("yes", "go ahead", one of its options).
+ * A question Flyd answered for him by one of his standing rules, unless he
+ * took that back, is no longer his: of several asked at once, only the ones
+ * Flyd left him stay. A note about something else does not answer it: the
+ * question stays put until he does. Pure.
  */
 export function openChoice(
   messages: ConversationMessage[],
@@ -255,12 +243,13 @@ export function openChoice(
 ): { message: ConversationMessage; choice: ReplyChoice } | null {
   // His newest word on each question he replied to: answered, or Flyd's answer taken back.
   const replied = new Map<string, boolean>();
+  const flyds = answeredForHim(messages);
   const later: ConversationMessage[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.role === "user") {
       if (message.replyTo) {
-        if (!replied.has(message.replyTo)) replied.set(message.replyTo, !message.undoes);
+        if (message.answeredFor === undefined && !replied.has(message.replyTo)) replied.set(message.replyTo, !message.undoes);
         continue;
       }
       // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
@@ -269,13 +258,45 @@ export function openChoice(
       continue;
     }
     if (routine(message)) continue;
-    const choice = choiceOf(message.text);
-    if (!choice) continue;
+    const asked = choiceOf(message.text);
+    if (!asked) continue;
     if (replied.get(choiceTarget(message)) === true) return null;
+    const choice = leftToHim(asked, flyds.get(choiceTarget(message)));
+    if (!choice) return null;
     if (later.some((note) => answersIt(note, choice))) return null;
     return { message, choice };
   }
   return null;
+}
+
+/**
+ * The questions Flyd answered for him by his standing rules and he has not
+ * taken back, as each answer quotes them, by the reply that asked. Pure.
+ */
+export function answeredForHim(messages: ConversationMessage[]): Map<string, Set<string>> {
+  const answered = new Map<string, Set<string>>();
+  const takenBack = new Set<string>();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== "user" || !message.replyTo) continue;
+    const asked = `${message.replyTo}\n${message.replyQuote ?? ""}`;
+    if (message.undoes) takenBack.add(asked);
+    else if (message.answeredFor !== undefined && !takenBack.has(asked)) answered.set(message.replyTo, (answered.get(message.replyTo) ?? new Set()).add(message.replyQuote ?? ""));
+  }
+  return answered;
+}
+
+/** The choice without the questions Flyd already answered for him, or null when none is left. */
+function leftToHim(choice: ReplyChoice, answered: Set<string> | undefined): ReplyChoice | null {
+  if (!answered?.size) return choice;
+  // An answer that quotes no question answered the reply whole.
+  if (answered.has("")) return null;
+  const settled = (question: string) => answered.has(quoted(question));
+  if (!choice.steps) return settled(choice.question) ? null : choice;
+  const steps = choice.steps.filter((step) => !settled(step.question));
+  if (steps.length === choice.steps.length) return choice;
+  if (steps.length === 0) return null;
+  return steps.length === 1 ? { question: steps[0]!.question, options: steps[0]!.options } : { ...choice, steps };
 }
 
 /**

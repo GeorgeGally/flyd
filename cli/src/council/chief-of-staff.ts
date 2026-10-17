@@ -144,7 +144,7 @@ const TELEMETRY = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|\bfm\/[\w
 /** He is being asked to choose. */
 const ASKS_HIM = /\b(needs? your (?:call|decision|ok|okay|approval|sign-?off|input)|your call\b|up to you\b|do you want (?:me|us|it|them) to\b|should (?:i|we)\b|shall (?:i|we)\b|which (?:do you|would you|one)\b|want me to\b[^.?!]*\bor\b|(?:please )?(?:approve|decide)\b)/i;
 /** …about how the work is built or run, which is not his to decide. */
-const INTERNAL_MATTER = /\b(config|feature flag|flag|guard|gate|refactor|tests?|lint|ci|pipeline|branch|rebase|retry|push back|implementation|schema|migration|timeout|threshold|regex|prompt|turn-end|hooks?|endpoint|dependency|worktree|supervisor|daemon|inbox)\b/i;
+const INTERNAL_MATTER = /\b(config|commit|push|sync|feature flag|flag|guard|gate|refactor|tests?|lint|ci|pipeline|branch|rebase|retry|push back|implementation|schema|migration|timeout|threshold|regex|prompt|turn-end|hooks?|endpoint|dependency|worktree|supervisor|daemon|inbox)\b/i;
 /** Outward or irreversible: these stay his even when they sound technical. */
 const HIS_DECISION = /\b(merge|land|ship|publish|deploy|release|send|email|post|delete|buy|spend|price|cost|budget|client|pay\w*|charg\w*|refund\w*|subscri\w*|renew\w*|cancel\w*|invoice\w*|contract\w*|sign\w*)\b/i;
 
