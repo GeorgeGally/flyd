@@ -344,6 +344,32 @@ describe("FirstMate domain transport", () => {
     expect(notes[0]).toContain("needs George's decision");
   });
 
+  it("gives a caller that passes no judge Flyd's model, settling a prose reply rather than words alone", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const prose = "Rebased and merged; green.";
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" });
+    const sent: string[] = [];
+    const savedVitest = process.env.VITEST;
+    const savedFixture = process.env.FLYD_MODEL_FIXTURE;
+    delete process.env.VITEST;
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ fallback: "{\"status\": \"completed\"}" });
+    try {
+      const [settled] = await syncFirstmateDomainRuns({
+        transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+        onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      });
+      expect(settled!.status).toBe("completed");
+      expect(sent).toEqual([prose]);
+    } finally {
+      if (savedVitest === undefined) delete process.env.VITEST; else process.env.VITEST = savedVitest;
+      if (savedFixture === undefined) delete process.env.FLYD_MODEL_FIXTURE; else process.env.FLYD_MODEL_FIXTURE = savedFixture;
+    }
+  });
+
   it("never calls an affirmative prose reply failed on the newest reply", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
