@@ -287,14 +287,15 @@ function wordsOf(text: string): string[] {
 
 /**
  * Whether two wordings put the same question: the card's line for it and the
- * quote in Flyd's answer to it, say. The same words, or every word of the shorter in the longer: a question said shorter, never a near-copy that swaps a word. Pure.
+ * quote in Flyd's answer to it, say. The same words in the same order, with the
+ * shorter wording the longer's tail: a lead-in dropped from the front ("whether
+ * to push …" against "Push …"), never a near-copy that swaps or omits a word. Pure.
  */
 export function sameQuestion(a: string, b: string): boolean {
   const [short, long] = [wordsOf(a), wordsOf(b)].sort((x, y) => x.length - y.length) as [string[], string[]];
-  if (short.length === long.length && [...short].sort().join(" ") === [...long].sort().join(" ")) return true;
   if (short.length === 0) return false;
-  const pool = new Set(long);
-  return short.every((word) => pool.has(word));
+  const offset = long.length - short.length;
+  return short.every((word, index) => word === long[offset + index]);
 }
 
 /** Of the questions a reply asks, the ones Flyd answered for him, by the quotes in its answers. */
