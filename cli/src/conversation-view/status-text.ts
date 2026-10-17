@@ -22,22 +22,24 @@ export interface InFlightTool {
   argument?: string;
 }
 
-/** A concrete status built from the tool call under way: the tool and the thing it is about, e.g. "Searching memory for Canva". */
+/** A concrete status built from the tool call under way: the tool and the thing it is about, e.g. "Searching memory for Canva"; `""` when it names no thing. */
 export function statusFromTool(inFlight: InFlightTool): string {
   const tool = inFlight.tool.replace(/\s+/g, " ").trim();
   const argument = inFlight.argument?.replace(/\s+/g, " ").trim() ?? "";
-  if (!argument || new RegExp(argument.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(tool)) return tool;
+  if (!argument) return "";
+  if (new RegExp(argument.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(tool)) return tool;
   const clipped = argument.length > 60 ? `${argument.slice(0, 59).trimEnd()}…` : argument;
   return `${tool} ${clipped}`;
 }
 
 /**
  * What George is shown for a relayed status update: its own line when it names something concrete, else a status
- * built from the tool call under way. A placeholder is never passed on; `""` only when even the tool call names
- * nothing, so the caller can keep the line it had.
+ * built from the tool call under way. A placeholder is never passed on, built or relayed; `""` when the tool call
+ * names nothing concrete either, so the caller can keep the line it had.
  */
 export function relayStatus(text: string, inFlight?: InFlightTool): string {
   const line = text.replace(/\s+/g, " ").trim();
   if (line && !isPlaceholderStatus(line)) return line;
-  return inFlight ? statusFromTool(inFlight) : "";
+  const built = inFlight ? statusFromTool(inFlight) : "";
+  return built && !isPlaceholderStatus(built) ? built : "";
 }

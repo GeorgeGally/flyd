@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FlydDesk } from "../flyd-desk.js";
-import { isPlaceholderStatus, statusFromTool } from "../interpret.js";
-import { handoffLine, livened } from "../living.js";
+import { answeringLine, handoffLine, livened } from "../living.js";
+import { isPlaceholderStatus, relayStatus, statusFromTool } from "../status-text.js";
 import type { Exchange } from "../types.js";
 
 /** Every placeholder George was shown in the review, in the variants the model produced. */
@@ -34,6 +34,12 @@ describe("isPlaceholderStatus", () => {
 
   it("builds a concrete status from the tool call under way", () => {
     expect(statusFromTool({ tool: "Searching memory for", argument: "Canva" })).toBe("Searching memory for Canva");
+  });
+
+  it("never builds a substitute that is itself a placeholder or names nothing", () => {
+    expect(relayStatus("Looking into it", { tool: "Looking into", argument: "this" })).toBe("");
+    expect(relayStatus("Looking into it", { tool: "Looking into", argument: "" })).toBe("");
+    expect(relayStatus("Working on it")).toBe("");
   });
 });
 
@@ -79,6 +85,30 @@ describe("the status line George is shown", () => {
     expect(waiting).not.toBe("Looking into it");
     expect(waiting).toContain("Maya");
     expect(isPlaceholderStatus(waiting)).toBe(false);
+  });
+
+  it("opens on what his question asks about, never a placeholder, before any step is known", () => {
+    const { desk, sent } = aRelay("what do you know about Canva");
+    const waiting = desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
+    expect(waiting).toContain("Canva");
+    expect(isPlaceholderStatus(waiting)).toBe(false);
+    for (const text of ["", "this", "it", ...PLACEHOLDERS]) {
+      expect(isPlaceholderStatus(answeringLine(text)), text).toBe(false);
+      expect(isPlaceholderStatus(answeringLine(text, true)), text).toBe(false);
+    }
+  });
+
+  it("keeps its concrete line when a placeholder arrives with nothing to build from", () => {
+    const { desk, sent, step } = aRelay("this");
+    const before = desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
+    step("Looking into it");
+    expect(desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting).toBe(before);
+  });
+
+  it("names the picked-up note's own work when firstmate's step is a placeholder", () => {
+    const note: Exchange = { question: { id: "q1", role: "user", text: "fix the footer on GNM" }, waiting: "", handoff: "taken" };
+    const [live] = livened([note], { activity: "Working on it", workingOn: ["q1"], projects: ["GNM"] });
+    expect(live!.waiting).toBe("Fixing the footer on GNM");
   });
 
   it("living.ts never renders a placeholder as its living line", () => {

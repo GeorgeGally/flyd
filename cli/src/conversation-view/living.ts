@@ -1,5 +1,5 @@
 import { clipKeepingLinks } from "./line-links.js";
-import { isPlaceholderStatus } from "./status-text.js";
+import { isPlaceholderStatus, relayStatus } from "./status-text.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -14,8 +14,6 @@ import type { Exchange } from "./types.js";
 export const WORKING = "Queued";
 /** The page shows this the moment he sends. */
 export const RECEIVED = WORKING;
-/** Flyd is answering it itself, before its first step is known. */
-export const ANSWERING = "Looking this up";
 const ACTIVITY_CHARS = 90;
 
 /** Where a note to firstmate stands: written to its inbox, or read by firstmate. */
@@ -57,6 +55,13 @@ function questionTopic(first: string): string {
   if (!/\?\s*$/.test(first) || !WHAT_IS.test(first)) return "";
   const rest = first.replace(/[?!.]+$/, "").replace(WHAT_IS, "").trim();
   return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(`Looking up ${rest}`) : "";
+}
+
+/** Flyd is answering it itself, before its first step is known: what his message asks about, never a placeholder. */
+export function answeringLine(text: string, withImages = false): string {
+  const subject = subjectOf(text);
+  if (subject && !isPlaceholderStatus(subject)) return subject;
+  return relayStatus("", { tool: "Looking into", argument: text }) || (withImages ? "Looking at your screenshot" : "Reading your message");
 }
 
 /** The project his message names, by his own name for it. */
@@ -104,7 +109,8 @@ export function livened(exchanges: Exchange[], live: { activity?: string; projec
     if (exchange.answer || exchange.answered || !exchange.handoff) return exchange;
     const step = live.steps?.get(exchange.question.id);
     const onIt = picked.has(exchange.question.id);
-    const doing = step ? upperFirst(clip(step)) : onIt && live.activity ? handoffLine("taken", { activity: live.activity }) : "";
+    const activity = onIt && live.activity && !isPlaceholderStatus(live.activity) ? live.activity : "";
+    const doing = step ? upperFirst(clip(step)) : activity ? handoffLine("taken", { activity }) : "";
     if (exchange.settled) return doing ? { ...exchange, doing } : exchange;
     if (doing) return { ...exchange, waiting: doing };
     return { ...exchange, waiting: handoffLine(onIt ? "taken" : exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}) }) };

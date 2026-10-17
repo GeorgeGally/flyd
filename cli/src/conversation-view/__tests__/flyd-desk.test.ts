@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
-import { ANSWERING } from "../living.js";
+import { answeringLine } from "../living.js";
 import { inFlydsVoice } from "../flyd-voice.js";
 import { AnswerInterpreter } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
@@ -127,7 +127,7 @@ describe("FlydDesk", () => {
     const turn = deferred();
     const desk = new FlydDesk({ dir, answer: turn.answer });
     const sent = desk.ask("  whats there to do in bkk tonight?  ");
-    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: ANSWERING }]);
+    expect(desk.exchanges()).toEqual([{ question: { id: sent.id, role: "user", text: "whats there to do in bkk tonight?", timestamp: sent.timestamp }, waiting: answeringLine("whats there to do in bkk tonight?") }]);
 
     turn.resolve("Tonight, sir: art bangkok at Siam Paragon.");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
@@ -183,7 +183,7 @@ describe("FlydDesk", () => {
       return new Promise<string>((res) => { resolve = res; });
     } });
     desk.ask("what models is flyd using?");
-    expect(desk.exchanges()[0]!.waiting).toBe(ANSWERING);
+    expect(desk.exchanges()[0]!.waiting).toBe(answeringLine("what models is flyd using?"));
     step!("Checking my own setup");
     expect(desk.exchanges()[0]!.waiting).toBe("Checking my own setup");
     step!("Searching the web: gpt-realtime-2.1 release notes…");

@@ -6,10 +6,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./interpret.js";
 import { clipKeepingLinks } from "./line-links.js";
-import { ANSWERING } from "./living.js";
+import { answeringLine } from "./living.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
+import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-text.js";
 import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
@@ -259,12 +259,14 @@ export class FlydDesk {
       ]);
     this.write(record);
     this.inFlight.add(record.id);
+    const first = clipKeepingLinks(answeringLine(record.text, kept.length > 0), MAX_STEP_CHARS, 40);
+    this.steps.set(record.id, first);
     const onStep = (step: string, tool?: InFlightTool): void => {
       const line = step.replace(/\s+/g, " ").trim();
       if (!line || !this.inFlight.has(record.id)) return;
       // The one boundary a relayed status crosses before it becomes the line under his message: a placeholder
       // never passes; it is replaced by a status built from the tool call under way, and both are kept for review.
-      const shown = relayStatus(line, tool ?? { tool: "Looking into", argument: record.text });
+      const shown = relayStatus(line, tool) || this.steps.get(record.id);
       if (!shown) return;
       if (isPlaceholderStatus(line)) {
         record = { ...record, statusSubstitutions: [...(record.statusSubstitutions ?? []), { raw: line, shown }] };
@@ -301,7 +303,7 @@ export class FlydDesk {
         this.inFlight.delete(record.id);
         this.steps.delete(record.id);
       });
-    return { id: `ask:${record.id}`, timestamp: record.at, waiting: ANSWERING };
+    return { id: `ask:${record.id}`, timestamp: record.at, waiting: first };
   }
 
   /** Checks and keeps the screenshots of a question beside the asks; returns their image ids. */
@@ -348,7 +350,7 @@ export class FlydDesk {
           waiting: "",
         };
       }
-      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? ANSWERING };
+      if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
       const waiting = record.error ? `Flyd couldn't answer this: ${record.error}` : "Flyd was interrupted before answering; send it again";
       return { question, waiting, waitingFailed: true };
     });

@@ -158,7 +158,3 @@ export class AnswerInterpreter {
     renameSync(tmp, this.options.cacheFile);
   }
 }
-
-// The status-update check George's status line is held to: a relayed status that only says something is
-// happening is replaced by a concrete one. Exposed here as the boundary's named check.
-export { isPlaceholderStatus, relayStatus, statusFromTool, type InFlightTool } from "./status-text.js";
