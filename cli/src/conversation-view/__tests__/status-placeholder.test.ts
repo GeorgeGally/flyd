@@ -97,6 +97,24 @@ describe("the status line George is shown", () => {
     await reached;
     expect(shown()).toBe("Searching memory for Canva");
 
+    let shownAlone!: () => string;
+    const reachedAlone = new Promise<void>((resolve) => {
+      const desk = new FlydDesk({
+        dir,
+        see: async () => "[What the screenshot he attached shows: A Stripe dashboard about pricing tiers.]",
+        answer: (received, _history, onStep) => {
+          onStep!("Remembering what I know about this", memoryLookup(received));
+          resolve();
+          return new Promise<string>(() => {});
+        },
+      });
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+      const sent = desk.ask("", [{ mediaType: "image/png", data: png }]);
+      shownAlone = () => desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
+    });
+    await reachedAlone;
+    expect(shownAlone()).toBe("Looking at your screenshot");
+
     const { desk, sent, asked, step } = aRelay("fix it");
     step("Remembering what I know about this", memoryLookup(asked));
     expect(desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting).toBe(answeringLine("fix it"));

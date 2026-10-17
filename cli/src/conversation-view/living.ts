@@ -59,7 +59,7 @@ function questionTopic(first: string): string {
 
 /** The thing his question is about, bare: "what is usb overdrive?" → "usb overdrive", "what do you know about Canva" → "Canva"; "" when it names none. */
 function topicOf(text: string): string {
-  const first = (text.trim().split("\n")[0] ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  const first = (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
   const bare = first.replace(/[?!.]+$/, "").trim();
   const rest = WHAT_IS.test(bare) ? bare.replace(WHAT_IS, "").trim() : /\babout\s+(.+)$/i.exec(bare)?.[1]?.trim() ?? "";
   return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(rest) : "";
