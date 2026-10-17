@@ -1955,6 +1955,14 @@ describe("the side column's type", () => {
       for (const match of body.matchAll(/font:\s*(?:\w+\s+)?(\d+(?:\.\d+)?)px/g)) expect(Number(match[1]), selector).toBeGreaterThanOrEqual(13);
     }
   });
+  it("sets the top bar and the empty page in the same sans, and never lets a preview card show white", () => {
+    const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    for (const selector of ["header", ".empty", "header .site"]) {
+      expect(rule(selector), selector).toContain("var(--sans)");
+      expect(rule(selector), selector).not.toContain("var(--mono)");
+    }
+    for (const selector of [".rail-frame-box", ".rail-frame"]) expect(rule(selector), selector).not.toMatch(/background:\s*#fff/i);
+  });
   it("gives the column one container style: no bordered boxes", () => {
     for (const { selector, body } of rules.filter((rule) => /^\.(?:rail-card|brief-list li|rail-mem)\b/.test(rule.selector))) {
       expect(body, selector).not.toMatch(/\bborder:\s*1px/);

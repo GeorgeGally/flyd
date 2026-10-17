@@ -56,7 +56,7 @@ header {
   height: 52px; padding: 0 24px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  font: 500 14px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
+  font: 500 14px/1 var(--sans); color: var(--muted);
 }
 .who { color: var(--accent); white-space: nowrap; }
 .when { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -405,14 +405,14 @@ const STYLE = BASE_STYLE + `
 /* The latest message sits just clear of the message box, never stranded above a sea of space. */
 main { max-width: 36em; margin: 0 auto; padding: 1em 1.5em 12vh; }
 body.can-send main { padding-bottom: calc(7.5em + max(72px, 9vh)); }
-.empty { color: var(--muted); font: 15px var(--mono); text-align: center; margin-top: 30vh; }
+.empty { color: var(--muted); font: 16px var(--sans); text-align: center; margin-top: 30vh; }
 
 /* The page the work is on, always in the header while there is one: local
    preview or live site, where, and which part of it. */
 header .site {
   display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 46vw; height: 30px; padding: 0 12px;
   border: 1px solid var(--faint); border-radius: 999px; color: var(--muted); text-decoration: none;
-  font: 500 13px/1 var(--mono); letter-spacing: 0; white-space: nowrap; transition: border-color 140ms ease, color 140ms ease;
+  font: 500 13px/1 var(--sans); white-space: nowrap; transition: border-color 140ms ease, color 140ms ease;
 }
 header .site[hidden] { display: none; }
 header .site:hover { border-color: var(--accent); color: var(--fg); }
@@ -423,7 +423,7 @@ header .site-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; col
 header .site-path::after { content: " ↗"; color: var(--muted); }
 
 /* Preferences: the reading, theme and taste settings, out of the header until asked for. */
-header #prefs-open { font-size: 12px; }
+header #prefs-open { font-size: 14px; }
 header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .prefs {
   position: fixed; top: 48px; right: 16px; z-index: 8; width: min(320px, calc(100vw - 32px)); padding: 6px;
@@ -544,9 +544,10 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card p.rail-card-change { margin: 0 0 12px; color: var(--strong); font: 500 14px/1.4 var(--sans); }
 /* A framed page is laid out at a desktop width and scaled down whole, like a
    screenshot of it: the narrow card never reflows it. The script sets --fit. */
-.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: #fff; }
+/* The page paints its own background over this; until it loads, and for a page that paints none, the card's own surface shows, never white. */
+.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: var(--bg); }
 .rail-frame {
-  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: #fff; display: block;
+  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: transparent; color-scheme: normal; display: block;
   transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none;
 }
 /* Work at phone width is shown on a phone: the page at 390×844, scaled into a
