@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
-import type { ConversationMessage } from "../types.js";
+import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
 import { ArtefactFeed } from "../artefact.js";
@@ -805,7 +805,10 @@ describe("ConversationViewServer", () => {
     const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     const cards = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:"));
     expect(cards).toEqual([{ id: "reply:note-reply:1791720009-eeeeee", title: "Fix the aicanetwork.com redirects", steps: ["In MyKinsta, delete the ^/$ rule.", "Then add ^/(.*)$ → https://capfive.com/$1 as a 301."] }]);
-    expect(update.messages.find((m: { id: string }) => m.id === "note-reply:1791720009-eeeeee")?.artifact?.title).toBe("Fix the aicanetwork.com redirects");
+    const rendered = update.messages.find((m: { id: string }) => m.id === "note-reply:1791720009-eeeeee");
+    expect(rendered?.artifact?.title).toBe("Fix the aicanetwork.com redirects");
+    expect(rendered?.summary?.html).toContain("2 steps, kept in Artefacts.");
+    expect(rendered?.expanded).toBeUndefined();
   });
 
   it("keeps the newest replies' steps in the column's Artefacts, newest first", async () => {
@@ -830,6 +833,37 @@ describe("ConversationViewServer", () => {
     const pointed = update.messages.filter((m: { artifact?: { title: string } }) => m.artifact).map((m: { artifact: { title: string } }) => m.artifact.title);
     expect(pointed).toEqual(["Fix site 2", "Fix site 3", "Fix site 4"]);
     expect(JSON.stringify(update.messages)).not.toContain("Fix site 1</strong>: 2 steps, kept in Artefacts");
+  });
+
+  const askedNote = (id: string, text: string, answer: string): Exchange => ({
+    question: { id: `note:${id}`, role: "user" as const, text, timestamp: "2026-10-16T02:00:00.000Z", receipt: "read" as const },
+    handoff: "queued" as const,
+    waiting: "",
+    answer: { id: `note-reply:${id}`, role: "assistant" as const, text: answer, answers: `note:${id}` },
+  });
+
+  it("asks firstmate for the artefact a note expected but did not get, in Flyd's own words", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "The new commits add routine artefacts and tidy the island.")];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    expect(inbox.sent[0]!.text).toContain("[Flyd is asking for the artefact to note:1791720009-aaaaaa — his note: \"explain the new Flyd commits in an artefact\"");
+    expect(inbox.sent[0]!.text).toContain("Flyd: send that as an artefact");
+  });
+
+  it("asks for no artefact when the note did not ask for one, or the answer already carries one", async () => {
+    const prose = new MemoryInbox();
+    prose.notes = () => [askedNote("1791720009-bbbbbb", "so what do i do here?", "Delete the catch-all, then add the general rule.")];
+    const prosePort = await start(prose, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(prosePort, "/api/stream");
+    expect(prose.sent).toHaveLength(0);
+
+    const steps = new MemoryInbox();
+    steps.notes = () => [askedNote("1791720009-cccccc", "explain the redirects in an artefact", "Captain, the redirects:\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301.")];
+    const stepsPort = await start(steps, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(stepsPort, "/api/stream");
+    expect(steps.sent).toHaveLength(0);
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {

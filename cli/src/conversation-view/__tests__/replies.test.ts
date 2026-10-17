@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { passageNote, readReply, replyNote, threaded } from "../replies.js";
+import { artefactAsk, passageNote, readReply, replyNote, threaded } from "../replies.js";
 import { threadReplies, type RailConversation } from "../rail.js";
 import type { Exchange } from "../types.js";
 
@@ -36,6 +36,17 @@ describe("replies to an answer", () => {
     expect(threads.map((conversation) => conversation.id)).toEqual(["a", "b", "e"]);
     expect(threads[0]!.replies!.map((reply) => reply.id)).toEqual(["c", "d"]);
     expect(threads[1]!.replies).toBeUndefined();
+  });
+});
+
+describe("Flyd asking for an artefact that never arrived", () => {
+  it("threads under the note and reads back as Flyd's own ask, not his", () => {
+    const text = artefactAsk(note);
+    expect(text).toContain('[Flyd is asking for the artefact to note:17-ab — his note: "There should also be other \'movements\' for bunny."; your answer came back as text, beginning: "Clicking the bunny now makes him jump.". Send it as an artefact.]');
+    const message = { id: "note:20", role: "user" as const, text };
+    const read = readReply(message);
+    expect(read).toMatchObject({ text: "Flyd: send that as an artefact, please — he asked for one and none arrived.", replyTo: "note:17-ab", replyQuote: "There should also be other 'movements' for bunny.", flydAsked: true });
+    expect(read.answeredFor).toBeUndefined();
   });
 });
 

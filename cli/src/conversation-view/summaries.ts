@@ -222,6 +222,12 @@ export function replyArtefact(text: string): { artefact: ReplyArtefact; clear: b
   return { artefact: { title: lead ? clip(capitalise(lead), 70) : "Steps to follow", steps }, clear: allSteps(steps) };
 }
 
+const ASKS_ARTEFACT = /\b(?:in|as|into)\s+(?:an?|some|the)?\s*(?:[\w'-]+\s+){0,2}artefacts?\b|\b(?:make|build|create|give|send|show|turn|render|produce|draft|write|put|do|explain)\b[^.!?\n]{0,40}?\bartefacts?\b/i;
+
+export function askedForArtefact(text: string): boolean {
+  return ASKS_ARTEFACT.test(text);
+}
+
 /** Whether a reply is routine chatter: short, with no question or numbered report. */
 export function isRoutine(text: string): boolean {
   const body = bodyOf(text);

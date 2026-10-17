@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   anthropicProvider,
+  askedForArtefact,
   authorSummary,
   defaultProviders,
   digestMarkdown,
@@ -165,9 +166,23 @@ describe("replyArtefact", () => {
   });
 });
 
+describe("askedForArtefact", () => {
+  it("reads a request that wants its answer as an artefact", () => {
+    expect(askedForArtefact("explain the new Flyd commits in an artefact")).toBe(true);
+    expect(askedForArtefact("send that as an artefact please")).toBe(true);
+    expect(askedForArtefact("give me an artefact of the redirect rules")).toBe(true);
+  });
+
+  it("leaves a plain answer, and a mention of an artefact that missed, as text", () => {
+    expect(askedForArtefact("so what do i do here?")).toBe(false);
+    expect(askedForArtefact("why is the artefact not showing?")).toBe(false);
+    expect(askedForArtefact("this should definitely be an artefact in flyd")).toBe(false);
+    expect(askedForArtefact("that could've been some neat flyd artefact")).toBe(false);
+  });
+});
+
 describe("ReplySummarizer", () => {
   const cacheFile = () => join(dir, "view", "summaries.json");
-
   it("asks once per reply, keeps the answer on disk, and reuses it after a restart", async () => {
     const provider = counting("fake", async () => "The menu bar is higher now.");
     const summarizer = new ReplySummarizer({ providers: [provider], cacheFile: cacheFile() });

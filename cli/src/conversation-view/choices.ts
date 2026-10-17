@@ -29,6 +29,8 @@ export interface ReplyChoice {
   options: string[];
   /** Several questions asked at once: one at a time, and one reply that answers them all. */
   steps?: ChoiceStep[];
+  /** The ask is "pick the ones you want": any number of the options, not just one. */
+  multiple?: boolean;
 }
 
 /** At most this many options; more is a list to read, not a choice to make. */
@@ -141,6 +143,7 @@ function closingAsk(blocks: string[][]): { sentence: string; context: string; af
 
 /** "Should I merge now or wait for checks?": the alternatives, when each is short. */
 function alternatives(question: string): string[] {
+  if (!/\?["”')\]]*$/.test(question.trim())) return [];
   const bare = question.replace(/[?:.]+$/, "").replace(LEAD_IN, "");
   if (/\bor (?:not|so|something|anything|otherwise)\b/i.test(bare)) return [];
   const parts = bare.split(/,\s*(?:or\s+)?|\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
@@ -155,6 +158,8 @@ function yesToAll(question: string): string {
   if (all) return `Yes, all ${all[1]!.toLowerCase()}`;
   return /\bboth\b/i.test(question) ? "Yes, both" : "Yes, all of them";
 }
+
+const PICK_ONES = /\b(?:pick|choose|select)\b[^.?!]{0,50}?\b(?:ones?|some|these|those|any|all|each|two|three|four|five|six|\d+)\b/i;
 
 /** One option per listed item: "Only 1: Press feedback". */
 function onlyOne(item: Listed): string {
@@ -206,8 +211,9 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (either.length) return { question, options: either };
   const set = numberedSet(before);
   if (OPEN_WORD.test(lead) || OPEN_WORD.test(sentence) || ASK_IMPERATIVE.test(sentence)) {
-    // "Which of these?" over a numbered set: one button per item; anything else is his to say.
-    return { question, options: ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS ? set.map((item) => item.label) : [] };
+    if (set.length >= 2 && set.length <= MAX_OPTIONS) return { question, options: set.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
+    if (PICK_ONES.test(sentence)) return null;
+    return { question, options: [] };
   }
   // A yes-or-no question about a numbered set: all of it, one of it, or none.
   if (ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS - 2) {

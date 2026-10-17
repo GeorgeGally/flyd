@@ -29,6 +29,16 @@ The site needs very little more motion. Number 1 is worth the most.
 
 Want me to add all three?`;
 
+const RANKED_PICKS = `Captain, the five ways to make Flyd smarter are ready. The page is in your Flyd artefacts and the full report is alongside it. They're ranked:
+
+1. **Keep promises straight.** Each commitment gets one record: where it came from, its status, its next check, and whether it's actually finished. Big job.
+2. **Every background job ends in a checkable result or an honest "blocked".** No more quiet empty or failed runs sitting in Flyd's job list.
+3. **Your corrections become lasting, testable preferences.** When you correct Flyd once, it stays corrected, and there's a test proving it.
+4. **Recall shows why an item belongs and when it may be out of date.** Flyd stops bringing back stale facts with full confidence.
+5. **Proof that learning helps.** Every change to how Flyd behaves gets checked against evidence that it actually improved things.
+
+Pick the ones you want built, from the page in Flyd or here.`;
+
 const reply = (id: string, text: string, extra: Partial<ConversationMessage> = {}): ConversationMessage => ({ id, role: "assistant", text, ...extra });
 const said = (id: string, text: string): ConversationMessage => ({ id, role: "user", text });
 
@@ -64,6 +74,21 @@ describe("choiceOf", () => {
       question: "Which do you want?",
       options: ["Evergreen", "Frost"],
     });
+  });
+
+  it("offers the items a reply listed when it asks him to pick the ones he wants, any number of them", () => {
+    const choice = choiceOf(RANKED_PICKS)!;
+    expect(choice.question).toBe("Pick the ones you want built, from the page in Flyd or here.");
+    expect(choice.multiple).toBe(true);
+    expect(choice.options).toHaveLength(5);
+    expect(choice.options[0]).toBe("Keep promises straight");
+    expect(choice.options[4]).toBe("Proof that learning helps");
+    expect(JSON.stringify(choice.options)).not.toContain("From the page in Flyd");
+    expect(choice.options).not.toContain("Here");
+  });
+
+  it("asks nothing when it says to pick the ones and listed nothing to pick from", () => {
+    expect(choiceOf("Ready when you are. Pick the ones you want built, from the page in Flyd or here.")).toBeNull();
   });
 
   it("puts several questions listed at the end one at a time, never offering one as the answer to another", () => {

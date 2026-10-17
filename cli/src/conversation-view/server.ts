@@ -20,7 +20,7 @@ import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
@@ -35,7 +35,7 @@ import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
-import { answerNote, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
+import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
 import { answeredForHim, choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
@@ -452,6 +452,7 @@ export class ConversationViewServer {
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
+  private readonly chased = new Set<string>();
 
   constructor(
     private readonly source: ConversationSource,
@@ -1256,6 +1257,23 @@ export class ConversationViewServer {
       .catch((error: unknown) => console.warn(`[view] Flyd could not answer for him: ${error instanceof Error ? error.message : String(error)}`));
   }
 
+  private chaseArtefact(session: string, snapshot: ConversationSnapshot): void {
+    if (!this.source.canSend) return;
+    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
+    const chased = new Set(exchanges.filter((exchange) => exchange.question.flydAsked && exchange.question.replyTo).map((exchange) => exchange.question.replyTo!));
+    for (const exchange of exchanges) {
+      const id = exchange.question.id;
+      if (!id.startsWith("note:") || exchange.question.flydAsked || this.chased.has(id) || chased.has(id)) continue;
+      if (!exchange.answer || !askedForArtefact(exchange.question.text) || replyArtefact(exchange.answer.text)) continue;
+      this.chased.add(id);
+      void this.source.send(session, artefactAsk(exchange), [], [], "firstmate")
+        .catch((error: unknown) => {
+          this.chased.delete(id);
+          console.warn(`[view] Flyd could not ask for the artefact: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }
+  }
+
   private async image(res: ServerResponse, session: string | null, id: string | null): Promise<void> {
     let image = null;
     try {
@@ -1395,6 +1413,7 @@ export class ConversationViewServer {
         latest = snapshot;
         this.cachePredictionContext(session.id, snapshot.messages);
         this.autoAnswer(session.id, snapshot);
+        this.chaseArtefact(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
         emitUnread();
       },
