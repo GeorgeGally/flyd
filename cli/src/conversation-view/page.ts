@@ -1060,6 +1060,7 @@ var __name = function (f) { return f; };
     keepPlace(function () { applyMode(next); });
   });
   document.getElementById("routine-suggestion").addEventListener("click", function (event) { event.preventDefault(); location.href = "/routines?session=" + encodeURIComponent(current || "latest"); });
+  document.getElementById("preparation-link").addEventListener("click", function () { location.href = "/preparation?session=" + encodeURIComponent(current || "latest"); });
   document.getElementById("routines-link").addEventListener("click", function () { location.href = "/routines?session=" + encodeURIComponent(current || "latest"); });
   document.getElementById("taste-link").addEventListener("click", function () { location.href = "/taste?token=" + encodeURIComponent(VIEW_TOKEN); });
   themeBtn.addEventListener("click", function () {
@@ -4098,6 +4099,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>

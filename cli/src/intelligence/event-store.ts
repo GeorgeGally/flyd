@@ -220,6 +220,14 @@ export class IntelligenceEventStore {
     return rows.map((row) => this.mapRow(row));
   }
 
+  /** A source family, using an indexed lexical range instead of replaying unrelated memory. */
+  readSourcePrefix(prefix: string): StoredEvent[] {
+    if (!prefix || !/^[a-zA-Z0-9_.:-]+$/.test(prefix)) throw new Error("Invalid source prefix");
+    const rows = this.db.prepare(`SELECT * FROM personal_events WHERE source_id >= ? AND source_id < ? ORDER BY sequence ASC`)
+      .all(prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)) as Array<Record<string, unknown>>;
+    return rows.map(row => this.mapRow(row));
+  }
+
   /** Newest first: subjects that conversation learning labelled, for dictation's spelling hints. */
   learnedTopicLabels(limit = 50): string[] {
     const rows = this.db.prepare(

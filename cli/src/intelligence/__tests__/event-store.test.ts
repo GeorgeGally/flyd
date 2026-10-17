@@ -127,3 +127,15 @@ describe("IntelligenceEventStore", () => {
     });
   });
 });
+
+it('reads only the requested source family in canonical order and retracts erased payloads', () => {
+  const store = new IntelligenceEventStore({ path: join(dir, 'prefix.sqlite') });
+  try {
+    appendValid(store, observation('initiative.session.a', 'prefix-a', { value: 'a' }));
+    appendValid(store, observation('calendar.metadata', 'prefix-other', { value: 'private-other' }));
+    appendValid(store, observation('initiative.session.b', 'prefix-b', { value: 'b' }));
+    expect(store.readSourcePrefix('initiative.session.').map(event => event.payload?.value)).toEqual(['a', 'b']);
+    store.eraseSource('initiative.session.a');
+    expect(store.readSourcePrefix('initiative.session.').filter(event => !event.erased).map(event => event.payload?.value)).toEqual(['b']);
+  } finally { store.close(); }
+});

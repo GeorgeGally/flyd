@@ -106,7 +106,7 @@ function anthropicHeaders(connection: ModelConnection): Record<string, string> {
   return directAnthropic(connection) ? claudeHeaders() : {};
 }
 
-type ClaudeRole = "agent" | "quick";
+type ClaudeRole = "agent" | "quick" | "preparation";
 // History elision rewrites old tool results; dropping the thinking those
 // edits invalidate beats a 400 on accounts that enforce the check.
 const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
@@ -123,6 +123,11 @@ function claudeShape(model: string, connection: ModelConnection, role: ClaudeRol
 } {
   if (!isCurrentClaude(model)) return { params: { temperature: 0.2 }, headers: {} };
   if (isHaiku(model)) return { params: { thinking: { type: "disabled" } }, headers: {} };
+  // Sonnet 5.5 uses between_tools to turn off up-front thinking in bounded text calls.
+  // https://platform.claude.com/docs/en/build-with-claude/thinking
+  if (role === "preparation" && /^claude-sonnet-5-5(?:-|$)/i.test(apiModelId(model))) {
+    return { params: { thinking: { type: "between_tools" }, output_config: { effort: "low" } }, headers: {} };
+  }
   const effort = role === "agent" ? process.env.FLYD_CLAUDE_CHAT_EFFORT?.trim() || "medium" : "low";
   const binding = role === "agent" && directAnthropic(connection);
   return {
@@ -510,6 +515,46 @@ export async function probeChatModel(model: string, timeoutMs = 15_000): Promise
       error: (error instanceof Error ? error.message : String(error)).split("\n")[0].slice(0, 160),
     };
   }
+}
+
+export interface BoundedQueryInput {
+  prompt: string;
+  model: string;
+  providerIdentity: string;
+  maxTokens: number;
+  signal: AbortSignal;
+}
+
+/** A single pinned, tool-free call; no enrichment, retries or failover. */
+export async function boundedQuery(input: BoundedQueryInput): Promise<string> {
+  input.signal.throwIfAborted();
+  const connection = resolveModelConnection(input.model);
+  if (connection.providerIdentity !== input.providerIdentity) throw new Error("Preparation provider changed");
+  if (!Number.isInteger(input.maxTokens) || input.maxTokens < 1) throw new Error("Invalid preparation output budget");
+  if (usesOpenAITransport(input.model)) {
+    const { default: OpenAI } = await import("openai");
+    const client = new OpenAI({ ...openAIClientOptions(connection.apiKey, connection.baseURL), maxRetries: 0 });
+    const result = await client.chat.completions.create({
+      model: apiModelId(input.model),
+      ...openAICompletionLimit(input.maxTokens),
+      messages: [{ role: "user", content: input.prompt }],
+    }, { signal: input.signal });
+    const choice = result.choices[0];
+    if (!choice?.message.content?.trim() || choice.finish_reason !== "stop") throw new Error("Preparation response incomplete");
+    return choice.message.content;
+  }
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ apiKey: connection.apiKey, baseURL: connection.baseURL, defaultHeaders: anthropicHeaders(connection), maxRetries: 0 });
+  const shape = isCurrentClaude(input.model) ? claudeShape(input.model, connection, "preparation") : { params: {}, headers: {} };
+  const result = await client.messages.create({
+    ...shape.params, model: apiModelId(input.model), max_tokens: input.maxTokens,
+    messages: [{ role: "user", content: input.prompt }],
+  }, { signal: input.signal, headers: shape.headers });
+  recordUsage(input.model, connection, result.usage, "preparation");
+  if (result.stop_reason !== "end_turn") throw new Error("Preparation response incomplete");
+  const content = anthropicText(result.content);
+  if (!content.trim()) throw new Error("Preparation response empty");
+  return content;
 }
 
 async function queryOpenAIWithConfig(

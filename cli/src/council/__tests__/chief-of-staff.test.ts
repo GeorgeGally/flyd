@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkSaid, judgeSaid, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
-import { readVerdicts, reviewEvidence, runReplyReview, scorecard } from "../reply-review.js";
+import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard } from "../reply-review.js";
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
 import { parseDomainResult } from "../../command/result.js";
@@ -282,4 +282,48 @@ describe("the review pass", () => {
     }
     expect(sink.map((request) => request.state.text)).toEqual([GOOD]);
   });
+});
+
+
+it("lets ordinary conversation acknowledge a feeling without turning it into a work outcome", async () => {
+  expect(checkSaid({ surface: "chat", interactionClass: "conversation", text: "Of course you're exhausted. That was a rough evening.", asked: "I'm exhausted tonight." })).toEqual([]);
+});
+
+it("keeps conversation local when source provenance is unknown", async () => {
+  const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+  expect(await reviewSaid({ surface: "chat", interactionClass: "conversation", text: "That sounds exhausting.", toolsUnknown: true }, { apiKey: "test", fetchFn: jev({}, sink) })).toEqual([]);
+  expect(sink).toEqual([]);
+  expect(checkSaid({ surface: "chat", interactionClass: "conversation", text: "I asked the Council whether you should rest." }).map((item) => item.requirement)).toContain("backstage_hidden");
+});
+
+it("uses only existing voice judgment for conversation, without transmitting evidence references", async () => {
+  const before = process.env.FLYD_SELF_REVIEW_JEV;
+  process.env.FLYD_SELF_REVIEW_JEV = "1";
+  try {
+    const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+    expect(await reviewSaid({ surface: "chat", interactionClass: "conversation", text: "That sounds exhausting.", evidenceRefs: ["private:source"], taskState: "none" }, { apiKey: "test", fetchFn: jev({}, sink) })).toEqual([]);
+    expect(sink).toHaveLength(1);
+    expect(Object.keys(sink[0]!.questions)).toEqual(["cos_off_voice"]);
+    expect(sink[0]!.state).toEqual({ text: "That sounds exhausting.", surface: "chat", george_said: "" });
+  } finally {
+    if (before === undefined) delete process.env.FLYD_SELF_REVIEW_JEV;
+    else process.env.FLYD_SELF_REVIEW_JEV = before;
+  }
+});
+
+
+it("retains interaction and unknown-source restrictions through the existing review store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "flyd-review-context-"));
+  try {
+    const said = { surface: "chat", interactionClass: "conversation", text: "Some evenings take more out of you than others.", toolsUnknown: true, taskState: "none", evidenceRefs: ["source:test"] } as const;
+    noteSaid({ ...said, evidenceRefs: [...said.evidenceRefs] }, dir);
+    const collected = collectSaid({ flydDir: dir, dir, since: "2000-01-01T00:00:00.000Z" });
+    expect(collected).toHaveLength(1);
+    expect(collected[0]).toMatchObject(said);
+    await runReplyReview({ flydDir: dir, dir, rules: { banned: [] }, review: async (input) => {
+      expect(input).toMatchObject(said);
+      return [];
+    } });
+    expect(readVerdicts(dir)[0]).toMatchObject({ interactionClass: "conversation", taskState: "none", evidenceRefs: ["source:test"] });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

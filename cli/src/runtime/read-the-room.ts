@@ -1,3 +1,4 @@
+import { parsePreparationReading, preparationReadingInstructions, type PreparationReading, type RemitSummary } from "./preparation-reading.js";
 import { localDay } from "../council/memory-store.js";
 import { TURN_ROUTES, type TurnRoute } from "./turn-plan.js";
 import { decisionBrief, decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
@@ -10,9 +11,10 @@ import { decisionBrief, decisionPolicyBlock, decisionPolicyVersion } from "../li
 // here as private notes; Flyd decides whether any belongs in this moment.
 
 export type RoomNeed = "vent" | "think" | "decide" | "do" | "ask" | "chat";
-export const ROOM_RUBRIC_VERSION = "room-read.v3";
+export const ROOM_RUBRIC_VERSION = "room-read.v4";
 
 export interface RoomRead {
+  preparation?: PreparationReading | null;
   need: RoomNeed;
   mode: "companion" | "operator";
   stance: string;
@@ -31,6 +33,7 @@ export interface RoomRead {
 export interface RoomItem { id: string; text: string }
 
 export interface RoomInput {
+  preparationRemits?: RemitSummary[];
   message: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   now: Date;
@@ -61,6 +64,7 @@ export function roomPrompt(input: RoomInput): string {
     ...(input.notes.length ? input.notes.map((item) => `[${item.id}] ${clip(item.text, 220)}`) : ["(none)"]),
     "",
     "Decide:",
+    preparationReadingInstructions(input.preparationRemits ?? []),
     decisionPolicyBlock(),
     "- need: vent (wants to be heard), think (wants a sparring partner), decide (wants a recommendation), do (wants something done), ask (wants information), chat (small talk).",
     "- mode: operator only when answering needs his code, repos, files, or work state inspected; otherwise companion.",
@@ -75,13 +79,13 @@ export function roomPrompt(input: RoomInput): string {
     "- cover: the 1-3 things the reply must address for him to have what he asked for (e.g. for \"anything I should know before tomorrow?\": tomorrow's calendar and reminders; the open loose end that matters). Short replies still cover these.",
     "- act: for act or delegate only, the concrete piece of work to start (e.g. generate two new DIR sets with better prompts and judge them; draft the follow-up email). Only local, reversible work. null for answer and clarify.",
     "",
-    'Reply with JSON only: {"need":"...","mode":"...","route":"...","cover":["..."],"stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null,"act":null}',
+    'Reply with JSON only: {"need":"...","mode":"...","route":"...","cover":["..."],"stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null,"act":null,"preparation":null}',
   ].join("\n");
 }
 
 const NEEDS: RoomNeed[] = ["vent", "think", "decide", "do", "ask", "chat"];
 
-export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "notes">): RoomRead | null {
+export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "notes"> & Partial<Pick<RoomInput, "message" | "preparationRemits">>): RoomRead | null {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
   try {
@@ -90,7 +94,9 @@ export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "no
     const noteIds = new Set(input.notes.map((item) => item.id));
     const stance = String(raw.stance ?? "").trim();
     if (!stance) return null;
+    const preparation = parsePreparationReading(raw.preparation, input.message ?? "", input.preparationRemits ?? []);
     return {
+      ...(preparation ? { preparation } : {}),
       need: NEEDS.includes(raw.need as RoomNeed) ? raw.need as RoomNeed : "chat",
       mode: raw.mode === "operator" ? "operator" : "companion",
       stance: clip(stance, 400),

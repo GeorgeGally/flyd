@@ -5,6 +5,9 @@ last_updated: 2026-08-02
 
 # Flyd Strategy
 
+> Historical direction. Current product authority is [the personal intelligence PRD](docs/product/flyd-personal-intelligence-prd.md). Active intelligence runs in TypeScript Core with a thin Swift adapter. Rails is retired. See the conversational preparation implementation for the shipped proactive local-draft scope.
+
+
 ## Target problem
 
 High-agency creative and technical work is blocked by weak framing, unclear priorities, and decisions made with incomplete evidence — not by a shortage of generated text. Current AI assistants answer prompts without understanding the larger work, leaving the user to transfer context and sustain project momentum manually.

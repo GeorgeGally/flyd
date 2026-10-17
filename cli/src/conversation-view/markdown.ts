@@ -26,7 +26,7 @@ const marked = new Marked({
     link(token: Tokens.Link) {
       const label = this.parser.parseInline(token.tokens);
       const href = token.href.trim();
-      if (!SAFE_HREF.test(href)) return label;
+      if (!SAFE_HREF.test(href) && !href.startsWith("/preparation?session=")) return label;
       const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
       return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer">${label}</a>`;
     },

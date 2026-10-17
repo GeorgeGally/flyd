@@ -54,7 +54,13 @@ export function requirement(id: RequirementId): typeof REQUIREMENTS[number] {
   return REQUIREMENTS.find((item) => item.id === id)!;
 }
 
+export type InteractionClass = "conversation" | "work_status" | "decision" | "deliverable";
+
 export interface Said {
+  interactionClass?: InteractionClass;
+  /** Execution state and local evidence references, when supplied by the caller. */
+  taskState?: string;
+  evidenceRefs?: string[];
   surface: Surface;
   text: string;
   /** What George said that this answers, when known. */
@@ -185,9 +191,9 @@ export function checkSaid(said: Said, rules: VoiceRules = { banned: [] }): Short
   const shortfalls: Shortfall[] = [];
   const add = (id: RequirementId, reason: string, quote = text) => shortfalls.push({ requirement: id, reason, quote: clip(quote), by: "check" });
 
-  if (isPlaceholder(text)) {
+  if (said.interactionClass !== "conversation" && isPlaceholder(text)) {
     add("real_status", "says only that something is happening, not what");
-  } else if (said.surface !== "status" && PREAMBLE.test(text)) {
+  } else if (said.interactionClass !== "conversation" && said.surface !== "status" && PREAMBLE.test(text)) {
     add("outcome_first", "opens with preamble instead of the outcome", text.split(/(?<=[.!?])\s/)[0] ?? text);
   }
 
@@ -199,11 +205,11 @@ export function checkSaid(said: Said, rules: VoiceRules = { banned: [] }): Short
     add("backstage_hidden", "reads like git or run telemetry", prose(text).match(TELEMETRY)?.[0] ?? text);
   }
 
-  if (said.surface !== "status" && handsHimInternalDecision(text)) {
+  if (said.interactionClass !== "conversation" && said.surface !== "status" && handsHimInternalDecision(text)) {
     add("decisions_handled", "hands him an implementation call Flyd should make");
   }
 
-  if (said.surface === "chat" || said.surface === "relay") {
+  if (said.interactionClass !== "conversation" && (said.surface === "chat" || said.surface === "relay")) {
     const visual = looksVisual(text);
     if (visual) add("artefact_when_visual", visual);
   }
@@ -257,7 +263,8 @@ export async function judgeSaid(said: Said, options: JudgeOptions = {}): Promise
   // Tests pass their own key; a developer's real one never makes a test call Jev.
   const apiKey = options.apiKey ?? (process.env.VITEST ? undefined : process.env.TYPESAFE_API_KEY);
   if (!apiKey || process.env.FLYD_SELF_REVIEW_JEV !== "1" || !mayJudgeRemotely(said)) return [];
-  const judged = JUDGED.filter((item) => item.surfaces.includes(said.surface));
+  const judged = JUDGED.filter((item) => item.surfaces.includes(said.surface)
+    && (said.interactionClass !== "conversation" || item.requirement === "his_voice"));
   const state = {
     text: said.text.slice(0, 4_000),
     surface: said.surface,

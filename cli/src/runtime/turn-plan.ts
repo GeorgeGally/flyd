@@ -1,3 +1,4 @@
+import type { PreparationReading, RemitSummary } from "./preparation-reading.js";
 import { evaluatePredicates, JEV_PINNED_MODEL, projectJevState } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor, questionFingerprint } from "../cognition/system-one/registry.js";
 import type { RoutingTrace } from "./routing-learning.js";
@@ -35,6 +36,8 @@ export type TurnDomain = "coding" | "knowledge" | "creative" | "life" | "general
 export type TurnCommandKind = "new_request" | "correction" | "decision" | "priority_change" | "question" | "cancel" | "general";
 
 export interface RouteReading {
+  preparation?: PreparationReading | null;
+  preparationUncertain?: boolean;
   route: TurnRoute;
   confidence: number;
   source: "jev" | "llm";
@@ -177,6 +180,7 @@ export async function routeWithJev(
   history: Array<{ role: string; content: string }> = [],
   skills: Array<{ name: string; description: string }> = [],
   notes: Array<{ id: string; text: string }> = [],
+  remits: RemitSummary[] = [],
 ): Promise<RouteReading & { decided: boolean; needsCode: boolean | null; skill: string | null; raise: string | null } | null> {
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey || process.env.FLYD_JEV_TURN_ROUTE === "0") return null;
@@ -189,11 +193,13 @@ export async function routeWithJev(
   const code = questionFor("chat_turn_needs_code");
   const domainQuestion = questionFor("chat_turn_domain");
   const commandKindQuestion = questionFor("chat_turn_command_kind");
+  const grantQuestion = questionFor("chat_preparation_grant");
+  const prepQuestions = remits.slice(0, 4).map((remit, index) => questionFor("chat_preparation_action", { goal: remit.goal }, `prep_${index}`));
   // One call: turn shape, domain ownership, active-work relationship, whether code must be opened, and which skill (if any) fits.
   const skillQuestions = skills.map((skill, index) => questionFor("skill_applies", { name: skill.name, description: skill.description }, `skill_${index}`));
   const noteQuestions = notes.slice(0, MAX_NOTES).map((note, index) => questionFor("note_relevant", { note: note.text.slice(0, 300) }, `note_${index}`));
   const state = projectJevState({ utterance: message, conversation_recap: recap });
-  const result = await evaluatePredicates(state, [question, code, domainQuestion, commandKindQuestion, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: turnRouteJevModel() }, familyEgress("chat"));
+  const result = await evaluatePredicates(state, [question, code, domainQuestion, commandKindQuestion, grantQuestion, ...prepQuestions, ...skillQuestions, ...noteQuestions], { apiKey, timeoutMs: 3_000, model: turnRouteJevModel() }, familyEgress("chat"));
   const answer = result.answers[question.id];
   const route = answer?.choice as TurnRoute | undefined;
   if (!result.ok || !route || !TURN_ROUTES.includes(route)) return {
@@ -232,9 +238,23 @@ export async function routeWithJev(
     && commandKindConfidence >= predicateThreshold("chat_turn_command_kind")
     ? commandKindChoice
     : null;
-  return { route, confidence: answer.confidence, source: "jev",
+  const grant = result.answers[grantQuestion.id];
+  const grantLikely = (grant?.probability ?? 0) >= predicateThreshold("chat_preparation_grant", "room_review");
+  const prepActions = prepQuestions.flatMap((question, index) => {
+    const resultAnswer = result.answers[question.id];
+    const kind = resultAnswer?.choice;
+    return (kind === "prepare" || kind === "cancel" || kind === "pause") && (resultAnswer?.confidence ?? 0) >= predicateThreshold("chat_preparation_action")
+      ? [{ kind, remitId: remits[index].id, sourceSpan: message } satisfies PreparationReading] : [];
+  });
+  const preparation = prepActions.length === 1 ? prepActions[0] : null;
+  const uncertainAction = prepQuestions.some(question => {
+    const value = result.answers[question.id];
+    return value?.choice && value.choice !== "none" && (value.confidence ?? 0) < predicateThreshold("chat_preparation_action");
+  });
+  const preparationUncertain = remits.length > prepQuestions.length || grantLikely || prepActions.length > 1 || uncertainAction;
+  return { route, confidence: answer.confidence, source: "jev", preparation, preparationUncertain,
     // A confident route cannot establish an uncertain delegation owner.
-    decided: answer.confidence >= predicateThreshold("chat_turn_route") && (route !== "delegate" || (domain !== null && domain !== "general")),
+    decided: !preparationUncertain && answer.confidence >= predicateThreshold("chat_turn_route") && (route !== "delegate" || (domain !== null && domain !== "general")),
     domain, domainConfidence, commandKind, commandKindConfidence, needsCode, skill: best?.name ?? null, raise: raised?.id ?? null,
     evidence: { input: state, judgments: result.answers, model: result.model, latencyMs: result.latencyMs,
       policyVersion: [questionFingerprint("chat_turn_route"), questionFingerprint("chat_turn_domain"), questionFingerprint("chat_turn_command_kind")].join(":") },

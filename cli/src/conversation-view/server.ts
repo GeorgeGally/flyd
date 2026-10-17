@@ -1,3 +1,5 @@
+import { PreparationStore } from "../runtime/preparation-store.js";
+import { renderPreparationPage } from "./preparation-page.js";
 import { RoutineArtefacts } from "./routines.js";
 import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
@@ -450,6 +452,14 @@ export class ConversationViewServer {
       return;
     }
     const url = new URL(req.url ?? "/", `http://${VIEW_HOST}:${this.port}`);
+    if (url.pathname === "/api/preparation") {
+      await this.preparationAction(req, res, url); return;
+    }
+    if (req.method === "GET" && url.pathname === "/preparation") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'", "referrer-policy": "no-referrer" });
+      res.end(renderPreparationPage(this.token)); return;
+    }
     if (url.pathname === "/api/routines") {
       await this.routineAction(req, res);
       return;
@@ -896,6 +906,27 @@ export class ConversationViewServer {
     }
     if (this.drafts.save(draftKey(payload.key), payload.draft)) sendJson(res, 200, { ok: true });
     else sendJson(res, 400, { error: "expected { key, draft: { text, selectionStart, selectionEnd, attachments } }" });
+  }
+
+  private async preparationAction(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" }); return;
+    }
+    try {
+      const requested = url.searchParams.get("session");
+      const session = !requested || requested === "latest" ? (await this.source.listSessions())[0]?.id : requested;
+      if (!session || session.length > 180) { sendJson(res, 400, { error: "Open a conversation first." }); return; }
+      const sessionId = `view:${session}`, store = new PreparationStore();
+      store.recoverInterrupted();
+      if (req.method === "GET") { sendJson(res, 200, { remits: store.listRemits(sessionId), attempts: store.list(sessionId) }); return; }
+      if (req.method !== "POST") { sendJson(res, 405, { error: "method not allowed" }); return; }
+      const body = JSON.parse(await readBody(req, 2048));
+      if (body?.action === "cancel" && typeof body.id === "string") store.cancel(sessionId, body.id);
+      else if (body?.action === "erase") store.erase(sessionId);
+      else { sendJson(res, 400, { error: "Invalid preparation control." }); return; }
+      sendJson(res, 200, { ok: true });
+    } catch { sendJson(res, 400, { error: "Preparation unavailable." }); }
   }
 
   /** Each run enters the existing router; definitions cannot dispatch tools directly. */

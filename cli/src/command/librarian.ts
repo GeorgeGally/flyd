@@ -1,3 +1,5 @@
+// The bounded supplied-context mode shares this owner without launching the research fleet.
+export { runLocalPreparation } from "./local-preparation.js";
 import { randomUUID } from "node:crypto";
 import { query } from "../lib/llm.js";
 import {

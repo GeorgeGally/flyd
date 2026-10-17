@@ -14,7 +14,7 @@ import { requirement, reviewSaid, voiceRules, type RequirementId, type Said, typ
 // them as evidence (crew/self-improve.ts), and `flyd scorecard` says calmly
 // how Flyd is doing.
 
-export interface Verdict {
+export interface Verdict extends Pick<Said, "interactionClass" | "taskState" | "evidenceRefs"> {
   id: string;
   /** When George was shown it. */
   at: string;
@@ -71,6 +71,16 @@ function append(path: string, rows: unknown[]): void {
   appendFileSync(path, rows.map((row) => `${JSON.stringify(row)}\n`).join(""), { encoding: "utf8", mode: 0o600 });
 }
 
+function reviewContext(said: Said): Pick<Said, "interactionClass" | "taskState" | "evidenceRefs" | "tools" | "toolsUnknown"> {
+  return {
+    ...(said.interactionClass ? { interactionClass: said.interactionClass } : {}),
+    ...(said.taskState ? { taskState: said.taskState } : {}),
+    ...(said.evidenceRefs ? { evidenceRefs: said.evidenceRefs } : {}),
+    ...(said.tools ? { tools: said.tools } : {}),
+    ...(said.toolsUnknown ? { toolsUnknown: true } : {}),
+  };
+}
+
 const noted = new Set<string>();
 
 /**
@@ -86,7 +96,7 @@ export function noteSaid(said: Said, dir = selfReviewDir()): void {
   if (noted.size > 2_000) noted.clear();
   noted.add(key);
   try {
-    append(join(dir, "said.jsonl"), [{ at: new Date().toISOString(), surface: said.surface, text: text.slice(0, 2_000), ...(said.asked ? { asked: said.asked.slice(0, 500) } : {}), source: said.surface }]);
+    append(join(dir, "said.jsonl"), [{ at: new Date().toISOString(), surface: said.surface, text: text.slice(0, 2_000), ...(said.asked ? { asked: said.asked.slice(0, 500) } : {}), source: said.surface, ...reviewContext(said) }]);
   } catch { /* review is best effort */ }
 }
 
@@ -96,7 +106,7 @@ export function recordHeld(said: Said & { source: string }, shortfalls: Shortfal
   try {
     append(join(dir, "verdicts.jsonl"), [{
       id: keyOf(said.surface, said.text), at: now.toISOString(), reviewedAt: now.toISOString(), surface: said.surface, source: said.source,
-      text: said.text.slice(0, TEXT_CHARS), ...(said.asked ? { asked: said.asked.slice(0, 200) } : {}), shortfalls, held: true,
+      text: said.text.slice(0, TEXT_CHARS), ...(said.asked ? { asked: said.asked.slice(0, 200) } : {}), shortfalls, held: true, ...reviewContext(said),
     } satisfies Verdict]);
   } catch { /* review is best effort */ }
 }
@@ -125,10 +135,10 @@ export function collectSaid(sources: ReviewSources): Captured[] {
   const asks = join(flydDir, "view", "asks");
   if (existsSync(asks)) {
     for (const name of readdirSync(asks).filter((file) => file.endsWith(".json"))) {
-      const ask = readJson<{ id?: string; at?: string; text?: string; answer?: string; answeredAt?: string }>(join(asks, name));
+      const ask = readJson<{ id?: string; at?: string; text?: string; answer?: string; answeredAt?: string; interactionClass?: Said["interactionClass"] }>(join(asks, name));
       const at = ask?.answeredAt ?? ask?.at;
       if (!ask?.answer?.trim() || !at || at <= since) continue;
-      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? ""), toolsUnknown: true });
+      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? ""), ...(ask.interactionClass ? { interactionClass: ask.interactionClass } : {}), toolsUnknown: true });
     }
   }
 
@@ -235,10 +245,10 @@ export async function runReplyReview(deps: ReviewDependencies = {}): Promise<Rev
   const review = deps.review ?? ((said: Said, voice: VoiceRules) => reviewSaid(said, { rules: voice }));
   const verdicts: Verdict[] = [];
   for (const [id, item] of batch) {
-    const shortfalls = await review({ surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}), ...(item.tools ? { tools: item.tools } : {}), ...(item.toolsUnknown ? { toolsUnknown: true as const } : {}) }, rules).catch(() => []);
+    const shortfalls = await review({ ...reviewContext(item), surface: item.surface, text: item.text, ...(item.asked ? { asked: item.asked } : {}) }, rules).catch(() => []);
     verdicts.push({
       id, at: item.at, reviewedAt: now.toISOString(), surface: item.surface, source: item.source,
-      text: item.text.slice(0, TEXT_CHARS), ...(item.asked ? { asked: item.asked.slice(0, 200) } : {}), shortfalls,
+      ...reviewContext(item), text: item.text.slice(0, TEXT_CHARS), ...(item.asked ? { asked: item.asked.slice(0, 200) } : {}), shortfalls,
     });
   }
   append(join(dir, "verdicts.jsonl"), verdicts);

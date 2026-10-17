@@ -21,7 +21,10 @@ import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantT
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
-import { learnInBackground } from "./profile-learning.js";
+import { coordinatePreparation, type InitiativeDependencies } from "./conversational-initiative.js";
+import { PreparationStore } from "./preparation-store.js";
+import type { ConversationTurnSource } from "./conversation-turn.js";
+import type { RemitSummary } from "./preparation-reading.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
@@ -48,6 +51,9 @@ import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 
 interface ConversationInput {
+  source?: ConversationTurnSource;
+  onPreparation?: (id: string) => void;
+  onInteraction?: (kind: "conversation" | "work_status" | "decision" | "deliverable") => void;
   sessionId?: string;
   turnNumber?: number;
   message: string;
@@ -71,6 +77,7 @@ interface ConversationInput {
 }
 
 interface ConversationResponderDependencies {
+  initiative?: InitiativeDependencies;
   runAgentLoop?: typeof agentLoop;
   resolveConnection?: () => ModelConnection;
   persistReceipt?: typeof persistTurnReceipt;
@@ -80,7 +87,7 @@ interface ConversationResponderDependencies {
   /** Read the room before answering; null (a failed reading) answers read-only. Defaults to a model call outside tests; FLYD_ROOM=0 turns the default off. */
   readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
   /** The fast route reading; defaults to Jev outside tests. */
-  routeTurn?: (message: string, history: ConversationInput["history"], notes?: Array<{ id: string; text: string }>) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null>;
+  routeTurn?: (message: string, history: ConversationInput["history"], notes?: Array<{ id: string; text: string }>, remits?: RemitSummary[]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null>;
   /** Skills a matched name resolves against; defaults to ~/.flyd/skills. */
   skills?: () => Skill[];
   /** Honesty rewrite call; defaults to the turn's model. */
@@ -89,10 +96,10 @@ interface ConversationResponderDependencies {
   flydSetup?: () => Promise<string>;
 }
 
-async function defaultRouteTurn(message: string, history: ConversationInput["history"], notes: Array<{ id: string; text: string }> = []): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null> {
+async function defaultRouteTurn(message: string, history: ConversationInput["history"], notes: Array<{ id: string; text: string }> = [], remits: RemitSummary[] = []): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null> {
   if (process.env.VITEST) return null;
   try { seedSkills(); } catch { /* skills are optional */ }
-  return routeWithJev(message, history, loadSkills(), notes);
+  return routeWithJev(message, history, loadSkills(), notes, remits);
 }
 
 async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
@@ -218,7 +225,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     [
       "## How you talk (this outranks every operating rule below)",
       "- Conversation first. When George shares a feeling, a doubt, an idea, or something he made, respond like a person who cares about him and his work — curiosity, taste, encouragement, an honest opinion — before any logistics. Don't turn feelings into to-do lists, check-ins, or schedules. Do help, though: a friend who can fix something doesn't just sympathise.",
-      "- When he tells you how he feels, show you get it in a sentence, from what you already know (no digging through repos first). Then help with something concrete: this turn's plan says whether to start it or offer it. Never just comment. A mood isn't an instruction: don't cancel or change what he set up himself (his reminders, scheduled nudges, commitments) because he sounds tired of it; offer to instead.",
+      "- When he tells you how he feels, show you get it in a sentence, from what you already know (no digging through repos first). Let him think or vent without forcing a task or an offer. A preparation already accepted under an agreed scope can run beside this conversation; otherwise the turn plan determines action. A mood isn't an instruction: don't cancel or change what he set up himself (his reminders, scheduled nudges, commitments) because he sounds tired of it; offer to instead.",
       "- Write natural paragraphs of a few sentences, not a stack of one-line paragraphs. No markdown bold or headings in chat; lists only when he asks for steps or options.",
       "- Don't narrate housekeeping (\"I added X to your list\", \"that's on my agenda\") unless he asked for it or needs to know.",
       "- End when you've said the thing. At most one offer, only when it's the obvious next step — never a \"say go and I'll…\" on every reply.",
@@ -254,10 +261,10 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
           "## His register (examples of tone only, not content)",
           "George: the gallery still hasn't replied",
           "Bad: The silence is the hardest part. Waiting like this can feel like a verdict on the work.",
-          "Good: It's been nine days. Galleries sit on emails for weeks. Send one line tomorrow asking if they need anything else, then stop checking.",
+          "Good: A short follow-up could help. Keep it to one clear question.",
           "George: long day",
           "Bad: That sounds like a lot to carry. Be gentle with yourself tonight.",
-          "Good: You shipped the Bloom fix though. Nothing else is due before Tuesday, so tonight's free.",
+          "Good: Want to tell me about it, or have a quiet one?",
         ].join("\n"),
         "## Ground rules",
         [
@@ -1014,7 +1021,12 @@ export async function respondToConversation(
   // decides it in ~0.3s when it's sure; only then is the ~10s LLM room
   // reading skipped. Unattended runs are the work itself and read nothing.
   const unattended = Boolean(input.sessionId?.startsWith("job-") || input.sessionId?.startsWith("agenda-"));
-  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes).catch(() => null);
+  // Only adapters that supply a stable finalized source opt into implicit preparation.
+  const source = input.source;
+  const initiative = !dependencies.readOnly && !unattended && source && process.env.FLYD_INITIATIVE !== "0"
+    ? dependencies.initiative ?? { store: new PreparationStore() } : undefined;
+  const remits = initiative && source ? initiative.store.listRemits(source.sessionId) : [];
+  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes, remits).catch(() => null);
 
   // A confident correction/decision for exactly one active domain run takes a
   // lossless fast path to the manager before Flyd composes its reply. This is
@@ -1043,7 +1055,7 @@ export async function respondToConversation(
   }
 
   const roomInput: RoomInput = {
-    message: input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
+    preparationRemits: remits, message: source?.text ?? input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   };
   const fallbackStarted = Date.now();
   // FLYD_ROOM=0 switches the room reading off: a choice, not a failure, so an
@@ -1075,7 +1087,15 @@ export async function respondToConversation(
       ...(!fast?.decided ? { fallbackReason: fast ? "uncertain_route_or_domain" : "jev_unavailable" } : {}),
     };
   }
-  const plan = planTurn(reading, room?.cover ?? [], { unattended });
+  let preparationNote = "";
+  const preparation = room?.preparation ?? (fast?.decided ? fast.preparation : null) ?? null;
+  if (initiative && source && preparation && reading) {
+    try { preparationNote = coordinatePreparation({ source, reading: preparation, route: reading.route, onAccepted: input.onPreparation }, initiative); }
+    catch { /* Missing or revoked scope never prevents an ordinary answer. */ }
+  }
+  const answerReading = preparationNote && reading ? { ...reading, route: "answer" as const } : reading;
+  input.onInteraction?.(room?.need === "decide" ? "decision" : room?.need === "do" || reading?.route === "act" || reading?.route === "delegate" ? "deliverable" : isCurrentWorkQuestion(input.message) ? "work_status" : "conversation");
+  const plan = planTurn(answerReading, room?.cover ?? [], { unattended });
   turnPlan = plan;
   // The one skill that fits this turn, if any: its know-how rides in this turn only.
   const skill = fast?.skill ? (() => { try { return (dependencies.skills ?? loadSkills)().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
@@ -1097,6 +1117,7 @@ export async function respondToConversation(
     skill ? skillPromptBlock(skill) : "",
     fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
     domainDeliveryNote,
+    preparationNote,
     selfSetup ? `He's asking about you, Flyd. This is your own setup, looked up live from your configuration just now; it is complete and current. Answer from it in full and specifically: every job he asked about with the model that does it. Don't say you'd be guessing and don't offer to look it up. For anything about yourself it doesn't cover, read your own code at the path it gives, or pass the question on.\n\n${selfSetup}` : "",
   ].filter(Boolean).join("\n\n");
   const request = buildConversationPrompt(input, compiledContext, {
@@ -1221,9 +1242,7 @@ export async function respondToConversation(
     }
     emit(final);
     await record(connection, toolCalls, final, "succeeded");
-    // Live chat only: evals and unattended agenda runs never write George's profile.
-    // Unattended runs (agenda, background jobs) speak Flyd's own words, not George's.
-    if (!dependencies.readOnly && !input.sessionId?.startsWith("agenda-") && !input.sessionId?.startsWith("job-")) learnInBackground(input.message);
+
     if (raisedAdvisory && !dependencies.readOnly) {
       void import("../council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raisedAdvisory, "shown")).catch(() => undefined);
     }

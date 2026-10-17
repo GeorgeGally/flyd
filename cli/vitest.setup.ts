@@ -41,3 +41,5 @@ process.env.FLYD_FIRSTMATE_HOME = join(sandbox, "firstmate");
 
 process.env.FLYD_CONNECTOR_DIR ??= join(sandbox, "connectors");
 process.env.FLYD_ROUTINES_DB ??= join(sandbox, "routines.sqlite");
+
+process.env.FLYD_INITIATIVE_DB ??= join(sandbox, "initiative.sqlite");

@@ -1,3 +1,5 @@
+import { PreparationStore } from "../runtime/preparation-store.js";
+import type { ConversationTurnSource } from "../runtime/conversation-turn.js";
 import { isAccountIntent } from "../connectors/invocation.js";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -59,6 +61,7 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
     "George is talking to Flyd, his personal assistant, in Flyd's conversation window.",
     "Flyd answers everything that is not software work itself, from its own memory of him and the web: questions about his own life and history (where he studied, worked or lived, people he knows, what he said or did before), his calendar and plans, travel, places, facts, the news, writing, his day.",
     "Firstmate is the engineering lead who runs his software fleet. It takes requests that require inspecting or changing code, repositories, pull requests, builds, bugs, deployments or crew work, and replies to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\"). Mere discussion of software, Flyd or firstmate is Flyd's unless inspecting the code or work state is needed. Planning-only requests keep their no-implementation constraint.",
+    "Local draft preparation remits, concerns about those goals, and stopping or reviewing those preparations belong to Flyd. They do not require code access. Explicit coding tasks still belong to Firstmate.",
     "Questions about Flyd itself (which models it uses, its settings, its features, why it answered the way it did) and follow-ups to an answer Flyd just gave are Flyd's: Flyd looks up its own setup and passes on what it can't answer.",
     context ? `Recent conversation:\n${context}` : "",
     `New message from George: ${text.replace(/\s+/g, " ").slice(0, 1_000)}`,
@@ -146,6 +149,9 @@ export async function routeMessage(
 
 /** One question George asked Flyd from the window, as stored. */
 interface AskRecord {
+  sessionId?: string;
+  preparationId?: string;
+  interactionClass?: "conversation" | "work_status" | "decision" | "deliverable";
   id: string;
   at: string;
   text: string;
@@ -159,7 +165,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void) => Promise<string>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string) => void, turn?: { source: ConversationTurnSource; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void }) => Promise<string>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string) => void) => Promise<string>;
@@ -179,6 +185,7 @@ export class FlydDesk {
   private readonly dir: string;
   private readonly answerer: Answerer;
   private readonly see?: Seer;
+  private readonly preparations: PreparationStore;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
   /** What Flyd is doing on each question it is answering, said the moment it changes. */
@@ -186,8 +193,9 @@ export class FlydDesk {
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
-  constructor(options: { answer: Answerer; see?: Seer; dir?: string }) {
+  constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {
     this.answerer = options.answer;
+    this.preparations = options.preparationStore ?? new PreparationStore();
     this.see = options.see;
     this.dir = options.dir ?? defaultAsksDir();
   }
@@ -235,12 +243,12 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string, images: ImageUpload[] = []): SentMessage {
+  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation"): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const kept = this.keepImages(id, images);
-    let record: AskRecord = { id, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
+    let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
     const history = this.records()
-      .filter((earlier) => earlier.answer)
+      .filter((earlier) => earlier.answer && (earlier.sessionId ?? "conversation") === sessionId)
       .slice(-HISTORY_EXCHANGES)
       .flatMap((earlier) => [
         { role: "user" as const, content: asAsked(earlier) },
@@ -252,15 +260,23 @@ export class FlydDesk {
       const line = step.replace(/\s+/g, " ").trim();
       if (line && this.inFlight.has(record.id)) this.steps.set(record.id, clipKeepingLinks(line.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
     };
+    const turn = {
+      source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
+        context: this.records().filter(earlier => (earlier.sessionId ?? "conversation") === sessionId && earlier.id !== id)
+          .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
+        revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
+      onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
+      onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
+    };
     const answering = images.length && this.see
       ? this.see(record.text, images, onStep).then((seen) => {
         if (seen.trim()) {
           record = { ...record, seen: seen.trim() };
           this.write(record);
         }
-        return this.answerer(asAsked(record), history, onStep);
+        return this.answerer(asAsked(record), history, onStep, turn);
       })
-      : this.answerer(record.text, history, onStep);
+      : this.answerer(record.text, history, onStep, turn);
     void answering
       .then((answer) => {
         if (!answer.trim()) throw new Error("no answer came back");
@@ -309,9 +325,14 @@ export class FlydDesk {
     return this.records().map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}) };
       if (record.answer) {
+        const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;
+        const prepared = preparation?.status === "prepared" && preparation.content
+          ? `\n\n### Prepared draft\n\n${preparation.content}\n\n[Review or stop preparation](/preparation?session=${encodeURIComponent(record.sessionId ?? "conversation")})` : "";
+        const failure = preparation?.status === "failed" || preparation?.status === "unknown"
+          ? "\n\nI could not finish checking the draft. Nothing was sent." : preparation?.status === "cancelled" ? "\n\nThis preparation was stopped." : "";
         return {
           question,
-          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(record.answer), timestamp: record.answeredAt ?? record.at, answers: question.id },
+          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(record.answer) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id },
           waiting: "",
         };
       }

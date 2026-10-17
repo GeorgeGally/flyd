@@ -283,7 +283,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
           }
           : this.desk.complete,
       );
-      if (route === "flyd") return this.desk.desk.ask(text, images);
+      if (route === "flyd") return this.desk.desk.ask(text, images, sessionId);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };

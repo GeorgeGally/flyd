@@ -1,5 +1,8 @@
 # Flyd Personal Agent Platform PRD
 
+> Historical direction. Current product authority is [the personal intelligence PRD](flyd-personal-intelligence-prd.md). Active intelligence runs in TypeScript Core with a thin Swift adapter. Rails is retired. See the conversational preparation implementation for the shipped proactive local-draft scope.
+
+
 ## Status
 
 Authoritative product PRD as of 21 July 2026.

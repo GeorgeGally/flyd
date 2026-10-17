@@ -713,3 +713,29 @@ describe("supervision chatter never reaches Flyd's window", () => {
     ]);
   });
 });
+
+it('threads an exact finalized turn identity and renders checked preparation without copying its content', async () => {
+  const { PreparationStore } = await import('../../runtime/preparation-store.js');
+  const store = new PreparationStore({ path: join(dir, 'initiative.sqlite') });
+  const grantSource = { turnId: 'grant-1', sessionId: 'view:test-session', text: 'Keep preparing Christmas sponsor drafts', revision: 1, consentRef: 'view:test-session' };
+  const remit = store.registerRemit(grantSource, { goal: 'Christmas sponsors', providerIdentity: 'test/model' });
+  const desk = new FlydDesk({ dir: join(dir, 'asks'), preparationStore: store,
+    answer: async (text, _history, _step, turn) => {
+      expect(turn?.source.text).toBe(text);
+      expect(turn?.source.final).toBe(true);
+      const source = turn!.source;
+      const claim = store.claim(source, { remitId: remit.id, sourceSpan: text, outcome: 'A sponsor follow-up' });
+      if (!claim.accepted) throw Error('not accepted');
+      turn!.onPreparation(claim.attempt.id);
+      store.complete(claim.attempt.id, { content: 'Hello, following up on the Christmas sponsorship conversation.', evidenceRefs: [source.turnId] });
+      return 'I prepared a follow-up draft.';
+    },
+  });
+  desk.ask('The sponsor has not replied', [], 'test-session');
+  await until(() => desk.exchanges()[0]?.answer);
+  expect(desk.exchanges()[0].answer?.text).toContain('Hello, following up');
+  const saved = readFileSync(join(dir, 'asks', readdirSync(join(dir, 'asks')).find(name => name.endsWith('.json'))!), 'utf8');
+  expect(saved).not.toContain('Hello, following up');
+  store.erase('view:test-session');
+  expect(desk.exchanges()[0].answer?.text).not.toContain('Hello, following up');
+});
