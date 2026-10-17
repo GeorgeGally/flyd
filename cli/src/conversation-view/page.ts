@@ -1482,7 +1482,11 @@ var __name = function (f) { return f; };
     return found;
   }
   function clearLanded() {
-    main.querySelectorAll(".msg.pending.unsure").forEach(function (el) { if (arrived(el)) el.remove(); });
+    main.querySelectorAll(".msg.pending.unsure").forEach(function (el) {
+      if (!arrived(el)) return;
+      el.remove();
+      if (!input.value && !attachments.length) saveDraftNow();
+    });
   }
   function refreshWorking() {
     var recent = lastActivity && Date.now() - new Date(lastActivity).getTime() < 10 * 60 * 1000;
@@ -2941,6 +2945,9 @@ ${LEFT_SCRIPT}
   var draftTimer = null;
   var restoring = false;
   var sendsInFlight = 0;
+  // What has gone out since the window opened: a stored draft still on its way
+  // back never refills the box with it, and clearing it is not held by the read.
+  var sentSinceLoad = [];
   function draftState() {
     // Paging through earlier messages shows them in the box; the draft is what he had typed.
     var recalling = recall.index !== -1;
@@ -2958,7 +2965,10 @@ ${LEFT_SCRIPT}
   function saveDraftNow(keepalive) {
     clearTimeout(draftTimer);
     draftTimer = null;
-    if (!SEND_TOKEN || restoring) return;
+    if (!SEND_TOKEN) return;
+    // Never overwrite the draft Core holds before it has been read back; a
+    // message that has already gone out clearing the box is not an overwrite.
+    if (restoring && !sentSinceLoad.length) return;
     // A message on its way keeps its draft until it has landed.
     if (sendsInFlight > 0 && !input.value && !attachments.length) return;
     var state = draftState();
@@ -3043,10 +3053,13 @@ ${LEFT_SCRIPT}
             : { url: "data:" + a.mediaType + ";base64," + a.data, mediaType: a.mediaType, data: a.data, draftId: a.id };
         }).slice(0, MAX_ATTACHMENTS);
         if (!newer.text && !restored.length) return;
+        // The words that just went never come back; an older, different draft does.
+        if (newer.text.trim() && sentSinceLoad.indexOf(newer.text.trim()) !== -1) return;
         input.value = newer.text;
         attachments = restored;
         renderAttachments();
         try { input.setSelectionRange(newer.selectionStart, newer.selectionEnd); } catch (e) { /* caret at the end */ }
+        if (sentSinceLoad.length) saveDraftNow();
         draftNote("your draft is safe");
       });
   }
@@ -3432,6 +3445,7 @@ ${LEFT_SCRIPT}
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
     recall.index = -1;
+    sentSinceLoad.push(text);
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, sending);
@@ -3455,7 +3469,11 @@ ${LEFT_SCRIPT}
       deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
         if (sent.unsure) {
-          if (arrived(el)) { el.remove(); return; }
+          if (arrived(el)) {
+            if (!input.value && !attachments.length) saveDraftNow();
+            el.remove();
+            return;
+          }
           var line = el.querySelector(".state");
           el.classList.add("unsure");
           line.classList.add("still");
