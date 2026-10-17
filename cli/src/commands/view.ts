@@ -9,6 +9,7 @@ import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
+import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
 import { readProjects } from "../council/projects.js";
@@ -63,7 +64,7 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   ]);
   const situation = await loadAgentSituation().catch(() => null);
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
-  onStep?.("Remembering what I know about this");
+  onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };

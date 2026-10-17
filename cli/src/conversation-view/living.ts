@@ -1,4 +1,5 @@
 import { clipKeepingLinks } from "./line-links.js";
+import { isPlaceholderStatus, type InFlightTool } from "./status-text.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -13,8 +14,6 @@ import type { Exchange } from "./types.js";
 export const WORKING = "Queued";
 /** The page shows this the moment he sends. */
 export const RECEIVED = WORKING;
-/** Flyd is answering it itself, before its first step is known. */
-export const ANSWERING = "Looking this up";
 const ACTIVITY_CHARS = 90;
 
 /** Where a note to firstmate stands: written to its inbox, or read by firstmate. */
@@ -54,8 +53,29 @@ function subjectOf(text: string): string {
 /** What a plain question is about, in Flyd's words: "what is usb overdrive?" → "Looking up usb overdrive". */
 function questionTopic(first: string): string {
   if (!/\?\s*$/.test(first) || !WHAT_IS.test(first)) return "";
-  const rest = first.replace(/[?!.]+$/, "").replace(WHAT_IS, "").trim();
-  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(`Looking up ${rest}`) : "";
+  const topic = topicOf(first);
+  return topic ? clip(`Looking up ${topic}`) : "";
+}
+
+/** The thing his question is about, bare: "what is usb overdrive?" → "usb overdrive", "what do you know about Canva" → "Canva"; "" when it names none. */
+function topicOf(text: string): string {
+  const first = (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  const bare = first.replace(/[?!.]+$/, "").trim();
+  const rest = WHAT_IS.test(bare) ? bare.replace(WHAT_IS, "").trim() : /\babout\s+(.+)$/i.exec(bare)?.[1]?.trim() ?? "";
+  return rest && !CLAUSE.test(rest) && !BACKSTAGE.test(rest) && !FIRST_PERSON.test(rest) ? clip(rest) : "";
+}
+
+/** The memory lookup for his question, named by its topic; none when the question names no topic, so his words are never quoted back. */
+export function memoryLookup(question: string): InFlightTool | undefined {
+  const topic = topicOf(question);
+  return topic ? { tool: "Searching memory for", argument: topic } : undefined;
+}
+
+/** Flyd is answering it itself, before its first step is known: what his message asks about, never a placeholder. */
+export function answeringLine(text: string, withImages = false): string {
+  const subject = subjectOf(text);
+  if (subject && !isPlaceholderStatus(subject)) return subject;
+  return withImages ? "Looking at your screenshot" : "Reading your message";
 }
 
 /** The project his message names, by his own name for it. */
@@ -71,7 +91,9 @@ function projectIn(text: string, projects: string[]): string | undefined {
  * says that; before then, what his message asks for, with the project when he named one.
  */
 export function handoffLine(handoff: Handoff, details: { activity?: string; text?: string; projects?: string[] } = {}): string {
-  const activity = handoff === "taken" && details.activity ? clip(details.activity) : "";
+  // A relayed activity that only says something is happening is dropped, so the living line always names the
+  // concrete thing (his message's own subject), never a placeholder.
+  const activity = handoff === "taken" && details.activity && !isPlaceholderStatus(details.activity) ? clip(details.activity) : "";
   if (activity) return upperFirst(activity);
   const subject = (details.text ? subjectOf(details.text) : "") || (handoff === "queued" ? "Queued for a next step" : "Waiting for a clear next step");
   const project = details.text ? projectIn(details.text, details.projects ?? []) : undefined;
@@ -101,7 +123,8 @@ export function livened(exchanges: Exchange[], live: { activity?: string; projec
     if (exchange.answer || exchange.answered || !exchange.handoff) return exchange;
     const step = live.steps?.get(exchange.question.id);
     const onIt = picked.has(exchange.question.id);
-    const doing = step ? upperFirst(clip(step)) : onIt && live.activity ? handoffLine("taken", { activity: live.activity }) : "";
+    const activity = onIt && live.activity && !isPlaceholderStatus(live.activity) ? live.activity : "";
+    const doing = step ? upperFirst(clip(step)) : activity ? handoffLine("taken", { activity }) : "";
     if (exchange.settled) return doing ? { ...exchange, doing } : exchange;
     if (doing) return { ...exchange, waiting: doing };
     return { ...exchange, waiting: handoffLine(onIt ? "taken" : exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}) }) };

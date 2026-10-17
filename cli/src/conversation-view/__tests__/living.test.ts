@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANSWERING, handoffLine, livened, RECEIVED, WORKING } from "../living.js";
+import { answeringLine, handoffLine, livened, RECEIVED, WORKING } from "../living.js";
 import type { Exchange } from "../types.js";
 
 function note(id: string, handoff: Exchange["handoff"], text = "fix it", answered = false): Exchange {
@@ -12,13 +12,13 @@ const HANDOFF = /firstmate|passing|is on it|one moment|let me check|got it|who s
 describe("the living line", () => {
   it("names the queue state without announcing routing or a handoff", () => {
     expect(RECEIVED).toBe(WORKING);
-    expect(ANSWERING).toBe("Looking this up");
+    expect(answeringLine("what is usb overdrive?")).toBe("Looking up usb overdrive");
     expect(WORKING).toBe("Queued");
     expect(handoffLine("queued")).toBe("Queued for a next step");
     expect(handoffLine("taken")).toBe("Waiting for a clear next step");
     // A step only shows once the work has started, never while the note is still on its way.
     expect(handoffLine("queued", { activity: "Run the tests" })).toBe("Queued for a next step");
-    for (const line of [RECEIVED, ANSWERING, handoffLine("queued"), handoffLine("taken")]) expect(line).not.toMatch(HANDOFF);
+    for (const line of [RECEIVED, answeringLine("bkk?"), handoffLine("queued"), handoffLine("taken")]) expect(line).not.toMatch(HANDOFF);
   });
 
   it("says the step itself when firstmate's current step is known", () => {
@@ -53,10 +53,10 @@ describe("the living line", () => {
   it("never puts firstmate's step on a note its turn did not pick up, and leaves answered ones alone", () => {
     // Firstmate busy shrinking a hero for another note: none of these notes gets that step as its line.
     const exchanges = livened(
-      [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: ANSWERING }],
+      [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: "Reading your message" }],
       { activity: "Shrinking hero on short screens, verify" },
     );
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Looking this up"]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Reading your message"]);
   });
 
   it("keeps the running line under an outcome while work on that note carries on", () => {
