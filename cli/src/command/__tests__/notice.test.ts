@@ -94,7 +94,7 @@ describe("notices keep the one voice", () => {
 
   it("scrubs every backstage term on every notice path, keeping the outcome", () => {
     const cases: Array<[string, string]> = [
-      ["Firstmate has not read 3 notes you sent.", "3 notes"],
+      ["Firstmate has not read 3 notes you sent.", "3"],
       ["Firstmate has not read 2 notes you sent; the oldest has waited 57 min.", "57 min"],
       ["Firstmate has not read 13 notes you sent; the oldest has waited 1 h 4 min.", "1 h 4 min"],
       ["Firstmate has not read 1 note you sent 4 min ago.", "1 note"],
@@ -138,7 +138,23 @@ describe("notices keep the one voice", () => {
     expect(decision!).toContain("decision");
     const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
     expect(failure).not.toBeNull();
+    expect(failure!.trim()).not.toBe("");
     expect(failure!).not.toMatch(BACKSTAGE);
+    expect(failure!).not.toBe("Work hit a problem: is broken");
+  });
+
+  it("never renders a stranded fragment or an empty notice, falling back to the neutral outcome", () => {
+    expect(captainNotice(run("The fix is on fm/island-filter."))).toBe("There is an update on your work.");
+    expect(captainNotice(run("fm/x"))).toBe("There is an update on your work.");
+    expect(captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })))).toBe("There is an update on your work.");
+    expect(captainNotice(run("the worktree is dirty; 2 files changed"))).toBe("Update — 2");
+    expect(captainNotice(run("Firstmate has not read 3 notes you sent."))).toBe("Update — 3");
+    for (const reply of ["The fix is on fm/island-filter.", "fm/x", "the worktree is dirty; 2 files changed", "Firstmate has not read 3 notes you sent."]) {
+      const notice = captainNotice(run(reply));
+      expect(notice, reply).toBeTruthy();
+      expect(notice!.trim(), reply).not.toBe("");
+      expect(notice!, reply).not.toMatch(BACKSTAGE);
+    }
   });
 });
 

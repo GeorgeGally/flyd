@@ -62,8 +62,21 @@ function neutralOutcome(text: string): string {
   return counts?.length ? `Update — ${counts.join(", ")}` : "There is an update on your work.";
 }
 
+const DANGLING_TAIL = /\b(?:the|a|an|of|to|for|on|in|at|by|with|as|and|or|but|is|are|was|were|be|been|being|has|have|had|will|would|can|could)\s*[.!?]?$/i;
+const CLAUSE_OPENS_ON_VERB = /[:;—–]\s*(?:is|are|was|were|be|been|being|has|have|had|do|does|did|will|would|shall|should|can|could|may|might|must)\b/i;
+const SAFE_HEAD = /^(?:the|a|an|this|that|these|those|your|our|my|its|his|her|their|every|all|some|any|no|i|you|we|they|he|she|it|there)\b/i;
+
+function strandedByRewrite(rewritten: string): boolean {
+  const text = rewritten.trim();
+  if (!text) return true;
+  if (/^[a-z]/.test(text) && !SAFE_HEAD.test(text)) return true;
+  if (DANGLING_TAIL.test(text)) return true;
+  return CLAUSE_OPENS_ON_VERB.test(text);
+}
+
 export function scrubBackstage(text: string): string {
   const rewritten = REWRITES.reduce((t, [re, to]) => t.replace(re, to), text);
   if (hasBackstage(rewritten)) return neutralOutcome(text);
+  if (rewritten !== text && strandedByRewrite(rewritten)) return neutralOutcome(text);
   return tidy(rewritten);
 }
