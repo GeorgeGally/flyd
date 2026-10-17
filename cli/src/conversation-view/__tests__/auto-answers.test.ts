@@ -35,6 +35,9 @@ describe("settledBy", () => {
 
   it("answers starting a preview yes, so he sees the real thing", () => {
     expect(settle(reply("The menu is rebuilt. Want me to start the local preview so you can see it?"))?.rule).toBe("show-the-real-thing");
+    // A preview asked for alongside a merge is the merge rule's, and it is not green yet.
+    expect(settle(reply("Checks are still running.\n\nShall I merge it and start the preview?"))).toBeNull();
+    expect(settle(reply("Checks are still running.\n\nShall I land it and bring the preview up?"))).toBeNull();
   });
 
   it("leaves him the question when his recorded words for the rule are gone", () => {

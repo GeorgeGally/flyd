@@ -167,6 +167,15 @@ describe("Flyd decides its staff's routine questions", () => {
     }
   });
 
+  it("settles routine work that only mentions other people, and keeps a message to them his", async () => {
+    const push = reply("Everything is green.\n\nShall I push it so the team sees it?");
+    const [note] = await answered(push);
+    expect(note?.replyQuote).toBe("Shall I push it so the team sees it?");
+    const message = reply("Everything is green.\n\nShall I message the team about the push?");
+    expect(await answered(message)).toEqual([]);
+    expect(openChoice([message])?.choice.question).toBe("Shall I message the team about the push?");
+  });
+
   it("shows a listed question handled when its item carries an indented continuation", async () => {
     const asked = reply(`All green.\n\nTwo things are waiting on you:\n1. Shall I push it?\n  - and rebase onto latest?\n2. Shall I delete the old branches?`);
     const notes = await answered(asked);
