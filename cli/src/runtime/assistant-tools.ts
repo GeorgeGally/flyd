@@ -240,6 +240,7 @@ export async function runAssistantTool(
                 : `Self-improvement started: ${result.improvement!.title}. The coding boss owns implementation and verification; Flyd will surface any real decision before authority is exceeded. Tell George in plain words what you're changing about yourself; no ids or backstage names.`;
             }
             if (result.status === "awaiting_george") return "A self-improvement is already built and waiting for George's /land; tell him that one is ready first.";
+            if (result.status === "not_started") return result.task?.failure ?? "I couldn't start that improvement right now; I'll keep it safe and try again when I can.";
             return `No change started (${result.status.replace(/_/g, " ")}). Tell him honestly and say what you'd need to see.`;
           }
           default: return "Error: flyd action must be news, skills, skillify, jobs_status, run_briefing, job_hunt, or improve";
@@ -280,7 +281,7 @@ export async function runAssistantTool(
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
             transport: firstmate,
           });
-          if (run.status === "failed") return run.failure ?? "I couldn't start the work right now. I'll keep it safe and try again when I can.";
+          if (run.failure) return run.failure;
           context.onCodingHandoff?.(outcome);
           return `Coding work accepted (run ${run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
         }
@@ -327,7 +328,7 @@ export async function runAssistantTool(
             ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
             transport: firstmate,
           });
-          if (run.status === "failed") return run.failure ?? "I couldn't start the work right now. I'll keep it safe and try again when I can.";
+          if (run.failure) return run.failure;
           return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
@@ -361,6 +362,7 @@ export async function runAssistantTool(
           const { dispatchDomainFollowup } = await import("../command/followup.js");
           try {
             const followup = await dispatchDomainFollowup({ parentRunId: id, question });
+            if (followup.failure) return followup.failure;
             return `Follow-up accepted as domain run ${followup.id}. Flyd will retain the detailed answer when the domain boss returns.`;
           } catch (error) {
             return `Error: ${error instanceof Error ? error.message : String(error)}`;

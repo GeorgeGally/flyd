@@ -23,16 +23,20 @@ export function isTestedCodexVersion(version: string): boolean {
   return TESTED_CODEX_VERSIONS.some((pattern) => pattern.test(version.trim()));
 }
 
+/** Absolute locations the codex binary may live in, most specific first. */
+export function codexPathCandidates(): string[] {
+  return [
+    process.env.FLYD_CODEX_PATH,
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "/Applications/Codex.app/Contents/Resources/codex",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+}
+
 export async function detectCodex(input: {
   candidates?: string[];
   execFile?: ExecFile;
 } = {}): Promise<WorkerHealth> {
-  const candidates = input.candidates ?? [
-    process.env.FLYD_CODEX_PATH,
-    "/Applications/ChatGPT.app/Contents/Resources/codex",
-    "/Applications/Codex.app/Contents/Resources/codex",
-    "codex",
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  const candidates = input.candidates ?? [...codexPathCandidates(), "codex"];
   const execFile = input.execFile ?? (async (executable, args) => {
     const result = await execFileAsync(executable, args, { encoding: "utf8", timeout: 3_000 });
     return { stdout: result.stdout, stderr: result.stderr };

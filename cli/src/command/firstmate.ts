@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { codexPathCandidates } from "../runtime/codex-adapter.js";
+import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { parseDomainResult, validateDomainHandoff } from "./result.js";
 import { listDomainRuns, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
@@ -134,10 +136,8 @@ export class FirstmateDomainTransport {
     };
     saveDomainRun(run);
     if (!receipt.acknowledged) {
-      const session = await this.startSession(undefined, (failure) => failFirstmateRun(run, failure));
-      if (session.failure) {
-        return failedFirstmateRun(run, session.failure, true);
-      }
+      const session = await this.startSession(undefined, (failure) => suspendFirstmateRun(run, failure));
+      if (session.failure) return suspendFirstmateRun(run, session.failure);
     }
     return run;
   }
@@ -186,12 +186,23 @@ export class FirstmateDomainTransport {
 type SessionRuntime = "claude" | "codex" | "opencode";
 
 const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. Then handle the unread inbox notes, verify the requested work, and publish each stable outcome or genuine decision with bin/fm-inbox.sh reply. Do not send messages to George; Flyd relays replies.";
+const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
+const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
+const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
+const SESSION_OUTPUT_LIMIT = 8 * 1024;
 const launchingHomes = new Set<string>();
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
   const values = configured?.length ? configured : ["claude", "codex", "opencode"];
   return values.filter((value): value is SessionRuntime => value === "claude" || value === "codex" || value === "opencode");
+}
+
+function sessionExecutable(runtime: SessionRuntime): string {
+  const candidates = runtime === "codex" ? codexPathCandidates()
+    : runtime === "opencode" ? openCodePathCandidates()
+    : [];
+  return candidates.find((candidate) => existsSync(candidate)) ?? runtime;
 }
 
 function sessionArgs(runtime: SessionRuntime): string[] {
@@ -247,7 +258,7 @@ export async function startFirstmateSession(options: {
       record({ runtime, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
     }
   }
-  return { started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." };
+  return { started: false, failure: SESSION_LAUNCH_FAILURE };
 }
 
 function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: ((failure: string) => void) | undefined, release: () => void): Promise<{ started: boolean; failure?: string }> {
@@ -257,16 +268,15 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       const runtime = runtimes[index];
       if (!runtime) {
         release();
-        const failure = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
-        if (handedOff) onFailure?.(failure);
-        else resolve({ started: false, failure });
+        if (handedOff) onFailure?.(SESSION_LAUNCH_FAILURE);
+        else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE });
         return;
       }
       let output = "";
       let settled = false;
-      const child = spawn(runtime, sessionArgs(runtime), { cwd: home, env: { ...process.env, FM_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-      child.stdout?.on("data", (chunk: Buffer | string) => { output += chunk.toString(); });
-      child.stderr?.on("data", (chunk: Buffer | string) => { output += chunk.toString(); });
+      const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: { ...process.env, FM_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
+      child.stderr?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
@@ -296,35 +306,17 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
   });
 }
 
-function failedFirstmateRun(run: DomainRun, failure: string, notified = false): DomainRun {
-  const now = new Date().toISOString();
-  const failed: DomainRun = {
+function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now()): DomainRun {
+  const attempts = (run.launchRetry?.attempts ?? 0) + 1;
+  const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
+  const suspended: DomainRun = {
     ...run,
-    status: "failed",
     failure,
-    notified,
-    updatedAt: now,
-    result: {
-      format: "raw",
-      brief: failure,
-      detailedReport: failure,
-      decisionsMade: [],
-      unresolvedQuestions: [],
-      risks: [],
-      evidence: [],
-      artifacts: [],
-      specialistOutputs: [],
-      raw: [failure],
-      informationLossRisk: "high",
-    },
+    launchRetry: { attempts, nextAt: new Date(nowMs + delay).toISOString() },
+    updatedAt: new Date(nowMs).toISOString(),
   };
-  saveDomainRun(failed);
-  return failed;
-}
-
-function failFirstmateRun(run: DomainRun, failure: string): void {
-  const failed = failedFirstmateRun(run, failure);
-  void import("./scheduler.js").then(({ notifyRun }) => notifyRun(failed)).catch(() => undefined);
+  saveDomainRun(suspended);
+  return suspended;
 }
 
 interface FirstmateReply {
@@ -399,14 +391,22 @@ export async function syncFirstmateDomainRuns(options: {
   } catch {
     return [];
   }
-  const oldUnread = (receipts.pending ?? []).some((note) => note.at && Date.now() - Date.parse(note.at) > 3 * 60_000);
+  const nowMs = (options.now ?? (() => new Date()))().getTime();
+  const oldUnread = (receipts.pending ?? []).some((note) => note.at && nowMs - Date.parse(note.at) > 3 * 60_000);
   if (oldUnread) {
     const readiness = await transport.ready();
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
-      const session = await transport.startSession(readiness, waitingRun ? (failure) => failFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
-      if (session.failure && waitingRun) failFirstmateRun(waitingRun, session.failure);
+      const due = !waitingRun?.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs;
+      if (due) {
+        const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
+        if (session.started && waitingRun?.launchRetry) {
+          saveDomainRun({ ...waitingRun, failure: undefined, launchRetry: undefined, updatedAt: new Date(nowMs).toISOString() });
+        } else if (session.failure && waitingRun) {
+          suspendFirstmateRun(waitingRun, session.failure);
+        }
+      }
     }
   }
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
@@ -436,7 +436,7 @@ export async function syncFirstmateDomainRuns(options: {
       const handoff = validateDomainHandoff(parsed.result);
       const claimed = parsed.status ?? "completed";
       const status = claimed === "completed" && !handoff.ok ? "incomplete" : claimed;
-      const { notified, failure, incompleteReason: _previous, ...rest } = next;
+      const { notified, failure, incompleteReason: _previous, launchRetry: _retry, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
         ...rest,

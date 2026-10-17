@@ -95,6 +95,8 @@ export interface DomainRun {
   messages?: DomainMessage[];
   result?: DomainResult;
   failure?: string;
+  /** Set while a FirstMate session launch is retried: how many tries and the earliest next one. */
+  launchRetry?: { attempts: number; nextAt: string };
   /** Why the latest handoff was not recorded as done (see validateDomainHandoff). */
   incompleteReason?: string;
   notified?: boolean;
