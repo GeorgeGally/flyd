@@ -143,6 +143,8 @@ fm-inbox.sh reply <note-id> ...
 
 The request id is Flyd's DomainRun id, giving idempotent restart-safe correlation.
 
+Flyd does not depend on a session being open for a note to be read. When an inbox note has gone unread, Flyd starts a FirstMate session itself (FirstMate's `bin/fm-session-start.sh`) through the first available coding runtime (`FLYD_FIRSTMATE_RUNTIMES`, default `claude,codex,opencode`), retrying with backoff when a runtime is unavailable or hits a usage limit.
+
 FirstMate remains authoritative for:
 
 - project choice within its registered fleet;
