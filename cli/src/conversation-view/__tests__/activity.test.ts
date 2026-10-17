@@ -2,7 +2,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, recordActivity } from "../activity.js";
+import { kindVisual } from "../cards.js";
+import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, MAX_RECENT, recordActivity } from "../activity.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
@@ -57,6 +58,14 @@ describe("activity from jobs", () => {
     expect(activityFromJob({ ...job, status: "short" }, NOW)!.item.title).toBe("Finished a job, with something left open");
     expect(activityFromJob({ ...job, status: "failed" }, NOW)!.item.title).toBe("A job couldn't be finished");
     expect(activityFromJob({ ...job, status: "interrupted" }, NOW)!.item.title).toBe("Stopped a job before it finished");
+  });
+
+  it("chips a finished job as done and an unfinished one as held up, never under way", () => {
+    expect(kindVisual(activityFromJob({ ...job, status: "running" }, NOW)!.item.kind).word).toBe("Under way");
+    expect(kindVisual(activityFromJob({ ...job, status: "ok" }, NOW)!.item.kind).word).toBe("Done");
+    expect(kindVisual(activityFromJob({ ...job, status: "short" }, NOW)!.item.kind).word).toBe("Done");
+    expect(kindVisual(activityFromJob({ ...job, status: "failed" }, NOW)!.item.kind).word).toBe("Held up");
+    expect(kindVisual(activityFromJob({ ...job, status: "interrupted" }, NOW)!.item.kind).word).toBe("Held up");
   });
 
   it("leaves out detail that names the machinery behind the work", () => {
@@ -123,6 +132,32 @@ describe("composeActivity", () => {
   it("turns the council's advice into a calm card that does not say who had it", () => {
     const panel = composeActivity({ log: [], jobs: [], advice: [{ id: "9a8c7377", at: minutesAgo(30), text: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor." }], records: [] }, NOW);
     expect(panel.recent).toEqual([{ id: "thought:9a8c7377", kind: "noted", title: "Noticed something about your projects", line: "GNM's Christmas site kept absorbing days.", at: minutesAgo(30) }]);
+  });
+
+  it("counts a bar a day for the week, oldest first, today last", () => {
+    const panel = composeActivity({
+      log: [],
+      jobs: [],
+      advice: [],
+      records: [
+        { kind: "noted", title: "Today", at: minutesAgo(5) },
+        { kind: "noted", title: "Also today", at: minutesAgo(90) },
+        { kind: "noted", title: "Yesterday", at: "2026-10-16T09:00:00.000Z" },
+      ],
+    }, NOW);
+    expect(panel.week).toHaveLength(7);
+    expect(panel.week.map((day) => day.day)).toEqual(["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"]);
+    expect(panel.week.map((day) => day.count)).toEqual([0, 0, 0, 0, 0, 1, 2]);
+  });
+
+  it("counts the whole week in its bars, not only the cards the list keeps", () => {
+    const records = [
+      ...Array.from({ length: 20 }, (_, index) => ({ kind: "noted", title: `Today ${index}`, at: minutesAgo(index + 1) })),
+      ...Array.from({ length: 5 }, (_, index) => ({ kind: "noted", title: `Yesterday ${index}`, at: minutesAgo(24 * 60 + index) })),
+    ];
+    const panel = composeActivity({ log: [], jobs: [], advice: [], records }, NOW);
+    expect(panel.recent).toHaveLength(MAX_RECENT);
+    expect(panel.week.slice(-2).map((day) => day.count)).toEqual([5, 20]);
   });
 });
 
