@@ -100,6 +100,39 @@ describe("FirstMate domain transport", () => {
     expect(calls).toEqual(["claude", "codex", "opencode"]);
   });
 
+  it("starts a session without the paid Anthropic API variables in its environment", async () => {
+    const previous = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    };
+    process.env.ANTHROPIC_API_KEY = "sk-paid-api-key";
+    process.env.ANTHROPIC_AUTH_TOKEN = "paid-auth-token";
+    process.env.ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+    try {
+      const launchedEnv: NodeJS.ProcessEnv[] = [];
+      const exec: FirstmateExec = async (_script, _args, options) => {
+        launchedEnv.push(options.env);
+        return { stdout: "started", stderr: "" };
+      };
+      const result = await startFirstmateSession({
+        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+        readiness: { available: true, canReceive: false, liveHarness: false },
+        recordAttempt: vi.fn(),
+      });
+      expect(result.started).toBe(true);
+      expect(launchedEnv).toHaveLength(1);
+      expect(launchedEnv[0].ANTHROPIC_API_KEY).toBeUndefined();
+      expect(launchedEnv[0].ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(launchedEnv[0].ANTHROPIC_BASE_URL).toBeUndefined();
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   it("keeps a run queued and retryable when no runtime can start, and matches a later reply", async () => {
     let readyCalls = 0;
     const exec: FirstmateExec = async (_script, args) => {

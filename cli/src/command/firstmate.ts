@@ -213,6 +213,13 @@ function sessionArgs(runtime: SessionRuntime): string[] {
   return ["run", SESSION_PROMPT];
 }
 
+const PAID_API_ENV_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"];
+function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnv = { ...env };
+  for (const name of PAID_API_ENV_VARS) delete childEnv[name];
+  return childEnv;
+}
+
 /** Appends one JSONL line per FirstMate session launch attempt to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
@@ -248,7 +255,7 @@ export async function startFirstmateSession(options: {
   }
   for (const runtime of runtimes) {
     try {
-      const result = await options.exec(runtime, sessionArgs(runtime), { env: { ...process.env, ...options.env }, timeout: 30_000 });
+      const result = await options.exec(runtime, sessionArgs(runtime), { env: sessionChildEnv({ ...process.env, ...options.env }), timeout: 30_000 });
       const output = `${result.stdout}\n${result.stderr}`;
       if (/usage limit|rate limit|quota exceeded|overloaded/i.test(output)) {
         record({ runtime, outcome: "usage_limited", detail: output.slice(-500) });
@@ -277,7 +284,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       }
       let output = "";
       let settled = false;
-      const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: { ...process.env, FM_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", "pipe", "pipe"] });
       child.stdout?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
       child.stderr?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
       child.once("error", (error) => {
