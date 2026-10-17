@@ -1,5 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UNREAD_AFTER_MS, UnreadNoteWatcher, unreadNotes, unreadWarning, waited } from "../note-receipts.js";
+import { deliverNotification } from "../../runtime/agenda.js";
 import type { Exchange } from "../types.js";
 
 const NOW = Date.parse("2026-10-12T04:05:00Z");
@@ -73,5 +77,37 @@ describe("UnreadNoteWatcher", () => {
     expect(await quiet.check()).toBe(false);
     const failing = new UnreadNoteWatcher(() => [note("a", 10 * 60_000, "sent")], notify, () => NOW);
     expect(await failing.check()).toBe(true);
+  });
+});
+
+describe("the unread warning on its way to George", () => {
+  it("reaches him scrubbed, through the real notification boundary, keeping the counts and the wait", async () => {
+    const home = mkdtempSync(join(tmpdir(), "flyd-note-home-"));
+    mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
+    writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
+    const previousHome = process.env.HOME;
+    const previousPlatform = process.platform;
+    process.env.HOME = home;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    const bodies: Array<{ title: string; message: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body) as { title: string; message: string });
+      return { ok: true, json: async () => ({ delivered: 1 }) };
+    }));
+    try {
+      const exchanges = [note("a", 57 * 60_000, "sent"), note("b", 5 * 60_000, "sent")];
+      const watcher = new UnreadNoteWatcher(() => exchanges, deliverNotification, () => NOW);
+      expect(await watcher.check()).toBe(true);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]!.message).not.toMatch(/firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i);
+      expect(bodies[0]!.message).toContain("2 notes");
+      expect(bodies[0]!.message).toContain("57 min");
+    } finally {
+      vi.unstubAllGlobals();
+      Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

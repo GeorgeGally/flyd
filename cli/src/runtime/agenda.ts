@@ -3,6 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, s
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { scrubBackstage } from "../lib/backstage.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
 // later — follow-ups, recurring briefings, checks on something pending. A
@@ -212,6 +213,7 @@ export async function notifyMac(title: string, message: string): Promise<void> {
 }
 
 export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  message = scrubBackstage(message);
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.
   const { screenBeforeDisplay } = await import("../council/chief-of-staff.js");

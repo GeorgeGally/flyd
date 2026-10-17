@@ -92,14 +92,6 @@ describe("captain notices", () => {
 describe("notices keep the one voice", () => {
   const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i;
 
-  it("rephrases the notes-a-helper-has-not-read notice, keeping the counts and wait", () => {
-    const notice = captainNotice(run("Firstmate has not read 2 notes you sent; the oldest has waited 57 min."));
-    expect(notice).not.toBeNull();
-    expect(notice!).not.toMatch(BACKSTAGE);
-    expect(notice!).toContain("2 notes");
-    expect(notice!).toContain("57 min");
-  });
-
   it("scrubs every backstage term on every notice path, keeping the outcome", () => {
     const cases: Array<[string, string]> = [
       ["Firstmate has not read 3 notes you sent.", "3 notes"],
