@@ -310,8 +310,7 @@ program
   .option("--model <model>", "Use exactly this model (default: the chat chain with failover)")
   .option("--deep", "Use slower semantic expansion and reranking")
   .option("--librarian", "Run librarian evidence evaluation before synthesis")
-  .option("--context", "Print the compiled context and evidence instead of asking a model (debugging)")
-  .action((question: string, opts: { deep?: boolean; model?: string; librarian?: boolean; context?: boolean }) =>
+  .action((question: string, opts: { deep?: boolean; model?: string; librarian?: boolean }) =>
     runAsk(question, opts.model, opts)
   );
 

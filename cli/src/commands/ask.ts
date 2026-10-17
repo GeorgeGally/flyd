@@ -290,17 +290,8 @@ ${opts.librarian ? "The caller requested librarian diagnostics; be especially ex
 export async function runAsk(
   question: string,
   model?: string,
-  opts?: { deep?: boolean; librarian?: boolean; context?: boolean },
+  opts?: { deep?: boolean; librarian?: boolean },
 ): Promise<void> {
-  if (opts?.context) {
-    const compiled = await compileContext({
-      intent: question,
-      projectRoot: process.cwd(),
-      capabilities: ["ask", "memory", "git", "current-state"],
-    });
-    console.log(`context:\n${formatCompiledContext(compiled)}\n\nevidence:\n${evidenceSummaryFor(compiled, opts.deep)}`);
-    return;
-  }
   try {
     const { answer, evidence } = await askFlyd(question, { model, deep: opts?.deep, librarian: opts?.librarian });
     console.log(answer);
