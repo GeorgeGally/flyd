@@ -28,9 +28,11 @@ conflict lines of every full prompt context (~16K tokens for a four-word questio
 - `vitest.setup.ts` forces `FLYD_DIR` to a throwaway dir. `assertNotRealFlydHome` (`cli/src/lib/test-home-guard.ts`)
   makes the event store and the work index throw if a test run opens anything under the real `~/.flyd`.
   The guard immediately found `work/database.ts` ignoring `FLYD_DIR`; it now follows it.
-- `flyd purge-test-records [--dry-run] [--json] [--db path]` removes rows positively identified as test output
+- `flyd purge-test-records [--dry-run]` removes rows positively identified as test output
   after a WAL-safe backup to `~/.flyd/backups/intelligence-<timestamp>.sqlite`, then rebuilds the knowledge
-  projections. Identification is a positive marker on the row itself: a test model id (`gpt-4o-mini`, `gpt-4.6`),
+  projections. The command always targets the default `~/.flyd` store, and only that store's projections are
+  rebuilt; a purge run at any other db file (tests pass one directly) never touches live knowledge.
+  Identification is a positive marker on the row itself: a test model id (`gpt-4o-mini`, `gpt-4.6`),
   a fixture session id, or `project:test-project`. A prompt George could plausibly type is never a signal on its
   own, however often it repeats. Outcomes are removed only through their own `invocationId` link to a marked row;
   beliefs and relations only when their topic is test-derived; judgments and System-1 passes only when they point

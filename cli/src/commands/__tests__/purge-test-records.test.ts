@@ -51,7 +51,7 @@ describe("purgeTestRecords", () => {
     const dir = mkdtempSync(join(tmpdir(), "purge-"));
     const dbPath = join(dir, "intelligence.sqlite");
     seed(dbPath);
-    const report = await purgeTestRecords({ dbPath, rebuild: false });
+    const report = await purgeTestRecords({ dbPath });
     expect(report.totalDeleted).toBe(9);
     expect(report.backupPath && existsSync(report.backupPath)).toBe(true);
     expect(readdirSync(join(dir, "backups"))).toHaveLength(1);
@@ -67,7 +67,7 @@ describe("purgeTestRecords", () => {
     ]);
     store.close();
 
-    const again = await purgeTestRecords({ dbPath, rebuild: false });
+    const again = await purgeTestRecords({ dbPath });
     expect(again.totalDeleted).toBe(0);
     expect(again.backupPath).toBeUndefined();
   });
@@ -89,7 +89,7 @@ describe("purgeTestRecords", () => {
     add("2026-10-02T09:05:00Z", "genuine-2", "Draft the invoice reminder for Friday");
     store.close();
 
-    const report = await purgeTestRecords({ dbPath, rebuild: false });
+    const report = await purgeTestRecords({ dbPath });
     expect(report.totalDeleted).toBe(1);
 
     const after = new IntelligenceEventStore({ path: dbPath });
@@ -112,7 +112,7 @@ describe("purgeTestRecords", () => {
     add("observation", { relation: { from: "topic:ccc", type: "part_of", to: "project:flyd" } });
     store.close();
 
-    const report = await purgeTestRecords({ dbPath, rebuild: false });
+    const report = await purgeTestRecords({ dbPath });
     expect(report.totalDeleted).toBe(0);
 
     const after = new IntelligenceEventStore({ path: dbPath });

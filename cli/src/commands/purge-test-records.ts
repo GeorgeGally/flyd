@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { rebuildKnowledgeProjections } from "../cognition/projections/store.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 
@@ -147,7 +147,7 @@ function timestamp(): string {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-");
 }
 
-export async function purgeTestRecords(options: { dbPath?: string; dryRun?: boolean; backupDir?: string; rebuild?: boolean } = {}): Promise<PurgeReport> {
+export async function purgeTestRecords(options: { dbPath?: string; dryRun?: boolean } = {}): Promise<PurgeReport> {
   const dbPath = options.dbPath ?? defaultPurgeDbPath();
   const dryRun = options.dryRun ?? false;
   if (!existsSync(dbPath)) throw new Error(`No intelligence store at ${dbPath}`);
@@ -163,7 +163,7 @@ export async function purgeTestRecords(options: { dbPath?: string; dryRun?: bool
     report = { dryRun, dbPath, eventsBefore, reasons, totalDeleted: doomed.size, eventsAfter: eventsBefore - doomed.size, review };
     if (dryRun || doomed.size === 0) return report;
 
-    const backupDir = options.backupDir ?? join(dirname(dbPath), "backups");
+    const backupDir = join(dirname(dbPath), "backups");
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     const backupPath = join(backupDir, `intelligence-${timestamp()}.sqlite`);
     await db.backup(backupPath);
@@ -175,17 +175,18 @@ export async function purgeTestRecords(options: { dbPath?: string; dryRun?: bool
   } finally {
     db.close();
   }
-  // The knowledge files are projections of the events: rebuild them without the junk.
-  if (options.rebuild !== false) {
+  // The knowledge files are projections of the events: rebuild them without the
+  // junk. Only the default store's projections may be rewritten; a purge run at
+  // any other db file leaves George's live knowledge alone.
+  if (resolve(dbPath) === resolve(defaultPurgeDbPath())) {
     const store = new IntelligenceEventStore({ path: dbPath });
     try { rebuildKnowledgeProjections(store); } finally { store.close(); }
   }
   return report;
 }
 
-export async function runPurgeTestRecords(opts: { dryRun?: boolean; json?: boolean; db?: string }): Promise<void> {
-  const report = await purgeTestRecords({ dryRun: opts.dryRun, dbPath: opts.db });
-  if (opts.json) { console.log(JSON.stringify(report, null, 2)); return; }
+export async function runPurgeTestRecords(opts: { dryRun?: boolean }): Promise<void> {
+  const report = await purgeTestRecords({ dryRun: opts.dryRun });
   console.log(`${report.dryRun ? "[dry run] would delete" : "deleted"} ${report.totalDeleted} of ${report.eventsBefore} events in ${report.dbPath}`);
   for (const [reason, n] of Object.entries(report.reasons).sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(6)}  ${reason}`);
   if (report.backupPath) console.log(`backup: ${report.backupPath}`);

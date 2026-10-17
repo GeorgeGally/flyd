@@ -784,9 +784,7 @@ program
   .command("purge-test-records")
   .description("One-off: remove test-generated rows (test models, fixture sessions and beliefs) from intelligence.sqlite, after a timestamped backup in ~/.flyd/backups")
   .option("--dry-run", "Count what would be deleted; change nothing")
-  .option("--json", "Structured JSON output")
-  .option("--db <path>", "Use this intelligence.sqlite instead of ~/.flyd/intelligence.sqlite")
-  .action(async (opts: { dryRun?: boolean; json?: boolean; db?: string }) => {
+  .action(async (opts: { dryRun?: boolean }) => {
     const { runPurgeTestRecords } = await import("./commands/purge-test-records.js");
     await runPurgeTestRecords(opts);
   });
