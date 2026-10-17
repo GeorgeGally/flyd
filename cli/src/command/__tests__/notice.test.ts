@@ -110,8 +110,8 @@ describe("notices keep the one voice", () => {
       ["The Muses offered 5 notes.", "5 notes"],
       ["The Scout surfaced 4 stories.", "4 stories"],
       ["Merged the fix on fm/island-filter; the island is quiet.", null],
-      ["Task id task-9 is stuck.", "9"],
-      ["Run id run-9 is stuck.", "9"],
+      ["Task id task-9 is stuck.", null],
+      ["Run id run-9 is stuck.", null],
       ["Merged the fix on the branch fm/x; 3 tests added.", "3 tests"],
       ["Fixed it in the worktree; 2 files changed.", "2 files"],
       ["The pipeline ran 5 checks.", "5 checks"],
@@ -126,7 +126,7 @@ describe("notices keep the one voice", () => {
   });
 
   it("fails a notice that names machinery closed to a neutral outcome line", () => {
-    expect(captainNotice(run("Checked by 2 Firstmates."))).toBe("Update — 2.");
+    expect(captainNotice(run("Checked by 2 Firstmates."))).toBe("There is an update on your work.");
   });
 
   it("scrubs decisions and failures too, keeping them readable as a decision or a problem", () => {
@@ -145,6 +145,21 @@ describe("notices keep the one voice", () => {
     expect(captainNotice(run("Dispatched a crewmate to fix the layout and pushed."))).toBe("There is an update on your work.");
     expect(captainNotice(run("Firstmate merged the island filter."))).toBe("There is an update on your work.");
     expect(captainNotice(run("Ready for review on the branch feature/dark-mode — 7 files changed."))).toBe("Update — 7 files.");
+  });
+
+  it("keeps counts whole and never mines a number out of a hash, id, clock or date", () => {
+    const cases: Array<[string, string]> = [
+      ["Fixed it in commit 0a1b2c3d.", "There is an update on your work."],
+      ["Merged the branch at 14:00.", "There is an update on your work."],
+      ["The worktree holds 2026-10-12 notes.", "There is an update on your work."],
+      ["Task id task-9 is stuck.", "There is an update on your work."],
+    ];
+    for (const [reply, expected] of cases) {
+      expect(captainNotice(run(reply)), reply).toBe(expected);
+    }
+    expect(captainNotice(run("The worktree holds 2 files."))).toBe("Update — 2 files.");
+    expect(captainNotice(run("Firstmate has not read 2 notes you sent; the oldest has waited 57 min.")))
+      .toBe("Update — 2 notes, 57 min.");
   });
 });
 

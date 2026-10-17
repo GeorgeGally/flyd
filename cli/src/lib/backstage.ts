@@ -26,7 +26,13 @@ export function hasBackstage(text: string): boolean {
   return firstBackstage(text) !== null;
 }
 
-const COUNT_PHRASE = /\d+(?:\s+(?:\d+|(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|notes?|files?|items?|jobs?|tests?|checks?|requests?|memories|stories|plans?|ideas?|commits?|updates?|entries?|reports?|tasks?|fixes|points?|lines?|steps?|tickets?|issues?)))*/gi;
+const COUNT_UNITS =
+  "h|hrs?|hours?|mins?|minutes?|days?|weeks?|notes?|files?|items?|jobs?|tests?|checks?|requests?|memories|stories|plans?|ideas?|commits?|updates?|entries?|reports?|tasks?|fixes|points?|lines?|steps?|tickets?|issues?";
+
+const COUNT_PHRASE = new RegExp(
+  `(?<![\\w:.\\/-])\\d+\\s+(?:${COUNT_UNITS})\\b(?:\\s+(?:\\d+|(?:${COUNT_UNITS})\\b))*`,
+  "gi",
+);
 
 function neutralOutcome(text: string): string {
   const amounts = (text.match(COUNT_PHRASE) ?? []).map((amount) => amount.replace(/\s+/g, " ").trim());
