@@ -180,3 +180,54 @@ Its checks are running again.
 Two things are waiting on you:
 1. Shall I put today's local Flyd commit on top of GitHub's latest and push it? Until then, fixes that land won't reach the running Flyd. https://github.com/GeorgeGally/flyd/pull/158
 2. Do you want the command that lets firstmate message Flyd and get a real reply?`;
+
+// Staff updates as Flyd relays them (2026-10-17): George sees only what landed,
+// his own decisions and real blockers, each in a line.
+
+/** A fifteen-line progress report: review findings, checks, internal calls. Nothing landed, nothing asked. */
+export const STAFF_PROGRESS = `Captain, quick update on the island work.
+
+- The reviewer found two issues in the headline code: a missing null check and a stale cache key.
+- I fixed both and the crewmate is re-running the checks now.
+- Lint passes; 812 of 823 tests pass, the rest are still running.
+- I chose to keep the old fallback rather than gate it behind config.
+- The second crewmate is still on the artefacts layout.
+- Its first review round asked for smaller spacing, which it applied.
+- Checks are running again on that branch.
+- The rebase onto main went cleanly.
+- Nothing needed from you yet.
+- I'll report back when both are green.
+- The worktree for the dictation fix was cleaned up.
+- The note about the island colours was read and is queued.
+- Shipshape.`;
+
+export const STAFF_LANDED = `Captain, the island text fix is merged: https://github.com/GeorgeGally/flyd/pull/162. The headline is back to 28pt with two body lines.
+
+Review found nothing blocking; checks were green on the second round. I also tidied the artefacts view while I was there, and the crewmate's worktree is gone.`;
+
+export const STAFF_DECISION = `Captain, the CapFive page is ready but I need your call on one thing.
+
+The client sent two hero images. Which one should go live?
+
+1. The boardroom photo
+2. The skyline photo`;
+
+export const STAFF_BLOCKED = `Captain, the Good Neighbours deploy is blocked: Kinsta rejected the SSH key and I can't get past the login.
+
+I'll ask Kinsta support to reset it and try again this afternoon.`;
+
+/** Firstmate explaining two phantom notices by quoting them: the island read the quotes as his decision (2026-10-17). */
+export const PHANTOM_NOTICES = `Captain, no recompile needed. Everything that has landed is already running: I restart Flyd after each merge, and rebuilt the Mac app for the island change. I also just refreshed the terminal \`flyd\` command so it matches the latest code.
+
+The two phantom notifications:
+- **"Claude: waiting on your input".** That came from my coding staff's own Claude sessions sitting idle while their checks run. It was never for you.
+- **"Needs your decision" on the clean-up.** Flyd turned my earlier question into a decision after the clean-up was already done.
+
+Both go to the chief-of-staff fix that's under way: Flyd drops staff idle alerts and never raises a decision that's already answered or finished.`;
+
+/** A multi-bullet status the window showed as big grey prose (2026-10-17): "still looking like just a wall of text". */
+export const THREE_FIXES = `Captain, here's where the three Flyd fixes stand:
+
+- **Flyd decides itself**: still stuck on its checks. I'll bring in the missing change and run validation again, with no skipped checks. If that doesn't clear it, I'll report it to you as a blocker.
+- **Chief-of-staff voice**: the phantom "your decision" island alerts are fixed. Messages are now capped at 3 lines. The worker is on the visual part now.
+- **Activity artefacts**: final checks are running.`;

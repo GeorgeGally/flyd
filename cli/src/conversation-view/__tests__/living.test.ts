@@ -10,14 +10,14 @@ function note(id: string, handoff: Exchange["handoff"], text = "fix it", answere
 const HANDOFF = /firstmate|passing|is on it|one moment|let me check|got it|who should/i;
 
 describe("the living line", () => {
-  it("names the queue state without announcing routing or a handoff", () => {
+  it("names the queue state without announcing routing or a handoff, and says nothing when there is nothing concrete", () => {
     expect(RECEIVED).toBe(WORKING);
     expect(answeringLine("what is usb overdrive?")).toBe("Looking up usb overdrive");
     expect(WORKING).toBe("Queued");
-    expect(handoffLine("queued")).toBe("Queued for a next step");
-    expect(handoffLine("taken")).toBe("Waiting for a clear next step");
+    expect(handoffLine("queued")).toBe("");
+    expect(handoffLine("taken")).toBe("");
     // A step only shows once the work has started, never while the note is still on its way.
-    expect(handoffLine("queued", { activity: "Run the tests" })).toBe("Queued for a next step");
+    expect(handoffLine("queued", { activity: "Run the tests" })).toBe("");
     for (const line of [RECEIVED, answeringLine("bkk?"), handoffLine("queued"), handoffLine("taken")]) expect(line).not.toMatch(HANDOFF);
   });
 
@@ -34,18 +34,18 @@ describe("the living line", () => {
     expect(handoffLine("queued", { text: "update the footer copy. GNM needs it by Friday", projects: ["GNM"] })).toBe("GNM: Updating the footer copy")
     expect(handoffLine("queued", { text: "fix the footer on GNM", projects: ["GNM"] })).toBe("Fixing the footer on GNM");
     expect(handoffLine("queued", { text: "set the timeout to 5s" })).toBe("Setting the timeout to 5s");
-    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("GNM: Queued for a next step");
+    expect(handoffLine("queued", { text: "the GNM hero is too tall", projects: ["GNM"] })).toBe("");
   });
 
   it("never quotes his words back when they are not a task Flyd is doing", () => {
     expect(handoffLine("queued", { text: "what is usb overdrive?" })).toBe("Looking up usb overdrive");
-    expect(handoffLine("queued", { text: "who's playing at art bangkok?" })).toBe("Queued for a next step");
+    expect(handoffLine("queued", { text: "who's playing at art bangkok?" })).toBe("");
     for (const text of ["what is the notch island doing wrong?", "Did you push it?", "can you deploy it?", "why did the build fail?", "is this normal?", "what is it?"]) {
-      expect(handoffLine("queued", { text })).toBe("Queued for a next step");
+      expect(handoffLine("queued", { text })).toBe("");
     }
-    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe("Queued for a next step");
+    expect(handoffLine("queued", { text: "the good neighbours market hero is too tall" })).toBe("");
     for (const text of ["tell firstmate to fix the footer", "get the crew to land it", "/deploy staging", "can you show me the logs", "fix my site", "fix what I'm seeing on the island", "fix the bug I am seeing", "check what I've changed today", "update the copy we'll ship on our site", "/ce-code-review fix the branch", "fix it", "ok"]) {
-      expect(handoffLine("queued", { text })).toBe("Queued for a next step");
+      expect(handoffLine("queued", { text })).toBe("");
     }
     expect(handoffLine("queued", { text: "fix the calendar", projects: [] })).not.toMatch(HANDOFF);
   });
@@ -56,7 +56,7 @@ describe("the living line", () => {
       [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: "Reading your message" }],
       { activity: "Shrinking hero on short screens, verify" },
     );
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Reading your message"]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["", "", "", "", "Reading your message"]);
   });
 
   it("keeps the running line under an outcome while work on that note carries on", () => {
@@ -84,6 +84,6 @@ describe("the living line", () => {
       activity: "Editing the styles",
       workingOn: ["note:b"],
     });
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Editing the styles", "Queued for a next step"]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["", "Editing the styles", ""]);
   });
 });

@@ -213,11 +213,14 @@ export async function notifyMac(title: string, message: string): Promise<void> {
 }
 
 export async function deliverNotification(title: string, message: string): Promise<boolean> {
+  // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
+  const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
+  // A coding session idle at its prompt is never George's to hear about.
+  if (isIdleNotice(title, message)) return false;
   title = scrubBackstage(title);
-  message = scrubBackstage(message);
+  message = notificationLine(scrubBackstage(message));
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.
-  const { screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   const { noteSaid, recordHeld } = await import("../council/reply-review.js");
   const screened = screenBeforeDisplay({ surface: "notification", text: message });
   const placeholder = screened.shortfalls.filter((item) => item.requirement === "real_status");

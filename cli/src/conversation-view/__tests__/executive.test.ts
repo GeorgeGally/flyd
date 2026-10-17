@@ -115,7 +115,9 @@ describe("Flyd's executive voice", () => {
   it("puts firstmate's own words, links and all, behind more, and briefs a reply with no summary", () => {
     const differ = new SnapshotDiffer();
     const [long] = differ.next({ messages: [{ id: "r1", role: "assistant", text: inFlydsVoice(WHERE_EVERYTHING_STANDS) }], working: false }).messages;
-    expect(long!.summary!.html).toContain("status-card");
+    // What he reads first is a few short lines, never a status card or a list of links.
+    expect(long!.summary!.html).not.toContain("status-card");
+    expect(long!.summary!.html).not.toContain("<li>");
     expect(long!.html).toContain("https://github.com/GeorgeGally/flyd/pull/83</a>");
     const [short] = differ.next({ messages: [{ id: "r2", role: "assistant", text: "Sir, PR 90 (https://github.com/GeorgeGally/flyd/pull/90) merged." }], working: false }).messages;
     expect(short!.summary).toBeUndefined();

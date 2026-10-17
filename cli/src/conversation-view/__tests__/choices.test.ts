@@ -210,10 +210,9 @@ describe("the choice, where he sees it", () => {
     const messages = [said("u1", "well its an issue. what failed?"), asked, { ...said("note:1791778226", "its very easy, too easy, to scroll from nuanu page to the next page"), timestamp: "2026-10-12T04:10:26Z" }];
     const update = new SnapshotDiffer().next({ messages, working: false });
     expect(update.messages.find((message) => message.id === asked.id)!.choice).toEqual({ question: "Should I go ahead with fix 2?", options: ["Yes", "No"], replyTo: "reply:b#383" });
-    // The briefing above the card does not ask it a second time.
+    // Relayed, it is a compact card that names the decision once; the staff's words wait behind "more".
     const shown = update.messages.find((message) => message.id === asked.id)!;
-    expect(shown.summary!.html).toContain("All 14 notes are now handled");
-    expect(shown.summary!.html).not.toContain("Should I go ahead with fix 2?");
+    expect(shown.card).toEqual({ kind: "decision", line: "Should I go ahead with fix 2?" });
     expect(shown.html).toContain("Should I go ahead with fix 2?");
     const [call] = showOf({ messages, working: false }, { now }).items;
     expect(call).toMatchObject({ kind: "call", headline: "Should I go ahead with fix 2?", decision: { replyTo: "reply:b#383", choices: ["Yes", "No"] } });
