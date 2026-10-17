@@ -364,6 +364,7 @@ export function mergeNotes(
   const from = time(window.from);
   const until = time(window.until);
   const inWindow = exchanges.filter((exchange) => {
+    if (exchange.question.flydAsked) return false;
     const at = time(exchange.question.timestamp);
     return (Number.isNaN(from) || at >= from) && (Number.isNaN(until) || at < until);
   });

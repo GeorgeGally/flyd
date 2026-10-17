@@ -992,6 +992,34 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent).toHaveLength(1);
   });
 
+  it("hides Flyd's own chase for a missed artefact, so no window message reads as his", async () => {
+    const inbox = new MemoryInbox();
+    const asked = askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "The new commits add routine artefacts and tidy the island.");
+    inbox.notes = () => [asked];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    const chase = inbox.sent[0]!;
+    // The chase lands in firstmate's inbox; the window reads it back on the next pass.
+    inbox.notes = () => [asked, { question: chase, handoff: "queued" as const, waiting: "" }];
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.messages.map((m: { id: string }) => m.id)).not.toContain(chase.id);
+    const shown = update.messages.filter((m: { role: string }) => m.role === "user").map((m: { html: string }) => m.html).join("\n");
+    expect(shown).not.toContain("send that as an artefact");
+  });
+
   it("does not chase again for a note already chased in an earlier session", async () => {
     const inbox = new MemoryInbox();
     const asked = askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.");

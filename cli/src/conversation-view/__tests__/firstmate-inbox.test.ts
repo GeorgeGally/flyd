@@ -241,6 +241,13 @@ describe("mergeNotes", () => {
   it("compares times, not strings of different precision", () => {
     expect(mergeNotes(messages, [note("same-second", "2026-10-05T20:00:00Z")], {}).map((m) => m.id)).toEqual(["same-second", "u1", "r1"]);
   });
+
+  it("never merges Flyd's own chase for a missed artefact, so it never reads as his", () => {
+    const chase = { question: { id: "note:chase", role: "user" as const, text: "Flyd: send that as an artefact, please — he asked for one and none arrived.", timestamp: "2026-10-05T20:01:00Z", flydAsked: true }, waiting: "" };
+    const merged = mergeNotes(messages, [note("mid", "2026-10-05T20:01:00Z"), chase], {});
+    expect(merged.map((m) => m.id)).toEqual(["u1", "mid", "r1"]);
+    expect(merged.some((m) => m.id === "note:chase")).toBe(false);
+  });
 });
 
 function writeReply(id: string, at: string, seq: number, body: string): void {

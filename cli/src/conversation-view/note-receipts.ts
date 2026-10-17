@@ -41,7 +41,7 @@ export function markRead(exchange: Exchange): Exchange {
  */
 export function unreadNotes(exchanges: Exchange[], now = Date.now()): UnreadNotes | null {
   const late = exchanges
-    .filter((exchange) => exchange.question.receipt === "sent" && !readUnacknowledged(exchange))
+    .filter((exchange) => exchange.question.receipt === "sent" && !exchange.question.flydAsked && !readUnacknowledged(exchange))
     .map((exchange) => ({ id: exchange.question.id, at: Date.parse(exchange.question.timestamp ?? "") }))
     .filter((note) => Number.isFinite(note.at) && now - note.at > UNREAD_AFTER_MS)
     .sort((a, b) => a.at - b.at);
