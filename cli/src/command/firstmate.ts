@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { parseDomainResult, validateDomainHandoff } from "./result.js";
-import { listDomainRuns, saveDomainRun } from "./store.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -136,7 +136,7 @@ export class FirstmateDomainTransport {
     };
     saveDomainRun(run);
     if (!receipt.acknowledged) {
-      const session = await this.startSession(undefined, (failure) => suspendFirstmateRun(run, failure));
+      const session = await this.startSession(readiness, (failure) => suspendFirstmateRun(run, failure));
       if (session.failure) return suspendFirstmateRun(run, session.failure);
     }
     return run;
@@ -190,7 +190,9 @@ const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep i
 const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
+const LAUNCH_COOLDOWN_MS = 5 * 60_000;
 const launchingHomes = new Set<string>();
+const launchCooldownUntil = new Map<string, number>();
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
@@ -307,10 +309,12 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
 }
 
 function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now()): DomainRun {
-  const attempts = (run.launchRetry?.attempts ?? 0) + 1;
+  const current = readDomainRun(run.id) ?? run;
+  if (["completed", "failed", "cancelled"].includes(current.status)) return current;
+  const attempts = (current.launchRetry?.attempts ?? 0) + 1;
   const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
   const suspended: DomainRun = {
-    ...run,
+    ...current,
     failure,
     launchRetry: { attempts, nextAt: new Date(nowMs + delay).toISOString() },
     updatedAt: new Date(nowMs).toISOString(),
@@ -399,7 +403,9 @@ export async function syncFirstmateDomainRuns(options: {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
       const due = !waitingRun?.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs;
-      if (due) {
+      const cooling = (launchCooldownUntil.get(transport.home) ?? 0) > nowMs;
+      if (due && !cooling) {
+        launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
         const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, launchRetry: undefined, updatedAt: new Date(nowMs).toISOString() });
