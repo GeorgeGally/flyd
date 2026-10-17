@@ -1,5 +1,6 @@
 import { evaluatePredicates, JEV_PINNED_MODEL } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor } from "../cognition/system-one/registry.js";
+import { retiredPhrasesIn } from "../runtime/honesty-check.js";
 import { readFileSync } from "node:fs";
 import { readSoul } from "../lib/soul.js";
 import { userProfilePath } from "../lib/user-profile.js";
@@ -208,9 +209,10 @@ export function checkSaid(said: Said, rules: VoiceRules = { banned: [] }): Short
   }
 
   const plain = normal(prose(text));
-  if (/(?:^|[\s,.!?])captain\b/.test(plain)) add("his_voice", "calls him \"Captain\"");
+  const retired = retiredPhrasesIn(plain)[0];
+  if (retired) add("his_voice", /^captain$/i.test(retired) ? "calls him \"Captain\"" : `uses a phrase he ruled out ("${retired}")`);
   const banned = rules.banned.find((phrase) => plain.includes(phrase));
-  if (banned) add("his_voice", `uses a phrase he ruled out ("${banned}")`);
+  if (banned && banned !== retired?.toLowerCase()) add("his_voice", `uses a phrase he ruled out ("${banned}")`);
   return shortfalls;
 }
 

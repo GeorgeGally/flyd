@@ -82,6 +82,39 @@ export function styleProblems(answer: string): string[] {
   return problems;
 }
 
+// Phrases George has ruled out of Flyd's voice (USER.md / SOUL.md, the
+// "His voice" rule). One source of truth: the send-path check below and the
+// His voice rule in council/chief-of-staff.ts both read this list, so what is
+// enforced before an answer is spoken can never drift from what is reviewed
+// after. "Captain" is here because he goes by "sir".
+export const RETIRED_PHRASES = ["Captain", "one moment please sir", "passing this to Firstmate"] as const;
+
+const RETIRED = RETIRED_PHRASES.map((phrase) => ({
+  phrase,
+  pattern: new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+}));
+
+/** The ruled-out phrases this text uses, in list order. */
+export function retiredPhrasesIn(answer: string): string[] {
+  return RETIRED.filter(({ pattern }) => pattern.test(answer)).map(({ phrase }) => phrase);
+}
+
+/** Deterministic send-path check: the answer uses a phrase George has ruled out. */
+export function retiredPhraseProblems(answer: string): string[] {
+  return retiredPhrasesIn(answer).map((phrase) =>
+    `It uses a phrase George has ruled out ("${phrase}"). Say the outcome in your own words.`);
+}
+
+/** Last resort before the answer is spoken: cut a ruled-out phrase a failed rewrite left behind. */
+// ponytail: crude scrub ("captain's" → "sir's"); regeneration is the real fix, this only stops a leak.
+export function stripRetiredPhrases(answer: string): string {
+  let out = answer;
+  for (const { phrase, pattern } of RETIRED) {
+    out = out.replace(new RegExp(pattern.source, "gi"), phrase.toLowerCase() === "captain" ? "sir" : "");
+  }
+  return out.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").replace(/^[\s.,;:!?]+/gm, "").trim();
+}
+
 // George wants the outcome or nothing (AGENTS.md "One voice"): no "Passing
 // this to Firstmate", no "One moment please sir", no "Let me check". A
 // rewrite prompt can be ignored, so these sentences are cut mechanically from

@@ -133,3 +133,22 @@ describe("internal narration, George's own words", () => {
     expect(stripInternalNarration("I'll pass this along. The draft is in your inbox.").cleaned).toBe("The draft is in your inbox.");
   });
 });
+
+describe("retired phrases", () => {
+  it("rejects a phrase George has ruled out and accepts the same text with it gone", async () => {
+    const { retiredPhraseProblems, retiredPhrasesIn, stripRetiredPhrases, RETIRED_PHRASES } = await import("../honesty-check.js");
+    expect(RETIRED_PHRASES).toEqual(["Captain", "one moment please sir", "passing this to Firstmate"]);
+    expect(retiredPhraseProblems("One moment please sir, pulling that up now.")).toHaveLength(1);
+    expect(retiredPhraseProblems("Passing this to Firstmate — it lands tonight.")).toHaveLength(1);
+    expect(retiredPhraseProblems("Pulling that up now.")).toEqual([]);
+    expect(retiredPhraseProblems("It lands tonight.")).toEqual([]);
+    // He goes by "sir"; "Captain" is out wherever it appears.
+    expect(retiredPhrasesIn("Captain, the build is green.")).toEqual(["Captain"]);
+    expect(retiredPhraseProblems("Sir, the build is green.")).toEqual([]);
+    // Case does not matter, and a phrase mid-sentence still counts.
+    expect(retiredPhrasesIn("Sure, One Moment Please Sir, checking.")).toEqual(["one moment please sir"]);
+    // The last-resort scrub never leaves the phrase behind.
+    expect(stripRetiredPhrases("One moment please sir. The plan is ready.")).toBe("The plan is ready.");
+    expect(retiredPhraseProblems(stripRetiredPhrases("Captain, the build is green."))).toEqual([]);
+  });
+});

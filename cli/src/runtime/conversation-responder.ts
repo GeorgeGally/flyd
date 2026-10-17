@@ -15,7 +15,7 @@ import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-poli
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
-import { honestyRewritePrompt, stripInternalNarration, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -1199,7 +1199,9 @@ export async function respondToConversation(
       throw new Error("Flyd refused an ungrounded project answer because no evidence tool succeeded");
     }
     let final = extractFinal(answer);
-    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final)];
+    const retired = retiredPhrasesIn(final);
+    if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
+    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final)];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
       const rewrite = dependencies.rewrite ?? (async (prompt: string) => (process.env.VITEST ? "" : (await import("../lib/llm.js")).query(prompt, usedModel)));
@@ -1208,6 +1210,12 @@ export async function respondToConversation(
     }
     // After any rewrite, so a rewritten answer can't bring the narration back.
     final = stripInternalNarration(final).cleaned;
+    // A phrase George has ruled out never reaches him: cut any a failed rewrite left behind.
+    const leftover = retiredPhrasesIn(final);
+    if (leftover.length) {
+      console.warn(`[his-voice] cut a ruled-out phrase the rewrite left: ${leftover.join(", ")}`);
+      final = stripRetiredPhrases(final);
+    }
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }
