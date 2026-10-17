@@ -79,7 +79,7 @@ export class UnreadNoteWatcher {
 
   constructor(
     private readonly exchanges: () => Exchange[],
-    private readonly notify: (title: string, message: string) => Promise<void>,
+    private readonly notify: (title: string, message: string) => Promise<unknown>,
     private readonly now: () => number = Date.now,
   ) {}
 
