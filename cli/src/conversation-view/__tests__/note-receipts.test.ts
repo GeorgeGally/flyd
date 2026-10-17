@@ -95,13 +95,13 @@ describe("the unread warning on its way to George", () => {
       return { ok: true, json: async () => ({ delivered: 1 }) };
     }));
     try {
-      const exchanges = [note("a", 57 * 60_000, "sent"), note("b", 5 * 60_000, "sent")];
+      const exchanges = [note("a", 64 * 60_000, "sent"), note("b", 5 * 60_000, "sent")];
       const watcher = new UnreadNoteWatcher(() => exchanges, deliverNotification, () => NOW);
       expect(await watcher.check()).toBe(true);
       expect(bodies).toHaveLength(1);
       expect(bodies[0]!.message).not.toMatch(/firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i);
       expect(bodies[0]!.message).toContain("2 notes");
-      expect(bodies[0]!.message).toContain("57 min");
+      expect(bodies[0]!.message).toContain("1 h 4 min");
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });

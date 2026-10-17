@@ -54,12 +54,11 @@ describe("style check", () => {
 
   it("shares one backstage denylist with the notification path", async () => {
     const { styleProblems } = await import("../honesty-check.js");
-    const { hasBackstage, BACKSTAGE_DENYLIST } = await import("../../lib/backstage.js");
+    const { hasBackstage } = await import("../../lib/backstage.js");
     for (const term of ["Firstmate", "crewmates", "the Council", "Librarian", "Critic", "Strategist", "Muse", "Scout", "Jev", "task id", "run id", "branch", "worktree", "pipeline"]) {
       expect(hasBackstage(term), term).toBe(true);
       expect(styleProblems(`It names ${term} here.`)[0], term).toMatch(/backstage/);
     }
-    expect(BACKSTAGE_DENYLIST.length).toBeGreaterThan(0);
   });
 });
 

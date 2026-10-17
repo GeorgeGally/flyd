@@ -26,7 +26,7 @@ export function hasBackstage(text: string): boolean {
 }
 
 const REWRITES: Array<[RegExp, string]> = [
-  [/\bfirstmate has not read (\d+) notes you sent; the oldest has waited (\d[\dh\s]*?(?:min|h|days?))\.?/gi, "$1 notes you sent are still waiting; the oldest has waited $2."],
+  [/\bfirstmate has not read (\d+) notes you sent; the oldest has waited (\d[\dh\s]*(?:min|h|days?))\.?/gi, "$1 notes you sent are still waiting; the oldest has waited $2."],
   [/\bfirstmate has not read 1 note you sent (\d[\dh\s]*?(?:min|h|days?))\s+ago\b\.?/gi, "You have 1 note still waiting — sent $1 ago."],
   [/\bfirstmate (?:asks|wants to know|is asking)\s*:?\s*/gi, ""],
   [/\bfirstmate'?s\s+/gi, "the "],
