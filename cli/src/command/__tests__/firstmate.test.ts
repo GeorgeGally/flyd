@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { DomainRequest, DomainRun } from "../types.js";
@@ -236,8 +237,8 @@ describe("FirstMate domain transport", () => {
     expect(changed!.result?.informationLossRisk).toBe("high");
   });
 
-  it("records an unstructured handoff as incomplete with the reason, keeps the raw detail, and settles it on a later well-formed reply", async () => {
-    const prose = "status=needs_decision: copy swap dispatched (found in invite.html and remind_me.html). Going live stays George's call.";
+  it("takes a prose reply as the outcome its words give, keeps it whole, and notes the format gap", async () => {
+    const prose = "Done and live: the heading now reads 'What we look for in brands' on the partners page.";
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
@@ -247,25 +248,34 @@ describe("FirstMate domain transport", () => {
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: replies }), stderr: "" });
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
     const sent: string[] = [];
+    const judged: string[] = [];
     const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { sent.push(message); });
+    const judge = async (reply: string, outcome: string) => { judged.push(`${outcome}|${reply}`); return "completed" as const; };
 
-    const [flagged] = await syncFirstmateDomainRuns({ transport, onChanged });
-    expect(flagged!.status).toBe("incomplete");
-    expect(flagged!.incompleteReason).toBe("domain handoff contract unmet: missing brief, report, evidence");
-    expect(flagged!.result?.raw).toEqual([prose]);
-    expect(flagged!.result?.detailedReport).toBe(prose);
-    expect(sent).toEqual([]);
-    expect(listDomainRuns()[0]!.notified).toBeUndefined();
-
-    // Still open: FirstMate's next, well-formed reply settles it and clears the reason.
-    replies[0] = { ...replies[0]!, reply: { id: "note-1", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Headline swapped on the Christmas branch.", detailed_report: "invite.html and remind_me.html updated.", evidence: ["commit a5bf7ab"] }), cursor: "000000000002" } };
-    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged });
+    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged, judge });
+    expect(judged).toEqual([`${request().intendedOutcome}|${prose}`]);
     expect(settled!.status).toBe("completed");
-    expect(settled!.incompleteReason).toBeUndefined();
-    expect(sent).toEqual(["There is an update on your work."]);
+    expect(settled!.incompleteReason).toBe("domain handoff contract unmet: missing brief, report, evidence");
+    expect(settled!.result?.raw).toEqual([prose]);
+    expect(settled!.result?.detailedReport).toBe(prose);
+    expect(sent).toEqual([prose]);
   });
 
-  it("records a structured handoff with no evidence as incomplete", async () => {
+  it("reads a prose reply by its words when no model can judge it", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const prose = "status=needs_decision: copy swap is ready in invite.html and remind_me.html. Going live stays George's call.";
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" } }],
+    }), stderr: "" });
+    const [read] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => { throw new Error("no model"); } });
+    expect(read!.status).toBe("needs_decision");
+  });
+
+  it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
@@ -275,10 +285,37 @@ describe("FirstMate domain transport", () => {
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
       pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body, cursor: "1" } }],
     }), stderr: "" });
-    const [flagged] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
-    expect(flagged!.status).toBe("incomplete");
-    expect(flagged!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
-    expect(flagged!.result?.brief).toBe("Fixed.");
+    const [done] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
+    expect(done!.status).toBe("completed");
+    expect(done!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
+    expect(done!.result?.brief).toBe("Fixed.");
+  });
+
+  it("reads again a run once left incomplete, announcing it only if recent", async () => {
+    const prose = "Done: the footer link now opens the right page.";
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const legacy = (id: string, updatedAt: string): DomainRun => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt,
+      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+      result: parseDomainResult(prose).result,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+    });
+    saveDomainRun(legacy("domain-recent", "2026-10-16T20:00:00.000Z"));
+    saveDomainRun(legacy("domain-old", "2026-10-12T00:00:00.000Z"));
+    const handled = ["domain-recent", "domain-old"].map((id) => ({ id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body: prose, cursor: "1" } }));
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const sent: string[] = [];
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+    expect(changed.map((run) => [run.id, run.status, run.notified ?? false]).sort()).toEqual([
+      ["domain-old", "completed", true],
+      ["domain-recent", "completed", false],
+    ]);
+    expect(sent).toEqual([prose]);
   });
 
   it.each([

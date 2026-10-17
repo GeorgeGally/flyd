@@ -6,7 +6,7 @@ import { firstmateHome } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
-import { parseDomainResult, validateDomainHandoff } from "./result.js";
+import { parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun } from "./types.js";
 
@@ -387,11 +387,21 @@ function cursorOrder(cursor: string | undefined): number {
   return Number.isFinite(value) ? value : -1;
 }
 
+/** A run left "incomplete" before prose replies counted is announced when read again only if it is this recent. */
+const LEGACY_ANNOUNCE_WITHIN_MS = 24 * 60 * 60_000;
+
+async function proseOutcome(body: string, run: DomainRun, judge?: ProseJudge): Promise<ProseOutcome> {
+  return (await judge?.(body, run.request.intendedOutcome).catch(() => null)) ?? proseOutcomeByWords(body);
+}
+
 export async function syncFirstmateDomainRuns(options: {
   transport?: FirstmateDomainTransport;
   now?: () => Date;
   onChanged?: (run: DomainRun) => Promise<void> | void;
+  /** Reads a prose reply's outcome; without one, plain words decide. */
+  judge?: ProseJudge;
 } = {}): Promise<DomainRun[]> {
+  const nowMs = () => (options.now ?? (() => new Date()))().getTime();
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
   const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
@@ -445,11 +455,11 @@ export async function syncFirstmateDomainRuns(options: {
       .at(-1);
     if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
       const parsed = parseDomainResult(reply.body!);
-      // Success is recorded only for a handoff that meets the layered contract;
-      // otherwise the raw detail is kept and the run stays open with the reason.
+      // The staff often answers in prose: its words are the outcome. The layered
+      // contract is still asked for, and a reply that misses it is kept whole
+      // with the gap noted, never turned from finished work into "incomplete".
       const handoff = validateDomainHandoff(parsed.result);
-      const claimed = parsed.status ?? "completed";
-      const status = claimed === "completed" && !handoff.ok ? "incomplete" : claimed;
+      const status = parsed.status ?? await proseOutcome(reply.body!, run, options.judge);
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
@@ -461,8 +471,14 @@ export async function syncFirstmateDomainRuns(options: {
         // A new outcome is announced again; the same one is not.
         ...(notified !== undefined && !news ? { notified } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
-        ...(status === "incomplete" && !handoff.ok ? { incompleteReason: handoff.reason } : {}),
+        ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
       };
+    } else if (run.status === "incomplete" && run.result) {
+      // Recorded before prose counted as an outcome: read again what it said.
+      // One older than a day is history, kept but not announced now.
+      const status = await proseOutcome(run.result.raw.at(-1) ?? run.result.detailedReport, run, options.judge);
+      const stale = nowMs() - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
+      next = { ...next, status, ...(stale ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     saveDomainRun(next);
