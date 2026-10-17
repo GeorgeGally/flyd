@@ -115,7 +115,7 @@ describe("choiceOf", () => {
     expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nWhat should we do?")).toEqual({ question: "What should we do?", options: [] });
     expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nHow do you want to proceed?")).toEqual({ question: "How do you want to proceed?", options: [] });
     // "Which do you want?" over the same set is about choosing among it: the buttons stay.
-    expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nWhich do you want?").options).toEqual(["The cache is stale", "The token expired"]);
+    expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nWhich do you want?")!.options).toEqual(["The cache is stale", "The token expired"]);
   });
 
   it("puts several questions listed at the end one at a time, never offering one as the answer to another", () => {
