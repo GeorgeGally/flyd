@@ -2333,3 +2333,79 @@ describe("the side column's type", () => {
     }
   });
 });
+
+describe("what Flyd shows of its staff, at a glance", () => {
+  it("draws a relayed update as a compact card: a dot and a word, one line, its link", async () => {
+    load("");
+    await settle();
+    open("latest", [{
+      id: "t1", role: "assistant", html: "<p>the staff's whole words</p>", aside: true,
+      summary: { html: "<p>The island text fix is merged.</p>", source: "flyd" },
+      card: { kind: "landed", line: "The island text fix is merged", url: "https://github.com/GeorgeGally/flyd/pull/162" },
+    } as never]);
+    await settle();
+    const card = document.querySelector(".msg .card")!;
+    expect(card.classList.contains("card-landed")).toBe(true);
+    expect(card.querySelector(".card-meta")!.textContent).toBe("Done");
+    expect(card.querySelector(".card-line")!.textContent).toBe("The island text fix is merged");
+    expect(card.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/162");
+    expect(card.querySelector(".card-link")!.textContent).toBe("Open the change ↗");
+    // The staff's own words stay folded behind "more".
+    expect(document.querySelector(".msg")!.classList.contains("open")).toBe(false);
+  });
+
+  it("draws a reply about several pieces of work as a card each, never paragraphs", async () => {
+    load("");
+    await settle();
+    open("latest", [{
+      id: "t1", role: "assistant", html: "<ul><li>the staff's own words</li></ul>", aside: true,
+      outcomes: { lead: "Here's where the three Flyd fixes stand:", items: [
+        { title: "Flyd decides itself", line: "Still stuck on its checks.", state: "stuck" },
+        { title: "Chief-of-staff voice", line: "The phantom island alerts are fixed.", state: "landed", url: "https://github.com/GeorgeGally/flyd/pull/170" },
+        { title: "Activity artefacts", line: "Final checks are running.", state: "underway" },
+      ] },
+    } as never]);
+    await settle();
+    const cards = [...document.querySelectorAll(".outcomes .card")];
+    expect(cards.map((card) => card.querySelector(".card-meta")!.textContent)).toEqual(["Stuck", "Done", "Under way"]);
+    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
+    expect(cards[1]!.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/170");
+    expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
+  });
+
+  it("puts a column card away when he hides it, and keeps it away after a reload", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const done = [
+      { id: "landed:left", kind: "landed", headline: "Flyd now has a left column.", why: "", at: new Date().toISOString() },
+      { id: "landed:island", kind: "landed", headline: "The island text is readable again.", why: "", at: new Date().toISOString() },
+    ];
+    const update = { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } };
+    stream.emit("update", update);
+    await settle();
+    expect(document.querySelectorAll("#done li")).toHaveLength(2);
+    document.querySelector<HTMLButtonElement>("#done li .brief-dismiss")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["The island text is readable again."]);
+    // A reload keeps it hidden.
+    load("");
+    await settle();
+    open("latest", []).emit("update", update);
+    await settle();
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["The island text is readable again."]);
+  });
+
+  it("lets a Done card he has already seen fade from the column after a day", async () => {
+    localStorage.setItem("flyd-done-seen", JSON.stringify({ "landed:old": Date.now() - 25 * 60 * 60 * 1000 }));
+    load("");
+    await settle();
+    const done = [
+      { id: "landed:old", kind: "landed", headline: "Seen yesterday.", why: "", at: new Date().toISOString() },
+      { id: "landed:new", kind: "landed", headline: "New today.", why: "", at: new Date().toISOString() },
+    ];
+    open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
+  });
+});

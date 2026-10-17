@@ -429,5 +429,25 @@
       ],
       "maxSeconds": 30
     }
+  },
+  {
+    "id": "cos-brief-answer",
+    "category": "conversation",
+    "ask": "quick one: how many days until Christmas?",
+    "expect": {
+      "noTools": true,
+      "maxChars": 280,
+      "notAnswer": [
+        "\\bcommit",
+        "\\bbranch",
+        "pull request|\\bPR\\b",
+        "worktree|firstmate|crewmate|pipeline",
+        "\\b(?:I|I've) (?:checked|looked|searched|counted|calculated)",
+        "let me\\b",
+        "^(?:sure|great question|of course)\\b"
+      ],
+      "judge": "A calm chief of staff answering a simple question: the answer comes first, in one to three short sentences, with no explanation of how it was worked out, no background he did not ask for, and no offer or follow-up question.",
+      "maxSeconds": 20
+    }
   }
 ]

@@ -652,7 +652,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 }
 .msg.user strong, .msg.user a { color: inherit; }
 .msg.user + .msg.user { margin-top: 0.9em; }
-.msg.assistant { margin-top: 0.85em; }
+/* Flyd's side reads at a calmer size than his own words: a few short lines, never a wall. */
+.msg.assistant { margin-top: 1.1em; font-size: 0.78em; line-height: 1.6; }
 /* A question with no answer yet: one living line says what is happening to
    it, changing in place, until its answer appears right under it. */
 /* Read at a glance: the message face, near body size, in full text colour. */
@@ -670,7 +671,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .receipt.outcome { overflow-wrap: anywhere; }
 .receipt a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
-.msg.aside { color: var(--muted); font-size: 0.92em; }
+.msg.aside { color: var(--muted); }
 .aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
@@ -788,7 +789,35 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .reply-ref { display: block; margin: 0 0 0.3em; font: 400 0.72em/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
 /* A question a reply put to him: the question, one tap per option, or his own
    words. Said to him, so never muted as an update; it fades in, nothing moves. */
-.msg.aside.asks { color: var(--fg); font-size: 1em; }
+.msg.aside.asks { color: var(--fg); }
+/* A relayed staff update: a compact card, never a paragraph. A dot and a word for the kind of news, one line, its link. */
+.msg.carded { color: var(--fg); }
+.msg.carded > .summary, .msg.carded > .aside-label, .msg.carded-decision .choice-q { display: none; }
+.card { display: flex; gap: 18px; align-items: flex-start; padding: 16px 20px 17px; border-radius: 14px; background: var(--tint); animation: choice-in 380ms ease both; }
+.card-text { flex: 1; min-width: 0; }
+.card-meta { display: flex; align-items: center; gap: 8px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.card-meta::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.card-landed .card-meta::before { background: #7ec699; }
+.card-decision .card-meta::before { background: var(--accent); }
+.card-blocker .card-meta::before { background: #d0574c; }
+.card-line { margin: 8px 0 0; font: 500 19px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
+.card-link:hover { color: var(--strong); }
+.card-thumb { flex: none; margin: 0; }
+.card-text > .card-line:first-child { margin-top: 0; }
+.outcomes { display: grid; gap: 10px; }
+.outcomes-lead { margin: 0 0 4px; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
+.card-compact { padding: 14px 18px 15px; }
+.card-compact .card-line { margin-top: 6px; font-size: 17px; }
+.card-compact .card-meta + .card-line { margin-top: 6px; }
+.card-compact .card-text > .card-line:first-child { margin-top: 0; }
+.card-sub { margin: 4px 0 0; font: 400 15px/1.45 var(--sans); color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+.card-underway .card-meta::before { background: var(--k-live); }
+.card-needs .card-meta::before { background: var(--accent); }
+.card-stuck .card-meta::before { background: #d0574c; }
+.card-thumb .shot img { width: 104px; height: 68px; object-fit: cover; border-radius: 8px; }
+.msg.carded > .more { margin-top: 8px; }
+.msg.carded .choice { margin-top: 10px; }
 .choice { margin-top: 0.9em; padding: 0.85em 1em 0.95em; border-radius: 12px; background: var(--tint); animation: choice-in 380ms ease both; }
 .choice-q { margin: 0 0 0.65em; font: 600 1.05em/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .choice-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 0.75em; }
@@ -1224,6 +1253,7 @@ var __name = function (f) { return f; };
       // Something to act on (rules to paste, steps) shows whole until he folds it.
       if (message.expanded && !el.dataset.folded) el.classList.add("open");
       summarize(el, message);
+      staffCard(el, message);
       wireAsks(body);
     }
     wireChoice(el, message);
@@ -1314,6 +1344,58 @@ var __name = function (f) { return f; };
       label.textContent = "update";
       el.insertBefore(label, el.querySelector(".body"));
     }
+  }
+  // A relayed staff update is a compact card: a dot for what kind of news it is, one line, its link, its picture.
+  var CARD_WORDS = { landed: "Done", decision: "Your call", blocker: "Stuck", underway: "Under way", note: "" };
+  function linkWord(url) {
+    return /\\/pull\\/\\d+/.test(url) ? "Open the change ↗" : url.replace(/^https?:\\/\\/(www\\.)?/, "").replace(/\\/$/, "") + " ↗";
+  }
+  // Several pieces of work in one reply: its opening line, then a compact card each, never paragraphs.
+  var OUTCOME_WORDS = { landed: "Done", underway: "Under way", needs: "Your call", stuck: "Stuck", note: "", handled: "Handled" };
+  function outcomeCards(outcomes) {
+    var box = document.createElement("div");
+    box.className = "outcomes";
+    if (outcomes.lead) box.appendChild(Object.assign(document.createElement("p"), { className: "outcomes-lead", textContent: outcomes.lead }));
+    outcomes.items.forEach(function (item) {
+      var card = document.createElement("div");
+      card.className = "card card-compact card-" + item.state;
+      var text = document.createElement("div");
+      text.className = "card-text";
+      if (OUTCOME_WORDS[item.state]) text.appendChild(Object.assign(document.createElement("span"), { className: "card-meta", textContent: OUTCOME_WORDS[item.state] }));
+      text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: item.title }));
+      if (item.line) text.appendChild(Object.assign(document.createElement("p"), { className: "card-sub", textContent: item.line }));
+      if (item.url) text.appendChild(Object.assign(document.createElement("a"), { className: "card-link", href: item.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(item.url) }));
+      card.appendChild(text);
+      box.appendChild(card);
+    });
+    return box;
+  }
+  function staffCard(el, message) {
+    var old = el.querySelector(":scope > .card, :scope > .outcomes");
+    if (old) old.remove();
+    el.classList.toggle("carded", !!(message.card || message.outcomes));
+    el.classList.toggle("carded-decision", !message.outcomes && !!message.card && message.card.kind === "decision");
+    if (message.outcomes) {
+      el.insertBefore(outcomeCards(message.outcomes), el.querySelector(":scope > .summary") || el.querySelector(":scope > .body"));
+      return;
+    }
+    if (!message.card) return;
+    var box = document.createElement("div");
+    box.className = "card card-" + message.card.kind;
+    var text = document.createElement("div");
+    text.className = "card-text";
+    if (CARD_WORDS[message.card.kind]) text.appendChild(Object.assign(document.createElement("span"), { className: "card-meta", textContent: CARD_WORDS[message.card.kind] }));
+    text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: message.card.line }));
+    if (message.card.sub) text.appendChild(Object.assign(document.createElement("p"), { className: "card-sub", textContent: message.card.sub }));
+    if (message.card.url) {
+      var link = Object.assign(document.createElement("a"), { className: "card-link", href: message.card.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(message.card.url) });
+      text.appendChild(link);
+    }
+    box.appendChild(text);
+    // Its screenshot, small, beside the line: the picture says what changed.
+    var shot = el.querySelector(":scope > .reply-shots");
+    if (shot) { shot.classList.add("card-thumb"); box.appendChild(shot); }
+    el.insertBefore(box, el.querySelector(":scope > .summary") || el.querySelector(":scope > .body"));
   }
   function summarize(el, message) {
     ["summary", "compare", "more"].forEach(function (name) {
@@ -1575,6 +1657,17 @@ var __name = function (f) { return f; };
     if (extra) top.appendChild(extra);
     return top;
   }
+  // What he has put away is kept by the shared cards (cardGone); a Done item he has seen fades on its own after a day.
+  var SEEN_FOR_MS = 24 * 60 * 60 * 1000;
+  function itemKey(item) { return item.id || item.headline; }
+  function stillShown(item, done) {
+    var key = itemKey(item);
+    if (cardGone(key)) return false;
+    if (!done) return true;
+    var seen = cardRead("flyd-done-seen");
+    if (!seen[key]) { seen[key] = Date.now(); store("flyd-done-seen", JSON.stringify(seen)); return true; }
+    return Date.now() - seen[key] < SEEN_FOR_MS;
+  }
   function briefItem(item, meta) {
     var kind = item.kind || "note";
     var li = el("li", "card brief-card card-" + kind + " tone-" + kindOf(kind).tone);
@@ -1606,17 +1699,15 @@ var __name = function (f) { return f; };
       thumb.appendChild(img);
       li.appendChild(thumb);
     }
-    if (item.task) {
-      var close = el("button", "card-dismiss", "✕");
-      close.type = "button";
-      close.setAttribute("aria-label", "Hide this");
-      close.addEventListener("click", function () {
-        cardDismiss(item.id);
-        li.classList.add("leaving");
-        setTimeout(function () { renderBrief(lastBrief); }, 220);
-      });
-      li.appendChild(close);
-    }
+    var close = el("button", "card-dismiss", "✕");
+    close.type = "button";
+    close.setAttribute("aria-label", "Hide this");
+    close.addEventListener("click", function () {
+      cardDismiss(itemKey(item));
+      li.classList.add("leaving");
+      setTimeout(function () { renderBrief(lastBrief); }, 220);
+    });
+    li.appendChild(close);
     return li;
   }
   function drawNeeds(calls) {
@@ -1675,7 +1766,7 @@ var __name = function (f) { return f; };
     if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
   }
   function drawList(section, label, items, meta, few) {
-    items = items.filter(function (item) { return !(item.task && cardGone(item.id)); });
+    items = items.filter(function (item) { return stillShown(item, label === "Done"); });
     section.textContent = "";
     section.hidden = !items.length;
     if (!items.length) return;
