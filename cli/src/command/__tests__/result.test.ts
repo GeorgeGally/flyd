@@ -34,24 +34,15 @@ describe("validateDomainHandoff", () => {
 });
 
 describe("prose replies", () => {
-  it.each([
-    ["Done and live: the heading now reads 'What we look for in brands'.", "completed"],
-    ["Captain, fixed the typo and confirmed the build passes.", "completed"],
-    ["The fix is ready. Do you want it merged now?", "needs_decision"],
-    ["Ready to ship; publishing stays George's call.", "needs_decision"],
-    ["status=failed: the deploy target refused the key.", "failed"],
-    ["Couldn't reproduce the crash on main.", "failed"],
-    ["On it — will report once the tests pass.", "working"],
-  ])("reads %s as %s by its words", (reply, outcome) => {
-    expect(proseOutcomeByWords(reply)).toBe(outcome);
-  });
-
-  it("never calls a reply it cannot read completed", () => {
-    expect(proseOutcomeByWords("Investigated the race; the fix still needs a rebase before it can land.")).not.toBe("completed");
-  });
-
-  it("never calls an affirmative reply failed for a failure word alone", () => {
-    expect(proseOutcomeByWords("The build couldn't be greener — it's shipped and green.")).not.toBe("failed");
+  it("never classifies a reply by its words: the plain-words fallback only says it could not tell", () => {
+    for (const reply of [
+      "Done and live: the heading now reads 'What we look for in brands'.",
+      "Captain, fixed the typo and confirmed the build passes.",
+      "status=failed: the deploy target refused the key.",
+      "The fix is ready. Do you want it merged now?",
+      "All tests passed; zero failed.",
+      "Investigated the race; the fix still needs a rebase before it can land.",
+    ]) expect(proseOutcomeByWords(reply)).toBe("unclear");
   });
 
   it("asks the model what the reply says happened, and gives up on anything but a known status", async () => {
