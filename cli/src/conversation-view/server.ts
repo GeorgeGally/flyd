@@ -1281,10 +1281,12 @@ export class ConversationViewServer {
   }
 
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
+    // A session he chose by hand stays; no choice (or "latest") follows whichever holds the lock now.
+    const chosen = requested && requested !== "latest" ? requested : null;
     const sessions = await this.source.listSessions();
-    const session = requested ? sessions.find((candidate) => candidate.id === requested) : sessions[0];
+    const session = chosen ? sessions.find((candidate) => candidate.id === chosen) : sessions[0];
     if (!session) {
-      sendJson(res, 404, { error: requested ? `No such session: ${requested}` : "No sessions found" });
+      sendJson(res, 404, { error: chosen ? `No such session: ${chosen}` : "No sessions found" });
       return;
     }
     res.writeHead(200, {
@@ -1371,9 +1373,23 @@ export class ConversationViewServer {
       emitStaff();
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
+    // On the live session (not one he chose): another session taking the lock ends this stream, and the page
+    // reconnects to that one. A stream he opened on a chosen session stays on it.
+    let moved: ReturnType<typeof setInterval> | null = null;
+    if (!chosen) {
+      moved = setInterval(() => {
+        void this.source.listSessions().then(([newest]) => {
+          if (!newest || newest.id === session.id) return;
+          if (moved) clearInterval(moved);
+          res.end();
+        }).catch(() => undefined);
+      }, STATUS_SESSION_CHECK_MS);
+      moved.unref?.();
+    }
     req.on("close", () => {
       closed = true;
       clearInterval(heartbeat);
+      if (moved) clearInterval(moved);
       stopFeed();
       stopPreviews();
       stopMemory?.();

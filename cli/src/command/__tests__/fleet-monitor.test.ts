@@ -229,17 +229,18 @@ describe("Flyd's watch on its coding staff", () => {
     expect(text).not.toMatch(/firstmate|fm-inbox|crewmate/i);
   });
 
-  it("finds the session that holds the staff's lock, at most once per few seconds", async () => {
+  it("finds the session that holds the staff's lock, reusing one read for 30 s", async () => {
     writeFileSync(join(sessions, "4242.json"), JSON.stringify({ sessionId: "live-session-1" }));
     let now = T0;
     let reads = 0;
     const counting: FirstmateExec = async (script, args, options) => { reads++; return exec(script, args, options); };
     const live = new LiveStaffSession({ home, script: "/fake/fm-inbox.sh", exec: counting, sessionsDir: sessions, now: () => now });
     expect(await live.current()).toBe("live-session-1");
+    now += 28_000;
     expect(await live.current()).toBe("live-session-1");
     expect(reads).toBe(1);
     ready = { lock: { state: "free" }, can_receive: false };
-    now += 10_000;
+    now += 3_000;
     expect(await live.current()).toBeUndefined();
   });
 });

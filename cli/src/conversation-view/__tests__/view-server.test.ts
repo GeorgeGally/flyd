@@ -810,6 +810,51 @@ describe("ConversationViewServer", () => {
     expect(JSON.parse(ended.split("event: status\ndata: ")[1]!.split("\n")[0]!).session).toBe("live");
   }, 15_000);
 
+  it("ends the live window stream when another session takes the lock, but never one opened on a chosen session", async () => {
+    let sessions = [{ id: "live", title: "Live", updatedAt: new Date().toISOString() }];
+    const source = {
+      assistantLabel: "firstmate",
+      canSend: false,
+      listSessions: async () => sessions,
+      read: async () => ({ messages: [], working: false }),
+      follow: (_id: string, onUpdate: (s: { messages: never[]; working: boolean }) => void) => {
+        onUpdate({ messages: [], working: false });
+        return { close() {} };
+      },
+      commands: async () => [],
+      image: async () => null,
+    };
+    server = new ConversationViewServer(source as never);
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const handoff = () => { sessions = [{ id: "other", title: "Other", updatedAt: new Date().toISOString() }]; };
+    const watch = (path: string, withinMs: number) => new Promise<{ ended: boolean; text: string }>((resolve) => {
+      let settled = false;
+      let text = "";
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (ended: boolean) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ended, text }); };
+      const req = request({ host: "127.0.0.1", port, path: `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => { text += chunk; if (text.includes("event: update")) handoff(); });
+        res.on("end", () => finish(true));
+      });
+      req.on("error", () => finish(false));
+      timer = setTimeout(() => { req.destroy(); finish(false); }, withinMs);
+      req.end();
+    });
+
+    // No session chosen: the handoff ends the stream, so the page reconnects to the new live one.
+    const live = await watch("/api/stream", 12_000);
+    expect(live.ended).toBe(true);
+    expect(live.text).toContain("event: session");
+
+    // A session he chose by hand: it stays, whatever holds the lock.
+    sessions = [{ id: "live", title: "Live", updatedAt: new Date().toISOString() }];
+    const chosen = await watch("/api/stream?session=live", 7_000);
+    expect(chosen.ended).toBe(false);
+    expect(chosen.text).toContain("event: session");
+  }, 25_000);
+
   it("feeds the island a compact status of the newest session", async () => {
     const port = await start(undefined, [captain("push it"), assistantText("» Pushed to main. Want me to merge the PR?")]);
     const body = await new Promise<string>((resolve, reject) => {

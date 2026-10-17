@@ -459,6 +459,9 @@ export function stopStaffMonitor(): void {
   timer = null;
 }
 
+/** Longer than any view poll asking for it, so a poll almost always reuses one lock read. */
+const LIVE_SESSION_TTL_MS = 30_000;
+
 /**
  * Which Claude Code session holds the staff's lock: its pid, then that pid's
  * session record. Read through `fm-inbox.sh ready`, at most once per TTL.
@@ -478,7 +481,7 @@ export class LiveStaffSession {
 
   async current(): Promise<string | undefined> {
     const now = (this.options.now ?? Date.now)();
-    if (this.cached && now - this.cached.at < (this.options.ttlMs ?? 5_000)) return this.cached.session;
+    if (this.cached && now - this.cached.at < (this.options.ttlMs ?? LIVE_SESSION_TTL_MS)) return this.cached.session;
     this.pending ??= (async () => {
       try {
         if (!existsSync(this.script) && this.exec === defaultExec) return undefined;
