@@ -4,7 +4,6 @@ import { handsHimInternalDecision } from "../council/chief-of-staff.js";
 import { recordHeld } from "../council/reply-review.js";
 import { sendRunMessage } from "./messages.js";
 import { captainNotice, plainBrief } from "./notice.js";
-import { modelProseJudge, type ProseJudge } from "./result.js";
 import { saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 
@@ -54,19 +53,12 @@ export async function notifyRun(run: DomainRun, notify?: Notify, send: typeof se
   }
 }
 
-/** Flyd's model reads prose replies from the staff; under vitest plain words do. */
-async function proseJudge(): Promise<ProseJudge | undefined> {
-  if (process.env.VITEST) return undefined;
-  const { query } = await import("../lib/llm.js");
-  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
-}
-
 export async function commandTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
     await Promise.all([
-      syncFirstmateDomainRuns({ onChanged: notifyRun, judge: await proseJudge() }),
+      syncFirstmateDomainRuns({ onChanged: notifyRun }),
       syncLibrarianDomainRuns({ onChanged: notifyRun }),
     ]);
   } finally {

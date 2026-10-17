@@ -125,6 +125,13 @@ export function proseOutcomeByWords(_reply: string): ProseOutcome {
   return "unclear";
 }
 
+/** Flyd's model, wired for reading prose replies; under vitest no model runs, so words alone never settle a run. */
+export async function defaultProseJudge(): Promise<ProseJudge | undefined> {
+  if (process.env.VITEST) return undefined;
+  const { query } = await import("../lib/llm.js");
+  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
+}
+
 /** Flyd's model reads what a prose reply says happened; any failure leaves it to proseOutcomeByWords. */
 export function modelProseJudge(complete: (prompt: string) => Promise<string>): ProseJudge {
   return async (reply, intendedOutcome) => {
