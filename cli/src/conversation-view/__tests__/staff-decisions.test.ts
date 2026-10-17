@@ -106,6 +106,25 @@ describe("Flyd decides its staff's routine questions", () => {
     expect(html).toContain("Handled");
   });
 
+  it("answers a short routine question of two, and shows it handled, not waiting on him", async () => {
+    const asked = reply(`Two things are waiting on you:\n1. Shall I push it?\n2. Shall I delete the old branches?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I push it?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    expect(html).toContain("k-call");
+    expect(html).toContain("Handled");
+  });
+
+  it("takes back one answer without marking its sibling answer undone", async () => {
+    const asked = reply(TWO_THINGS_WAITING);
+    const [push, command] = await answered(asked);
+    const back: ConversationMessage = { id: "note:3", role: "user", text: "Yes", timestamp: AT, replyTo: "reply:fm#1", replyQuote: PUSH, undoes: true };
+    const shown = new SnapshotDiffer().next({ messages: [asked, push!, command!, back], working: false }).messages;
+    expect(shown.find((message) => message.id === "note:1")).toMatchObject({ undone: true });
+    expect(shown.find((message) => message.id === "note:2")!.undone).toBeUndefined();
+  });
+
   it("leaves him every question when his standing words are gone", async () => {
     expect(await answered(reply(TWO_THINGS_WAITING), "- Keep replies short. (2026-09-29)")).toEqual([]);
   });

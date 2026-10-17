@@ -275,8 +275,10 @@ export class SnapshotDiffer {
     const undone = new Set<string>();
     const takenBack = new Set<string>();
     for (const message of [...snapshot.messages].reverse()) {
-      if (message.undoes && message.replyTo) takenBack.add(message.replyTo);
-      else if (message.answeredFor && message.replyTo && takenBack.has(message.replyTo)) undone.add(message.id);
+      if (!message.replyTo) continue;
+      const asked = `${message.replyTo}\n${message.replyQuote ?? ""}`;
+      if (message.undoes) takenBack.add(asked);
+      else if (message.answeredFor && takenBack.has(asked)) undone.add(message.id);
     }
     for (const message of snapshot.messages) {
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.

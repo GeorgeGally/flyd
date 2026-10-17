@@ -291,6 +291,7 @@ function wordsOf(text: string): string[] {
  */
 export function sameQuestion(a: string, b: string): boolean {
   const [short, long] = [wordsOf(a), wordsOf(b)].sort((x, y) => x.length - y.length) as [string[], string[]];
+  if ([...short].sort().join(" ") === [...long].sort().join(" ")) return true;
   if (short.length < 3) return false;
   const pool = new Set(long);
   return short.filter((word) => pool.has(word)).length / short.length >= 0.8;
