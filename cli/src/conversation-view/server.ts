@@ -42,6 +42,7 @@ import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { unreadNotes, unreadWarning } from "./note-receipts.js";
+import { scrubBackstage } from "../lib/backstage.js";
 import { noteSaid } from "../council/reply-review.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
@@ -1282,7 +1283,7 @@ export class ConversationViewServer {
     const emitUnread = () => {
       if (closed) return;
       const unread = unreadNotes(this.source.exchanges?.() ?? []);
-      const data = unread ? { count: unread.count, oldest: unread.oldest, text: unreadWarning(unread) } : { count: 0 };
+      const data = unread ? { count: unread.count, oldest: unread.oldest, text: scrubBackstage(unreadWarning(unread)) } : { count: 0 };
       if (JSON.stringify(data) === unreadSent) return;
       unreadSent = JSON.stringify(data);
       sseEvent(res, "unread", data);

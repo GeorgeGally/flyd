@@ -262,7 +262,7 @@ describe("FirstMate domain transport", () => {
     const [settled] = await syncFirstmateDomainRuns({ transport, onChanged });
     expect(settled!.status).toBe("completed");
     expect(settled!.incompleteReason).toBeUndefined();
-    expect(sent).toEqual(["Headline swapped on the Christmas branch."]);
+    expect(sent).toEqual(["There is an update on your work."]);
   });
 
   it("records a structured handoff with no evidence as incomplete", async () => {
