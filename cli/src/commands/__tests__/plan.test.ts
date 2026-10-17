@@ -120,6 +120,17 @@ describe("runPlan", () => {
     expect(prompt).toContain(`Repository folder: ${config.PROJECT.path}`);
   });
 
+  it("keeps recalled captures for a one-word topic", async () => {
+    const llm = await import("../../lib/llm.js");
+    const qmd = await import("../../lib/qmd.js");
+    writeFileSync(join(rawDir, "onboarding-note.md"), "---\nsource: capture\n---\nNew users see a welcome checklist on onboarding.", "utf8");
+    (qmd.search as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ path: "onboarding-note.md", score: 70 }]);
+    const { runPlan } = await import("../plan.js");
+    await runPlan("onboarding");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    expect(prompt).toContain("New users see a welcome checklist on onboarding.");
+  });
+
   it("asks for the fixed plan shape, with done_when per phase", async () => {
     const llm = await import("../../lib/llm.js");
     const { runPlan } = await import("../plan.js");

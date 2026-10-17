@@ -4,7 +4,7 @@ import { RAW_DIR, PLANS_DIR, PROJECT, defaultModel } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { search as qmdSearch, updateRaw, embedRaw } from "../lib/qmd.js";
-import { buildRawEntries, extractKeywords } from "../lib/retrieval.js";
+import { buildRawEntries } from "../lib/retrieval.js";
 
 // A plan has a fixed shape so it can be read back, shown as an artefact, and
 // handed to a fresh coding session: outcome, files to touch, approval gates,
@@ -55,7 +55,7 @@ export async function runPlan(topic: string, model?: string): Promise<void> {
   const m = model ?? defaultModel();
 
   const memoryResults = await qmdSearch(topic, "flyd-raw", 10);
-  const memories = buildRawEntries(memoryResults, extractKeywords(topic))
+  const memories = buildRawEntries(memoryResults, [])
     .slice(0, MEMORY_LIMIT)
     .map((entry) => `[memory: ${entry.path}]\n${entry.body.trim().slice(0, MEMORY_EXCERPT_CHARS)}`);
   const project = `\nProject: ${PROJECT.name}\nRepository folder: ${PROJECT.path}\n`;
