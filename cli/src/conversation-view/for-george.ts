@@ -71,17 +71,17 @@ const NEXT_STEP = /^(?:(?:so |and )?(?:i['’]?ll|i will|we['’]?ll|we will|nex
 
 /** Where a clause turns: punctuation, or a word that opens the next one ("…after the review passed"). */
 const CLAUSE = /[;—–]|\b(?:but|once|when|after|before|until|unless|if|because|while)\b/gi;
-/**
- * "Everything that has landed is already running", "what landed earlier was the header fix": the
- * verb's clause is the subject of a later verb, so it describes what it names, not news that it
- * happened. Read up to a colon or link, a few words on, never across a new subject.
- */
-const DESCRIBES = /^\s+(?:(?!(?:it|he|she|they|we|i|you|this|that|these|those|there|which|who|and|but|so|or|then)\b)[\w'’-]+\s+){0,3}?(?:is|are|was|were|has|have|had|needs?|needed|stays?|stayed|runs?|ran|keeps?|kept)\b/i;
+/** A pull request or commit named by its link: a landing verb beside it is news, whatever surrounds it. */
+const WORK_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull\/\d+|commit\/[0-9a-f]{7,})/i;
+/** "Everything that has landed", "what landed earlier": a landing that names a subject, not news. */
+const SUBJECT = /\b(?:(?:everything|anything|all (?:of )?the \w+)\s+that|what(?:ever)?)\s+(?:(?:has|have|had)\s+)?(?:been\s+)?$/i;
+/** The verb that subject goes on to take ("…is already running"), before any colon. */
+const LATER_VERB = /\b(?:is|are|was|were|has|have|had|needs?|needed|stays?|stayed|runs?|ran|keeps?|kept)\b/i;
 
 /** Whether some match of `verb` says it happened, read in its own clause only. */
 function happened(sentence: string, verb: RegExp): boolean {
   for (const match of sentence.matchAll(new RegExp(verb.source, "gi"))) {
-    if (DESCRIBES.test(sentence.slice(match.index! + match[0].length).split(/:|https?:\/\//)[0]!)) continue;
+    if (!WORK_LINK.test(sentence) && SUBJECT.test(sentence.slice(0, match.index)) && LATER_VERB.test(sentence.slice(match.index! + match[0].length).split(":")[0]!)) continue;
     let start = 0;
     let end = sentence.length;
     for (const turn of sentence.matchAll(CLAUSE)) {

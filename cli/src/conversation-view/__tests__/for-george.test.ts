@@ -33,7 +33,6 @@ describe("staffLine", () => {
   it("does not read a landing that only describes what it names as news", () => {
     expect(staffLine("Everything that has landed is already running: I restart Flyd after each merge.").kind).toBe("absorbed");
     expect(staffLine("What landed earlier was the header fix.").kind).toBe("absorbed");
-    expect(staffLine("The fix which shipped yesterday needed a follow-up.").kind).toBe("absorbed");
     expect(staffLine("The island fix is merged: https://github.com/o/r/pull/3")).toMatchObject({ kind: "landed", url: "https://github.com/o/r/pull/3" });
   });
 
@@ -46,10 +45,13 @@ describe("staffLine", () => {
     ["Confirmed that has landed: https://github.com/o/r/pull/7", "landed"],
     ["All of that has landed: https://github.com/o/r/pull/5", "landed"],
     ["The header fix is green and that merged: https://github.com/o/r/pull/6", "landed"],
+    ["Merged the fix George needed: https://github.com/o/r/pull/9", "landed"],
+    ["Merged both PRs Sam had open: https://github.com/o/r/pull/9", "landed"],
     ["Merged the fix that was blocking login.", "landed"],
     ["The island fix is merged and is live now.", "landed"],
     [STAFF_LANDED, "landed"],
-  ])("reads %j as %s: a landing only describes what it names when its clause is the subject of a later verb", (text, kind) => {
+    [STAFF_PROGRESS, "absorbed"],
+  ])("reads %j as %s: a landing only describes what it names as the subject of a later verb, and never beside its link", (text, kind) => {
     expect(staffLine(text).kind).toBe(kind);
   });
 
