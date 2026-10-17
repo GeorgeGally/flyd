@@ -226,7 +226,6 @@ describe("Flyd decides its staff's routine questions", () => {
   it("keeps a message or post to other people his, and decides one addressed to its own staff", async () => {
     for (const question of [
       "Shall I message the team about the push?",
-      "Shall I post an update about the push?",
       "Shall I notify the client that it shipped?",
       "Shall I email him the summary?",
     ]) {
@@ -237,6 +236,26 @@ describe("Flyd decides its staff's routine questions", () => {
     const internal = reply("Everything is green.\n\nDo you want the command that lets firstmate message Flyd and get a real reply?");
     const [note] = await answered(internal);
     expect(note?.answeredFor).toBe("George expects assistants/agents to take control of situations and solve problems autonomously rather than sending problems back to him");
+  });
+
+  it("settles routine work that only names a message-like thing, or posts with no one to reach", async () => {
+    for (const question of [
+      "Shall I fix the messages where Flyd writes them?",
+      "Shall I fix the notification badge?",
+      "Shall I fix the send button?",
+      "Shall I add a ping check?",
+      "Shall I rebase the branches and update them?",
+      "Shall I post an update about the push?",
+    ]) {
+      const [note] = await answered(reply(`Everything is green.\n\n${question}`));
+      expect(note?.replyQuote, question).toBe(question);
+    }
+  });
+
+  it("keeps a push his when the reply says the work is failing", async () => {
+    const asked = reply("The rebase left two tests failing.\n\nShall I push it to main?");
+    expect(await answered(asked)).toEqual([]);
+    expect(openChoice([asked])?.choice.question).toBe("Shall I push it to main?");
   });
 
   it("takes back one answer without marking its sibling answer undone", async () => {

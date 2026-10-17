@@ -33,8 +33,8 @@ interface StandingRule {
 
 const FLYD_PULL = /https:\/\/github\.com\/[\w.-]+\/flyd\/pull\/\d+/i;
 const ANY_PULL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/gi;
-/** The work is not green: a merge waits for him. */
-const NOT_GREEN = /\b(?:fail(?:ed|ing|s|ure)?|red|broken|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b/i;
+/** The work is not green: its checks, tests, build or CI failing, conflicts, or checks still running. A merge or sync waits for him. */
+const NOT_GREEN = /\b(?:(?:tests?|checks?|builds?|ci|lint|typecheck|specs?|suite|pipeline|it|branch|work|change|pr)\b(?:\s+\w+){0,2}?\s+(?:fail\w*|red|broken|broke)|fail\w*\s+(?:(?:in|on|of)\s+)?(?:the\s+)?(?:\w+\s+)?(?:tests?|checks?|builds?|ci|lint|specs?)|conflicts?|not (?:yet )?(?:green|passing)|still running|pending checks?)\b/i;
 /** A merge is only ever settled by the merge rule, which reads whether the work is green. */
 const LANDS = /\b(?:merge|land)\b/i;
 /** He asked his staff to take control rather than hand problems back: what lets Flyd settle the routine. */
@@ -64,7 +64,7 @@ const RULES: StandingRule[] = [
     // Commit, rebase onto the latest, push, pull, fast-forward: keeping his copies in
     // step. A merge or land is the merge rule's, and "pull request" is no git pull.
     asks: /\b(?:commit|push|rebase|sync|pull(?!\s+requests?\b)|fast-forward|on top of)\b/i,
-    holds: (question) => !LANDS.test(question) && !NOT_GREEN.test(question),
+    holds: (question, reply) => !LANDS.test(question) && !NOT_GREEN.test(reply),
     answer: "Yes",
   },
   {
@@ -96,25 +96,24 @@ const RULES: StandingRule[] = [
  * costs, goes public or touches access.
  */
 const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
-/**
- * Speaks for him to other people: a message sent, posted, written or announced,
- * unless the one it reaches is Flyd or the staff Flyd itself runs. Messages
- * between them are Flyd's to decide.
- */
-/**
- * Sending, writing or posting at all: the act alone can speak for him, even
- * when the one it reaches is left implicit ("post an update", "announce it").
- */
-const OUTWARD = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|slack\w*|comment\w*(?=\s+(?:on|to|about)\b)|forward\w*|\bcc\b|invit\w*|respond\w*|repl(?:y|ies|ying)\s+to|reach(?:es|ing)?\s+out\b|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*)\b/i;
-/** Writing to or telling people something: outward only when the one reached is not Flyd's own staff. */
-const TELLS_PEOPLE = /\b(?:writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing)|text(?:s|ed|ing)?)\s+(?:it\s+|the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+|him\s+|them\s+|this\s+|that\s+|everyone\s+)?(?:team|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|colleagues?|everyone|someone|guys|folks|him|her|them|public)\b/i;
-/** An outward word whose one it reaches is Flyd or its staff: what Flyd decides for itself. */
-const TO_OWN_STAFF = /\b(?:messag\w*|dm|notif\w*|ping\w*|emails?|emailing|send\w*|sending|sent|slack\w*|forward\w*|\bcc\b|invit\w*|respond\w*|text(?:s|ed|ing)?|repl(?:y|ies|ying)\s+to|posts?|posting|posted|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ing))\s+(?:the\s+|a\s+|an\s+|my\s+|his\s+|her\s+|their\s+|our\s+)?(?:flyd|first ?mate|crew ?mates?|staff|crew|agents?|workers?|subagents?|itself)\b/gi;
+/** A communicating verb: it speaks for him only when what follows names someone it reaches. */
+const COMMUNICATES = /\b(?:messag(?:e|es|ed|ing)|dm|notif(?:y|ies|ied|ying)|ping(?:s|ed|ing)?|email(?:s|ed|ing)?|send(?:s|ing)?|sent|slack(?:s|ed|ing)?|comment(?:s|ed|ing)?|forward(?:s|ed|ing)?|cc|invit(?:e|es|ed|ing)|respond(?:s|ed|ing)?|repl(?:y|ies|ied|ying)|reach(?:es|ing)? out|post(?:s|ed|ing)?|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ed|ing)|text(?:s|ed|ing)?|remind\w*)\b/gi;
+/** People, or a public place, a message reaches. */
+const RECIPIENT = /\b(?:team\w*|clients?|customers?|reviewers?|stakeholders?|subscribers?|followers?|audience|boss|manager|colleagues?|everyone|everybody|someone|anyone|people|users|folks|guys|issue|thread|channel|forum|public(?:ly)?)\b/i;
+/** A person named as the one it goes to. */
+const NAMED = /^\s*(?:\S+\s+){0,3}?(?:to|with)\s+(?!(?:Flyd|Firstmate|GitHub|Git)\b)[A-Z][a-z]+/;
+/** Him, her or them reached directly; after write, update or post they are as likely branches or files. */
+const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 
-/** Whether the question speaks for him to other people: a message sent or written to someone other than Flyd's own staff. */
+/** Whether the question speaks for him to other people: a communicating verb aimed at a person, team or public place. */
 function speaksForHim(question: string): boolean {
-  const toOthers = question.replace(TO_OWN_STAFF, " ");
-  return OUTWARD.test(toOthers) || TELLS_PEOPLE.test(toOthers);
+  for (const verb of question.matchAll(COMMUNICATES)) {
+    const after = question.slice(verb.index + verb[0].length).split(/[?.,;!]|\band\b/)[0]!;
+    const reach = after.trim().split(/\s+/).slice(0, 5).join(" ");
+    if (RECIPIENT.test(reach) || NAMED.test(after)) return true;
+    if (!/^(?:writ|updat|post)/i.test(verb[0]) && PRONOUN.test(after)) return true;
+  }
+  return false;
 }
 /** A taste or strategy call: his to make even when it is reversible. */
 const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
