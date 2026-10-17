@@ -248,6 +248,22 @@ export class SnapshotDiffer {
   }
 
   /**
+   * Asks Flyd's interpreter for its own reading of a note firstmate answered,
+   * once, in the background; the stream re-renders when it lands. Its reading
+   * is Flyd's on every reply, an artefact as much as a paragraph.
+   */
+  private readAnswer(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): void {
+    const interpreter = this.summaries?.interpreter;
+    if (!interpreter || !newest || !interpreter.wants(message.text)) return;
+    const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
+    const before = at >= 0 ? at : snapshot.messages.indexOf(message);
+    const summaries = this.summaries!;
+    void interpreter
+      .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
+      .then(() => summaries.onSummary?.());
+  }
+
+  /**
    * Firstmate's answer to his note, as Flyd tells it: Flyd's interpretation
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
@@ -256,14 +272,7 @@ export class SnapshotDiffer {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached), handled) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
-    if (interpreter && newest && interpreter.wants(message.text)) {
-      const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
-      const before = at >= 0 ? at : snapshot.messages.indexOf(message);
-      const summaries = this.summaries!;
-      void interpreter
-        .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
-        .then(() => summaries.onSummary?.());
-    }
+    this.readAnswer(message, snapshot, newest);
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text, handled) };
   }
@@ -341,6 +350,8 @@ export class SnapshotDiffer {
       const artifact = kept.get(message.id);
       // No summary is asked for a reply that may yet be an artefact.
       const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));
+      // An artefact that answers his note still gets Flyd's reading, which the column speaks in its place of firstmate's words.
+      if (artifact && message.answers?.startsWith("note:")) this.readAnswer(message, snapshot, fresh);
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
