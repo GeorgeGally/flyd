@@ -628,9 +628,16 @@ export const PLAN_LIMIT = 3;
 const PLAN_POINTS = 4;
 const PLAN_POINTS_CHARS = 240;
 
-/** The plans he made, bounded for the panel: outcome, and the checkable points when it has them. Pure. */
-export function planArtefacts(plans: Plan[]): PlanArtefact[] {
-  return plans.map((plan) => {
+/** How long a plan stays on the panel after it was made. */
+const PLAN_SHOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const PLAN_CLOSED = new Set(["done", "abandoned"]);
+
+/** The plans he made this week that are still open, bounded for the panel: outcome, and the checkable points when it has them. Pure. */
+export function planArtefacts(plans: Plan[], now: number): PlanArtefact[] {
+  return plans.filter((plan) => {
+    const created = Date.parse(plan.created);
+    return !PLAN_CLOSED.has(plan.status.toLowerCase()) && now - created < PLAN_SHOWN_MS;
+  }).map((plan) => {
     const line = plan.phases.flatMap((phase) => phase.doneWhen).slice(0, PLAN_POINTS).join("; ").slice(0, PLAN_POINTS_CHARS);
     return {
       id: plan.filename,
@@ -928,7 +935,7 @@ export class ArtefactFeed {
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),
-        plans: planArtefacts(readPlans(plansDir)),
+        plans: planArtefacts(readPlans(plansDir), Date.now()),
       };
       for (const listener of this.listeners) listener();
       if (voice && unsaid.length) void this.say(voice, enriched, unsaid, generation);

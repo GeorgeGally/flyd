@@ -67,7 +67,7 @@ Frontmatter records the plan's identity: `project`, `repo_path`, `status`, `crea
 
 ## Phase 4 — Handover
 
-**What it does.** `flyd work --start <query>` finds the plan, builds a handoff — the plan's task as the outcome, its files named in that outcome, its repo folder as the project root, and the first phase's `done_when` as the acceptance points — and hands it to a fresh coding session through `dispatchCodingDomain`, the same path chat uses for `start_coding_task`. The session starts knowing what to do, which files, and where.
+**What it does.** `flyd work --start <query>` finds the plan, builds a handoff — George's own request as the original message, the plan's outcome with the first phase's title and steps and its files as the intended outcome, the project's name, its repo folder as the project root, and the first phase's `done_when` as the acceptance points — and hands it to a fresh coding session through `dispatchCodingDomain`, the same path chat uses for `start_coding_task`. The session starts knowing what to do, which files, and where.
 
 **Reuse.** `dispatchCodingDomain` and its FirstMate transport already render the worker brief with the outcome, the repo hint and the `done_when`. The handoff is a pure function (`planHandoff`) so the exact payload is testable without spawning anything.
 
@@ -75,7 +75,8 @@ Frontmatter records the plan's identity: `project`, `repo_path`, `status`, `crea
 
 - [x] Starting a plan hands over its task, its files and its repo folder.
 - [x] The handoff names the repo folder as the project root, so the session starts in the right place.
-- [x] The acceptance points handed over are the plan's first phase's checkable points.
+- [x] The acceptance points handed over are the plan's first phase's checkable points, and the scope handed over is that phase's title and steps.
+- [x] The coding session sees George's own request, not only the model-written outcome.
 - [x] A test asserts the dispatched payload carries the task, each file and the repo folder.
 
 ## Phase 5 — Approvals
@@ -102,6 +103,8 @@ Deliberately not done:
 
 - **No in-progress state machine.** The plan's points are always shown on its artefact, so a plan being worked shows them without a status that could go stale. If a later revision wants to track `draft → in progress → done`, the `status` field is already there for it.
 - **No autonomous start.** A plan does not dispatch, schedule or land itself; every start is George's explicit act through an existing gate.
+- **Only the first phase is handed over.** `--start` sends phase 1's scope and points; handing over phase 2 or later (for example a `--phase` option) is a follow-up that needs George's approval.
+- **Plans on screen are bounded.** The panel shows plans made in the last 7 days whose status is not `done` or `abandoned`, and a plan never hides the "Nothing needs you right now" card.
 - **No combined store.** Plans are read from the folder; there is no index, ranking or promotion on top of capture and search.
 
 ## Where it lives

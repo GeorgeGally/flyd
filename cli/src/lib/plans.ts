@@ -84,9 +84,9 @@ export function parsePlanBody(body: string): Pick<Plan, "outcome" | "files" | "a
       if (check) approvalGates.push(check[1]!.trim());
     }
     if (section === "phase" && phase) {
-      const checkbox = line.match(CHECKBOX);
-      if (checkbox) (inDoneWhen ? phase.doneWhen : phase.steps).push(checkbox[1]!.trim());
-      else if (!inDoneWhen && line.trim() && !BULLET.test(line) && !line.startsWith("#")) phase.steps.push(line.trim());
+      const item = line.match(CHECKBOX) ?? line.match(BULLET);
+      if (item) (inDoneWhen ? phase.doneWhen : phase.steps).push(item[1]!.trim());
+      else if (!inDoneWhen && line.trim() && !line.startsWith("#")) phase.steps.push(line.trim());
     }
   }
 
@@ -139,18 +139,20 @@ export interface PlanHandoff {
   originalMessage: string;
   intendedOutcome: string;
   doneWhen: string[];
-  project: { root: string };
+  project: { name?: string; root: string };
 }
 
 /** The handoff a plan produces. Pure: it decides nothing about whether to start. */
 export function planHandoff(plan: Plan): PlanHandoff {
   const outcome = plan.outcome || plan.topic;
+  const first = plan.phases[0];
+  const phase = first ? `\n\nPhase 1${first.title ? ` — ${first.title}` : ""}:${first.steps.map((step) => `\n- ${step}`).join("")}` : "";
   const files = plan.files.length ? `\n\nFiles to touch:\n${plan.files.map((file) => `- ${file}`).join("\n")}` : "";
   return {
-    originalMessage: outcome,
-    intendedOutcome: `${outcome}${files}`,
+    originalMessage: plan.topic,
+    intendedOutcome: `${outcome}${phase}${files}`,
     // Start with the first phase's points; a phase-less plan hands over every point it has.
     doneWhen: plan.phases[0]?.doneWhen.length ? plan.phases[0].doneWhen : plan.phases.flatMap((phase) => phase.doneWhen),
-    project: { root: plan.repoPath },
+    project: { ...(plan.project ? { name: plan.project } : {}), root: plan.repoPath },
   };
 }

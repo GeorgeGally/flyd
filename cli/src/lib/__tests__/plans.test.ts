@@ -48,6 +48,11 @@ describe("parsePlanBody", () => {
     ]);
   });
 
+  it("accepts plain bullets for steps and done_when points", () => {
+    const parsed = parsePlanBody("## Phase 1 — Helpers\nRead the code first\n- Write the helper\n**Done when:**\n- a test passes");
+    expect(parsed.phases).toEqual([{ title: "Helpers", steps: ["Read the code first", "Write the helper"], doneWhen: ["a test passes"] }]);
+  });
+
   it("gives empty parts rather than throwing on an old or empty body", () => {
     expect(parsePlanBody("## Goal\nSomething.\n\n## Acceptance criteria\n- [ ] done")).toEqual({ outcome: "", files: [], approvalGates: [], phases: [] });
     expect(parsePlanBody("")).toEqual({ outcome: "", files: [], approvalGates: [], phases: [] });
@@ -105,12 +110,16 @@ describe("planHandoff", () => {
       files: ["src/auth/jwt.ts", "src/middleware/auth.ts"],
       approvalGates: ["Landing needs George's /land"],
       phases: [
-        { title: "Token helpers", steps: [], doneWhen: ["a test covers a round trip"] },
-        { title: "Guard", steps: [], doneWhen: ["protected routes reject an unauthenticated request"] },
+        { title: "Token helpers", steps: ["Write the sign and verify functions"], doneWhen: ["a test covers a round trip"] },
+        { title: "Guard", steps: ["Add the middleware"], doneWhen: ["protected routes reject an unauthenticated request"] },
       ],
     });
-    expect(handoff.originalMessage).toBe("Add JWT authentication to the API.");
+    expect(handoff.originalMessage).toBe("auth");
     expect(handoff.intendedOutcome).toContain("Add JWT authentication to the API.");
+    expect(handoff.intendedOutcome).toContain("Phase 1 — Token helpers");
+    expect(handoff.intendedOutcome).toContain("- Write the sign and verify functions");
+    expect(handoff.intendedOutcome).not.toContain("Add the middleware");
+    expect(handoff.project).toEqual({ name: "flyd", root: "/Users/x/flyd" });
     expect(handoff.intendedOutcome).toContain("- src/auth/jwt.ts");
     expect(handoff.intendedOutcome).toContain("- src/middleware/auth.ts");
     expect(handoff.project.root).toBe("/Users/x/flyd");

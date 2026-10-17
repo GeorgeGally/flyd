@@ -3,6 +3,13 @@ import { composeArtefact, planArtefacts, type ArtefactInputs, type PlanArtefact 
 import { boxesOf } from "../boxes.js";
 import { showOf } from "../show.js";
 import type { ConversationSnapshot } from "../types.js";
+import type { Plan } from "../../lib/plans.js";
+
+const NOW = Date.parse("2026-10-17T12:00:00Z");
+const planFile = (overrides: Partial<Plan> = {}): Plan => ({
+  path: "/x", filename: "f.md", topic: "t", status: "draft", project: "", repoPath: "/x", created: "2026-10-17", outcome: "Big change", files: [], approvalGates: [], body: "",
+  phases: [], ...overrides,
+});
 
 const plan: PlanArtefact = {
   id: "2026-10-17-auth-plan.md",
@@ -46,11 +53,25 @@ describe("the plan artefact", () => {
   });
 
   it("bounds a plan's line to a few points", () => {
-    const many = planArtefacts([{
-      path: "/x", filename: "f.md", topic: "t", status: "draft", project: "", repoPath: "/x", created: "", outcome: "Big change", files: [], approvalGates: [], body: "",
-      phases: [{ title: "One", steps: [], doneWhen: ["a", "b", "c", "d", "e", "f"] }],
-    }]);
+    const many = planArtefacts([planFile({ phases: [{ title: "One", steps: [], doneWhen: ["a", "b", "c", "d", "e", "f"] }] })], NOW);
     expect(many[0]!.points).toBe("a; b; c; d");
+  });
+
+  it("shows only open plans made in the last week", () => {
+    const shown = planArtefacts([
+      planFile({ filename: "fresh.md" }),
+      planFile({ filename: "old.md", created: "2026-10-01" }),
+      planFile({ filename: "done.md", status: "done" }),
+      planFile({ filename: "dropped.md", status: "abandoned" }),
+      planFile({ filename: "undated.md", created: "" }),
+    ], NOW);
+    expect(shown.map((plan) => plan.id)).toEqual(["fresh.md"]);
+  });
+
+  it("never hides the nothing-needs-you card behind a plan", () => {
+    const screen = showOf({ messages: [] } as unknown as ConversationSnapshot, { artefact: inputs() });
+    expect(screen.items.some((item) => item.kind === "clear")).toBe(true);
+    expect(screen.items.some((item) => item.kind === "plan")).toBe(true);
   });
 
   it("shows no plans plainly when there are none", () => {
