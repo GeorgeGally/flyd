@@ -1,5 +1,5 @@
+import { sameQuestion } from "./executive.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { quoted } from "./replies.js";
 import { capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -321,8 +321,10 @@ export function answeredForHim(messages: ConversationMessage[]): Map<string, Set
 function leftToHim(choice: ReplyChoice, answered: Set<string> | undefined): ReplyChoice | null {
   if (!answered?.size) return choice;
   // An answer that quotes no question answered the reply whole.
-  if (answered.has("") || !choice.steps) return answered.has("") || answered.has(quoted(choice.question)) ? null : choice;
-  const steps = choice.steps.filter((step) => !answered.has(quoted(step.question)));
+  if (answered.has("")) return null;
+  const settled = (question: string) => [...answered].some((quote) => sameQuestion(question, quote));
+  if (!choice.steps) return settled(choice.question) ? null : choice;
+  const steps = choice.steps.filter((step) => !settled(step.question));
   if (steps.length === choice.steps.length) return choice;
   if (steps.length === 0) return null;
   return steps.length === 1 ? { question: steps[0]!.question, options: steps[0]!.options } : { ...choice, steps };

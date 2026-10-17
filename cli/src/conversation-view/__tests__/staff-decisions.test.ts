@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AutoAnswers, settledBy } from "../auto-answers.js";
 import { choiceOf, openChoice } from "../choices.js";
-import { brief, stateOf } from "../executive.js";
+import { brief, sameQuestion, stateOf } from "../executive.js";
 import { readReply } from "../replies.js";
 import { SnapshotDiffer } from "../server.js";
 import { statusOf } from "../status.js";
@@ -114,6 +114,25 @@ describe("Flyd decides its staff's routine questions", () => {
     const html = shown!.summary?.html ?? shown!.html;
     expect(html).toContain("k-call");
     expect(html).toContain("Handled");
+  });
+
+  it("does not hide a near-identical question Flyd did not answer", async () => {
+    const asked = reply(`Two things are waiting on you:\n1. Shall I update the sidebar wording?\n2. Shall I update the sidebar design?`);
+    const notes = await answered(asked);
+    expect(notes.map((note) => note.replyQuote)).toEqual(["Shall I update the sidebar wording?"]);
+    const [shown] = new SnapshotDiffer().next({ messages: [asked, ...notes], working: false }).messages;
+    const html = shown!.summary?.html ?? shown!.html;
+    // The wording is handled; the design is still his, on the card and in the box alike.
+    expect(html).toContain("Handled");
+    expect(html).toContain("k-call");
+    expect(openChoice([asked, ...notes])?.choice.question).toBe("Shall I update the sidebar design?");
+  });
+
+  it("tells two wordings apart by their words, not by how many they share", () => {
+    expect(sameQuestion("Shall I update the sidebar wording?", "Shall I update the sidebar design?")).toBe(false);
+    expect(sameQuestion("Go for it?", "Do it?")).toBe(false);
+    expect(sameQuestion("Shall I push it?", "Shall I push it?")).toBe(true);
+    expect(sameQuestion("whether to push the local commit", "Push the local commit?")).toBe(true);
   });
 
   it("takes back one answer without marking its sibling answer undone", async () => {
