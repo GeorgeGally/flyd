@@ -1850,7 +1850,7 @@ describe("header and artefact view", () => {
     const job = document.querySelector("#underway li")!;
     expect(job.querySelector(".brief-eyebrow")).toBeNull();
     expect(job.querySelector(".brief-line")!.textContent).toBe("A worker is shrinking the island.");
-    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · 25 min");
+    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · Started 25m ago");
     // Done: one line each, the newest few until he asks for all.
     expect(document.querySelectorAll("#done li")).toHaveLength(3);
     const doneRow = document.querySelector("#done li")!;
@@ -2003,5 +2003,84 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false });
     expect(document.getElementById("left")!.hidden).toBe(true);
     expect(document.getElementById("left-open")!.hidden).toBe(true);
+  });
+});
+
+describe("the side column's type", () => {
+  // These drive the real page and read the computed style of what it rendered,
+  // rather than matching text in the page's CSS. happy-dom resolves the page's
+  // own stylesheet (font family and size, borders, backgrounds) onto the live
+  // DOM; a property the stylesheet leaves unset (letter-spacing, text-transform)
+  // it reports empty, which is asserted as "nothing set" rather than a value.
+  const SANS = /sans-serif|system-ui|-apple-system/;
+  const MONO = /mono|Menlo|Consolas|SF Mono/i;
+  const WHITE = /^#f{3}(?:f{3})?$|^rgba?\(\s*255\s*,\s*255\s*,\s*255\b/i;
+
+  async function drawColumn(): Promise<void> {
+    const html = renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) });
+    document.head.innerHTML = /<style>[\s\S]*?<\/style>/.exec(html)![0]!;
+    load("", html);
+    await settle();
+    const stream = open("latest", []);
+    const started = new Date(Date.now() - 25 * 60_000).toISOString();
+    stream.emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      show: {
+        title: "", summary: "", live: false, counts: {}, items: [],
+        calls: [{ id: "call:a", kind: "call", headline: "Pick the vendor step layout.", why: "", project: "GNM", detail: "Six layouts are built.", decision: { task: "a", question: "Pick one", choices: [] } }],
+        underway: [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }],
+        done: [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM" }],
+      },
+      rail: {
+        conversations: [{ id: "q1", question: "make a playlist", answer: "Nine tracks.", state: "done", at: "2026-10-10T12:46:56Z" }],
+        artefacts: [
+          { id: "preview:http://127.0.0.1:8097/", title: "Live preview", line: "127.0.0.1:8097/", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/" },
+          { id: "live:http://127.0.0.1:8097/phone", title: "Phone preview", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/", phone: true },
+        ],
+        memory: { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] },
+      },
+    });
+    await settle();
+  }
+
+  const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+
+  it("sets every label in the column in one sans family, in sentence case at 13px or more", async () => {
+    await drawColumn();
+    for (const selector of [".brief-label", ".needs-meta", ".needs-head", ".brief-meta", ".rail-tabs button", ".rail-section", ".rail-when", ".rail-card-head"]) {
+      const cs = style(selector);
+      expect(cs.fontFamily, selector).toMatch(SANS);
+      expect(cs.fontFamily, selector).not.toMatch(MONO);
+      expect(cs.textTransform === "" || cs.textTransform === "none", `${selector} text-transform`).toBe(true);
+      const spacing = parseFloat(cs.letterSpacing);
+      expect(Number.isNaN(spacing) || spacing <= parseFloat(cs.fontSize) * 0.04 + 0.01, `${selector} letter-spacing`).toBe(true);
+      expect(parseFloat(cs.fontSize), `${selector} font-size`).toBeGreaterThanOrEqual(13);
+    }
+  });
+
+  it("sets the top bar and the empty page in the same sans", async () => {
+    await drawColumn();
+    for (const selector of ["header", "header .site", "header .controls a", ".empty"]) {
+      expect(style(selector).fontFamily, selector).toMatch(SANS);
+      expect(style(selector).fontFamily, selector).not.toMatch(MONO);
+    }
+  });
+
+  it("gives the column one container style: no bordered boxes", async () => {
+    await drawColumn();
+    for (const selector of [".rail-card", ".brief-list li", ".rail-mem"]) {
+      const cs = style(selector);
+      const border = parseFloat(cs.borderTopWidth);
+      expect(Number.isNaN(border) || border === 0, `${selector} border`).toBe(true);
+      expect(cs.borderTopLeftRadius, `${selector} radius`).toBe("12px");
+    }
+  });
+
+  it("never lets a preview card show white, desktop or phone", async () => {
+    await drawColumn();
+    for (const selector of [".rail-frame-box", ".rail-phone-screen", ".rail-frame", ".rail-phone-frame"]) {
+      const background = style(selector).backgroundColor;
+      expect(background === "" || background === "transparent" || background === "none" || !WHITE.test(background), `${selector} background ${background}`).toBe(true);
+    }
   });
 });

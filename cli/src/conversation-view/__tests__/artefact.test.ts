@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
-  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
+  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   doneItems, underwayItems, workerStarted,
 } from "../artefact.js";
@@ -64,6 +64,43 @@ describe("parseBearings", () => {
   });
 });
 
+describe("what needs him", () => {
+  const NOW = Date.parse("2026-10-17T03:00:00Z");
+  const fleet = parseBearings({ decisions_open: [
+    { id: "fm-handover", summary: "Smoother handover between firstmate sessions" },
+    { id: "read-me", summary: "Flyd: what the 3 new commits do (artefact ready to read): Read: what they do" },
+    { id: "report", summary: "Flyd: five deep ways to get smarter (report + artefact): Read: five ways" },
+    { id: "remind", summary: "Remind captain this afternoon: finish the lab" },
+    { id: "pick", summary: "Pick a look" },
+  ] });
+  const hold = "Captain picks: 1 Evergreen, 2 Fairy-light";
+  const backlog = parseBacklog(`- [ ] pick - Pick a look (hold: fm-hold-v1:${Buffer.from(hold).toString("base64")})`);
+
+  it("drops reads, reports, reminders and holds nobody ever reported, which are not decisions", () => {
+    const calls = enrichFleet(fleet, backlog, new Map(), NOW).calls.map((row) => row.task);
+    expect(calls).not.toContain("read-me");
+    expect(calls).not.toContain("report");
+    expect(calls).not.toContain("remind");
+    // No report time, no backlog date and nothing to answer: not a call, not kept.
+    expect(calls).not.toContain("fm-handover");
+    expect(calls).toEqual(["pick"]);
+  });
+  it("drops a call with no time at all unless it has options to answer", () => {
+    expect(isCurrentDecision({ label: "No word on it" }, NOW)).toBe(false);
+    expect(isCurrentDecision({ label: "No word on it", choices: ["Keep", "Remove"] }, NOW)).toBe(true);
+  });
+  it("drops an old hold with nothing to answer but keeps an old one with options", () => {
+    const old = { at: "2026-10-11T02:44:00Z" };
+    const extras = new Map([["fm-handover", old], ["pick", old]]);
+    const calls = enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task);
+    expect(calls).toEqual(["pick"]);
+  });
+  it("keeps a recent hold with nothing to answer", () => {
+    const extras = new Map([["fm-handover", { at: "2026-10-16T02:44:00Z" }]]);
+    expect(enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task)).toContain("fm-handover");
+  });
+});
+
 describe("the backlog", () => {
   it("keeps the earlier design question answerable beside active Christmas work, without turning a scout report into a new design awaiting landing", () => {
     const question = "Picks the direction (board http://127.0.0.1:4387/session/review): 1 Evergreen luxe (recommended after round 1: green plus luxury), 2 Fairy-light night, 3 Red letter day, 4 Christmas in the tropics, 5 Christmas card, or a mix.";
@@ -113,6 +150,7 @@ describe("the backlog", () => {
     expect(entries.get("jev")).toEqual({
       title: "Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove the rule",
       hold: "Review after ~20 real decisions; captain decides keep or remove",
+      since: "2026-09-25",
     });
     expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", url: "https://github.com/GeorgeGally/flyd/pull/79", repo: "flyd", finished: "2026-10-09" });
   });
@@ -123,8 +161,8 @@ describe("the backlog", () => {
       decisions_open: [{ id: "jev", summary: "Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove th…" }],
       in_flight: [{ id: "a", state: "working", repo: "flyd", name: "Artefact mode must always show something real, with screen…", doing: "harness busy" }],
     });
-    const extras = new Map([["a", { at: "2026-10-10T01:00:00.000Z", shots: ["shots/after.png"] }]]);
-    const whole = enrichFleet(fleet, parseBacklog(BACKLOG), extras);
+    const extras = new Map([["a", { at: "2026-10-10T01:00:00.000Z", shots: ["shots/after.png"] }], ["jev", { at: "2026-10-16T01:00:00.000Z" }]]);
+    const whole = enrichFleet(fleet, parseBacklog(BACKLOG), extras, Date.parse("2026-10-17T00:00:00Z"));
     expect(whole.calls[0]).toMatchObject({
       label: "Review the Jev decision log: did Jev change or improve firstmate decisions? keep or remove the rule",
       detail: "Review after ~20 real decisions; captain decides keep or remove",

@@ -80,6 +80,14 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(layout.title.size.height, 2 * DictationPill.lineHeight(DictationPill.titleFont))
     }
 
+    func testABodyWrapsToTwoLinesWithoutGrowingTheStrip() {
+        let body = "Version A now uses the C3 Swiss stall and premium stalls keep the canopy, so the quote you sent on Friday still holds for both."
+        let layout = DictationPill.stripLayout(for: .init(meta: "Flyd", title: "Stall quote updated", body: body), width: 620, notch: notch)
+        XCTAssertEqual(layout.title.size.height, DictationPill.lineHeight(DictationPill.titleFont))
+        XCTAssertEqual(layout.body?.size.height, 2 * DictationPill.lineHeight(DictationPill.bodyFont))
+        XCTAssertLessThanOrEqual(layout.content, DictationPill.stripHeight(notch: notch) - DictationPill.stripTopPadding(notch: notch) - DictationPill.stripBottomPadding)
+    }
+
     func testTwoLineMessagesBreakEvenly() {
         let layout = DictationPill.stripLayout(for: .init(meta: "Needs you", title: "Merge the island type change now, or hold it for the morning build?", body: nil), width: 620)
         XCTAssertEqual(layout.title.size.height, 2 * DictationPill.lineHeight(DictationPill.titleFont))
@@ -109,7 +117,8 @@ final class DictationPillTests: XCTestCase {
     }
 
     func testMessageTypeIsTheSameSizeForEveryMessage() {
-        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 18)
+        XCTAssertGreaterThanOrEqual(DictationPill.titleFont.pointSize, 22)
+        XCTAssertGreaterThanOrEqual(DictationPill.bodyFont.pointSize, 17)
         let short = DictationPill.stripLayout(for: .init(meta: "Reply", title: "Done.", body: nil), width: 1000)
         let long = DictationPill.stripLayout(for: .init(meta: "Reply", title: String(repeating: "word ", count: 80), body: nil), width: 1000)
         for layout in [short, long] {
@@ -142,7 +151,7 @@ final class DictationPillTests: XCTestCase {
         XCTAssertEqual(DictationPill.holdDuration(for: .notice("No speech")), 1.4)
         let long = DictationPill.holdDuration(for: .failed("The microphone stopped before Flyd heard anything, so try holding the keys a little longer")) ?? 0
         XCTAssertGreaterThan(long, 3)
-        XCTAssertEqual(DictationPill.holdDuration(for: .notice(String(repeating: "word ", count: 200))), 6)
+        XCTAssertEqual(DictationPill.holdDuration(for: .notice(String(repeating: "word ", count: 200))), 9)
         XCTAssertEqual(DictationPill.message(for: .notification("Agenda done", "The meeting is at 9.")),
                        DictationPill.Message(meta: "Flyd", title: "Agenda done", body: "The meeting is at 9."))
     }

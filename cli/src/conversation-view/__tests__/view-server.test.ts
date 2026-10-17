@@ -320,7 +320,7 @@ describe("ConversationViewServer", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-decision-server-"));
     mkdirSync(join(dir, "bin"));
     mkdirSync(join(dir, "data"));
-    writeFileSync(join(dir, "data", "backlog.md"), "- [ ] visuals - Pick a Christmas look (repo: good_neighbours) (hold: Choose Evergreen or a mix)\n");
+    writeFileSync(join(dir, "data", "backlog.md"), `- [ ] visuals - Pick a Christmas look (repo: good_neighbours) (since ${new Date().toISOString().slice(0, 10)}) (hold: Choose Evergreen or a mix)\n`);
     writeFileSync(join(dir, "bin", "fm-bearings-snapshot.sh"), '#!/bin/sh\nprintf \'%s\' \'{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}\'\n', { mode: 0o755 });
     writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/decision-note"\nprintf "queued decision-note\\n"\n', { mode: 0o755 });
     const feed = new ArtefactFeed({ home: dir, memoryFile: join(dir, "none"), newsFile: join(dir, "none"), tasteFile: join(dir, "none") });

@@ -84,16 +84,17 @@ final class DictationPill: NSObject {
     /// A little more than the top: the last line's descenders leave room the eye counts as space.
     static let stripBottomPadding: CGFloat = 12
     static let stripCornerRadius: CGFloat = 16
-    static let labelRowHeight: CGFloat = 13
+    static let labelRowHeight: CGFloat = 14
     /// Tight: the label belongs to the message under it.
     static let labelGap: CGFloat = 2
-    static let bodyGap: CGFloat = 4
+    static let bodyGap: CGFloat = 6
     /// The state label: monospaced caps, lightly tracked, like the rest of Flyd's state readouts.
-    static let labelFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
-    /// The message, on up to two lines; with a body under it, the title takes one and the body the other.
-    static let titleFont = displayFont(20)
-    static let bodyFont = NSFont(name: "HelveticaNeue", size: 14) ?? .systemFont(ofSize: 14)
+    static let labelFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+    /// The message, on up to two lines; with a body under it, the title takes one line and the body up to two.
+    static let titleFont = displayFont(24)
+    static let bodyFont = NSFont(name: "HelveticaNeue", size: 18) ?? .systemFont(ofSize: 18)
     static let titleLines = 2
+    static let bodyLines = 2
     private static let metaDotSize: CGFloat = 6
     private static let metaDotGap: CGFloat = 7
 
@@ -108,7 +109,7 @@ final class DictationPill: NSObject {
     private static let shadowMargin: CGFloat = 36
 
     private static let autoHideDelay: TimeInterval = 1.4
-    private static let maxHold: TimeInterval = 6
+    private static let maxHold: TimeInterval = 9
     private static let collapseDuration: TimeInterval = 0.32
     private static let fadeDuration: TimeInterval = 0.18
 
@@ -230,19 +231,22 @@ final class DictationPill: NSObject {
         return max(stripInset, (notch.width / 2).rounded() + labelNotchGap)
     }
 
-    /// The strip's one height on a screen: the label over two lines of the message, in padding.
+    /// The strip's one height on a screen: the label over the tallest message it holds (two title
+    /// lines, or one title line over a two-line body), in padding.
     static func stripHeight(notch: NSRect?) -> CGFloat {
-        ceil(stripTopPadding(notch: notch) + labelRowHeight + labelGap + CGFloat(titleLines) * lineHeight(titleFont) + stripBottomPadding)
+        let messageHeight = max(CGFloat(titleLines) * lineHeight(titleFont),
+                                lineHeight(titleFont) + bodyGap + CGFloat(bodyLines) * lineHeight(bodyFont))
+        return ceil(stripTopPadding(notch: notch) + labelRowHeight + labelGap + messageHeight + stripBottomPadding)
     }
 
     /// Lays out a message in a strip `width` wide (see `stripWidth`) and `stripHeight(notch:)` tall.
     /// The title truncates past two lines at a word and breaks into even lines, so a second
-    /// line never holds a single word; a body takes the title's second line.
+    /// line never holds a single word; with a body the title keeps one line and the body two.
     static func stripLayout(for message: Message, width: CGFloat, notch: NSRect? = nil) -> StripLayout {
         let width = max(0, width)
         let textWidth = max(0, width - labelInset(notch: notch) - stripInset)
         let title = block(title(message.title), width: textWidth, maxLines: message.body == nil ? titleLines : 1)
-        let body = message.body.map { block(Self.body($0), width: textWidth, maxLines: 1) }
+        let body = message.body.map { block(Self.body($0), width: textWidth, maxLines: bodyLines) }
         var content = labelRowHeight + labelGap + title.size.height
         if let body { content += bodyGap + body.size.height }
         return StripLayout(title: title, body: body, content: content, size: NSSize(width: width, height: stripHeight(notch: notch)))
@@ -328,7 +332,7 @@ final class DictationPill: NSObject {
 
     static func body(_ text: String) -> NSAttributedString {
         NSAttributedString(string: text, attributes: [
-            .font: bodyFont, .foregroundColor: FlydPalette.paper.withAlphaComponent(0.66), .kern: -0.1, .paragraphStyle: paragraph(bodyFont)
+            .font: bodyFont, .foregroundColor: FlydPalette.paper.withAlphaComponent(0.8), .kern: -0.1, .paragraphStyle: paragraph(bodyFont)
         ])
     }
 
