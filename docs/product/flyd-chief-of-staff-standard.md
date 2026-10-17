@@ -5,9 +5,12 @@ answer, the status line under his message or on the notch island, a
 notification, an update relayed from work done for him) is held to this
 standard, and Flyd reads its own words back against it every Core tick.
 
-The checks live in `cli/src/council/chief-of-staff.ts`; the review, its
-records and the scorecard in `cli/src/council/reply-review.ts`. Change the
-standard here and there together.
+The checks live in `cli/src/council/chief-of-staff.ts`; the review, its records
+and the scorecard in `cli/src/council/reply-review.ts`. The single list of
+phrases George has ruled out — and the send-path check that keeps them off an
+answer before it is spoken — live in `cli/src/runtime/honesty-check.ts`, which
+both the council review and the responder read. Change the standard here and
+there together.
 
 ## The standard
 
