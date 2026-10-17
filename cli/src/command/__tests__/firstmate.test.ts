@@ -372,7 +372,28 @@ describe("FirstMate domain transport", () => {
 
     await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:31:00.000Z") });
     expect(started).toEqual(["claude"]);
-    expect(listDomainRuns()[0]!.launchRetry).toBeUndefined();
+    expect(listDomainRuns()[0]!.failure).toBeUndefined();
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
+  });
+
+  it("keeps advancing the backoff across a spawn that then fails", async () => {
+    saveDomainRun({ ...queuedRun(), failure: "couldn't start", launchRetry: { attempts: 2, nextAt: "2026-10-09T01:00:00.000Z" } });
+    let failing = false;
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      if (failing) throw new Error("not installed");
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
+
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    expect(listDomainRuns()[0]!.failure).toBeUndefined();
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
+
+    failing = true;
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(3);
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {

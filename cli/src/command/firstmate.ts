@@ -408,7 +408,7 @@ export async function syncFirstmateDomainRuns(options: {
         launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
         const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
         if (session.started && waitingRun?.launchRetry) {
-          saveDomainRun({ ...waitingRun, failure: undefined, launchRetry: undefined, updatedAt: new Date(nowMs).toISOString() });
+          saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
         } else if (session.failure && waitingRun) {
           suspendFirstmateRun(waitingRun, session.failure);
         }
