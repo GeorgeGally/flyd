@@ -6,9 +6,11 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [
   /\bbranch(?:es)?\b/i,
   /\bworktrees?\b/i,
   /\bpipelines?\b/i,
-  /\bJev\b/,
-  /\b(?:Librarian|Strategist|Critic|Muse|Scout)\b/,
-  /\bthe (?:council|librarian|strategist|critic|muse|scout)\b/i,
+  /\bjev\b/i,
+  /\b(?:Librarians?|Strategists?|Critics?|Muses?|Scouts?)\b/,
+  /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
+  /\bfm\/[\w.-]+/i,
+  /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
 ];
 
 export function firstBackstage(text: string): string | null {
@@ -24,21 +26,25 @@ export function hasBackstage(text: string): boolean {
 }
 
 const REWRITES: Array<[RegExp, string]> = [
-  [/\bfirstmate has not read (\d+) notes? you (?:sent|left)\b/gi, "You have $1 notes still waiting"],
+  [/\bfirstmate has not read (\d+) notes you sent; the oldest has waited (\d[\dh\s]*?(?:min|h|days?))\.?/gi, "$1 notes you sent are still waiting; the oldest has waited $2."],
+  [/\bfirstmate has not read 1 note you sent (\d[\dh\s]*?(?:min|h|days?))\s+ago\b\.?/gi, "You have 1 note still waiting — sent $1 ago."],
   [/\bfirstmate (?:asks|wants to know|is asking)\s*:?\s*/gi, ""],
   [/\bfirstmate'?s\s+/gi, "the "],
   [/\bfirstmate\b\s*/gi, ""],
   [/\bcrewmembers?\b/gi, "I"],
   [/\b(?:the\s+|a\s+|your\s+|our\s+)?crew ?mates?\b/gi, "I"],
   [/\bsubagents?\b/gi, "I"],
-  [/\bJev\b/gi, "I"],
-  [/\b(?:the\s+)?(?:librarian|strategist|critic|muse|scout)\b/gi, "I"],
+  [/\bjev\b/gi, "I"],
+  [/\b(?:the\s+)?(?:librarian|strategist|critic|muse|scout)s?\b/gi, "I"],
   [/\b(?:the\s+)?council\b/gi, "I"],
   [/\b(?:task|run)\s+id\s*[:#]?\s*[^\s,;.)]+/gi, "the work"],
   [/\b(?:the\s+)?pipelines?\b/gi, "the checks"],
   [/\s+(?:on|onto|in|to|from|off|using|via)\s+(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:[\w./-]+\s+)?(?:branch|worktree)s?\b/gi, ""],
   [/\b(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:branch|worktree)s?\s+[A-Za-z0-9][\w./-]*/gi, ""],
   [/\b(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:branch|worktree)s?\b/gi, ""],
+  [/\s+\b(?:on|onto|in|to|from|off|using|via)\s+fm\/[\w.-]+/gi, ""],
+  [/\bfm\/[\w.-]+/gi, ""],
+  [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/gi, ""],
 ];
 
 function tidy(text: string): string {
@@ -52,7 +58,7 @@ function tidy(text: string): string {
 }
 
 function neutralOutcome(text: string): string {
-  const counts = text.match(/\d+(?:\s+[A-Za-z]+)?/g);
+  const counts = text.match(/\d+/g);
   return counts?.length ? `Update — ${counts.join(", ")}` : "There is an update on your work.";
 }
 

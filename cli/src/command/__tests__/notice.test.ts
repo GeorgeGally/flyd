@@ -90,19 +90,23 @@ describe("captain notices", () => {
 });
 
 describe("notices keep the one voice", () => {
-  const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i;
+  const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline|fm\//i;
 
   it("scrubs every backstage term on every notice path, keeping the outcome", () => {
     const cases: Array<[string, string]> = [
       ["Firstmate has not read 3 notes you sent.", "3 notes"],
+      ["Firstmate has not read 1 note you sent 4 min ago.", "1 note"],
       ["The crewmate finished 2 jobs.", "2 jobs"],
       ["Jev reviewed 4 requests.", "4 requests"],
       ["The Council reviewed 6 items.", "6 items"],
       ["The Librarian curated 12 memories.", "12 memories"],
+      ["The Librarians curated 12 memories.", "12 memories"],
       ["The Critic advised on 2 plans.", "2 plans"],
       ["The Strategist dismissed 3 ideas.", "3 ideas"],
       ["The Muse offered 5 notes.", "5 notes"],
+      ["The Muses offered 5 notes.", "5 notes"],
       ["The Scout surfaced 4 stories.", "4 stories"],
+      ["Merged the fix on fm/island-filter; the island is quiet.", "island is quiet"],
       ["Task id task-9 is stuck.", "work is stuck"],
       ["Run id run-9 is stuck.", "work is stuck"],
       ["Merged the fix on the branch fm/x; 3 tests added.", "3 tests"],
@@ -118,11 +122,11 @@ describe("notices keep the one voice", () => {
   });
 
   it("fails a notice that cannot be rephrased closed to a neutral outcome line", () => {
-    const notice = captainNotice(run("Firstmates reviewed 3 things."));
+    const notice = captainNotice(run("Checked by 2 Firstmates."));
     expect(notice).not.toBeNull();
     expect(notice!).not.toMatch(BACKSTAGE);
     expect(notice!).not.toContain("Firstmate");
-    expect(notice!).toContain("3");
+    expect(notice!).toContain("2");
   });
 
   it("scrubs decisions and failures too, not only completions", () => {
