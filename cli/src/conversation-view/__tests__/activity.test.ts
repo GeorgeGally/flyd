@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { kindVisual } from "../cards.js";
 import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, MAX_RECENT, recordActivity } from "../activity.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
@@ -57,6 +58,14 @@ describe("activity from jobs", () => {
     expect(activityFromJob({ ...job, status: "short" }, NOW)!.item.title).toBe("Finished a job, with something left open");
     expect(activityFromJob({ ...job, status: "failed" }, NOW)!.item.title).toBe("A job couldn't be finished");
     expect(activityFromJob({ ...job, status: "interrupted" }, NOW)!.item.title).toBe("Stopped a job before it finished");
+  });
+
+  it("chips a finished job as done and an unfinished one as held up, never under way", () => {
+    expect(kindVisual(activityFromJob({ ...job, status: "running" }, NOW)!.item.kind).word).toBe("Under way");
+    expect(kindVisual(activityFromJob({ ...job, status: "ok" }, NOW)!.item.kind).word).toBe("Done");
+    expect(kindVisual(activityFromJob({ ...job, status: "short" }, NOW)!.item.kind).word).toBe("Done");
+    expect(kindVisual(activityFromJob({ ...job, status: "failed" }, NOW)!.item.kind).word).toBe("Held up");
+    expect(kindVisual(activityFromJob({ ...job, status: "interrupted" }, NOW)!.item.kind).word).toBe("Held up");
   });
 
   it("leaves out detail that names the machinery behind the work", () => {

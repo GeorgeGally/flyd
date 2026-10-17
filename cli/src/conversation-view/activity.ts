@@ -12,7 +12,7 @@ import type { DayCount } from "./artefact.js";
 // record below. Pure where it can be: the same files and clock always give the
 // same panel, and nothing here names the machinery behind a card.
 
-export type ActivityKind = "watching" | "decided" | "reviewed" | "news" | "memory" | "routine" | "work" | "noted";
+export type ActivityKind = "watching" | "decided" | "reviewed" | "news" | "memory" | "routine" | "work" | "done" | "held" | "noted";
 
 export interface ActivityItem {
   id: string;
@@ -185,7 +185,8 @@ export function activityFromJob(job: JobFile, now: number): { item: ActivityItem
   const outcome = plainLine(text(job.result));
   const title = status === "ok" ? "Finished a job for you" : status === "failed" || status === "blocked" ? "A job couldn't be finished" : status === "short" ? "Finished a job, with something left open" : "Stopped a job before it finished";
   const line = status === "ok" ? outcome ?? task : task ?? outcome;
-  return { live: false, item: { id: `job:${id}`, kind: "work", title, ...(line ? { line } : {}), at: updated } };
+  const kind = status === "ok" || status === "short" ? "done" : "held";
+  return { live: false, item: { id: `job:${id}`, kind, title, ...(line ? { line } : {}), at: updated } };
 }
 
 /** The council's thoughts about his projects, kept as one calm card without saying who had them. */

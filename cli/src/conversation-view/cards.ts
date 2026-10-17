@@ -42,6 +42,7 @@ export const KIND_VISUALS: Record<string, KindVisual> = {
   decided: V("Decided", "call", "bell"),
   waiting: V("Held up", "held", "pause"),
   blocked: V("Held up", "held", "pause"),
+  held: V("Held up", "held", "pause"),
   // Moving now.
   live: V("Under way", "live", "pulse"),
   work: V("Under way", "live", "pulse"),
@@ -49,6 +50,7 @@ export const KIND_VISUALS: Record<string, KindVisual> = {
   ready: V("Ready to land", "ready", "ready"),
   // Finished.
   landed: V("Done", "done", "check"),
+  done: V("Done", "done", "check"),
   reviewed: V("Reviewed", "done", "tick"),
   // Waiting its turn.
   next: V("Queued", "quiet", "list"),
