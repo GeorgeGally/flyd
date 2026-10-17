@@ -30,7 +30,7 @@ const COUNT_UNITS =
   "h|hrs?|hours?|mins?|minutes?|days?|weeks?|notes?|files?|items?|jobs?|tests?|checks?|requests?|memories|stories|plans?|ideas?|commits?|updates?|entries?|reports?|tasks?|fixes|points?|lines?|steps?|tickets?|issues?";
 
 const COUNT_PHRASE = new RegExp(
-  `(?<![\\w:.\\/-])\\d+\\s+(?:${COUNT_UNITS})\\b(?:\\s+(?:\\d+|(?:${COUNT_UNITS})\\b))*`,
+  `(?<![\\w:.\\/-])\\d+\\s+(?:${COUNT_UNITS})\\b(?:\\s+(?:\\d+(?=\\s+(?:${COUNT_UNITS})\\b)|(?:${COUNT_UNITS})\\b))*`,
   "gi",
 );
 

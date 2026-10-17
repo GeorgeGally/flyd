@@ -153,6 +153,9 @@ describe("notices keep the one voice", () => {
       ["Merged the branch at 14:00.", "There is an update on your work."],
       ["The worktree holds 2026-10-12 notes.", "There is an update on your work."],
       ["Task id task-9 is stuck.", "There is an update on your work."],
+      ["Firstmate checked 4 tests 2 failed.", "Update — 4 tests."],
+      ["Firstmate: 4 jobs 2 failed.", "Update — 4 jobs."],
+      ["Firstmate sent 3 notes 2026 pending.", "Update — 3 notes."],
     ];
     for (const [reply, expected] of cases) {
       expect(captainNotice(run(reply)), reply).toBe(expected);
