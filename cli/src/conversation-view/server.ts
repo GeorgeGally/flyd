@@ -24,7 +24,7 @@ import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, is
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
+import { handledBy, renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
@@ -34,7 +34,7 @@ import { Workshop } from "./workshop.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
-import { choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
+import { answeredForHim, choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -164,9 +164,12 @@ interface StreamUpdate {
  * sentence kept. A local digest cut a reply to its lead and left him almost
  * nothing to read; it only stands in while a model summary is on its way.
  */
-function briefOf(text: string): NonNullable<RenderedMessage["summary"]> {
-  return { html: renderBriefing(text), source: "brief" };
+function briefOf(text: string, handled?: Handled): NonNullable<RenderedMessage["summary"]> {
+  return { html: renderBriefing(text, {}, handled), source: "brief" };
 }
+
+/** Of a reply's questions, the ones Flyd already answered for him. */
+type Handled = (text: string) => boolean;
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
@@ -192,10 +195,10 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean, handled?: Handled): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
-    if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached)) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
+    if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached), handled) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
     if (interpreter && newest && interpreter.wants(message.text)) {
       const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
       const before = at >= 0 ? at : snapshot.messages.indexOf(message);
@@ -205,11 +208,11 @@ export class SnapshotDiffer {
         .then(() => summaries.onSummary?.());
     }
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text) };
+    return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text, handled) };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
-  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
+  private summarize(message: ConversationMessage, newest: boolean, handled?: Handled): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
     const author = authorSummary(message.text);
     const summarizer = this.summaries?.summarizer;
     const modelFor = (text: string): { text?: string; pending: boolean } => {
@@ -222,7 +225,7 @@ export class SnapshotDiffer {
     if (author) {
       const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
-        summary: { html: statusSummaryHtml(author.rest, author.summary) ?? renderBriefing(author.summary), source: "author" },
+        summary: { html: statusSummaryHtml(author.rest, author.summary, handled) ?? renderBriefing(author.summary), source: "author" },
         ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
@@ -239,8 +242,8 @@ export class SnapshotDiffer {
     // The model found no outcome, decision or ask: one muted line.
     if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
     const summary: NonNullable<RenderedMessage["summary"]> = model.text && !isRoutineAnswer(model.text)
-      ? { html: statusSummaryHtml(message.text, model.text) ?? renderBriefing(model.text), source: "model" }
-      : model.pending ? { html: statusSummaryHtml(message.text) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text);
+      ? { html: statusSummaryHtml(message.text, model.text, handled) ?? renderBriefing(model.text), source: "model" }
+      : model.pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text, handled);
     return { body: message.text, summary, ...(actionable && summary.source !== "brief" ? { expanded: true } : {}) };
   }
 
@@ -260,6 +263,8 @@ export class SnapshotDiffer {
     );
     // The question a reply put to him, until he answers it.
     const open = openChoice(snapshot.messages, (message) => this.routine(message));
+    // The questions Flyd answered for him: each reply's card shows them handled, not waiting on him.
+    const answered = answeredForHim(snapshot.messages);
     // Answers Flyd gave for him that he took back since.
     const undone = new Set<string>();
     const takenBack = new Set<string>();
@@ -269,13 +274,14 @@ export class SnapshotDiffer {
     }
     for (const message of snapshot.messages) {
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
+      const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
-        : !message.answers ? this.summarize(message, newest.has(message.id))
-          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id))
+        : !message.answers ? this.summarize(message, newest.has(message.id), handled)
+          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id), handled)
             : { body: message.text };
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
-      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text));
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), handled);
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
@@ -292,7 +298,7 @@ export class SnapshotDiffer {
         id: message.id,
         role: message.role,
         // His first read is Flyd's briefing; firstmate's own words, links and all, wait behind "more".
-        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body),
+        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body, {}, handled),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
         ...(shots.length ? { shots } : {}),

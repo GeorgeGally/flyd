@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
 import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-answers.js";
@@ -13,6 +14,7 @@ import { claudeApiKey } from "../lib/claude-spend.js";
 import { readProjects } from "../council/projects.js";
 import { tastePath } from "../council/taste.js";
 import { userProfilePath } from "../lib/user-profile.js";
+import { firstmateHome } from "../lib/firstmate-home.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { MemoryReader } from "../conversation-view/memory.js";
@@ -28,11 +30,14 @@ export interface ViewOptions {
 
 const PORT_ATTEMPTS = 10;
 
-/** His recorded preferences, whole (a prompt's copy of USER.md is cut short): USER.md, and TASTE.md without the rules he vetoed or the Librarian retired. */
+/**
+ * His recorded preferences, whole (a prompt's copy of USER.md is cut short): USER.md, TASTE.md without the rules
+ * he vetoed or the Librarian retired, and the standing memos he gave firstmate (its data/captain.md).
+ */
 function recordedPreferences(): string {
   const read = (path: string): string => (existsSync(path) ? readFileSync(path, "utf8") : "");
   const kept = read(tastePath()).split(/^(?=## )/m).filter((section) => !/^## (?:Not me|Retired)\b/i.test(section)).join("");
-  return [read(userProfilePath()), kept].join("\n");
+  return [read(userProfilePath()), kept, read(join(firstmateHome(), "data", "captain.md"))].join("\n");
 }
 
 async function listenNear(server: ConversationViewServer, port: number, explicit: boolean): Promise<number> {
