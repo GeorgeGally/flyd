@@ -33,7 +33,7 @@ function specialistOutputs(value: unknown): SpecialistOutput[] {
   });
 }
 
-export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed"; result: DomainResult } {
+export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } {
   const raw = body.trim();
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
@@ -45,7 +45,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
         const riskRaw = String(parsed.information_loss_risk ?? parsed.informationLossRisk ?? "low");
         const risk: InformationLossRisk = riskRaw === "high" || riskRaw === "medium" ? riskRaw : "low";
         const statusRaw = String(parsed.status ?? "").trim();
-        const status = statusRaw === "needs_decision" || statusRaw === "failed" || statusRaw === "completed"
+        const status = statusRaw === "needs_decision" || statusRaw === "failed" || statusRaw === "completed" || statusRaw === "working"
           ? statusRaw
           : undefined;
         return {

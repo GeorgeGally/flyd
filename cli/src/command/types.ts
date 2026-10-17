@@ -99,5 +99,7 @@ export interface DomainRun {
   launchRetry?: { attempts: number; nextAt: string };
   /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */
   incompleteReason?: string;
+  /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
+  statusAskedAt?: string;
   notified?: boolean;
 }

@@ -429,6 +429,21 @@ describe("conversation page", () => {
     expect(document.querySelectorAll(".msg")).toHaveLength(1);
   });
 
+  it("starts clean on the new live session when the stream reconnects itself after a handoff", async () => {
+    load("");
+    await settle();
+    const stream = open("live-a", [{ id: "a1", role: "assistant", html: "<p>old session reply</p>" }]);
+    await type("a message that has not shown up yet");
+    expect(pending()).toHaveLength(1);
+
+    stream.emit("session", { id: "live-b", title: "live-b", updatedAt: "2026-10-05T20:05:00.000Z", assistantLabel: "firstmate" });
+    stream.emit("update", { order: ["b1"], messages: [{ id: "b1", role: "assistant", html: "<p>new session reply</p>" }], working: false });
+    expect(pending()).toEqual([]);
+    expect(document.querySelectorAll(".msg")).toHaveLength(1);
+    expect(document.querySelector(".msg")!.textContent).toContain("new session reply");
+    expect(document.querySelectorAll(".msg.fresh")).toHaveLength(0);
+  });
+
   it("names the conversation by its topic in the picker and the window title", async () => {
     vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [{ id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z" }, SESSIONS[1]] }) : json({})));
     load("");

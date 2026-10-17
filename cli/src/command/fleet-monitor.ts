@@ -380,7 +380,8 @@ export class StaffMonitor {
       const unreachable = snapshot.readiness.lock === "free" || snapshot.readiness.liveHarness === false;
       state.unreachableSince = unreachable ? state.unreachableSince ?? snapshot.at : undefined;
       const concerns = assessStaff(snapshot, state.unreachableSince, now);
-      for (const concern of concerns) await this.act(concern, state, unreachable, now);
+      const nobodyThere = concerns.some((concern) => concern.kind === "unreachable");
+      for (const concern of concerns) await this.act(concern, state, nobodyThere, now);
       // Forget what is no longer stuck, so the records stay small.
       const live = new Set(concerns.map((concern) => concern.key));
       state.nudged = Object.fromEntries(Object.entries(state.nudged).filter(([key]) => live.has(key)));
@@ -401,11 +402,11 @@ export class StaffMonitor {
     }
   }
 
-  private async act(concern: StaffConcern, state: MonitorState, unreachable: boolean, now: number): Promise<void> {
+  private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
     if (state.told[concern.key]) return;
     // Nobody to nudge: George hears it straight away. Otherwise the staff gets one note first.
     // A note the inbox would not take is no nudge: George hears it then too.
-    if (concern.kind !== "unreachable" && !unreachable && !state.nudged[concern.key]) {
+    if (concern.kind !== "unreachable" && !nobodyThere && !state.nudged[concern.key]) {
       if (await this.nudge(concern)) {
         state.nudged[concern.key] = new Date(now).toISOString();
         return;

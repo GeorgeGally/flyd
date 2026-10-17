@@ -195,6 +195,18 @@ describe("Flyd's watch on its coding staff", () => {
     expect((await watch.tick())!.concerns).toEqual([]);
   });
 
+  it("nudges the staff first through a moment with no lock held, telling George nothing yet", async () => {
+    ready = { lock: { state: "free" }, wake_consumer: { state: "unknown" }, can_receive: false };
+    saveDomainRun(run(), dir);
+    const now = T0 + STALE_HANDOFF_MS + MIN;
+    const told: string[] = [];
+    const nudges: unknown[] = [];
+    const view = await monitor(() => now, { notify: async (_title, message) => { told.push(message); }, sendRun: async (input) => { nudges.push(input); return { delivered: true }; } }).tick();
+    expect(nudges).toHaveLength(1);
+    expect(told).toEqual([]);
+    expect(view!.concerns[0]!.nudgedAt).toBeDefined();
+  });
+
   it("treats a live lock holder who is not taking work as busy: nudges the staff, does not alarm George", async () => {
     ready = { lock: { state: "held", pid: 4242, live_harness: true }, wake_consumer: { state: "healthy" }, can_receive: false };
     summary({ active_children: [{ id: "island-text", state: "needs-decision", name: "Restore readable island text" }], decisions_open: [], counts: {} });

@@ -278,6 +278,46 @@ describe("FirstMate domain transport", () => {
     expect(notes).toHaveLength(1);
   });
 
+  it("keeps one check-in open until a reply is read, asking for a line it can read without a model", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const notes: string[] = [];
+    let reply = { body: "Merged and green, all done.", cursor: "1" };
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", ...reply } }] }), stderr: "" };
+    };
+    const sync = () => syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => null });
+    const status = () => listDomainRuns().find((run) => run.id === "domain-test-1")!.status;
+
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('{"status":');
+
+    reply = { body: "completed, merged and green", cursor: "2" };
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+
+    reply = { body: JSON.stringify({ status: "working", brief: "Rebasing before it lands." }), cursor: "3" };
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+
+    reply = { body: "Still going, nearly there.", cursor: "4" };
+    await sync();
+    expect(notes).toHaveLength(2);
+
+    reply = { body: JSON.stringify({ status: "completed", brief: "Merged; the footer link works." }), cursor: "5" };
+    await sync();
+    expect(status()).toBe("completed");
+    expect(notes).toHaveLength(2);
+  });
+
   it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
@@ -594,7 +634,7 @@ describe("FirstMate domain transport", () => {
     expect(read!.status).toBe("working");
     expect(sent).toEqual([]);
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain("needs George's decision");
+    expect(notes[0]).toContain('{"status": "completed|needs_decision|failed|working"');
   });
 
   it("gives a caller that passes no judge Flyd's model, settling a prose reply rather than words alone", async () => {

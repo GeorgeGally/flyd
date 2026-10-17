@@ -394,19 +394,23 @@ async function proseOutcome(body: string, run: DomainRun, judge?: ProseJudge): P
   return (await judge?.(body, run.request.intendedOutcome).catch(() => null)) ?? proseOutcomeByWords(body);
 }
 
-/** Flyd's note to the staff when a reply could not be read as an outcome: it asks once for a plain one. */
-const UNREAD_REPLY_CHECK_IN = "Flyd could not tell from your last reply how this work ended. Reply with its state: completed (and what changed), needs George's decision (and your recommendation), failed (and why), or still working (and what is next).";
+/** Flyd's note to the staff when a reply could not be read as an outcome: it asks for one line it can always read. */
+const UNREAD_REPLY_CHECK_IN = 'Flyd could not tell from your last reply how this work ended. Reply with one JSON line: {"status": "completed|needs_decision|failed|working", "brief": "what changed, your recommendation, why it failed, or what is next"}';
 
-/** One check-in per reply Flyd could not read, delivered through the same transport the run uses. */
-async function askForAClearStatus(run: DomainRun, cursor: string | undefined, transport: FirstmateDomainTransport): Promise<void> {
+/** One open check-in per run, delivered through the same transport the run uses; the run as saved after it. */
+async function askForAClearStatus(run: DomainRun, cursor: string | undefined, transport: FirstmateDomainTransport, now: Date): Promise<DomainRun> {
   const { sendRunMessage } = await import("./messages.js");
-  await sendRunMessage({
+  const sent = await sendRunMessage({
     run,
     kind: "question",
     body: cursor ? `${UNREAD_REPLY_CHECK_IN} (reply ${cursor})` : UNREAD_REPLY_CHECK_IN,
     from: "flyd",
     transport,
-  }).catch(() => undefined);
+  }).catch(() => ({ delivered: false, run: undefined }));
+  if (!sent.delivered || !sent.run) return sent.run ?? run;
+  const asked: DomainRun = { ...sent.run, statusAskedAt: now.toISOString() };
+  saveDomainRun(asked);
+  return asked;
 }
 
 export async function syncFirstmateDomainRuns(options: {
@@ -481,7 +485,7 @@ export async function syncFirstmateDomainRuns(options: {
       // prose words no model could read stay "unclear" rather than being guessed.
       const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, judge) : "completed");
       const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
-      const { notified, failure, incompleteReason: _previous, launchRetry: _retry, ...rest } = next;
+      const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
       const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
       next = {
         ...rest,
@@ -493,6 +497,7 @@ export async function syncFirstmateDomainRuns(options: {
         ...(notified !== undefined && !news ? { notified } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+        ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
       };
       if (outcome === "unclear") {
         statusUnclear = true;
@@ -511,8 +516,8 @@ export async function syncFirstmateDomainRuns(options: {
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     saveDomainRun(next);
+    if (statusUnclear && !next.statusAskedAt) next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
     changed.push(next);
-    if (statusUnclear) await askForAClearStatus(next, unclearFrom, transport);
     await options.onChanged?.(next);
   }
   return changed;

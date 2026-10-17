@@ -2833,7 +2833,10 @@ ${LEFT_SCRIPT}
     source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
-      if (current !== session.id && typingPredictions) typingPredictions.reset();
+      if (current && current !== session.id) {
+        if (typingPredictions) typingPredictions.reset();
+        reset();
+      }
       current = session.id;
       assistant = session.assistantLabel;
       document.title = session.title + " · " + session.assistantLabel;
