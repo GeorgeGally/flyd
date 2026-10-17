@@ -1,5 +1,5 @@
 import { clipKeepingLinks } from "./line-links.js";
-import { isPlaceholderStatus, relayStatus } from "./status-text.js";
+import { isPlaceholderStatus } from "./status-text.js";
 import type { Exchange } from "./types.js";
 
 // The one line Flyd shows under a message he sent from the window, from the
@@ -61,7 +61,7 @@ function questionTopic(first: string): string {
 export function answeringLine(text: string, withImages = false): string {
   const subject = subjectOf(text);
   if (subject && !isPlaceholderStatus(subject)) return subject;
-  return relayStatus("", { tool: "Looking into", argument: text }) || (withImages ? "Looking at your screenshot" : "Reading your message");
+  return withImages ? "Looking at your screenshot" : "Reading your message";
 }
 
 /** The project his message names, by his own name for it. */

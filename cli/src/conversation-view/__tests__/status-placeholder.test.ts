@@ -78,20 +78,18 @@ describe("the status line George is shown", () => {
     ]);
   });
 
-  it("names his message, never the placeholder, when no tool call is known", () => {
+  it("keeps a concrete line, never the placeholder or his own words, when no tool call is known", () => {
     const { desk, sent, step } = aRelay("what did Maya say about Thursday");
     step("Looking into it");
     const waiting = desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
-    expect(waiting).not.toBe("Looking into it");
-    expect(waiting).toContain("Maya");
-    expect(isPlaceholderStatus(waiting)).toBe(false);
+    expect(waiting).toBe("Reading your message");
   });
 
   it("opens on what his question asks about, never a placeholder, before any step is known", () => {
-    const { desk, sent } = aRelay("what do you know about Canva");
-    const waiting = desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting;
-    expect(waiting).toContain("Canva");
-    expect(isPlaceholderStatus(waiting)).toBe(false);
+    const { desk, sent } = aRelay("what is Canva?");
+    expect(desk.exchanges().find((exchange) => exchange.question.id === sent.id)!.waiting).toBe("Looking up Canva");
+    expect(answeringLine("whats there to do in bkk tonight?")).toBe("Reading your message");
+    expect(answeringLine("", true)).toBe("Looking at your screenshot");
     for (const text of ["", "this", "it", ...PLACEHOLDERS]) {
       expect(isPlaceholderStatus(answeringLine(text)), text).toBe(false);
       expect(isPlaceholderStatus(answeringLine(text, true)), text).toBe(false);

@@ -53,10 +53,10 @@ describe("the living line", () => {
   it("never puts firstmate's step on a note its turn did not pick up, and leaves answered ones alone", () => {
     // Firstmate busy shrinking a hero for another note: none of these notes gets that step as its line.
     const exchanges = livened(
-      [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: "Looking into bkk?" }],
+      [note("a", "taken"), note("b", "taken", "the GNM footer"), note("c", "queued"), note("d", "taken", "x", true), { question: { id: "e", role: "user", text: "bkk?" }, waiting: "Reading your message" }],
       { activity: "Shrinking hero on short screens, verify" },
     );
-    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Looking into bkk?"]);
+    expect(exchanges.map((exchange) => exchange.waiting)).toEqual(["Waiting for a clear next step", "Waiting for a clear next step", "Queued for a next step", "", "Reading your message"]);
   });
 
   it("keeps the running line under an outcome while work on that note carries on", () => {
