@@ -1899,8 +1899,8 @@ describe("header and artefact view", () => {
     await settle();
     const stream = open("latest", []);
     const started = new Date(Date.now() - 25 * 60_000).toISOString();
-    const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
-    const done = [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM" }];
+    const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started, task: "x" }];
+    const done = [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM", task: "1" }];
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
     // A card: an icon for what kind of thing it is, a chip that says so, then the line.
@@ -1919,6 +1919,31 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
     expect(document.querySelectorAll("#done li")).toHaveLength(0);
+    localStorage.removeItem("flyd-dismissed");
+  });
+
+  it("offers no way to put away a brief card that has no task of its own, since its place in the list is all that names it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const done = [{ id: "landed:landed-0", kind: "landed", headline: "It landed.", why: "", project: "GNM" }];
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    expect(document.querySelectorAll("#done li")).toHaveLength(1);
+    expect(document.querySelector("#done li .card-dismiss")).toBeNull();
+  });
+
+  it("putting away a running job keeps that job's finished card", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [{ id: "job:1", kind: "work", title: "Working on a job for you", at }], recent: [] } });
+    (document.querySelector("#left-now .card-dismiss") as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "work", title: "Finished a job for you", at }] } });
+    expect(document.querySelector("#left-recent .left-title")!.textContent).toBe("Finished a job for you");
     localStorage.removeItem("flyd-dismissed");
   });
 

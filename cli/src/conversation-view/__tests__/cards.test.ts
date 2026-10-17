@@ -6,7 +6,7 @@ describe("what a kind of artefact looks like", () => {
     expect(kindVisual("call")).toMatchObject({ word: "Your call", tone: "call" });
     expect(kindVisual("live")).toMatchObject({ word: "Under way", tone: "live" });
     expect(kindVisual("landed")).toMatchObject({ word: "Done", tone: "done" });
-    expect(kindVisual("held")).toMatchObject({ word: "Held up", tone: "held" });
+    expect(kindVisual("waiting")).toMatchObject({ word: "Held up", tone: "held" });
     expect(kindVisual("memory")).toMatchObject({ word: "Memory", tone: "memory" });
     expect(kindVisual("news")).toMatchObject({ word: "News", tone: "memory" });
     expect(kindVisual("next")).toMatchObject({ word: "Queued", tone: "quiet" });

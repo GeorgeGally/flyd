@@ -232,12 +232,15 @@ export interface ActivityInputs {
 
 const byNewest = (a: ActivityItem, b: ActivityItem): number => Date.parse(b.at) - Date.parse(a.at);
 
-/** How much Flyd did on each of the last seven days, oldest first. Pure. */
+const localDay = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+/** How much Flyd did on each of the last seven local days, oldest first. Pure. */
 export function activityByDay(items: ActivityItem[], now: number): DayCount[] {
+  const today = new Date(now);
   const days: DayCount[] = [];
-  for (let back = 6; back >= 0; back -= 1) days.push({ day: new Date(now - back * 86_400_000).toISOString().slice(0, 10), count: 0 });
+  for (let back = 6; back >= 0; back -= 1) days.push({ day: localDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - back)), count: 0 });
   for (const item of items) {
-    const slot = days.find((each) => each.day === item.at.slice(0, 10));
+    const slot = days.find((each) => each.day === localDay(new Date(item.at)));
     if (slot) slot.count += 1;
   }
   return days;
@@ -269,11 +272,11 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   const liveIds = new Set(live.map((item) => item.id));
   const cutoff = now - RECENT_WINDOW_MS;
   const nowItems = live.sort(byNewest);
-  const recentItems = done.filter((item) => !liveIds.has(item.id) && Date.parse(item.at) >= cutoff && Date.parse(item.at) <= now + 60_000).sort(byNewest).slice(0, MAX_RECENT);
+  const windowed = done.filter((item) => !liveIds.has(item.id) && Date.parse(item.at) >= cutoff && Date.parse(item.at) <= now + 60_000).sort(byNewest);
   return {
     now: nowItems,
-    recent: recentItems,
-    week: activityByDay([...nowItems, ...recentItems], now),
+    recent: windowed.slice(0, MAX_RECENT),
+    week: activityByDay([...nowItems, ...windowed], now),
   };
 }
 

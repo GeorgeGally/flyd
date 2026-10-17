@@ -115,7 +115,8 @@ export const LEFT_SCRIPT = `
     leftWeekSection.hidden = false;
     var max = 1;
     week.forEach(function (day) { if (day.count > max) max = day.count; });
-    var today = new Date().toISOString().slice(0, 10);
+    var date = new Date();
+    var today = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
     patch(leftWeekEl, week.map(function (day) {
       var bar = el("i", day.day === today ? "today" : day.count ? "on" : "");
       bar.dataset.key = day.day;
@@ -124,10 +125,11 @@ export const LEFT_SCRIPT = `
       return bar;
     }));
   }
+  function activityKey(item, live) { return item.id + "|" + (live ? "now" : "done"); }
   function activityCard(item, live) {
     return visualCard(item, {
       className: "left-card" + (live ? " is-now" : ""),
-      key: item.id + "|" + (live ? "now" : "done"),
+      key: activityKey(item, live),
       when: (live ? "Started " : "") + ago(item.at),
       whenClass: "left-meta",
       titleClass: "left-title",
@@ -149,8 +151,8 @@ export const LEFT_SCRIPT = `
   }
   function drawActivity() {
     if (!leftPanel) return;
-    var now = (leftPanel.now || []).filter(function (item) { return !cardGone(item); });
-    var recent = (leftPanel.recent || []).filter(function (item) { return !cardGone(item); });
+    var now = (leftPanel.now || []).filter(function (item) { return !cardGone(activityKey(item, true)); });
+    var recent = (leftPanel.recent || []).filter(function (item) { return !cardGone(activityKey(item, false)); });
     leftLiveEl.textContent = now.length ? "Working on " + now.length + (now.length === 1 ? " thing." : " things.") : "Nothing under way.";
     drawWeek(leftPanel.week);
     var nowCards = now.map(function (item) { return activityCard(item, true); });

@@ -1602,15 +1602,17 @@ var __name = function (f) { return f; };
       thumb.appendChild(img);
       li.appendChild(thumb);
     }
-    var close = el("button", "card-dismiss", "✕");
-    close.type = "button";
-    close.setAttribute("aria-label", "Hide this");
-    close.addEventListener("click", function () {
-      cardDismiss(item);
-      li.classList.add("leaving");
-      setTimeout(function () { renderBrief(lastBrief); }, 220);
-    });
-    li.appendChild(close);
+    if (item.task) {
+      var close = el("button", "card-dismiss", "✕");
+      close.type = "button";
+      close.setAttribute("aria-label", "Hide this");
+      close.addEventListener("click", function () {
+        cardDismiss(item.id);
+        li.classList.add("leaving");
+        setTimeout(function () { renderBrief(lastBrief); }, 220);
+      });
+      li.appendChild(close);
+    }
     return li;
   }
   function drawNeeds(calls) {
@@ -1669,7 +1671,7 @@ var __name = function (f) { return f; };
     if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
   }
   function drawList(section, label, items, meta, few) {
-    items = items.filter(function (item) { return !cardGone(item); });
+    items = items.filter(function (item) { return !(item.task && cardGone(item.id)); });
     section.textContent = "";
     section.hidden = !items.length;
     if (!items.length) return;
@@ -1687,7 +1689,7 @@ var __name = function (f) { return f; };
   }
   function renderBrief(show) {
     lastBrief = show || null;
-    var calls = ((show && show.calls) || []).filter(function (call) { return !cardGone(call); });
+    var calls = (show && show.calls) || [];
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
     drawNeeds(calls);

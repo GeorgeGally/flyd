@@ -39,37 +39,25 @@ const V = (word: string, tone: CardTone, icon: keyof typeof ICON): KindVisual =>
 export const KIND_VISUALS: Record<string, KindVisual> = {
   // Needs him.
   call: V("Your call", "call", "bell"),
-  decision: V("Your call", "call", "bell"),
-  needs: V("Your call", "call", "bell"),
   decided: V("Decided", "call", "bell"),
-  held: V("Held up", "held", "pause"),
   waiting: V("Held up", "held", "pause"),
   blocked: V("Held up", "held", "pause"),
-  stuck: V("Held up", "held", "pause"),
   // Moving now.
   live: V("Under way", "live", "pulse"),
   work: V("Under way", "live", "pulse"),
-  underway: V("Under way", "live", "pulse"),
   watching: V("Watching", "live", "eye"),
   ready: V("Ready to land", "ready", "ready"),
   // Finished.
   landed: V("Done", "done", "check"),
-  shipped: V("Shipped", "done", "check"),
-  done: V("Done", "done", "check"),
   reviewed: V("Reviewed", "done", "tick"),
   // Waiting its turn.
   next: V("Queued", "quiet", "list"),
-  queued: V("Queued", "quiet", "list"),
   routine: V("Routine", "quiet", "clock"),
   // Notes from the world and from memory.
   news: V("News", "memory", "spark"),
-  report: V("News", "memory", "spark"),
   memory: V("Memory", "memory", "layers"),
-  learned: V("Learned", "memory", "layers"),
   noted: V("Noted", "quiet", "note"),
-  capture: V("Noted", "quiet", "note"),
   // Artefacts themselves.
-  artefact: V("Artefact", "quiet", "frame"),
   preview: V("Preview", "quiet", "frame"),
   image: V("Screenshot", "quiet", "frame"),
   file: V("File", "quiet", "note"),
@@ -144,13 +132,12 @@ export const CARD_SCRIPT = `
     tile.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + v.icon + '"/></svg>';
     return tile;
   }
-  // What he has put away, by item key, kept across reloads. Shared with the brief cards.
+  // What he has put away, by card key, kept across reloads. Shared with the brief cards.
   function cardRead(key) { try { return JSON.parse(store(key) || "{}") || {}; } catch (e) { return {}; } }
-  function cardKey(item) { return item.id || item.title || item.headline || ""; }
-  function cardGone(item) { return !!cardRead("flyd-dismissed")[cardKey(item)]; }
-  function cardDismiss(item) {
+  function cardGone(key) { return !!cardRead("flyd-dismissed")[key]; }
+  function cardDismiss(key) {
     var gone = cardRead("flyd-dismissed");
-    gone[cardKey(item)] = Date.now();
+    gone[key] = Date.now();
     var keys = Object.keys(gone).sort(function (a, b) { return gone[b] - gone[a]; }).slice(0, 300);
     var kept = {};
     keys.forEach(function (k) { kept[k] = gone[k]; });
@@ -162,7 +149,7 @@ export const CARD_SCRIPT = `
     var kind = item.kind || opts.kind || "clear";
     var v = kindOf(kind);
     var card = el("li", "card card-" + kind + " tone-" + v.tone + (opts.className ? " " + opts.className : ""));
-    card.dataset.key = opts.key || cardKey(item);
+    card.dataset.key = opts.key;
     card.appendChild(cardIcon(kind));
     var text = el("div", "card-text");
     var chip = el("span", "card-meta", v.word || opts.chip || "");
@@ -191,7 +178,7 @@ export const CARD_SCRIPT = `
       close.type = "button";
       close.setAttribute("aria-label", "Hide this");
       close.addEventListener("click", function () {
-        cardDismiss(item);
+        cardDismiss(opts.key);
         card.classList.add("leaving");
         setTimeout(function () { if (opts.onHide) opts.onHide(); else card.remove(); }, 220);
       });
