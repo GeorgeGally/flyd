@@ -313,7 +313,7 @@ export interface SelfImproveDependencies {
 }
 
 export interface SelfImproveResult {
-  status: "disabled" | "not_due" | "awaiting_george" | "no_new_evidence" | "nothing_worth_fixing" | "dispatched";
+  status: "disabled" | "not_due" | "awaiting_george" | "no_new_evidence" | "nothing_worth_fixing" | "dispatched" | "not_started";
   improvement?: Improvement;
   task?: CrewTask | DomainRun;
   evidence?: number;
@@ -397,6 +397,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
     seen: [...state.seen, ...improvement.evidence],
     attempts: [...state.attempts, { at: now.toISOString(), title: improvement.title, taskId: task.id, evidence: improvement.evidence }],
   }, dir);
+  if (!("branch" in task) && task.failure) return { status: "not_started", improvement, task, evidence: fresh.length };
   await deps.notify?.("Flyd", `I'm teaching myself to ${improvement.title.charAt(0).toLowerCase()}${improvement.title.slice(1)}. I'll show you before anything changes.`).catch(() => undefined);
   return { status: "dispatched", improvement, task, evidence: fresh.length };
 }

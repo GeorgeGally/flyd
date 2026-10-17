@@ -23,15 +23,19 @@ export function isTestedOpenCodeVersion(version: string): boolean {
   return TESTED_OPENCODE_VERSION.test(version.trim());
 }
 
+/** Absolute locations the opencode binary may live in, most specific first. */
+export function openCodePathCandidates(): string[] {
+  return [
+    process.env.FLYD_OPENCODE_PATH,
+    `${process.env.HOME ?? ""}/.opencode/bin/opencode`,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+}
+
 export async function detectOpenCode(input: {
   candidates?: string[];
   execFile?: ExecFile;
 } = {}): Promise<WorkerHealth> {
-  const candidates = input.candidates ?? [
-    process.env.FLYD_OPENCODE_PATH,
-    `${process.env.HOME ?? ""}/.opencode/bin/opencode`,
-    "opencode",
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  const candidates = input.candidates ?? [...openCodePathCandidates(), "opencode"];
   const execFile = input.execFile ?? (async (executable, args) => {
     const result = await execFileAsync(executable, args, { encoding: "utf8", timeout: 3_000 });
     return { stdout: result.stdout, stderr: result.stderr };

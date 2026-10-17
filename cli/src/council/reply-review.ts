@@ -277,7 +277,7 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       byRequirement.set(shortfall.requirement, list);
     }
   }
-  return [...byRequirement.entries()].map(([id, hits]) => {
+  const verdictEvidence = [...byRequirement.entries()].map(([id, hits]) => {
     hits.sort((a, b) => b.verdict.at.localeCompare(a.verdict.at));
     const newest = hits[0]!;
     const examples = hits.slice(0, 3).map(({ verdict, shortfall }) => `${verdict.surface}${verdict.held ? ", held before display" : ""}: "${shortfall.quote.slice(0, 160)}" (${shortfall.reason})`);
@@ -289,6 +289,25 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       text: `Flyd's self-review: ${hits.length} thing${hits.length === 1 ? "" : "s"} George was shown broke "${rule.title}" (${rule.rule}) Newest: ${examples.join(" | ")}`.slice(0, 900),
     };
   });
+  const bySessionOutcome = new Map<string, Array<{ at: string; runtime?: string; outcome: string }>>();
+  for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string }>(join(dir, "firstmate-session.jsonl"))) {
+    if (!attempt.at || attempt.at < since || !attempt.outcome || attempt.outcome === "started") continue;
+    const key = `${attempt.runtime ?? "unknown"}:${attempt.outcome}`;
+    const hits = bySessionOutcome.get(key) ?? [];
+    hits.push({ at: attempt.at, ...(attempt.runtime ? { runtime: attempt.runtime } : {}), outcome: attempt.outcome });
+    bySessionOutcome.set(key, hits);
+  }
+  const sessionEvidence = [...bySessionOutcome.values()].map((hits) => {
+    hits.sort((a, b) => b.at.localeCompare(a.at));
+    const newest = hits[0]!;
+    return {
+      id: `firstmate-session:${newest.at}:${newest.runtime}:${newest.outcome}`,
+      kind: "domain" as const,
+      at: newest.at,
+      text: `FirstMate session launch via ${newest.runtime ?? "unknown runtime"}: ${newest.outcome}${hits.length > 1 ? ` (${hits.length} attempts)` : ""}.`,
+    };
+  });
+  return [...verdictEvidence, ...sessionEvidence];
 }
 
 const SURFACE_WORDS: Record<Surface, string> = { chat: "answer", status: "status line", notification: "notification", relay: "update" };

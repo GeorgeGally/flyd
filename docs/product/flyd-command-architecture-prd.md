@@ -143,6 +143,8 @@ fm-inbox.sh reply <note-id> ...
 
 The request id is Flyd's DomainRun id, giving idempotent restart-safe correlation.
 
+Flyd does not depend on a session being open for a note to be read. When an inbox note has gone unread, Flyd starts a FirstMate session itself (FirstMate's `bin/fm-session-start.sh`) through the first available coding runtime (`FLYD_FIRSTMATE_RUNTIMES`, default `claude,codex,opencode`), retrying with backoff when a runtime is unavailable or hits a usage limit. The session child's environment is stripped of the paid Anthropic API variables (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`), so the claude CLI runs on the Claude plan rather than the paid API.
+
 FirstMate remains authoritative for:
 
 - project choice within its registered fleet;

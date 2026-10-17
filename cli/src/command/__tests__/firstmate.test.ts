@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FirstmateDomainTransport, firstmateRequestBody, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { DomainRequest, DomainRun } from "../types.js";
@@ -33,11 +33,137 @@ describe("FirstMate domain transport", () => {
     project: { root: "/work/flyd" },
   });
 
+  const queuedRun = (): DomainRun => ({
+    id: "domain-test-1", request: request(), owner: "FirstMate", status: "queued",
+    createdAt: request().createdAt, updatedAt: request().createdAt,
+    transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+  });
+
   it("preserves George's original words and asks for a layered durable reply", () => {
     const body = firstmateRequestBody(request());
     expect(body).toContain("No, keep the abstraction. Fix where it is called.");
     expect(body).toContain("detailed_report");
     expect(body).toContain("fm-inbox.sh reply");
+  });
+
+  it("starts a session only when the inbox cannot receive work and no harness is live", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (script) => {
+      calls.push(script);
+      return { stdout: "", stderr: "" };
+    };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result.started).toBe(true);
+    expect(calls).toEqual(["claude"]);
+  });
+
+  it("does not start a second session while a harness is live", async () => {
+    const exec = vi.fn<FirstmateExec>();
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: true },
+      recordAttempt: vi.fn(),
+    });
+    expect(result).toEqual({ started: false });
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("tries the next runtime when the first reports a usage limit", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => {
+      calls.push(runtime);
+      if (runtime === "claude") return { stdout: "Claude usage limit reached", stderr: "" };
+      return { stdout: "started", stderr: "" };
+    };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result.started).toBe(true);
+    expect(calls).toEqual(["claude", "codex"]);
+  });
+
+  it("returns one plain failure after every runtime fails", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      recordAttempt: vi.fn(),
+    });
+    expect(result).toEqual({ started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." });
+    expect(calls).toEqual(["claude", "codex", "opencode"]);
+  });
+
+  it("starts a session without the paid Anthropic API variables in its environment", async () => {
+    const previous = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    };
+    process.env.ANTHROPIC_API_KEY = "sk-paid-api-key";
+    process.env.ANTHROPIC_AUTH_TOKEN = "paid-auth-token";
+    process.env.ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+    try {
+      const launchedEnv: NodeJS.ProcessEnv[] = [];
+      const exec: FirstmateExec = async (_script, _args, options) => {
+        launchedEnv.push(options.env);
+        return { stdout: "started", stderr: "" };
+      };
+      const result = await startFirstmateSession({
+        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+        readiness: { available: true, canReceive: false, liveHarness: false },
+        recordAttempt: vi.fn(),
+      });
+      expect(result.started).toBe(true);
+      expect(launchedEnv).toHaveLength(1);
+      expect(launchedEnv[0].ANTHROPIC_API_KEY).toBeUndefined();
+      expect(launchedEnv[0].ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(launchedEnv[0].ANTHROPIC_BASE_URL).toBeUndefined();
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("keeps a run queued and retryable when no runtime can start, and matches a later reply", async () => {
+    let readyCalls = 0;
+    const exec: FirstmateExec = async (_script, args) => {
+      if (args[0] === "ready") { readyCalls += 1; return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" }; }
+      if (args[0] === "note") return { stdout: JSON.stringify({ id: "note-1", saved: true, acknowledged: false }), stderr: "" };
+      throw new Error("not installed");
+    };
+    const run = await new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }).submit(request());
+
+    expect(run.status).toBe("queued");
+    expect(run.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
+    expect(run.launchRetry?.attempts).toBe(1);
+    expect(readyCalls).toBe(1);
+    expect(listDomainRuns()).toHaveLength(1);
+
+    const reply: FirstmateExec = async (_script, args) => {
+      if (args[0] === "receipts") {
+        return { stdout: JSON.stringify({
+          pending: [],
+          handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Fixed the call site.", detailed_report: "Changed where it was called.", evidence: ["commit abc"] }), cursor: "000000000001" } }],
+        }), stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    };
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec: reply }),
+      now: () => new Date("2026-10-09T02:00:00.000Z"),
+    });
+
+    expect(changed[0]!.status).toBe("completed");
+    expect(listDomainRuns()[0]!.launchRetry).toBeUndefined();
   });
 
   it("submits with an idempotent request id", async () => {
@@ -225,10 +351,101 @@ describe("FirstMate domain transport", () => {
   it("leaves a run waiting while FirstMate has not answered the follow-up yet", async () => {
     saveDomainRun(awaitingDecision());
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
-      pending: [{ id: "note-2", request_id: "domain-test-1:decision:abc", acknowledged: false, reply: null }],
+      pending: [{ id: "note-2", request_id: "domain-test-1:decision:abc", acknowledged: false, reply: null, at: "2026-10-09T01:30:00.000Z" }],
       handled: [original],
     }), stderr: "" });
     expect(await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) })).toEqual([]);
     expect(listDomainRuns()[0]!.status).toBe("needs_decision");
+  });
+
+  it("starts a session when an unread inbox note has waited too long and no harness is live", async () => {
+    saveDomainRun(queuedRun());
+    const started: string[] = [];
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
+    await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec }),
+      now: () => new Date("2026-10-09T01:00:00.000Z"),
+    });
+    expect(started).toEqual(["claude"]);
+  });
+
+  it("does not start a session while the unread note is still fresh", async () => {
+    saveDomainRun(queuedRun());
+    const started: string[] = [];
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:59:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
+    await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => new Date("2026-10-09T01:00:00.000Z"),
+    });
+    expect(started).toEqual([]);
+  });
+
+  it("waits out the backoff before retrying a stalled launch", async () => {
+    saveDomainRun({ ...queuedRun(), failure: "couldn't start", launchRetry: { attempts: 2, nextAt: "2026-10-09T01:30:00.000Z" } });
+    const started: string[] = [];
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    expect(started).toEqual([]);
+
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:31:00.000Z") });
+    expect(started).toEqual(["claude"]);
+    expect(listDomainRuns()[0]!.failure).toBeUndefined();
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
+  });
+
+  it("keeps advancing the backoff across a spawn that then fails", async () => {
+    saveDomainRun({ ...queuedRun(), failure: "couldn't start", launchRetry: { attempts: 2, nextAt: "2026-10-09T01:00:00.000Z" } });
+    let failing = false;
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      if (failing) throw new Error("not installed");
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
+
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    expect(listDomainRuns()[0]!.failure).toBeUndefined();
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(2);
+
+    failing = true;
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
+    expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(3);
+  });
+
+  it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {
+    saveDomainRun({ ...queuedRun(), id: "domain-test-2", transport: { kind: "firstmate", requestId: "domain-test-2", externalId: "note-2" } });
+    const started: string[] = [];
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-9", request_id: "domain-test-9", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    expect(started).toEqual(["claude"]);
+
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z") });
+    expect(started).toEqual(["claude"]);
+
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
+    expect(started).toEqual(["claude", "claude"]);
   });
 });
